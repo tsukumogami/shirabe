@@ -1,0 +1,13 @@
+# wip/ artifacts are committed to feature branches during workflows
+# and cleaned before merge. Do NOT gitignore wip/.
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+*.swp
+*.swo
+*~
+.idea/
+.vscode/

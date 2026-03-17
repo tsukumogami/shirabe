@@ -1,0 +1,19 @@
+{
+  "name": "shirabe",
+  "description": "Structured pre-implementation workflow skills for AI coding agents",
+  "version": "0.1.0",
+  "author": {
+    "name": "tsukumogami"
+  },
+  "homepage": "https://github.com/tsukumogami/shirabe",
+  "repository": "https://github.com/tsukumogami/shirabe",
+  "license": "Apache-2.0",
+  "keywords": [
+    "workflow",
+    "pre-implementation",
+    "design-docs",
+    "planning",
+    "ai-agents",
+    "koto"
+  ]
+}
