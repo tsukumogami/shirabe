@@ -1,6 +1,6 @@
 # shirabe (調べ)
 
-Structured pre-implementation workflows for AI coding agents.
+Structured workflow skills for AI coding agents.
 
 shirabe provides five workflow skills for [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 that guide you from idea to implementation with enforced phase transitions,

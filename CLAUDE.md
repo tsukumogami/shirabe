@@ -1,6 +1,6 @@
 # shirabe
 
-Structured pre-implementation workflow skills for AI coding agents. Powered
+Structured workflow skills for AI coding agents. Powered
 by koto for structural enforcement.
 
 ## Repo Visibility: Public
