@@ -179,11 +179,13 @@ composition is the only behavior that tests confirmed as stable across contexts.
 
 ### Decision 5: Consumption model
 
-**Context:** How downstream consumers install and wire up shirabe as a dependency
-is out of scope for this design. shirabe's extension mechanism is installation-agnostic —
-the `@.claude/shirabe-extensions/` path resolves from the workspace root regardless
-of whether shirabe is installed via plugin registry, git submodule, or local path.
-Concrete migration patterns for specific consumers belong in their own repositories.
+**Context:** How should downstream consumers install and wire up shirabe as a dependency?
+
+**Chosen: Defer to consumer repositories; the extension mechanism is installation-agnostic.**
+
+The `@.claude/shirabe-extensions/` path resolves from the workspace root regardless of whether shirabe is installed via plugin registry, git submodule, or local path. No installation model is prescribed here — concrete migration patterns for specific consumers belong in their own repositories, not in this design.
+
+*Alternative rejected: prescribe a specific installation model (e.g., submodule).* Research found submodule to be the cleanest concrete path, but encoding it in this design would couple the extensibility mechanism to an installation choice. Consumers with different constraints (monorepo setups, plugin registry pinning, CI environments) would be poorly served by a prescribed model.
 
 ### Decision 6: writing-style helper format
 
