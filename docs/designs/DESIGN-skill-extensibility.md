@@ -215,13 +215,13 @@ The helper is referenced in 5+ places across three skills' phase files. Inlining
 
 **Context:** Two helpers define content governance rules for private vs public repositories. Skills load the appropriate one conditionally based on visibility detection. Should they be skills, CLAUDE.md content, or reference files?
 
-**Chosen: Keep as reference files, move to `references/`.**
+**Chosen: Convert to skills with `disable-model-invocation: true`.**
 
-These files are loaded conditionally (one or the other, never both) based on `## Repo Visibility:` in CLAUDE.md. Converting to skills adds no mechanism benefit — the conditional load is LLM-driven already. Folding into CLAUDE.md would make them project-wide passive context, which is too broad; consumers would then carry content governance rules in their own CLAUDE.md rather than getting them from the plugin. Reference files in `references/` are the right home.
+Skills with `disable-model-invocation: true` are part of the plugin's skill pool and follow the Agent Skills standard — discoverable in the manifest, portable to Cursor — but are not surfaced as user-invocable commands. The conditional load remains LLM-driven (skills reference them by name based on visibility detection), which is identical to the current Read mechanism. This gives the files a consistent home alongside the other skills rather than a custom `helpers/` or `references/` directory.
 
 One fix required before shipping: `public-content.md` contains a restriction prohibiting slash commands (`/explore`, `/work-on`, `/plan`) as "internal tooling." This restriction was written for a project using them as internal tools; shirabe ships those as its public skills, so the restriction incorrectly suppresses accurate artifact content. The fix: narrow to "internal-only tooling that external contributors cannot access."
 
-*Alternative rejected: convert to skills.* No user invocation model applies. Content governance guidance is passive context, not a workflow step.
+*Alternative rejected: keep as reference files in `references/`.* Reference files are a custom convention with no counterpart in the Agent Skills standard. Skills with suppressed invocation achieve the same load behavior while staying within the standard format.
 
 *Alternative rejected: fold into CLAUDE.md.* The per-artifact breakdown (design docs, issues, PRs, code comments) and conditional loading by visibility require more specificity than CLAUDE.md headers support. It would also require consumers to carry this content in their own CLAUDE.md, defeating the plugin's purpose.
 
