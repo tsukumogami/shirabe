@@ -22,8 +22,13 @@ Two-layer model selected. CLAUDE.md for cross-skill project-wide behavior;
 SKILL.md. Client-side resolution confirmed (0 tool calls). Downstream extends
 without requiring shirabe changes.
 
+## Investigation Findings (Phase 3)
+- extraction-audit: 11-13% project-specific content (~185-220 lines of 1,668). /design has most to remove (tsuku security block, label lifecycle, swap-to-tracking.sh). /explore nearly generic. Five of six helpers portable; label-reference.md folds into CLAUDE.md.
+- consumption-model: out of scope for this design doc; filed tsukumogami/tools#604 for migration. Extension mechanism is installation-agnostic regardless.
+- breaking-change-contract: three breaking categories (removing @ slot lines, renaming phase names in workflow overview, renaming CLAUDE.md headers). CHANGELOG.md with dedicated extension contract section is sufficient signal for now.
+
 ## Current Status
-**Phase:** 2 - Present Approaches
+**Phase:** 3 - Deep Investigation
 **Last Updated:** 2026-03-17
 
 ## Open Decisions
