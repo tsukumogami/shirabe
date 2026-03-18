@@ -286,13 +286,15 @@ shirabe plugin
 │   ├── design/
 │   ├── prd/
 │   ├── plan/
-│   └── work-on/
-├── helpers/
-│   ├── writing-style.md
-│   ├── public-content.md
-│   ├── private-content.md
-│   ├── decision-presentation.md
-│   └── design-approval-routing.md
+│   ├── work-on/
+│   ├── writing-style/
+│   │   └── SKILL.md                    # User-invocable; also referenced by other skills
+│   ├── private-content/
+│   │   └── SKILL.md                    # disable-model-invocation: true
+│   └── public-content/
+│       └── SKILL.md                    # disable-model-invocation: true
+├── references/
+│   └── decision-presentation.md        # Shared reference; loaded on demand via Read
 ├── scripts/
 │   └── transition-status.sh            # Generic design doc status transition
 └── CHANGELOG.md                        # Extension contract change history
@@ -340,8 +342,8 @@ extension file updates:
 2. Renaming a phase in the skill's workflow overview section
 3. Renaming a CLAUDE.md header that the skill reads
 
-All other changes (rewording, phase file refactors, new phases added, helper
-updates) are non-breaking. CHANGELOG.md tracks breaking changes in a dedicated
+All other changes (rewording, phase file refactors, new phases added, support
+file updates) are non-breaking. CHANGELOG.md tracks breaking changes in a dedicated
 section; consumers review it before upgrading.
 
 ### Data Flow
@@ -370,18 +372,19 @@ LLM executes skill
 
 ## Implementation Approach
 
-### Phase 1: Helpers
+### Phase 1: Support files
 
-Extract portable helpers to `shirabe/helpers/`. No skill changes yet.
+Extract support files before skill changes. No workflow skill changes yet.
 
 Deliverables:
-- `helpers/writing-style.md` — verbatim copy
-- `helpers/decision-presentation.md` — verbatim copy
-- `helpers/design-approval-routing.md` — verbatim copy, note that label update step is extension-provided
-- `helpers/private-content.md` — verbatim copy
-- `helpers/public-content.md` — copy with one targeted reword: remove the prohibition on mentioning the five workflow skills (that prohibition was written for a project using them as internal tools, not a plugin shipping them)
+- `skills/writing-style/SKILL.md` — verbatim copy; user-invocable skill for revising drafts and active constraint for other skills (Decision 6)
+- `references/decision-presentation.md` — verbatim copy; shared reference loaded on demand by phase files (Decision 7)
+- `skills/private-content/SKILL.md` — verbatim copy with `disable-model-invocation: true` frontmatter (Decision 8)
+- `skills/public-content/SKILL.md` — copy with `disable-model-invocation: true` frontmatter and one targeted reword: narrow the slash command prohibition from "never mention /explore, /work-on, /plan" to "never mention internal-only tooling that external contributors cannot access" (Decision 8)
 - `CHANGELOG.md` — initial file with `## Extension Contract` section
 - `docs/extending.md` — consumer-facing extension guide: stable API surface (the two `@` slot lines, CLAUDE.md header names), what to express by behavior description vs. what to avoid, `.local.md` use-case guidance
+
+Note: `design-approval-routing` is not extracted as a separate file — it is inlined into the two phase files that reference it (design phase-6 and explore phase-5) at extraction time (Decision 9).
 
 ### Phase 2: Extract skills
 
@@ -392,7 +395,7 @@ Extract each skill in dependency order: /explore first (fewest changes), then
 2. Add `@` extension slot lines immediately after the closing `---` of the frontmatter
    block, before any prose content
 3. Remove project-specific content as audited (see Phase 3 research)
-4. Update relative paths to helpers (they remain at `../../helpers/`)
+4. Update references to support files: writing-style at `../../skills/writing-style/SKILL.md`, decision-presentation at `../../references/decision-presentation.md`, private/public-content at `../../skills/private-content/SKILL.md` and `../../skills/public-content/SKILL.md`
 5. Replace internal skill invocations with generic "consult your project's
    equivalent skill" text or remove entirely
 6. Replace path-based visibility heuristics with CLAUDE.md header references
