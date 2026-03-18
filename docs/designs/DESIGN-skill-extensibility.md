@@ -6,6 +6,22 @@ problem: |
   forking. Claude Code has no plugin-to-plugin extensibility, and the skills
   contain 20-30% project-specific behavior (visibility detection, label lifecycle,
   scope routing) that must be customizable per project.
+decision: |
+  A two-layer extension model: CLAUDE.md handles cross-skill project-wide behavior
+  via documented headers (Repo Visibility, Planning Context, Label Vocabulary), and
+  per-skill extension files at `.claude/skill-extensions/<name>.md` are loaded via
+  `@` includes at the head of each SKILL.md. Both layers resolve client-side before
+  the LLM processes the skill — zero tool calls, deterministic, installation-agnostic.
+  A gitignored `.local.md` variant enables personal machine-level overrides.
+rationale: |
+  CLAUDE.md-only cannot target per-skill behavior without requiring shirabe changes
+  for each unanticipated consumer need, and fails silently on header renames. Wrapper
+  skills produce parallel maintenance rather than consumption — drift is the default
+  outcome, and cross-plugin path resolution doesn't work when two plugins are installed
+  separately. The two-layer model uses existing Claude Code `@` include behavior with
+  zero new infrastructure, keeps project-wide and skill-specific customization in
+  separate layers, and gives downstream consumers a stable contract (the `@` slot
+  lines and CLAUDE.md header names) that survives most shirabe updates without changes.
 ---
 
 # DESIGN: Skill Extensibility
@@ -228,15 +244,16 @@ These two lines are the stable public API of the extension mechanism.
 **CLAUDE.md headers** — skills read the following headers from the project's
 CLAUDE.md chain to adapt global behavior:
 
-| Header | Values | Used by |
-|--------|--------|---------|
-| `## Repo Visibility:` | `Public` / `Private` | All five skills |
-| `## Planning Context:` | `Tactical` / `Strategic` | /explore, /plan |
-| `## Label Vocabulary` | free-form prose or list | All five skills |
+| Header | Values | Required | Used by |
+|--------|--------|----------|---------|
+| `## Repo Visibility:` | `Public` / `Private` | Optional (defaults to Private) | All five skills |
+| `## Planning Context:` | `Tactical` / `Strategic` | Optional (defaults to Tactical) | /explore, /plan |
+| `## Label Vocabulary` | free-form prose or list | Optional (skills use generic fallback) | All five skills |
 
 The `## Label Vocabulary` header is new — it replaces per-skill label-reference
 file dependencies. Consumers define their issue label names once in CLAUDE.md;
-all five skills read them from context.
+all five skills read them from context. If absent, skills proceed without a
+project-specific label vocabulary.
 
 **Breaking change categories** — changes to shirabe that require downstream
 extension file updates:
@@ -286,6 +303,7 @@ Deliverables:
 - `helpers/private-content.md` — verbatim copy
 - `helpers/public-content.md` — copy with one targeted reword: remove the prohibition on mentioning the five workflow skills (that prohibition was written for a project using them as internal tools, not a plugin shipping them)
 - `CHANGELOG.md` — initial file with `## Extension Contract` section
+- `docs/extending.md` — consumer-facing extension guide: stable API surface (the two `@` slot lines, CLAUDE.md header names), what to express by behavior description vs. what to avoid, `.local.md` use-case guidance
 
 ### Phase 2: Extract skills
 
@@ -293,7 +311,8 @@ Extract each skill in dependency order: /explore first (fewest changes), then
 /design, /prd, /plan, /work-on last (most changes). For each skill:
 
 1. Copy SKILL.md and references/ directory to shirabe
-2. Add `@` extension slot lines at the head (after frontmatter)
+2. Add `@` extension slot lines immediately after the closing `---` of the frontmatter
+   block, before any prose content
 3. Remove project-specific content as audited (see Phase 3 research)
 4. Update relative paths to helpers (they remain at `../../helpers/`)
 5. Replace internal skill invocations with generic "consult your project's
@@ -324,24 +343,38 @@ skill, installing it in a test project, and confirming:
 - Missing extension file produces clean fallback behavior
 - `.local.md` variant loads on top of the committed extension
 
+Deliverable: test cases TC-001 through TC-008 (extension load, silent skip, layering,
+and `@path` visibility across Claude Code installation modes) committed to a
+`tests/` directory or equivalent, serving as the regression harness for future
+Claude Code version and model updates.
+
 ## Security Considerations
 
-shirabe ships markdown files loaded into LLM context. It does not execute code,
-download binaries, access the network, or handle user data directly.
+shirabe ships markdown files and shell scripts loaded into LLM context and executed
+via the Bash tool. It does not download or compile code at install time. Shell
+scripts in `scripts/` execute via the Bash tool when invoked by a skill and carry
+the same trust as the plugin's markdown content.
 
 **Extension file trust**: extension files at `.claude/skill-extensions/` are
-authored by the consumer project and committed to their repo. They are read via
-the `@` include mechanism with the same trust level as any other file in the
-project's workspace. Consumers are responsible for reviewing extension file content
-before committing it.
+privileged configuration equivalent to CLAUDE.md. They are injected directly into
+LLM context before the skill executes, with no sanitization layer between file
+content and the model. An extension file can inject arbitrary instructions, including
+instructions that invoke tools or alter skill behavior. Teams should apply the same
+review scrutiny to extension files in PRs as they apply to CLAUDE.md changes.
 
 **`.local.md` files**: gitignored personal extension files receive the same trust
-as committed extension files at runtime. Users should be aware that `.local.md`
-files can inject arbitrary instructions into skill context.
+as committed extension files at runtime. The primary concern is intentional policy
+bypass by a developer — a `.local.md` file can inject instructions that deviate
+from team-agreed conventions without any audit trail. Teams with compliance
+requirements should decide whether to permit `.local.md` use and document the
+decision as a team convention.
 
-**No supply chain exposure beyond the plugin itself**: shirabe skills reference
-helpers via relative paths within the plugin directory. No external URLs, no
-downloads, no dynamic content loading.
+**Supply chain**: shirabe itself is the supply chain dependency. A compromised
+plugin release could ship malicious SKILL.md or script content. The blast radius
+is bounded by Claude Code's tool approval model — destructive Bash calls still
+surface for user confirmation unless explicitly pre-approved. Consumers should pin
+to a known-good version and audit the plugin repo before adoption. No external
+URLs, downloads, or dynamic content loading occur.
 
 ## Consequences
 
@@ -367,6 +400,10 @@ downloads, no dynamic content loading.
   tooling; consumers must opt in to monitoring it
 - Each skill adds two lines of `@` overhead even when no extension exists (~100 tokens
   per skill, ~500 tokens total across all five)
+- Extension context is available in the top-level skill invocation but its propagation
+  into any sub-operations dispatched by a skill (e.g., subagent prompts) is not
+  guaranteed; consumers relying on extension content for sub-operation behavior should
+  verify propagation or explicitly carry the context forward
 
 ### Mitigations
 

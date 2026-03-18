@@ -28,7 +28,7 @@ without requiring shirabe changes.
 - breaking-change-contract: three breaking categories (removing @ slot lines, renaming phase names in workflow overview, renaming CLAUDE.md headers). CHANGELOG.md with dedicated extension contract section is sufficient signal for now.
 
 ## Current Status
-**Phase:** 4 - Architecture
+**Phase:** 6 - Final Review
 **Last Updated:** 2026-03-17
 
 ## Open Decisions
