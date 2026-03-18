@@ -100,7 +100,44 @@ needs. Skill-level extension files can express phase-specific intent ("when
 executing Phase 0, also invoke upstream-context skill") without separate per-phase
 files. This can be revisited if a downstream consumer demonstrates a clear need.
 
-### Decision 3: Consumption model
+### Decision 3: Extension slot placement in SKILL.md
+
+**Context:** Where in the SKILL.md file should the `@` extension slot lines appear?
+
+**Chosen: At the head, immediately after frontmatter.**
+
+Extension content is project context that should frame how the skill's instructions
+are interpreted. Placing it before the base skill logic makes the extension a
+preamble — the LLM encounters it first and retains it as the project-level frame
+for everything that follows. This is the same pattern as CLAUDE.md: project context
+loads before task instructions.
+
+*Alternative rejected: at the end of SKILL.md.* LLMs weight later context higher,
+so tail placement would make extension instructions more authoritative than base
+instructions. This seems appealing for overrides but creates unpredictable behavior
+when extension and base instructions conflict — the base skill's concluding logic
+would always be subordinated to extension content, even for cases where the extension
+author didn't intend to override that section.
+
+### Decision 4: Extension files are additive-only
+
+**Context:** Should extension files support override or suppression of base instructions?
+
+**Chosen: Additive-only. No override or suppression syntax.**
+
+Extension files append context that the LLM considers alongside the base skill.
+There is no "delete this instruction" operation in LLM-read markdown — any attempt
+to suppress base behavior via text ("ignore step X") is unreliable and model-dependent.
+Extension files should express intent ("also do Y when doing Z") not negation.
+
+*Alternative rejected: structured override format.* A syntax like `## Override: phase-0`
+followed by replacement content could signal to the LLM that it replaces the base
+version of that section. This was investigated during exploration and found to have
+weak reliability — the LLM may or may not honor the override depending on instruction
+clarity and context window position. No test confirmed reliable suppression. Additive
+composition is the only behavior that tests confirmed as stable across contexts.
+
+### Decision 5: Consumption model
 
 **Context:** How downstream consumers install and wire up shirabe as a dependency
 is out of scope for this design. shirabe's extension mechanism is installation-agnostic —
@@ -131,16 +168,213 @@ Key properties:
 
 ## Solution Architecture
 
-_To be completed_
+### Overview
+
+Each base skill declares two extension slots at the head of its SKILL.md. When a
+consumer creates `.claude/skill-extensions/<name>.md`, that content is injected
+into the skill's context deterministically by Claude Code before the LLM processes
+any instructions. Missing files are silently skipped. The skill's logic then runs
+with both base and extension content in context, LLM weight naturally favoring
+the extension (loaded after the base instructions).
+
+CLAUDE.md layering handles project-wide settings that apply across all skills.
+Extension files handle per-skill customizations that don't belong in every
+conversation.
+
+### Components
+
+```
+shirabe plugin
+├── skills/
+│   ├── explore/
+│   │   ├── SKILL.md                    # @ extension slots at head; generic logic
+│   │   └── references/phases/*.md      # Phase files, loaded on demand via Read
+│   ├── design/
+│   ├── prd/
+│   ├── plan/
+│   └── work-on/
+├── helpers/
+│   ├── writing-style.md
+│   ├── public-content.md
+│   ├── private-content.md
+│   ├── decision-presentation.md
+│   └── design-approval-routing.md
+├── scripts/
+│   └── transition-status.sh            # Generic design doc status transition
+└── CHANGELOG.md                        # Extension contract change history
+
+Consumer project
+└── .claude/
+    └── skill-extensions/
+        ├── explore.md                  # Repo-level extension (committed)
+        ├── explore.local.md            # Personal overrides (gitignored)
+        ├── design.md
+        ├── design.local.md
+        └── ...
+```
+
+### Key Interfaces
+
+**Extension slot declaration** — every base SKILL.md opens with:
+
+```markdown
+@.claude/skill-extensions/<name>.md
+@.claude/skill-extensions/<name>.local.md
+```
+
+where `<name>` matches the `name:` field in the skill's SKILL.md frontmatter.
+These two lines are the stable public API of the extension mechanism.
+
+**CLAUDE.md headers** — skills read the following headers from the project's
+CLAUDE.md chain to adapt global behavior:
+
+| Header | Values | Used by |
+|--------|--------|---------|
+| `## Repo Visibility:` | `Public` / `Private` | All five skills |
+| `## Planning Context:` | `Tactical` / `Strategic` | /explore, /plan |
+| `## Label Vocabulary` | free-form prose or list | All five skills |
+
+The `## Label Vocabulary` header is new — it replaces per-skill label-reference
+file dependencies. Consumers define their issue label names once in CLAUDE.md;
+all five skills read them from context.
+
+**Breaking change categories** — changes to shirabe that require downstream
+extension file updates:
+
+1. Removing an `@` extension slot line from a SKILL.md
+2. Renaming a phase in the skill's workflow overview section
+3. Renaming a CLAUDE.md header that the skill reads
+
+All other changes (rewording, phase file refactors, new phases added, helper
+updates) are non-breaking. CHANGELOG.md tracks breaking changes in a dedicated
+section; consumers review it before upgrading.
+
+### Data Flow
+
+```
+Skill invoked
+     │
+     ▼
+Claude Code loads SKILL.md as attachment
+  │  Resolves @ includes client-side:
+  │    .claude/skill-extensions/<name>.md    → injected if present
+  │    .claude/skill-extensions/<name>.local.md → injected if present
+     │
+     ▼
+LLM context contains:
+  - CLAUDE.md chain (workspace → repo → subdirectory)  [loaded before skill]
+  - SKILL.md base content
+  - Extension file content (if present, appended after base)
+  - Local extension content (if present, appended after repo extension)
+     │
+     ▼
+LLM executes skill
+  - Reads phase files on demand via Read tool
+  - Extension context active for all phase decisions
+```
 
 ## Implementation Approach
 
-_To be completed_
+### Phase 1: Helpers
+
+Extract portable helpers to `shirabe/helpers/`. No skill changes yet.
+
+Deliverables:
+- `helpers/writing-style.md` — verbatim copy
+- `helpers/decision-presentation.md` — verbatim copy
+- `helpers/design-approval-routing.md` — verbatim copy, note that label update step is extension-provided
+- `helpers/private-content.md` — verbatim copy
+- `helpers/public-content.md` — copy with one targeted reword: remove the prohibition on mentioning the five workflow skills (that prohibition was written for a project using them as internal tools, not a plugin shipping them)
+- `CHANGELOG.md` — initial file with `## Extension Contract` section
+
+### Phase 2: Extract skills
+
+Extract each skill in dependency order: /explore first (fewest changes), then
+/design, /prd, /plan, /work-on last (most changes). For each skill:
+
+1. Copy SKILL.md and references/ directory to shirabe
+2. Add `@` extension slot lines at the head (after frontmatter)
+3. Remove project-specific content as audited (see Phase 3 research)
+4. Update relative paths to helpers (they remain at `../../helpers/`)
+5. Replace internal skill invocations with generic "consult your project's
+   equivalent skill" text or remove entirely
+6. Replace path-based visibility heuristics with CLAUDE.md header references
+
+Estimated removals per skill:
+- /explore: ~5 lines (~1%)
+- /design: ~65 lines (~19%)
+- /prd: ~40 lines (~12%)
+- /plan: ~55 lines (~14%)
+- /work-on: ~45 lines (~33%)
+
+### Phase 3: Scripts
+
+Copy generic lifecycle scripts from the source plugin to `shirabe/scripts/`:
+- `transition-status.sh` — design doc status transitions (generic)
+
+Scripts that are specific to the source plugin's label vocabulary (e.g.,
+`swap-to-tracking.sh`) are not included. Consumers that need label lifecycle
+automation provide their own scripts, invoked from their extension files.
+
+### Phase 4: Validate with a real extension
+
+Verify the extraction by authoring a minimal extension file for at least one
+skill, installing it in a test project, and confirming:
+- Extension file loads correctly (0 tool calls, output reflects extension)
+- Missing extension file produces clean fallback behavior
+- `.local.md` variant loads on top of the committed extension
 
 ## Security Considerations
 
-_To be completed_
+shirabe ships markdown files loaded into LLM context. It does not execute code,
+download binaries, access the network, or handle user data directly.
+
+**Extension file trust**: extension files at `.claude/skill-extensions/` are
+authored by the consumer project and committed to their repo. They are read via
+the `@` include mechanism with the same trust level as any other file in the
+project's workspace. Consumers are responsible for reviewing extension file content
+before committing it.
+
+**`.local.md` files**: gitignored personal extension files receive the same trust
+as committed extension files at runtime. Users should be aware that `.local.md`
+files can inject arbitrary instructions into skill context.
+
+**No supply chain exposure beyond the plugin itself**: shirabe skills reference
+helpers via relative paths within the plugin directory. No external URLs, no
+downloads, no dynamic content loading.
 
 ## Consequences
 
-_To be completed_
+### Positive
+
+- Downstream consumers extend skills without forking or touching shirabe source
+- Extension files express intent ("also invoke X when doing Y") rather than structure;
+  they survive most shirabe updates without changes
+- CLAUDE.md-level behavior (visibility, scope, label vocabulary) is unchanged for
+  consumers who already use those headers
+- Extension loading is deterministic — 0 LLM tool calls — making skill behavior
+  predictable across model versions
+- The `.local.md` pattern gives individuals personal workflow customizations that
+  don't pollute the shared repo
+
+### Negative
+
+- Raw `@path` text remains visible in skill context when extension file is absent;
+  not a confirmed failure mode, but a behavioral dependency on the LLM ignoring it
+- No validation feedback when an extension file is misconfigured or misnamed; silent
+  failures require manual debugging (check file exists, check @ line matches filename)
+- Breaking change detection is informal — a CHANGELOG convention, not enforced by
+  tooling; consumers must opt in to monitoring it
+- Each skill adds two lines of `@` overhead even when no extension exists (~100 tokens
+  per skill, ~500 tokens total across all five)
+
+### Mitigations
+
+- Raw `@path` visibility: the test suite (TC-001 through TC-008) runs as a regression
+  harness on Claude Code version upgrades and model updates; any change in LLM behavior
+  toward `@path` text is caught before release
+- No validation: document the convention clearly; extension file naming errors manifest
+  as the skill running in base-only mode, which is safe if unexpected
+- Informal contract: treat `@` slot lines and phase names as stable API with a declared
+  policy; CHANGELOG.md breaking-change section is the minimum viable signal for the
+  current number of consumers
