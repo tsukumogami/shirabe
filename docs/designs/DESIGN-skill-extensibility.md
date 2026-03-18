@@ -9,7 +9,7 @@ problem: |
 decision: |
   A two-layer extension model: CLAUDE.md handles cross-skill project-wide behavior
   via documented headers (Repo Visibility, Planning Context, Label Vocabulary), and
-  per-skill extension files at `.claude/skill-extensions/<name>.md` are loaded via
+  per-skill extension files at `.claude/shirabe-extensions/<name>.md` are loaded via
   `@` includes at the head of each SKILL.md. Both layers resolve client-side before
   the LLM processes the skill — zero tool calls, deterministic, installation-agnostic.
   A gitignored `.local.md` variant enables personal machine-level overrides.
@@ -73,12 +73,12 @@ shirabe's base skills without forking them?
 
 CLAUDE.md handles cross-skill project-wide behavior (visibility detection, scope
 defaults, writing style, label vocabulary). Per-skill extension files at
-`.claude/skill-extensions/<name>.md` are loaded via `@` includes in the base
+`.claude/shirabe-extensions/<name>.md` are loaded via `@` includes in the base
 SKILL.md. The `@` resolution is handled client-side by Claude Code before the LLM
 processes the skill — confirmed by testing: 0 tool calls, deterministic, works
 with plugin registry install, `--plugin-dir`, and local paths. Missing files
 produce silent skips (raw `@path` text visible to LLM but ignored in practice).
-A `.local.md` variant (`.claude/skill-extensions/<name>.local.md`, gitignored)
+A `.local.md` variant (`.claude/shirabe-extensions/<name>.local.md`, gitignored)
 enables personal machine-level overrides that aren't committed to the repo.
 
 This cleanly separates what belongs in CLAUDE.md (applies to every conversation
@@ -157,7 +157,7 @@ composition is the only behavior that tests confirmed as stable across contexts.
 
 **Context:** How downstream consumers install and wire up shirabe as a dependency
 is out of scope for this design. shirabe's extension mechanism is installation-agnostic —
-the `@.claude/skill-extensions/` path resolves from the workspace root regardless
+the `@.claude/shirabe-extensions/` path resolves from the workspace root regardless
 of whether shirabe is installed via plugin registry, git submodule, or local path.
 Concrete migration patterns for specific consumers belong in their own repositories.
 
@@ -169,9 +169,9 @@ The two-layer extension model defines how downstream consumers customize shirabe
    documented headers (`## Repo Visibility`, `## Planning Context`, etc.) to adapt
    global behavior. No changes to this existing mechanism.
 
-2. **`.claude/skill-extensions/<name>.md`** — per-skill extension file. Each base
-   SKILL.md includes `@.claude/skill-extensions/<name>.md` and
-   `@.claude/skill-extensions/<name>.local.md` at its head. Both are resolved
+2. **`.claude/shirabe-extensions/<name>.md`** — per-skill extension file. Each base
+   SKILL.md includes `@.claude/shirabe-extensions/<name>.md` and
+   `@.claude/shirabe-extensions/<name>.local.md` at its head. Both are resolved
    client-side; missing files are silently skipped. Downstream consumers create
    these files to extend specific skills without touching shirabe's source.
 
@@ -187,7 +187,7 @@ Key properties:
 ### Overview
 
 Each base skill declares two extension slots at the head of its SKILL.md. When a
-consumer creates `.claude/skill-extensions/<name>.md`, that content is injected
+consumer creates `.claude/shirabe-extensions/<name>.md`, that content is injected
 into the skill's context deterministically by Claude Code before the LLM processes
 any instructions. Missing files are silently skipped. The skill's logic then runs
 with both base and extension content in context, LLM weight naturally favoring
@@ -221,7 +221,7 @@ shirabe plugin
 
 Consumer project
 └── .claude/
-    └── skill-extensions/
+    └── shirabe-extensions/
         ├── explore.md                  # Repo-level extension (committed)
         ├── explore.local.md            # Personal overrides (gitignored)
         ├── design.md
@@ -234,8 +234,8 @@ Consumer project
 **Extension slot declaration** — every base SKILL.md opens with:
 
 ```markdown
-@.claude/skill-extensions/<name>.md
-@.claude/skill-extensions/<name>.local.md
+@.claude/shirabe-extensions/<name>.md
+@.claude/shirabe-extensions/<name>.local.md
 ```
 
 where `<name>` matches the `name:` field in the skill's SKILL.md frontmatter.
@@ -274,8 +274,8 @@ Skill invoked
      ▼
 Claude Code loads SKILL.md as attachment
   │  Resolves @ includes client-side:
-  │    .claude/skill-extensions/<name>.md    → injected if present
-  │    .claude/skill-extensions/<name>.local.md → injected if present
+  │    .claude/shirabe-extensions/<name>.md    → injected if present
+  │    .claude/shirabe-extensions/<name>.local.md → injected if present
      │
      ▼
 LLM context contains:
@@ -355,7 +355,7 @@ via the Bash tool. It does not download or compile code at install time. Shell
 scripts in `scripts/` execute via the Bash tool when invoked by a skill and carry
 the same trust as the plugin's markdown content.
 
-**Extension file trust**: extension files at `.claude/skill-extensions/` are
+**Extension file trust**: extension files at `.claude/shirabe-extensions/` are
 privileged configuration equivalent to CLAUDE.md. They are injected directly into
 LLM context before the skill executes, with no sanitization layer between file
 content and the model. An extension file can inject arbitrary instructions, including

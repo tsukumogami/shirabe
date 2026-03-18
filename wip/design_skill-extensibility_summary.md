@@ -18,7 +18,7 @@ downstream consumers. Claude Code has no plugin-to-plugin extensibility.
 
 ## Selected Approach (Phase 2)
 Two-layer model selected. CLAUDE.md for cross-skill project-wide behavior;
-`.claude/skill-extensions/<name>.md` + `.local.md` loaded via `@` includes in
+`.claude/shirabe-extensions/<name>.md` + `.local.md` loaded via `@` includes in
 SKILL.md. Client-side resolution confirmed (0 tool calls). Downstream extends
 without requiring shirabe changes.
 
