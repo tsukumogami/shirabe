@@ -185,6 +185,58 @@ the `@.claude/shirabe-extensions/` path resolves from the workspace root regardl
 of whether shirabe is installed via plugin registry, git submodule, or local path.
 Concrete migration patterns for specific consumers belong in their own repositories.
 
+### Decision 6: writing-style helper format
+
+**Context:** The writing-style helper ships guidance on avoiding AI writing patterns. Skills currently load it via `Read ../../helpers/writing-style.md`. Should it be a skill, a reference file, or stay as a helper?
+
+**Chosen: Convert to a skill.**
+
+The writing-style helper's use case matches the skill format exactly — it can be invoked by users to revise drafts (same model as blader/humanizer), auto-invoked by the model when writing, and is portable to Cursor as a standard Agent Skills file. The current `Read helpers/writing-style.md` instruction in each skill becomes a skill reference instead.
+
+Industry research (blader/humanizer, Pangram Labs, Wikipedia:Signs_of_AI_writing) also confirms the helper's current word coverage is ~30-40% of available documented patterns, and a skill provides a better surface for iterative improvement.
+
+*Alternative rejected: keep as helper.* The helper format is a custom abstraction with no mechanism advantage — helpers are not @-included passively, they are loaded on demand via LLM Read calls, the same as skills. There is no benefit to the `helpers/` directory over the `skills/` directory for this use case.
+
+### Decision 7: decision-presentation helper format
+
+**Context:** The decision-presentation helper defines how agents structure choices for users (recommend-first, selection vs approval variants, equal-options tiebreaker). Referenced in explore, design, and prd phase files. Should it be a skill, inlined, or kept as a reference file?
+
+**Chosen: Keep as a reference file, move to `references/`.**
+
+The helper is referenced in 5+ places across three skills' phase files. Inlining would require maintaining the same ~55 lines in each callsite. Converting to a user-invocable skill adds no value — no user would invoke `/decision-presentation` directly, and the content is guidance for skill authors, not a workflow step. Moving it to `references/` (dropping the misleading `helpers/` label) is the right change.
+
+*Alternative rejected: convert to skill with `disable-model-invocation: true`.* Adds discoverability in the plugin manifest for no practical benefit. The reference file pattern is already well-established in the codebase (phase files use the same mechanism).
+
+*Alternative rejected: inline into callsite phase files.* The 5+ callsite count makes inline duplication a maintenance liability. The content evolves (industry sweep found three gaps to address); a single source file is better.
+
+### Decision 8: private-content and public-content helper format
+
+**Context:** Two helpers define content governance rules for private vs public repositories. Skills load the appropriate one conditionally based on visibility detection. Should they be skills, CLAUDE.md content, or reference files?
+
+**Chosen: Keep as reference files, move to `references/`.**
+
+These files are loaded conditionally (one or the other, never both) based on `## Repo Visibility:` in CLAUDE.md. Converting to skills adds no mechanism benefit — the conditional load is LLM-driven already. Folding into CLAUDE.md would make them project-wide passive context, which is too broad; consumers would then carry content governance rules in their own CLAUDE.md rather than getting them from the plugin. Reference files in `references/` are the right home.
+
+One fix required before shipping: `public-content.md` contains a restriction prohibiting slash commands (`/explore`, `/work-on`, `/plan`) as "internal tooling." This restriction was written for a project using them as internal tools; shirabe ships those as its public skills, so the restriction incorrectly suppresses accurate artifact content. The fix: narrow to "internal-only tooling that external contributors cannot access."
+
+*Alternative rejected: convert to skills.* No user invocation model applies. Content governance guidance is passive context, not a workflow step.
+
+*Alternative rejected: fold into CLAUDE.md.* The per-artifact breakdown (design docs, issues, PRs, code comments) and conditional loading by visibility require more specificity than CLAUDE.md headers support. It would also require consumers to carry this content in their own CLAUDE.md, defeating the plugin's purpose.
+
+### Decision 9: design-approval-routing helper format
+
+**Context:** The design-approval-routing helper defines post-approval routing logic after a design document is accepted: complexity assessment rubric, routing to /plan or approve-only, PR body convention. Referenced in design phase-6 and explore phase-5. Should it be a skill, inlined, or kept as a reference file?
+
+**Chosen: Inline into the two phase files that use it.**
+
+The helper is referenced in exactly two places. The content is workflow logic specific to those phases — not a reusable pattern across skills, and not something a user would invoke directly. A separate file adds indirection with no reuse benefit at this callsite count.
+
+One fix required at extraction: the "Source issue updates" section defers to "the design skill's label lifecycle section," which becomes extension-layer content in shirabe. The deference should read "if your project defines a label lifecycle, apply it here" so base shirabe consumers don't encounter a broken reference.
+
+*Alternative rejected: keep as reference file.* Two callsites is below the threshold where a shared reference file adds value. The content is stable enough to maintain in two places.
+
+*Alternative rejected: convert to skill.* No user invocation model. Pure internal workflow routing logic.
+
 ## Decision Outcome
 
 The two-layer extension model defines how downstream consumers customize shirabe skills:
