@@ -49,6 +49,30 @@ every session and handles 60-70% of customization needs (writing style,
 visibility, scope defaults, label vocabulary). The remaining 20-30% is per-skill
 behavior that CLAUDE.md cannot target precisely.
 
+### Platform Scope
+
+The extension mechanism described in this design is Claude Code-specific. The
+base SKILL.md format follows the Agent Skills open standard and is portable to
+other clients (such as Cursor) via a parallel plugin manifest; the CLAUDE.md
+headers layer translates to AGENTS.md or equivalent project context files. The
+per-skill `@` extension slot mechanism, however, relies on client-side `@`
+include injection that Cursor does not implement — raw `@path` text is visible
+to the LLM rather than being resolved and injected.
+
+| Mechanism | Claude Code | Cursor |
+|-----------|-------------|--------|
+| Plugin manifest | `.claude-plugin/plugin.json` | `.cursor-plugin/plugin.json` (separate, same pattern) |
+| SKILL.md base format | Agent Skills + CC extensions | Agent Skills standard — mostly compatible; avoid CC-specific frontmatter |
+| Skill invocation | Yes | Yes |
+| CLAUDE.md / project context | CLAUDE.md chain | AGENTS.md + `.cursor/rules/` — translatable |
+| `@` include in SKILL.md (client-side injection) | Yes — 0 tool calls, deterministic | No — raw text visible to LLM, extension not injected |
+| Per-skill extension file injection | Works via `@` include | Not supported natively |
+| `.local.md` personal overrides | Yes | No equivalent |
+
+Cursor users can consume the base skills and use always-applied `.cursor/rules/`
+files for project-wide context (equivalent to the CLAUDE.md headers layer), but
+have no per-skill extension point equivalent.
+
 ## Decision Drivers
 
 - Skills are LLM-read markdown — extensibility works through text composition,
@@ -389,6 +413,9 @@ URLs, downloads, or dynamic content loading occur.
   predictable across model versions
 - The `.local.md` pattern gives individuals personal workflow customizations that
   don't pollute the shared repo
+- The base SKILL.md format follows the Agent Skills open standard; shirabe can
+  ship a parallel `.cursor-plugin/plugin.json` manifest to support Cursor users
+  without any changes to the `skills/` directory
 
 ### Negative
 
@@ -404,6 +431,9 @@ URLs, downloads, or dynamic content loading occur.
   into any sub-operations dispatched by a skill (e.g., subagent prompts) is not
   guaranteed; consumers relying on extension content for sub-operation behavior should
   verify propagation or explicitly carry the context forward
+- The per-skill `@` extension mechanism is Claude Code-specific; Cursor users can
+  use the base skills (portable via dual plugin manifests) and CLAUDE.md-equivalent
+  project context headers, but have no per-skill extension point equivalent
 
 ### Mitigations
 
