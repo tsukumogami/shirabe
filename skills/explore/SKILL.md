@@ -364,5 +364,10 @@ user runs `/cleanup`.
 | `references/phases/phase-2-discover.md` | Phase 2 (each round) |
 | `references/phases/phase-3-converge.md` | Phase 3 (each round) |
 | `references/phases/phase-4-crystallize.md` | Phase 4 |
-| `references/phases/phase-5-produce.md` | Phase 5 |
+| `references/phases/phase-5-produce.md` | Phase 5 (routing stub) |
+| `references/phases/phase-5-produce-prd.md` | Phase 5, PRD handoff |
+| `references/phases/phase-5-produce-design.md` | Phase 5, Design Doc handoff |
+| `references/phases/phase-5-produce-plan.md` | Phase 5, Plan handoff |
+| `references/phases/phase-5-produce-no-artifact.md` | Phase 5, No artifact |
+| `references/phases/phase-5-produce-deferred.md` | Phase 5, Roadmap/Spike/ADR/Competitive/Prototype |
 | `references/quality/crystallize-framework.md` | Phase 4 (full decision framework) |
