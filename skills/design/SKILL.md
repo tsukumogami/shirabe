@@ -1,12 +1,12 @@
 ---
 name: design
-description: Create or review technical design documents. Use when deciding how to
-  implement something — the skill fans out multiple approaches via advocate agents,
-  presents trade-offs side by side, and produces a structured design doc with the
-  chosen approach. Also use when reviewing, validating, or transitioning an existing
-  design doc through its lifecycle (Proposed → Accepted → Planned → Current).
-  Triggers on: "help me design X", "compare approaches for Y", "write a design doc
-  for Z", review or approve a design doc, or status transitions on DESIGN-*.md files.
+description: Create technical design documents. Use when deciding how to implement
+  something -- the skill fans out multiple approaches via advocate agents, presents
+  trade-offs side by side, and produces a structured design doc with the chosen
+  approach. Triggers on "help me design X", "how should we architect Y", "compare
+  approaches for Z", "write a design doc", "what's the best approach for W", or
+  "I need to decide between A and B". Do NOT use for quick opinions without a formal
+  document, open-ended exploration (/explore), or requirements definition (/prd).
 argument-hint: '<PRD path or topic>'
 ---
 
