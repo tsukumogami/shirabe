@@ -104,12 +104,9 @@ If your project's extension file defines a language skill or PR creation skill, 
    - Purpose: Submit work for review and ensure all automated checks pass
    - Instructions: `references/phases/phase-6-pr.md`
 
-## Critical Requirements
+## Output
 
-- **Artifact Pattern**: File existence indicates step completion
-- **Atomic Commits**: Commit after each logical unit of work
-- **Quality Gates**: Each phase has explicit success criteria
-- **CI Completion**: PR is not done until all CI checks pass
+A merged PR with passing CI, referenced back to the source issue.
 
 ## Begin
 

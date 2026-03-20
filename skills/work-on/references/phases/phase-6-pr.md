@@ -141,7 +141,3 @@ For straightforward changes, enable auto-merge with squash strategy.
 When all CI checks pass:
 - Report PR URL to user
 - Workflow complete
-
-## Writing Style
-
-See `skills/writing-style/SKILL.md` for writing style guidelines. Key: no emojis, no AI references, active voice.
