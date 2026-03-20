@@ -8,18 +8,14 @@ If `wip/issue_<N>_summary.md` exists and cleanup commit exists, skip to Phase 6.
 
 ## Auto-Skip Logic
 
-**Summary generation auto-skips for simple issues:**
+**Summary generation auto-skips for simple issues.**
 
-**Skip summary for issues labeled:**
-- `docs` or `documentation` (documentation-only changes)
-- `config` (configuration changes)
-- `chore` (without `bug` or `enhancement` labels)
+Check your project's label vocabulary (defined in `## Label Vocabulary` in CLAUDE.md)
+for which labels indicate summary-worthy vs summary-skippable work.
 
-**Generate summary for issues labeled:**
-- `bug` (bug fixes)
-- `enhancement` (feature additions)
-- `refactor` (refactoring work)
-- `security` (security-sensitive changes)
+**Default behavior** (when no label vocabulary is defined):
+- Skip summary for issues labeled `docs`, `documentation`, `config`, or `chore` (without `bug`/`enhancement`)
+- Generate summary for issues labeled `bug`, `enhancement`, `refactor`, or `security`
 
 **User override:** User can request "skip the summary" or "I want a summary" regardless of labels.
 
