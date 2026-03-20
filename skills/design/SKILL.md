@@ -39,15 +39,11 @@ rationale: |
 ---
 ```
 
-All four fields required. Use literal block scalars (`|`). Frontmatter status MUST
-match the Status section in the body. The frontmatter provides a self-contained
-summary so readers can understand the design without reading the full document, and
-enables agent workflows to extract key info via simple regex.
-
-**Suggested coverage** (guidance -- surface whatever is most relevant):
-- **problem**: What's broken or missing? Who does it affect? Why act now?
-- **decision**: What approach was chosen? Key design elements? How does it solve the problem?
-- **rationale**: What trade-offs were weighed? Why were alternatives rejected?
+All four fields required. Use literal block scalars (`|`). Frontmatter status must
+match the Status section in the body -- agent workflows parse frontmatter to
+determine lifecycle state, so divergence causes silent errors. The frontmatter
+provides a self-contained summary so readers can understand the design without
+reading the full document.
 
 **Optional fields:**
 - `upstream: docs/prds/PRD-<name>.md` -- link to source PRD (set by /design Phase 0)
@@ -96,88 +92,10 @@ Detect scope and visibility from CLAUDE.md:
 - `## Repo Visibility: Private|Public`
 - `## Planning Context: Strategic|Tactical` (or `## Default Scope:`)
 
-## Lifecycle
+## Lifecycle and Validation
 
-```
-Proposed --> Accepted --> Planned --> Current
-                                      |
-                              (or) Superseded
-```
-
-| Status | Directory | Transition |
-|--------|-----------|------------|
-| Proposed | `docs/designs/` | Created by /design or /explore |
-| Accepted | `docs/designs/` | Human approval |
-| Planned | `docs/designs/` | /plan creates issues |
-| Current | `docs/designs/current/` | All issues closed |
-| Superseded | `docs/designs/archive/` | Replaced by newer design |
-
-### Status Transition Script
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/transition-status.sh <path> <target> [superseding-doc]
-```
-
-Handles status update, file movement (`git mv`), and supersession links.
-
-### Label Lifecycle
-
-If your project uses GitHub labels to track design status (e.g., `needs-design`,
-`tracks-plan`), the label transitions for this skill are:
-
-- **Design accepted (Phase 6):** Remove whatever `needs-*` label the source issue
-  carries. The tracking label is applied by the planning skill, not here.
-- **Child design superseded:** Revert the parent issue to its pre-design label
-  state and update the parent design doc accordingly.
-
-Define your project's specific label names in CLAUDE.md under
-`## Label Vocabulary`.
-
-## Validation Rules
-
-### During /design or /explore (drafting)
-- Frontmatter has all 4 fields (status, problem, decision, rationale)
-- Frontmatter status matches body Status section
-- All 9 required sections present
-- Status is "Proposed"
-
-### During /plan phase-1 (before creating issues)
-- Status MUST be "Accepted" -- if not, STOP and inform user
-- All required sections present
-
-### During /plan phase-6 (after creating issues)
-- Status becomes "Planned" (update frontmatter and body)
-- "Implementation Issues" section added
-
-## Quality Guidance
-
-### Problem Statement
-- States the problem, not a solution
-- Explains why this matters now
-- Scopes what's in and out
-
-### Considered Options
-
-Organized by decision question. Each gets context, then chosen approach, then
-alternatives with rejection rationale. Alternatives must be genuinely viable (no
-strawmen). See `references/quality/considered-options-structure.md`
-for detailed templates and examples.
-
-### Security Considerations
-
-The Security Considerations section must not be empty. For each dimension that
-applies to the design, document risks and mitigations. For dimensions that don't
-apply, write a brief explicit justification ("Not applicable because this design
-only produces markdown files and executes no external code").
-
-Consumer projects should define domain-specific security dimensions in their
-extension file (`@.claude/shirabe-extensions/design.md`).
-
-### Common Pitfalls
-- Too broad ("Improve the system") -- narrow to a specific capability
-- Strawman options -- alternatives that exist only to justify the preferred choice
-- Empty or bare "N/A" security section -- always justify non-applicability
-- No consequences -- every decision has trade-offs
+See `references/lifecycle.md` for lifecycle states, transition script, label
+lifecycle, validation rules, and quality guidance.
 
 ## File Location
 
@@ -192,11 +110,9 @@ dependency diagram. See your project's diagram convention, or follow the format:
 
 ## Repo Visibility
 
-Before writing content, determine visibility from CLAUDE.md (`## Repo Visibility: Public|Private`):
-- **Private repos:** Read `skills/private-content/SKILL.md`
-- **Public repos:** Read `skills/public-content/SKILL.md`
-
-Public designs must not reference private artifacts.
+Visibility is detected from CLAUDE.md (see Context-Aware Sections above).
+Load `skills/private-content/SKILL.md` or `skills/public-content/SKILL.md`
+accordingly. Public designs must not reference private artifacts.
 
 ---
 
@@ -317,5 +233,6 @@ Execute phases sequentially by reading the corresponding phase file:
 | `references/phases/phase-4-architecture.md` | Phase 4 |
 | `references/phases/phase-5-security.md` | Phase 5 |
 | `references/phases/phase-6-final-review.md` | Phase 6 |
+| `references/lifecycle.md` | Phase 6 (status transitions, label lifecycle, validation) |
 | `references/quality/considered-options-structure.md` | When writing Considered Options |
 | `${CLAUDE_PLUGIN_ROOT}/scripts/transition-status.sh` | Status transitions with file movement |
