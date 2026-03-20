@@ -67,7 +67,7 @@ When invoked directly with a draft: identify patterns below, revise, return the 
 
 ## What human writing has
 
-- Burstiness: dramatic variation — a 3-word sentence next to a 25-word sentence is the target, not mild variation
+- Burstiness: dramatic variation, a 3-word sentence next to a 25-word sentence is the target, not mild variation
 - "And", "But", "Or" as sentence starters are fine
 - Specifics over abstractions: name the file, cite the number
 - Opinions: take a position; acknowledge complexity or mixed feelings

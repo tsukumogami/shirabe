@@ -19,7 +19,7 @@ Design documents capture HOW to build something -- the technical approach, trade
 considered, and architecture chosen. They complement PRDs (which capture WHAT and WHY)
 and are the input for /plan (which breaks designs into issues).
 
-**Writing style:** Read the `writing-style` skill for guidance.
+**Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
 ## Structure
 

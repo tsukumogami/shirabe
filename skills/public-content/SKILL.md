@@ -6,7 +6,9 @@ disable-model-invocation: true
 
 # Public Repository Content Guidelines
 
-You are creating content for a **public repository**. Apply these guidelines.
+You are creating content for a **public repository**. Public repos are visible
+to anyone, so content must not leak competitive intelligence, internal strategy,
+or references to resources external readers can't access.
 
 ## General Principles
 
