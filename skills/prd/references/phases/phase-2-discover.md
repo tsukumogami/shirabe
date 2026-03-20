@@ -167,8 +167,6 @@ Before proceeding:
 - [ ] All research leads from Phase 1 have been investigated
 - [ ] Findings synthesized and presented to user
 - [ ] User agrees scope is clear enough to draft requirements
-- [ ] No unresolved contradictions between agents
-- [ ] Deep findings persisted to `wip/research/prd_<topic>_phase2_*.md`
 
 ## Artifact State
 

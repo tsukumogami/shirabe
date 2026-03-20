@@ -127,9 +127,6 @@ Before proceeding:
 - [ ] All approaches presented with equal framing (no strawmen)
 - [ ] Agent recommended based on evidence, user approved or overrode
 - [ ] Rejected alternatives have genuine depth in Considered Options
-- [ ] Decision Outcome summarizes what will be built
-- [ ] Considered Options and Decision Outcome written to design doc
-- [ ] wip/ summary updated with selected approach
 
 ## Artifact State
 

@@ -237,10 +237,6 @@ Commit: `chore(prd): clean up working artifacts`
 - [ ] All 3 jury agents reviewed the PRD
 - [ ] All issues from jury review are resolved
 - [ ] User has approved the PRD
-- [ ] PRD status is "Accepted"
-- [ ] `needs-prd` label removed from source issue (if `source_issue` set in frontmatter)
-- [ ] PR is created
-- [ ] Working artifacts are cleaned up
 
 ## Artifact State
 

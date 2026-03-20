@@ -146,9 +146,6 @@ Before proceeding:
 - [ ] Security researcher agent was launched and completed
 - [ ] Full report written to `wip/research/design_<topic>_phase5_security.md`
 - [ ] All security dimensions addressed (applicable or justified N/A)
-- [ ] Recommended outcome applied to design doc
-- [ ] If N/A: justification is self-contained (no wip/ references)
-- [ ] If findings: changes made and security re-reviewed
 
 ## Artifact State
 

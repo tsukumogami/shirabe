@@ -138,9 +138,6 @@ Before proceeding:
 - [ ] All dependencies documented
 - [ ] Dependency graph created
 - [ ] No circular dependencies
-- [ ] Parallelization opportunities identified
-- [ ] Critical path calculated
-- [ ] `wip/plan_<topic>_dependencies.md` written
 
 ## Next Phase
 

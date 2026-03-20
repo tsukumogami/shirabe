@@ -148,8 +148,6 @@ Before proceeding to Phase 3:
 - [ ] All leads from the scope file have been assigned to agents
 - [ ] Agent output files exist at `wip/research/explore_<topic>_r<N>_lead-*.md`
 - [ ] Each agent returned a summary (or failure was noted)
-- [ ] No more than 8 agents were launched in parallel
-- [ ] Round number matches the orchestrator's current iteration count
 
 ## Artifact State
 

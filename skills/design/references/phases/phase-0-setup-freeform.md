@@ -97,9 +97,6 @@ Before proceeding:
 - [ ] On branch `docs/<topic>`
 - [ ] Problem statement is specific enough to evaluate approaches against
 - [ ] Scope boundaries are clear (in and out)
-- [ ] User confirmed the summary
-- [ ] Design doc skeleton exists at `docs/designs/DESIGN-<topic>.md`
-- [ ] wip/ summary created
 
 ## Artifact State
 

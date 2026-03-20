@@ -126,8 +126,6 @@ Before proceeding:
 - [ ] AI review completed
 - [ ] All high-severity feedback addressed
 - [ ] Issue specifications finalized
-- [ ] Milestone assignments confirmed
-- [ ] `wip/plan_<topic>_review.md` written
 
 ## Next Phase
 

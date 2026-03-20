@@ -353,10 +353,6 @@ Before completing:
 - [ ] PLAN artifact created at `docs/plans/PLAN-<topic>.md`
 - [ ] Frontmatter includes all required fields (`schema`, `status`, `execution_mode`, `milestone`, `issue_count`)
 - [ ] multi-pr: all issues created, milestone assigned, status is Active
-- [ ] single-pr: Issue Outlines populated, no GitHub artifacts, status is Draft
-- [ ] Design doc transitioned to Planned (status-only, no body edits)
-- [ ] wip/ artifacts cleaned up
-- [ ] Summary reported
 
 ## Next Phase
 

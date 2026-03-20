@@ -123,9 +123,6 @@ Before proceeding:
 - [ ] Conversation covered enough ground to produce informed leads
 - [ ] 3-8 leads identified, each phrased as a question (not an approach)
 - [ ] Leads are specific enough that an agent can investigate independently
-- [ ] Leads are open enough to return unexpected findings
-- [ ] Checkpoint was presented to the user (core question, scope, leads)
-- [ ] Scope written to `wip/explore_<topic>_scope.md`
 
 ## Artifact State
 

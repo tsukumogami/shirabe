@@ -103,8 +103,6 @@ Before proceeding:
 - [ ] All 6 coverage dimensions have at least surface coverage
 - [ ] Problem statement is clear and specific (who, what, why now)
 - [ ] 2-4 concrete research leads identified
-- [ ] Checkpoint was presented to the user (scope, leads, boundaries)
-- [ ] Scope document written to `wip/prd_<topic>_scope.md`
 
 ## Artifact State
 

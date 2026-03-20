@@ -118,10 +118,6 @@ Before proceeding:
 - [ ] Solution Architecture is concrete enough to implement
 - [ ] Components and their relationships are clear
 - [ ] Key interfaces are defined (not vague)
-- [ ] Implementation is phased with dependencies noted
-- [ ] Both positive AND negative consequences documented
-- [ ] Implicit decisions from architecture text promoted to Considered Options
-- [ ] No new research was done (only synthesis of Phase 3 findings)
 
 ## Artifact State
 

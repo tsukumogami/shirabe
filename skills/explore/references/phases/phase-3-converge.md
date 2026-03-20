@@ -177,13 +177,6 @@ Before handing back to the orchestrator:
 - [ ] All current-round research files have been read
 - [ ] Prior rounds' findings incorporated (not re-presented as new)
 - [ ] Synthesis covers: key insights, tensions, gaps, open questions
-- [ ] Narrowing questions are opinionated (recommend directions, don't present neutrally)
-- [ ] User answered narrowing questions (or declined)
-- [ ] Decisions from this round captured in `wip/explore_<topic>_decisions.md`
-- [ ] Decision review checkpoint completed (no unrecorded decisions remain)
-- [ ] Findings file updated at `wip/explore_<topic>_findings.md`
-- [ ] Findings file includes `### Decisions` section for this round
-- [ ] `## Accumulated Understanding` section rewritten to reflect all rounds
 
 ## Artifact State
 

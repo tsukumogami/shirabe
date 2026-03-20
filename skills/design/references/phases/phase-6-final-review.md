@@ -178,10 +178,6 @@ Before declaring the phase complete:
 - [ ] Architecture review completed
 - [ ] Security review completed
 - [ ] All actionable feedback addressed
-- [ ] Strawman check passed (rejected alternatives have depth)
-- [ ] All required sections present
-- [ ] Frontmatter added with status "Proposed"
-- [ ] Design committed and PR created
 
 ## Artifact State
 

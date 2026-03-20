@@ -143,11 +143,6 @@ Before proceeding:
 - [ ] PRD draft written to `docs/prds/PRD-<topic>.md` with status "Draft"
 - [ ] All sections present (Problem Statement, Goals, User Stories, Requirements, Acceptance Criteria, Out of Scope)
 - [ ] Requirements are numbered (R1, R2, ...) and each is testable
-- [ ] Acceptance criteria are binary pass/fail
-- [ ] Open questions and trade-offs surfaced via AskUserQuestion
-- [ ] User feedback incorporated
-- [ ] Decision review checkpoint passed (no unrecorded decisions in wip/ artifacts)
-- [ ] Draft committed
 
 ## Artifact State
 

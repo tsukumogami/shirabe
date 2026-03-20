@@ -101,7 +101,6 @@ Before proceeding:
 - [ ] Milestone title extracted from the source document's first `#` heading
 - [ ] Title is a human-readable phrase (not kebab-case, not a filename)
 - [ ] Description includes source document path in correct format
-- [ ] `wip/plan_<topic>_milestones.md` written
 
 ## Next Phase
 

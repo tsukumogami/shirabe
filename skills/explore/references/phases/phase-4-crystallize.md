@@ -190,12 +190,6 @@ Before proceeding:
 - [ ] Crystallize framework loaded from the full reference file
 - [ ] Accumulated findings read (not just the latest round)
 - [ ] All four supported types scored with specific evidence
-- [ ] Deferred types checked (noted if any scored well)
-- [ ] Demotion rule applied (anti-signals demote regardless of score)
-- [ ] Tiebreakers applied if top types were close
-- [ ] Recommendation presented via AskUserQuestion with rationale
-- [ ] User confirmed a type (or chose "None of these")
-- [ ] Decision written to `wip/explore_<topic>_crystallize.md`
 
 ## Artifact State
 

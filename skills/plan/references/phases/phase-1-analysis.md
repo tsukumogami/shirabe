@@ -174,11 +174,6 @@ Before proceeding:
 - [ ] Source document status is valid ("Accepted" for design/prd, "Active" for roadmap)
 - [ ] Full source document read
 - [ ] `input_type` field recorded (design, prd, or roadmap)
-- [ ] All components (design/prd) or features (roadmap) identified
-- [ ] For roadmaps: per-feature `needs_label` assigned
-- [ ] Implementation phases or sequencing rationale understood
-- [ ] External dependencies noted
-- [ ] `wip/plan_<topic>_analysis.md` written
 
 ## Next Phase
 

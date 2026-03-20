@@ -142,9 +142,6 @@ Before proceeding:
 - [ ] All investigation areas covered by at least one agent
 - [ ] Findings written to `wip/research/design_<topic>_phase3_*.md`
 - [ ] No unresolved contradictions between agents
-- [ ] No deal-breaker risks discovered (or user chose to proceed anyway)
-- [ ] All decisions discovered during investigation are recorded in Considered Options
-- [ ] wip/ summary updated with investigation findings
 
 ## Artifact State
 

@@ -208,8 +208,6 @@ Before proceeding:
 - [ ] On branch `docs/<topic>`
 - [ ] Visibility and scope resolved and logged
 - [ ] If from needs-triage: two-stage triage complete, user confirmed routing
-- [ ] If from needs-design: upstream context gathered
-- [ ] If routed away (breakdown or ready): stopped with clear next step for user
 
 ## Artifact State
 

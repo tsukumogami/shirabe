@@ -379,11 +379,6 @@ Before proceeding:
 - [ ] Decomposition strategy decided and recorded (or "feature-by-feature-planning" for roadmaps)
 - [ ] All components (design/prd) or features (roadmap) covered by issues
 - [ ] Each issue is atomic and complete
-- [ ] Titles follow appropriate format (conventional commits for design/prd, `docs(<scope>):` for roadmap)
-- [ ] For roadmaps: each issue has a valid `needs_label`
-- [ ] Issues roughly ordered
-- [ ] Execution mode selected and recorded in YAML frontmatter
-- [ ] `wip/plan_<topic>_decomposition.md` written with YAML frontmatter
 
 ## Next Phase
 

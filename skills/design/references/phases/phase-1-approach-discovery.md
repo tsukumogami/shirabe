@@ -144,10 +144,6 @@ Before proceeding:
 - [ ] At least 2 approaches investigated (3-5 preferred)
 - [ ] Each advocate wrote findings to `wip/research/design_<topic>_phase1_advocate-<approach>.md`
 - [ ] Each advocate identified both strengths AND weaknesses
-- [ ] All approaches investigated with equal depth (no sandbagging)
-- [ ] No obvious approaches missing (given the problem context)
-- [ ] Candidate list was presented to the user before investigation
-- [ ] wip/ summary updated with approach list
 
 ## Artifact State
 

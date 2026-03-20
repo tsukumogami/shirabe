@@ -107,9 +107,6 @@ Before proceeding:
 - [ ] On branch `docs/<topic>`
 - [ ] Problem statement is in implementation terms (not a PRD copy)
 - [ ] Decision drivers include both PRD-derived and implementation-specific factors
-- [ ] Design doc skeleton exists at `docs/designs/DESIGN-<topic>.md`
-- [ ] PRD status transitioned to "In Progress"
-- [ ] wip/ summary created
 
 ## Artifact State
 
