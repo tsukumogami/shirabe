@@ -167,6 +167,10 @@ If not found, infer from repo path:
 Visibility is immutable -- public repos must never accidentally include private
 references. Flags can't override it.
 
+After detecting visibility, load the appropriate content governance skill:
+- **Private repos:** Read `skills/private-content/SKILL.md`
+- **Public repos:** Read `skills/public-content/SKILL.md`
+
 #### 3. Detect Default Scope
 
 If no scope flag was provided, read default from CLAUDE.md:

@@ -118,6 +118,10 @@ Default to Private if unknown.
 Visibility is immutable -- public repos must never accidentally include private
 references, even if a user passes --private. Flags can't override it.
 
+After detecting visibility, load the appropriate content governance skill:
+- **Private repos:** Read `skills/private-content/SKILL.md`
+- **Public repos:** Read `skills/public-content/SKILL.md`
+
 #### 2. Detect Scope
 
 Check `$ARGUMENTS` for `--strategic` or `--tactical` flags. If neither, read

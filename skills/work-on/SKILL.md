@@ -110,6 +110,12 @@ A merged PR with passing CI, referenced back to the source issue.
 
 ## Begin
 
-First, resolve the input using the Input Resolution section above. Once you have an issue number, read the issue with `gh issue view <issue-number>`. Check for blocking labels as defined in your project's label vocabulary (CLAUDE.md `## Label Vocabulary`) and stop if any are present. Otherwise, start Phase 0.
+First, resolve the input using the Input Resolution section above. Once you have an issue number, read the issue with `gh issue view <issue-number>`. Check for blocking labels as defined in your project's label vocabulary (CLAUDE.md `## Label Vocabulary`) and stop if any are present.
+
+Detect repo visibility from CLAUDE.md (`## Repo Visibility: Public|Private`) and load the appropriate content governance skill:
+- **Private repos:** Read `skills/private-content/SKILL.md`
+- **Public repos:** Read `skills/public-content/SKILL.md`
+
+Then start Phase 0.
 
 If no extension file exists at `.claude/shirabe-extensions/work-on.md`, the skill proceeds with generic behavior: no language-specific quality checks, no label blocking (blocking label check is skipped if no label vocabulary is defined in CLAUDE.md).
