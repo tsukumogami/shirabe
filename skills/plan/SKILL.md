@@ -2,11 +2,10 @@
 name: plan
 description: Implementation planning skill. Decomposes a design doc, PRD, roadmap, or directly-stated
   topic into atomic, sequenced issues with dependency graphs and complexity classifications.
-  Use when given a DESIGN-*.md, PRD-*.md, or ROADMAP-*.md to plan, when the user says "break
-  this design into issues", "plan the implementation", "create issues for this", or when
-  /explore has produced a clear scope with no open decisions. Also use for direct topic
-  planning without a source document when the user asks to plan a well-understood set of
-  capabilities. Produces either a self-contained PLAN doc (single-pr) or GitHub milestone
+  Use when given a DESIGN-*.md, PRD-*.md, or ROADMAP-*.md to plan, or when the user says "break
+  this into issues", "plan the implementation", "create issues for this", "decompose this",
+  "what tasks do we need", or "make a plan for X". Also use for direct topic planning without
+  a source document. Produces either a self-contained PLAN doc (single-pr) or GitHub milestone
   and issues (multi-pr).
 argument-hint: '<doc-path-or-topic> [--walking-skeleton|--no-skeleton] [--strategic|--tactical]'
 ---

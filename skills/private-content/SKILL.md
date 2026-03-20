@@ -1,6 +1,6 @@
 ---
 name: private-content
-description: Content guidelines for private repository artifacts. Loaded on demand when creating content in private repos.
+description: Content guidelines for private repository artifacts -- what's allowed when writing issues, PRs, design docs, and code comments in private repos.
 disable-model-invocation: true
 ---
 

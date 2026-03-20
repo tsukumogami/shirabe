@@ -2,10 +2,10 @@
 name: explore
 description: Structured exploration workflow and artifact-type routing advisor. Use when the user
   isn't sure what to build, doesn't know which workflow fits their situation, or wants to research
-  before committing to a PRD, design doc, or plan. Also triggers on explicit /explore invocations
-  and on questions like "should I write a PRD or a design doc?" or "I don't know where to start."
-  Runs a discover-converge loop with research agents, then recommends the right artifact type based
-  on findings.
+  before committing to a PRD, design doc, or plan. Triggers on "should I write a PRD or a design
+  doc?", "I don't know where to start", "what should I do next?", "how do I start this?", "I'm
+  stuck", or explicit /explore invocations. Helps figure out whether you need a PRD, design doc,
+  plan, or something else through a discover-converge loop with research agents.
 argument-hint: '<topic or issue number>'
 ---
 

@@ -1,14 +1,13 @@
 ---
 name: prd
 description: >-
-  Structured workflow for creating and managing Product Requirements Documents (PRDs).
-  Use this skill when writing new PRDs, reviewing or validating existing ones, or
-  transitioning a PRD through its lifecycle (Draft -> Accepted -> In Progress -> Done).
-  Trigger on prompts like: "write requirements for X", "define scope for Y", "draft a
-  spec", "what should we build for Z", "I need a PRD", "validate this PRD", "mark this
-  PRD as accepted", or any request to define WHAT to build and WHY before implementation
-  begins. This skill drives a multi-phase workflow: conversational scoping, parallel
-  research agents, structured drafting, and a 3-agent jury review.
+  Structured workflow for creating Product Requirements Documents (PRDs).
+  Use when writing new PRDs or defining WHAT to build and WHY before implementation.
+  Triggers on "write requirements for X", "define scope for Y", "draft a spec",
+  "what should we build for Z", "I need a PRD", or any request to capture requirements.
+  Do NOT use for technical architecture decisions (/design) or open-ended exploration
+  (/explore). Drives a multi-phase workflow: conversational scoping, parallel research
+  agents, structured drafting, and a 3-agent jury review.
 argument-hint: '<topic or feature name>'
 ---
 
