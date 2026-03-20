@@ -143,7 +143,8 @@ For each issue in `issue_outlines`:
 
 ### 4.5 Spawn Agents in Parallel
 
-**Critical**: Launch ALL agents in a single message with multiple Task tool calls.
+**Critical**: Launch ALL agents in a single message with multiple Task tool calls --
+parallel spawning reduces wall-clock time by N-fold for N agents.
 
 Each agent writes its output to a file and returns only a structured summary to conserve context.
 

@@ -69,7 +69,7 @@ Full reference: `references/quality/crystallize-framework.md`
 | Plan | Scope confirmed, work decomposable into issues | Open decisions remain, no clear deliverables |
 | No artifact | Confirmed existing understanding, no new decisions made | Any decisions were made during exploration, others need docs |
 
-**Deferred types** (recognized but not yet routable -- Feature 5):
+**Deferred types** (recognized but not yet routable):
 Spike Report, Decision Record, Competitive Analysis, Prototype, Roadmap.
 If these fit best, suggest the closest available alternative.
 
@@ -115,7 +115,8 @@ or
 If not found, infer from path: `private/` -> Private, `public/` -> Public.
 Default to Private if unknown.
 
-Visibility is immutable. Flags can't override it.
+Visibility is immutable -- public repos must never accidentally include private
+references, even if a user passes --private. Flags can't override it.
 
 #### 2. Detect Scope
 

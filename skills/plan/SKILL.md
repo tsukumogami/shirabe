@@ -164,7 +164,8 @@ If not found, infer from repo path:
 - `public/` in path -- Public
 - Unknown -- default to Private (safer)
 
-Visibility is immutable. Flags can't override it.
+Visibility is immutable -- public repos must never accidentally include private
+references. Flags can't override it.
 
 #### 3. Detect Default Scope
 

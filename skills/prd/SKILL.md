@@ -99,7 +99,7 @@ On main or unrelated branch                        -> Start at Phase 0
 - **Conversational First**: Phase 1 is a dialogue, not a form to fill out
 - **Research Before Drafting**: Don't draft requirements you haven't investigated
 - **User Review**: Never finalize a PRD the user hasn't reviewed and given feedback on
-- **Jury Validation**: Phase 4 is not optional -- all PRDs get reviewed by 3 agents
+- **Jury Validation**: Phase 4 is not optional -- authors consistently miss ambiguity and testability gaps in their own writing, so all PRDs get reviewed by 3 agents
 
 ### Execution
 
@@ -107,7 +107,7 @@ Execute phases sequentially by reading the corresponding phase file:
 
 0. **Setup**: Ensure work happens on a feature branch
    - If already on a branch that matches the topic, skip branch creation
-   - If on `main` or an unrelated branch, create `docs/<topic>` (kebab-case)
+   - If on `main` or an unrelated branch, create `docs/<topic>` (kebab-case) -- keeps drafts off main so abandoned PRDs don't need cleanup
    - If unsure whether the current branch is related, ask the user
 
 1. **Scope**: Conversational scoping with coverage tracking

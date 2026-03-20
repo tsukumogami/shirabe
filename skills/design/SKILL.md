@@ -62,7 +62,7 @@ Every design doc has these sections in order:
 1. **Status** -- current lifecycle state
 2. **Context and Problem Statement** -- the technical problem being solved
 3. **Decision Drivers** -- constraints and priorities shaping the solution
-4. **Considered Options** -- at least 1 alternative per decision
+4. **Considered Options** -- at least 1 alternative per decision, so future readers understand it wasn't automatic
 5. **Decision Outcome** -- what was chosen and why it works as a whole
 6. **Solution Architecture** -- components, interfaces, data flow
 7. **Implementation Approach** -- phased build plan
@@ -175,7 +175,7 @@ On topic branch, no artifacts                   → Resume at Phase 0
 
 ### Critical Requirements
 
-- **No premature commitment**: no approach chosen until the user approves the agent's recommendation in Phase 2
+- **No premature commitment**: no approach chosen until the user approves in Phase 2 -- premature commitment biases the investigation and advocates won't explore honestly if the outcome is predetermined
 - **Equal-depth investigation**: every advocate gets the same context and effort
 - **Security is mandatory**: Phase 5 always runs; output may be N/A but the review is not optional
 - **Strawman check**: Phase 6 validates rejected alternatives have genuine depth
