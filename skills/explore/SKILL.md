@@ -77,72 +77,6 @@ If these fit best, suggest the closest available alternative.
 type with anti-signals below types without. Apply tiebreakers for close calls.
 See the full framework for details.
 
-## Lead Conventions
-
-Leads are research questions produced during Scope (Phase 1). Each lead becomes an
-agent assignment during Discover (Phase 2). Good leads share three properties:
-
-1. **Questions, not solutions.** "What deployment models exist for plugin systems?"
-   beats "Evaluate a WASM-based plugin system." Questions keep the investigation open.
-
-2. **Specific enough to investigate.** "How do other CLI tools handle version
-   resolution?" gives an agent something to look into. "Explore versioning" is too
-   vague for useful output.
-
-3. **Open enough to surprise.** A lead should allow the agent to return unexpected
-   findings. If you already know the answer, it's not a lead -- it's validation.
-
-**Lead count:** 3-8 per round. Fewer than 3 doesn't cover enough ground. More than 8
-risks spreading too thin (and hits agent parallelism limits). Cluster related leads
-if the scope produces more.
-
-**Round evolution:** Later rounds should build on earlier findings. If Round 1
-discovered three competing approaches, Round 2 leads might investigate each one's
-trade-offs. The leads change shape as understanding deepens.
-
-## Convergence Patterns
-
-After agents return from a discover round, the Converge phase presents findings and
-helps the user narrow focus. Effective convergence surfaces four things:
-
-1. **Key insights** -- what did the agents find that matters most? Prioritize
-   surprising or decision-relevant findings over confirmations of what was already known.
-
-2. **Tensions** -- where do findings contradict each other or create trade-offs?
-   These often point toward the real decisions that need to be made.
-
-3. **Gaps** -- what's still missing? Which leads didn't produce useful results?
-   Gaps inform the next round's leads.
-
-4. **Open questions** -- what does the user want to know more about? The answer
-   determines whether to loop back (more rounds) or crystallize (decide artifact type).
-
-After convergence, explicitly capture any decisions made during the round --
-scope narrowing, option elimination, priority choices -- in the decisions file.
-These accumulate across rounds and feed into crystallize and produce phases.
-
-The user controls the loop. After convergence, they choose: explore further or
-decide what to build. Don't push toward crystallization prematurely.
-
-## Handoff Artifact Formats
-
-When /explore crystallizes to a target type, Phase 5 writes artifacts matching
-that command's expected format. The full templates live in `references/phases/phase-5-produce.md`.
-
-Summary of handoffs by target:
-
-| Target | Handoff artifact(s) |
-|--------|---------------------|
-| /prd | `wip/prd_<topic>_scope.md` |
-| /design | `docs/designs/DESIGN-<topic>.md` + `wip/design_<topic>_summary.md` |
-| /plan | None (user runs `/plan <topic>` directly) |
-| No artifact | None (summarize findings, suggest next steps) |
-| Roadmap, Spike, ADR, Competitive Analysis | Produced directly in Phase 5 |
-
-Do NOT delete wip/ research files after routing. The target skill's phases may
-reference them. Cleanup happens when the target workflow completes or when the
-user runs `/cleanup`.
-
 ---
 
 ## Exploration Workflow
@@ -340,18 +274,6 @@ in one or two lines.
 Phase 4 reads this file to inform artifact type scoring. Phase 5 includes
 accumulated decisions in handoff artifacts. The file may not exist if no
 explicit decisions were made during exploration.
-
-Handoff artifacts use the TARGET command's naming:
-
-| Target | Handoff Artifact |
-|--------|-----------------|
-| /design | `docs/designs/DESIGN-<topic>.md` + `wip/design_<topic>_summary.md` |
-| /prd | `wip/prd_<topic>_scope.md` |
-| /plan | None (takes doc path directly) |
-
-Do NOT delete wip/ research files after routing. The target skill's phases may
-reference them. Cleanup happens when the target workflow completes or when the
-user runs `/cleanup`.
 
 ---
 
