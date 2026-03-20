@@ -2,6 +2,15 @@
 
 Generate issue bodies using parallel agents with full design context and downstream awareness.
 
+## Table of Contents
+
+- [Resume Check](#resume-check)
+- [Execution Mode](#execution-mode)
+- [Prerequisites](#prerequisites)
+- [Steps](#steps): 4.1 Build Downstream Mapping, 4.2 Read Design Document, 4.3 Read Agent Prompt Template, 4.4 Prepare Agent Contexts, 4.5 Spawn Agents in Parallel, 4.6 Collect Agent Results, 4.7 Validate Agent Outputs, 4.8 Handle Validation Failures, 4.9 Handle Agent Timeouts, 4.10 Compile Final Manifest, 4.11 Report Summary
+- [Success Criteria](#success-criteria)
+- [Output](#output)
+
 ## Resume Check
 
 If `wip/plan_<topic>_manifest.json` exists, read it and skip to Phase 5. The manifest contains references to all generated issue body files.

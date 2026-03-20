@@ -2,6 +2,14 @@
 
 Create the PLAN artifact and (in multi-pr mode) GitHub milestone and issues.
 
+## Table of Contents
+
+- [Resume Check](#resume-check)
+- [Prerequisites](#prerequisites)
+- [multi-pr Mode](#multi-pr-mode): 7.1 Create GitHub Issues, 7.2 Write PLAN Artifact, 7.3 Verify Creation, 7.4 Validate Traceability
+- [single-pr Mode](#single-pr-mode): 7.1 Write PLAN Artifact, 7.2 Suggest Next Steps
+- [Common Steps](#common-steps-both-modes): 7.5 Status Transition, 7.6 Cleanup, 7.7 Report Summary, 7.8 Upstream Issue Update
+
 ## Resume Check
 
 Check if `docs/plans/PLAN-<topic>.md` exists.

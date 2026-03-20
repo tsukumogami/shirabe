@@ -2,6 +2,16 @@
 
 Break the source document into atomic issues based on effective scope and decomposition strategy.
 
+## Table of Contents
+
+- [Resume Check](#resume-check)
+- [Prerequisites](#prerequisites)
+- [Goal](#goal)
+- [Input Type Branching](#input-type-branching)
+- [Standard Decomposition](#standard-decomposition-input_type-design-or-prd): Strategy Decision, Scope-Aware Decomposition, Steps 3.1-3.5
+- [Roadmap Decomposition](#roadmap-decomposition-input_type-roadmap): Steps 3.R1-3.R4
+- [Execution Mode Selection](#execution-mode-selection-all-input-types): Step 3.6
+
 ## Resume Check
 
 If `wip/plan_<topic>_decomposition.md` exists, read it and skip to Phase 4. The artifact contains the decomposition strategy decision and issue outlines.

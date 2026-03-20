@@ -2,6 +2,21 @@
 
 Reference for constructing `PLAN-<topic>.md` artifacts. This format owns all implementation tracking: issue tables, Mermaid dependency graphs, decomposition strategy, sequencing, and issue outlines.
 
+## Table of Contents
+
+- [File Location](#file-location)
+- [Frontmatter](#frontmatter)
+- [Lifecycle](#lifecycle)
+- [Required Sections](#required-sections)
+- [Implementation Issues Table Format](#implementation-issues-table-format)
+- [Issue Descriptions](#issue-descriptions)
+- [Child Reference Row](#child-reference-row)
+- [Strikethrough Rules](#strikethrough-rules)
+- [Dependency Graph](#dependency-graph) (Mermaid syntax, status classes, node format)
+- [Section Placement](#section-placement-legacy-context)
+- [Complete Example (multi-pr mode)](#complete-example-multi-pr-mode)
+- [Complete Example (roadmap mode)](#complete-example-roadmap-mode)
+
 ## File Location
 
 PLAN artifacts live at `docs/plans/PLAN-<topic>.md`. When a PLAN reaches Done

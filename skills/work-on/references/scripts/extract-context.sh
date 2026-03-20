@@ -23,6 +23,21 @@
 #     "tier": "simple|testable|critical",
 #     "warnings": ["warning1", "warning2"]
 #   }
+#
+# Functions:
+#   display_context()       - Print section header to stdout
+#   display_warnings()      - Print accumulated warnings
+#   write_context_file()    - Write wip/IMPLEMENTATION_CONTEXT.md
+#   json_success()          - Emit success JSON summary
+#   json_failed()           - Emit failure JSON summary
+#   check_prerequisites()   - Verify gh and jq are available
+#   find_design_doc()       - Search docs/ for design doc referencing the issue
+#   parse_table_agent()     - Parse implementation issues table via agent
+#   parse_table_regex()     - Parse implementation issues table via regex fallback
+#   extract_section()       - Extract a section from markdown by heading
+#   summarize_with_agent()  - Summarize design context via agent
+#   build_context_file()    - Assemble context from design doc sections
+#   main()                  - Entry point
 
 set -euo pipefail
 
