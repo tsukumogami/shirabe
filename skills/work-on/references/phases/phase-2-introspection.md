@@ -8,10 +8,16 @@ If `wip/issue_<N>_introspection.md` exists, read it and proceed based on its rec
 
 ## Staleness Detection
 
-Run the deterministic staleness check:
+Run the deterministic staleness check. If the issue-staleness script exists, use it:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/skills/issue-staleness/scripts/check-staleness.sh <N>
+STALENESS_SCRIPT="${CLAUDE_PLUGIN_ROOT}/skills/issue-staleness/scripts/check-staleness.sh"
+if [ -f "$STALENESS_SCRIPT" ]; then
+  "$STALENESS_SCRIPT" <N>
+else
+  # Fallback: assume introspection recommended if issue is older than 7 days
+  echo '{"introspection_recommended": true, "reason": "staleness script not available"}'
+fi
 ```
 
 ### If `introspection_recommended: false`

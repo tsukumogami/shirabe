@@ -198,11 +198,10 @@ and ready for acceptance. Options:
 1. Update PRD status from "Draft" to "Accepted" (both frontmatter and Status section)
 2. Remove or empty the Open Questions section (if present)
 3. Commit: `docs(prd): accept PRD for <topic>`
-4. **Remove `needs-prd` label from source issue.** Check the PRD's frontmatter for a
-   `source_issue` field. If present, remove the label:
-   ```bash
-   gh issue edit <source_issue> --remove-label needs-prd
-   ```
+4. **Remove blocking label from source issue.** Check the PRD's frontmatter for a
+   `source_issue` field. If present, check your project's label vocabulary
+   (CLAUDE.md `## Label Vocabulary`) for which label to remove on PRD acceptance.
+   If no vocabulary is defined, remove `needs-prd` as the default.
    Skip this step if `source_issue` is not set in the frontmatter.
 5. Create PR (or update existing PR if on a shared branch)
 

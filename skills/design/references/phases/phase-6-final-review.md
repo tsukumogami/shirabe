@@ -145,41 +145,16 @@ Ask user for approval using AskUserQuestion:
 
 1. Change status from "Proposed" to "Accepted" (frontmatter and body)
 2. Commit: `docs(design): accept design for <topic>`
-3. **Remove needs-* label from source issue.** Skip if there is no source issue.
-   Otherwise, remove whatever `needs-*` label the issue has. The tracking label
-   (`tracks-plan`) is applied later by /plan Phase 7, not here.
-   ```bash
-   # Detect which needs-* label is present
-   LABELS=$(gh issue view <issue-number> [--repo <owner/repo>] --json labels --jq '.labels[].name')
-
-   # Remove whichever needs-* label is found
-   for label in needs-design needs-prd needs-spike needs-decision; do
-     if echo "$LABELS" | grep -qx "$label"; then
-       gh issue edit <issue-number> [--repo <owner/repo>] --remove-label "$label"
-       break
-     fi
-   done
-   ```
-4. **Update parent design doc** (only when step 3 found and removed a `needs-*`
-   label -- skip otherwise).
-   a. **Locate parent doc.** The script returns a `parent_design` field from the
-      issue body's `Design: \`<path>\`` line.
-      - If `parent_design` is null: warn user and skip.
-      - If path points to a different repo: warn user to update manually and skip.
-   b. **Update parent doc.** Make two changes:
-      - _Mermaid diagram:_ Change `class I<N> needsDesign` to
-        `class I<N> tracksDesign`. If the node is in a group, extract it.
-      - _Issues table:_ Insert a child reference row after the issue row:
-        `| ^_Child: [DESIGN-<child>.md](<path>)_ | | | |`
-      - Commit: `docs(<parent-topic>): track child design for #<N>`
-   c. **Add `spawned_from` to child design doc:**
-      ```yaml
-      spawned_from:
-        issue: <N>
-        repo: <owner/repo>
-        parent_design: <relative-path-to-parent-design-doc>
-      ```
-      Commit: `docs(<topic>): add spawned_from for #<N>`
+3. **Remove blocking label from source issue.** Skip if there is no source issue.
+   Check your project's label vocabulary (CLAUDE.md `## Label Vocabulary`) for
+   which labels to remove on design acceptance. If no vocabulary is defined, look
+   for any `needs-*` label and remove it. The tracking label is applied later by
+   /plan, not here.
+4. **Update parent design doc** (only when step 3 found and removed a label).
+   If your project defines a label lifecycle in the extension file
+   (`@.claude/shirabe-extensions/design.md`), follow those instructions for
+   parent doc updates (Mermaid diagram class changes, child reference rows,
+   spawned_from metadata). If no extension defines this, skip parent doc updates.
 5. **PR body convention.** If spawned from an issue, use `Ref #<N>` in the PR
    body, NOT `Fixes #<N>`. The issue stays open until implementation completes.
 6. Run complexity assessment and routing from `references/decision-presentation.md`
