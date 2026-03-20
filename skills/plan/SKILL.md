@@ -370,6 +370,7 @@ Decomposition strategy is "feature-by-feature planning."
 | `references/templates/ac-testable.md` | Phase 4 testable complexity |
 | `references/templates/walking-skeleton-issue.md` | Phase 4 walking skeleton |
 | `references/quality/plan-doc-structure.md` | Phase 7 PLAN doc construction |
+| `references/quality/plan-doc-examples.md` | Phase 7 (if examples needed) |
 | `references/quality/consumer-validation-rules.md` | When implementing a consuming skill that must validate PLAN artifacts |
 | `${CLAUDE_SKILL_DIR}/scripts/build-dependency-graph.sh` | Phase 5 |
 | `${CLAUDE_SKILL_DIR}/scripts/create-issues-batch.sh` | Phase 7 multi-pr (**stable sub-operation** via `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/create-issues-batch.sh`) |
