@@ -84,17 +84,9 @@ feature requires.
 
 ## Complexity Classification
 
-Each issue gets a complexity that determines its acceptance criteria template and
-validation depth.
-
-| Complexity | Criteria | AC Template |
-|------------|----------|-------------|
-| simple | Touches 1-3 files, no new test infrastructure, config or docs changes | Checklist of expected file changes |
-| testable | Adds new functions/methods, modifiable behavior, 4+ files | Test cases with input/output, coverage expectations |
-| critical | New infrastructure, security-sensitive, breaking changes, public APIs | Full test matrix, error scenarios, rollback plan |
-
-Assign complexity during Phase 3 (decomposition). Phase 4 agents use the complexity
-to select the appropriate acceptance criteria template.
+Each issue gets a complexity (simple, testable, or critical) that determines its
+acceptance criteria template. Assign during Phase 3; see `references/phases/phase-3-decomposition.md`
+for the full criteria and AC templates.
 
 ## Placeholder Conventions
 
@@ -136,7 +128,7 @@ From `$ARGUMENTS` (after stripping flags):
    document is required. Use when /explore produced a clear scope with no open
    decisions, or when planning a well-understood list of capabilities directly.
 
-The detected `input_type` is stored in the Phase 1 analysis artifact and gates
+Store the detected `input_type` in the Phase 1 analysis artifact -- it gates
 branching behavior in Phases 1, 3, and downstream phases.
 
 ### Context Resolution
@@ -203,21 +195,9 @@ Planning in [Strategic|Tactical] scope with [Private|Public] visibility...
 
 ### Handoff Validation
 
-Before starting any phase, verify the source document's status if one exists:
-
-**For design docs and PRDs** (input_type: design or prd):
-- **"Accepted"** -- proceed with planning
-- **"Proposed"** -- stop and inform user the design needs approval first
-- **Any other status** -- stop and inform user (designs that are already Planned, Current, or Superseded don't need re-planning)
-
-**For roadmaps** (input_type: roadmap):
-- **"Active"** -- proceed with planning
-- **"Draft"** -- stop and inform user the roadmap needs approval first (feature list not locked)
-- **"Done"** -- stop and inform user (all features already delivered)
-
-**For direct topics** (input_type: topic):
-- No status validation. Proceed directly to Phase 1.
-- The PLAN's `upstream` field will be empty.
+Only plan documents with the right status: Accepted designs/PRDs, Active roadmaps.
+Phase 1 (`references/phases/phase-1-analysis.md`) has the full validation table
+with error messages per status. Direct topics skip status validation.
 
 ### Resume Logic
 
@@ -312,13 +292,9 @@ scope from Context Resolution throughout.
 
 ### Critical Requirements
 
-- **Artifact Pattern**: file existence indicates phase completion
-- **Handoff Validation**: do not plan "Proposed" designs or "Draft" roadmaps
 - **Atomic Issues**: each issue should be independent and completable in one session
-- **Dependencies**: express using "Blocked by #N" format
-- **Source Reference**: every issue references the source document when one exists (design doc, PRD, or roadmap); omit for topic input
 - **Topic Scoping**: all wip/ artifacts include `<topic>` in the filename
-- **Input Type**: stored in Phase 1 analysis artifact, gates branching in subsequent phases
+- **Input Type**: store the detected `input_type` in the Phase 1 analysis artifact -- it gates branching in subsequent phases
 
 ### Output
 
