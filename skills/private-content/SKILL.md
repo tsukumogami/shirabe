@@ -16,6 +16,9 @@ internal strategy, and links to private resources.
 - Internal shorthand and references are acceptable
 - Focus on decision rationale and trade-offs
 - Document "why" decisions were made, not just "what"
+- Link to private repos and internal resources
+- Include pre-announcement feature discussions
+- Document abandoned approaches for historical context
 
 ## By Artifact Type
 

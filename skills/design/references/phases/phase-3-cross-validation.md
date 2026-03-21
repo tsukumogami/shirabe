@@ -51,7 +51,7 @@ volume.
 ### 3.4 Write Considered Options
 
 Map each decision report into the design doc's Considered Options section
-using the rendering rules from `references/decision-report-format.md`:
+using the rendering rules from `${CLAUDE_PLUGIN_ROOT}/references/decision-report-format.md`:
 
 - Context → opening paragraphs under `### Decision N: <Topic>`
 - Assumptions → bulleted "Key assumptions:" within Context
