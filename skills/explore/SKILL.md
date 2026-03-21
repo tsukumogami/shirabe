@@ -6,6 +6,8 @@ description: Structured exploration workflow and artifact-type routing advisor. 
   doc?", "I don't know where to start", "what should I do next?", "how do I start this?", "I'm
   stuck", or explicit /explore invocations. Helps figure out whether you need a PRD, design doc,
   plan, or something else through a discover-converge loop with research agents.
+  Does NOT apply when the user already knows their artifact type -- use /prd, /design,
+  or /plan directly instead.
 argument-hint: '<topic or issue number>'
 ---
 
@@ -55,27 +57,11 @@ When a user isn't sure what to build, use this table to recommend a starting poi
 | Medium | Known approach, some integration risk | `/design` then `/plan` |
 | Complex | Multiple unknowns, shape unclear | `/explore` to discover first |
 
-## Crystallize Framework Summary
+## Crystallize Framework
 
-The crystallize framework evaluates which artifact type fits an exploration's findings.
-Full reference: `references/quality/crystallize-framework.md`
-
-**Supported types** with key signals:
-
-| Type | Key Signals | Key Anti-Signals |
-|------|------------|-----------------|
-| PRD | Single feature, unclear requirements, multiple stakeholders | Requirements were given as input (not discovered), multiple independent features |
-| Design Doc | What is clear but how is not, technical decisions needed | What is still unclear, no technical risk |
-| Plan | Scope confirmed, work decomposable into issues | Open decisions remain, no clear deliverables |
-| No artifact | Confirmed existing understanding, no new decisions made | Any decisions were made during exploration, others need docs |
-
-**Deferred types** (recognized but not yet routable):
-Spike Report, Decision Record, Competitive Analysis, Prototype, Roadmap.
-If these fit best, suggest the closest available alternative.
-
-**Scoring:** Count signals present minus anti-signals present per type. Demote any
-type with anti-signals below types without. Apply tiebreakers for close calls.
-See the full framework for details.
+Phase 4 uses the crystallize framework to evaluate which artifact type fits the
+exploration's findings. See `references/quality/crystallize-framework.md` for the
+full scoring system, loaded during Phase 4.
 
 ---
 
