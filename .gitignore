@@ -11,7 +11,10 @@ Thumbs.db
 *~
 .idea/
 .vscode/
-.claude/
+# Claude Code local state (not committed)
+.claude/*
+# But commit the project settings (plugins, permissions)
+!.claude/settings.json
 
 # Eval workspaces (generated outputs, not committed)
 **/evals/workspace/
