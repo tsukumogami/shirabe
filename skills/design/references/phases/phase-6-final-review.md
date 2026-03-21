@@ -157,7 +157,7 @@ Ask user for approval using AskUserQuestion:
    spawned_from metadata). If no extension defines this, skip parent doc updates.
 5. **PR body convention.** If spawned from an issue, use `Ref #<N>` in the PR
    body, NOT `Fixes #<N>`. The issue stays open until implementation completes.
-6. Run complexity assessment and routing from `references/decision-presentation.md`
+6. Run the complexity assessment and routing from the design SKILL.md "Output" section (the table comparing Simple vs Complex criteria, followed by the AskUserQuestion presenting Plan vs Approve options). Use `references/decision-presentation.md` for the AskUserQuestion formatting pattern.
 
 ### 6.9 Clean Up wip/ Artifacts
 
