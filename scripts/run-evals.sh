@@ -196,6 +196,14 @@ PROMPT
   echo ""
   echo "=== Validating results ==="
   validate_results "$iter_dir" "$eval_count"
+
+  # Step 4: Open viewer if it was generated
+  local viewer="/tmp/${skill_name}-eval-review.html"
+  if [ -f "$viewer" ]; then
+    echo ""
+    echo "Open the eval viewer:"
+    echo "  xdg-open $viewer"
+  fi
 }
 
 validate_results() {
