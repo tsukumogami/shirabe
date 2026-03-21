@@ -110,6 +110,12 @@ A merged PR with passing CI, referenced back to the source issue.
 
 ## Begin
 
+**Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive` flags,
+then CLAUDE.md `## Execution Mode:` header (default: `interactive`). In --auto
+mode, follow `references/decision-protocol.md` at decision points (W1, W2).
+Safety gates (W3, W4) remain blocking in both modes. Create
+`wip/work-on_<N>_decisions.md` if any decisions are recorded.
+
 First, resolve the input using the Input Resolution section above. Once you have an issue number, read the issue with `gh issue view <issue-number>`. Check for blocking labels as defined in your project's label vocabulary (CLAUDE.md `## Label Vocabulary`) and stop if any are present.
 
 Detect repo visibility from CLAUDE.md (`## Repo Visibility: Public|Private`). If not found, infer from repo path (`private/` -> Private, `public/` -> Public; default to Private). Load the appropriate content governance skill:

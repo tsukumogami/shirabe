@@ -136,6 +136,13 @@ branching behavior in Phases 1, 3, and downstream phases.
 
 Check `$ARGUMENTS` for flags before extracting the document path:
 
+**Execution mode flags:**
+- `--auto` -- non-interactive execution; follow `references/decision-protocol.md`
+  at all decision points; create `wip/plan_<topic>_decisions.md`
+- `--interactive` -- force interactive (default)
+
+If no mode flag, read CLAUDE.md `## Execution Mode:` header.
+
 **Scope flags:**
 - `--strategic` -- force strategic scope
 - `--tactical` -- force tactical scope

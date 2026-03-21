@@ -134,6 +134,12 @@ From `$ARGUMENTS`:
 
 ### Context Resolution
 
+**Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive` flags,
+then CLAUDE.md `## Execution Mode:` header (default: `interactive`). Also
+parse `--max-rounds=N` (default: 1 for design's corrective loop). In --auto
+mode, follow `references/decision-protocol.md` at all decision points. Create
+`wip/design_<topic>_decisions.md` to track decisions.
+
 Detect visibility and scope as described in Context-Aware Sections above.
 For cross-repo source issues, use `gh` commands to read content.
 

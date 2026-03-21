@@ -60,6 +60,12 @@ From `$ARGUMENTS`:
 
 ### Context Resolution
 
+**Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive` flags,
+then CLAUDE.md `## Execution Mode:` header (default: `interactive`). Also
+parse `--max-rounds=N` (default: 2 for prd's discover loop). In --auto mode,
+follow `references/decision-protocol.md` at all decision points. Create
+`wip/prd_<topic>_decisions.md` to track decisions.
+
 Detect visibility (Private/Public) from CLAUDE.md or repo path. Infer from
 `private/` or `public/` in path if not explicit. Default to Private if unknown -- restricting is easier to undo than oversharing.
 
