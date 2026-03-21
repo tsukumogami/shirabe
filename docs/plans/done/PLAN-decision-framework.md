@@ -1,6 +1,6 @@
 ---
 schema: plan/v1
-status: Draft
+status: Done
 execution_mode: multi-pr
 upstream: docs/designs/DESIGN-decision-framework.md
 milestone: "Decision Framework"

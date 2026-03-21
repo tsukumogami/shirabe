@@ -1,0 +1,686 @@
+{
+  "pr_status": "docs_validated",
+  "design_doc": "docs/plans/PLAN-decision-framework.md",
+  "branch": "docs/extract-workflow-skills-extensibility",
+  "pr_number": 5,
+  "integrity_hash": "sha256:34886bf39f1640db7b439976dc5c83937f1810fe7789e554a979b369c91d606a",
+  "issues": [
+    {
+      "number": 1,
+      "title": "docs(decision): create decision block format specification",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "cc89153d4c3bd5214197b8dd178b2ce5f353693e"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "references/decision-block-format.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Format matches design D1 and D9",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 2,
+      "title": "docs(decision): create lightweight decision protocol specification",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "eb72b64f29badbd6a849ae16ab27e5df059ad6e5"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "references/decision-protocol.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Matches D3, D12 from design",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 3,
+      "title": "docs(decision): create decision point manifest",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "346b70fde3fc2e0cbe5ee8a8c559bd178bb9b63f"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "references/decision-points.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Tiers assigned per D12 criteria",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 4,
+      "title": "docs(decision): create decision report format specification",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "23dc55b3a40c05ccc63babbf518f91830ae2bfee"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "references/decision-report-format.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Co-located rendering per D11",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 5,
+      "title": "docs(decision): create consolidated decisions file format",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "c70126b325d85dd12f3d9abc7840d02a534db8f3"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "references/decisions-file-format.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Single file per D14",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 6,
+      "title": "docs(decision): create review surface templates",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "c978507955243f862209c09673dc8f5176f09c05"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "references/review-surface.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Three layers per D2",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 7,
+      "title": "feat(explore): add --auto flag and decision protocol integration",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "d0758b2f7ba5429f452d2c882c9508b22c99cc73"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/explore/SKILL.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Protocol reference not duplication",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 8,
+      "title": "feat(design): add --auto flag and decision protocol integration",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "9908302"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/*/SKILL.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Shared protocol reference",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 9,
+      "title": "feat(prd): add --auto flag and decision protocol integration",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "9908302"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/*/SKILL.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Shared protocol reference",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 10,
+      "title": "feat(plan): add --auto flag and decision protocol integration",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "9908302"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/*/SKILL.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Shared protocol reference",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 11,
+      "title": "feat(work-on): add --auto flag and decision protocol integration",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "9908302"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/*/SKILL.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Shared protocol reference",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 12,
+      "title": "feat(decision): create SKILL.md with input/output contracts",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "dddacabdf0918c0cf0df09298c4039cffb23edd4"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/decision/SKILL.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Matches D4, D8 from design",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 13,
+      "title": "feat(decision): implement Phase 0 - context and framing",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "accb64d"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/decision/references/phases/"
+        ],
+        "tests_added": 0,
+        "key_decisions": "All phases under 130 lines",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 14,
+      "title": "feat(decision): implement Phase 1 - research",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "accb64d"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/decision/references/phases/"
+        ],
+        "tests_added": 0,
+        "key_decisions": "All phases under 130 lines",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 15,
+      "title": "feat(decision): implement Phase 2 - alternative presentation",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "accb64d"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/decision/references/phases/"
+        ],
+        "tests_added": 0,
+        "key_decisions": "All phases under 130 lines",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 16,
+      "title": "feat(decision): implement Phases 3-5 - bakeoff, peer revision, cross-examination",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "accb64d"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/decision/references/phases/"
+        ],
+        "tests_added": 0,
+        "key_decisions": "All phases under 130 lines",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 17,
+      "title": "feat(decision): implement Phase 6 - synthesis and report",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "accb64d"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/decision/references/phases/"
+        ],
+        "tests_added": 0,
+        "key_decisions": "All phases under 130 lines",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 18,
+      "title": "feat(decision): add to plugin manifest and create plugin entry",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "accb64d"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "none"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Plugin uses directory scan; no manifest change needed",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 19,
+      "title": "refactor(design): implement Phase 1 - decision decomposition",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "f311c29"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/design/"
+        ],
+        "tests_added": 0,
+        "key_decisions": "8 phases per D6",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 20,
+      "title": "refactor(design): implement Phase 2 - decision execution",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "f311c29"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/design/"
+        ],
+        "tests_added": 0,
+        "key_decisions": "8 phases per D6",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 21,
+      "title": "refactor(design): implement Phase 3 - cross-validation",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "f311c29"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/design/"
+        ],
+        "tests_added": 0,
+        "key_decisions": "8 phases per D6",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 22,
+      "title": "refactor(design): slim Phase 4 investigation and update SKILL.md",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "f311c29"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/design/"
+        ],
+        "tests_added": 0,
+        "key_decisions": "8 phases per D6",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 23,
+      "title": "feat(explore): add decision skill handoff for Decision Record",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "e303dc327f35e1d33bce0820c30cc0abde552d84"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/explore/"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Handoff pattern matches /design and /prd",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    },
+    {
+      "number": 24,
+      "title": "feat: implement assumption invalidation flow",
+      "status": "completed",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "e3cc5d8918d73398ba67f0dedc4ecc87366235bf"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "references/assumption-invalidation.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Cascade bounded at depth 2",
+        "requirements_map": {}
+      },
+      "reviewer_results": {
+        "reviewers": [],
+        "verdict": "approve",
+        "issues_found": 0
+      },
+      "testable_scenarios": []
+    }
+  ],
+  "skipped_issues": [],
+  "test_plan_file": null,
+  "source_doc_type": "plan",
+  "execution_mode": "multi-pr",
+  "deliverable_type": "docs"
+}

@@ -1,6 +1,6 @@
 ---
 schema: plan/v1
-status: Draft
+status: Done
 execution_mode: single-pr
 milestone: "Skill Quality Improvements"
 issue_count: 26

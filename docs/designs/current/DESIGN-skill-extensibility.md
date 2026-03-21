@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Current
 problem: |
   shirabe's five workflow skills need to be extracted into the plugin and made
   extensible so downstream consumers can layer project-specific behavior without
@@ -28,7 +28,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Current
 
 ## Context and Problem Statement
 
