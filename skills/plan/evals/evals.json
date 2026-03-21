@@ -3,9 +3,58 @@
   "evals": [
     {
       "id": 1,
-      "name": "design-to-plan",
+      "name": "design-doc-planning",
+      "prompt": "/plan docs/designs/DESIGN-plugin-registry.md",
+      "expected_output": "Detects input_type as design, validates the design doc status is Accepted, runs all 7 phases, produces wip/ artifacts and a PLAN-plugin-registry.md with dependency graph and implementation sequence",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "direct-topic-no-document",
+      "prompt": "/plan add rate limiting to the API gateway",
+      "expected_output": "Detects input_type as topic (not a file path), skips status validation, proceeds directly through planning phases without an upstream document reference, produces PLAN-add-rate-limiting-to-the-api-gateway.md",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "walking-skeleton-flag",
+      "prompt": "/plan docs/designs/DESIGN-event-pipeline.md --walking-skeleton",
+      "expected_output": "Forces walking skeleton decomposition strategy regardless of component coupling analysis. The first issue in the dependency graph is the skeleton issue exercising the full pipeline end-to-end, with all thickening issues depending on it",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "horizontal-decomposition-flag",
+      "prompt": "/plan docs/designs/DESIGN-cli-parser.md --no-skeleton",
+      "expected_output": "Forces horizontal (layer-by-layer) decomposition. Issues build one component fully before moving to the next. No skeleton issue appears. Decomposition strategy section documents the horizontal choice with rationale",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "single-pr-execution-mode",
+      "prompt": "/plan docs/designs/DESIGN-config-validation.md",
+      "expected_output": "For a small design (few issues, low complexity), recommends single-pr mode. Phase 4 produces structured outlines instead of full issue bodies. Phase 7 writes Issue Outlines into the PLAN doc, creates no GitHub issues or milestone, and sets PLAN status to Draft",
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "multi-pr-execution-mode",
       "prompt": "/plan docs/designs/DESIGN-authentication-system.md",
-      "expected_output": "Plan skill validates design is Accepted, decomposes into atomic issues, produces a PLAN doc with dependency graph",
+      "expected_output": "For a large design (many issues, mixed complexity, deep dependencies), recommends multi-pr mode. Phase 4 generates full issue body files via agents. Phase 7 creates a GitHub milestone, creates issues with complexity labels, populates the Implementation Issues table, and sets PLAN status to Active",
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "auto-mode-non-interactive",
+      "prompt": "/plan docs/designs/DESIGN-notification-service.md --auto",
+      "expected_output": "Runs non-interactively with no user prompts at decision points. Follows references/decision-protocol.md for all choices (decomposition strategy, execution mode). Creates wip/plan_notification-service_decisions.md logging each automated decision with rationale",
+      "files": []
+    },
+    {
+      "id": 8,
+      "name": "roadmap-input-type",
+      "prompt": "/plan docs/roadmaps/ROADMAP-q3-platform.md",
+      "expected_output": "Detects input_type as roadmap, validates status is Active. Uses feature-by-feature decomposition (not walking skeleton or horizontal). Each roadmap feature becomes one planning issue with simple complexity and a needs_label (needs-prd, needs-design, needs-spike, or needs-decision). PLAN upstream field points to the roadmap",
       "files": []
     }
   ]

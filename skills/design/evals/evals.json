@@ -3,9 +3,58 @@
   "evals": [
     {
       "id": 1,
-      "name": "freeform-design",
+      "name": "freeform-topic-full-workflow",
       "prompt": "/design authentication-system",
-      "expected_output": "Design skill runs 8-phase workflow, identifies decision questions, produces a design doc with Considered Options",
+      "expected_output": "Design skill triggers with freeform input mode. Phase 0 reads phase-0-setup-freeform.md, creates branch and design doc skeleton at docs/designs/DESIGN-authentication-system.md, writes wip/design_authentication-system_summary.md. Phase 1 decomposes into independent decision questions (e.g., session management strategy, credential storage, token format). Phase 2 spawns one decision agent per question. Phase 3 cross-validates assumptions across decisions. Phases 4-7 continue sequentially. Final doc has all required sections: Status, Context and Problem Statement, Decision Drivers, Considered Options, Decision Outcome, Solution Architecture, Implementation Approach, Security Considerations, Consequences. Status set to Proposed. Frontmatter includes problem, decision, rationale fields.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "prd-based-design",
+      "prompt": "/design docs/prds/PRD-plugin-system.md",
+      "expected_output": "Design skill detects path matches docs/prds/PRD-*.md pattern and enters PRD mode. Phase 0 reads phase-0-setup-prd.md, validates PRD status is Accepted, extracts requirements and constraints from the PRD. Sets upstream field in frontmatter to docs/prds/PRD-plugin-system.md. Design doc scoping derives from PRD content rather than asking the user to describe the problem. Decision Drivers section reflects the PRD's requirements. The rest of the 8-phase workflow proceeds normally.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "auto-mode-no-interaction",
+      "prompt": "/design --auto rate-limiting",
+      "expected_output": "Design skill runs in --auto mode. Reads references/decision-protocol.md for decision points. Creates wip/design_rate-limiting_decisions.md to track decisions. No AskUserQuestion calls at any phase. Phase 1 decomposes without user confirmation. Phase 2 decision agents run without presenting recommendations to user. Phase 7 skips interactive review. All choices use the auto decision protocol. Complexity assessment at the end still presented but does not block. Terminal summary lists all assumptions made.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "decision-decomposition-then-parallel-execution",
+      "prompt": "/design caching-layer",
+      "expected_output": "Phase 1 (Decision Decomposition) reads phase-1-decomposition.md and identifies 2-4 independent decision questions before any execution begins (e.g., cache invalidation strategy, storage backend, TTL policy). Writes wip/design_caching-layer_coordination.json with all questions listed. Phase 2 spawns one decision agent per question in parallel. Each agent produces wip/design_caching-layer_decision_<N>_report.md. The critical requirement is that ALL questions are identified in Phase 1 before ANY decision agent is spawned in Phase 2.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "cross-validation-catches-conflict",
+      "prompt": "/design --auto distributed-task-queue",
+      "expected_output": "Phase 3 (Cross-Validation) runs after Phase 2, even if all decisions completed without error. Cross-validation reads all decision reports and checks for conflicting assumptions. For example, if Decision 1 assumes low message volume while Decision 2 picks a pattern that generates high message volume, Phase 3 flags the conflict and triggers re-evaluation of the affected decision with the conflicting outcome as a constraint. Cross-validation is mandatory and cannot be skipped, even with a single decision.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "resume-from-interrupted-phase-2",
+      "prompt": "/design api-versioning",
+      "expected_output": "Skill finds existing wip/design_api-versioning_coordination.json with some decisions marked complete and some pending. Resume logic matches 'coordination.json exists with some pending' and resumes at Phase 2 rather than restarting from Phase 0. Only the pending decision questions are re-executed. Already-completed decision reports are preserved. After completing the remaining decisions, workflow continues to Phase 3 cross-validation.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "security-review-mandatory",
+      "prompt": "/design --auto static-config-loader",
+      "expected_output": "Even though a static config loader has minimal security surface, Phase 6 (Security) always runs. The skill reads phase-6-security.md. The security review may conclude with N/A for most categories, but the review itself is not skipped. The Security Considerations section appears in the final doc. This validates the critical requirement that security review is mandatory regardless of topic.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "name": "simple-vs-complex-output-routing",
+      "prompt": "/design --auto cli-flag-rename",
+      "expected_output": "After Phase 7 produces the final design doc, the skill runs a complexity assessment. A CLI flag rename touches 1-3 files, requires only test updates, no API changes, no cross-package work. Assessment classifies as Simple. Presents options: 'Plan (Recommended)' or 'Approve only'. If the design instead involved cross-package changes and new test infrastructure, it would classify as Complex. The routing determines how the next step suggestion is framed, not whether /plan is available.",
       "files": []
     }
   ]

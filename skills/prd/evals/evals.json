@@ -3,9 +3,58 @@
   "evals": [
     {
       "id": 1,
-      "name": "basic-prd",
-      "prompt": "/prd user-onboarding-flow",
-      "expected_output": "PRD skill runs conversational scoping, research, drafting, and jury review. Produces a PRD with all 7 required sections",
+      "name": "create-prd-from-topic",
+      "prompt": "/prd notification-preferences",
+      "expected_output": "Skill enters Phase 1 conversational scoping. Asks clarifying questions about notification preferences (channels, user control, defaults). Does NOT jump straight to drafting. Tracks coverage of problem space before moving to Phase 2 discover.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "auto-mode-non-interactive",
+      "prompt": "/prd --auto api-rate-limiting",
+      "expected_output": "Runs all phases without blocking on user input. Creates wip/prd_api-rate-limiting_decisions.md to track autonomous decisions. Follows decision-protocol.md at each decision point. Produces a complete PRD at docs/prds/PRD-api-rate-limiting.md with Draft status.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "jury-review-phase",
+      "prompt": "/prd --auto webhook-delivery-guarantees",
+      "expected_output": "Phase 4 spawns 3 review agents that evaluate the PRD for ambiguity, testability gaps, and completeness. Each agent produces independent findings. Jury feedback is synthesized and applied to the PRD before finalization. Review is not skipped.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "lifecycle-draft-to-accepted",
+      "prompt": "/prd --auto plugin-marketplace",
+      "expected_output": "PRD is initially created with status Draft in frontmatter. After jury review and user approval, status transitions to Accepted. Final file at docs/prds/PRD-plugin-marketplace.md has status: Accepted in frontmatter.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "routing-simple-to-plan",
+      "prompt": "/prd --auto cli-help-text-improvements",
+      "expected_output": "After PRD acceptance, skill suggests next step based on complexity. For a simple scope like help text improvements, recommends the plan skill as the next step rather than design.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "routing-complex-to-design",
+      "prompt": "/prd --auto distributed-caching-layer",
+      "expected_output": "After PRD acceptance, skill recognizes this as a complex topic requiring technical architecture decisions. Suggests the design skill as the next step rather than plan.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "empty-argument-prompts-user",
+      "prompt": "/prd",
+      "expected_output": "With no topic argument, skill asks the user what feature or capability they want to specify. Does not assume a topic or start drafting immediately.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "name": "branch-creation-setup",
+      "prompt": "/prd search-indexing",
+      "expected_output": "Phase 0 creates a feature branch named docs/search-indexing (kebab-case) before starting scoping. Work happens off main. If already on a matching branch, skips creation.",
       "files": []
     }
   ]

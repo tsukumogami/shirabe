@@ -3,9 +3,58 @@
   "evals": [
     {
       "id": 1,
-      "name": "revise-prose",
-      "prompt": "Can you clean up this paragraph? It leverages comprehensive holistic approaches to facilitate robust transformative outcomes.",
-      "expected_output": "Skill triggers, identifies AI tells (leverage, comprehensive, holistic, facilitate, robust, transformative), revises to direct natural prose",
+      "name": "revise-draft-direct",
+      "prompt": "Revise this draft for me:\n\nThe platform leverages a comprehensive suite of tools to facilitate seamless integration across robust enterprise environments. It's worth noting that this innovative approach fosters transformative outcomes. Additionally, the system showcases meticulous attention to detail, underscoring its pivotal role in the landscape of modern development.",
+      "expected_output": "Skill triggers on direct revision request. Removes flagged words (leverage, comprehensive, facilitate, seamless, robust, innovative, transformative, fosters, showcases, meticulous, pivotal, landscape, underscoring). Removes filler opener ('It's worth noting'). Removes adverb opener ('Additionally'). Returns concrete, direct prose with contractions and varied sentence length.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "word-avoidance-organizing-verbs",
+      "prompt": "Clean up this text:\n\nThis crucial tool utilizes holistic strategies to navigate the intricate realm of deployment. It serves as a testament to the team's resilience, garnering invaluable insights along the journey.",
+      "expected_output": "Identifies and replaces: crucial, utilizes (use), holistic, navigate, intricate, realm, serves as (is), testament, resilience, garnering, invaluable, journey. Produces direct prose that names specifics instead of abstract nouns.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "phrase-pattern-detection",
+      "prompt": "Improve this paragraph:\n\nGreat question! In today's rapidly evolving tech landscape, let's delve into why this matters. At its core, experts argue that containerization is transformative. As previously mentioned, this provides valuable insights into deployment practices. In conclusion, I hope this helps!",
+      "expected_output": "Detects and removes chatbot artifacts ('Great question!', 'I hope this helps!'). Removes filler openers ('In today's', 'Let's delve into', 'At its core'). Removes 'As previously mentioned' and 'In conclusion'. Flags 'experts argue' without citation. Replaces 'provides valuable insights into' with something specific. Result is direct and informative.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "structural-tells-em-dash-contractions",
+      "prompt": "Make this sound more human:\n\nThe system -- which was designed to handle multiple workloads -- provides a unified interface. It does not require any manual configuration. We would not recommend running it without monitoring. The architecture -- built on microservices -- is not limited to a single cloud provider. It has the ability to scale horizontally.",
+      "expected_output": "Replaces em dashes (or double hyphens used as em dashes) with commas, parentheses, or colons. Adds contractions: 'does not' to 'doesn't', 'would not' to 'wouldn't', 'is not' to 'isn't'. Replaces 'has the ability to' with 'can'. Varies sentence length for burstiness.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "formatting-tells-title-case-bold",
+      "prompt": "Revise this section, including the formatting:\n\n## Key Benefits And Features\n\nThe tool provides **robust** error handling, **seamless** integration, and **comprehensive** logging. Every component is **meticulously** tested.\n\n## How It Enhances Your Workflow\n\nThe **innovative** plugin system **facilitates** extension development.",
+      "expected_output": "Converts Title Case headings to sentence case ('Key benefits and features'). Removes excessive bold -- keeps bold only for genuine emphasis. Replaces flagged words (robust, seamless, comprehensive, meticulously, innovative, facilitates, enhances). Avoids forced rule of three in the benefits list if two items suffice.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "burstiness-and-specifics",
+      "prompt": "Rewrite this to sound like a human wrote it:\n\nThe migration process involves several important steps. First, the team needs to evaluate the existing infrastructure. Then, the team needs to plan the migration strategy. After that, the team needs to execute the migration. Finally, the team needs to verify the results. This process is important for ensuring a successful outcome.",
+      "expected_output": "Introduces burstiness: dramatic sentence length variation (mix of short punchy sentences with longer ones). Replaces vague language ('several important steps', 'successful outcome') with specifics. Eliminates the repetitive 'the team needs to' pattern (synonym cycling / uniform structure). Cuts the empty conclusion. Takes a position or adds concrete detail.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "over-formality-substitutions",
+      "prompt": "Simplify this:\n\nIn order to deploy the service, prior to initiating the build, due to the fact that the CI pipeline requires authentication, with respect to credentials management, at this point in time we store secrets in Vault. Subsequent to the build completing, the artifact is pushed.",
+      "expected_output": "Applies over-formality substitutions: 'In order to' -> 'To', 'prior to' -> 'before', 'due to the fact that' -> 'because', 'with respect to' -> 'for/about', 'at this point in time' -> 'now', 'subsequent to' -> 'after'. Result reads as natural technical writing.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "name": "proactive-prose-generation",
+      "prompt": "Write a short summary of what a CI pipeline does for a README.",
+      "expected_output": "Skill applies proactively (prose production, not revision). The generated text avoids all flagged words and phrases from the start. Uses contractions naturally. Has sentence length variation. Uses sentence case if headings are included. No em dash overuse. Names specifics (e.g., 'runs tests, builds the binary, pushes to the registry') rather than abstract language ('facilitates seamless deployment workflows').",
       "files": []
     }
   ]

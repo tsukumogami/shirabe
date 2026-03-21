@@ -3,9 +3,58 @@
   "evals": [
     {
       "id": 1,
-      "name": "implement-issue",
+      "name": "specific-issue-number",
       "prompt": "/work-on #42",
-      "expected_output": "Work-on resolves issue, creates branch, runs analysis, implements, creates PR with CI monitoring",
+      "expected_output": "Resolves issue #42, reads it with gh issue view, creates a feature branch, runs all 7 phases (context injection through PR creation), produces baseline/plan/summary artifacts in wip/, and creates a PR referencing the issue.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "milestone-auto-select",
+      "prompt": "/work-on M3",
+      "expected_output": "Lists open issues in milestone 3, identifies dependency relationships, selects the lowest-numbered unblocked issue, then proceeds with the full workflow for that issue. Reports which issue was selected and why.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "auto-mode-flag",
+      "prompt": "/work-on #15 --auto",
+      "expected_output": "Runs in automatic execution mode. At decision points (W1, W2), follows the decision protocol from references/decision-protocol.md instead of asking the user. Creates wip/work-on_15_decisions.md to record any decisions made. Safety gates (W3, W4) still block and require user input.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "blocking-label-needs-design",
+      "prompt": "/work-on #8",
+      "expected_output": "Reads issue #8 which has a needs-design label. Detects the blocking label from the project's label vocabulary, displays a routing message explaining the issue requires a design document before implementation, and stops execution without entering any workflow phase.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "needs-triage-label",
+      "prompt": "/work-on #23",
+      "expected_output": "Reads issue #23 which has a needs-triage label. Checks the project's label vocabulary for routing options. If a triage workflow is defined in the extension file, invokes it. Otherwise, asks the user whether to proceed directly or reclassify the issue first.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "resume-interrupted-session",
+      "prompt": "/work-on #42",
+      "expected_output": "Detects existing artifacts from a previous interrupted session by checking wip/ files and git log for issue-42 commits. Determines the current phase (e.g., plan commit exists so resumes at Phase 4 Implementation) and continues from that point rather than restarting from Phase 0.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "milestone-all-blocked",
+      "prompt": "/work-on M5",
+      "expected_output": "Lists open issues in milestone 5, checks dependency sections, finds that all issues are blocked by open dependencies. Reports which issues are blocked and by what, then stops without starting any implementation.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "name": "issue-url-input",
+      "prompt": "/work-on https://github.com/org/repo/issues/71",
+      "expected_output": "Parses the GitHub issue URL to extract issue number 71, reads the issue with gh issue view, checks for blocking labels, detects repo visibility from CLAUDE.md, loads the appropriate content governance skill, and proceeds with the full workflow starting at Phase 0.",
       "files": []
     }
   ]
