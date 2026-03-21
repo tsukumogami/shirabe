@@ -1,0 +1,12 @@
+{
+  "skill_name": "explore",
+  "evals": [
+    {
+      "id": 1,
+      "name": "open-ended-exploration",
+      "prompt": "I want to add real-time notifications to our app but I'm not sure if I need a design doc or just a PRD -- can you help me figure out the right approach?",
+      "expected_output": "Explore triggers, runs discover-converge loop, crystallizes to an artifact type recommendation",
+      "files": []
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "skill_name": "design",
+  "evals": [
+    {
+      "id": 1,
+      "name": "freeform-design",
+      "prompt": "/design authentication-system",
+      "expected_output": "Design skill runs 8-phase workflow, identifies decision questions, produces a design doc with Considered Options",
+      "files": []
+    }
+  ]
+}

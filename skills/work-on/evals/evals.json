@@ -1,0 +1,12 @@
+{
+  "skill_name": "work-on",
+  "evals": [
+    {
+      "id": 1,
+      "name": "implement-issue",
+      "prompt": "/work-on #42",
+      "expected_output": "Work-on resolves issue, creates branch, runs analysis, implements, creates PR with CI monitoring",
+      "files": []
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "skill_name": "plan",
+  "evals": [
+    {
+      "id": 1,
+      "name": "design-to-plan",
+      "prompt": "/plan docs/designs/DESIGN-authentication-system.md",
+      "expected_output": "Plan skill validates design is Accepted, decomposes into atomic issues, produces a PLAN doc with dependency graph",
+      "files": []
+    }
+  ]
+}

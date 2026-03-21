@@ -1,0 +1,12 @@
+{
+  "skill_name": "writing-style",
+  "evals": [
+    {
+      "id": 1,
+      "name": "revise-prose",
+      "prompt": "Can you clean up this paragraph? It leverages comprehensive holistic approaches to facilitate robust transformative outcomes.",
+      "expected_output": "Skill triggers, identifies AI tells (leverage, comprehensive, holistic, facilitate, robust, transformative), revises to direct natural prose",
+      "files": []
+    }
+  ]
+}

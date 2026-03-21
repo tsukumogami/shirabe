@@ -1,0 +1,19 @@
+name: Check skill evals exist
+
+on:
+  pull_request:
+    paths:
+      - 'skills/**'
+
+jobs:
+  check-evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Check all skills have evals
+        run: scripts/check-evals-exist.sh

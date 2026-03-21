@@ -7,14 +7,15 @@ not just code review. These guidelines apply to any agent working on this repo.
 
 When adding or modifying a skill:
 
-1. **Write eval scenarios** in `evals/evals.json` that cover the skill's key
-   behaviors. Each eval has a prompt (what a real user would say), expected
-   output (what the skill should produce), and assertions (objectively
+1. **Write eval scenarios** in `skills/<name>/evals/evals.json` that cover the
+   skill's key behaviors. Each eval has a prompt (what a real user would say),
+   expected output (what the skill should produce), and assertions (objectively
    verifiable checks).
 
-2. **Run evals using /skill-creator** before considering the work done. Spawn
-   agents with the skill loaded and without (baseline), collect outputs, grade
-   against assertions, and generate the eval viewer for human review.
+2. **Run evals using /skill-creator** before considering the work done. Use
+   `scripts/run-evals.sh <skill-name>` to set up the eval workspace, then
+   spawn agents with the skill loaded and without (baseline), grade against
+   assertions, and generate the eval viewer for human review.
 
 3. **Iterate based on eval results.** If an eval fails or produces unexpected
    output, fix the skill and re-run. Don't ship skills that haven't been
@@ -27,19 +28,40 @@ This applies to:
 
 ## Eval Structure
 
+Evals are co-located with their skill, not in a central directory:
+
 ```
-evals/
-  evals.json              # All eval scenarios with assertions
-<skill>-workspace/
-  iteration-N/
-    eval-<name>/
-      with_skill/outputs/  # Outputs from agent with skill loaded
-      without_skill/outputs/ # Baseline outputs without skill
-      eval_metadata.json   # Prompt + assertions
-      grading.json         # Pass/fail per assertion
-      timing.json          # Token count and duration
-    benchmark.json         # Aggregated results
+skills/<name>/
+  SKILL.md
+  evals/
+    evals.json                # This skill's eval scenarios + assertions
+    workspace/                # gitignored; created by run-evals.sh
+      iteration-N/
+        <eval-name>/
+          with_skill/outputs/   # Agent outputs with skill loaded
+          without_skill/outputs/ # Baseline outputs without skill
+          eval_metadata.json    # Prompt + assertions for this eval
+          grading.json          # Pass/fail per assertion
+          timing.json           # Token count and duration
+        benchmark.json          # Aggregated results for this iteration
 ```
+
+## Running Evals
+
+```bash
+# List skills that have evals
+scripts/run-evals.sh --list
+
+# Prepare eval workspace for one skill
+scripts/run-evals.sh decision
+
+# Prepare eval workspace for all skills
+scripts/run-evals.sh --all
+```
+
+The script prepares directories and metadata. To execute the evals, invoke
+/skill-creator with the prepared workspace, or spawn agents manually per
+the skill-creator's eval workflow.
 
 ## Skill Quality Standards
 

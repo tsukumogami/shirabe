@@ -1,0 +1,12 @@
+{
+  "skill_name": "prd",
+  "evals": [
+    {
+      "id": 1,
+      "name": "basic-prd",
+      "prompt": "/prd user-onboarding-flow",
+      "expected_output": "PRD skill runs conversational scoping, research, drafting, and jury review. Produces a PRD with all 7 required sections",
+      "files": []
+    }
+  ]
+}
