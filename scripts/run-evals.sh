@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run-evals.sh - Run skill evals using the skill-creator pattern
+# run-evals.sh - Run skill evals using /skill-creator
 #
 # Usage:
 #   scripts/run-evals.sh <skill-name>        Run evals for one skill
@@ -9,10 +9,11 @@
 # Each skill's evals live at skills/<name>/evals/evals.json.
 # Results go to skills/<name>/evals/workspace/iteration-<N>/.
 #
-# The script spawns agents with and without the skill loaded,
-# collects outputs, and generates an eval viewer for human review.
+# The script prepares the workspace, then invokes claude -p with
+# /skill-creator loaded to run the actual evals. After execution,
+# it validates results and generates the eval viewer.
 #
-# Prerequisites: claude CLI, python3
+# Prerequisites: claude CLI, python3, skill-creator plugin installed
 
 set -euo pipefail
 
@@ -98,16 +99,14 @@ run_skill_evals() {
   echo "  Output: $iter_dir"
   echo ""
 
-  # Extract eval prompts and spawn agents
+  # Step 1: Prepare workspace directories and metadata
   python3 << PYEOF
-import json, subprocess, os, sys
+import json, os
 
 with open("$evals_file") as f:
     data = json.load(f)
 
-skill_path = "$skill_dir/SKILL.md"
 iter_dir = "$iter_dir"
-skill_name = "$skill_name"
 
 for eval_item in data["evals"]:
     eval_id = eval_item["id"]
@@ -118,7 +117,6 @@ for eval_item in data["evals"]:
     os.makedirs(os.path.join(eval_dir, "with_skill", "outputs"), exist_ok=True)
     os.makedirs(os.path.join(eval_dir, "without_skill", "outputs"), exist_ok=True)
 
-    # Write eval metadata
     metadata = {
         "eval_id": eval_id,
         "eval_name": eval_name,
@@ -133,39 +131,31 @@ for eval_item in data["evals"]:
 print(f"\nPrepared {len(data['evals'])} eval directories.")
 PYEOF
 
-  # Run evals via claude -p
-  echo "Running evals via claude..."
+  # Step 2: Run evals via claude -p with /skill-creator
+  echo ""
+  echo "Invoking claude with /skill-creator to run evals..."
   echo ""
 
   local claude_exit=0
   claude -p "$(cat <<PROMPT
-You are running evals for the $skill_name skill. Use the /skill-creator workflow.
+Invoke /skill-creator. You already have an existing skill with evals ready to run.
 
-Skill path: $skill_dir/SKILL.md
-Eval workspace: $iter_dir
-Evals file: $evals_file
+The skill is at: $skill_dir/SKILL.md
+The evals are at: $evals_file
+The eval workspace is prepared at: $iter_dir
 
-For each eval in the workspace:
-1. Read the eval_metadata.json to get the prompt
-2. Spawn a with-skill agent: read the skill's SKILL.md, then execute the prompt. Save outputs to the with_skill/outputs/ directory.
-3. Spawn a without-skill agent: execute the same prompt without reading any skill files. Save outputs to the without_skill/outputs/ directory.
-4. Launch both agents in parallel per eval, and run all evals in parallel.
-5. After all agents complete, grade each with-skill run against the assertions in eval_metadata.json. Write grading.json with fields: text, passed, evidence.
-6. Save timing.json for each run with total_tokens and duration_ms.
+Each eval directory in the workspace has:
+- eval_metadata.json with the prompt and assertions
+- with_skill/outputs/ (empty, for you to fill)
+- without_skill/outputs/ (empty, for you to fill)
 
-After grading, write a results summary to $iter_dir/results.json:
-{
-  "skill": "$skill_name",
-  "iteration": $iteration,
-  "evals_total": <count>,
-  "evals_graded": <count with grading.json>,
-  "assertions_total": <total across all evals>,
-  "assertions_passed": <total passed>,
-  "assertions_failed": <total failed>,
-  "failures": [{"eval": "<name>", "assertion": "<text>", "evidence": "<why>"}]
-}
+Follow the skill-creator's "Running and evaluating test cases" workflow:
+- Step 1: For each eval, spawn a with-skill agent (reads the skill SKILL.md then executes the prompt) and a without-skill baseline agent (same prompt, no skill). Save outputs to the respective outputs/ directories.
+- Step 2: Grade each with-skill run against the assertions in eval_metadata.json. Write grading.json in each with_skill/ directory.
+- Step 3: Capture timing data (total_tokens, duration_ms) to timing.json in each run directory.
+- Step 4: Run the aggregation and generate the viewer to /tmp/${skill_name}-eval-review.html using --static mode.
 
-Also print the summary to stdout.
+This is iteration $iteration for the $skill_name skill.
 PROMPT
 )" 2>&1 || claude_exit=$?
 
@@ -174,22 +164,10 @@ PROMPT
     echo "Warning: claude -p exited with status $claude_exit"
   fi
 
-  # Validate results
+  # Step 3: Validate results
   echo ""
   echo "=== Validating results ==="
   validate_results "$iter_dir" "$eval_count"
-
-  # Generate viewer
-  if [ -n "$SKILL_CREATOR_PATH" ]; then
-    echo ""
-    echo "Generating eval viewer..."
-    python3 "$SKILL_CREATOR_PATH/eval-viewer/generate_review.py" \
-      "$iter_dir" \
-      --skill-name "$skill_name" \
-      --static "/tmp/${skill_name}-eval-review.html" 2>/dev/null \
-      && echo "Viewer: /tmp/${skill_name}-eval-review.html" \
-      || echo "Warning: viewer generation failed (results may be incomplete)"
-  fi
 }
 
 validate_results() {
@@ -205,8 +183,10 @@ validate_results() {
   for eval_dir in "$iter_dir"/*/; do
     local name
     name=$(basename "$eval_dir")
-    [ "$name" = "benchmark.json" ] && continue
-    [ "$name" = "results.json" ] && continue
+    # Skip non-directory entries
+    [ -d "$eval_dir" ] || continue
+    [[ "$name" == *.json ]] && continue
+    [[ "$name" == *.html ]] && continue
 
     # Check with_skill outputs exist
     if [ ! -d "$eval_dir/with_skill/outputs" ] || [ -z "$(ls -A "$eval_dir/with_skill/outputs" 2>/dev/null)" ]; then
@@ -226,7 +206,8 @@ validate_results() {
 import json
 with open('$eval_dir/with_skill/grading.json') as f:
     g = json.load(f)
-exps = g.get('expectations', [])
+# Handle both formats: {expectations: [...]} and bare [...]
+exps = g if isinstance(g, list) else g.get('expectations', [])
 p = sum(1 for e in exps if e.get('passed', False))
 print(f'{len(exps)} {p}')
 " 2>/dev/null || echo "0 0")
@@ -264,7 +245,6 @@ print(f'{len(exps)} {p}')
   if [ "$failed_assertions" -gt 0 ]; then
     echo ""
     echo "  FAILED ASSERTIONS: $failed_assertions"
-    # Print details from grading files
     for eval_dir in "$iter_dir"/*/; do
       local gfile="$eval_dir/with_skill/grading.json"
       [ -f "$gfile" ] || continue
@@ -272,10 +252,11 @@ print(f'{len(exps)} {p}')
 import json, os
 with open('$gfile') as f:
     g = json.load(f)
+exps = g if isinstance(g, list) else g.get('expectations', [])
 name = os.path.basename(os.path.dirname(os.path.dirname('$gfile')))
-for e in g.get('expectations', []):
+for e in exps:
     if not e.get('passed', False):
-        print(f'    [{name}] FAIL: {e[\"text\"]}')
+        print(f'    [{name}] FAIL: {e.get(\"text\", \"unknown\")}')
         if e.get('evidence'):
             print(f'           {e[\"evidence\"]}')
 " 2>/dev/null
@@ -285,7 +266,7 @@ for e in g.get('expectations', []):
 
   if [ "$graded" -eq 0 ]; then
     echo ""
-    echo "  WARNING: No evals were graded. The claude -p session may not have produced results."
+    echo "  WARNING: No evals were graded. The claude session may not have produced results."
     echo "  Check the eval workspace: $iter_dir"
     return 1
   fi
