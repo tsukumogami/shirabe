@@ -131,22 +131,41 @@ for eval_item in data["evals"]:
     print(f"  Prepared: {eval_name}")
 
 print(f"\nPrepared {len(data['evals'])} eval directories.")
-print(f"\nTo run these evals, use claude with the skill-creator:")
-print(f"  claude -p 'Run the evals in {iter_dir} for skill {skill_name}.")
-print(f"  Skill path: {skill_path}")
-print(f"  For each eval, spawn with-skill and without-skill agents.")
-print(f"  Grade results and generate the viewer.'")
 PYEOF
 
-  # Generate viewer if results exist
+  # Run evals via claude -p
+  echo "Running evals via claude..."
+  echo ""
+
+  claude -p "$(cat <<PROMPT
+You are running evals for the $skill_name skill. Use the /skill-creator workflow.
+
+Skill path: $skill_dir/SKILL.md
+Eval workspace: $iter_dir
+Evals file: $evals_file
+
+For each eval in the workspace:
+1. Read the eval_metadata.json to get the prompt
+2. Spawn a with-skill agent: read the skill's SKILL.md, then execute the prompt. Save outputs to the with_skill/outputs/ directory.
+3. Spawn a without-skill agent: execute the same prompt without reading any skill files. Save outputs to the without_skill/outputs/ directory.
+4. Launch both agents in parallel per eval, and run all evals in parallel.
+5. After all agents complete, grade each with-skill run against the assertions in eval_metadata.json. Write grading.json with fields: text, passed, evidence.
+6. Save timing.json for each run with total_tokens and duration_ms.
+
+After grading, report a summary: how many assertions passed vs failed, and any notable differences between with-skill and without-skill outputs.
+PROMPT
+)" 2>&1 || echo "Warning: claude -p exited with non-zero status"
+
+  # Generate viewer
   if [ -n "$SKILL_CREATOR_PATH" ]; then
     echo ""
-    echo "Skill-creator found at: $SKILL_CREATOR_PATH"
-    echo "After running evals, generate viewer with:"
-    echo "  python3 $SKILL_CREATOR_PATH/eval-viewer/generate_review.py \\"
-    echo "    $iter_dir \\"
-    echo "    --skill-name $skill_name \\"
-    echo "    --static /tmp/${skill_name}-eval-review.html"
+    echo "Generating eval viewer..."
+    python3 "$SKILL_CREATOR_PATH/eval-viewer/generate_review.py" \
+      "$iter_dir" \
+      --skill-name "$skill_name" \
+      --static "/tmp/${skill_name}-eval-review.html" 2>/dev/null \
+      && echo "Viewer: /tmp/${skill_name}-eval-review.html" \
+      || echo "Warning: viewer generation failed (results may be incomplete)"
   fi
 }
 
