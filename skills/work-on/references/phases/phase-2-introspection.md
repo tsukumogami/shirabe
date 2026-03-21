@@ -15,7 +15,7 @@ STALENESS_SCRIPT="${CLAUDE_PLUGIN_ROOT}/skills/issue-staleness/scripts/check-sta
 if [ -f "$STALENESS_SCRIPT" ]; then
   "$STALENESS_SCRIPT" <N>
 else
-  # Fallback: assume introspection recommended if issue is older than 7 days
+  # Fallback: always recommend introspection when staleness script is unavailable
   echo '{"introspection_recommended": true, "reason": "staleness script not available"}'
 fi
 ```
