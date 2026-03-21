@@ -8,6 +8,7 @@
   "homepage": "https://github.com/tsukumogami/shirabe",
   "repository": "https://github.com/tsukumogami/shirabe",
   "license": "Apache-2.0",
+  "skills": "./skills/",
   "keywords": [
     "workflow",
     "design-docs",
