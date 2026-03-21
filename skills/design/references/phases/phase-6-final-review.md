@@ -71,11 +71,12 @@ discuss with the user before making changes.
 Read the "Considered Options" section. For each rejected alternative, verify:
 - Does it have a genuine explanation of why it was rejected?
 - Could someone reading only the rejected alternative understand what it proposed?
-- Does the rejection reference real weaknesses (from the advocate's investigation)?
+- Does the rejection reference real weaknesses from the decision evaluation?
 
 If any rejected alternative reads like a strawman (vague description, superficial
-rejection, no evidence of investigation), flag it and rewrite using the advocate
-report from `wip/research/design_<topic>_phase1_advocate-*.md`.
+rejection, no evidence of investigation), flag it and strengthen using the decision
+reports from Phase 2 (`wip/design_<topic>_decision_<N>_report.md`) and the
+Considered Options already written in Phase 3.
 
 ### 6.4 Validate Document Structure
 

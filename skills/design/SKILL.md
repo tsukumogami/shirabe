@@ -1,8 +1,8 @@
 ---
 name: design
 description: Create technical design documents. Use when deciding how to implement
-  something -- the skill fans out multiple approaches via advocate agents, presents
-  trade-offs side by side, and produces a structured design doc with the chosen
+  something -- the skill decomposes the problem into decision questions, evaluates
+  each with structured trade-off analysis, and produces a design doc with the chosen
   approach. Triggers on "help me design X", "how should we architect Y", "compare
   approaches for Z", "write a design doc", "what's the best approach for W", or
   "I need to decide between A and B". Do NOT use for quick opinions without a formal
@@ -121,9 +121,10 @@ dependency diagram. See your project's diagram convention, or follow the format:
 When invoked as `/design`, this skill drives a structured creation workflow that
 investigates multiple approaches with equal depth before committing to one.
 
-The core pattern is expansion-contraction: Phase 1 fans out advocate agents (one per
-approach, arguing FOR it). Phase 2 presents all approaches side-by-side and the user
-selects. Phases 3-6 deepen, formalize, review, and finalize the chosen approach.
+The core pattern is decompose-decide-validate: Phase 1 breaks the design into
+independent decision questions. Phase 2 delegates each question to the decision skill
+for structured evaluation. Phase 3 cross-validates assumptions across decisions to
+catch conflicts. Phases 4-6 synthesize architecture, run security review, and finalize.
 
 ### Input Modes
 

@@ -11,8 +11,8 @@ Quickly establish enough context to start investigating approaches:
 - Create the design doc skeleton and wip/ summary
 
 This is NOT a full /prd scoping session. Keep it brief -- the user already knows
-what they want to design. You're getting just enough context for advocate agents
-in Phase 1.
+what they want to design. You're getting just enough context for decision
+decomposition in Phase 1.
 
 ## Resume Check
 
@@ -38,8 +38,8 @@ Focus on:
 - What's the scope boundary (in vs out)?
 - Is there existing code or architecture this affects?
 
-Stop when you can brief advocate agents on what approaches to investigate. This
-should take 1-2 turns, not a long interview.
+Stop when you have enough context to decompose the problem into decision questions.
+This should take 1-2 turns, not a long interview.
 
 ### 0.3 Confirm Understanding
 
@@ -106,4 +106,4 @@ After this phase:
 
 ## Next Phase
 
-Proceed to Phase 1: Approach Discovery (`phase-1-approach-discovery.md`)
+Proceed to Phase 1: Decision Decomposition (`phase-1-decomposition.md`)

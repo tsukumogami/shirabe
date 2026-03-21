@@ -117,4 +117,4 @@ After this phase:
 
 ## Next Phase
 
-Proceed to Phase 1: Approach Discovery (`phase-1-approach-discovery.md`)
+Proceed to Phase 1: Decision Decomposition (`phase-1-decomposition.md`)

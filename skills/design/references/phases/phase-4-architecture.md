@@ -20,8 +20,8 @@ If the design doc has a "Solution Architecture" section, skip to Phase 5.
 
 ### 4.1 Read Investigation Findings
 
-Read all Phase 3 research reports from `wip/research/design_<topic>_phase3_*.md`.
-Read the wip/ summary for selected approach context.
+Read the Considered Options and Decision Outcome sections already in the design doc
+(written during Phase 3 cross-validation). Read the wip/ summary for additional context.
 
 ### 4.2 Write Solution Architecture
 
@@ -91,7 +91,7 @@ For each implicit decision found:
 3. Append to Considered Options using the standard Decision N format
    (context / chosen / rejected)
 
-These don't need full advocate agents -- just the structured format so future
+These don't need the full decision skill -- just the structured format so future
 readers understand that a choice was made and why.
 
 ### 4.5 Write Consequences
