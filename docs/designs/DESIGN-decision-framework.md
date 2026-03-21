@@ -9,14 +9,18 @@ decision: |
   contested choices), a lightweight decision protocol (3-step micro-workflow for
   inline choices), and a non-interactive execution mode (--auto flag) that lets all
   workflows run end-to-end by making assumptions instead of blocking. All three layers
-  share a common decision block format (HTML comment delimiters), assumption tracking,
-  and a unified review surface.
+  share a common decision block format (HTML comment delimiters with markdown content),
+  category-based confirmed/assumed status classification, and a layered review surface
+  (wip/ artifact, terminal summary, PR body section). 10 architectural decisions made
+  across 3 rounds of the proposed framework itself.
 rationale: |
   A single heavyweight framework is too expensive for the 49% of decisions that are
   routine judgment calls. A lightweight-only approach misses the value of adversarial
   evaluation for contested architectural choices. The three-layer system matches
   decision weight to evaluation depth while maintaining a single assumption-tracking
-  mechanism that enables non-interactive execution across all skills.
+  mechanism that enables non-interactive execution across all skills. Self-validation
+  (using the framework to design itself) confirmed the architecture works and surfaced
+  three refinements that are now resolved as Decisions 8-10.
 ---
 
 # DESIGN: Decision Framework
@@ -474,14 +478,16 @@ in work-on) that halt in both modes.
 
 These affect all skills and can be implemented without the decision skill.
 Changes to each skill's phase files to adopt research-first decision pattern
-and `--auto` flag support.
+and `--auto`/`--max-rounds` flag support.
 
 Deliverables:
-- Decision block format specification (reference file)
+- Decision block format specification with HTML comment delimiters (reference file)
 - Lightweight decision protocol specification (reference file)
-- `--auto` flag handling in each SKILL.md
-- Assumption tracking artifact format
-- Review surface (terminal summary + PR body section)
+- Confirmed/assumed status threshold rules (Decision 9)
+- `--auto` flag handling in each SKILL.md (Decision 7)
+- `--max-rounds=N` flag handling with per-skill defaults (Decision 10)
+- Assumption tracking artifact format (`wip/<workflow>_<topic>_assumptions.md`)
+- Review surface: terminal summary printer + PR body section template (Decision 2)
 
 ### Phase 2: Decision skill
 
@@ -491,8 +497,8 @@ standalone and sub-operation invocation.
 Deliverables:
 - SKILL.md with input/output contracts
 - 7 phase files (each under 150 lines)
-- Agent prompt template for compiled prompts
-- Decision report format specification
+- Monolithic agent prompt template at `references/templates/agent-prompt.md` with `{{PLACEHOLDER}}` variables (Decision 8). Parent strips phases 3-5 for fast path.
+- Decision report format specification (canonical structure: Context, Assumptions, Chosen, Rationale, Alternatives, Consequences)
 
 ### Phase 3: Design skill restructuring
 
@@ -500,19 +506,23 @@ Rewrite design Phases 1-3 to use decision decomposition, delegation, and
 cross-validation. Slim Phase 4 (investigation).
 
 Deliverables:
-- Updated SKILL.md with 8-phase workflow
+- Updated SKILL.md with 8-phase workflow (Decision 6)
 - New phase files: phase-1-decomposition.md, phase-2-execution.md, phase-3-cross-validation.md
-- Updated phase-4-investigation.md (slimmed)
-- Coordination manifest format
+- Updated phase-4-investigation.md (slimmed, implementation-focused only)
+- Coordination manifest format (`wip/design_<topic>_decisions.json`)
+- Static dispatch: always Task agents for decision execution (Decision 4)
+- Single-pass cross-validation with bounded restart (Decision 5)
 
 ### Phase 4: Explore integration
 
 Add decision skill handoff for Decision Record crystallize type.
 
 Deliverables:
-- phase-5-produce-decision.md
+- phase-5-produce-decision.md (handoff to decision skill)
 - Updated crystallize-framework.md (Decision Record as supported type)
 - Decision brief format specification
+- Static dispatch: always inline execution for single decisions (Decision 4)
+- Escalation path: lightweight to heavyweight via `status="escalated"` block (Decision 3)
 
 ## Security Considerations
 
@@ -554,48 +564,86 @@ No blast radius beyond the decision artifacts themselves.
 | Non-interactive mode may make poor assumptions | Assumptions surface in 3 places (wip/, terminal, PR body); user reviews before merge |
 | Escalation from lightweight to heavyweight breaks static dispatch in explore | Documented exception; escalation is rare in practice |
 
-## Open Items From Self-Validation
+### Decision 8: Agent prompt compilation template
 
-This design was produced using the proposed framework itself (non-interactive,
-decision decomposition into clusters, parallel agent execution, cross-validation).
-Three refinements surfaced during the process:
+How should the compiled agent prompt for decision skill invocations be structured?
 
-### Agent prompt compilation needs a concrete template
+#### Chosen: Single monolithic template with parent-side fast-path stripping
 
-The design says the parent "pre-compiles the decision skill's phases into a
-single prompt" for Task agents. During self-validation, the agent prompts for
-Clusters A and B were ad-hoc — each described what to decide and pointed at
-research files, but didn't follow a reusable template. Implementation Phase 2
-(decision skill) must produce a standard compiled-prompt template that any
-parent can fill in. Without it, each parent will invent its own prompt format,
-leading to inconsistent decision quality across invocation sites.
+The template lives at `skills/decision/references/templates/agent-prompt.md`
+and follows plan Phase 4's agent-prompt.md structure: role statement, context
+injection via `{{PLACEHOLDER}}` variables, sequential phase instructions
+(25-40 lines each, condensed from full phase files), and an output contract.
 
-### Confirmed vs assumed status boundary is underspecified
+For fast-path decisions (Tier 3), the parent strips phases 3-5 (bakeoff, peer
+revision, cross-examination) before substitution. The agent only sees the
+phases it should execute — no conditional branching in the template itself.
 
-The decision block format defines `status="confirmed"` and `status="assumed"`
-but doesn't specify the threshold between them. During self-validation, every
-decision felt "confirmed" because the research evidence was strong — but an
-agent with less context might mark everything as "confirmed" to avoid flagging
-assumptions for review, defeating the review surface.
+Token budget: ~3,000-4,000 tokens for the template, plus 500-2,000 for
+background context. Comparable to plan's agent prompts.
 
-The specification needs a concrete heuristic. Proposed: a decision is "assumed"
-when ANY of these hold:
-- Evidence was split (e.g., 60/40 between two options)
-- The choice depends on a fact the agent couldn't verify (an assumption about
-  external systems, stakeholder preferences, or future conditions)
-- The agent would have asked the user in interactive mode
+#### Alternatives considered
 
-Otherwise it's "confirmed." This makes the boundary mechanical rather than
-subjective.
+- **Minimal dispatch** (agent reads SKILL.md itself): plan Phase 4 specifically
+  chose compiled prompts over file-reading agents because agents that navigate
+  file structures are less reliable. The wrong tradeoff when retry cost dominates.
+- **Phased template with orchestration header**: functionally identical to
+  monolithic — the agent sees the same content regardless of heading structure.
 
-### Non-interactive explore needs a round limit
+### Decision 9: Confirmed vs assumed status threshold
 
-Explore's discover-converge loop runs until the user says "ready to decide."
-In --auto mode, the agent evaluates gaps and decides whether to loop. But
-with no human to say "that's enough," the agent could loop indefinitely if
-it keeps finding minor gaps.
+How should agents determine whether a decision is `confirmed` or `assumed`?
 
-The specification needs a round limit for --auto mode. Proposed: max 3
-discover-converge rounds. After round 3, auto-crystallize with whatever
-findings exist. The round limit should be configurable via the decision
-context (some explorations warrant deeper investigation). Default: 3 rounds.
+#### Chosen: Category-based with heuristic refinement
+
+Map from the decision point's category:
+
+| Category | Status | Condition |
+|----------|--------|-----------|
+| Researchable | `confirmed` | Agent found the answer via research |
+| Researchable | `assumed` | Agent couldn't find the answer, made best guess |
+| Judgment call | `confirmed` | Skill's recommendation heuristic produced a clear winner AND no contradicting evidence found during gather |
+| Judgment call | `assumed` | Heuristic was close, or contradicting evidence exists |
+| Approval gate | `assumed` | Always — auto-approval is inherently an assumption that the artifact meets the user's standards |
+
+Expected distribution: ~50/50 between confirmed and assumed, meaning both
+values carry signal for review triage.
+
+#### Alternatives considered
+
+- **Three-condition heuristic** (proposed earlier): condition "would have asked
+  the user" applies to all 39 points, making everything assumed
+- **Confidence score (1-5)**: LLMs are poorly calibrated at self-assessing
+  confidence; agents cluster around 3-4
+- **Assumptions-exist = assumed**: creates incentive to omit assumptions to
+  achieve confirmed status, directly undermining the framework's core value
+
+### Decision 10: Auto-mode loop termination
+
+How should `--auto` mode handle discover-converge loops across all skills?
+
+#### Chosen: Per-skill round limits with --max-rounds override
+
+Each skill gets a default ceiling tuned to its loop type:
+
+| Skill | Loop type | Default max | Rationale |
+|-------|-----------|-------------|-----------|
+| explore | Discover-converge | 3 | Iterative broadening; first round is broad |
+| prd | Discover loop-back | 2 | Gap-filling is targeted; 2 rounds failing suggests bad scoping |
+| design | "None of these" | 1 | Corrective; repeated corrections mean re-scoping needed |
+
+The cap is a ceiling, not a target. The recommendation heuristic still drives
+early termination — most runs finish in fewer rounds than the max.
+
+When the cap forces termination, the agent records an Approach-level assumption
+listing remaining gaps and suggesting re-run options.
+
+`--max-rounds=N` overrides all skill defaults uniformly.
+
+#### Alternatives considered
+
+- **Universal limit**: conflates structurally different loops (broadening vs corrective)
+- **Adaptive termination** (% new findings): too hard to measure reliably;
+  still needs a hard cap as safety net
+- **First-round-only in --auto**: sacrifices too much quality; the skills are
+  designed for iterative deepening
