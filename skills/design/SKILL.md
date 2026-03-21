@@ -88,9 +88,13 @@ designs needed in target repos. Each becomes a needs-design issue via /plan.
 **Upstream Design Reference** (after Status): link to parent strategic design with
 relevant sections noted.
 
-Detect scope and visibility from CLAUDE.md:
-- `## Repo Visibility: Private|Public`
-- `## Planning Context: Strategic|Tactical` (or `## Default Scope:`)
+Detect scope and visibility from CLAUDE.md (`## Repo Visibility:` and
+`## Planning Context:` or `## Default Scope:`). If not found, infer
+visibility from repo path (`private/` -> Private, `public/` -> Public;
+default to Private). After detecting visibility, read the appropriate
+content governance skill: `skills/private-content/SKILL.md` or
+`skills/public-content/SKILL.md`. Public designs must not reference
+private artifacts.
 
 ## Lifecycle and Validation
 
@@ -107,12 +111,6 @@ Archived: `docs/designs/archive/DESIGN-<topic>.md`.
 
 **Implementation Issues** -- added by /plan. Contains issues table and Mermaid
 dependency diagram. See your project's diagram convention, or follow the format: an issues table with a Mermaid dependency diagram showing issue relationships.
-
-## Repo Visibility
-
-Visibility is detected from CLAUDE.md (see Context-Aware Sections above).
-Load `skills/private-content/SKILL.md` or `skills/public-content/SKILL.md`
-accordingly. Public designs must not reference private artifacts.
 
 ---
 
@@ -134,11 +132,8 @@ From `$ARGUMENTS`:
 
 ### Context Resolution
 
-Detect visibility (Private/Public) from CLAUDE.md or repo path. Detect scope
-(Strategic/Tactical) from `--strategic`/`--tactical` flags or CLAUDE.md default.
-
-When the source issue is from a different repo, use `gh` commands to read content.
-Visibility rule: public repos must not reference private issues.
+Detect visibility and scope as described in Context-Aware Sections above.
+For cross-repo source issues, use `gh` commands to read content.
 
 ### Workflow Phases
 
