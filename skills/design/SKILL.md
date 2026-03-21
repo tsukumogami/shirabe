@@ -146,7 +146,7 @@ For cross-repo source issues, use `gh` commands to read content.
 ### Workflow Phases
 
 ```
-Phase 0: SETUP --> Phase 1: DECOMPOSE --> Phase 2: EXECUTE --> Phase 3: CROSS-VALIDATE --> Phase 4: INVESTIGATE --> Phase 5: ARCHITECT --> Phase 6: SECURITY --> Phase 7: FINALIZE
+Phase 0: SETUP --> Phase 1: DECOMPOSE --> Phase 2: EXECUTE --> Phase 3: CROSS-VALIDATE --> Phase 4: INVESTIGATE --> Phase 5: SECURITY --> Phase 6: FINALIZE
 ```
 
 | Phase | Purpose | Artifact |
@@ -155,19 +155,17 @@ Phase 0: SETUP --> Phase 1: DECOMPOSE --> Phase 2: EXECUTE --> Phase 3: CROSS-VA
 | 1 | Identify independent decision questions | `wip/design_<topic>_coordination.json` |
 | 2 | Run decision skill per question (parallel agents) | `wip/design_<topic>_decision_<N>_report.md` |
 | 3 | Cross-validate assumptions across decisions | Considered Options in design doc |
-| 4 | Research implementation-level unknowns (slimmed) | wip/ research per area |
-| 5 | Synthesize findings into architecture sections | Solution Architecture, Consequences |
-| 6 | Mandatory security review (3 outcomes) | Security Considerations |
-| 7 | Review, strawman check, frontmatter, commit, PR | Complete design doc |
+| 4 | Investigation + architecture synthesis (slimmed) | Solution Architecture, Consequences |
+| 5 | Mandatory security review (3 outcomes) | Security Considerations |
+| 6 | Review, strawman check, frontmatter, commit, PR | Complete design doc |
 
 ### Resume Logic
 
 ```
 Design doc status "Accepted"                              → Offer to revise or start fresh
 Design doc status "Proposed"                              → Offer to continue
-wip/research/design_<topic>_phase6_security.md            → Resume at Phase 7
-Design doc has Solution Architecture                      → Resume at Phase 6
-wip/research/design_<topic>_phase4_*.md exist             → Resume at Phase 5
+wip/research/design_<topic>_phase5_security.md            → Resume at Phase 6
+Design doc has Solution Architecture                      → Resume at Phase 5
 Design doc has Considered Options                         → Resume at Phase 4
 wip/design_<topic>_coordination.json (all complete)       → Resume at Phase 3
 wip/design_<topic>_coordination.json (some pending)       → Resume at Phase 2
@@ -180,8 +178,8 @@ On topic branch, no artifacts                             → Resume at Phase 0
 - **Decision decomposition before execution**: identify all decision questions in Phase 1 before spawning any decision agents in Phase 2
 - **Equal-depth investigation**: every decision question gets the same framework treatment at its assigned tier
 - **Cross-validation is mandatory**: Phase 3 always runs after Phase 2, even with one decision
-- **Security is mandatory**: Phase 6 always runs; output may be N/A but the review is not optional
-- **Strawman check**: Phase 7 validates rejected alternatives have genuine depth
+- **Security is mandatory**: Phase 5 always runs; output may be N/A but the review is not optional
+- **Strawman check**: Phase 6 validates rejected alternatives have genuine depth
 - **Topic-scoped artifacts**: all wip/ files include `<topic>` in their path
 
 ### Output
@@ -218,10 +216,9 @@ Execute phases sequentially by reading the corresponding phase file:
 1. **Decision Decomposition**: `references/phases/phase-1-decomposition.md`
 2. **Decision Execution**: `references/phases/phase-2-execution.md`
 3. **Cross-Validation**: `references/phases/phase-3-cross-validation.md`
-4. **Investigation**: `references/phases/phase-4-architecture.md` (slimmed -- implementation focus only)
-5. **Architecture**: `references/phases/phase-5-security.md` (renumbered)
-6. **Security**: `references/phases/phase-6-security.md` (renumbered)
-7. **Final Review**: `references/phases/phase-7-final-review.md` (renumbered)
+4. **Investigation**: `references/phases/phase-4-architecture.md` (slimmed, implementation focus only)
+5. **Security**: `references/phases/phase-5-security.md`
+6. **Final Review**: `references/phases/phase-6-final-review.md`
 
 ---
 

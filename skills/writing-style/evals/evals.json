@@ -6,56 +6,148 @@
       "name": "revise-draft-direct",
       "prompt": "Revise this draft for me:\n\nThe platform leverages a comprehensive suite of tools to facilitate seamless integration across robust enterprise environments. It's worth noting that this innovative approach fosters transformative outcomes. Additionally, the system showcases meticulous attention to detail, underscoring its pivotal role in the landscape of modern development.",
       "expected_output": "Skill triggers on direct revision request. Removes flagged words (leverage, comprehensive, facilitate, seamless, robust, innovative, transformative, fosters, showcases, meticulous, pivotal, landscape, underscoring). Removes filler opener ('It's worth noting'). Removes adverb opener ('Additionally'). Returns concrete, direct prose with contractions and varied sentence length.",
-      "files": []
+      "files": [],
+      "assertions": [
+        "Output does not contain the word 'leverages' or 'leverage'",
+        "Output does not contain the word 'comprehensive'",
+        "Output does not contain the word 'facilitate'",
+        "Output does not contain the word 'seamless'",
+        "Output does not contain the word 'robust'",
+        "Output does not contain the word 'innovative'",
+        "Output does not contain the word 'transformative'",
+        "Output does not contain the phrase 'worth noting'",
+        "Output does not begin a sentence with 'Additionally'",
+        "Output does not contain the word 'showcases' or 'showcase'",
+        "Output does not contain the word 'meticulous' or 'meticulously'",
+        "Output does not contain the word 'pivotal'",
+        "Output does not contain the word 'landscape' used figuratively",
+        "Output does not contain the word 'underscoring'",
+        "Output uses at least one contraction (e.g., it's, don't, doesn't)",
+        "Output has sentence length variation (not all sentences within 5 words of each other)"
+      ]
     },
     {
       "id": 2,
       "name": "word-avoidance-organizing-verbs",
       "prompt": "Clean up this text:\n\nThis crucial tool utilizes holistic strategies to navigate the intricate realm of deployment. It serves as a testament to the team's resilience, garnering invaluable insights along the journey.",
       "expected_output": "Identifies and replaces: crucial, utilizes (use), holistic, navigate, intricate, realm, serves as (is), testament, resilience, garnering, invaluable, journey. Produces direct prose that names specifics instead of abstract nouns.",
-      "files": []
+      "files": [],
+      "assertions": [
+        "Output does not contain the word 'crucial'",
+        "Output does not contain the word 'utilizes' or 'utilize'",
+        "Output does not contain the word 'holistic'",
+        "Output does not contain the word 'navigate' used figuratively",
+        "Output does not contain the word 'intricate'",
+        "Output does not contain the word 'realm'",
+        "Output does not contain the phrase 'serves as'",
+        "Output does not contain the word 'testament'",
+        "Output does not contain the word 'resilience'",
+        "Output does not contain the word 'garnering' or 'garner'",
+        "Output does not contain the word 'invaluable'",
+        "Output does not contain the word 'journey' used figuratively",
+        "Output includes specific details rather than abstract nouns"
+      ]
     },
     {
       "id": 3,
       "name": "phrase-pattern-detection",
       "prompt": "Improve this paragraph:\n\nGreat question! In today's rapidly evolving tech landscape, let's delve into why this matters. At its core, experts argue that containerization is transformative. As previously mentioned, this provides valuable insights into deployment practices. In conclusion, I hope this helps!",
       "expected_output": "Detects and removes chatbot artifacts ('Great question!', 'I hope this helps!'). Removes filler openers ('In today's', 'Let's delve into', 'At its core'). Removes 'As previously mentioned' and 'In conclusion'. Flags 'experts argue' without citation. Replaces 'provides valuable insights into' with something specific. Result is direct and informative.",
-      "files": []
+      "files": [],
+      "assertions": [
+        "Output does not contain 'Great question!'",
+        "Output does not contain 'I hope this helps'",
+        "Output does not contain the phrase 'In today's'",
+        "Output does not contain the phrase 'delve into' or 'let's delve'",
+        "Output does not contain the phrase 'At its core'",
+        "Output does not contain the phrase 'As previously mentioned'",
+        "Output does not contain the phrase 'In conclusion'",
+        "Output does not contain the word 'transformative'",
+        "Output does not contain the phrase 'valuable insights'",
+        "Output does not contain the word 'landscape' used figuratively"
+      ]
     },
     {
       "id": 4,
       "name": "structural-tells-em-dash-contractions",
       "prompt": "Make this sound more human:\n\nThe system -- which was designed to handle multiple workloads -- provides a unified interface. It does not require any manual configuration. We would not recommend running it without monitoring. The architecture -- built on microservices -- is not limited to a single cloud provider. It has the ability to scale horizontally.",
       "expected_output": "Replaces em dashes (or double hyphens used as em dashes) with commas, parentheses, or colons. Adds contractions: 'does not' to 'doesn't', 'would not' to 'wouldn't', 'is not' to 'isn't'. Replaces 'has the ability to' with 'can'. Varies sentence length for burstiness.",
-      "files": []
+      "files": [],
+      "assertions": [
+        "Output does not contain '--' (double hyphen used as em dash)",
+        "Output contains a contraction for 'does not' (e.g., doesn't)",
+        "Output contains a contraction for 'would not' (e.g., wouldn't)",
+        "Output contains a contraction for 'is not' (e.g., isn't)",
+        "Output does not contain the phrase 'has the ability to'",
+        "Output has sentence length variation (mix of short and long sentences)"
+      ]
     },
     {
       "id": 5,
       "name": "formatting-tells-title-case-bold",
       "prompt": "Revise this section, including the formatting:\n\n## Key Benefits And Features\n\nThe tool provides **robust** error handling, **seamless** integration, and **comprehensive** logging. Every component is **meticulously** tested.\n\n## How It Enhances Your Workflow\n\nThe **innovative** plugin system **facilitates** extension development.",
       "expected_output": "Converts Title Case headings to sentence case ('Key benefits and features'). Removes excessive bold -- keeps bold only for genuine emphasis. Replaces flagged words (robust, seamless, comprehensive, meticulously, innovative, facilitates, enhances). Avoids forced rule of three in the benefits list if two items suffice.",
-      "files": []
+      "files": [],
+      "assertions": [
+        "Headings use sentence case (not Title Case for every word)",
+        "Output does not bold the word 'robust'",
+        "Output does not bold the word 'seamless'",
+        "Output does not bold the word 'comprehensive'",
+        "Output does not bold the word 'meticulously'",
+        "Output does not bold the word 'innovative'",
+        "Output does not contain the word 'robust'",
+        "Output does not contain the word 'seamless'",
+        "Output does not contain the word 'comprehensive'",
+        "Output does not contain the word 'innovative'",
+        "Output does not contain the word 'facilitates' or 'facilitate'",
+        "Output does not contain the word 'enhances' in a heading"
+      ]
     },
     {
       "id": 6,
       "name": "burstiness-and-specifics",
       "prompt": "Rewrite this to sound like a human wrote it:\n\nThe migration process involves several important steps. First, the team needs to evaluate the existing infrastructure. Then, the team needs to plan the migration strategy. After that, the team needs to execute the migration. Finally, the team needs to verify the results. This process is important for ensuring a successful outcome.",
       "expected_output": "Introduces burstiness: dramatic sentence length variation (mix of short punchy sentences with longer ones). Replaces vague language ('several important steps', 'successful outcome') with specifics. Eliminates the repetitive 'the team needs to' pattern (synonym cycling / uniform structure). Cuts the empty conclusion. Takes a position or adds concrete detail.",
-      "files": []
+      "files": [],
+      "assertions": [
+        "Output does not repeat 'the team needs to' more than once",
+        "Output does not contain the phrase 'successful outcome'",
+        "Output does not contain the phrase 'several important steps'",
+        "Output has dramatic sentence length variation (at least one sentence under 8 words and one over 18 words)",
+        "Output does not end with a vague conclusion like 'This process is important'",
+        "Output includes at least one specific detail not in the original (e.g., concrete example, tool name, or metric)"
+      ]
     },
     {
       "id": 7,
       "name": "over-formality-substitutions",
       "prompt": "Simplify this:\n\nIn order to deploy the service, prior to initiating the build, due to the fact that the CI pipeline requires authentication, with respect to credentials management, at this point in time we store secrets in Vault. Subsequent to the build completing, the artifact is pushed.",
       "expected_output": "Applies over-formality substitutions: 'In order to' -> 'To', 'prior to' -> 'before', 'due to the fact that' -> 'because', 'with respect to' -> 'for/about', 'at this point in time' -> 'now', 'subsequent to' -> 'after'. Result reads as natural technical writing.",
-      "files": []
+      "files": [],
+      "assertions": [
+        "Output does not contain the phrase 'In order to'",
+        "Output does not contain 'prior to'",
+        "Output does not contain 'due to the fact that'",
+        "Output does not contain 'with respect to'",
+        "Output does not contain 'at this point in time'",
+        "Output does not contain 'subsequent to'",
+        "Output preserves the core meaning: deploying a service, CI authentication, Vault for secrets, artifact push after build"
+      ]
     },
     {
       "id": 8,
       "name": "proactive-prose-generation",
       "prompt": "Write a short summary of what a CI pipeline does for a README.",
       "expected_output": "Skill applies proactively (prose production, not revision). The generated text avoids all flagged words and phrases from the start. Uses contractions naturally. Has sentence length variation. Uses sentence case if headings are included. No em dash overuse. Names specifics (e.g., 'runs tests, builds the binary, pushes to the registry') rather than abstract language ('facilitates seamless deployment workflows').",
-      "files": []
+      "files": [],
+      "assertions": [
+        "Output does not contain any of: leverage, utilize, facilitate, robust, comprehensive, seamless, innovative, transformative, holistic, crucial, pivotal",
+        "Output does not contain filler phrases: 'It's worth noting', 'In today's', 'At its core'",
+        "Output does not contain chatbot artifacts: 'Great question!', 'I hope this helps', 'Absolutely!'",
+        "Output uses at least one contraction",
+        "Output uses sentence case for any headings (not Title Case)",
+        "Output names specific actions (e.g., 'runs tests', 'builds', 'deploys') rather than only abstract descriptions"
+      ]
     }
   ]
 }
