@@ -6,6 +6,7 @@
 #   scripts/run-evals.sh --all               Run evals for all skills
 #   scripts/run-evals.sh --list              List skills with evals
 #   scripts/run-evals.sh --validate <skill>  Re-validate existing results
+#   scripts/run-evals.sh --prep-only <skill>      Prepare workspace only (for /skill-creator)
 #
 # Each skill's evals live at skills/<name>/evals/evals.json.
 # Results go to skills/<name>/evals/workspace/iteration-<N>/.
@@ -30,12 +31,13 @@ command -v claude >/dev/null 2>&1 || { echo "Error: claude CLI not found"; exit 
 command -v python3 >/dev/null 2>&1 || { echo "Error: python3 not found"; exit 3; }
 
 usage() {
-  echo "Usage: $0 <skill-name> | --all | --list | --validate <skill>"
+  echo "Usage: $0 <skill-name> | --all | --list | --validate <skill> | --prep-only <skill>"
   echo ""
-  echo "  <skill-name>       Run evals for a specific skill"
+  echo "  <skill-name>       Run evals for a specific skill (prep + execute + validate)"
   echo "  --all              Run evals for all skills that have evals/"
   echo "  --list             List skills that have evals"
   echo "  --validate <skill> Re-validate the latest iteration without re-running"
+  echo "  --prep-only <skill>     Prepare workspace only (use with /skill-creator in Claude Code)"
   exit 1
 }
 
@@ -74,7 +76,7 @@ latest_iteration() {
   echo "$n"
 }
 
-run_skill_evals() {
+prep_skill_evals() {
   local skill_name="$1"
   local skill_dir="$SKILLS_DIR/$skill_name"
   local evals_file="$skill_dir/evals/evals.json"
@@ -99,14 +101,13 @@ run_skill_evals() {
   local eval_count
   eval_count=$(python3 -c "import json; print(len(json.load(open('$evals_file'))['evals']))")
 
-  echo "=== Running evals for skill: $skill_name ==="
+  echo "=== Preparing evals for skill: $skill_name ==="
   echo "  Evals file: $evals_file"
   echo "  Eval count: $eval_count"
   echo "  Iteration: $iteration"
   echo "  Output: $iter_dir"
   echo ""
 
-  # Step 1: Prepare workspace directories and metadata
   python3 << PYEOF
 import json, os
 
@@ -137,6 +138,23 @@ for eval_item in data["evals"]:
 
 print(f"\nPrepared {len(data['evals'])} eval directories.")
 PYEOF
+
+  # Return values for callers
+  echo "$iter_dir" > /tmp/run-evals-iter-dir
+  echo "$eval_count" > /tmp/run-evals-eval-count
+}
+
+run_skill_evals() {
+  local skill_name="$1"
+  local skill_dir="$SKILLS_DIR/$skill_name"
+  local evals_file="$skill_dir/evals/evals.json"
+
+  # Step 1: Prepare
+  prep_skill_evals "$skill_name" || return $?
+
+  local iter_dir eval_count
+  iter_dir=$(cat /tmp/run-evals-iter-dir)
+  eval_count=$(cat /tmp/run-evals-eval-count)
 
   # Step 2: Run evals via claude -p with /skill-creator
   echo ""
@@ -328,6 +346,21 @@ case "$1" in
     [ ${#failed_skills[@]} -gt 0 ] && exit 1
     [ ${#infra_failed[@]} -gt 0 ] && exit 2
     exit 0
+    ;;
+  --prep-only)
+    if [ $# -lt 2 ]; then
+      echo "Usage: $0 --prep-only <skill-name>"
+      exit 1
+    fi
+    prep_skill_evals "$2"
+    iter_dir=$(cat /tmp/run-evals-iter-dir)
+    echo ""
+    echo "Workspace ready. To run evals interactively:"
+    echo "  Use /skill-creator in Claude Code with this workspace: $iter_dir"
+    echo "  Skill path: $SKILLS_DIR/$2/SKILL.md"
+    echo ""
+    echo "To validate results after running:"
+    echo "  $0 --validate $2"
     ;;
   --validate)
     if [ $# -lt 2 ]; then

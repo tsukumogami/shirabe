@@ -48,20 +48,35 @@ skills/<name>/
 
 ## Running Evals
 
+Two paths: automated (CLI/CI) and interactive (Claude Code session).
+
+### Automated (CLI / CI)
+
 ```bash
 # List skills that have evals
 scripts/run-evals.sh --list
 
-# Prepare eval workspace for one skill
+# Run evals end-to-end (prep + execute via claude -p + validate)
 scripts/run-evals.sh decision
 
-# Prepare eval workspace for all skills
+# Run all skills
 scripts/run-evals.sh --all
+
+# Re-validate the latest iteration without re-running
+scripts/run-evals.sh --validate decision
 ```
 
-The script prepares directories and metadata. To execute the evals, invoke
-/skill-creator with the prepared workspace, or spawn agents manually per
-the skill-creator's eval workflow.
+### Interactive (Claude Code with /skill-creator)
+
+```bash
+# Prepare workspace only
+scripts/run-evals.sh --prep-only decision
+```
+
+After `--prep-only`, invoke `/skill-creator` in your Claude Code session and
+point it at the prepared workspace. This gives a tighter feedback loop: the
+skill-creator handles agent spawning, grading, and the eval viewer within
+your session. After running, validate with `scripts/run-evals.sh --validate decision`.
 
 ## Skill Quality Standards
 
