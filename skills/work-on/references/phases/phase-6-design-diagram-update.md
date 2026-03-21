@@ -1,4 +1,4 @@
-# Phase 6: Design Document Diagram Update
+# Design Document Diagram Update
 
 Update the dependency diagram in a referenced design document to reflect
 completed work. This step is project-specific -- it assumes design docs

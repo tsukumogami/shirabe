@@ -124,19 +124,12 @@ Execute phases sequentially by reading the corresponding phase file:
 
 ### Output
 
-Final artifact: `docs/prds/PRD-<topic>.md` with status "Draft".
-
-After completion:
-1. Write PRD to `docs/prds/PRD-<topic>.md`
-2. Commit to branch
-3. Present PRD summary to user
-4. If user approves: update status to "Accepted", commit, create PR
-5. Present routing options based on complexity:
+Final artifact: `docs/prds/PRD-<topic>.md`, transitioning from "Draft" to
+"Accepted" on user approval. After acceptance, suggest next steps:
 
 | Complexity | Suggestion |
 |-----------|-----------|
-| Simple (clear requirements, few moving parts) | plan skill |
-| Medium (needs issue breakdown) | plan skill |
+| Simple or medium | plan skill |
 | Complex (needs technical design first) | design skill |
 
 ---

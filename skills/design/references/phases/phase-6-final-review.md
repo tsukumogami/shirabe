@@ -175,8 +175,8 @@ Commit: `chore: clean up wip/ artifacts for <topic>`
 ## Quality Checklist
 
 Before declaring the phase complete:
-- [ ] Architecture review completed
-- [ ] Security review completed
+- [ ] Strawman check passed (rejected alternatives have genuine depth)
+- [ ] Validation per `references/lifecycle.md` rules passed
 - [ ] All actionable feedback addressed
 
 ## Artifact State

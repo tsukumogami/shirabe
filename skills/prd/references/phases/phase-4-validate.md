@@ -201,7 +201,8 @@ and ready for acceptance. Options:
 4. **Remove blocking label from source issue.** Check the PRD's frontmatter for a
    `source_issue` field. If present, check your project's label vocabulary
    (CLAUDE.md `## Label Vocabulary`) for which label to remove on PRD acceptance.
-   If no vocabulary is defined, remove `needs-prd` as the default.
+   If no vocabulary is defined, skip label removal -- the project hasn't
+   configured which labels map to PRD completion.
    Skip this step if `source_issue` is not set in the frontmatter.
 5. Create PR (or update existing PR if on a shared branch)
 
