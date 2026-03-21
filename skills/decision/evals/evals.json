@@ -1,0 +1,175 @@
+{
+  "skill_name": "decision-framework",
+  "evals": [
+    {
+      "id": 1,
+      "name": "standalone-decision-simple",
+      "prompt": "I need to decide between SQLite and PostgreSQL for our user data store. We have about 500 concurrent users, the data is mostly read-heavy with occasional writes, and we're already running PostgreSQL for another service. I don't need a full bakeoff, just a well-reasoned choice.",
+      "expected_output": "The decision skill triggers, classifies as Tier 3 (standard — 2 options, needs targeted research but not adversarial evaluation), runs fast path (phases 0, 1, 2, 6), produces a decision report with Context, Chosen, Rationale, Alternatives, and Assumptions. Should NOT spawn validator agents (fast path skips phases 3-5).",
+      "assertions": [
+        "The decision is classified as Tier 3 (standard), not Tier 4 (critical)",
+        "The fast path is used: only phases 0, 1, 2, and 6 are executed (phases 3-5 are skipped)",
+        "No validator agents are spawned",
+        "The decision report includes a chosen option with rationale",
+        "The existing PostgreSQL service is cited as a factor in the recommendation",
+        "The decision report includes an Assumptions section"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "standalone-decision-critical",
+      "prompt": "We need to choose our authentication architecture for the public API. Options include JWT with refresh tokens, OAuth 2.0 with an external provider, or session-based auth with Redis. This is practically irreversible once we ship — changing auth breaks every client. I want a thorough evaluation.",
+      "expected_output": "The decision skill triggers, classifies as Tier 4 (critical — irreversible, security implications, multiple experts would disagree). Runs full 7-phase path. Spawns validator agents in Phase 3, re-messages them in Phase 4-5 via SendMessage. Produces a comprehensive decision report. Validators should argue FOR their assigned option and then cross-examine each other.",
+      "assertions": [
+        "The decision is classified as Tier 4 (critical)",
+        "The full path is used: all phases 0 through 6 are executed",
+        "Validator agents are spawned in Phase 3, one per authentication option",
+        "Phase 4 (peer revision) occurs — validators receive summaries from competing validators",
+        "Phase 5 (cross-examination) occurs",
+        "Irreversibility is cited as a factor in the Tier 4 classification",
+        "The decision report covers all three options: JWT, OAuth 2.0, and session-based auth"
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "design-multi-decision-auto",
+      "prompt": "/design --auto caching-layer",
+      "expected_output": "Design skill runs in --auto mode. Phase 0 sets up. Phase 1 decomposes the problem into 2-4 independent decision questions (e.g., cache invalidation strategy, storage backend, TTL policy). Phase 2 spawns one decider agent per question in parallel via Task tool. Each decider reads the decision SKILL.md and runs its phases. Phase 3 cross-validates assumptions across decisions. Progress lines emitted during Phase 2 as each agent completes. No AskUserQuestion calls anywhere. All choices recorded as decision blocks with status='assumed' or 'confirmed'. Terminal summary at end with actionable next steps per assumption.",
+      "assertions": [
+        "Between 2 and 4 independent decision questions are identified for the caching layer",
+        "No AskUserQuestion calls are made anywhere (--auto mode)",
+        "Decision blocks appear in the output with status='assumed' or status='confirmed'",
+        "Progress markers are emitted as each decision completes",
+        "A terminal summary is produced listing assumptions and next steps",
+        "Each decision is handled using the decision skill's tier/phase framework"
+      ],
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "design-interactive-single-decision",
+      "prompt": "/design plugin-architecture",
+      "expected_output": "Design skill runs interactively. Phase 1 identifies decision questions, presents decomposition for user confirmation. Phase 2 spawns decider agents. Each decision presents its recommendation via AskUserQuestion with evidence gathered during research. User can approve the recommendation or override. Decision blocks written with status='confirmed' after user approval. The agent arrives with evidence, not just a question — research-first pattern.",
+      "assertions": [
+        "Decision decomposition is presented for user confirmation before proceeding",
+        "Evidence is gathered before presenting the recommendation to the user (research-first pattern)",
+        "The user is presented with the recommendation AND the supporting evidence, not just a bare question",
+        "Decision blocks are written with status='confirmed' after user approval"
+      ],
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "explore-crystallize-to-decision",
+      "prompt": "/explore should we use WebSockets or Server-Sent Events for our real-time notifications",
+      "expected_output": "Explore runs its discover-converge loop. Crystallize framework scores this as Decision Record (single focused choice between two options, what-to-build is clear, the question is 'which option'). Phase 5 writes a decision brief with the question, known options from exploration, constraints, and research file paths. Hands off to the decision skill for formal evaluation rather than producing an ADR inline.",
+      "assertions": [
+        "The explore skill runs a discover phase covering both WebSockets and SSE",
+        "The crystallize phase explicitly identifies a Decision Record as the appropriate artifact type",
+        "A decision brief is written containing: the decision question, both options, constraints, and research findings",
+        "The output indicates handoff to the decision skill rather than producing an ADR inline"
+      ],
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "lightweight-protocol-during-plan",
+      "prompt": "/plan --auto docs/designs/DESIGN-caching-layer.md",
+      "expected_output": "Plan skill runs in --auto mode. Hits the decomposition strategy decision (walking skeleton vs horizontal). Instead of AskUserQuestion, the agent: (1) frames the question, (2) gathers evidence from the design doc's component coupling, (3) picks the strategy with strongest evidence, (4) writes a decision block with the choice and assumptions inline in the decomposition artifact. The decision block uses the compact variant if the choice is clear. Records in the consolidated decisions file.",
+      "assertions": [
+        "No AskUserQuestion calls are made (--auto mode)",
+        "A decomposition strategy decision is encountered during planning",
+        "The lightweight protocol is applied: question framed, evidence gathered, decision made without full decision skill",
+        "A decision block is written inline in the decomposition artifact",
+        "The decision block uses the compact variant format (clear choice with brief evidence)"
+      ],
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "auto-mode-loop-termination",
+      "prompt": "/explore --auto --max-rounds=2 feasibility of WASM plugins",
+      "expected_output": "Explore runs in --auto mode with a 2-round cap. Round 1: scope derived from arguments (no conversational scoping — --auto skips the dialogue). Research agents fan out. Converge phase auto-evaluates gaps and decides whether to loop. If gaps remain after round 2, auto-crystallizes with whatever findings exist. Records an Approach-level assumption listing remaining gaps. Never blocks on user input.",
+      "assertions": [
+        "Scope is derived from arguments without conversational scoping (--auto skips dialogue)",
+        "Exactly 2 research rounds are run before terminating (--max-rounds=2 cap is respected)",
+        "No AskUserQuestion calls are made anywhere",
+        "Auto-crystallization occurs after the round cap is hit",
+        "An Approach-level assumption is recorded listing remaining gaps not resolved by round 2"
+      ],
+      "files": []
+    },
+    {
+      "id": 8,
+      "name": "assumption-invalidation",
+      "prompt": "Looking at the assumptions from the last design run — assumption A2 is wrong. We can't use Redis, it's being decommissioned next quarter. Please re-evaluate that decision.",
+      "expected_output": "Agent reads the consolidated decisions file, locates A2 by ID, reads its 'if wrong' restart path. Re-invokes the decision skill for the affected decision with 'Redis is not available' as an additional constraint. The decision skill runs from the restart phase. Agent then checks for cascade — are there other decisions whose assumptions reference Redis? If so, flags them. Updates the consolidated decisions file with the new decision, removes the invalidated assumption.",
+      "assertions": [
+        "The consolidated decisions file is read and assumption A2 is located",
+        "The decision skill is re-invoked with 'Redis is not available' as an explicit constraint",
+        "A cascade check is performed — other decisions with Redis dependencies are identified",
+        "The consolidated decisions file is updated with the new decision replacing the Redis-dependent one",
+        "Assumption A2 is removed or marked invalid in the updated decisions file"
+      ],
+      "files": []
+    },
+    {
+      "id": 9,
+      "name": "tier-escalation-lightweight-to-heavyweight",
+      "prompt": "/design --auto api-redesign",
+      "expected_output": "During Phase 5 (Architecture), the agent discovers an implicit decision about error response format. Starts the lightweight micro-protocol: frames the question, gathers evidence from existing API patterns. During gather, finds contradicting evidence (current API uses two incompatible error formats across endpoints). The three-signal checklist fires: reversibility is low (public API contract), heuristic is contested. Agent marks the decision block as status='escalated' and spawns a decision skill agent for a proper evaluation. The escalated block's framing and evidence carry forward as seed context.",
+      "assertions": [
+        "The lightweight micro-protocol is used initially (not the full decision skill directly)",
+        "The three-signal checklist is explicitly evaluated: reversibility is low, heuristic is contested",
+        "A decision block is written with status='escalated' before full evaluation",
+        "The full decision skill is invoked after escalation with the lightweight framing and evidence as seed context",
+        "The final output shows the resolved choice after the full decision skill evaluation"
+      ],
+      "files": []
+    },
+    {
+      "id": 10,
+      "name": "work-on-minimal-impact",
+      "prompt": "/work-on --auto #42",
+      "expected_output": "Work-on runs in --auto mode. Only 4 blocking points in work-on. The needs-triage check (W1) auto-resolves by defaulting to proceed. The spec ambiguity check (W2) researches first and resolves from context. Implementation proceeds normally. CI failure gates (W3, W4) remain blocking even in --auto — these are safety gates. The consolidated decisions file has at most 1-2 entries (trivial decisions don't get recorded). Minimal overhead from the framework.",
+      "assertions": [
+        "Needs-triage check (W1) auto-resolves — agent does not block waiting for triage",
+        "Spec ambiguity check (W2) resolves from context research without blocking",
+        "No AskUserQuestion calls are made (--auto mode)",
+        "The consolidated decisions file has at most 2 entries",
+        "Trivial implementation decisions are NOT individually recorded in the consolidated decisions file"
+      ],
+      "files": []
+    },
+    {
+      "id": 11,
+      "name": "scaling-ceiling-hit",
+      "prompt": "/design --auto complex-platform-overhaul",
+      "expected_output": "Phase 1 (Decision Decomposition) identifies 9 independent decision questions after merging coupled ones. Since count is in the 8-9 band and mode is --auto, the agent does NOT auto-split into multiple design docs. Instead it proceeds as one doc and records a high-priority assumption: 'This design has 9 decisions which exceeds the recommended 7. Consider splitting if review finds the doc unwieldy.' The terminal summary highlights this assumption prominently.",
+      "assertions": [
+        "Phase 1 identifies 8 or more decision questions",
+        "The agent does NOT propose or attempt to split the design into multiple documents",
+        "A high-priority assumption is recorded noting the decision count exceeds the recommended 7",
+        "The terminal summary lists the scaling assumption as the first or most prominently highlighted item"
+      ],
+      "files": []
+    },
+    {
+      "id": 12,
+      "name": "cross-validation-conflict",
+      "prompt": "/design --auto distributed-cache",
+      "expected_output": "Phase 2 runs 3 decision agents in parallel. Decision 1 chooses 'single Redis instance' assuming low write volume. Decision 3 chooses 'event-driven invalidation' which generates high write volume to Redis. Phase 3 (cross-validation) detects the conflict: Decision 1's assumption 'low write volume' is invalidated by Decision 3's choice. Decision 1 restarts once with Decision 3's outcome as a constraint. Decision 1 now chooses 'Redis cluster' instead. No second validation round — remaining assumptions accepted. The conflict and resolution are documented in the consolidated decisions file.",
+      "assertions": [
+        "Decision 1 and Decision 3 are run in parallel (same phase, not sequentially dependent)",
+        "Cross-validation detects that Decision 3's choice invalidates Decision 1's low-write-volume assumption",
+        "Decision 1 is restarted exactly once with Decision 3's outcome as an explicit constraint",
+        "After restart, Decision 1 changes its recommendation (e.g., Redis Cluster instead of single instance)",
+        "No second validation round occurs — remaining assumptions are accepted after the single restart",
+        "The conflict and resolution are explicitly documented in the consolidated decisions file"
+      ],
+      "files": []
+    }
+  ]
+}

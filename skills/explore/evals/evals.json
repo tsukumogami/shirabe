@@ -1,0 +1,61 @@
+{
+  "skill_name": "explore",
+  "evals": [
+    {
+      "id": 1,
+      "name": "open-ended-no-direction",
+      "prompt": "I want to add real-time notifications to our app but I have no idea where to start. What should I do?",
+      "expected_output": "Skill triggers on 'no idea where to start'. Begins Phase 0 setup, then Phase 1 scoping to identify leads around notification architecture. Should NOT jump directly to /design or /prd -- the right artifact type is unclear. Produces wip/explore_real-time-notifications_scope.md with initial leads.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "issue-based-exploration",
+      "prompt": "/explore #42",
+      "expected_output": "Detects issue number from arguments. Reads issue via gh issue view 42. Derives topic from issue title. Checks for needs-triage label. Proceeds through Phase 0 setup and Phase 1 scoping using the issue content as context. Produces scope artifact named after the derived topic.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "routing-advisor-prd-vs-design",
+      "prompt": "Should I write a PRD or a design doc for our new plugin system?",
+      "expected_output": "Triggers as routing advisor (matches 'should I write a PRD or a design doc?'). Consults the Quick Decision Table and Complexity-Based Routing table. Asks clarifying questions to determine whether the core question is 'what should we build' (PRD) vs 'how should we build it' (Design Doc). Does NOT immediately start the full explore workflow unless the user's situation maps to the Complex/Explore path.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "crystallize-to-design-doc",
+      "prompt": "/explore how to migrate our monolith to microservices",
+      "expected_output": "Runs the full explore workflow. In Phase 4 Crystallize, evaluates artifact types using the crystallize framework. For a 'how to build' question with multiple architectural unknowns, should score Design Doc highest. Produces wip/explore_migrate-monolith-to-microservices_crystallize.md with scoring rationale. Phase 5 hands off to /design.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "crystallize-to-prd",
+      "prompt": "/explore what analytics features our users actually need",
+      "expected_output": "Runs explore workflow. The topic is about 'what to build' (user needs, requirements). In Phase 4 Crystallize, should score PRD highest since the core question is about requirements rather than architecture. Produces crystallize artifact recommending /prd handoff.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "auto-mode-no-blocking",
+      "prompt": "/explore --auto authentication overhaul",
+      "expected_output": "Detects --auto flag. Never blocks on user input. At each decision point (scope leads, converge loop, crystallize confirmation), follows research-first decision protocol: gathers evidence, forms recommendation, follows it, documents as a decision block. Creates wip/explore_authentication-overhaul_decisions.md tracking all auto-decisions. Defaults to max 3 discover-converge rounds. Completes full workflow autonomously.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "cross-repo-issue",
+      "prompt": "/explore tsuku-project/koto#15",
+      "expected_output": "Detects cross-repo issue format (org/repo#N). Uses gh issue view 15 --repo tsuku-project/koto to read the issue. Resolves visibility from the WORKING repo (shirabe, public), not the issue's repo. Research agents may read koto for context, but all wip/ artifacts are created in the working repo. Public content governance applies.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "name": "simple-task-routes-away",
+      "prompt": "I need to bump the version number in package.json, what workflow should I use?",
+      "expected_output": "Acts as routing advisor. Recognizes this as a Simple complexity task (clear requirements, few files, one person). Routes to /work-on or direct implementation rather than starting explore. Should NOT launch the full discover-converge loop for a trivial change.",
+      "files": []
+    }
+  ]
+}

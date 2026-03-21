@@ -11,3 +11,10 @@ Thumbs.db
 *~
 .idea/
 .vscode/
+.claude/
+
+# Eval workspaces (generated outputs, not committed)
+**/evals/workspace/
+
+# Eval viewer artifacts
+decision-workspace/
