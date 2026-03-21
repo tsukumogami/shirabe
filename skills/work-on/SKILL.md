@@ -112,7 +112,7 @@ A merged PR with passing CI, referenced back to the source issue.
 
 First, resolve the input using the Input Resolution section above. Once you have an issue number, read the issue with `gh issue view <issue-number>`. Check for blocking labels as defined in your project's label vocabulary (CLAUDE.md `## Label Vocabulary`) and stop if any are present.
 
-Detect repo visibility from CLAUDE.md (`## Repo Visibility: Public|Private`) and load the appropriate content governance skill:
+Detect repo visibility from CLAUDE.md (`## Repo Visibility: Public|Private`). If not found, infer from repo path (`private/` -> Private, `public/` -> Public; default to Private). Load the appropriate content governance skill:
 - **Private repos:** Read `skills/private-content/SKILL.md`
 - **Public repos:** Read `skills/public-content/SKILL.md`
 

@@ -34,7 +34,7 @@ based on status -- all PRDs stay in `docs/prds/` regardless of lifecycle state.
 
 ## Repo Visibility
 
-Before writing content, determine visibility:
+Before writing content, detect visibility from CLAUDE.md (`## Repo Visibility: Public|Private`). If not found, infer from repo path (`private/` -> Private, `public/` -> Public; default to Private). Load the appropriate content governance skill:
 - **Private repos:** Read `skills/private-content/SKILL.md`
 - **Public repos:** Read `skills/public-content/SKILL.md`
 
