@@ -142,6 +142,7 @@ PYEOF
   # Return values for callers
   echo "$iter_dir" > /tmp/run-evals-iter-dir
   echo "$eval_count" > /tmp/run-evals-eval-count
+  echo "$iteration" > /tmp/run-evals-iteration
 }
 
 run_skill_evals() {
@@ -152,9 +153,10 @@ run_skill_evals() {
   # Step 1: Prepare
   prep_skill_evals "$skill_name" || return $?
 
-  local iter_dir eval_count
+  local iter_dir eval_count iteration
   iter_dir=$(cat /tmp/run-evals-iter-dir)
   eval_count=$(cat /tmp/run-evals-eval-count)
+  iteration=$(cat /tmp/run-evals-iteration)
 
   # Step 2: Run evals via claude -p with /skill-creator
   echo ""
