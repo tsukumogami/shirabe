@@ -10,8 +10,9 @@ decision: |
   inline choices), and a non-interactive execution mode (--auto flag) that lets all
   workflows run end-to-end by making assumptions instead of blocking. All three layers
   share a common decision block format (HTML comment delimiters with markdown content),
-  category-based confirmed/assumed status classification, and a layered review surface
-  (wip/ artifact, terminal summary, PR body section).
+  category-based confirmed/assumed status classification, a consolidated decisions
+  file (replacing separate manifest and assumptions files), and a layered review
+  surface (wip/ file, terminal summary, PR body section). 14 architectural decisions.
 rationale: |
   A single heavyweight framework is too expensive for the 49% of decisions that are
   routine judgment calls. A lightweight-only approach misses the value of adversarial
@@ -406,6 +407,118 @@ listing remaining gaps and suggesting re-run options.
 - **First-round-only in --auto**: sacrifices too much quality; the skills are
   designed for iterative deepening
 
+### Decision 11: Format mapping ownership
+
+How should the mapping between decision reports and consuming formats (Considered
+Options, ADR) be specified and maintained?
+
+#### Chosen: Single canonical format with consumer rendering sections
+
+The decision report format spec includes "How to render as Considered Options"
+and "How to render as ADR" sections, co-locating the format definition with all
+consumer rendering rules in one file. When a field is added, one file changes.
+
+Consumers (design skill's cross-validation phase, explore's produce-decision
+phase) reference the rendering rules from the canonical spec rather than
+maintaining their own adapters.
+
+#### Alternatives considered
+
+- **Dedicated format-mapping reference file**: achieves the same goal but adds
+  indirection -- two files to update instead of one. Can migrate to this if
+  rendering rules grow complex enough to warrant separation.
+- **Inline in each consumer's phase file**: the current implicit approach and
+  the direct cause of the 7-8 file change problem the maintainability review flagged.
+
+### Decision 12: Tier classification signals
+
+What concrete signals should an agent use to classify a decision into the
+correct tier?
+
+#### Chosen: Phase-file pre-classification with checklist fallback for emergent decisions
+
+**Known decision points** (the 39 from the ask inventory) get
+`<!-- decision-tier: N -->` annotations in their phase files. No runtime
+classification needed -- the phase file tells the agent which tier to use.
+
+**Emergent decisions** (discovered mid-execution, especially in design Phases
+4-5) use a three-signal checklist in override order:
+
+1. **Reversibility**: irreversible forces Tier 4
+2. **Heuristic confidence**: decisive result = Tier 2, close result = Tier 3
+3. **Phase primacy**: if this is the primary question the phase exists to
+   answer, minimum Tier 3
+
+Default stays Tier 2 when signals are ambiguous. Over-documenting with the
+lightweight protocol is better than under-escalating.
+
+#### Alternatives considered
+
+- **Checklist alone**: adds classification overhead to every decision including
+  the predictable majority
+- **Decision tree alone**: has a masking problem where early branches catch most
+  decisions before the distinguishing signals are evaluated
+- **Pre-classification alone**: can't handle emergent decisions during
+  architecture and investigation phases
+
+### Decision 13: Decision count scaling
+
+What upper bound should be set on decisions per design doc?
+
+#### Chosen: Tiered guidance with hard ceiling at 10
+
+Phase 1 (Decision Decomposition) applies escalating friction based on count:
+
+| Count | Behavior |
+|-------|----------|
+| 1-5 | Proceed normally |
+| 6-7 | Warn that the doc is complex, proceed with user confirmation |
+| 8-9 | Present a concrete split proposal, require confirmation (--auto executes the split) |
+| 10+ | Refuse and require splitting into multiple design docs |
+
+The binding constraint isn't cross-validation cost (O(N^2)) -- it's document
+readability. A design doc with 10+ Considered Options sections is unreadable for
+humans and consumes too much agent context.
+
+#### Alternatives considered
+
+- **Hard cap at 8**: too rigid for 8-9 orthogonal decisions that legitimately
+  occur together
+- **Soft guidance only**: users always override suggestions; no protection
+  against the degenerate case
+- **Hierarchical decomposition**: introduces a new document type and two-level
+  cross-validation for a problem that rarely arises
+- **No limit, optimize cross-validation**: misses the readability constraint
+
+### Decision 14: Decision and assumption artifact consolidation
+
+Should assumptions and decision manifests be separate files or consolidated?
+
+#### Chosen: Single consolidated file per workflow invocation
+
+`wip/<workflow>_<topic>_decisions.md` contains both the decision index (table
+at top) and detailed assumption entries (below). One extra file per invocation
+instead of two.
+
+Structure:
+- **Index table**: all decisions with ID, tier, status, location
+- **Assumption details**: entries for `status="assumed"` decisions with
+  confidence, evidence summary, and "if wrong" restart path
+
+Confirmed decisions appear only in the index. Assumed decisions get both an
+index row and a detailed entry. The file is append-only during execution and
+serves as the source of truth for the terminal summary and PR body section.
+
+#### Alternatives considered
+
+- **Two separate files** (original design): clear separation but doubles the
+  per-invocation file overhead; heavy overlap since every assumed decision
+  appears in both
+- **No new files (derive at review time)**: destroys the persistent review
+  surface and breaks assumption invalidation via stable IDs
+- **Split by decision weight**: functionally identical to consolidated for
+  review purposes but adds branching logic
+
 ## Decision Outcome
 
 The three components compose into a unified system:
@@ -488,10 +601,11 @@ decision_result:
 
 The `assumptions` list enables cross-decision conflict detection.
 
-**Output format:** The canonical decision report follows the decision block
-format with full detail. When consumed by a design doc, the report maps to
-Considered Options sections. When standalone, it serializes to
-`docs/decisions/ADR-<topic>.md`.
+**Output format:** The canonical decision report includes consumer rendering
+rules (Decision 11): "How to render as Considered Options" and "How to render
+as ADR" are co-located in the format spec. One file to update for format changes.
+When consumed by a design doc, the report maps to Considered Options sections.
+When standalone, it serializes to `docs/decisions/ADR-<topic>.md`.
 
 ### Component 2: Lightweight Decision Protocol
 
@@ -510,8 +624,14 @@ Triggers when any of these hold:
 - The choice rests on a falsifiable assumption
 - Reversing would require rework
 
-Decision blocks are inline in their source artifacts. A decision manifest
-(`wip/<workflow>_<topic>_decision-manifest.md`) indexes all blocks for review.
+Decision blocks are inline in their source artifacts. A consolidated decisions
+file (`wip/<workflow>_<topic>_decisions.md`) indexes all blocks and tracks
+assumptions in one place (Decision 14).
+
+Known decision points in phase files carry `<!-- decision-tier: N -->`
+annotations so the agent doesn't need to classify at runtime (Decision 12).
+Emergent decisions use a three-signal checklist: reversibility, heuristic
+confidence, phase primacy.
 
 ### Component 3: Non-Interactive Execution Mode
 
@@ -529,8 +649,9 @@ Behavioral changes at decision points:
 Loop termination in --auto: per-skill round limits (explore: 3, prd: 2,
 design: 1) with `--max-rounds=N` override.
 
-Assumptions accumulate in `wip/<workflow>_<topic>_assumptions.md` during
-execution. High-priority assumptions surface at the terminal and in the PR body.
+Assumptions accumulate in the consolidated `wip/<workflow>_<topic>_decisions.md`
+file during execution. High-priority assumptions surface at the terminal and
+in the PR body.
 
 ### Component 4: Design Skill Changes
 
@@ -547,9 +668,14 @@ Phase 6: SECURITY
 Phase 7: FINAL REVIEW
 ```
 
+Decision Decomposition (Phase 1) applies the scaling heuristic (Decision 13):
+1-5 decisions proceed normally, 6-7 warn, 8-9 require split confirmation,
+10+ refuse and require splitting.
+
 New artifacts:
 - `wip/design_<topic>_decisions.json` -- coordination manifest
 - `wip/design_<topic>_decision_<N>_report.md` -- per-question decision report
+- `wip/design_<topic>_decisions.md` -- consolidated decision index + assumptions
 
 Cross-validation reads all decision reports, checks assumptions against peer
 choices, restarts conflicting decisions once with constraints, then cleans up
@@ -596,12 +722,16 @@ These affect all skills and can be implemented without the decision skill.
 
 Deliverables:
 - `references/decision-protocol.md` -- shared lightweight protocol specification
-  with decision block format (HTML comment delimiters) and status threshold rules
-- `--auto` flag handling in each SKILL.md
-- `--max-rounds=N` flag handling with per-skill defaults
-- Assumption tracking artifact format (`wip/<workflow>_<topic>_assumptions.md`)
-  with review priority (high/low)
-- Review surface: terminal summary printer + PR body section template
+  with decision block format (HTML comment delimiters), status threshold rules
+  (Decision 9), and tier classification signals (Decision 12)
+- `--auto` flag handling in each SKILL.md (Decision 7)
+- `--max-rounds=N` flag handling with per-skill defaults (Decision 10)
+- Consolidated decisions file format (`wip/<workflow>_<topic>_decisions.md`)
+  with index table + assumption details and review priority (Decision 14)
+- Decision point manifest: catalogue of all 39 blocking points with their
+  locations, categories, pre-classified tiers, and expected behavior in each mode
+- `<!-- decision-tier: N -->` annotations added to all 39 phase file locations
+- Review surface: terminal summary printer + PR body section template (Decision 2)
 - Progress feedback protocol for --auto mode (one-line status per phase transition)
 
 ### Phase 2: Decision skill
@@ -612,8 +742,8 @@ standalone and sub-operation invocation.
 Deliverables:
 - SKILL.md with input/output contracts and sub-operation interface section
 - 7 phase files (each under 150 lines)
-- Decision report format specification (canonical structure: Context, Assumptions,
-  Chosen, Rationale, Alternatives, Consequences)
+- Decision report format specification with consumer rendering sections for
+  Considered Options and ADR formats (Decision 11)
 - Cleanup policy: intermediate artifacts deleted after report is written;
   only the final report persists
 
@@ -628,6 +758,7 @@ Deliverables:
   phase-3-cross-validation.md
 - Updated phase-4-investigation.md (slimmed, implementation-focused only)
 - Coordination manifest format (`wip/design_<topic>_decisions.json`)
+- Decision count scaling heuristic in phase-1-decomposition.md (Decision 13)
 - Cross-validation cleanup: intermediate artifacts persist through cross-
   validation, cleaned after it completes
 
