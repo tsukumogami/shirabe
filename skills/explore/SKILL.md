@@ -87,6 +87,20 @@ gh issue view 42 --repo owner/repo --json title,body,labels
 
 ### Context Resolution
 
+#### 0. Detect Execution Mode
+
+Check `$ARGUMENTS` for `--auto` or `--interactive` flags. Also check for
+`--max-rounds=N`. If neither mode flag is present, read CLAUDE.md
+`## Execution Mode:` header (values: `auto` or `interactive`, default:
+`interactive`).
+
+In `--auto` mode, the agent never blocks on user input. At decision points,
+follow the research-first protocol in `references/decision-protocol.md`:
+gather evidence, form recommendation, follow it, document as a decision
+block. Create `wip/explore_<topic>_decisions.md` to track all decisions.
+
+Default max rounds in --auto: 3. Override with `--max-rounds=N`.
+
 #### 1. Detect Visibility
 
 Read the repo's CLAUDE.md (or CLAUDE.local.md) for:
