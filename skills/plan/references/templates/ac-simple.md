@@ -9,7 +9,7 @@
 ## Acceptance Criteria
 
 {{PROSE_AC}}
-- [ ] Tests pass (`go test ./...`)
+- [ ] Tests pass (run project's test command)
 - [ ] CI green
 
 ## Dependencies
