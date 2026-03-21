@@ -296,5 +296,6 @@ explicit decisions were made during exploration.
 | `references/phases/phase-5-produce-design.md` | Phase 5, Design Doc handoff |
 | `references/phases/phase-5-produce-plan.md` | Phase 5, Plan handoff |
 | `references/phases/phase-5-produce-no-artifact.md` | Phase 5, No artifact |
-| `references/phases/phase-5-produce-deferred.md` | Phase 5, Roadmap/Spike/ADR/Competitive/Prototype |
+| `references/phases/phase-5-produce-decision.md` | Phase 5, Decision Record handoff |
+| `references/phases/phase-5-produce-deferred.md` | Phase 5, Roadmap/Spike/Competitive/Prototype |
 | `references/quality/crystallize-framework.md` | Phase 4 (full decision framework) |

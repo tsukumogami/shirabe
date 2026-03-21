@@ -40,8 +40,9 @@ Route to the matching sub-file:
 | PRD | `phase-5-produce-prd.md` |
 | Design Doc | `phase-5-produce-design.md` |
 | Plan | `phase-5-produce-plan.md` |
+| Decision Record | `phase-5-produce-decision.md` |
 | No artifact | `phase-5-produce-no-artifact.md` |
-| Roadmap, Spike Report, Decision Record, Competitive Analysis, Prototype | `phase-5-produce-deferred.md` |
+| Roadmap, Spike Report, Competitive Analysis, Prototype | `phase-5-produce-deferred.md` |
 
 Read the matching file and follow its instructions.
 
