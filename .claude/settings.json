@@ -1,0 +1,15 @@
+{
+  "extraKnownMarketplaces": {
+    "shirabe": {
+      "source": {
+        "source": "file",
+        "path": "."
+      }
+    }
+  },
+  "enabledPlugins": {
+    "tsukumogami@tsukumogami": true,
+    "skill-creator@claude-plugins-official": true,
+    "shirabe": true
+  }
+}
