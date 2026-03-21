@@ -30,7 +30,7 @@ validation rules, and quality guidance. Load it during Phases 3 and 4.
 ## File Location
 
 PRDs live at `docs/prds/PRD-<name>.md` (kebab-case). No directory movement
-based on status -- all PRDs stay in `docs/prds/` regardless of lifecycle state.
+based on status -- stable paths keep cross-references durable and git blame readable.
 
 ## Repo Visibility
 
@@ -61,7 +61,7 @@ From `$ARGUMENTS`:
 ### Context Resolution
 
 Detect visibility (Private/Public) from CLAUDE.md or repo path. Infer from
-`private/` or `public/` in path if not explicit. Default to Private if unknown.
+`private/` or `public/` in path if not explicit. Default to Private if unknown -- restricting is easier to undo than oversharing.
 
 Log: `Specifying requirements with [Private|Public] visibility...`
 

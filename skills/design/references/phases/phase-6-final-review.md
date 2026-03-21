@@ -150,7 +150,7 @@ Ask user for approval using AskUserQuestion:
    which labels to remove on design acceptance. If no vocabulary is defined, look
    for any `needs-*` label and remove it. The tracking label is applied later by
    /plan, not here.
-4. **Update parent design doc** (only when step 3 found and removed a label).
+4. **Update parent design doc** (only when the design doc has `spawned_from` in its frontmatter).
    If your project defines a label lifecycle in the extension file
    (`@.claude/shirabe-extensions/design.md`), follow those instructions for
    parent doc updates (Mermaid diagram class changes, child reference rows,

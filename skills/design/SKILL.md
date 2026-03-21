@@ -103,9 +103,11 @@ lifecycle, validation rules, and quality guidance.
 
 ## File Location
 
-Active: `docs/designs/DESIGN-<topic>.md` (kebab-case).
-Current: `docs/designs/current/DESIGN-<topic>.md`.
-Archived: `docs/designs/archive/DESIGN-<topic>.md`.
+Directory structure makes lifecycle state visible in file paths without opening files:
+
+- Active: `docs/designs/DESIGN-<topic>.md` (kebab-case)
+- Current: `docs/designs/current/DESIGN-<topic>.md`
+- Archived: `docs/designs/archive/DESIGN-<topic>.md`
 
 ### Sections Added During Lifecycle
 

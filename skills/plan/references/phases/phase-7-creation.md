@@ -249,10 +249,10 @@ Transition the upstream design doc from Accepted to Planned:
 ${CLAUDE_PLUGIN_ROOT}/skills/design/scripts/transition-status.sh <design-doc-path> Planned
 ```
 
-**Important constraints:**
+**Important constraints** (implementation tracking lives in the PLAN artifact, not the design doc):
 - This is a status-only change
 - Do NOT insert an Implementation Issues section into the design doc
-- Do NOT modify the design doc body in any way
+- Do NOT modify the design doc body
 - Only the status line changes (Accepted -> Planned)
 
 **For roadmaps** (input_type: roadmap):
