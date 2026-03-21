@@ -14,8 +14,7 @@ Reference for constructing `PLAN-<topic>.md` artifacts. This format owns all imp
 - [Strikethrough Rules](#strikethrough-rules)
 - [Dependency Graph](#dependency-graph) (Mermaid syntax, status classes, node format)
 - [Section Placement](#section-placement-legacy-context)
-- [Complete Example (multi-pr mode)](#complete-example-multi-pr-mode)
-- [Complete Example (roadmap mode)](#complete-example-roadmap-mode)
+- [Examples](#examples) (in `plan-doc-examples.md`)
 
 ## File Location
 
