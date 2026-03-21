@@ -8,7 +8,6 @@
     }
   },
   "enabledPlugins": {
-    "tsukumogami@tsukumogami": true,
     "skill-creator@claude-plugins-official": true,
     "shirabe": true
   }
