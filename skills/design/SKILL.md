@@ -146,42 +146,42 @@ For cross-repo source issues, use `gh` commands to read content.
 ### Workflow Phases
 
 ```
-Phase 0: SETUP --> Phase 1: EXPAND --> Phase 2: CONVERGE --> Phase 3: INVESTIGATE --> Phase 4: ARCHITECT --> Phase 5: SECURITY --> Phase 6: FINALIZE
-                        ^                    |
-                        +--- loop back if ---+
-                        approaches missing
+Phase 0: SETUP --> Phase 1: DECOMPOSE --> Phase 2: EXECUTE --> Phase 3: CROSS-VALIDATE --> Phase 4: INVESTIGATE --> Phase 5: ARCHITECT --> Phase 6: SECURITY --> Phase 7: FINALIZE
 ```
 
 | Phase | Purpose | Artifact |
 |-------|---------|----------|
 | 0 | Branch setup, PRD extraction or freeform scoping | Design doc skeleton, wip/ summary |
-| 1 | Fan out advocate agents, one per approach (cap 5) | wip/ research per advocate |
-| 2 | Side-by-side comparison, agent recommends, user approves | Considered Options, Decision Outcome |
-| 3 | Research agents examine chosen approach in depth | wip/ research per area |
-| 4 | Synthesize findings into architecture sections | Solution Architecture, Consequences |
-| 5 | Mandatory security review (3 outcomes) | Security Considerations |
-| 6 | Review, strawman check, frontmatter, commit, PR | Complete design doc |
+| 1 | Identify independent decision questions | `wip/design_<topic>_coordination.json` |
+| 2 | Run decision skill per question (parallel agents) | `wip/design_<topic>_decision_<N>_report.md` |
+| 3 | Cross-validate assumptions across decisions | Considered Options in design doc |
+| 4 | Research implementation-level unknowns (slimmed) | wip/ research per area |
+| 5 | Synthesize findings into architecture sections | Solution Architecture, Consequences |
+| 6 | Mandatory security review (3 outcomes) | Security Considerations |
+| 7 | Review, strawman check, frontmatter, commit, PR | Complete design doc |
 
 ### Resume Logic
 
 ```
-Design doc status "Accepted"                    → Offer to revise or start fresh
-Design doc status "Proposed"                    → Offer to continue
-wip/research/design_<topic>_phase5_security.md  → Resume at Phase 6
-Design doc has Solution Architecture            → Resume at Phase 5
-wip/research/design_<topic>_phase3_*.md exist   → Resume at Phase 4
-Design doc has Considered Options               → Resume at Phase 3
-wip/research/design_<topic>_phase1_*.md exist   → Resume at Phase 2
-wip/design_<topic>_summary.md exists            → Resume at Phase 1
-On topic branch, no artifacts                   → Resume at Phase 0
+Design doc status "Accepted"                              → Offer to revise or start fresh
+Design doc status "Proposed"                              → Offer to continue
+wip/research/design_<topic>_phase6_security.md            → Resume at Phase 7
+Design doc has Solution Architecture                      → Resume at Phase 6
+wip/research/design_<topic>_phase4_*.md exist             → Resume at Phase 5
+Design doc has Considered Options                         → Resume at Phase 4
+wip/design_<topic>_coordination.json (all complete)       → Resume at Phase 3
+wip/design_<topic>_coordination.json (some pending)       → Resume at Phase 2
+wip/design_<topic>_summary.md exists, no coordination     → Resume at Phase 1
+On topic branch, no artifacts                             → Resume at Phase 0
 ```
 
 ### Critical Requirements
 
-- **No premature commitment**: no approach chosen until the user approves in Phase 2 -- premature commitment biases the investigation and advocates won't explore honestly if the outcome is predetermined
-- **Equal-depth investigation**: every advocate gets the same context and effort
-- **Security is mandatory**: Phase 5 always runs; output may be N/A but the review is not optional
-- **Strawman check**: Phase 6 validates rejected alternatives have genuine depth
+- **Decision decomposition before execution**: identify all decision questions in Phase 1 before spawning any decision agents in Phase 2
+- **Equal-depth investigation**: every decision question gets the same framework treatment at its assigned tier
+- **Cross-validation is mandatory**: Phase 3 always runs after Phase 2, even with one decision
+- **Security is mandatory**: Phase 6 always runs; output may be N/A but the review is not optional
+- **Strawman check**: Phase 7 validates rejected alternatives have genuine depth
 - **Topic-scoped artifacts**: all wip/ files include `<topic>` in their path
 
 ### Output
@@ -215,12 +215,13 @@ Execute phases sequentially by reading the corresponding phase file:
 0. **Setup + Context**
    - PRD mode: `references/phases/phase-0-setup-prd.md`
    - Freeform: `references/phases/phase-0-setup-freeform.md`
-1. **Approach Discovery**: `references/phases/phase-1-approach-discovery.md`
-2. **Present Approaches**: `references/phases/phase-2-present-approaches.md`
-3. **Deep Investigation**: `references/phases/phase-3-deep-investigation.md`
-4. **Architecture**: `references/phases/phase-4-architecture.md`
-5. **Security**: `references/phases/phase-5-security.md`
-6. **Final Review**: `references/phases/phase-6-final-review.md`
+1. **Decision Decomposition**: `references/phases/phase-1-decomposition.md`
+2. **Decision Execution**: `references/phases/phase-2-execution.md`
+3. **Cross-Validation**: `references/phases/phase-3-cross-validation.md`
+4. **Investigation**: `references/phases/phase-4-architecture.md` (slimmed -- implementation focus only)
+5. **Architecture**: `references/phases/phase-5-security.md` (renumbered)
+6. **Security**: `references/phases/phase-6-security.md` (renumbered)
+7. **Final Review**: `references/phases/phase-7-final-review.md` (renumbered)
 
 ---
 
@@ -230,10 +231,10 @@ Execute phases sequentially by reading the corresponding phase file:
 |------|-------------|
 | `references/phases/phase-0-setup-prd.md` | Phase 0, PRD input mode |
 | `references/phases/phase-0-setup-freeform.md` | Phase 0, freeform input mode |
-| `references/phases/phase-1-approach-discovery.md` | Phase 1 |
-| `references/phases/phase-2-present-approaches.md` | Phase 2 |
-| `references/phases/phase-3-deep-investigation.md` | Phase 3 |
-| `references/phases/phase-4-architecture.md` | Phase 4 |
+| `references/phases/phase-1-decomposition.md` | Phase 1 |
+| `references/phases/phase-2-execution.md` | Phase 2 |
+| `references/phases/phase-3-cross-validation.md` | Phase 3 |
+| `references/phases/phase-4-architecture.md` | Phase 4 (investigation, slimmed) |
 | `references/phases/phase-5-security.md` | Phase 5 |
 | `references/phases/phase-6-final-review.md` | Phase 6 |
 | `references/lifecycle.md` | Phase 6 (status transitions, label lifecycle, validation) |
