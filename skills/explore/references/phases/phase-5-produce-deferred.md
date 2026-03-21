@@ -21,7 +21,7 @@ code rather than documentation artifacts, so they don't fit the skill-based
 production pattern.
 
 Present the decision using AskUserQuestion following the pattern in
-`references/decision-presentation.md`.
+`${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`.
 
 **Description field:** Explain that Prototype was selected as best fit, but
 prototype production isn't available through /explore -- prototypes are code

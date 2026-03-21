@@ -214,7 +214,7 @@ On the first pass, N=1. On subsequent passes after "explore further," increment 
 Read: `references/phases/phase-3-converge.md`
 
 After Phase 3 completes, present the loop decision using AskUserQuestion
-following the pattern in `references/decision-presentation.md`.
+following the pattern in `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`.
 
 **Recommendation heuristic:** If the convergence output surfaces significant gaps,
 open questions, or contradictions, recommend "Explore further." If findings are

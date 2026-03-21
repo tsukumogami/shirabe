@@ -87,7 +87,7 @@ For each implicit decision found:
 
 1. Identify the choice made and at least one alternative that was viable
 2. Present it to the user via AskUserQuestion for confirmation (see
-   `references/decision-presentation.md`)
+   `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`)
 3. Append to Considered Options using the standard Decision N format
    (context / chosen / rejected)
 

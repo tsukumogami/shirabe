@@ -1,23 +1,14 @@
-# Shared References
+# Shared Skill References
 
-Cross-cutting specifications and conventions used by multiple skills.
-Individual skills have their own `references/` directories for skill-specific
-content; this directory holds repo-wide standards.
+Runtime references loaded by multiple skills via `${CLAUDE_PLUGIN_ROOT}/references/`.
+These files are read by skill phase files during execution.
 
-## Decision Framework
+For design specifications and documentation that describe the framework but
+aren't loaded by skills at runtime, see `docs/specs/`.
 
-| File | Purpose |
-|------|---------|
-| `decision-block-format.md` | HTML comment delimiters, status values, threshold rules |
-| `decision-protocol.md` | Lightweight 3-step micro-workflow for inline decisions |
-| `decision-points.md` | Manifest of all 39 known decision points with pre-classified tiers |
-| `decision-report-format.md` | Canonical 6-field report structure with consumer rendering rules |
-| `decisions-file-format.md` | Consolidated per-invocation decisions + assumptions file |
-| `review-surface.md` | Terminal summary, PR body section, and progress feedback templates |
-| `assumption-invalidation.md` | Flow for correcting wrong assumptions post-workflow |
-
-## Conventions
-
-| File | Purpose |
-|------|---------|
-| `research-artifact.md` | Naming convention and template for agent research outputs in `wip/research/` |
+| File | Used by | Purpose |
+|------|---------|---------|
+| `decision-block-format.md` | decision, all skills | HTML comment delimiters, status values, threshold rules |
+| `decision-protocol.md` | all workflow skills | Lightweight 3-step micro-workflow for inline decisions |
+| `decision-report-format.md` | decision, design, explore | Canonical 6-field report with consumer rendering rules |
+| `decision-presentation.md` | explore, design, prd | AskUserQuestion formatting pattern for presenting choices |

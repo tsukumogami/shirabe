@@ -140,7 +140,7 @@ Present the synthesis to the user:
 ### 2.5 Loop Back Decision
 
 After presenting findings, present the loop decision using AskUserQuestion
-following the pattern in `references/decision-presentation.md`.
+following the pattern in `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`.
 
 **Recommendation heuristic:** If findings are sufficient to draft requirements
 and no major gaps remain, recommend proceeding. If new leads emerged that need

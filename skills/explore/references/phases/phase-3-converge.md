@@ -81,7 +81,7 @@ based on what the research surfaced, plus a free-form option.
 **Be opinionated when narrowing.** Don't present directions as equally valid
 when the evidence favors one over another. Recommend which directions to pursue
 and which to eliminate, with reasons grounded in findings. Follow the guidance
-in `references/decision-presentation.md` for how to frame recommendations
+in `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md` for how to frame recommendations
 without false neutrality.
 
 These questions serve two purposes: they help the user process the findings,

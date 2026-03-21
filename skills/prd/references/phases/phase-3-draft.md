@@ -69,7 +69,7 @@ Use AskUserQuestion to raise thematic questions the user needs to weigh in on. F
 on trade-offs, ambiguous scope boundaries, and decisions where the research pointed
 in multiple directions.
 
-Read `references/decision-presentation.md` for how to structure decisions.
+Read `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md` for how to structure decisions.
 Frame interactions as the agent recommending based on evidence, not neutrally
 presenting options. Pick the best option, say why, and let the user override.
 
