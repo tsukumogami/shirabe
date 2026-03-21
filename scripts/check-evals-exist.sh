@@ -4,8 +4,8 @@
 # Usage: scripts/check-evals-exist.sh
 # Exit code: 0 if all skills have evals, 1 if any are missing
 #
-# Skills with disable-model-invocation: true are exempt (helper skills
-# like writing-style, private-content, public-content).
+# Skills with disable-model-invocation: true are exempt (reference-only
+# skills like private-content, public-content).
 
 set -euo pipefail
 

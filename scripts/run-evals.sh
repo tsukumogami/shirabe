@@ -5,39 +5,37 @@
 #   scripts/run-evals.sh <skill-name>        Run evals for one skill
 #   scripts/run-evals.sh --all               Run evals for all skills
 #   scripts/run-evals.sh --list              List skills with evals
+#   scripts/run-evals.sh --validate <skill>  Re-validate existing results
 #
 # Each skill's evals live at skills/<name>/evals/evals.json.
 # Results go to skills/<name>/evals/workspace/iteration-<N>/.
 #
-# The script prepares the workspace, then invokes claude -p with
-# /skill-creator loaded to run the actual evals. After execution,
-# it validates results and generates the eval viewer.
+# Exit codes:
+#   0  All assertions passed
+#   1  One or more assertions failed
+#   2  No results produced (infrastructure failure)
+#   3  Missing prerequisites
 #
 # Prerequisites: claude CLI, python3, skill-creator plugin installed
 
-set -euo pipefail
+set -uo pipefail
+# Note: no set -e; we handle errors explicitly for --all resilience
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SKILLS_DIR="$REPO_ROOT/skills"
 
-# Find the skill-creator's eval viewer
-SKILL_CREATOR_PATH=""
-for candidate in \
-  "$HOME/.claude/plugins/cache/claude-plugins-official/skill-creator"/*/skills/skill-creator \
-  "$HOME/.claude/plugins/cache/anthropic-agent-skills/skill-creator"/*/skills/skill-creator; do
-  if [ -d "$candidate/eval-viewer" ]; then
-    SKILL_CREATOR_PATH="$candidate"
-    break
-  fi
-done
+# Prerequisite checks
+command -v claude >/dev/null 2>&1 || { echo "Error: claude CLI not found"; exit 3; }
+command -v python3 >/dev/null 2>&1 || { echo "Error: python3 not found"; exit 3; }
 
 usage() {
-  echo "Usage: $0 <skill-name> | --all | --list"
+  echo "Usage: $0 <skill-name> | --all | --list | --validate <skill>"
   echo ""
-  echo "  <skill-name>   Run evals for a specific skill"
-  echo "  --all          Run evals for all skills that have evals/"
-  echo "  --list         List skills that have evals"
+  echo "  <skill-name>       Run evals for a specific skill"
+  echo "  --all              Run evals for all skills that have evals/"
+  echo "  --list             List skills that have evals"
+  echo "  --validate <skill> Re-validate the latest iteration without re-running"
   exit 1
 }
 
@@ -67,6 +65,15 @@ next_iteration() {
   echo "$n"
 }
 
+latest_iteration() {
+  local workspace="$1"
+  local n=0
+  while [ -d "$workspace/iteration-$((n + 1))" ]; do
+    n=$((n + 1))
+  done
+  echo "$n"
+}
+
 run_skill_evals() {
   local skill_name="$1"
   local skill_dir="$SKILLS_DIR/$skill_name"
@@ -74,12 +81,12 @@ run_skill_evals() {
 
   if [ ! -f "$evals_file" ]; then
     echo "Error: no evals found at $evals_file"
-    exit 1
+    return 3
   fi
 
   if [ ! -f "$skill_dir/SKILL.md" ]; then
     echo "Error: no SKILL.md found at $skill_dir/SKILL.md"
-    exit 1
+    return 3
   fi
 
   local workspace="$skill_dir/evals/workspace"
@@ -134,6 +141,7 @@ PYEOF
   # Step 2: Run evals via claude -p with /skill-creator
   echo ""
   echo "Invoking claude with /skill-creator to run evals..."
+  echo "(this may take several minutes)"
   echo ""
 
   local claude_exit=0
@@ -181,12 +189,13 @@ validate_results() {
   local failed_assertions=0
 
   for eval_dir in "$iter_dir"/*/; do
+    [ -d "$eval_dir" ] || continue
     local name
     name=$(basename "$eval_dir")
-    # Skip non-directory entries
-    [ -d "$eval_dir" ] || continue
+    # Skip non-eval entries
     [[ "$name" == *.json ]] && continue
     [[ "$name" == *.html ]] && continue
+    [[ "$name" == *.md ]] && continue
 
     # Check with_skill outputs exist
     if [ ! -d "$eval_dir/with_skill/outputs" ] || [ -z "$(ls -A "$eval_dir/with_skill/outputs" 2>/dev/null)" ]; then
@@ -199,6 +208,7 @@ validate_results() {
     fi
 
     # Check grading exists and tally
+    # Only with_skill is graded against assertions; without_skill is the baseline
     if [ -f "$eval_dir/with_skill/grading.json" ]; then
       graded=$((graded + 1))
       local counts
@@ -246,17 +256,19 @@ print(f'{len(exps)} {p}')
     echo ""
     echo "  FAILED ASSERTIONS: $failed_assertions"
     for eval_dir in "$iter_dir"/*/; do
+      [ -d "$eval_dir" ] || continue
       local gfile="$eval_dir/with_skill/grading.json"
       [ -f "$gfile" ] || continue
+      local ename
+      ename=$(basename "$eval_dir")
       python3 -c "
-import json, os
+import json
 with open('$gfile') as f:
     g = json.load(f)
 exps = g if isinstance(g, list) else g.get('expectations', [])
-name = os.path.basename(os.path.dirname(os.path.dirname('$gfile')))
 for e in exps:
     if not e.get('passed', False):
-        print(f'    [{name}] FAIL: {e.get(\"text\", \"unknown\")}')
+        print(f'    [$ename] FAIL: {e.get(\"text\", \"unknown\")}')
         if e.get('evidence'):
             print(f'           {e[\"evidence\"]}')
 " 2>/dev/null
@@ -267,8 +279,8 @@ for e in exps:
   if [ "$graded" -eq 0 ]; then
     echo ""
     echo "  WARNING: No evals were graded. The claude session may not have produced results."
-    echo "  Check the eval workspace: $iter_dir"
-    return 1
+    echo "  Re-run or check the workspace: $iter_dir"
+    return 2
   fi
 
   echo ""
@@ -287,13 +299,52 @@ case "$1" in
     list_skills_with_evals
     ;;
   --all)
+    failed_skills=()
+    infra_failed=()
     for skill_dir in "$SKILLS_DIR"/*/; do
       name=$(basename "$skill_dir")
       if [ -f "$skill_dir/evals/evals.json" ]; then
-        run_skill_evals "$name"
+        if ! run_skill_evals "$name"; then
+          rc=$?
+          if [ "$rc" -eq 2 ] || [ "$rc" -eq 3 ]; then
+            infra_failed+=("$name")
+          else
+            failed_skills+=("$name")
+          fi
+        fi
         echo ""
       fi
     done
+    echo "=== Summary ==="
+    if [ ${#failed_skills[@]} -gt 0 ]; then
+      echo "  Failed assertions: ${failed_skills[*]}"
+    fi
+    if [ ${#infra_failed[@]} -gt 0 ]; then
+      echo "  Infrastructure failures: ${infra_failed[*]}"
+    fi
+    if [ ${#failed_skills[@]} -eq 0 ] && [ ${#infra_failed[@]} -eq 0 ]; then
+      echo "  All skills passed."
+    fi
+    [ ${#failed_skills[@]} -gt 0 ] && exit 1
+    [ ${#infra_failed[@]} -gt 0 ] && exit 2
+    exit 0
+    ;;
+  --validate)
+    if [ $# -lt 2 ]; then
+      echo "Usage: $0 --validate <skill-name>"
+      exit 1
+    fi
+    skill_name="$2"
+    workspace="$SKILLS_DIR/$skill_name/evals/workspace"
+    iteration=$(latest_iteration "$workspace")
+    if [ "$iteration" -eq 0 ]; then
+      echo "Error: no iterations found in $workspace"
+      exit 2
+    fi
+    iter_dir="$workspace/iteration-$iteration"
+    eval_count=$(python3 -c "import json; print(len(json.load(open('$SKILLS_DIR/$skill_name/evals/evals.json'))['evals']))")
+    echo "=== Validating iteration $iteration for $skill_name ==="
+    validate_results "$iter_dir" "$eval_count"
     ;;
   --help|-h)
     usage
