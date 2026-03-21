@@ -137,6 +137,7 @@ PYEOF
   echo "Running evals via claude..."
   echo ""
 
+  local claude_exit=0
   claude -p "$(cat <<PROMPT
 You are running evals for the $skill_name skill. Use the /skill-creator workflow.
 
@@ -152,9 +153,31 @@ For each eval in the workspace:
 5. After all agents complete, grade each with-skill run against the assertions in eval_metadata.json. Write grading.json with fields: text, passed, evidence.
 6. Save timing.json for each run with total_tokens and duration_ms.
 
-After grading, report a summary: how many assertions passed vs failed, and any notable differences between with-skill and without-skill outputs.
+After grading, write a results summary to $iter_dir/results.json:
+{
+  "skill": "$skill_name",
+  "iteration": $iteration,
+  "evals_total": <count>,
+  "evals_graded": <count with grading.json>,
+  "assertions_total": <total across all evals>,
+  "assertions_passed": <total passed>,
+  "assertions_failed": <total failed>,
+  "failures": [{"eval": "<name>", "assertion": "<text>", "evidence": "<why>"}]
+}
+
+Also print the summary to stdout.
 PROMPT
-)" 2>&1 || echo "Warning: claude -p exited with non-zero status"
+)" 2>&1 || claude_exit=$?
+
+  if [ "$claude_exit" -ne 0 ]; then
+    echo ""
+    echo "Warning: claude -p exited with status $claude_exit"
+  fi
+
+  # Validate results
+  echo ""
+  echo "=== Validating results ==="
+  validate_results "$iter_dir" "$eval_count"
 
   # Generate viewer
   if [ -n "$SKILL_CREATOR_PATH" ]; then
@@ -167,6 +190,109 @@ PROMPT
       && echo "Viewer: /tmp/${skill_name}-eval-review.html" \
       || echo "Warning: viewer generation failed (results may be incomplete)"
   fi
+}
+
+validate_results() {
+  local iter_dir="$1"
+  local expected_count="$2"
+  local graded=0
+  local missing_outputs=()
+  local missing_grading=()
+  local total_assertions=0
+  local passed_assertions=0
+  local failed_assertions=0
+
+  for eval_dir in "$iter_dir"/*/; do
+    local name
+    name=$(basename "$eval_dir")
+    [ "$name" = "benchmark.json" ] && continue
+    [ "$name" = "results.json" ] && continue
+
+    # Check with_skill outputs exist
+    if [ ! -d "$eval_dir/with_skill/outputs" ] || [ -z "$(ls -A "$eval_dir/with_skill/outputs" 2>/dev/null)" ]; then
+      missing_outputs+=("$name/with_skill")
+    fi
+
+    # Check without_skill outputs exist
+    if [ ! -d "$eval_dir/without_skill/outputs" ] || [ -z "$(ls -A "$eval_dir/without_skill/outputs" 2>/dev/null)" ]; then
+      missing_outputs+=("$name/without_skill")
+    fi
+
+    # Check grading exists and tally
+    if [ -f "$eval_dir/with_skill/grading.json" ]; then
+      graded=$((graded + 1))
+      local counts
+      counts=$(python3 -c "
+import json
+with open('$eval_dir/with_skill/grading.json') as f:
+    g = json.load(f)
+exps = g.get('expectations', [])
+p = sum(1 for e in exps if e.get('passed', False))
+print(f'{len(exps)} {p}')
+" 2>/dev/null || echo "0 0")
+      local total passed
+      total=$(echo "$counts" | cut -d' ' -f1)
+      passed=$(echo "$counts" | cut -d' ' -f2)
+      total_assertions=$((total_assertions + total))
+      passed_assertions=$((passed_assertions + passed))
+      failed_assertions=$((failed_assertions + total - passed))
+    else
+      missing_grading+=("$name")
+    fi
+  done
+
+  echo "  Evals expected: $expected_count"
+  echo "  Evals graded:   $graded"
+  echo "  Assertions:     $passed_assertions/$total_assertions passed"
+
+  if [ ${#missing_outputs[@]} -gt 0 ]; then
+    echo ""
+    echo "  Missing outputs:"
+    for m in "${missing_outputs[@]}"; do
+      echo "    - $m"
+    done
+  fi
+
+  if [ ${#missing_grading[@]} -gt 0 ]; then
+    echo ""
+    echo "  Missing grading:"
+    for m in "${missing_grading[@]}"; do
+      echo "    - $m"
+    done
+  fi
+
+  if [ "$failed_assertions" -gt 0 ]; then
+    echo ""
+    echo "  FAILED ASSERTIONS: $failed_assertions"
+    # Print details from grading files
+    for eval_dir in "$iter_dir"/*/; do
+      local gfile="$eval_dir/with_skill/grading.json"
+      [ -f "$gfile" ] || continue
+      python3 -c "
+import json, os
+with open('$gfile') as f:
+    g = json.load(f)
+name = os.path.basename(os.path.dirname(os.path.dirname('$gfile')))
+for e in g.get('expectations', []):
+    if not e.get('passed', False):
+        print(f'    [{name}] FAIL: {e[\"text\"]}')
+        if e.get('evidence'):
+            print(f'           {e[\"evidence\"]}')
+" 2>/dev/null
+    done
+    return 1
+  fi
+
+  if [ "$graded" -eq 0 ]; then
+    echo ""
+    echo "  WARNING: No evals were graded. The claude -p session may not have produced results."
+    echo "  Check the eval workspace: $iter_dir"
+    return 1
+  fi
+
+  echo ""
+  echo "  All assertions passed."
+  return 0
 }
 
 # Main
