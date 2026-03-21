@@ -319,20 +319,41 @@ The flag controls only the top-level orchestrator's behavior at decision points.
 
 How do decision skill agents receive their instructions when spawned by a parent?
 
-#### Chosen: Agent reads SKILL.md directly (minimal dispatch)
+#### Chosen: Agent reads SKILL.md directly with hierarchical agent spawning
 
-The parent provides the decision context (question, options, constraints,
-background, prefix) in the agent prompt. The agent reads the decision skill's
-SKILL.md and phase files itself, following the same progressive disclosure
-pattern as any skill invocation.
+The parent spawns one **decider agent** per decision question. The decider reads
+the decision skill's SKILL.md and phase files, following progressive disclosure.
 
-This keeps the phase files as the single source of truth. Updating a phase file
-immediately affects both standalone and agent-spawned invocations. No compiled
-template to maintain or keep in sync.
+The decider itself spawns sub-agents as specified in issue #6:
+
+```
+Level 1: Orchestrator (design skill)
+  └── Level 2: Decider agent (one per decision question)
+        ├── Level 3: Research agent (Phase 1, disposable)
+        ├── Level 3: Alternative agents (Phase 2, disposable)
+        └── Level 3: Validator agents (Phase 3-5, persistent)
+              ├── Phase 3: argue FOR their alternative (bakeoff)
+              ├── Phase 4: receive peer findings, revise (SendMessage)
+              └── Phase 5: cross-examine peers (SendMessage)
+```
+
+**Validator persistence is critical.** Validators are spawned in Phase 3 and
+re-messaged via `SendMessage` in Phases 4 and 5. They retain their full
+conversation history -- they need to remember their prior arguments to revise
+and defend them. This is NOT the disposable single-task pattern from plan Phase 4.
+Research and alternative agents are disposable (single task, then done).
+
+**Fast path (Tier 3)** skips Phases 3-5. The decider runs Phases 0, 1, 2, 6
+without spawning validators. No persistent agents needed.
+
+Phase files are the single source of truth. Updating a phase file immediately
+affects both standalone and agent-spawned invocations. No compiled template.
 
 The parent's agent prompt is lightweight (~500-800 tokens): role statement,
 decision context, prefix for wip/ artifacts, and instruction to read the
-decision SKILL.md.
+decision SKILL.md. Context budget for the decider: ~800-1100 lines of
+instructions (SKILL.md + phase files loaded on demand via progressive
+disclosure).
 
 #### Alternatives considered
 
@@ -435,11 +456,12 @@ maintaining their own adapters.
 What concrete signals should an agent use to classify a decision into the
 correct tier?
 
-#### Chosen: Phase-file pre-classification with checklist fallback for emergent decisions
+#### Chosen: Manifest-based pre-classification with checklist fallback
 
-**Known decision points** (the 39 from the ask inventory) get
-`<!-- decision-tier: N -->` annotations in their phase files. No runtime
-classification needed -- the phase file tells the agent which tier to use.
+A **decision point manifest** (`references/decision-points.md`) catalogues all
+39 known decision points with their location, category, and pre-assigned tier.
+The agent reads this manifest at the start of execution. No per-file annotations
+-- the manifest is the single source of truth.
 
 **Emergent decisions** (discovered mid-execution, especially in design Phases
 4-5) use a three-signal checklist in override order:
@@ -454,10 +476,11 @@ lightweight protocol is better than under-escalating.
 
 #### Alternatives considered
 
+- **Phase-file annotations** (`<!-- decision-tier: N -->`): creates 39+1
+  representations of the same data (annotations + manifest) with no sync
+  mechanism. Mirrors the compiled-prompt-drift problem D8 solved.
 - **Checklist alone**: adds classification overhead to every decision including
   the predictable majority
-- **Decision tree alone**: has a masking problem where early branches catch most
-  decisions before the distinguishing signals are evaluated
 - **Pre-classification alone**: can't handle emergent decisions during
   architecture and investigation phases
 
@@ -467,18 +490,28 @@ What upper bound should be set on decisions per design doc?
 
 #### Chosen: Tiered guidance with hard ceiling at 10
 
-Phase 1 (Decision Decomposition) applies escalating friction based on count:
+Phase 1 (Decision Decomposition) applies escalating friction based on the count
+of **independent decision questions after merging coupled decisions**. The
+independence criterion ("options for one don't affect options for another") is
+applied first; coupled questions are merged before counting.
 
-| Count | Behavior |
-|-------|----------|
-| 1-5 | Proceed normally |
-| 6-7 | Warn that the doc is complex, proceed with user confirmation |
-| 8-9 | Present a concrete split proposal, require confirmation (--auto executes the split) |
-| 10+ | Refuse and require splitting into multiple design docs |
+| Count | Interactive | --auto |
+|-------|------------|--------|
+| 1-5 | Proceed normally | Proceed normally |
+| 6-7 | Warn, proceed with confirmation | Proceed, record high-priority assumption |
+| 8-9 | Present split proposal, require confirmation | Proceed as one doc, record high-priority assumption suggesting split |
+| 10+ | Refuse, require splitting | Refuse, halt with error |
 
-The binding constraint isn't cross-validation cost (O(N^2)) -- it's document
-readability. A design doc with 10+ Considered Options sections is unreadable for
-humans and consumes too much agent context.
+In --auto mode, the 8-9 band does NOT auto-execute the split. Auto-splitting
+violates user expectations (they asked for one doc) and the split mechanics
+(branch strategy, resume, sibling doc naming) are undefined. Instead, the agent
+proceeds and flags the count as a high-priority assumption for review.
+
+The binding constraint is document readability, not cross-validation cost.
+
+**Scope note:** this ceiling applies to the design skill's runtime Considered
+Options output, not to architectural design records or specification documents
+generally.
 
 #### Alternatives considered
 
@@ -563,9 +596,11 @@ A new skill at `skills/decision/` with 7 phases:
 | 6 | Synthesis and report | Fast | 130-160 |
 
 Fast path (Tier 3): phases 0, 1, 2, 6 only (skip bakeoff, peer revision,
-cross-examination).
+cross-examination). No persistent sub-agents -- the decider handles all phases.
 
-Full path (Tier 4): all 7 phases.
+Full path (Tier 4): all 7 phases. The decider spawns validator agents in Phase 3
+(one per alternative) and re-messages them via `SendMessage` in Phases 4-5.
+Validators retain context across phases to revise and defend their positions.
 
 **Input contract:**
 
@@ -628,10 +663,15 @@ Decision blocks are inline in their source artifacts. A consolidated decisions
 file (`wip/<workflow>_<topic>_decisions.md`) indexes all blocks and tracks
 assumptions in one place (Decision 14).
 
-Known decision points in phase files carry `<!-- decision-tier: N -->`
-annotations so the agent doesn't need to classify at runtime (Decision 12).
-Emergent decisions use a three-signal checklist: reversibility, heuristic
-confidence, phase primacy.
+Known decision points are pre-classified in the decision point manifest
+(`references/decision-points.md`) so the agent doesn't classify at runtime
+(Decision 12). Emergent decisions use a three-signal checklist: reversibility,
+heuristic confidence, phase primacy.
+
+The consolidated decisions file (`wip/<workflow>_<topic>_decisions.md`) is the
+source of truth for review. Inline decision blocks in wip/ artifacts are
+write-time snapshots -- if an assumption is invalidated, the consolidated file
+is updated; inline blocks are not retroactively modified.
 
 ### Component 3: Non-Interactive Execution Mode
 
@@ -673,7 +713,7 @@ Decision Decomposition (Phase 1) applies the scaling heuristic (Decision 13):
 10+ refuse and require splitting.
 
 New artifacts:
-- `wip/design_<topic>_decisions.json` -- coordination manifest
+- `wip/design_<topic>_coordination.json` -- coordination manifest
 - `wip/design_<topic>_decision_<N>_report.md` -- per-question decision report
 - `wip/design_<topic>_decisions.md` -- consolidated decision index + assumptions
 
@@ -716,23 +756,34 @@ in work-on) that halt in both modes.
 
 ## Implementation Approach
 
-### Phase 1: Foundation (lightweight protocol + non-interactive mode)
+### Phase 1a: Protocol and Format Specifications
 
-These affect all skills and can be implemented without the decision skill.
+Define the framework's shared artifacts before touching existing skill files.
 
 Deliverables:
 - `references/decision-protocol.md` -- shared lightweight protocol specification
   with decision block format (HTML comment delimiters), status threshold rules
   (Decision 9), and tier classification signals (Decision 12)
-- `--auto` flag handling in each SKILL.md (Decision 7)
-- `--max-rounds=N` flag handling with per-skill defaults (Decision 10)
+- `references/decision-points.md` -- manifest cataloguing all 39 known decision
+  points with location, category, pre-classified tier, and expected behavior
+  in interactive and --auto modes
+- Decision report format specification with consumer rendering sections for
+  Considered Options and ADR (Decision 11)
 - Consolidated decisions file format (`wip/<workflow>_<topic>_decisions.md`)
   with index table + assumption details and review priority (Decision 14)
-- Decision point manifest: catalogue of all 39 blocking points with their
-  locations, categories, pre-classified tiers, and expected behavior in each mode
-- `<!-- decision-tier: N -->` annotations added to all 39 phase file locations
-- Review surface: terminal summary printer + PR body section template (Decision 2)
+- Review surface templates: terminal summary printer + PR body section (Decision 2)
 - Progress feedback protocol for --auto mode (one-line status per phase transition)
+
+### Phase 1b: Integration into Existing Skills
+
+Apply the protocol to all 5 workflow skills. Depends on Phase 1a specs being stable.
+
+Deliverables:
+- `--auto` flag handling in each SKILL.md (Decision 7)
+- `--max-rounds=N` flag handling with per-skill defaults (Decision 10)
+- Research-first pattern applied at all 39 decision points (referencing the
+  shared protocol, not duplicating it)
+- Consolidated decisions file creation in each skill's workflow
 
 ### Phase 2: Decision skill
 
@@ -757,7 +808,7 @@ Deliverables:
 - New phase files: phase-1-decomposition.md, phase-2-execution.md,
   phase-3-cross-validation.md
 - Updated phase-4-investigation.md (slimmed, implementation-focused only)
-- Coordination manifest format (`wip/design_<topic>_decisions.json`)
+- Coordination manifest format (`wip/design_<topic>_coordination.json`)
 - Decision count scaling heuristic in phase-1-decomposition.md (Decision 13)
 - Cross-validation cleanup: intermediate artifacts persist through cross-
   validation, cleaned after it completes
@@ -813,3 +864,4 @@ No blast radius beyond the decision artifacts themselves.
 | Non-interactive mode may make poor assumptions | High-priority assumptions surface in terminal + PR body; low-priority in wip/ only; ~20/80 visible split prevents review fatigue |
 | Escalation from lightweight to heavyweight breaks static dispatch in explore | Documented exception; escalation is rare in practice |
 | Decision skill agents navigate files rather than receiving compiled prompts | Phase files are the single source of truth; no compiled template to drift. If agent file navigation proves unreliable, a compiled template can be added later as an optimization |
+| Three-level agent hierarchy (orchestrator > decider > validators) increases spawn complexity | Fast path avoids sub-agents entirely; full path only spawns validators for Tier 4 decisions; validators use SendMessage (continuation) not fresh spawns for Phases 4-5 |
