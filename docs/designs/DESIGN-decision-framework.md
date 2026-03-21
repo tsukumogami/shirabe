@@ -125,18 +125,20 @@ Where do assumptions appear for end-of-workflow review?
 
 #### Chosen: Three-layer review surface
 
-1. **Source of truth**: `wip/<workflow>_<topic>_assumptions.md` -- written
-   incrementally during execution. Each assumption has an ID, the decision it
-   belongs to, confidence level, and a "if wrong" restart path.
+1. **Source of truth**: the consolidated `wip/<workflow>_<topic>_decisions.md`
+   file (Decision 14). Written incrementally during execution. Each assumption
+   has an ID, the decision it belongs to, review priority, and a "if wrong"
+   restart path.
 
-2. **Terminal summary**: printed at workflow end. Lists all assumptions with
-   confidence levels. Highlights `status="assumed"` decisions that need attention.
+2. **Terminal summary**: printed at workflow end. Lists high-priority
+   assumptions with concrete next steps for each: accept (do nothing),
+   override (re-run with `--correct A<N>=<value>`), or re-run interactively.
 
-3. **PR body section**: when a PR is created, assumptions are added as a
-   dedicated section. Reviewers see them alongside the code changes.
+3. **PR body section**: when a PR is created, high-priority assumptions are
+   added as a dedicated section. Reviewers see them alongside the code changes.
 
-All three derive from the wip/ artifact. No dual-write -- the terminal summary
-and PR body are read-only views.
+All three derive from the consolidated decisions file. No dual-write -- the
+terminal summary and PR body are read-only views.
 
 #### Alternatives considered
 
@@ -753,6 +755,133 @@ the shared `references/decision-protocol.md`:
 
 The 39 blocking points reduce to ~2 genuine safety gates (CI failure handling
 in work-on) that halt in both modes.
+
+### Component 8: Assumption Invalidation Flow
+
+When the user reviews assumptions after a workflow completes and finds one
+is wrong, this flow handles re-evaluation.
+
+**Triggering invalidation:** The user identifies the assumption by its ID
+from the terminal summary, PR body, or consolidated decisions file (e.g., "A3
+is wrong -- we can't use Redis, it's being decommissioned").
+
+**What the agent does:**
+
+1. Read the consolidated decisions file, locate the assumption by ID
+2. Read the assumption's "if wrong" restart path to determine which decision
+   and which phase is affected
+3. If the affected decision was heavyweight: re-invoke the decision skill
+   with the correction as an additional constraint. The decision skill runs
+   from the restart phase (Phase 2 if the choice itself is invalid, Phase 4
+   if only architecture details change). Since intermediate artifacts were
+   cleaned post-cross-validation, the decision skill runs a fresh evaluation
+   with the constraint, not a partial resume.
+4. If the affected decision was lightweight: re-run the 3-step micro-protocol
+   at the decision point with the correction as a constraint
+5. Check for cascade: if other decisions assumed anything about the
+   invalidated decision's outcome, flag those as potentially affected
+6. Update the consolidated decisions file with the new decision and
+   remove the invalidated assumption
+
+**Cascade handling:** the agent checks all other decisions' assumption lists
+for references to the invalidated decision's chosen option. If found, those
+decisions are flagged as needing re-evaluation. The user confirms which to
+re-run. In --auto mode, all flagged decisions re-run automatically.
+
+### Component 9: Coordination Manifest Schema
+
+The `wip/design_<topic>_coordination.json` file tracks parallel decision
+agent orchestration state for the design skill's Phase 2-3.
+
+```json
+{
+  "topic": "caching-strategy",
+  "decisions": [
+    {
+      "id": 1,
+      "question": "Cache invalidation strategy",
+      "status": "complete",
+      "complexity": "standard",
+      "agent_id": null,
+      "report_file": "wip/design_caching-strategy_decision_1_report.md",
+      "restarted": false
+    },
+    {
+      "id": 2,
+      "question": "Storage backend",
+      "status": "in_progress",
+      "complexity": "critical",
+      "agent_id": "a1234...",
+      "report_file": null,
+      "restarted": false
+    }
+  ],
+  "cross_validation": "pending",
+  "round": 0
+}
+```
+
+Status values per decision: `pending`, `in_progress`, `complete`, `restarted`,
+`failed`. The design skill's Phase 2 reads this manifest to determine which
+agents to spawn or re-spawn. Phase 3 reads it to determine which reports to
+cross-validate.
+
+### Component 10: Validator Agent Contract
+
+Validators are persistent agents spawned in Phase 3 and re-messaged in
+Phases 4-5. The contract between phases must be explicit so that changing
+one phase doesn't silently break another.
+
+**Phase 3 spawn (bakeoff):**
+- Input: alternative description, decision question, constraints, background
+- Output: validation report (strengths, weaknesses, risks, recommendation)
+- Agent retains full context from this exchange
+
+**Phase 4 re-message (peer revision):**
+- Input via SendMessage: summaries from all OTHER validators
+- Output: revised validation report (may change recommendation, add caveats,
+  acknowledge competing strengths)
+- Agent has prior context from Phase 3
+
+**Phase 5 re-message (cross-examination):**
+- Input via SendMessage: specific challenges from competing validators
+- Output: final position (defend, concede, or qualify)
+- Agent has context from both Phase 3 and Phase 4
+
+The contract is: validators always receive context about peers via SendMessage
+and always respond with a structured position. The decider reads all final
+positions to synthesize in Phase 6. If a validator times out or errors during
+Phase 4-5, the decider uses the validator's last known position (from Phase 3
+or Phase 4) rather than re-spawning.
+
+### Component 11: Progress Feedback Protocol
+
+In --auto mode, the orchestrator emits status lines so the user can monitor
+long-running workflows.
+
+**Phase transitions:** one line per transition.
+```
+[design] Phase 1: decomposing into decision questions...
+[design] Phase 1: identified 3 decisions
+[design] Phase 2: executing decision 1/3 (cache strategy, standard)...
+[design] Phase 2: decision 1/3 complete -- TTL-based (confirmed)
+[design] Phase 2: executing decision 2/3 (storage backend, critical)...
+[design] Phase 2: decision 2/3 complete -- PostgreSQL (assumed)
+[design] Phase 2: executing decision 3/3 (API style, standard)...
+[design] Phase 2: decision 3/3 complete -- REST (confirmed)
+[design] Phase 3: cross-validating 3 decisions...
+[design] Phase 3: no conflicts found
+[design] Phase 4: investigating implementation details...
+```
+
+**Significant assumptions:** logged immediately when made, not batched.
+```
+[design] ASSUMED: storage backend -- PostgreSQL chosen over SQLite
+         (heuristic was close, 60/40). Review in terminal summary.
+```
+
+This gives the user real-time feedback during the 10-20 minute run and makes
+the terminal summary a recap rather than the first time they see the information.
 
 ## Implementation Approach
 
