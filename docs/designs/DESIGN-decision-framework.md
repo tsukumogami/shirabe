@@ -553,3 +553,49 @@ No blast radius beyond the decision artifacts themselves.
 | Complexity of 8-phase design workflow + nested decision phases | Phase files stay under 150 lines; static dispatch means no runtime branching |
 | Non-interactive mode may make poor assumptions | Assumptions surface in 3 places (wip/, terminal, PR body); user reviews before merge |
 | Escalation from lightweight to heavyweight breaks static dispatch in explore | Documented exception; escalation is rare in practice |
+
+## Open Items From Self-Validation
+
+This design was produced using the proposed framework itself (non-interactive,
+decision decomposition into clusters, parallel agent execution, cross-validation).
+Three refinements surfaced during the process:
+
+### Agent prompt compilation needs a concrete template
+
+The design says the parent "pre-compiles the decision skill's phases into a
+single prompt" for Task agents. During self-validation, the agent prompts for
+Clusters A and B were ad-hoc — each described what to decide and pointed at
+research files, but didn't follow a reusable template. Implementation Phase 2
+(decision skill) must produce a standard compiled-prompt template that any
+parent can fill in. Without it, each parent will invent its own prompt format,
+leading to inconsistent decision quality across invocation sites.
+
+### Confirmed vs assumed status boundary is underspecified
+
+The decision block format defines `status="confirmed"` and `status="assumed"`
+but doesn't specify the threshold between them. During self-validation, every
+decision felt "confirmed" because the research evidence was strong — but an
+agent with less context might mark everything as "confirmed" to avoid flagging
+assumptions for review, defeating the review surface.
+
+The specification needs a concrete heuristic. Proposed: a decision is "assumed"
+when ANY of these hold:
+- Evidence was split (e.g., 60/40 between two options)
+- The choice depends on a fact the agent couldn't verify (an assumption about
+  external systems, stakeholder preferences, or future conditions)
+- The agent would have asked the user in interactive mode
+
+Otherwise it's "confirmed." This makes the boundary mechanical rather than
+subjective.
+
+### Non-interactive explore needs a round limit
+
+Explore's discover-converge loop runs until the user says "ready to decide."
+In --auto mode, the agent evaluates gaps and decides whether to loop. But
+with no human to say "that's enough," the agent could loop indefinitely if
+it keeps finding minor gaps.
+
+The specification needs a round limit for --auto mode. Proposed: max 3
+discover-converge rounds. After round 3, auto-crystallize with whatever
+findings exist. The round limit should be configurable via the decision
+context (some explorations warrant deeper investigation). Default: 3 rounds.
