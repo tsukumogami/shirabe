@@ -63,11 +63,16 @@ using the rendering rules from `${CLAUDE_PLUGIN_ROOT}/references/decision-report
 Also write the Decision Outcome section synthesizing how the individual
 decisions work together.
 
-### 3.5 Cleanup Decision Artifacts
+### 3.5 Preserve Artifacts
 
-Delete intermediate files that cross-validation no longer needs:
-- Individual decision report files (content now in the design doc)
-- Coordination manifest (its state is captured in the design doc)
+Do NOT delete decision reports or the coordination manifest at this point.
+They remain in wip/ for resumability -- if the session is interrupted after
+Phase 3 but before the workflow completes, the resume logic needs the
+coordination manifest to detect that cross-validation passed and the
+decision reports for context recovery.
+
+All wip/ artifacts are cleaned during the final cleanup step (Phase 6 or
+the `/cleanup` command), not here.
 
 ## Quality Checklist
 
