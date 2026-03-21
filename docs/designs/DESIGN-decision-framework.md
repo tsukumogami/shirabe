@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 problem: |
   Shirabe's workflow skills make decisions at 39 blocking points across 5 skills,
   using AskUserQuestion as the universal mechanism. Agents ask before researching,
@@ -25,7 +25,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
