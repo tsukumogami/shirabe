@@ -26,10 +26,21 @@ evidence-gated transitions. Agents can't skip steps they can't see.
 
 ## Installation
 
-### As a Claude Code plugin
+Register the shirabe marketplace and install the plugin:
+
+```bash
+claude plugin marketplace add "tsukumogami/shirabe" --scope user
+claude plugin install shirabe@shirabe --scope project
+```
+
+The first command registers the marketplace from GitHub (one-time per
+machine). The second installs the plugin to the current project.
+
+Once the marketplace is registered, you can also install from inside a
+Claude Code session:
 
 ```
-/plugin install tsukumogami/shirabe
+/plugin install shirabe@shirabe
 ```
 
 ### For your team (CI validation)
