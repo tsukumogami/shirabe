@@ -1,14 +1,15 @@
 {
+  "enabledPlugins": {
+    "skill-creator@claude-plugins-official": true,
+    "shirabe": true,
+    "tsukumogami@tsukumogami": true
+  },
   "extraKnownMarketplaces": {
     "shirabe": {
       "source": {
         "source": "file",
-        "path": "."
+        "path": ".claude-plugin/marketplace.json"
       }
     }
-  },
-  "enabledPlugins": {
-    "skill-creator@claude-plugins-official": true,
-    "shirabe": true
   }
 }
