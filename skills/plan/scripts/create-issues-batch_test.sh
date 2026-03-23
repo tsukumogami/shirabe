@@ -315,6 +315,82 @@ test_help_mentions_needs_label() {
     fi
 }
 
+# ── Test: milestone creation uses gh api (no cross-plugin dependency) ──
+# Validates that milestone handling uses self-contained gh api calls.
+# A mock gh binary captures invocations; the test verifies the correct
+# API endpoint is called without referencing any sibling plugin script.
+test_milestone_uses_gh_api_directly() {
+    local name="milestone path uses gh api directly"
+    setup
+
+    # Create a mock gh that records calls and simulates responses
+    local mock_dir
+    mock_dir=$(mktemp -d)
+    local mock_log="$mock_dir/gh.log"
+    cat > "$mock_dir/gh" <<'MOCK'
+#!/usr/bin/env bash
+echo "$@" >> "${MOCK_LOG}"
+case "$*" in
+    *repo\ view*)
+        echo 'owner/repo'
+        ;;
+    *milestones*GET*)
+        # Simulate: no existing milestone
+        echo '[]'
+        ;;
+    *milestones*POST*)
+        # Simulate: milestone created
+        echo '{"number":1,"title":"M1"}'
+        ;;
+    *issue\ create*)
+        echo "https://github.com/owner/repo/issues/42"
+        ;;
+    *)
+        echo '{}'
+        ;;
+esac
+MOCK
+    chmod +x "$mock_dir/gh"
+
+    write_body "$TEST_DIR/body1.md" "Issue body"
+    cat > "$TEST_DIR/manifest.json" <<'MANIFEST'
+[
+  {
+    "issue_id": "1",
+    "title": "feat: add X",
+    "complexity": "simple",
+    "file": "body1.md",
+    "status": "PASS",
+    "dependencies": []
+  }
+]
+MANIFEST
+
+    local stderr_output
+    stderr_output=$(env MOCK_LOG="$mock_log" PATH="$mock_dir:$PATH" \
+        "$BATCH_SCRIPT" \
+            --manifest "$TEST_DIR/manifest.json" \
+            --milestone "M1" \
+            2>&1) || true
+
+    # Verify gh api was called for milestone operations (not manage-milestone.sh)
+    if grep -q 'api repos/owner/repo/milestones' "$mock_log" 2>/dev/null; then
+        pass "$name (gh api called for milestones)"
+    else
+        fail "$name (gh api called for milestones)" "Expected 'api repos/owner/repo/milestones' in gh calls. Got: $(cat "$mock_log" 2>/dev/null)"
+    fi
+
+    # Verify no reference to manage-milestone.sh in the script
+    if grep -q 'manage-milestone.sh' "$BATCH_SCRIPT"; then
+        fail "$name (no manage-milestone.sh reference)" "Script still references manage-milestone.sh"
+    else
+        pass "$name (no manage-milestone.sh reference)"
+    fi
+
+    rm -rf "$mock_dir"
+    teardown
+}
+
 # ── Run all tests ──
 echo "Running create-issues-batch.sh tests..." >&2
 echo "" >&2
@@ -326,6 +402,7 @@ test_no_labels_at_all
 test_mixed_manifest
 test_dryrun_logs_per_issue_label
 test_help_mentions_needs_label
+test_milestone_uses_gh_api_directly
 
 echo "" >&2
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed" >&2
