@@ -50,6 +50,20 @@ Sometimes investigation genuinely doesn't surface a clear winner. When this happ
 
 Users handle "these are equal but I picked A because X" much better than "here are some options, you decide."
 
+## Re-grounding
+
+Before asking a question, orient the user with a one-line context header:
+
+> **Workflow:** `/explore gstack` · **Phase:** Round 1 convergence · **Decision:** explore further or crystallize
+
+Format: `**Workflow:** <command> · **Phase:** <current phase> · **Decision:** <what's being decided>`
+
+**Required** after any async work — agent dispatch, parallel research, tool operations that take more than a few seconds. The user may have stepped away.
+
+**Optional** during rapid back-and-forth where the prior exchange is still visible and context hasn't shifted.
+
+Practical test: if the user stepped away for 5 minutes, would they know where they are without scrolling up? If no, include the header.
+
 ## What This Helper Doesn't Cover
 
 This file defines the project convention for structuring decisions. It doesn't document the AskUserQuestion tool itself or its parameters. For tool usage, refer to the tool's own documentation.
