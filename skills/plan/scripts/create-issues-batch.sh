@@ -268,19 +268,30 @@ main() {
     fi
 
     # If a milestone was specified, ensure it exists (create if needed)
-    # Resolve manage-milestone.sh relative to the skill directory
-    local skill_scripts_dir
-    skill_scripts_dir="$SCRIPT_DIR/../../github-milestone/scripts"
-
     if [[ -n "$MILESTONE" && "$DRY_RUN" != "true" ]]; then
-        # Check if the milestone already exists
-        if "$skill_scripts_dir/manage-milestone.sh" get --title "$MILESTONE" >/dev/null 2>&1; then
+        local repo
+        repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
+        if [[ -z "$repo" ]]; then
+            log "Error: could not determine repository name"
+            exit 1
+        fi
+
+        local existing_milestone
+        existing_milestone=$(gh api "repos/$repo/milestones" \
+            --method GET \
+            -f state=all \
+            -f per_page=100 \
+            2>/dev/null | jq -r --arg title "$MILESTONE" '.[] | select(.title == $title) | .number' 2>/dev/null || true)
+
+        if [[ -n "$existing_milestone" ]]; then
             log "Using existing milestone: $MILESTONE"
         else
             log "Creating milestone: $MILESTONE"
-            "$skill_scripts_dir/manage-milestone.sh" create \
-                --title "$MILESTONE" \
-                --description "${MILESTONE_DESCRIPTION:-(No description provided)}" >/dev/null 2>&1
+            gh api "repos/$repo/milestones" \
+                --method POST \
+                -f title="$MILESTONE" \
+                -f description="${MILESTONE_DESCRIPTION:-(No description provided)}" \
+                >/dev/null 2>&1
         fi
     fi
 

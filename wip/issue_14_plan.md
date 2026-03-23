@@ -11,11 +11,10 @@ Both are straightforward REST API calls that need no shared library.
 
 ## Steps
 
-- [ ] Step 1: Remove the `skill_scripts_dir` variable and `manage-milestone.sh` calls
+- [x] Step 1: Remove the `skill_scripts_dir` variable and `manage-milestone.sh` calls
       (lines 271–285 in create-issues-batch.sh). Replace with an inline `ensure_milestone`
       function that uses `gh api` directly.
-- [ ] Step 2: Run existing tests to verify no regressions.
-- [ ] Step 3: Add a test that covers the milestone path. Since milestone creation requires
+- [x] Step 2: Run existing tests to verify no regressions.
+- [x] Step 3: Add a test that covers the milestone path. Since milestone creation requires
       a real API call, test via a mock `gh` binary in PATH to verify the correct `gh api`
-      subcommand is called when `--milestone` is provided without `--dry-run`. Alternatively,
-      confirm dry-run skips the milestone path and document this as the testable boundary.
+      subcommand is called when `--milestone` is provided without `--dry-run`.
