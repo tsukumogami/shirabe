@@ -54,7 +54,7 @@ Users handle "these are equal but I picked A because X" much better than "here a
 
 Before asking a question, orient the user with a one-line context header:
 
-> **Workflow:** `/explore gstack` · **Phase:** Round 1 convergence · **Decision:** explore further or crystallize
+> **Workflow:** `/explore koto` · **Phase:** Round 1 convergence · **Decision:** explore further or crystallize
 
 Format: `**Workflow:** <command> · **Phase:** <current phase> · **Decision:** <what's being decided>`
 
