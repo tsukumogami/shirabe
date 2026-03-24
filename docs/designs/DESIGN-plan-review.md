@@ -554,6 +554,83 @@ Agent task with:
 Same phases but each category spawns multiple validator agents; validators cross-
 examine disagreements before producing a per-category verdict.
 
+### AC Failure Pattern Taxonomy
+
+The seven patterns used by Category C (AC Discriminability). Patterns 1, 3, 7 are
+automatable via text heuristics. Patterns 2, 4, 5, 6 require taxonomy-anchored LLM
+adversarial reasoning.
+
+**Pattern 1 — Fixture-anchored**
+The AC references pre-populated test data (fixtures, seed data, sample inputs) without
+requiring a clean-state scenario. Because the data is always present, the AC passes
+whether the implementation reads from the real source or from a pre-seeded stub.
+*Detection*: flag ACs containing "all fixture," "test data," "sample," or "seed"
+without an accompanying scenario that verifies behavior when the state is empty or
+absent.
+*Example*: "the binaries table contains one row per (command, recipe) pair across all
+fixture recipes" — passes for both `ListRecipes` (all registry) and `ListCached`
+(only installed) on a populated environment.
+
+**Pattern 2 — Mock-swallowed dependencies**
+The AC verifies behavior against a mocked dependency that only returns success. Because
+the mock never returns an error, the AC cannot distinguish whether the real code
+handles failure paths.
+*Detection*: for each mocked dependency in a validation scenario, check whether any
+AC exercises a non-success return from that mock. If all mocked paths succeed, flag.
+*Example*: "given a mocked HTTP client that returns 200, the downloader saves the file
+correctly" — passes even if the real downloader ignores the HTTP status code entirely.
+
+**Pattern 3 — Happy-path-only**
+All ACs describe success scenarios. No criterion forces the implementation to handle
+failure, error input, or boundary conditions. An implementation that hardcodes a
+plausible success response for any input would pass.
+*Detection*: flag issue bodies where no AC mentions failure, error, invalid input, or
+an edge case.
+*Example*: "given a valid TOML recipe file, the parser returns a Recipe struct" — an
+implementation that always returns a zero-value struct would pass if the test only
+checks that a struct is returned.
+
+**Pattern 4 — State-without-transition**
+The AC verifies the system state after an operation but does not require that the
+operation caused the transition. If test scaffolding pre-creates the state, the AC
+passes even if the operation does nothing.
+*Detection*: for any AC describing post-operation state, check whether it also
+requires verifying the state was absent before the operation.
+*Example*: "after running `tsuku install jq`, the `~/.tsuku/bin/jq` symlink exists"
+— passes if the test setup creates the symlink before the test runs.
+
+**Pattern 5 — Integration scope gap**
+The AC is scoped to a unit test, but the correct behavior is only observable at
+integration scope. The unit AC passes while the feature fails end-to-end due to wiring
+bugs.
+*Detection*: flag issues that implement a component of a multi-issue flow where no
+AC verifies the integration point (the wiring between this component and the rest of
+the system). Only flag when integration scope is the *only* observable path — do not
+flag every unit AC.
+*Example*: "the Cache.Get method returns the stored value" — correct in isolation, but
+if the CLI uses the wrong cache instance, this AC passes while the feature fails.
+
+**Pattern 6 — Interface name drift**
+The AC references behavior described in the design's interface section, but the
+implementation uses a different method name or signature. Tests written against the
+implementation's interface pass, but the semantic contract in the design is not
+enforced.
+*Detection*: for issues implementing an interface defined in the upstream design doc,
+compare method names in the design's interface section against method names referenced
+in the ACs. Flag any divergence not explicitly justified.
+*Example*: design specifies `ListRecipes` (all known recipes) in the interface section;
+implementation uses `ListCached` (only cached). Tests pass; design contract violated.
+
+**Pattern 7 — Existence-without-correctness**
+The AC checks that required artifacts exist (file created, table populated, field
+present) but does not verify that the artifact's content is correct for the given
+inputs. A trivially-constructed artifact satisfies the criterion.
+*Detection*: flag ACs containing only "exists," "is created," "is populated," or
+"is not empty" without a corresponding check that the content matches the expected
+output for the specific inputs.
+*Example*: "the binaries index is populated after `tsuku update-registry`" — an
+implementation that inserts one dummy row satisfies this.
+
 ## Implementation Approach
 
 ### Phase 1: Skill scaffold and schema
