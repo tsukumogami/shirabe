@@ -65,3 +65,5 @@ The `/review-plan` skill sits between `/plan` (produces all issues) and `/work-o
 3. Whether to flag AC failures only or also generate replacement ACs
 
 **Out of scope:** /work-on Phase 0 integration (deferred; discovery problem unsolved).
+
+## Decision: Crystallize
