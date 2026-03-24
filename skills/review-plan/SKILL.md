@@ -48,16 +48,24 @@ args:
   mode: fast-path
 ```
 
+Each of the four review categories (phases 1–4) runs with a single agent. The agent
+applies heuristic pattern checks and taxonomy-anchored adversarial reasoning within
+a single call. Phase 5 synthesizes all category findings into the verdict.
+
 ### Adversarial (standalone)
 
 Called directly by the user with `--adversarial`. Multiple validator agents
-independently challenge the plan per category; disagreements are cross-examined
-before producing a per-category verdict. Use when thoroughness matters more than speed.
+independently challenge the plan per category; all validators complete before
+cross-examination runs; disagreements are resolved before producing a per-category
+verdict. Use when thoroughness matters more than speed.
 
 Invoked as:
 ```bash
 /review-plan <plan-artifact-or-topic> [--adversarial]
 ```
+
+Without `--adversarial`, the skill runs fast-path depth. With `--adversarial`, each
+category runs a multi-agent bakeoff. The output schema is identical in both modes.
 
 ## Execution Mode Detection
 
@@ -69,6 +77,63 @@ Phase 0 determines which mode to use:
 
 In fast-path, phases 1–4 each use a single agent. In adversarial mode, each phase
 spawns multiple validator agents and adds a cross-examination step before synthesis.
+
+## Adversarial Mode: Multi-Agent Bakeoff
+
+When running in adversarial mode, each review category (phases 1–4) runs through
+a three-step sequence before producing findings.
+
+### Step 1: Spawn Validator Agents
+
+For each category, spawn three independent validator agents in parallel. Each agent:
+
+- Receives the same inputs (plan artifacts, issue bodies, upstream design doc)
+- Reads the same phase reference file for its category
+- Applies the full check independently, without seeing other validators' findings
+- Returns its findings in `critical_findings` format
+
+Spawn all three agents for all four categories in a single message (12 agents total)
+to minimize wall-clock time. Each agent runs with `run_in_background: true`.
+
+### Step 2: Collect and Compare
+
+After all validators complete, for each category:
+
+1. Collect findings from all three validators
+2. Identify agreements: findings where ≥2 validators independently name the same
+   issue (same issue ID, same pattern or description)
+3. Identify disagreements: findings named by only one validator
+
+**Agreements are confirmed findings** — proceed directly to the verdict.
+
+**Disagreements require cross-examination** (step 3).
+
+### Step 3: Cross-Examination
+
+For each disagreement within a category:
+
+Spawn a cross-examination agent that receives:
+- The disagreeing validator's finding
+- The other validators' outputs (including their absence of a finding for the same item)
+- The phase reference file for this category
+- The prompt: "One validator flagged [finding]. The other two did not. Evaluate
+  whether the finding is valid. If valid, confirm it and describe the gap. If not,
+  explain why it is a false positive."
+
+The cross-examination agent produces a resolution: confirm or dismiss.
+
+**Confirmed disagreements** are added to the category's findings.
+**Dismissed disagreements** are dropped.
+
+After cross-examination, all confirmed findings (from agreements + resolved
+disagreements) form the category's final output for Phase 5 synthesis.
+
+### Output Schema
+
+Both fast-path and adversarial modes produce the same `review_result` YAML schema.
+The verdict file format, field names, and loop-back behavior are identical. The only
+difference is evaluation depth — adversarial mode's multi-agent bakeoff catches more
+findings at the cost of significantly higher latency.
 
 ## Input
 
@@ -86,11 +151,12 @@ Phase 0 reads the wip/ artifacts from the resolved topic to load all plan contex
 Phase 0: Setup
   → read wip artifacts, detect input_type, select execution mode
 
-Phases 1–4: Review Categories (run sequentially; parallel in adversarial mode)
-  → Phase 1: Scope Gate (Category A)
-  → Phase 2: Design Fidelity (Category B)
-  → Phase 3: AC Discriminability (Category C)
-  → Phase 4: Sequencing / Priority Integrity (Category D)
+Phases 1–4: Review Categories
+  → Phase 1: Scope Gate (Category A)            [fast-path: 1 agent; adversarial: 3 agents + cross-exam]
+  → Phase 2: Design Fidelity (Category B)       [fast-path: 1 agent; adversarial: 3 agents + cross-exam]
+  → Phase 3: AC Discriminability (Category C)   [fast-path: 1 agent; adversarial: 3 agents + cross-exam]
+  → Phase 4: Sequencing / Priority Integrity (D)[fast-path: 1 agent; adversarial: 3 agents + cross-exam]
+  Note: in adversarial mode all 12 category agents spawn in parallel
 
 Phase 5: Verdict Synthesis
   → collect findings from all categories
