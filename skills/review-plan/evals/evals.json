@@ -1,0 +1,88 @@
+{
+  "skill_name": "review-plan",
+  "evals": [
+    {
+      "id": 1,
+      "name": "fast-path-all-phases-run",
+      "prompt": "/review-plan my-feature",
+      "expected_output": "Runs in fast-path mode (no --adversarial flag). Phase 0 reads wip/plan_my-feature_*.md artifacts, detects input_type, selects fast-path execution mode. Phases 1-4 each use a single agent. Phase 5 synthesizes findings into a verdict artifact. The verdict file is either wip/plan_my-feature_review.md (proceed) or wip/plan_my-feature_review_loopback.md (loop-back) — exactly one is written. The review_result YAML block contains all required fields.",
+      "assertions": [
+        "Fast-path mode is used (single agent per category, not multiple validators)",
+        "Phase 0 reads all four required plan artifacts before any review category runs",
+        "Phases 1, 2, 3, and 4 all execute and each produces category findings",
+        "Phase 5 writes exactly one verdict file (either _review.md or _review_loopback.md, not both)",
+        "The review_result YAML block includes verdict, loop_target, round, confidence, critical_findings, and summary fields"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "adversarial-mode-flag",
+      "prompt": "/review-plan my-feature --adversarial",
+      "expected_output": "Detects --adversarial flag in arguments. Phase 0 selects adversarial execution mode. For each of phases 1-4, spawns three validator agents in parallel (not one). After all validators complete, the skill identifies agreements (>=2 validators flagged the same issue) and any disagreements (only 1 validator flagged it). If disagreements exist, cross-examination agents are spawned to resolve them. Phase 5 synthesizes confirmed findings into a verdict artifact using the same review_result schema as fast-path.",
+      "assertions": [
+        "The --adversarial flag is detected and adversarial mode is selected",
+        "Three validator agents are spawned per category (not one)",
+        "All twelve validator agents (3 per category × 4 categories) are spawned in a single parallel batch before cross-examination",
+        "After validators complete, the skill explicitly checks for agreements vs. disagreements before proceeding to Phase 5",
+        "The output review_result schema is identical to fast-path mode output"
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "loop-back-category-c",
+      "prompt": "/review-plan my-feature",
+      "expected_output": "The fixture plan has three issues. Issue 2 has ACs anchored to golden files (testdata/filter_rip.golden, etc.) with specific version strings, triggering Category C Pattern 1 (fixture-anchored). Issues 1 and 3 have clean ACs covering success paths, empty-state, and failure paths — they should NOT appear in critical_findings. Phase 5 sets verdict to loop-back with loop_target: 4. Phase 5 writes wip/plan_my-feature_review_loopback.md (not _review.md). The loopback file contains critical_findings for Issue 2 only, each with a non-empty correction_hint. Phase 6 deletes manifest.json and issue_*.md but preserves the loopback file.",
+      "assertions": [
+        "verdict is loop-back when critical findings exist",
+        "Category C findings produce loop_target: 4",
+        "The loopback file (not the review file) is written",
+        "All Category C findings include a non-empty correction_hint",
+        "Phase 6 deletes manifest.json and issue_*.md but preserves the loopback file"
+      ],
+      "fixture_dir": "fixtures/loop-back-category-c",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "roadmap-input-type",
+      "prompt": "/review-plan my-roadmap",
+      "expected_output": "Phase 0 detects input_type: roadmap from the analysis artifact. Categories B, C, and D return empty critical_findings immediately (roadmap is exempt from these checks). Category A runs a restricted check: verifies issue count matches roadmap item count only. confidence is set to low due to roadmap input type. verdict is proceed if the count matches.",
+      "assertions": [
+        "input_type: roadmap is detected from the analysis artifact",
+        "Categories B, C, and D return critical_findings: [] without running checks",
+        "Category A runs the restricted roadmap check (count only)",
+        "confidence is low for roadmap input",
+        "The verdict proceeds to Phase 5 synthesis with mostly empty findings"
+      ],
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "sub-operation-round-precedence",
+      "prompt": "Called as sub-operation with args: plan_topic=my-feature, round=3, mode=fast-path",
+      "expected_output": "When called with args.round=3, the review_result block uses round: 3 regardless of the review_rounds value in the analysis artifact (which is 0, so review_rounds+1 would yield 1, not 3). Does not compute round from review_rounds + 1 when args.round is present. Runs in fast-path mode as specified by mode: fast-path.",
+      "assertions": [
+        "round in the verdict file is 3 (from args.round), not 1 (which review_rounds+1 would yield with review_rounds=0)",
+        "Fast-path mode is used as specified",
+        "The verdict file is written to the correct path for the given topic"
+      ],
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "clean-proceed-path",
+      "prompt": "/review-plan my-feature",
+      "expected_output": "The fixture plan has three issues. All issues have clean ACs: success paths with behavioral assertions, empty-state coverage, and failure paths. No issue uses golden file validation, specific version strings, or existence-only assertions. All four categories return empty critical_findings. Phase 5 sets verdict to proceed. Phase 5 writes wip/plan_my-feature_review.md (not _review_loopback.md). The review_result block has verdict: proceed and critical_findings: [].",
+      "assertions": [
+        "verdict is proceed when no critical findings exist",
+        "wip/plan_my-feature_review.md is written (not the loopback file)",
+        "critical_findings is empty",
+        "confidence field is present in the review_result block"
+      ],
+      "fixture_dir": "fixtures/clean-proceed-path",
+      "files": []
+    }
+  ]
+}

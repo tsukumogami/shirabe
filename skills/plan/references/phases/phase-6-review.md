@@ -1,132 +1,96 @@
 # Phase 6: AI Review
 
-Validate completeness and sequencing before creating issues.
+Invoke `/review-plan` as a sub-operation against the current plan artifacts and
+act on the structured verdict it produces.
 
 ## Resume Check
 
-If `wip/plan_<topic>_review.md` exists, read it and skip to Phase 7.
-
-## Prerequisites
-
-Read:
-- `wip/plan_<topic>_analysis.md` - Original design analysis
-- `wip/plan_<topic>_decomposition.md` - Issue outlines
-- `wip/plan_<topic>_manifest.json` - Generated issue bodies
-- `wip/plan_<topic>_dependencies.md` - Dependency graph
-
-## Goal
-
-Catch problems before creating GitHub artifacts:
-- Missing issues
-- Incorrect dependencies
-- Scope problems
-- Quality issues
-
-## Steps
-
-### 6.1 Launch Review Agent
-
-Use the Task tool to review the issue plan:
-
 ```
-Task: Review the issue decomposition for a design implementation
-
-Questions to address:
-1. Does the issue set fully cover the design document scope?
-2. Are there missing issues that would leave gaps in implementation?
-3. Are dependencies correctly mapped? Any circular or missing dependencies?
-4. Are issues appropriately atomic? Any that should be split or combined?
-5. Is the sequencing realistic? Will the first issues provide value early?
-
-Context:
-- Design document path: <from wip/plan_<topic>_analysis.md>
-- Issue count: <from manifest>
-- Issue titles: <list from manifest>
-- Dependency graph: <from wip/plan_<topic>_dependencies.md>
-- Decomposition strategy: <from wip/plan_<topic>_decomposition.md>
-
-Output: Provide structured review with findings and recommendations.
+if wip/plan_<topic>_review.md exists          → read it; skip to Phase 7
+if wip/plan_<topic>_review_loopback.md exists → execute loop-back (see below)
+else                                           → run /review-plan
 ```
 
-### 6.2 Process Feedback
+Read both file paths before proceeding. If `_review.md` exists, proceed to Phase 7
+unchanged. If `_review_loopback.md` exists, execute the loop-back sequence instead
+of re-running the review.
 
-For each piece of feedback from the review:
+## Infinite-Loop Guard
 
-| Feedback | Severity | Action | Applied |
-|----------|----------|--------|---------|
-| <finding> | High/Medium/Low | <how to address> | [ ] |
+Before invoking `/review-plan`, read `review_rounds` from
+`wip/plan_<topic>_analysis.md` (field defaults to `0` if absent).
 
-### 6.3 Apply Fixes
+If `review_rounds` has reached the maximum (default: `3`), stop and report:
 
-For high and medium severity findings:
-- Update issue body files if needed
-- Update dependency mapping if needed
-- Re-run validation if changes were made
-
-### 6.4 Final Validation
-
-Before proceeding to creation:
-- [ ] All high-severity feedback addressed
-- [ ] Medium-severity feedback addressed or deferred with rationale
-- [ ] Issue list finalized
-- [ ] Dependencies validated
-
-### 6.5 Write Artifact
-
-Create `wip/plan_<topic>_review.md` (Write tool):
-
-```markdown
-# Plan Review: <design-doc-name>
-
-## Review Summary
-
-- Review date: <timestamp>
-- Issues reviewed: <count>
-- Findings: <count high> high, <count medium> medium, <count low> low
-
-## Coverage Assessment
-
-- [x] All design components have corresponding issues
-- [x] No gaps identified
-- [ ] Gap found: <description> (if applicable)
-
-## Dependency Validation
-
-- [x] Dependencies correctly mapped
-- [x] No circular dependencies
-- [x] Critical path is reasonable (<N> issues)
-
-## Issue Quality
-
-- [x] Titles follow conventional commits
-- [x] Acceptance criteria are testable
-- [x] Each issue is atomic
-
-## Findings and Actions
-
-| Finding | Severity | Action Taken |
-|---------|----------|--------------|
-| <finding 1> | High | <action> |
-| <finding 2> | Medium | <action> |
-| <finding 3> | Low | Deferred |
-
-## Deferred Items
-
-<List any low-severity findings not addressed, with rationale>
-
-## Recommendation
-
-[x] Proceed to Phase 7: Creation
-[ ] Requires additional work before proceeding
+```
+Phase 6 error: review loop limit reached (review_rounds = <N>).
+The plan has required loop-back in every review round. Manual intervention is needed.
+Review the latest loopback findings in wip/plan_<topic>_review_loopback.md and
+address the root cause before re-running /plan.
 ```
 
-## Quality Checklist
+Do not invoke `/review-plan` when the limit is reached.
 
-Before proceeding:
-- [ ] AI review completed
-- [ ] All high-severity feedback addressed
-- [ ] Issue specifications finalized
+## Invoke /review-plan
+
+Call `/review-plan` as a sub-operation:
+
+```
+/review-plan <topic>
+  args:
+    plan_topic: <topic>
+    round: <review_rounds + 1>
+    mode: fast-path
+```
+
+`/review-plan` will:
+1. Read all plan artifacts from `wip/plan_<topic>_*.md` / `.json`
+2. Run all four review categories (A, B, C, D) in fast-path mode
+3. Write the verdict to either `wip/plan_<topic>_review.md` (proceed)
+   or `wip/plan_<topic>_review_loopback.md` (loop-back)
+
+Wait for `/review-plan` to complete before reading the verdict.
+
+## Read Verdict
+
+After `/review-plan` completes, check which file was written:
+
+```
+if wip/plan_<topic>_review.md exists     → verdict is "proceed"; go to Phase 7
+if wip/plan_<topic>_review_loopback.md exists → verdict is "loop-back"; execute below
+```
+
+Read the `review_result` YAML block from the verdict file. Log the verdict and summary:
+
+```
+Phase 6 review complete
+  verdict:    <proceed | loop-back>
+  round:      <N>
+  confidence: <high | medium | low>
+  summary:    <summary text>
+```
+
+## On "proceed"
+
+Proceed to Phase 7: Creation. No additional steps.
+
+## On "loop-back"
+
+Execute the loop-back sequence defined in `/review-plan`'s phase-6-loop-back.md:
+
+```
+skills/review-plan/references/phases/phase-6-loop-back.md
+```
+
+The loop-back phase:
+1. Reads `loop_target` and `correction_hint` values from the loopback file
+2. Deletes wip/ artifacts back to `loop_target` (keeping the loopback file)
+3. Increments `review_rounds` in `wip/plan_<topic>_analysis.md`
+4. Re-enters `/plan` at `loop_target`
+
+After deletion, `/plan`'s resume logic will detect the earliest remaining artifact
+and re-enter at the corresponding phase naturally.
 
 ## Next Phase
 
-Proceed to Phase 7: Creation (`phase-7-creation.md`)
+Proceed to Phase 7: Creation (`phase-7-creation.md`) when verdict is "proceed".
