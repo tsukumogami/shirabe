@@ -3,14 +3,14 @@
   "evals": [
     {
       "id": 1,
-      "name": "fast-path-proceed",
+      "name": "fast-path-all-phases-run",
       "prompt": "/review-plan my-feature",
-      "expected_output": "Runs in fast-path mode (no --adversarial flag). Phase 0 reads wip/plan_my-feature_*.md artifacts, detects input_type, selects fast-path execution mode. Phases 1-4 each use a single agent. Phase 5 synthesizes findings. If no critical findings, writes wip/plan_my-feature_review.md with verdict: proceed and empty critical_findings. Does not write a loopback file.",
+      "expected_output": "Runs in fast-path mode (no --adversarial flag). Phase 0 reads wip/plan_my-feature_*.md artifacts, detects input_type, selects fast-path execution mode. Phases 1-4 each use a single agent. Phase 5 synthesizes findings into a verdict artifact. The verdict file is either wip/plan_my-feature_review.md (proceed) or wip/plan_my-feature_review_loopback.md (loop-back) — exactly one is written. The review_result YAML block contains all required fields.",
       "assertions": [
-        "Fast-path mode is used (single agent per category)",
-        "Phase 0 reads all four required plan artifacts",
-        "Phase 5 writes exactly one verdict file",
-        "If verdict is proceed, the file is wip/plan_my-feature_review.md",
+        "Fast-path mode is used (single agent per category, not multiple validators)",
+        "Phase 0 reads all four required plan artifacts before any review category runs",
+        "Phases 1, 2, 3, and 4 all execute and each produces category findings",
+        "Phase 5 writes exactly one verdict file (either _review.md or _review_loopback.md, not both)",
         "The review_result YAML block includes verdict, loop_target, round, confidence, critical_findings, and summary fields"
       ],
       "files": []
@@ -19,12 +19,12 @@
       "id": 2,
       "name": "adversarial-mode-flag",
       "prompt": "/review-plan my-feature --adversarial",
-      "expected_output": "Detects --adversarial flag in arguments. Phase 0 selects adversarial execution mode. For each of phases 1-4, spawns three validator agents in parallel. After all validators complete, identifies agreements (>=2 validators flagged the same issue) and disagreements (only 1 validator flagged it). Runs cross-examination for each disagreement. Phase 5 synthesizes confirmed findings into a verdict artifact using the same review_result schema as fast-path.",
+      "expected_output": "Detects --adversarial flag in arguments. Phase 0 selects adversarial execution mode. For each of phases 1-4, spawns three validator agents in parallel (not one). After all validators complete, the skill identifies agreements (>=2 validators flagged the same issue) and any disagreements (only 1 validator flagged it). If disagreements exist, cross-examination agents are spawned to resolve them. Phase 5 synthesizes confirmed findings into a verdict artifact using the same review_result schema as fast-path.",
       "assertions": [
         "The --adversarial flag is detected and adversarial mode is selected",
         "Three validator agents are spawned per category (not one)",
-        "All validator agents run in parallel before cross-examination",
-        "Cross-examination agents are spawned for disagreements (findings flagged by only one validator)",
+        "All twelve validator agents (3 per category × 4 categories) are spawned in a single parallel batch before cross-examination",
+        "After validators complete, the skill explicitly checks for agreements vs. disagreements before proceeding to Phase 5",
         "The output review_result schema is identical to fast-path mode output"
       ],
       "files": []
