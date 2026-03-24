@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Planned
 problem: |
   The /plan skill's Phase 6 review is passive — it checks coverage and dependency
   structure but does not challenge whether the plan would catch incorrect implementations.
@@ -31,7 +31,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
