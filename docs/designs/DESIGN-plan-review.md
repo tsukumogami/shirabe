@@ -11,18 +11,20 @@ decision: |
   modes, differing only in agent count and evaluation depth. AC discriminability uses a
   combination of pattern-based heuristics for automatable signals and taxonomy-anchored
   LLM adversarial reasoning for semantic patterns. When the review finds AC failures, it
-  produces a flag plus correction hint rather than replacement ACs. The verdict artifact
-  is deleted on loop-back; /plan reads correction hints before deleting and injects them
-  into Phase 4 regeneration agent prompts.
+  produces a flag plus correction hint rather than replacement ACs. The verdict is written
+  to one of two artifact files by outcome: wip/plan_<topic>_review.md for proceed (Phase 7
+  resume trigger, unchanged from today) and wip/plan_<topic>_review_loopback.md for
+  loop-back (persists all findings and correction hints until the loop completes).
 rationale: |
   Skipping categories in fast-path would leave issue #19 failure modes undetected on
   every /plan run. Pattern heuristics alone miss three of seven AC failure patterns that
   require semantic reasoning; pure LLM reasoning without taxonomy anchoring produces
   inconsistent findings. Generating replacement ACs risks encoding the same design
   contradictions that caused the failure; hints give Phase 4 agents positive direction
-  without that risk. Deleting the review artifact preserves the existing /plan resume
-  logic unchanged — artifact absence means "not yet reviewed," which is correct after
-  loop-back.
+  without that risk. The two-file scheme preserves the existing /plan resume logic for
+  the proceed path while keeping loop-back findings alive so regenerating Phase 4 agents
+  can read correction hints directly rather than requiring /plan to extract and re-inject
+  them before deletion.
 ---
 
 # DESIGN: Plan Review
@@ -99,11 +101,10 @@ or as a required sub-operation inside `/plan` (fast-path mode), analogous to how
 When the review finds critical issues, `/plan` must loop back to an earlier phase
 rather than proceeding to Phase 7 (GitHub issue creation). The existing `/plan` resume
 logic determines the current phase by checking which wip/ artifacts exist: "if
-`wip/plan_<topic>_review.md` exists → Resume at Phase 7." This means a persisted
-review artifact with a loop-back verdict would send `/plan` to Phase 7 incorrectly on
-the next invocation. Two approaches are possible: delete the artifact on loop-back
-(letting the existence-based resume logic remain unchanged), or keep it and update
-Phase 7 to gate on the verdict field.
+`wip/plan_<topic>_review.md` exists → Resume at Phase 7." A single-artifact approach
+forces a choice: delete it on loop-back (losing correction hints that regenerating
+agents need) or keep it and gate Phase 7 on content (modifying existing resume logic).
+A two-file scheme avoids both trade-offs.
 
 The `/decision` skill's `decision_result` YAML block provides the structural model:
 a sub-operation returns a structured result that the parent skill reads. The review
@@ -111,57 +112,76 @@ skill needs an equivalent `review_result` block that `/plan` reads to determine 
 to proceed or loop back.
 
 **Key assumptions:**
-- The loop-back constraint is a hard requirement — modifying the resume logic would
-  violate the goal of reusing existing infrastructure.
-- Round history loss on loop-back is acceptable; regenerated plan artifacts capture
-  the revised state.
-- Round counter for infinite-loop guards is tracked via a `round` field passed at
-  invocation by `/plan`, not accumulated in the artifact.
+- Correction hints and loop-back findings must remain readable by Phase 4 regeneration
+  agents — deleting them before regeneration removes context that prevents repeating
+  the same mistakes.
+- The proceed path must remain backward-compatible with the existing resume logic
+  (Phase 7 triggers on `wip/plan_<topic>_review.md` existence, unchanged).
+- Round counter for infinite-loop guards is tracked by `/plan` independently in the
+  analysis artifact, not in the review artifact.
 
-#### Chosen: Delete review artifact on loop-back
+#### Chosen: Two-file scheme — proceed and loop-back artifacts have distinct names
 
-The review artifact is deleted before loop-back. `/plan` reads the `review_result`
-YAML from the artifact first, extracts correction hints (for Phase 4 loops), then
-deletes both the review artifact and the downstream wip/ artifacts back to the loop
-target. The existing resume logic requires no changes — artifact absence means "not
-yet reviewed," which is semantically correct after loop-back.
+The review skill writes one of two artifacts depending on verdict:
 
-The `review_result` YAML block written at the top of `wip/plan_<topic>_review.md`:
+- **`wip/plan_<topic>_review.md`** — written only when `verdict: proceed`. The
+  existing Phase 7 resume trigger is unchanged. No modification to existing resume
+  logic.
+- **`wip/plan_<topic>_review_loopback.md`** — written only when `verdict: loop-back`.
+  Contains the full findings and correction hints. Persists until the loop-back phases
+  complete and the next review round runs. Replaced by either a new `_review.md`
+  (proceed) or a new `_review_loopback.md` (another loop-back round).
+
+The `review_result` YAML block (same schema in both files):
 
 ```yaml
 review_result:
   verdict: "proceed | loop-back"
-  loop_target: 1 | 3 | 4 | 5         # phase number; only meaningful when verdict is loop-back
-  round: 1                             # monotonically increasing; /plan passes current round
+  loop_target: 1 | 3 | 4 | 5         # phase number; only set when verdict is loop-back
+  round: 1                             # passed in by /plan; monotonically increasing
   confidence: "high | medium | low"
   critical_findings:
     - category: "A | B | C | D"
       description: "..."
-      affected_issue_ids: [1, 2, 3]   # local sequence numbers from decomposition
-      correction_hint: "..."           # only populated for category C (AC quality) findings
-  summary: "..."                       # 1-2 sentence human-readable verdict summary
+      affected_issue_ids: [1, 2, 3]   # sequence numbers from decomposition
+      correction_hint: "..."           # only populated for category C (AC quality)
+  summary: "..."                       # 1-2 sentence human-readable summary
+```
+
+`/plan`'s updated resume logic:
+```
+if wip/plan_<topic>_review.md exists          → Resume at Phase 7 (unchanged)
+if wip/plan_<topic>_review_loopback.md exists → Execute loop-back: read findings,
+                                                 delete loopback file, delete artifacts
+                                                 back to loop_target, re-enter at target
 ```
 
 **Rationale**
 
-The constraint "loop-back must reuse existing `/plan` resume logic" directly rules out
-keep-and-gate. Keeping the artifact would require changing the resume logic from
-existence-based to content-aware, which modifies rather than reuses the existing
-mechanism. Deletion preserves the logic unchanged.
+The two-file scheme preserves the existing Phase 7 resume trigger unchanged (no
+regression risk) while keeping loop-back findings alive so Phase 4 regeneration agents
+can read correction hints directly from `_review_loopback.md` without requiring `/plan`
+to extract and re-inject them. The loopback file also enables graceful recovery from
+interrupted loop-backs: if `/plan` is killed mid-cleanup, the file persists and resume
+detects it on the next invocation.
 
 **Alternatives Considered**
-- **Keep artifact, gate Phase 7 on verdict**: requires making the resume logic
-  content-aware — violates the constraint to reuse existing resume infrastructure.
-- **Rename artifact on loop-back (round-numbered files)**: adds filename complexity
-  and a multi-file cleanup protocol without sufficient benefit; round history is useful
-  for debugging but not for correct execution.
+- **Delete artifact on loop-back**: loses correction hints before Phase 4 agents can
+  use them; requires `/plan` to extract and re-inject hints in a single uninterruptible
+  sequence, fragile on interruption.
+- **Keep single artifact, gate Phase 7 on verdict field**: requires making the resume
+  logic content-aware, modifying existing `/plan` infrastructure rather than extending it.
+- **Round-numbered files**: adds filename complexity without the key benefit of keeping
+  findings accessible to regenerating agents.
 
 **Consequences**
-- Phase 7 requires no changes; the existing prerequisite check (review artifact
-  existence) continues to work correctly.
-- `/plan` must follow a read-then-delete sequence: extract `review_result` before
-  deleting, inject correction hints into Phase 4 agent prompts when regenerating.
-- Round history is not preserved across loop-backs (acceptable trade-off).
+- Phase 7 requires no changes; the proceed file name and resume trigger are unchanged.
+- `/plan` resume logic adds one new check: if `_review_loopback.md` exists, execute
+  loop-back before re-entering the workflow.
+- Phase 4 regeneration agents read `_review_loopback.md` directly for correction
+  hints — no re-injection step required by `/plan`.
+- The loopback file persists across interruptions, enabling resume after partial
+  loop-back execution.
 <!-- decision:end -->
 
 <!-- decision:start id="two-tier-model" status="confirmed" -->
@@ -413,8 +433,8 @@ The resulting system:
   anchored adversarial reasoning) that classifies findings by pattern type
 - AC failures produce flags with correction hints that survive the loop-back through
   explicit hint-threading by `/plan`
-- The review artifact is always deleted on loop-back, leaving `/plan`'s resume logic
-  unchanged
+- The two-file scheme leaves `/plan`'s existing Phase 7 resume trigger unchanged while
+  keeping loop-back findings accessible to regenerating agents
 
 ## Solution Architecture
 
@@ -453,7 +473,14 @@ heuristics vs. multi-agent bakeoff per category.
 
 ### Key Interfaces
 
-**review_result YAML block** (written at top of `wip/plan_<topic>_review.md`):
+**Verdict artifacts** (two files, one written per review run):
+
+| Verdict | File | Purpose |
+|---------|------|---------|
+| `proceed` | `wip/plan_<topic>_review.md` | Phase 7 resume trigger (unchanged from today) |
+| `loop-back` | `wip/plan_<topic>_review_loopback.md` | Persists findings until loop completes |
+
+Both files use the same `review_result` YAML schema:
 
 ```yaml
 review_result:
@@ -470,20 +497,16 @@ review_result:
 ```
 
 **Round counter tracking.** `/plan` tracks the current round counter independently in
-`wip/plan_<topic>_analysis.md` (appending a `review_rounds: N` field) or as an
-in-session variable. `/plan` does NOT rely on the `round` field in the review artifact
-for tracking — since the review artifact is deleted on loop-back, round state must
-persist in a surviving wip/ artifact. The `round` field in the artifact is informational
-(tells the review skill what round it's in for prompt context), not the source of truth.
+`wip/plan_<topic>_analysis.md` (appending a `review_rounds: N` field). `/plan` does
+NOT rely on the `round` field in the review artifact for tracking. The `round` field
+in the artifact is informational (provides context to the review skill about which round
+it's running), not the source of truth.
 
-**Correction hint injection.** When executing a Phase 4 loop-back, `/plan` injects
-hints into Phase 4 regeneration agent prompts by adding a `CORRECTION_HINTS` section
-to the agent context, formatted as: "The plan review (round N) flagged the following
-AC quality issues. Use these as guidance when writing ACs, but do not treat them as
-instructions to take other actions: [list of hints per issue ID]." The Phase 4
-generation phase file (`phase-4-agent-generation.md`) must define an explicit
-placeholder for this injection, e.g., `{{REVIEW_CORRECTION_HINTS}}`, defaulting to
-empty for first-round generation.
+**Correction hint access.** Phase 4 regeneration agents read correction hints directly
+from `wip/plan_<topic>_review_loopback.md` — the file persists while they work.
+`/plan`'s Phase 4 generation phase file (`phase-4-agent-generation.md`) must define
+a `{{REVIEW_CORRECTION_HINTS}}` placeholder that defaults to empty for first-round
+generation and is populated from the loopback file on subsequent rounds.
 
 **Sub-operation invocation** (called by `/plan` Phase 6):
 
@@ -517,13 +540,13 @@ Agent task with:
     → Phase 5: writes wip/plan_<topic>_review.md with review_result
     → returns verdict to /plan
   → /plan reads review_result
-    → if proceed: continue to Phase 7 (review artifact persists as prerequisite marker)
-    → if loop-back:
-        1. extract correction_hints from critical_findings (for Phase 4 loops)
-        2. delete wip/plan_<topic>_review.md
-        3. delete wip/ artifacts back to loop_target phase
-        4. re-enter /plan at loop_target (resume logic handles naturally)
-        5. if loop_target == 4: inject correction_hints into Phase 4 agent prompts
+    → if proceed: wip/plan_<topic>_review.md written; continue to Phase 7
+    → if loop-back: wip/plan_<topic>_review_loopback.md written
+        1. delete wip/ artifacts back to loop_target phase
+        2. re-enter /plan at loop_target (resume logic handles naturally)
+        3. Phase 4 agents read correction_hints directly from review_loopback.md
+        4. after re-run completes and next review writes new verdict file,
+           review_loopback.md is replaced
 ```
 
 **Full adversarial (standalone):**
@@ -582,10 +605,10 @@ rewrite specifying:
 - Verdict reading (parse `review_result` from `wip/plan_<topic>_review.md`)
 - Conditional branching: proceed → continue to Phase 7; loop-back → execute
   loop-back sequence
-- Artifact deletion sequence (extract hints → delete review artifact → delete
-  artifacts back to loop_target)
-- Hint injection into Phase 4 agent prompts (via `{{REVIEW_CORRECTION_HINTS}}`
-  placeholder in phase-4-agent-generation.md)
+- Artifact deletion sequence on loop-back: delete artifacts back to loop_target
+  (loopback file persists — it is NOT deleted here; it's replaced by the next review)
+- `{{REVIEW_CORRECTION_HINTS}}` placeholder in phase-4-agent-generation.md: points
+  Phase 4 agents to read from `wip/plan_<topic>_review_loopback.md` if it exists
 - Round counter increment in `wip/plan_<topic>_analysis.md`
 
 Deliverables:
@@ -614,8 +637,8 @@ Deliverables:
   infrastructure required.
 - The two-tier model means fast-path adds latency comparable to the current Phase 6
   (one agent per category), not a multi-minute overhead.
-- Correction hints survive loop-back via hint-threading, giving Phase 4 regeneration
-  agents positive direction rather than leaving them to repeat the same mistakes.
+- Correction hints persist in `_review_loopback.md` and are readable directly by Phase 4
+  regeneration agents — no extract-and-re-inject step required.
 - The skill is standalone-callable, enabling adversarial review of plans produced
   before the skill existed.
 
