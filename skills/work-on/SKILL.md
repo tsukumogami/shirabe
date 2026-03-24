@@ -44,8 +44,7 @@ detection — koto does that through gate checks and evidence submission.
 
 ### Prerequisites
 
-This workflow requires koto >= 0.2.1 (platform capabilities: `--var` substitution,
-gate-with-evidence-fallback, decision capture). Run `koto version` to verify.
+This workflow requires koto >= 0.2.1. Run `koto version` to verify.
 
 ### Template Location
 
