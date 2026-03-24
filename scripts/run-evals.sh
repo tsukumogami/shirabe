@@ -109,12 +109,13 @@ prep_skill_evals() {
   echo ""
 
   python3 << PYEOF
-import json, os
+import json, os, shutil
 
 with open("$evals_file") as f:
     data = json.load(f)
 
 iter_dir = "$iter_dir"
+evals_dir = os.path.dirname("$evals_file")
 
 for eval_item in data["evals"]:
     eval_id = eval_item["id"]
@@ -134,7 +135,24 @@ for eval_item in data["evals"]:
     with open(os.path.join(eval_dir, "eval_metadata.json"), "w") as f:
         json.dump(metadata, f, indent=2)
 
-    print(f"  Prepared: {eval_name}")
+    # Copy fixture files to inputs/ if fixture_dir is specified
+    fixture_dir_rel = eval_item.get("fixture_dir")
+    if fixture_dir_rel:
+        fixture_dir = os.path.join(evals_dir, fixture_dir_rel)
+        if os.path.isdir(fixture_dir):
+            inputs_dir = os.path.join(eval_dir, "inputs")
+            if os.path.exists(inputs_dir):
+                shutil.rmtree(inputs_dir)
+            shutil.copytree(fixture_dir, inputs_dir)
+            metadata["has_fixtures"] = True
+            with open(os.path.join(eval_dir, "eval_metadata.json"), "w") as f:
+                json.dump(metadata, f, indent=2)
+            print(f"  Prepared: {eval_name} (with fixtures from {fixture_dir_rel})")
+        else:
+            print(f"  WARNING: fixture_dir not found: {fixture_dir}")
+            print(f"  Prepared: {eval_name}")
+    else:
+        print(f"  Prepared: {eval_name}")
 
 print(f"\nPrepared {len(data['evals'])} eval directories.")
 PYEOF
@@ -179,6 +197,7 @@ Each eval directory in the workspace has:
 
 Follow the skill-creator's "Running and evaluating test cases" workflow:
 - Step 1: For each eval, spawn a with-skill agent (reads the skill SKILL.md then executes the prompt) and a without-skill baseline agent (same prompt, no skill). Save outputs to the respective outputs/ directories.
+  - IMPORTANT: If eval_metadata.json contains "has_fixtures": true, an inputs/ directory exists alongside it with pre-defined plan artifact files (e.g. plan_my-feature_analysis.md, plan_my-feature_issue_1.md, etc.). Before running the with-skill agent for that eval, treat those files as already present in wip/ — the skill should read them rather than improvising fixture content. The agent must use the provided fixture files as the plan artifacts under review, not invent new ones.
 - Step 2: Grade each with-skill run against the assertions in eval_metadata.json. Write grading.json in each with_skill/ directory.
 - Step 3: Capture timing data (total_tokens, duration_ms) to timing.json in each run directory.
 - Step 4: Run the aggregation and generate the viewer to /tmp/${skill_name}-eval-review.html using --static mode.

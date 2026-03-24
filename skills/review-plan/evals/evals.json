@@ -33,7 +33,7 @@
       "id": 3,
       "name": "loop-back-category-c",
       "prompt": "/review-plan my-feature",
-      "expected_output": "When Category C (AC Discriminability) finds fixture-anchored ACs, Phase 5 sets verdict to loop-back with loop_target: 4. Phase 5 writes wip/plan_my-feature_review_loopback.md (not _review.md). The loopback file contains the critical_findings with non-empty correction_hint for each Category C finding. Phase 6 deletes wip/ artifacts from Phase 4 forward (dependencies.md, manifest.json, issue_*.md) but does NOT delete the loopback file itself.",
+      "expected_output": "The fixture plan has three issues. Issue 2 has ACs anchored to golden files (testdata/filter_rip.golden, etc.) with specific version strings, triggering Category C Pattern 1 (fixture-anchored). Issues 1 and 3 have clean ACs covering success paths, empty-state, and failure paths — they should NOT appear in critical_findings. Phase 5 sets verdict to loop-back with loop_target: 4. Phase 5 writes wip/plan_my-feature_review_loopback.md (not _review.md). The loopback file contains critical_findings for Issue 2 only, each with a non-empty correction_hint. Phase 6 deletes manifest.json and issue_*.md but preserves the loopback file.",
       "assertions": [
         "verdict is loop-back when critical findings exist",
         "Category C findings produce loop_target: 4",
@@ -41,6 +41,7 @@
         "All Category C findings include a non-empty correction_hint",
         "Phase 6 deletes manifest.json and issue_*.md but preserves the loopback file"
       ],
+      "fixture_dir": "fixtures/loop-back-category-c",
       "files": []
     },
     {
@@ -60,13 +61,27 @@
     {
       "id": 5,
       "name": "sub-operation-round-precedence",
-      "prompt": "Called as sub-operation with args: plan_topic=my-feature, round=2, mode=fast-path",
-      "expected_output": "When called with args.round=2, the review_result block uses round: 2 regardless of the review_rounds value in the analysis artifact. Does not compute round from review_rounds + 1 when args.round is present. Runs in fast-path mode as specified by mode: fast-path.",
+      "prompt": "Called as sub-operation with args: plan_topic=my-feature, round=3, mode=fast-path",
+      "expected_output": "When called with args.round=3, the review_result block uses round: 3 regardless of the review_rounds value in the analysis artifact (which is 0, so review_rounds+1 would yield 1, not 3). Does not compute round from review_rounds + 1 when args.round is present. Runs in fast-path mode as specified by mode: fast-path.",
       "assertions": [
-        "round in the verdict file is 2 (from args.round), not derived from review_rounds",
+        "round in the verdict file is 3 (from args.round), not 1 (which review_rounds+1 would yield with review_rounds=0)",
         "Fast-path mode is used as specified",
         "The verdict file is written to the correct path for the given topic"
       ],
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "clean-proceed-path",
+      "prompt": "/review-plan my-feature",
+      "expected_output": "The fixture plan has three issues. All issues have clean ACs: success paths with behavioral assertions, empty-state coverage, and failure paths. No issue uses golden file validation, specific version strings, or existence-only assertions. All four categories return empty critical_findings. Phase 5 sets verdict to proceed. Phase 5 writes wip/plan_my-feature_review.md (not _review_loopback.md). The review_result block has verdict: proceed and critical_findings: [].",
+      "assertions": [
+        "verdict is proceed when no critical findings exist",
+        "wip/plan_my-feature_review.md is written (not the loopback file)",
+        "critical_findings is empty",
+        "confidence field is present in the review_result block"
+      ],
+      "fixture_dir": "fixtures/clean-proceed-path",
       "files": []
     }
   ]
