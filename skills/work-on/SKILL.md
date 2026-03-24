@@ -46,31 +46,21 @@ detection — koto does that through gate checks and evidence submission.
 
 This workflow requires koto >= 0.2.1. Run `koto version` to verify.
 
-### Template Location
-
-The koto template is at `koto-templates/work-on.md` (relative to this skill directory).
-Before initializing, copy it to the project's `.koto/templates/` directory if it doesn't
-already exist:
-
-```bash
-mkdir -p .koto/templates
-cp ${CLAUDE_SKILL_DIR}/koto-templates/work-on.md .koto/templates/work-on.md
-```
-
 ### Initialize
 
-For a **new workflow** (no active koto state), initialize with the appropriate variables:
+For a **new workflow** (no active koto state), initialize with the appropriate variables.
+`koto init` compiles the template on the fly — no separate compile step needed.
 
 **Issue-backed mode** (GitHub issue number provided):
 ```bash
-koto init work-on --template .koto/templates/work-on.md \
+koto init work-on --template ${CLAUDE_SKILL_DIR}/koto-templates/work-on.md \
   --var ISSUE_NUMBER=<N> \
   --var ARTIFACT_PREFIX=issue_<N>
 ```
 
 **Free-form mode** (task description, no issue):
 ```bash
-koto init work-on --template .koto/templates/work-on.md \
+koto init work-on --template ${CLAUDE_SKILL_DIR}/koto-templates/work-on.md \
   --var ARTIFACT_PREFIX=task_<slug>
 ```
 
@@ -190,8 +180,8 @@ those for project-specific quality and PR requirements.
 Then:
 1. Check for an active `work-on` workflow with `koto workflows`. If active, resume
    with `koto next work-on`.
-2. If no active workflow, copy the template to `.koto/templates/` and run `koto init`
-   with the appropriate variables (see Koto Orchestration).
+2. If no active workflow, run `koto init` with the template path and appropriate
+   variables (see Koto Orchestration).
 3. Submit entry evidence to set the mode:
    - Issue-backed: `koto next work-on --with-data '{"mode": "issue_backed", "issue_number": "<N>"}'`
    - Free-form: `koto next work-on --with-data '{"mode": "free_form", "task_description": "..."}'`
