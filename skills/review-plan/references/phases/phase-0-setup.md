@@ -93,7 +93,7 @@ Record the selected mode. It determines agent count in phases 1–4:
 | `design` | Full check | Full check | Full check | Full check |
 | `prd` | Full check | Full check | Full check | Full check |
 | `roadmap` | Issue count vs. roadmap item count only | Returns empty findings | Returns empty findings | Returns empty findings |
-| `topic` | Full check | No upstream doc — skip B | Full check | Full check |
+| `topic` | Full check | Returns empty findings (`critical_findings: []`) | Full check | Full check |
 
 Record the `input_type` and the category behavior table entry. Pass both to
 phases 1–4 so they can gate correctly.
@@ -109,6 +109,6 @@ Review Plan — Phase 0 complete
   mode:         fast-path | adversarial
   issue_count:  <N>
   strategy:     <walking-skeleton | horizontal>
-  round:        <review_rounds + 1>
+  round:        <args.round if called as sub-operation, else review_rounds + 1>
   upstream_doc: <path or "none">
 ```

@@ -45,23 +45,33 @@ Loop target is determined by finding category using a deterministic mapping:
 | B (Design Fidelity) | 1 | Analysis |
 | A (Scope Gate) | 3 | Decomposition |
 | C (AC Discriminability) | 4 | Agent Generation |
-| D (Sequencing / Priority Integrity) | 5 | Dependencies |
+| D — dependency ordering error | 5 | Dependencies |
+| D — structural deferral (must-run QA deprioritized) | 3 | Decomposition |
+
+Category D has two subtypes with different loop targets. Structural deferral
+(a QA scenario classified as low-priority or deferred to the end of the plan)
+maps to Phase 3 because it is a decomposition sequencing decision. Dependency
+ordering errors (correct issues in the wrong order) map to Phase 5.
 
 When multiple categories have findings, the earliest phase wins:
 ```
-if B findings exist  → loop_target: 1
-elif A findings exist → loop_target: 3
-elif C findings exist → loop_target: 4
-elif D findings exist → loop_target: 5
+if B findings exist                         → loop_target: 1
+elif A findings or D-structural exist       → loop_target: 3
+elif C findings exist                       → loop_target: 4
+elif D-dependency-ordering findings exist   → loop_target: 5
 ```
 
 ### `round`
 
 **Type:** integer, minimum 1
 
-The review round number passed in by `/plan`. Monotonically increasing per topic.
-The first review run is round 1. If `/plan` loops back and re-runs the review, that
-is round 2, and so on.
+The review round number. Monotonically increasing per topic.
+
+**Authoritative source**: `args.round` when called as a sub-operation (passed in by
+`/plan`). When called standalone, derive as `review_rounds + 1` from
+`wip/plan_<topic>_analysis.md`. **Never compute from `review_rounds + 1` when
+`args.round` is present** — `/plan` increments `review_rounds` in Phase 6 loop-back,
+so on a second review call the file-derived value and the args value can diverge.
 
 This field is informational — it provides context to the review skill and to anyone
 reading the artifact. `/plan` tracks the authoritative round counter independently
