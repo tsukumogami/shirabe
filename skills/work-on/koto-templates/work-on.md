@@ -57,6 +57,15 @@ states:
         description: Override type or failure reason
     transitions:
       - target: setup_issue_backed
+        when:
+          status: completed
+      - target: setup_issue_backed
+        when:
+          status: override
+      - target: done_blocked
+        when:
+          status: blocked
+      - target: setup_issue_backed
 
   task_validation:
     accepts:
@@ -127,6 +136,15 @@ states:
         description: Override type or failure reason
     transitions:
       - target: staleness_check
+        when:
+          status: completed
+      - target: staleness_check
+        when:
+          status: override
+      - target: done_blocked
+        when:
+          status: blocked
+      - target: staleness_check
 
   setup_free_form:
     gates:
@@ -142,6 +160,15 @@ states:
         type: string
         description: Override type or failure reason
     transitions:
+      - target: analysis
+        when:
+          status: completed
+      - target: analysis
+        when:
+          status: override
+      - target: done_blocked
+        when:
+          status: blocked
       - target: analysis
 
   staleness_check:
@@ -161,6 +188,12 @@ states:
       - target: introspection
         when:
           staleness_signal: stale_requires_introspection
+      - target: analysis
+        when:
+          staleness_signal: fresh
+      - target: analysis
+        when:
+          staleness_signal: override
       - target: done_blocked
         when:
           staleness_signal: blocked
@@ -183,6 +216,12 @@ states:
       - target: done_blocked
         when:
           introspection_outcome: issue_superseded
+      - target: analysis
+        when:
+          introspection_outcome: approach_unchanged
+      - target: analysis
+        when:
+          introspection_outcome: approach_updated
       - target: analysis
 
   analysis:
@@ -266,6 +305,12 @@ states:
         when:
           finalization_status: issues_found
       - target: pr_creation
+        when:
+          finalization_status: ready_for_pr
+      - target: pr_creation
+        when:
+          finalization_status: deferred_items_noted
+      - target: pr_creation
 
   pr_creation:
     accepts:
@@ -301,6 +346,12 @@ states:
         type: string
         description: What was fixed or why CI failures are unresolvable
     transitions:
+      - target: done
+        when:
+          ci_outcome: passing
+      - target: done
+        when:
+          ci_outcome: failing_fixed
       - target: done_blocked
         when:
           ci_outcome: failing_unresolvable
