@@ -11,7 +11,8 @@ For `roadmap` input types, this phase returns empty findings immediately.
 
 Findings use the `review_result` `critical_findings` format with `category: "D"`.
 The `correction_hint` field is left empty for all Category D findings — corrections
-require re-running Phase 5 (Dependencies), not changing issue body content.
+require re-running an earlier phase (which phase depends on the finding subtype —
+see loop_target mapping below), not changing issue body content.
 
 Loop-back targets for Category D findings:
 - Dependency ordering errors → `loop_target: 5`
