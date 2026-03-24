@@ -36,73 +36,126 @@ Your project's extension file (`.claude/shirabe-extensions/work-on.md`) defines 
 
 You are assigned to work on the resolved issue. The issue number determined above replaces `<N>` throughout this workflow.
 
-## Workflow Overview
+## Koto Orchestration
 
-This workflow follows 7 sequential phases. Each phase produces artifacts that enable resumability - if interrupted, check which artifacts exist to determine where to resume.
+This workflow is driven by koto, a state machine engine that tracks progress, enforces
+phase ordering, and handles resume. You don't manage phase transitions or resume
+detection — koto does that through gate checks and evidence submission.
 
-| Phase | Purpose | Artifact |
-|-------|---------|----------|
-| 0. Context Injection | Surface design context before work begins | `IMPLEMENTATION_CONTEXT.md` (ephemeral) |
-| 1. Setup | Branch creation, baseline establishment | `wip/issue_<N>_baseline.md` |
-| 2. Introspection | Validate issue spec is still current | `wip/issue_<N>_introspection.md` (if needed) |
-| 3. Analysis | Research, planning, design decisions | `wip/issue_<N>_plan.md` |
-| 4. Implementation | Iterative coding with validation | Working code + commits |
-| 5. Finalization | Summary, cleanup, verification | `wip/issue_<N>_summary.md` |
-| 6. Pull Request | PR creation, CI monitoring | Merged PR with passing CI |
+### Template Location
 
-## Resume Logic
+The koto template is at `koto-templates/work-on.md` (relative to this skill directory).
+Before initializing, copy it to the project's `.koto/templates/` directory if it doesn't
+already exist:
 
-Before starting, determine current phase by checking artifacts (files or git commits):
-
-```
-if wip/IMPLEMENTATION_CONTEXT.md exists → Resume at Phase 1 (context already extracted)
-if cleanup commit exists (wip deleted) → Resume at Phase 6 (PR)
-if summary commit exists → Resume at Phase 6
-if implementation commits exist after plan → Resume at Phase 4 or 5
-if plan commit exists → Resume at Phase 4
-if introspection commit exists → Resume at Phase 3
-if baseline commit exists → Resume at Phase 2
-else → Start at Phase 0
-```
-
-To check commits:
 ```bash
-git log --oneline --grep="issue-<N>"
+mkdir -p .koto/templates
+cp ${CLAUDE_SKILL_DIR}/koto-templates/work-on.md .koto/templates/work-on.md
 ```
 
-Artifacts are preserved in git history even after file deletion. Check both file existence AND commit history for accurate resume detection.
+### Initialize
 
-## Execution
+For a **new workflow** (no active koto state), initialize with the appropriate variables:
 
-If your project's extension file defines a language skill or PR creation skill, invoke those now for project-specific quality and PR requirements. Then execute phases sequentially:
+**Issue-backed mode** (GitHub issue number provided):
+```bash
+koto init work-on --template .koto/templates/work-on.md \
+  --var ISSUE_NUMBER=<N> \
+  --var ARTIFACT_PREFIX=issue_<N>
+```
 
-0. **Context Injection**: Surface design context before implementation
-   - Purpose: Provide implementer with design rationale, dependencies, integration requirements
-   - Instructions: `references/phases/phase-0-context-injection.md`
+**Free-form mode** (task description, no issue):
+```bash
+koto init work-on --template .koto/templates/work-on.md \
+  --var ARTIFACT_PREFIX=task_<slug>
+```
 
-1. **Setup**: Create feature branch and establish baseline
-   - Purpose: Ensure clean starting state and enable comparison of test/coverage changes
-   - Instructions: `references/phases/phase-1-setup.md`
+Where `<slug>` is a kebab-case summary of the task (e.g., `task_fix-login-timeout`).
 
-2. **Introspection**: Validate issue specification is still current
-   - Purpose: Detect if issue spec may be stale and needs review before implementation
-   - Instructions: `references/phases/phase-2-introspection.md`
+**Plan-backed mode** uses free-form init. Extract the goal and acceptance criteria from the
+PLAN doc and provide them as the task description in the entry evidence.
 
-3. **Analysis**: Research codebase and create implementation plan
-   - Purpose: Design solution approach before coding, consider alternatives, identify files to modify
-   - Instructions: `references/phases/phase-3-analysis.md`
+### The Execution Loop
 
-4. **Implementation**: Execute plan with iterative development
-   - Purpose: Implement the solution following the plan with continuous validation
-   - Instructions: `references/phases/phase-4-implementation.md`
+After init (or when resuming), repeat this loop:
 
-5. **Finalization**: Create summary, clean up artifacts, verify quality
-   - Purpose: Document decisions made, remove temporary files, ensure all tests pass
-   - Instructions: `references/phases/phase-5-finalization.md`
+1. **Get the current directive:**
+   ```bash
+   koto next work-on
+   ```
+   This returns JSON with `action`, `state`, `directive`, and optionally `expects`.
 
-6. **Pull Request**: Create PR and monitor CI until passing
-   - Purpose: Submit work for review and ensure all automated checks pass
-   - Instructions: `references/phases/phase-6-pr.md`
+2. **Check the action:**
+   - `"execute"` with `advanced: true` — koto auto-advanced through a gate. The directive
+     tells you what state you're in. Run `koto next work-on` again to continue advancing
+     or get the next directive that needs your work.
+   - `"execute"` with `advanced: false` and `expects` present — you need to do work. Read
+     the directive, execute the corresponding phase guidance (see State-to-Phase Mapping),
+     then submit evidence.
+   - `"done"` — the workflow reached a terminal state. Report the outcome and stop.
+
+3. **Submit evidence** when work is complete:
+   ```bash
+   koto next work-on --with-data '{"field_name": "value", ...}'
+   ```
+   The `expects` field in the previous response tells you which fields to provide, their
+   types, and the valid values. Conditional transitions in `expects.options` show which
+   evidence values route to which next state.
+
+4. **Handle errors:**
+   - Exit code 1 (transient): a gate check failed. Read the error, fix the issue, retry.
+   - Exit code 2 (caller error): your evidence was invalid. Check `expects` and resubmit.
+   - If stuck, use `koto rewind work-on` to step back one state.
+
+### Resume
+
+If the session was interrupted, koto picks up where you left off:
+
+1. Check for active workflows: `koto workflows`
+2. If `work-on` is active, run `koto next work-on` — gates auto-advance past completed
+   work (file existence checks pass for artifacts already created).
+3. If no workflow is active, start fresh with `koto init`.
+
+### Decision Capture
+
+During judgment states (analysis, implementation), capture non-obvious decisions using
+`koto decisions record work-on`:
+
+```bash
+koto decisions record work-on --with-data '{"choice": "...", "rationale": "...", "alternatives_considered": ["..."]}'
+```
+
+This records the decision in the event log without triggering a state transition. List
+captured decisions with `koto decisions list work-on`.
+
+## State-to-Phase Mapping
+
+Each koto state corresponds to a phase reference file with detailed agent guidance. When
+`koto next` gives you a directive in a state that needs your work, read the corresponding
+phase file for instructions.
+
+| koto state | Phase | Reference file |
+|------------|-------|---------------|
+| `entry` | — | Submit mode evidence directly (see Koto Orchestration) |
+| `context_injection` | 0 | `references/phases/phase-0-context-injection.md` |
+| `task_validation` | — | Follow the directive (assess task scope and clarity) |
+| `research` | — | Follow the directive (gather codebase context) |
+| `post_research_validation` | — | Follow the directive (reassess task against findings) |
+| `setup_issue_backed` | 1 | `references/phases/phase-1-setup.md` |
+| `setup_free_form` | 1 | `references/phases/phase-1-setup.md` |
+| `staleness_check` | 2 | `references/phases/phase-2-introspection.md` |
+| `introspection` | 2 | `references/phases/phase-2-introspection.md` |
+| `analysis` | 3 | `references/phases/phase-3-analysis.md` |
+| `implementation` | 4 | `references/phases/phase-4-implementation.md` |
+| `finalization` | 5 | `references/phases/phase-5-finalization.md` |
+| `pr_creation` | 6 | `references/phases/phase-6-pr.md` |
+| `ci_monitor` | 6 | `references/phases/phase-6-pr.md` |
+| `done` | — | Report completion |
+| `done_blocked` | — | Report blocker, suggest `koto rewind` to recover |
+| `validation_exit` | — | Report verdict and suggest next steps |
+
+States without a reference file have sufficient guidance in the template directive itself.
+Read the directive from `koto next` and follow it.
 
 ## Output
 
@@ -116,12 +169,30 @@ mode, follow `references/decision-protocol.md` at decision points (W1, W2).
 Safety gates (W3, W4) remain blocking in both modes. Create
 `wip/work-on_<N>_decisions.md` if any decisions are recorded.
 
-First, resolve the input using the Input Resolution section above. Once you have an issue number, read the issue with `gh issue view <issue-number>`. Check for blocking labels as defined in your project's label vocabulary (CLAUDE.md `## Label Vocabulary`) and stop if any are present.
+First, resolve the input using the Input Resolution section above. Once you have an
+issue number, read the issue with `gh issue view <issue-number>`. Check for blocking
+labels as defined in your project's label vocabulary (CLAUDE.md `## Label Vocabulary`)
+and stop if any are present.
 
-Detect repo visibility from CLAUDE.md (`## Repo Visibility: Public|Private`). If not found, infer from repo path (`private/` -> Private, `public/` -> Public; default to Private). Load the appropriate content governance skill:
+Detect repo visibility from CLAUDE.md (`## Repo Visibility: Public|Private`). If not
+found, infer from repo path (`private/` -> Private, `public/` -> Public; default to
+Private). Load the appropriate content governance skill:
 - **Private repos:** Read `skills/private-content/SKILL.md`
 - **Public repos:** Read `skills/public-content/SKILL.md`
 
-Then start Phase 0.
+If your project's extension file defines a language skill or PR creation skill, invoke
+those for project-specific quality and PR requirements.
 
-If no extension file exists at `.claude/shirabe-extensions/work-on.md`, the skill proceeds with generic behavior: no language-specific quality checks, no label blocking (blocking label check is skipped if no label vocabulary is defined in CLAUDE.md).
+Then:
+1. Check for an active `work-on` workflow with `koto workflows`. If active, resume
+   with `koto next work-on`.
+2. If no active workflow, copy the template to `.koto/templates/` and run `koto init`
+   with the appropriate variables (see Koto Orchestration).
+3. Submit entry evidence to set the mode:
+   - Issue-backed: `koto next work-on --with-data '{"mode": "issue_backed", "issue_number": "<N>"}'`
+   - Free-form: `koto next work-on --with-data '{"mode": "free_form", "task_description": "..."}'`
+4. Enter the execution loop.
+
+If no extension file exists at `.claude/shirabe-extensions/work-on.md`, the skill
+proceeds with generic behavior: no language-specific quality checks, no label blocking
+(blocking label check is skipped if no label vocabulary is defined in CLAUDE.md).
