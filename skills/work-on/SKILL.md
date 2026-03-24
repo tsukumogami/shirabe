@@ -42,6 +42,11 @@ This workflow is driven by koto, a state machine engine that tracks progress, en
 phase ordering, and handles resume. You don't manage phase transitions or resume
 detection — koto does that through gate checks and evidence submission.
 
+### Prerequisites
+
+This workflow requires koto >= 0.2.1 (platform capabilities: `--var` substitution,
+gate-with-evidence-fallback, decision capture). Run `koto version` to verify.
+
 ### Template Location
 
 The koto template is at `koto-templates/work-on.md` (relative to this skill directory).
