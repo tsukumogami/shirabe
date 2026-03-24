@@ -21,6 +21,21 @@ When running /explore or /plan here:
 - No emojis in code or committed documentation
 - Never add AI attribution or co-author lines to commits or PRs
 
+## Skill Evals
+
+Whenever a skill is created or updated, create or update its evals at
+`skills/<name>/evals/evals.json`. Whenever evals are created or updated,
+run them locally before committing:
+
+```bash
+scripts/run-evals.sh <skill-name>
+```
+
+The script invokes `/skill-creator` via `claude -p` to execute each scenario
+and grade assertions. Fix any failing assertions before pushing. Do not rely
+on the CI existence check (`check-evals-exist.sh`) as a substitute for
+actually running the evals.
+
 ## Directory Structure
 
 ```
