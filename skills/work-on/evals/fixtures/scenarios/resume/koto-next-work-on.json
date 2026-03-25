@@ -1,0 +1,1 @@
+{"action":"execute","state":"implementation","directive":"Write code, commit changes, and ensure tests pass.","advanced":false,"expects":{"event_type":"evidence_submitted","fields":{"implementation_status":{"type":"enum","required":true,"values":["complete","partial_tests_failing_retry","partial_tests_failing_escalate","blocked"]}}},"error":null}

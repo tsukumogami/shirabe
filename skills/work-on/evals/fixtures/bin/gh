@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# gh shim for eval scenarios
+# Reads EVAL_SCENARIO env var and returns canned data from fixtures/scenarios/<scenario>/
+
+FIXTURES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCENARIO_DIR="$FIXTURES_DIR/scenarios/${EVAL_SCENARIO:-}"
+
+if [ -z "${EVAL_SCENARIO:-}" ]; then
+  echo "Error: EVAL_SCENARIO not set" >&2
+  exit 1
+fi
+
+# Normalize args: join all arguments for pattern matching
+ARGS="$*"
+
+# Match on argument patterns
+case "$ARGS" in
+  # gh issue view <number> [--json ...]
+  *"issue view 8"*)
+    if [ -f "$SCENARIO_DIR/gh-issue-view-8.json" ]; then
+      cat "$SCENARIO_DIR/gh-issue-view-8.json"
+      exit 0
+    fi
+    ;;
+  *"issue view 23"*)
+    if [ -f "$SCENARIO_DIR/gh-issue-view-23.json" ]; then
+      cat "$SCENARIO_DIR/gh-issue-view-23.json"
+      exit 0
+    fi
+    ;;
+  *"issue view"*)
+    # Generic issue view — check for a matching fixture file
+    # Extract the issue number from args
+    number=""
+    for arg in "$@"; do
+      if [[ "$arg" =~ ^[0-9]+$ ]]; then
+        number="$arg"
+        break
+      fi
+    done
+    if [ -n "$number" ] && [ -f "$SCENARIO_DIR/gh-issue-view-${number}.json" ]; then
+      cat "$SCENARIO_DIR/gh-issue-view-${number}.json"
+      exit 0
+    fi
+    ;;
+  *"issue list"*"--milestone"*)
+    # Extract milestone number
+    milestone=""
+    capture_next=false
+    for arg in "$@"; do
+      if $capture_next; then
+        milestone="$arg"
+        break
+      fi
+      if [ "$arg" = "--milestone" ]; then
+        capture_next=true
+      fi
+    done
+    if [ -n "$milestone" ] && [ -f "$SCENARIO_DIR/gh-issue-list-milestone-${milestone}.json" ]; then
+      cat "$SCENARIO_DIR/gh-issue-list-milestone-${milestone}.json"
+      exit 0
+    fi
+    ;;
+  *"issue list"*)
+    if [ -f "$SCENARIO_DIR/gh-issue-list.json" ]; then
+      cat "$SCENARIO_DIR/gh-issue-list.json"
+      exit 0
+    fi
+    ;;
+esac
+
+echo "gh shim: no match for args: $ARGS" >&2
+exit 1

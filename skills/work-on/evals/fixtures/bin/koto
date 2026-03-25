@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# koto shim for eval scenarios
+# Reads EVAL_SCENARIO env var and returns canned data from fixtures/scenarios/<scenario>/
+
+FIXTURES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCENARIO_DIR="$FIXTURES_DIR/scenarios/${EVAL_SCENARIO:-}"
+
+if [ -z "${EVAL_SCENARIO:-}" ]; then
+  echo "Error: EVAL_SCENARIO not set" >&2
+  exit 1
+fi
+
+# Normalize args for pattern matching
+ARGS="$*"
+
+case "$ARGS" in
+  "version"|*"--version"*)
+    echo '{"version":"0.2.1"}'
+    exit 0
+    ;;
+  "workflows"|"workflows "*)
+    if [ -f "$SCENARIO_DIR/koto-workflows.json" ]; then
+      cat "$SCENARIO_DIR/koto-workflows.json"
+      exit 0
+    fi
+    # Default: no active workflows
+    echo '[]'
+    exit 0
+    ;;
+  *"next work-on"*|*"next"*"work-on"*)
+    if [ -f "$SCENARIO_DIR/koto-next-work-on.json" ]; then
+      cat "$SCENARIO_DIR/koto-next-work-on.json"
+      exit 0
+    fi
+    ;;
+  "init"*|*"init "*)
+    if [ -f "$SCENARIO_DIR/koto-init.json" ]; then
+      cat "$SCENARIO_DIR/koto-init.json"
+      exit 0
+    fi
+    # Default: successful init
+    echo '{"status":"initialized","workflow":"work-on"}'
+    exit 0
+    ;;
+  *"transition"*)
+    if [ -f "$SCENARIO_DIR/koto-transition.json" ]; then
+      cat "$SCENARIO_DIR/koto-transition.json"
+      exit 0
+    fi
+    echo '{"status":"transitioned"}'
+    exit 0
+    ;;
+  "status"|"status "*)
+    if [ -f "$SCENARIO_DIR/koto-status.json" ]; then
+      cat "$SCENARIO_DIR/koto-status.json"
+      exit 0
+    fi
+    ;;
+  "query"|"query "*)
+    if [ -f "$SCENARIO_DIR/koto-query.json" ]; then
+      cat "$SCENARIO_DIR/koto-query.json"
+      exit 0
+    fi
+    ;;
+esac
+
+echo "koto shim: no match for args: $ARGS" >&2
+exit 1

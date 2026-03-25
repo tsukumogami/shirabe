@@ -176,7 +176,32 @@ run_skill_evals() {
   eval_count=$(cat /tmp/run-evals-eval-count)
   iteration=$(cat /tmp/run-evals-iteration)
 
-  # Step 2: Run evals via claude -p with /skill-creator
+  # Step 2: Build tier-specific instructions for each eval
+  local fixtures_bin="$skill_dir/evals/fixtures/bin"
+  local tier_instructions
+  tier_instructions=$(python3 << PYEOF
+import json
+
+with open("$evals_file") as f:
+    data = json.load(f)
+
+lines = []
+for ev in data["evals"]:
+    tier = ev.get("tier", 1)
+    name = ev.get("name", f"eval-{ev['id']}")
+    if tier == 2:
+        scenario = ev.get("scenario", "")
+        lines.append(f"- {name}: TIER 2 (execute) — set EVAL_SCENARIO={scenario}, prepend $fixtures_bin to PATH. "
+                     f"Instruct agent: 'Execute the workflow. gh and koto are available on PATH.'")
+    else:
+        lines.append(f"- {name}: TIER 1 (plan_only) — "
+                     f"Instruct agent: 'Read the skill file and describe the exact sequence of commands you would run. Do NOT execute any commands.'")
+
+print("\\n".join(lines))
+PYEOF
+)
+
+  # Step 3: Run evals via claude -p with /skill-creator
   echo ""
   echo "Invoking claude with /skill-creator to run evals..."
   echo "(this may take several minutes)"
@@ -194,6 +219,19 @@ Each eval directory in the workspace has:
 - eval_metadata.json with the prompt and assertions
 - with_skill/outputs/ (empty, for you to fill)
 - without_skill/outputs/ (empty, for you to fill)
+
+TIER-SPECIFIC INSTRUCTIONS:
+Evals are split into two tiers. For each eval, apply the matching tier instruction below.
+
+$tier_instructions
+
+For tier 2 evals, before spawning the with-skill agent:
+1. Set the EVAL_SCENARIO environment variable as specified above.
+2. Prepend $fixtures_bin to PATH so the agent uses shimmed gh and koto binaries.
+These environment variables must be passed to the spawned agent process.
+
+For tier 1 evals, the agent must NOT execute any commands. It should only read the
+skill file and describe its planned execution sequence.
 
 Follow the skill-creator's "Running and evaluating test cases" workflow:
 - Step 1: For each eval, spawn a with-skill agent (reads the skill SKILL.md then executes the prompt) and a without-skill baseline agent (same prompt, no skill). Save outputs to the respective outputs/ directories.
