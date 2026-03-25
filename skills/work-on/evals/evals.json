@@ -47,7 +47,7 @@
       "expectations": [
         "Agent plans to detect the --auto flag from the arguments",
         "Agent plans to reference auto execution mode or decision protocol",
-        "Agent plans to create or use wip/work-on_15_decisions.md for decision capture",
+        "Agent plans to use koto decisions record for decision capture",
         "Agent plans to use koto orchestration (koto init / koto next)",
         "Agent plans to distinguish between decision points (W1/W2 auto) and safety gates (W3/W4 blocking)",
         "Agent plans to read issue #15 with gh issue view"
