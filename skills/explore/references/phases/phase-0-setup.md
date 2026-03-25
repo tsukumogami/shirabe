@@ -37,6 +37,38 @@ Log the effective context before continuing:
 Exploring with [Private|Public] visibility in [Strategic|Tactical] scope...
 ```
 
+### 0.2a Persist Visibility to Scope File
+
+Write the resolved visibility value to `wip/explore_<topic>_scope.md` now,
+before Phase 1. This makes the value available during Phase 1 lead construction
+and survives context resets.
+
+Create or update the file with a `## Visibility` section containing exactly
+the resolved value:
+
+```markdown
+## Visibility
+
+Private
+```
+
+or
+
+```markdown
+## Visibility
+
+Public
+```
+
+The value must be derived from the actual repo context: read the `## Repo
+Visibility:` header in the nearest CLAUDE.md, or infer from path (content
+under `private/` is Private; content under `public/` is Public). Do not
+hardcode this value.
+
+If `wip/explore_<topic>_scope.md` already exists (resume case where the file
+was written but the section is absent), append the `## Visibility` section
+rather than overwriting the file.
+
 ### 0.3 Issue Entry Point
 
 **If starting from an issue with `needs-triage` label:** proceed to Step 0.4.
@@ -207,6 +239,7 @@ Route based on the user's choice:
 Before proceeding:
 - [ ] On branch `docs/<topic>`
 - [ ] Visibility and scope resolved and logged
+- [ ] Visibility value written to `wip/explore_<topic>_scope.md` under `## Visibility`
 - [ ] If from needs-triage: two-stage triage complete, user confirmed routing
 
 ## Artifact State
@@ -215,7 +248,7 @@ After this phase:
 - On the `docs/<topic>` branch
 - Context resolved (visibility + scope)
 - If from an issue: triage handled, upstream context gathered
-- No wip/ files yet
+- `wip/explore_<topic>_scope.md` exists with `## Visibility` section
 
 ## Next Phase
 
