@@ -1,8 +1,0 @@
-{
-  "issue": 1,
-  "review_focus": "pragmatic",
-  "blocking_count": 2,
-  "advisory_count": 0,
-  "summary": "phase-1-scope.md:183 writes `(lead-adversarial-demand)` into the scope file with the justification \"so Phase 2 can identify it when dispatching\" — but phase-2-discover.md has no logic that reads this identifier. Phase 2 derives lead slugs from the question text, not an embedded annotation. The identifier is dead in the output artifact. Either remove it (and the prose at lines 141-143), or update Phase 2 to actually consume it.\n\nphase-1-scope.md:209 contains `{{ISSUE_BODY_IF_PRESENT}}` in the agent prompt template with no instruction for the no-issue case (plain topic invocation). An agent following these instructions for a topic without an issue will encounter an unresolved placeholder. Add a note specifying what to substitute or omit when no issue is present — e.g., \"When invoked without an issue, omit the `## Issue Content` block entirely.\"\n\nThe rest of the implementation is appropriately scoped. The classification gates, visibility persistence in Phase 0, confidence vocabulary, calibration section, and auto-mode shortcut all map directly to acceptance criteria with nothing extra added.",
-  "detail_file": "wip/research/implement-doc_review_pragmatic_issue1.md"
-}
