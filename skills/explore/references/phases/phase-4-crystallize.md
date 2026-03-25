@@ -67,7 +67,7 @@ produced architectural choices, dependency selections, or design rationale, thos
 live in a permanent document. The question is not "is anything still undecided?" —
 it's "did we decide something a future contributor needs to know?"
 
-For each of the four supported types (PRD, Design Doc, Plan, No artifact):
+For each of the five supported types (PRD, Design Doc, Plan, No Artifact, Rejection Record):
 
 1. Walk through the signal table. For each signal, check whether the findings
    provide evidence for or against it. Be specific -- cite actual findings,
@@ -189,7 +189,7 @@ Commit: `docs(explore): crystallize artifact type for <topic>`
 Before proceeding:
 - [ ] Crystallize framework loaded from the full reference file
 - [ ] Accumulated findings read (not just the latest round)
-- [ ] All four supported types scored with specific evidence
+- [ ] All five supported types scored with specific evidence
 
 ## Artifact State
 

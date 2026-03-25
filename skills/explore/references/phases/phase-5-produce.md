@@ -41,6 +41,7 @@ Route to the matching sub-file:
 | Design Doc | `phase-5-produce-design.md` |
 | Plan | `phase-5-produce-plan.md` |
 | Decision Record | `phase-5-produce-decision.md` |
+| Rejection Record | `phase-5-produce-rejection-record.md` |
 | No artifact | `phase-5-produce-no-artifact.md` |
 | Roadmap, Spike Report, Competitive Analysis, Prototype | `phase-5-produce-deferred.md` |
 

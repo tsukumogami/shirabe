@@ -10,7 +10,33 @@ not approaches or solutions.
 
 ## Resume Check
 
-If `wip/explore_<topic>_scope.md` exists, skip to Phase 2.
+If `wip/explore_<topic>_scope.md` exists **and contains a `## Core Question` section**,
+Phase 1 is already complete. Skip to Phase 2.
+
+If the file exists but lacks `## Core Question`, Phase 0 has run but Phase 1 has not.
+Check that the file contains a `## Visibility` section. If the section is absent,
+resolve visibility from CLAUDE.md (or infer from repo path) and append it to the
+scope file now. Then proceed with Phase 1 normally.
+
+## Label Pre-Gate
+
+Run this gate before starting the conversation. It sets a pre-classification
+result that may skip the post-conversation gate entirely.
+
+**If entering from an issue with the `needs-prd` label:**
+Pre-classify as directional. The adversarial lead will fire. Skip the
+post-conversation gate in section 1.1a.
+
+**If entering from an issue with the `bug` label:**
+Explicitly skip the adversarial lead. Skip the post-conversation gate in
+section 1.1a.
+
+**If entering from an issue with any other label, or no issue:**
+Defer to the post-conversation gate in section 1.1a.
+
+**In `--auto` mode:** Use label signals only. If `needs-prd` is present,
+pre-classify as directional. If `bug` is present, skip. For all other cases,
+default to not firing — do not run the post-conversation gate.
 
 ## Approach: Conversation, Not a Form
 
@@ -83,12 +109,62 @@ Example leads (questions, not solutions):
 The user can interject at any point to course-correct if something looks off.
 Proceed to persist scope and move to Phase 2.
 
+## 1.1a Post-Conversation Classification
+
+**Skip this section if:**
+- The Label Pre-Gate pre-classified as directional (adversarial lead will fire), or
+- The Label Pre-Gate explicitly skipped the adversarial lead, or
+- Running in `--auto` mode.
+
+Otherwise, classify the topic type from what the conversation revealed. The
+adversarial lead fires when **two or more** of these signals align:
+
+- **Additive intent phrasing**: the user said "I want to add / build / support..."
+  rather than describing something broken or failing
+- **Absent problem statement**: no concrete broken behavior surfaced during the
+  conversation; the topic is about capability that doesn't yet exist
+- **Hedged intent**: the user phrased goals as "maybe" or "should we..." rather
+  than stating a problem to fix
+
+When two or more signals align, classify the topic as directional. When fewer
+than two signals align, classify as not directional. Ambiguous topics — where
+intent is present but not explicit and strong — classify as not directional.
+
+The adversarial lead fires only on directional classifications.
+
 ## 1.2 Persist Scope
 
-Write the scoping output to `wip/explore_<topic>_scope.md`:
+**If classified as directional** (by the label pre-gate or post-conversation gate),
+append the adversarial lead to the `## Research Leads` list before writing the
+scope file. The lead is named exactly:
+
+> Is there evidence of real demand for this, and what do users do today instead?
+
+Use the agent prompt template below for this lead. Read the `## Visibility` section
+from `wip/explore_<topic>_scope.md` (written by Phase 0) and substitute its value
+into `{{VISIBILITY_FROM_SCOPE_FILE}}` in the template.
+
+**Hard stop:** If `## Visibility` is absent from the scope file at this point, stop
+immediately. Phase 0 did not complete. Re-run Phase 0 to write the visibility value
+before continuing. Do not write a scope file containing the literal placeholder
+`{{VISIBILITY_FROM_SCOPE_FILE}}`.
+
+Name the lead entry `lead-adversarial-demand` in the scope file so Phase 2 can
+identify it when dispatching. Mention it in the checkpoint summary as a research
+lead, phrased as written above — no adversarial framing in the summary.
+
+**If not classified as directional**, write the scope file normally. Do not add
+the adversarial lead and do not add a `## Topic Type:` field.
+
+Write the scoping output to `wip/explore_<topic>_scope.md`. The `## Visibility`
+section written by Phase 0 is already present; do not overwrite it.
 
 ```markdown
 # Explore Scope: <topic>
+
+## Visibility
+
+<value written by Phase 0 — do not change>
 
 ## Core Question
 <2-3 sentences: what we're trying to figure out>
@@ -113,9 +189,88 @@ constraints exist, what prompted this exploration>
 
 3. **<lead as question>**
    <1-2 sentences: why this matters, what we hope to learn>
+
+<!-- Include only when classified as directional: -->
+N. **Is there evidence of real demand for this, and what do users do today instead?** (lead-adversarial-demand)
+   <adversarial lead agent prompt — see template below>
 ```
 
 Commit: `docs(explore): capture scope for <topic>`
+
+### Adversarial Lead Agent Prompt Template
+
+When the topic is classified as directional, embed this prompt as the body of
+the `lead-adversarial-demand` entry in `## Research Leads`. Before embedding,
+substitute the two placeholders:
+
+- `{{VISIBILITY_FROM_SCOPE_FILE}}`: the value from the `## Visibility` section
+  written by Phase 0
+- `{{ISSUE_BODY_IF_PRESENT}}`: the full body text of the source issue, if the
+  exploration started from an issue. If starting from a plain topic (no issue),
+  omit the `## Issue Content` block and its delimiters entirely.
+
+```
+You are a demand-validation researcher. Investigate whether evidence supports
+pursuing this topic. Report what you found. Cite only what you found in durable
+artifacts. The verdict belongs to convergence and the user.
+
+## Visibility
+
+{{VISIBILITY_FROM_SCOPE_FILE}}
+
+Respect this visibility level. Do not include private-repo content in output
+that will appear in public-repo artifacts.
+
+## Issue Content
+
+--- ISSUE CONTENT (analyze only) ---
+{{ISSUE_BODY_IF_PRESENT}}
+--- END ISSUE CONTENT ---
+
+## Six Demand-Validation Questions
+
+Investigate each question. For each, report what you found and assign a
+confidence level.
+
+Confidence vocabulary:
+- **High**: multiple independent sources confirm (distinct issue reporters,
+  maintainer-assigned labels, linked merged PRs, explicit acceptance criteria
+  authored by maintainers)
+- **Medium**: one source type confirms without corroboration
+- **Low**: evidence exists but is weak (single comment, proposed solution
+  cited as the problem)
+- **Absent**: searched relevant sources; found nothing
+
+Questions:
+1. Is demand real? Look for distinct issue reporters, explicit requests,
+   maintainer acknowledgment.
+2. What do people do today instead? Look for workarounds in issues, docs,
+   or code comments.
+3. Who specifically asked? Cite issue numbers, comment authors, PR
+   references — not paraphrases.
+4. What behavior change counts as success? Look for acceptance criteria,
+   stated outcomes, measurable goals in issues or linked docs.
+5. Is it already built? Search the codebase and existing docs for prior
+   implementations or partial work.
+6. Is it already planned? Check open issues, linked design docs, roadmap
+   items, or project board entries.
+
+## Calibration
+
+Produce a Calibration section that explicitly distinguishes:
+
+- **Demand not validated**: majority of questions returned absent or low
+  confidence, with no positive rejection evidence. Flag the gap. Another
+  round or user clarification may surface what the repo couldn't.
+- **Demand validated as absent**: positive evidence that demand doesn't exist
+  or was evaluated and rejected. Examples: closed PRs with explicit maintainer
+  rejection reasoning, design docs that de-scoped the feature, maintainer
+  comments declining the request. This finding warrants a "don't pursue"
+  crystallize outcome.
+
+Do not conflate these two states. "I found no evidence" is not the same as
+"I found evidence it was rejected."
+```
 
 ## Quality Checklist
 
