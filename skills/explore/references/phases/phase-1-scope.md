@@ -10,10 +10,13 @@ not approaches or solutions.
 
 ## Resume Check
 
-If `wip/explore_<topic>_scope.md` exists, check that it contains a `## Visibility`
-section before skipping to Phase 2. If the section is absent, resolve visibility
-from CLAUDE.md (or infer from repo path) and append it to the scope file now, then
-skip to Phase 2.
+If `wip/explore_<topic>_scope.md` exists **and contains a `## Core Question` section**,
+Phase 1 is already complete. Skip to Phase 2.
+
+If the file exists but lacks `## Core Question`, Phase 0 has run but Phase 1 has not.
+Check that the file contains a `## Visibility` section. If the section is absent,
+resolve visibility from CLAUDE.md (or infer from repo path) and append it to the
+scope file now. Then proceed with Phase 1 normally.
 
 ## Label Pre-Gate
 
@@ -140,6 +143,11 @@ scope file. The lead is named exactly:
 Use the agent prompt template below for this lead. Read the `## Visibility` section
 from `wip/explore_<topic>_scope.md` (written by Phase 0) and substitute its value
 into `{{VISIBILITY_FROM_SCOPE_FILE}}` in the template.
+
+**Hard stop:** If `## Visibility` is absent from the scope file at this point, stop
+immediately. Phase 0 did not complete. Re-run Phase 0 to write the visibility value
+before continuing. Do not write a scope file containing the literal placeholder
+`{{VISIBILITY_FROM_SCOPE_FILE}}`.
 
 Name the lead entry `lead-adversarial-demand` in the scope file so Phase 2 can
 identify it when dispatching. Mention it in the checkpoint summary as a research
