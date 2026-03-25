@@ -1,0 +1,50 @@
+{
+  "issue": 1,
+  "reviewers": [
+    {
+      "type": "pragmatic",
+      "blocking_count": 2,
+      "blocking": [
+        {
+          "location": "phase-1-scope.md:183",
+          "diagnosis": "lead-adversarial-demand identifier written to scope file but Phase 2 had no dispatch logic for it",
+          "fix": "Added detection logic to Phase 2 section 2.2 to bypass generic template for this lead",
+          "resolved": true
+        },
+        {
+          "location": "phase-1-scope.md:209",
+          "diagnosis": "{{ISSUE_BODY_IF_PRESENT}} unresolved for plain-topic invocations",
+          "fix": "Added substitution instructions: omit Issue Content block when no issue",
+          "resolved": true
+        }
+      ]
+    },
+    {
+      "type": "architect",
+      "blocking_count": 1,
+      "blocking": [
+        {
+          "location": "phase-1-scope.md section 1.2",
+          "diagnosis": "Phase 2 generic template would wrap adversarial lead prompt, creating competing output format instructions",
+          "fix": "Phase 2 now detects lead-adversarial-demand marker and uses embedded prompt body as-is",
+          "resolved": true
+        }
+      ]
+    },
+    {
+      "type": "maintainer",
+      "blocking_count": 1,
+      "blocking": [
+        {
+          "location": "phase-0-setup.md Step 0.2a",
+          "diagnosis": "Append sub-case for resume scenario unreachable; Phase 0 Resume Check skips past 0.2a when scope file exists",
+          "fix": "Removed append sub-case from Phase 0; added visibility guard to Phase 1 Resume Check",
+          "resolved": true
+        }
+      ]
+    }
+  ],
+  "overall_blocking_count": 4,
+  "all_resolved": true,
+  "fix_commit": "8138223"
+}

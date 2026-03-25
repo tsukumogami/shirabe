@@ -1,0 +1,95 @@
+{
+  "pr_status": "implementing",
+  "design_doc": "docs/plans/PLAN-explore-adversarial-lead.md",
+  "branch": "docs/explore-adversarial-lead",
+  "pr_number": 23,
+  "integrity_hash": "sha256:940c8bebd925d1534a5586fb442af75e06b9d380e18ffb06a93cb09a65fe66de",
+  "issues": [
+    {
+      "number": 1,
+      "title": "feat(explore): add topic classification and adversarial lead injection",
+      "status": "scrutinized",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "code",
+      "dependencies": [],
+      "commits": [
+        "da8d4fe",
+        "8138223"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "",
+        "files_changed": [
+          "skills/explore/references/phases/phase-0-setup.md",
+          "skills/explore/references/phases/phase-1-scope.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Label pre-gate placed as top-level section (not numbered step) to match Resume Check style; adversarial lead prompt template embedded inline in 1.2; Post-Conversation Classification numbered 1.1a"
+      },
+      "testable_scenarios": [],
+      "complexity": "testable"
+    },
+    {
+      "number": 2,
+      "title": "feat(explore): add rejection record type to crystallize-framework",
+      "status": "pending",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "",
+      "dependencies": [],
+      "commits": [],
+      "agent_type": "",
+      "summary": null,
+      "testable_scenarios": [],
+      "complexity": "testable"
+    },
+    {
+      "number": 3,
+      "title": "feat(explore): connect rejection record to produce pipeline",
+      "status": "pending",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "",
+      "dependencies": [],
+      "commits": [],
+      "agent_type": "",
+      "summary": null,
+      "testable_scenarios": [],
+      "complexity": "simple"
+    },
+    {
+      "number": 4,
+      "title": "feat(explore): add rejection record produce path",
+      "status": "pending",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "",
+      "dependencies": [],
+      "commits": [],
+      "agent_type": "",
+      "summary": null,
+      "testable_scenarios": [],
+      "complexity": "testable"
+    },
+    {
+      "number": 5,
+      "title": "feat(explore): add adversarial demand validation evals",
+      "status": "pending",
+      "ci_status": "pending",
+      "ci_fix_attempts": 0,
+      "issue_type": "",
+      "dependencies": [],
+      "commits": [],
+      "agent_type": "",
+      "summary": null,
+      "testable_scenarios": [],
+      "complexity": "testable"
+    }
+  ],
+  "skipped_issues": null,
+  "test_plan_file": null,
+  "source_doc_type": "plan",
+  "execution_mode": "single-pr",
+  "deliverable_type": "docs"
+}
