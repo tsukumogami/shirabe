@@ -5,7 +5,7 @@
       "id": 1,
       "name": "specific-issue-number",
       "prompt": "/work-on #42",
-      "expected_output": "Resolves issue #42, reads it with gh issue view, creates a feature branch, runs all 7 phases (context injection through PR creation), produces baseline/plan/summary artifacts in wip/, and creates a PR referencing the issue.",
+      "expected_output": "Resolves issue #42, reads it with gh issue view, checks for blocking labels, then initializes a koto workflow with `koto init work-on --template ... --var ISSUE_NUMBER=42 --var ARTIFACT_PREFIX=issue_42`. Submits entry evidence with mode: issue_backed. Enters the koto execution loop using `koto next work-on` to advance through states.",
       "files": []
     },
     {
@@ -19,14 +19,14 @@
       "id": 3,
       "name": "auto-mode-flag",
       "prompt": "/work-on #15 --auto",
-      "expected_output": "Runs in automatic execution mode. At decision points (W1, W2), follows the decision protocol from references/decision-protocol.md instead of asking the user. Creates wip/work-on_15_decisions.md to record any decisions made. Safety gates (W3, W4) still block and require user input.",
+      "expected_output": "Runs in automatic execution mode. At decision points (W1, W2), follows the decision protocol from references/decision-protocol.md instead of asking the user. Creates wip/work-on_15_decisions.md to record any decisions made. Safety gates (W3, W4) still block and require user input. Uses koto orchestration throughout.",
       "files": []
     },
     {
       "id": 4,
       "name": "blocking-label-needs-design",
       "prompt": "/work-on #8",
-      "expected_output": "Reads issue #8 which has a needs-design label. Detects the blocking label from the project's label vocabulary, displays a routing message explaining the issue requires a design document before implementation, and stops execution without entering any workflow phase.",
+      "expected_output": "Reads issue #8 which has a needs-design label. Detects the blocking label from the project's label vocabulary, displays a routing message explaining the issue requires a design document before implementation, and stops execution without initializing a koto workflow.",
       "files": []
     },
     {
@@ -40,7 +40,7 @@
       "id": 6,
       "name": "resume-interrupted-session",
       "prompt": "/work-on #42",
-      "expected_output": "Detects existing artifacts from a previous interrupted session by checking wip/ files and git log for issue-42 commits. Determines the current phase (e.g., plan commit exists so resumes at Phase 4 Implementation) and continues from that point rather than restarting from Phase 0.",
+      "expected_output": "Checks for an active koto workflow with `koto workflows`. Finds an existing work-on workflow, resumes with `koto next work-on`. Gates auto-advance past completed work (artifacts already exist), landing on the next state that needs agent action.",
       "files": []
     },
     {
@@ -54,7 +54,14 @@
       "id": 8,
       "name": "issue-url-input",
       "prompt": "/work-on https://github.com/org/repo/issues/71",
-      "expected_output": "Parses the GitHub issue URL to extract issue number 71, reads the issue with gh issue view, checks for blocking labels, detects repo visibility from CLAUDE.md, loads the appropriate content governance skill, and proceeds with the full workflow starting at Phase 0.",
+      "expected_output": "Parses the GitHub issue URL to extract issue number 71, reads the issue with gh issue view, checks for blocking labels, detects repo visibility from CLAUDE.md, loads the appropriate content governance skill, and initializes a koto workflow for the issue.",
+      "files": []
+    },
+    {
+      "id": 9,
+      "name": "free-form-mode",
+      "prompt": "/work-on fix the login timeout -- no issue needed",
+      "expected_output": "Detects free-form input (no issue number), initializes koto with `koto init work-on --template ... --var ARTIFACT_PREFIX=task_fix-login-timeout`. Submits entry evidence with mode: free_form and the task description. Routes through task_validation and research states before reaching analysis.",
       "files": []
     }
   ]
