@@ -89,15 +89,13 @@ Claude Code session:
 ## Requirements
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- [koto](https://github.com/tsukumogami/koto) >= 0.2.1 (for `/work-on`;
+  installed automatically if missing)
 
 ## Roadmap
 
-shirabe currently enforces workflow structure through skill prompts and
-phase-gated instructions. Planned improvements include:
-
-- **[koto](https://github.com/tsukumogami/koto) integration** -- formal state
-  machine enforcement for workflow transitions, so agents physically can't skip
-  steps they haven't earned access to
+- **koto integration for remaining skills** -- `/work-on` already uses koto for
+  state machine enforcement; the other skills will follow
 - **CI validation workflows** -- reusable GitHub Actions that validate design
   docs and plans in pull requests
 - **Cross-repo workflow state** -- track multi-repo features through a shared
