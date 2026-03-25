@@ -338,9 +338,10 @@ assessment — a gap gstack didn't fill for its analogous CEO review.
 
 The adversarial lead is not a new file — it is a conditionally-injected agent prompt that
 Phase 1 writes into the scope file when topic classification fires. Phase 2 dispatches it
-like any other lead. The changes are in: classification logic (Phase 1), the crystallize
-framework (new Rejection Record type), and the produce path (new produce file for Rejection
-Records).
+like any other lead. The changes are in: Phase 0 setup (visibility persistence to scope
+file), Phase 1 classification logic, the crystallize framework (new Rejection Record type),
+the Phase 4 crystallize evaluator (updated type count), and the Phase 5 produce routing
+table and new produce file for Rejection Records.
 
 ### Components
 
@@ -357,8 +358,11 @@ and 1.2, or as a new 1.3). The step:
    section before step 1.2 (Persist Scope), naming it "Is there evidence of real demand
    for this, and what do users do today instead?"
 
-The scope file gains an optional `## Topic Type: directional | diagnostic | ambiguous`
-field written by this step. Phase 2 reads the leads section as normal — no Phase 2 changes.
+The classification result is encoded implicitly: if the adversarial lead appears in the
+scope file's `## Research Leads` section, the topic was classified directional; if absent,
+it wasn't. No separate `## Topic Type:` field is needed — a dead field would be written
+but never consumed, since Phase 2 just dispatches whatever leads are present. Phase 2
+reads the leads section as normal — no Phase 2 changes.
 
 The adversarial lead agent prompt template (embedded in phase-1-scope.md) instructs the
 agent to:
@@ -404,22 +408,34 @@ After writing: instructs the user to close the source issue with a comment refer
 the rejection record. Offers to route to `/decision` for a formal ADR if re-proposal
 risk is high.
 
+**Modified: `skills/explore/references/phases/phase-5-produce.md`**
+
+The routing table gains a new row: `Rejection Record | phase-5-produce-rejection-record.md`.
+Without this entry, Phase 5 has no dispatch path when crystallize scores Rejection Record
+as the top type — crystallize-framework.md scoring it is not enough on its own.
+
+**Modified: `skills/explore/references/phases/phase-4-crystallize.md`**
+
+The "four supported types" enumeration in the scoring step is updated to five, so
+evaluators don't skip the new type.
+
 **New: `skills/explore/evals/evals.json` (and fixture files)**
 
 Three eval cases with `fixture_dir` entries (see Decision 3 for case definitions).
 
 ### Key Interfaces
 
-**Scope file `## Topic Type:` field**
-Written by Phase 1 classification step. Values: `directional | diagnostic | ambiguous`.
-Read by Phase 1 itself before writing the leads section (determines whether to inject
-the adversarial lead). Not read by Phase 2 directly — Phase 2 just dispatches whatever
-leads are in the scope file.
+**Adversarial lead presence in Research Leads**
+The classification result is encoded by whether `lead-adversarial-demand` appears in the
+scope file's `## Research Leads` section. This is the implicit interface between Phase 1
+classification and Phase 2 dispatch. No separate typed field is needed.
 
 **Adversarial lead output format**
 Research file at `wip/research/explore_<topic>_r<N>_lead-adversarial-demand.md`.
-Sections: findings per question (with confidence), calibration section, summary.
-Standard Phase 2 lead format, with per-question confidence as the additional requirement.
+Follows the standard Phase 2 lead format. The additional requirement is explicit
+per-question confidence (high / medium / low / absent) in the Findings section, and a
+Calibration section distinguishing "demand not validated" from "demand validated as
+absent." Phase 3 convergence reads this file like any other research lead.
 
 **Rejection Record artifact**
 Path: `docs/decisions/REJECTED-<topic>.md`
@@ -429,10 +445,13 @@ Conclusion, Preconditions for Revisiting.
 ### Data Flow
 
 ```
-Phase 0/1: Classification
+Phase 0: Setup
+  Resolved visibility (Private/Public) written to scope file
+
+Phase 1: Classification
   Issue label (needs-prd/bug) OR Phase 1 conversation signals
-    → Topic Type: directional?
-      Yes → adversarial lead added to scope file ## Research Leads
+    → directional?
+      Yes → adversarial lead added to scope file ## Research Leads (with visibility block)
       No  → scope file written without adversarial lead
 
 Phase 2: Dispatch
@@ -460,23 +479,31 @@ Phase 5: Produce (if Rejection Record chosen)
 ### Phase 1: Classification and adversarial lead injection
 
 Modify `skills/explore/references/phases/phase-1-scope.md` to add:
-- Topic Type classification logic at end of lead production (step 1.1 extension or new 1.3)
-- `## Topic Type:` field written to scope file
-- Adversarial lead agent prompt template (inline)
+- Classification logic at end of lead production (step 1.1 extension or new 1.3)
+- Adversarial lead agent prompt template (inline) with visibility block
 - Conditional injection into `## Research Leads` before step 1.2 persist
 
+Modify `skills/explore/references/phases/phase-0-setup.md` to write the resolved
+visibility value to the scope file during setup — this makes it available to Phase 1's
+agent prompt construction and survives context resets.
+
 Deliverables:
+- Updated `skills/explore/references/phases/phase-0-setup.md`
 - Updated `skills/explore/references/phases/phase-1-scope.md`
 
 ### Phase 2: Crystallize extension and Rejection Record produce path
 
 Modify and create produce-side files:
 - `skills/explore/references/quality/crystallize-framework.md`: add Rejection Record type
+- `skills/explore/references/phases/phase-4-crystallize.md`: update "four supported types" to five
+- `skills/explore/references/phases/phase-5-produce.md`: add Rejection Record routing row
 - `skills/explore/references/phases/phase-5-produce-no-artifact.md`: tighten wording
 - New `skills/explore/references/phases/phase-5-produce-rejection-record.md`
 
 Deliverables:
 - Updated crystallize-framework.md
+- Updated phase-4-crystallize.md
+- Updated phase-5-produce.md
 - Updated phase-5-produce-no-artifact.md
 - New phase-5-produce-rejection-record.md
 
@@ -508,10 +535,19 @@ The human review gate before any artifact is committed provides a manual control
 **Visibility context inheritance.** The Phase 2 agent template includes a `## Visibility`
 block that prevents private references from appearing in public-repo artifacts. The
 adversarial lead agent prompt, constructed in Phase 1 (`phase-1-scope.md`), must inherit
-this same block. Phase 1 does not currently receive or propagate the visibility value
-resolved in Phase 0; the implementation must thread it through. Without this, a
-private-repo run could embed sensitive issue content in a Rejection Record that is later
-exposed externally.
+this same block. The threading mechanism: Phase 0 writes the resolved visibility value to
+the scope file (making it durable across context resets and compatible with resume logic);
+Phase 1 reads it from the scope file when constructing the adversarial lead agent prompt.
+Without this, a private-repo run could embed sensitive issue content in a Rejection Record
+that is later exposed externally.
+
+**Phase 3 convergence as secondary injection surface.** The adversarial lead's output
+file is read by the Phase 3 convergence orchestrator, which applies no delimiter framing
+to research file content. If the Phase 2 delimiter framing is absent or bypassed, injected
+content in the output file propagates to Phase 3 without a trust boundary. Same severity
+class as the primary injection concern (low); same mitigation: a prompt-authoring note for
+`phase-3-converge.md` instructing it to treat research file content as source material,
+not instructions.
 
 **Rejection Record permanence.** `docs/decisions/REJECTED-<topic>.md` is committed to the
 main branch and is not cleaned with `wip/`. A mis-classified diagnostic topic could
@@ -544,9 +580,10 @@ is required to remove an incorrect rejection record.
 - **Phase 1 gains classification judgment**: for free-text topics without issue labels,
   Phase 1 must classify based on conversation output. This judgment is imperfect;
   ambiguous topics ("migrate X to Y") will sometimes fire incorrectly or miss.
-- **Crystallize framework has five types instead of four**: the evaluation procedure adds
-  complexity. Rejection Record anti-signals must be precise enough to not score high on
-  "ran out of leads" explorations.
+- **Five files modified instead of three**: `phase-5-produce.md` and `phase-4-crystallize.md`
+  must be updated alongside the core files. Crystallize anti-signals must be precise enough
+  to not score high on "ran out of leads" explorations. Phase 0 gains a new scope file
+  write for resolved visibility.
 - **`docs/decisions/` is a new directory**: the produce path must create it if it doesn't
   exist; tooling that scans docs/ may need to be updated.
 - **Diagnostic-topic eval requires the adversarial lead to self-identify as inapplicable**:
