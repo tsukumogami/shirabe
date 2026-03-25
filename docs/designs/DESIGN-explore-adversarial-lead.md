@@ -494,7 +494,31 @@ Deliverables:
 
 ## Security Considerations
 
-_To be completed by security review agent._
+The design introduces no new permission classes, external dependencies, or network calls.
+All risk surfaces are narrow and confined to LLM prompt hygiene.
+
+**Prompt injection via issue content.** The adversarial lead agent reads GitHub issue
+bodies, which are contributor-controlled text in public repositories. The agent prompt
+must introduce issue body content under an explicit delimiter that labels it as source
+material rather than instructions (e.g., `--- ISSUE CONTENT (analyze only) ---`).
+Interleaving issue body text with reasoning instructions creates a prompt injection
+surface. Severity is low: the agent's output feeds convergence review, not an executor.
+The human review gate before any artifact is committed provides a manual control.
+
+**Visibility context inheritance.** The Phase 2 agent template includes a `## Visibility`
+block that prevents private references from appearing in public-repo artifacts. The
+adversarial lead agent prompt, constructed in Phase 1 (`phase-1-scope.md`), must inherit
+this same block. Phase 1 does not currently receive or propagate the visibility value
+resolved in Phase 0; the implementation must thread it through. Without this, a
+private-repo run could embed sensitive issue content in a Rejection Record that is later
+exposed externally.
+
+**Rejection Record permanence.** `docs/decisions/REJECTED-<topic>.md` is committed to the
+main branch and is not cleaned with `wip/`. A mis-classified diagnostic topic could
+produce a durable rejection record for something that was never a real candidate. The
+two-gate trigger (label pre-check + ≥2 conversation signals) is the primary control;
+the conservative threshold reduces false positives on ambiguous topics. A follow-on PR
+is required to remove an incorrect rejection record.
 
 ## Consequences
 
