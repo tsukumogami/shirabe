@@ -8,7 +8,7 @@
     {
       "number": 1,
       "title": "feat(explore): add topic classification and adversarial lead injection",
-      "status": "scrutinized",
+      "status": "pushed",
       "ci_status": "pending",
       "ci_fix_attempts": 0,
       "issue_type": "code",
@@ -33,56 +33,101 @@
     {
       "number": 2,
       "title": "feat(explore): add rejection record type to crystallize-framework",
-      "status": "pending",
+      "status": "implemented",
       "ci_status": "pending",
       "ci_fix_attempts": 0,
-      "issue_type": "",
+      "issue_type": "docs",
       "dependencies": [],
-      "commits": [],
-      "agent_type": "",
-      "summary": null,
+      "commits": [
+        "932583a"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "Added Rejection Record as 5th supported type in crystallize-framework.md with signals/anti-signals and routing to phase-5-produce-rejection-record.md",
+        "files_changed": [
+          "skills/explore/references/quality/crystallize-framework.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Rejection Record placed after No Artifact in supported types table; routing reference establishes contract for Issue 4"
+      },
       "testable_scenarios": [],
       "complexity": "testable"
     },
     {
       "number": 3,
       "title": "feat(explore): connect rejection record to produce pipeline",
-      "status": "pending",
+      "status": "pushed",
       "ci_status": "pending",
       "ci_fix_attempts": 0,
-      "issue_type": "",
+      "issue_type": "docs",
       "dependencies": [],
-      "commits": [],
-      "agent_type": "",
-      "summary": null,
+      "commits": [
+        "0bf58ae"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "Wired Rejection Record into Phase 4 evaluator count and Phase 5 produce routing",
+        "files_changed": [
+          "skills/explore/references/phases/phase-4-crystallize.md",
+          "skills/explore/references/phases/phase-5-produce.md",
+          "skills/explore/references/phases/phase-5-produce-no-artifact.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Simple wiring changes; Rejection Record exclusion in no-artifact path prevents misrouting"
+      },
       "testable_scenarios": [],
       "complexity": "simple"
     },
     {
       "number": 4,
       "title": "feat(explore): add rejection record produce path",
-      "status": "pending",
+      "status": "implemented",
       "ci_status": "pending",
       "ci_fix_attempts": 0,
-      "issue_type": "",
+      "issue_type": "docs",
       "dependencies": [],
-      "commits": [],
-      "agent_type": "",
-      "summary": null,
+      "commits": [
+        "c99842f"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "Created phase-5-produce-rejection-record.md with artifact template and next-steps instructions",
+        "files_changed": [
+          "skills/explore/references/phases/phase-5-produce-rejection-record.md"
+        ],
+        "tests_added": 0,
+        "key_decisions": "Rejection record uses docs/decisions/REJECTED-<topic>.md path; per-question findings with confidence levels match adversarial lead output format"
+      },
       "testable_scenarios": [],
       "complexity": "testable"
     },
     {
       "number": 5,
       "title": "feat(explore): add adversarial demand validation evals",
-      "status": "pending",
+      "status": "implemented",
       "ci_status": "pending",
       "ci_fix_attempts": 0,
-      "issue_type": "",
+      "issue_type": "docs",
       "dependencies": [],
-      "commits": [],
-      "agent_type": "",
-      "summary": null,
+      "commits": [
+        "e428414"
+      ],
+      "agent_type": "techwriter",
+      "summary": {
+        "narrative": "Added 3 fixture-backed eval cases for adversarial demand validation lead: strong-demand, absent-demand, diagnostic-topic",
+        "files_changed": [
+          "skills/explore/evals/evals.json",
+          "skills/explore/evals/fixtures/adversarial-strong-demand/issue_14.md",
+          "skills/explore/evals/fixtures/adversarial-strong-demand/issue_27.md",
+          "skills/explore/evals/fixtures/adversarial-strong-demand/issue_52.md",
+          "skills/explore/evals/fixtures/adversarial-strong-demand/issue_63.md",
+          "skills/explore/evals/fixtures/adversarial-strong-demand/pr_48.md",
+          "skills/explore/evals/fixtures/adversarial-absent-demand/pr_19.md",
+          "skills/explore/evals/fixtures/adversarial-diagnostic-topic/benchmark_notes.md"
+        ],
+        "tests_added": 3,
+        "key_decisions": "Each eval prompt embeds the adversarial lead agent prompt template; fixture files are realistic repo artifacts the agent reads to assess demand"
+      },
       "testable_scenarios": [],
       "complexity": "testable"
     }
