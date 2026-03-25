@@ -7,7 +7,7 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on #42",
-      "expected_output": "Resolves issue #42, reads it with gh issue view, checks for blocking labels, then initializes a koto workflow with `koto init work-on --template ... --var ISSUE_NUMBER=42 --var ARTIFACT_PREFIX=issue_42`. Submits entry evidence with mode: issue_backed. Enters the koto execution loop using `koto next work-on` to advance through states.",
+      "expected_output": "Resolves issue #42, reads it with gh issue view, checks for blocking labels, then initializes a koto workflow with `koto init issue_42 --template ... --var ISSUE_NUMBER=42 --var ARTIFACT_PREFIX=issue_42`. Submits entry evidence with mode: issue_backed. Enters the koto execution loop using `koto next issue_42` to advance through states.",
       "files": [],
       "expectations": [
         "Agent plans to read issue #42 using gh issue view",
@@ -15,7 +15,7 @@
         "Agent plans to run koto init with --template flag and --var ISSUE_NUMBER=42",
         "Agent plans to set ARTIFACT_PREFIX to issue_42 in koto init",
         "Agent plans to submit entry evidence with mode issue_backed",
-        "Agent plans to enter the koto execution loop using koto next work-on",
+        "Agent plans to enter the koto execution loop using koto next with the workflow name",
         "Agent plans to detect repo visibility from CLAUDE.md or infers from path"
       ]
     },
@@ -96,12 +96,12 @@
       "mode": "execute",
       "scenario": "resume",
       "prompt": "/work-on #42",
-      "expected_output": "Checks for an active koto workflow with `koto workflows`. Finds an existing work-on workflow, resumes with `koto next work-on`. Gates auto-advance past completed work (artifacts already exist), landing on the next state that needs agent action.",
+      "expected_output": "Checks for an active koto workflow with `koto workflows`. Finds an existing workflow, resumes with `koto next <workflow-name>`.",
       "files": [],
       "expectations": [
         "Agent checks for active koto workflows using koto workflows",
         "Agent attempts to resume an existing workflow rather than starting fresh",
-        "Agent uses koto next work-on to resume the workflow",
+        "Agent uses koto next with the workflow name to resume",
         "Agent does NOT run koto init if an active workflow is detected",
         "Agent understands that gates auto-advance past completed work"
       ]
@@ -146,7 +146,7 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on fix the login timeout -- no issue needed",
-      "expected_output": "Detects free-form input (no issue number), initializes koto with `koto init work-on --template ... --var ARTIFACT_PREFIX=task_fix-login-timeout`. Submits entry evidence with mode: free_form and the task description. Routes through task_validation and research states before reaching analysis.",
+      "expected_output": "Detects free-form input (no issue number), initializes koto with `koto init task_fix-login-timeout --template ... --var ARTIFACT_PREFIX=task_fix-login-timeout`. Submits entry evidence with mode: free_form and the task description.",
       "files": [],
       "expectations": [
         "Agent plans to detect free-form input (no issue number or milestone)",

@@ -385,18 +385,13 @@ Evidence schema:
 
 ## context_injection
 
-This state extracts context from the GitHub issue into a local artifact. The gate
-checks for `wip/issue_{{ISSUE_NUMBER}}_context.md`. When the gate passes (artifact
-exists), the workflow auto-advances.
+Extract context from the GitHub issue into `wip/issue_{{ISSUE_NUMBER}}_context.md`.
 
-If the gate fails, you are here because extraction did not produce the expected
-artifact. Common causes:
-- The issue is inaccessible (private repo, wrong number, network error)
-- `extract-context.sh` failed or is not available
+Read `references/phases/phase-0-context-injection.md` for detailed steps.
 
-Submit `status: completed` after manually creating the context artifact, `status:
-override` if providing context through a different mechanism, or `status: blocked`
-if the issue cannot be reached.
+If the gate fails (artifact missing), create the context artifact manually and
+submit `status: completed`, or `status: override` if providing context through a
+different mechanism, or `status: blocked` if the issue cannot be reached.
 
 ## task_validation
 
@@ -466,35 +461,19 @@ Evidence schema:
 
 ## setup_issue_backed
 
-This state creates a feature branch and baseline file for issue-backed workflows.
-The gate checks that you are not on main and that
-`wip/{{ARTIFACT_PREFIX}}_baseline.md` exists. When the gate passes, the workflow
-auto-advances to staleness_check.
+Create a feature branch and baseline file. Read `references/phases/phase-1-setup.md`
+for branch naming conventions and baseline format.
 
-If the gate fails, common causes:
-- Still on the main branch (branch creation failed or was skipped)
-- Baseline file was not created (build or test infrastructure issue)
-- An existing branch was reused but the baseline is missing
-
-Submit `status: completed` after creating the branch and baseline manually,
-`status: override` if reusing an existing branch (include branch name in detail),
-or `status: blocked` if setup cannot proceed.
+If the gate fails, submit `status: completed` after creating the branch and baseline,
+`status: override` if reusing an existing branch, or `status: blocked`.
 
 ## setup_free_form
 
-This state creates a feature branch and baseline file for free-form workflows.
-The gate checks that you are not on main and that
-`wip/{{ARTIFACT_PREFIX}}_baseline.md` exists. When the gate passes, the workflow
-auto-advances to analysis.
+Create a feature branch and baseline file. Read `references/phases/phase-1-setup.md`
+for branch naming conventions and baseline format.
 
-If the gate fails, common causes:
-- Still on the main branch (branch creation failed or was skipped)
-- Baseline file was not created (build or test infrastructure issue)
-- An existing branch was reused but the baseline is missing
-
-Submit `status: completed` after creating the branch and baseline manually,
-`status: override` if reusing an existing branch (include branch name in detail),
-or `status: blocked` if setup cannot proceed.
+If the gate fails, submit `status: completed` after creating the branch and baseline,
+`status: override` if reusing an existing branch, or `status: blocked`.
 
 ## staleness_check
 
@@ -544,28 +523,14 @@ Evidence schema:
 
 ## analysis
 
-Research the codebase and create an implementation plan. The gate checks for
-`wip/{{ARTIFACT_PREFIX}}_plan.md`. On resume, if the plan already exists, the
-gate auto-advances.
+Research the codebase and create an implementation plan at
+`wip/{{ARTIFACT_PREFIX}}_plan.md`. Read `references/phases/phase-3-analysis.md`
+for plan structure and agent delegation patterns.
 
-Read the context artifacts (baseline, issue context or task description, and
-introspection results if they exist). Study the relevant code, identify the
-files to modify, and create a plan covering:
-- Specific files and functions to change
-- Order of changes and dependencies between them
-- Test strategy: which tests to add, modify, or verify
-- Risk areas and assumptions being made
+Self-loop with `scope_changed_retry` (up to 3 times) if scope changes. After 3,
+use `scope_changed_escalate`. Submit `blocked_missing_context` if stuck.
 
-Write the plan to `wip/{{ARTIFACT_PREFIX}}_plan.md`, then submit evidence.
-
-If scope changes are discovered during analysis, you may self-loop with
-`scope_changed_retry` up to 3 times to revise the plan. After 3 retries, switch
-to `scope_changed_escalate` to route to done_blocked. Submit
-`blocked_missing_context` if analysis cannot proceed without information that
-is not available.
-
-Capture non-obvious decisions in the `decisions` field: scope narrowing choices,
-dependency ordering rationale, or assumptions about behavior that could be wrong.
+Capture non-obvious decisions in the `decisions` field.
 
 Evidence schema:
 - `plan_outcome`: `plan_ready`, `blocked_missing_context`, `scope_changed_retry`,
@@ -575,26 +540,14 @@ Evidence schema:
 
 ## implementation
 
-Write code, commit changes, and ensure tests pass. The gate checks: not on main,
-commits exist beyond main, and `go test ./...` passes. On resume, if all gate
-conditions are met, the gate auto-advances.
+Follow the plan from `wip/{{ARTIFACT_PREFIX}}_plan.md`. Read
+`references/phases/phase-4-implementation.md` for the implementation cycle,
+code review guidance, and commit patterns.
 
-Follow the plan from `wip/{{ARTIFACT_PREFIX}}_plan.md`. For each change:
-1. Make the code change
-2. Run relevant tests to verify
-3. Commit with a clear message
+Self-loop with `partial_tests_failing_retry` (up to 3 times) to fix test failures.
+After 3, use `partial_tests_failing_escalate`. Submit `blocked` for external blockers.
 
-Re-read the plan periodically to stay on track. Check git log and git status to
-understand what has already been committed if resuming a previous session.
-
-If tests fail after changes, you may self-loop with `partial_tests_failing_retry`
-up to 3 times to fix them. After 3 failed retries, switch to
-`partial_tests_failing_escalate` to route to done_blocked. Submit `blocked` if
-implementation cannot proceed due to external dependencies or missing information.
-
-Capture non-obvious judgment calls in the `decisions` field: assumptions about
-API behavior, tradeoff choices between approaches, or pivots from the original
-plan. These decisions are recorded in the event log and surfaced to the user.
+Capture non-obvious judgment calls in the `decisions` field.
 
 Evidence schema:
 - `implementation_status`: `complete`, `partial_tests_failing_retry`,
@@ -604,40 +557,25 @@ Evidence schema:
 
 ## finalization
 
-Create a summary file and verify everything is clean. The gate checks for
-`wip/{{ARTIFACT_PREFIX}}_summary.md` and that tests pass. On resume, if both
-conditions are met, the gate auto-advances.
+Verify changes and create `wip/{{ARTIFACT_PREFIX}}_summary.md`. Read
+`references/phases/phase-5-finalization.md` for cleanup steps and summary format.
 
-Review all changes made during implementation:
-1. Run the full test suite and verify all tests pass
-2. Check for any temporary code, debug output, or incomplete changes
-3. Write a summary to `wip/{{ARTIFACT_PREFIX}}_summary.md` covering:
-   - What was changed and why
-   - Any deferred items or known limitations
-   - Test coverage for the changes
-4. Clean up wip/ artifacts that should not be in the PR
-
-Submit `finalization_status: ready_for_pr` when everything is clean,
-`deferred_items_noted` when proceeding with documented limitations, or
-`issues_found` to return to implementation for fixes.
+Submit `finalization_status: ready_for_pr` when clean, `deferred_items_noted`
+when proceeding with documented limitations, or `issues_found` to return to
+implementation.
 
 Evidence schema:
 - `finalization_status`: `ready_for_pr`, `deferred_items_noted`, or `issues_found`
 
 ## pr_creation
 
-Create the pull request. This is an irreversible externally-visible action that
-requires your judgment -- there is no automated gate.
+Create the pull request. Read `references/phases/phase-6-pr.md` for PR format,
+pre-PR verification, and push instructions.
 
-Check if a PR already exists for this branch:
-`gh pr list --head $(git rev-parse --abbrev-ref HEAD)`
+Check if a PR already exists: `gh pr list --head $(git rev-parse --abbrev-ref HEAD)`
 
-If no PR exists, create one with a clear title and description covering the
-changes, test results, and any deferred items. If a PR already exists, submit
-`pr_status: created` with the existing PR URL.
-
-On failure, you may self-loop with `creation_failed_retry` up to 3 times. After
-3 retries, switch to `creation_failed_escalate` to route to done_blocked.
+Self-loop with `creation_failed_retry` (up to 3 times). After 3, use
+`creation_failed_escalate`.
 
 Evidence schema:
 - `pr_status`: `created`, `creation_failed_retry`, or `creation_failed_escalate`
@@ -645,15 +583,11 @@ Evidence schema:
 
 ## ci_monitor
 
-Wait for CI checks to pass on the pull request. The gate polls CI status and
-auto-advances when all checks succeed.
+Wait for CI to pass. Read `references/phases/phase-6-pr.md` for CI monitoring.
 
-If the gate fails, check the CI output:
-- If failures are fixable (test flakes, lint issues), fix them, push, and submit
-  `ci_outcome: failing_fixed`
-- If all checks pass after your review, submit `ci_outcome: passing`
-- If failures are not resolvable (infrastructure issues, unrelated failures in
-  shared CI), submit `ci_outcome: failing_unresolvable` with rationale
+If the gate fails, fix what you can and submit `ci_outcome: failing_fixed`.
+If all checks pass, submit `ci_outcome: passing`. If unresolvable, submit
+`ci_outcome: failing_unresolvable` with rationale.
 
 Evidence schema:
 - `ci_outcome`: `passing`, `failing_fixed`, or `failing_unresolvable`
