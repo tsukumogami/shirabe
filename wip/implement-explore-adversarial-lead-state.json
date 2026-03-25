@@ -33,7 +33,7 @@
     {
       "number": 2,
       "title": "feat(explore): add rejection record type to crystallize-framework",
-      "status": "implemented",
+      "status": "pushed",
       "ci_status": "pending",
       "ci_fix_attempts": 0,
       "issue_type": "docs",
@@ -81,7 +81,7 @@
     {
       "number": 4,
       "title": "feat(explore): add rejection record produce path",
-      "status": "implemented",
+      "status": "pushed",
       "ci_status": "pending",
       "ci_fix_attempts": 0,
       "issue_type": "docs",
@@ -104,7 +104,7 @@
     {
       "number": 5,
       "title": "feat(explore): add adversarial demand validation evals",
-      "status": "implemented",
+      "status": "pushed",
       "ci_status": "pending",
       "ci_fix_attempts": 0,
       "issue_type": "docs",
