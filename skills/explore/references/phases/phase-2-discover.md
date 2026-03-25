@@ -110,6 +110,18 @@ Use this format:
 Return ONLY the Summary section (3 lines) to this conversation.
 ```
 
+**Exception: adversarial demand lead**
+
+If the scope file contains a lead entry marked `(lead-adversarial-demand)` in the
+`## Research Leads` section, bypass the generic template for that lead. Use the
+embedded body of that lead entry as the complete agent prompt — do not wrap it in
+the generic template above. The embedded prompt already contains its own output
+instructions and format; wrapping it would give the agent two competing sets of
+output instructions.
+
+The output file for this lead follows the same convention:
+`wip/research/explore_<topic>_r<N>_lead-adversarial-demand.md`
+
 ### 2.3 Launch Agents
 
 Launch all agents in parallel using the Agent tool with `run_in_background: true`.

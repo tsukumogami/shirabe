@@ -10,7 +10,10 @@ not approaches or solutions.
 
 ## Resume Check
 
-If `wip/explore_<topic>_scope.md` exists, skip to Phase 2.
+If `wip/explore_<topic>_scope.md` exists, check that it contains a `## Visibility`
+section before skipping to Phase 2. If the section is absent, resolve visibility
+from CLAUDE.md (or infer from repo path) and append it to the scope file now, then
+skip to Phase 2.
 
 ## Label Pre-Gate
 
@@ -189,7 +192,14 @@ Commit: `docs(explore): capture scope for <topic>`
 ### Adversarial Lead Agent Prompt Template
 
 When the topic is classified as directional, embed this prompt as the body of
-the `lead-adversarial-demand` entry in `## Research Leads`:
+the `lead-adversarial-demand` entry in `## Research Leads`. Before embedding,
+substitute the two placeholders:
+
+- `{{VISIBILITY_FROM_SCOPE_FILE}}`: the value from the `## Visibility` section
+  written by Phase 0
+- `{{ISSUE_BODY_IF_PRESENT}}`: the full body text of the source issue, if the
+  exploration started from an issue. If starting from a plain topic (no issue),
+  omit the `## Issue Content` block and its delimiters entirely.
 
 ```
 You are a demand-validation researcher. Investigate whether evidence supports

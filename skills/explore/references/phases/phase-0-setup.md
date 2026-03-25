@@ -65,10 +65,6 @@ Visibility:` header in the nearest CLAUDE.md, or infer from path (content
 under `private/` is Private; content under `public/` is Public). Do not
 hardcode this value.
 
-If `wip/explore_<topic>_scope.md` already exists (resume case where the file
-was written but the section is absent), append the `## Visibility` section
-rather than overwriting the file.
-
 ### 0.3 Issue Entry Point
 
 **If starting from an issue with `needs-triage` label:** proceed to Step 0.4.
