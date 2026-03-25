@@ -1,5 +1,9 @@
 # Phase 5: No Artifact
 
+A rejection decision is a decision — if exploration reached an active rejection
+conclusion (not just lead exhaustion), route to Rejection Record instead of No
+Artifact. See `phase-5-produce-rejection-record.md`.
+
 Only appropriate when exploration produced no new decisions -- it confirmed what was
 already known, or validated that a simple, clearly-understood task can proceed.
 
