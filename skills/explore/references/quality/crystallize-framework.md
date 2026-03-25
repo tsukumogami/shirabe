@@ -18,8 +18,8 @@ something a future contributor needs to know?"
 
 ## Supported Types
 
-Four artifact types can be produced through /explore today. Each has a dedicated
-command or a defined "no artifact" action path.
+Five artifact types can be produced through /explore today. Each has a dedicated
+command or a defined action path.
 
 ### PRD
 
@@ -69,6 +69,18 @@ No document produced. Suggests direct action instead.
 | Short exploration (1 round) with high user confidence | Scope was debated across rounds |
 | The right next step is "just do it" | |
 
+### Rejection Record
+
+Produces a permanent rejection artifact at docs/decisions/. Routes to phase-5-produce-rejection-record.md.
+
+| Signals | Anti-Signals |
+|---------|-------------|
+| Exploration reached an active rejection conclusion (not lead exhaustion — there's positive rejection evidence) | Leads ran out without a conclusion (no positive rejection evidence — route to no-artifact instead) |
+| Adversarial lead returned high or medium confidence evidence of absent or rejected demand on multiple demand-validation questions | Rejection reasoning is already documented publicly (reference existing docs) |
+| Specific citable blockers or failure modes were identified with citations | Low-stakes decision unlikely to resurface (close with comment) |
+| Re-proposal risk is high (common request, non-obvious rejection reasoning) | |
+| Investigation was multi-round or adversarial | |
+
 ## Deferred Types
 
 The following artifact types are recognized by the Crystallize framework but not yet
@@ -96,7 +108,7 @@ Run these four steps against the accumulated findings from all discover-converge
 
 ### Step 1: Score Each Supported Type
 
-For each of the four supported types (PRD, Design Doc, Plan, No artifact):
+For each of the five supported types (PRD, Design Doc, Plan, No Artifact, Rejection Record):
 - Count the number of signals present in the findings
 - Count the number of anti-signals present in the findings
 - Score = signals present minus anti-signals present
