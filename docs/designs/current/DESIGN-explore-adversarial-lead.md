@@ -1,5 +1,5 @@
 ---
-status: Planned
+status: Current
 problem: |
   /explore dispatches research agents to investigate topics, but its framing is always
   "how do we move forward" — never "should we move forward." For directional topics
@@ -30,7 +30,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
