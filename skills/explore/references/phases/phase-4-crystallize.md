@@ -189,7 +189,7 @@ Commit: `docs(explore): crystallize artifact type for <topic>`
 Before proceeding:
 - [ ] Crystallize framework loaded from the full reference file
 - [ ] Accumulated findings read (not just the latest round)
-- [ ] All four supported types scored with specific evidence
+- [ ] All five supported types scored with specific evidence
 
 ## Artifact State
 
