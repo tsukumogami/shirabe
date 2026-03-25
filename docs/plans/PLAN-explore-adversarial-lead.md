@@ -39,7 +39,7 @@ scope file for directional topics.
 
 **Acceptance Criteria**
 
-- [ ] `phase-0-setup.md` writes the resolved visibility value (Private or Public) to the scope file during setup
+- [ ] `phase-0-setup.md` writes the resolved visibility value (Private or Public) to the scope file during setup; when running in a private-repo context the recorded value is Private, and when running in a public-repo context it is Public — the value must reflect the actual repo context, not a hardcoded default
 - [ ] `phase-1-scope.md` checks issue labels before Phase 1 conversation: `needs-prd` classifies as directional; `bug` explicitly skips the adversarial lead
 - [ ] In `--auto` mode, classification uses label signals only; defaults to not firing when no relevant label is present
 - [ ] In interactive mode, Phase 1 classifies as directional when two or more of the following signals align: additive intent phrasing, absent problem statement, hedged intent ("maybe", "should we...")
