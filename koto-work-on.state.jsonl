@@ -1,7 +1,0 @@
-{"schema_version":1,"workflow":"work-on","template_hash":"a1f4c6c4dfa1c09b5060ae95f3179648fae63b8a2d72b1a3d3cdcf4faf239bf7","created_at":"2026-03-25T02:28:07Z"}
-{"seq":1,"timestamp":"2026-03-25T02:28:07Z","type":"workflow_initialized","payload":{"template_path":"/home/dangazineu/.cache/koto/a1f4c6c4dfa1c09b5060ae95f3179648fae63b8a2d72b1a3d3cdcf4faf239bf7.json","variables":{"ARTIFACT_PREFIX":"issue_10","ISSUE_NUMBER":"10"}}}
-{"seq":2,"timestamp":"2026-03-25T02:28:07Z","type":"transitioned","payload":{"from":null,"to":"entry","condition_type":"auto"}}
-{"seq":3,"timestamp":"2026-03-25T02:28:11Z","type":"evidence_submitted","payload":{"state":"entry","fields":{"mode":"issue_backed","issue_number":"10"}}}
-{"seq":4,"timestamp":"2026-03-25T02:28:11Z","type":"transitioned","payload":{"from":"entry","to":"context_injection","condition_type":"auto"}}
-{"seq":5,"timestamp":"2026-03-25T02:28:29Z","type":"evidence_submitted","payload":{"state":"context_injection","fields":{"status":"completed"}}}
-{"seq":6,"timestamp":"2026-03-25T02:28:29Z","type":"transitioned","payload":{"from":"context_injection","to":"setup_issue_backed","condition_type":"auto"}}
