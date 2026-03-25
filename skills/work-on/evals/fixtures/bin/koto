@@ -12,6 +12,12 @@ if [ -z "${EVAL_SCENARIO:-}" ]; then
   exit 1
 fi
 
+# Scenario: koto not installed — simulate command not found
+if [ "$EVAL_SCENARIO" = "koto-missing" ]; then
+  echo "bash: koto: command not found" >&2
+  exit 127
+fi
+
 # Normalize args for pattern matching
 ARGS="$*"
 

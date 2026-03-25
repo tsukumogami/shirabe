@@ -44,7 +44,12 @@ detection — koto does that through gate checks and evidence submission.
 
 ### Prerequisites
 
-This workflow requires koto >= 0.2.1. Run `koto version` to verify.
+This workflow requires koto >= 0.2.1. Run `koto version` to verify. If koto is not
+installed, install it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tsukumogami/koto/main/install.sh | bash
+```
 
 ### Initialize
 

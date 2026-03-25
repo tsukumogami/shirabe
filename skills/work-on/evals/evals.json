@@ -156,6 +156,23 @@
         "Agent plans to initialize koto with --template and without ISSUE_NUMBER var",
         "Agent plans to NOT run gh issue view for a non-existent issue"
       ]
+    },
+    {
+      "id": 10,
+      "name": "koto-not-installed",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "koto-missing",
+      "prompt": "/work-on #10",
+      "expected_output": "Agent resolves issue #10, reads it successfully, detects koto is not installed when running koto version, then installs koto using the install script before proceeding.",
+      "files": [],
+      "expectations": [
+        "Agent reads issue #10 with gh issue view",
+        "Agent attempts to run koto version to check prerequisites",
+        "Agent detects that koto is not installed or not on PATH",
+        "Agent attempts to install koto using curl and the install script",
+        "Agent does NOT skip koto and fall back to manual orchestration"
+      ]
     }
   ]
 }
