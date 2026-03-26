@@ -385,13 +385,11 @@ Evidence schema:
 
 ## context_injection
 
-Extract context from the GitHub issue into `wip/issue_{{ISSUE_NUMBER}}_context.md`.
-
 Read `references/phases/phase-0-context-injection.md` for detailed steps.
 
-If the gate fails (artifact missing), create the context artifact manually and
-submit `status: completed`, or `status: override` if providing context through a
-different mechanism, or `status: blocked` if the issue cannot be reached.
+If the gate fails (artifact missing), submit `status: completed` after creating
+the artifact, `status: override` if providing context differently, or
+`status: blocked` if the issue cannot be reached.
 
 ## task_validation
 
@@ -461,16 +459,14 @@ Evidence schema:
 
 ## setup_issue_backed
 
-Create a feature branch and baseline file. Read `references/phases/phase-1-setup.md`
-for branch naming conventions and baseline format.
+Read `references/phases/phase-1-setup.md` for branch naming and baseline format.
 
 If the gate fails, submit `status: completed` after creating the branch and baseline,
 `status: override` if reusing an existing branch, or `status: blocked`.
 
 ## setup_free_form
 
-Create a feature branch and baseline file. Read `references/phases/phase-1-setup.md`
-for branch naming conventions and baseline format.
+Read `references/phases/phase-1-setup.md` for branch naming and baseline format.
 
 If the gate fails, submit `status: completed` after creating the branch and baseline,
 `status: override` if reusing an existing branch, or `status: blocked`.
@@ -497,101 +493,50 @@ Evidence schema:
 
 ## introspection
 
-Re-read the issue against the current codebase to determine whether the original
-approach is still valid. The gate checks for
-`wip/issue_{{ISSUE_NUMBER}}_introspection.md`. On resume, if the artifact already
-exists, the gate auto-advances.
+Read `references/phases/phase-2-introspection.md` for steps and evidence options.
 
-Perform a fresh reading of the issue requirements against the current state of the
-code. Check for:
-- Requirements that have been partially or fully addressed by other changes
-- Assumptions in the issue that no longer hold given current code
-- New constraints or dependencies introduced since the issue was filed
-- Whether the issue has been superseded by other work
-
-Write your findings to `wip/issue_{{ISSUE_NUMBER}}_introspection.md`, then submit
-evidence.
-
-Submit `introspection_outcome: approach_unchanged` if the original approach is
-still valid, `approach_updated` if the approach needed adjustments (describe what
-changed in rationale), or `issue_superseded` if the issue is no longer relevant
-(routes to done_blocked).
-
-Evidence schema:
-- `introspection_outcome`: `approach_unchanged`, `approach_updated`, or `issue_superseded`
-- `rationale`: what changed or why the issue is superseded
+The gate checks for `wip/issue_{{ISSUE_NUMBER}}_introspection.md`. On resume, if
+the artifact already exists, the gate auto-advances.
 
 ## analysis
 
-Research the codebase and create an implementation plan at
-`wip/{{ARTIFACT_PREFIX}}_plan.md`. Read `references/phases/phase-3-analysis.md`
-for plan structure and agent delegation patterns.
+Read `references/phases/phase-3-analysis.md` for plan structure and agent
+delegation patterns. Output: `wip/{{ARTIFACT_PREFIX}}_plan.md`.
 
-Self-loop with `scope_changed_retry` (up to 3 times) if scope changes. After 3,
+Self-loop with `scope_changed_retry` (up to 3 times). After 3,
 use `scope_changed_escalate`. Submit `blocked_missing_context` if stuck.
-
 Capture non-obvious decisions in the `decisions` field.
-
-Evidence schema:
-- `plan_outcome`: `plan_ready`, `blocked_missing_context`, `scope_changed_retry`,
-  or `scope_changed_escalate`
-- `approach_summary`: summary of the implementation approach
-- `decisions`: (optional) JSON array of `{choice, rationale, alternatives_considered}`
 
 ## implementation
 
-Follow the plan from `wip/{{ARTIFACT_PREFIX}}_plan.md`. Read
-`references/phases/phase-4-implementation.md` for the implementation cycle,
+Read `references/phases/phase-4-implementation.md` for the implementation cycle,
 code review guidance, and commit patterns.
 
-Self-loop with `partial_tests_failing_retry` (up to 3 times) to fix test failures.
-After 3, use `partial_tests_failing_escalate`. Submit `blocked` for external blockers.
-
+Self-loop with `partial_tests_failing_retry` (up to 3 times). After 3,
+use `partial_tests_failing_escalate`. Submit `blocked` for external blockers.
 Capture non-obvious judgment calls in the `decisions` field.
-
-Evidence schema:
-- `implementation_status`: `complete`, `partial_tests_failing_retry`,
-  `partial_tests_failing_escalate`, or `blocked`
-- `rationale`: what was accomplished or what is blocking
-- `decisions`: (optional) JSON array of `{choice, rationale, alternatives_considered}`
 
 ## finalization
 
-Verify changes and create `wip/{{ARTIFACT_PREFIX}}_summary.md`. Read
-`references/phases/phase-5-finalization.md` for cleanup steps and summary format.
-
-Submit `finalization_status: ready_for_pr` when clean, `deferred_items_noted`
-when proceeding with documented limitations, or `issues_found` to return to
-implementation.
-
-Evidence schema:
-- `finalization_status`: `ready_for_pr`, `deferred_items_noted`, or `issues_found`
+Read `references/phases/phase-5-finalization.md` for cleanup steps and summary
+format. Output: `wip/{{ARTIFACT_PREFIX}}_summary.md`.
 
 ## pr_creation
 
-Create the pull request. Read `references/phases/phase-6-pr.md` for PR format,
-pre-PR verification, and push instructions.
+Read `references/phases/phase-6-pr.md` for PR format, pre-PR verification,
+and push instructions.
 
 Check if a PR already exists: `gh pr list --head $(git rev-parse --abbrev-ref HEAD)`
 
 Self-loop with `creation_failed_retry` (up to 3 times). After 3, use
 `creation_failed_escalate`.
 
-Evidence schema:
-- `pr_status`: `created`, `creation_failed_retry`, or `creation_failed_escalate`
-- `pr_url`: URL of the created or existing pull request
-
 ## ci_monitor
 
-Wait for CI to pass. Read `references/phases/phase-6-pr.md` for CI monitoring.
+Read `references/phases/phase-6-pr.md` for CI monitoring.
 
 If the gate fails, fix what you can and submit `ci_outcome: failing_fixed`.
-If all checks pass, submit `ci_outcome: passing`. If unresolvable, submit
-`ci_outcome: failing_unresolvable` with rationale.
-
-Evidence schema:
-- `ci_outcome`: `passing`, `failing_fixed`, or `failing_unresolvable`
-- `rationale`: what was fixed or why failures are unresolvable
+If unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
 
 ## done
 

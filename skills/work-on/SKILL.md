@@ -71,7 +71,7 @@ Repeat:
 1. Run `koto next <WF>`
 2. If `action: "execute"` with `advanced: true` — run `koto next <WF>` again
 3. If `action: "execute"` with `expects` — do the work described in `directive`,
-   read the phase file from the mapping below, then submit evidence:
+   read any phase file it references, then submit evidence:
    ```bash
    koto next <WF> --with-data '{"field_name": "value", ...}'
    ```
@@ -94,31 +94,6 @@ During analysis and implementation, record non-obvious decisions:
 ```bash
 koto decisions record <WF> --with-data '{"choice": "...", "rationale": "...", "alternatives_considered": ["..."]}'
 ```
-
-## State-to-Phase Mapping
-
-When `koto next` returns a state that needs work, read the corresponding phase file
-for detailed guidance, then follow the directive.
-
-| State | Reference file |
-|-------|---------------|
-| `entry` | Submit mode evidence (see Begin) |
-| `context_injection` | `references/phases/phase-0-context-injection.md` |
-| `task_validation` | Follow directive |
-| `research` | Follow directive |
-| `post_research_validation` | Follow directive |
-| `setup_issue_backed` | `references/phases/phase-1-setup.md` |
-| `setup_free_form` | `references/phases/phase-1-setup.md` |
-| `staleness_check` | Follow directive |
-| `introspection` | `references/phases/phase-2-introspection.md` |
-| `analysis` | `references/phases/phase-3-analysis.md` |
-| `implementation` | `references/phases/phase-4-implementation.md` |
-| `finalization` | `references/phases/phase-5-finalization.md` |
-| `pr_creation` | `references/phases/phase-6-pr.md` |
-| `ci_monitor` | `references/phases/phase-6-pr.md` |
-| `done` | Report completion |
-| `done_blocked` | Report blocker, suggest `koto rewind` |
-| `validation_exit` | Report verdict and suggest next steps |
 
 ## Output
 
