@@ -1,0 +1,37 @@
+name: Validate koto templates
+
+on:
+  pull_request:
+    paths:
+      - '**/koto-templates/**'
+
+jobs:
+  validate-templates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install koto
+        run: |
+          curl -fsSL https://get.tsuku.dev/now | bash
+          echo "$HOME/.tsuku/bin" >> $GITHUB_PATH
+          echo "$HOME/.tsuku/tools/current" >> $GITHUB_PATH
+
+      - name: Install koto via tsuku
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install tsukumogami/koto -y
+
+      - name: Validate all koto templates
+        run: |
+          failed=0
+          for template in $(find . -path '*/koto-templates/*.md' -type f); do
+            echo "Compiling $template..."
+            if koto template compile "$template"; then
+              echo "  OK"
+            else
+              echo "  FAILED"
+              failed=1
+            fi
+          done
+          exit $failed

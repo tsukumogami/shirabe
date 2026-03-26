@@ -4,58 +4,175 @@
     {
       "id": 1,
       "name": "specific-issue-number",
+      "tier": 1,
+      "mode": "plan_only",
       "prompt": "/work-on #42",
-      "expected_output": "Resolves issue #42, reads it with gh issue view, creates a feature branch, runs all 7 phases (context injection through PR creation), produces baseline/plan/summary artifacts in wip/, and creates a PR referencing the issue.",
-      "files": []
+      "expected_output": "Resolves issue #42, reads it with gh issue view, checks for blocking labels, then initializes a koto workflow with `koto init issue_42 --template ... --var ISSUE_NUMBER=42 --var ARTIFACT_PREFIX=issue_42`. Submits entry evidence with mode: issue_backed. Enters the koto execution loop using `koto next issue_42` to advance through states.",
+      "files": [],
+      "expectations": [
+        "Agent plans to read issue #42 using gh issue view",
+        "Agent plans to check for blocking labels before proceeding",
+        "Agent plans to run koto init with --template flag and --var ISSUE_NUMBER=42",
+        "Agent plans to set ARTIFACT_PREFIX to issue_42 in koto init",
+        "Agent plans to submit entry evidence with mode issue_backed",
+        "Agent plans to enter the koto execution loop using koto next with the workflow name",
+        "Agent plans to detect repo visibility from CLAUDE.md or infers from path"
+      ]
     },
     {
       "id": 2,
       "name": "milestone-auto-select",
+      "tier": 1,
+      "mode": "plan_only",
       "prompt": "/work-on M3",
       "expected_output": "Lists open issues in milestone 3, identifies dependency relationships, selects the lowest-numbered unblocked issue, then proceeds with the full workflow for that issue. Reports which issue was selected and why.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Agent plans to recognize M3 as a milestone reference, not an issue number",
+        "Agent plans to list open issues in milestone 3 using gh",
+        "Agent plans to check dependency sections of milestone issues for blocking",
+        "Agent plans to select the lowest-numbered unblocked issue",
+        "Agent plans to report which issue was selected and why",
+        "Agent plans to proceed to koto init with the selected issue number"
+      ]
     },
     {
       "id": 3,
       "name": "auto-mode-flag",
+      "tier": 1,
+      "mode": "plan_only",
       "prompt": "/work-on #15 --auto",
-      "expected_output": "Runs in automatic execution mode. At decision points (W1, W2), follows the decision protocol from references/decision-protocol.md instead of asking the user. Creates wip/work-on_15_decisions.md to record any decisions made. Safety gates (W3, W4) still block and require user input.",
-      "files": []
+      "expected_output": "Runs in automatic execution mode. At decision points (W1, W2), follows the decision protocol from references/decision-protocol.md instead of asking the user. Creates wip/work-on_15_decisions.md to record any decisions made. Safety gates (W3, W4) still block and require user input. Uses koto orchestration throughout.",
+      "files": [],
+      "expectations": [
+        "Agent plans to detect the --auto flag from the arguments",
+        "Agent plans to reference auto execution mode or decision protocol",
+        "Agent plans to use koto decisions record for decision capture",
+        "Agent plans to use koto orchestration (koto init / koto next)",
+        "Agent plans to distinguish between decision points (W1/W2 auto) and safety gates (W3/W4 blocking)",
+        "Agent plans to read issue #15 with gh issue view"
+      ]
     },
     {
       "id": 4,
       "name": "blocking-label-needs-design",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "blocking-label",
       "prompt": "/work-on #8",
-      "expected_output": "Reads issue #8 which has a needs-design label. Detects the blocking label from the project's label vocabulary, displays a routing message explaining the issue requires a design document before implementation, and stops execution without entering any workflow phase.",
-      "files": []
+      "expected_output": "Reads issue #8 which has a needs-design label. Detects the blocking label from the project's label vocabulary, displays a routing message explaining the issue requires a design document before implementation, and stops execution without initializing a koto workflow.",
+      "files": [],
+      "expectations": [
+        "Agent reads issue #8 with gh issue view",
+        "Agent checks for blocking labels from the project label vocabulary",
+        "Agent identifies needs-design as a blocking label",
+        "Agent displays a routing message about the blocking label",
+        "Agent stops execution without initializing a koto workflow",
+        "Agent does NOT attempt koto init"
+      ]
     },
     {
       "id": 5,
       "name": "needs-triage-label",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "needs-triage",
       "prompt": "/work-on #23",
       "expected_output": "Reads issue #23 which has a needs-triage label. Checks the project's label vocabulary for routing options. If a triage workflow is defined in the extension file, invokes it. Otherwise, asks the user whether to proceed directly or reclassify the issue first.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Agent reads issue #23 with gh issue view",
+        "Agent detects the needs-triage label",
+        "Agent checks the project label vocabulary in CLAUDE.md",
+        "Agent checks the extension file for a triage workflow definition",
+        "Agent either invokes a triage workflow or asks user whether to proceed",
+        "Agent treats needs-triage differently from blocking labels like needs-design"
+      ]
     },
     {
       "id": 6,
       "name": "resume-interrupted-session",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "resume",
       "prompt": "/work-on #42",
-      "expected_output": "Detects existing artifacts from a previous interrupted session by checking wip/ files and git log for issue-42 commits. Determines the current phase (e.g., plan commit exists so resumes at Phase 4 Implementation) and continues from that point rather than restarting from Phase 0.",
-      "files": []
+      "expected_output": "Checks for an active koto workflow with `koto workflows`. Finds an existing workflow, resumes with `koto next <workflow-name>`.",
+      "files": [],
+      "expectations": [
+        "Agent checks for active koto workflows using koto workflows",
+        "Agent attempts to resume an existing workflow rather than starting fresh",
+        "Agent uses koto next with the workflow name to resume",
+        "Agent does NOT run koto init if an active workflow is detected",
+        "Agent understands that gates auto-advance past completed work"
+      ]
     },
     {
       "id": 7,
       "name": "milestone-all-blocked",
+      "tier": 1,
+      "mode": "plan_only",
       "prompt": "/work-on M5",
       "expected_output": "Lists open issues in milestone 5, checks dependency sections, finds that all issues are blocked by open dependencies. Reports which issues are blocked and by what, then stops without starting any implementation.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Agent plans to recognize M5 as a milestone reference",
+        "Agent plans to list open issues in milestone 5",
+        "Agent plans to check dependency sections of each issue",
+        "Agent plans to determine that all issues are blocked by open dependencies",
+        "Agent plans to report which issues are blocked and by what",
+        "Agent plans to stop without starting any implementation or koto workflow"
+      ]
     },
     {
       "id": 8,
       "name": "issue-url-input",
+      "tier": 1,
+      "mode": "plan_only",
       "prompt": "/work-on https://github.com/org/repo/issues/71",
-      "expected_output": "Parses the GitHub issue URL to extract issue number 71, reads the issue with gh issue view, checks for blocking labels, detects repo visibility from CLAUDE.md, loads the appropriate content governance skill, and proceeds with the full workflow starting at Phase 0.",
-      "files": []
+      "expected_output": "Parses the GitHub issue URL to extract issue number 71, reads the issue with gh issue view, checks for blocking labels, detects repo visibility from CLAUDE.md, loads the appropriate content governance skill, and initializes a koto workflow for the issue.",
+      "files": [],
+      "expectations": [
+        "Agent plans to parse the GitHub URL to extract issue number 71",
+        "Agent plans to use gh issue view to read the issue",
+        "Agent plans to detect repo visibility from CLAUDE.md or path inference",
+        "Agent plans to load the appropriate content governance skill based on visibility",
+        "Agent plans to initialize a koto workflow with the extracted issue number",
+        "Agent plans to set ARTIFACT_PREFIX to issue_71"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "free-form-mode",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on fix the login timeout -- no issue needed",
+      "expected_output": "Detects free-form input (no issue number), initializes koto with `koto init task_fix-login-timeout --template ... --var ARTIFACT_PREFIX=task_fix-login-timeout`. Submits entry evidence with mode: free_form and the task description.",
+      "files": [],
+      "expectations": [
+        "Agent plans to detect free-form input (no issue number or milestone)",
+        "Agent plans to use ARTIFACT_PREFIX=task_fix-login-timeout or similar slug",
+        "Agent plans to submit entry evidence with mode free_form",
+        "Agent plans to include the task description in entry evidence",
+        "Agent plans to initialize koto with --template and without ISSUE_NUMBER var",
+        "Agent plans to NOT run gh issue view for a non-existent issue"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "koto-not-installed",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "koto-missing",
+      "prompt": "/work-on #10",
+      "expected_output": "Agent resolves issue #10, reads it successfully, detects koto is not installed when running koto version, then installs koto using the install script before proceeding.",
+      "files": [],
+      "expectations": [
+        "Agent reads issue #10 with gh issue view",
+        "Agent attempts to run koto version to check prerequisites",
+        "Agent detects that koto is not installed or not on PATH",
+        "Agent attempts to install koto using curl and the install script",
+        "Agent does NOT skip koto and fall back to manual orchestration"
+      ]
     }
   ]
 }

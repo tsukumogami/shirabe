@@ -1,17 +1,10 @@
-# Phase 0: Context Injection
+# Context Injection
 
-Surface design context before implementation begins.
-
-## Goal
-
-Extract and internalize relevant design context for the current issue, ensuring you understand:
-- Design rationale and constraints
-- How this work fits into the larger design
-- Dependencies and integration points
+Extract design context for the current issue.
 
 ## Steps
 
-### 0.1 Extract Context
+### Extract Context
 
 Run the context extraction script:
 
@@ -19,30 +12,19 @@ Run the context extraction script:
 ${CLAUDE_SKILL_DIR}/references/scripts/extract-context.sh <N>
 ```
 
-This creates `wip/IMPLEMENTATION_CONTEXT.md` with design context and a summary template.
+### Read and Summarize
 
-### 0.2 Read and Summarize
+Read `wip/IMPLEMENTATION_CONTEXT.md`. Fill in the TODO items in the frontmatter
+based on the design excerpt. If context is incomplete, gather more from:
+- Related design docs or code files
+- Recently merged PRs for relevant patterns
+- Open or closed issues for prior decisions
+- Milestone context for broader goals
 
-Read `wip/IMPLEMENTATION_CONTEXT.md` using the Read tool. The file contains:
-- A YAML frontmatter template with TODOs
-- The extracted design excerpt
+Save the updated file.
 
-Fill in the TODO items in the frontmatter based on your understanding of the design excerpt. If the extracted context is incomplete, gather additional context as needed:
-- Read related design docs or code files
-- Check recently merged PRs for relevant patterns
-- Review open or closed issues for prior decisions
-- Check milestone context for broader goals
-- Search the web for library docs or best practices
+## Evidence
 
-Use the Write tool to save the updated file with your completed summary.
-
-### 0.3 Continue to Phase 1
-
-Proceed with normal workflow. The summary in `wip/IMPLEMENTATION_CONTEXT.md` will be your quick reference during Phase 4.
-
-## Quality Checklist
-
-Before proceeding to Phase 1:
-- [ ] Script executed successfully
-- [ ] Context file read and understood
-- [ ] All TODOs in frontmatter filled in
+Submit `status: completed` after the context artifact exists, `status: override`
+if providing context through a different mechanism, or `status: blocked` if the
+issue cannot be reached.
