@@ -53,13 +53,31 @@ stateDiagram-v2
     done --> [*]
     done_blocked --> [*]
     validation_exit --> [*]
-    note left of analysis : gate: plan_artifact
-    note left of ci_monitor : gate: ci_passing
-    note left of context_injection : gate: context_artifact
-    note left of finalization : gate: summary_and_tests
-    note left of implementation : gate: code_committed
-    note left of introspection : gate: introspection_artifact
-    note left of setup_free_form : gate: branch_and_baseline
-    note left of setup_issue_backed : gate: branch_and_baseline
-    note left of staleness_check : gate: staleness_fresh
+    note left of analysis
+        gate: plan_artifact
+    end note
+    note left of ci_monitor
+        gate: ci_passing
+    end note
+    note left of context_injection
+        gate: context_artifact
+    end note
+    note left of finalization
+        gate: summary_and_tests
+    end note
+    note left of implementation
+        gate: code_committed
+    end note
+    note left of introspection
+        gate: introspection_artifact
+    end note
+    note left of setup_free_form
+        gate: branch_and_baseline
+    end note
+    note left of setup_issue_backed
+        gate: branch_and_baseline
+    end note
+    note left of staleness_check
+        gate: staleness_fresh
+    end note
 ```
