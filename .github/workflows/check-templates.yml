@@ -11,4 +11,3 @@ jobs:
     uses: tsukumogami/koto/.github/workflows/check-template-freshness.yml@main
     with:
       template-paths: 'skills/*/koto-templates/*.md'
-      koto-version: 'v0.3.1'
