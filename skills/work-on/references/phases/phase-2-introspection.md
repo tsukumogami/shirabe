@@ -11,7 +11,11 @@ Check for:
 - New constraints or dependencies introduced since filing
 - Whether the issue has been superseded
 
-Write findings to `wip/issue_{{ISSUE_NUMBER}}_introspection.md`.
+Write findings to a local file, then store in koto context:
+
+```bash
+koto context add <WF> introspection.md --from-file <introspection-file>
+```
 
 ## Evidence
 

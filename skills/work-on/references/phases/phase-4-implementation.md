@@ -1,11 +1,20 @@
 # Implementation
 
-Execute the plan from `wip/{{ARTIFACT_PREFIX}}_plan.md`.
+Retrieve the plan from koto context and execute it:
+
+```bash
+koto context get <WF> plan.md
+```
 
 ## Design Context
 
-If `wip/IMPLEMENTATION_CONTEXT.md` exists, review it before starting. Refer
-back when making decisions to stay aligned with design intent.
+Check for design context and review it before starting:
+
+```bash
+koto context exists <WF> context.md && koto context get <WF> context.md
+```
+
+Refer back when making decisions to stay aligned with design intent.
 
 ## Implementation Cycle
 

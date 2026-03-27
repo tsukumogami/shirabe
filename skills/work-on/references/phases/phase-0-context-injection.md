@@ -6,22 +6,33 @@ Extract design context for the current issue.
 
 ### Extract Context
 
-Run the context extraction script:
+Run the context extraction script, then store the result in koto context:
 
 ```bash
 ${CLAUDE_SKILL_DIR}/references/scripts/extract-context.sh <N>
+koto context add <WF> context.md --from-file wip/IMPLEMENTATION_CONTEXT.md
 ```
 
 ### Read and Summarize
 
-Read `wip/IMPLEMENTATION_CONTEXT.md`. Fill in the TODO items in the frontmatter
-based on the design excerpt. If context is incomplete, gather more from:
+Retrieve the context artifact and review it:
+
+```bash
+koto context get <WF> context.md
+```
+
+Fill in the TODO items in the frontmatter based on the design excerpt. If context
+is incomplete, gather more from:
 - Related design docs or code files
 - Recently merged PRs for relevant patterns
 - Open or closed issues for prior decisions
 - Milestone context for broader goals
 
-Save the updated file.
+Store the updated content back:
+
+```bash
+koto context add <WF> context.md --from-file <updated-file>
+```
 
 ## Evidence
 

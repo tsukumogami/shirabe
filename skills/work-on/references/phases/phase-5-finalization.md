@@ -20,7 +20,13 @@ Run complete test suite, build, linting. All must pass.
 
 ### Create Summary (if not skipped)
 
-Create `wip/{{ARTIFACT_PREFIX}}_summary.md`:
+Write the summary locally, then store in koto context:
+
+```bash
+koto context add <WF> summary.md --from-file <summary-file>
+```
+
+Summary format:
 
 ```markdown
 # Summary
@@ -49,15 +55,12 @@ Create `wip/{{ARTIFACT_PREFIX}}_summary.md`:
 | <criterion> | Deviated | <what and why> |
 ```
 
-### Commit and Clean Up
+### Commit
 
-1. Commit summary: `docs: add implementation summary`
-2. Delete wip/ and coverage artifacts: `rm -rf wip/`
-3. Commit cleanup: `chore: clean up temporary artifacts`
+Commit summary: `docs: add implementation summary`
 
-### Final Test Run
-
-Run tests again to verify cleanup didn't break anything.
+Artifact cleanup is handled automatically by koto when the workflow reaches
+a terminal state. No manual `rm -rf wip/` needed.
 
 ### Consider Manual Testing
 

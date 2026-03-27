@@ -25,7 +25,13 @@ skill or CLAUDE.md.
 
 ### Document Baseline
 
-Create `wip/{{ARTIFACT_PREFIX}}_baseline.md`:
+Write the baseline content to a local file, then store it in koto context:
+
+```bash
+koto context add <WF> baseline.md --from-file <baseline-file>
+```
+
+Baseline format:
 
 ```markdown
 # Baseline

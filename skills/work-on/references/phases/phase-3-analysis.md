@@ -14,12 +14,17 @@ For full plans, load the project's language skill from the extension file.
 
 Launch an analysis agent (Task tool, `subagent_type="general-purpose"`) with:
 - Issue details from `gh issue view <N>`
-- Baseline file: `wip/{{ARTIFACT_PREFIX}}_baseline.md`
+- Baseline: `koto context get <WF> baseline.md`
+- Design context (if exists): `koto context get <WF> context.md`
 - Issue type: "full-plan" or "simplified-plan"
 - Agent instructions: `../agent-instructions/phase-3-analysis.md`
 - Language skill path (full-plan only, if defined in extension)
 
-The agent writes `wip/{{ARTIFACT_PREFIX}}_plan.md` and returns a brief summary.
+The agent writes the plan locally and stores it in koto context:
+
+```bash
+koto context add <WF> plan.md --from-file <plan-file>
+```
 
 Commit: `docs: create implementation plan`
 
