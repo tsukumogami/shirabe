@@ -42,7 +42,7 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on #15 --auto",
-      "expected_output": "Runs in automatic execution mode. At decision points (W1, W2), follows the decision protocol from references/decision-protocol.md instead of asking the user. Creates wip/work-on_15_decisions.md to record any decisions made. Safety gates (W3, W4) still block and require user input. Uses koto orchestration throughout.",
+      "expected_output": "Runs in automatic execution mode. At decision points (W1, W2), follows the decision protocol from references/decision-protocol.md instead of asking the user. Uses `koto decisions record` to capture any decisions made. Safety gates (W3, W4) still block and require user input. Uses koto orchestration throughout.",
       "files": [],
       "expectations": [
         "Agent plans to detect the --auto flag from the arguments",
