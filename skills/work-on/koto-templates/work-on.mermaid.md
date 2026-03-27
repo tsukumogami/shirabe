@@ -1,3 +1,4 @@
+```mermaid
 stateDiagram-v2
     direction LR
     [*] --> entry
@@ -61,3 +62,4 @@ stateDiagram-v2
     note left of setup_free_form : gate: branch_and_baseline
     note left of setup_issue_backed : gate: branch_and_baseline
     note left of staleness_check : gate: staleness_fresh
+```
