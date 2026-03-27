@@ -1,0 +1,13 @@
+name: Check templates
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'skills/*/koto-templates/**'
+
+jobs:
+  freshness:
+    uses: tsukumogami/koto/.github/workflows/check-template-freshness.yml@main
+    with:
+      template-paths: 'skills/*/koto-templates/*.md'

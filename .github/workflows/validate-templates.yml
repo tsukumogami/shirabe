@@ -25,7 +25,7 @@ jobs:
       - name: Validate all koto templates
         run: |
           failed=0
-          for template in $(find . -path '*/koto-templates/*.md' -type f); do
+          for template in $(find . -path '*/koto-templates/*.md' -not -name '*.mermaid.md' -type f); do
             echo "Compiling $template..."
             if koto template compile "$template"; then
               echo "  OK"
