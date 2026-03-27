@@ -6,12 +6,14 @@ Extract design context for the current issue.
 
 ### Extract Context
 
-Run the context extraction script, then store the result in koto context:
+Run the context extraction script with the koto session name:
 
 ```bash
-${CLAUDE_SKILL_DIR}/references/scripts/extract-context.sh <N>
-koto context add <WF> context.md --from-file wip/IMPLEMENTATION_CONTEXT.md
+${CLAUDE_SKILL_DIR}/references/scripts/extract-context.sh <N> --session <WF>
 ```
+
+The script stores the extracted context directly into koto context under
+the key `context.md`.
 
 ### Read and Summarize
 

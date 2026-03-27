@@ -2,15 +2,19 @@
 # extract-context.sh - Extract and inject design context for a GitHub issue
 # Part of /work-on Phase 0: Context Injection
 #
-# Usage: ./extract-context.sh <issue-number>
+# Usage: ./extract-context.sh <issue-number> [--session <name>]
 #
 # This script performs the complete context injection:
 # 1. Searches for design docs containing this issue
 # 2. Parses the Implementation Issues table
 # 3. Extracts relevant design sections
 # 4. Displays context summary to stdout
-# 5. Writes wip/IMPLEMENTATION_CONTEXT.md
+# 5. Stores content via koto context add (if --session), or writes wip/ (fallback)
 # 6. Outputs final JSON summary for Claude
+#
+# Options:
+#   --session <name>  Store content in koto context under key "context.md"
+#                     instead of writing to wip/IMPLEMENTATION_CONTEXT.md
 #
 # Exit codes:
 #   0 - Always (script never fails for expected issues)
@@ -19,7 +23,8 @@
 #   {
 #     "status": "success|degraded|failed",
 #     "context_available": true|false,
-#     "context_file": "wip/IMPLEMENTATION_CONTEXT.md" (if written),
+#     "context_key": "context.md" (if --session),
+#     "context_file": "wip/IMPLEMENTATION_CONTEXT.md" (if no --session),
 #     "tier": "simple|testable|critical",
 #     "warnings": ["warning1", "warning2"]
 #   }
@@ -27,7 +32,7 @@
 # Functions:
 #   display_context()       - Print section header to stdout
 #   display_warnings()      - Print accumulated warnings
-#   write_context_file()    - Write wip/IMPLEMENTATION_CONTEXT.md
+#   store_context()         - Store content via koto context or wip/ fallback
 #   json_success()          - Emit success JSON summary
 #   json_failed()           - Emit failure JSON summary
 #   check_prerequisites()   - Verify gh and jq are available
@@ -44,6 +49,7 @@ set -euo pipefail
 # Initialize warning array
 declare -a WARNINGS
 STATUS="success"
+SESSION=""
 
 # Display and file writing helpers
 display_context() {
@@ -57,9 +63,15 @@ display_context() {
   echo ""
   echo "$context"
   echo ""
-  echo "---------------------------------------------------"
-  echo "Full context saved to wip/IMPLEMENTATION_CONTEXT.md"
-  echo "---------------------------------------------------"
+  if [ -n "$SESSION" ]; then
+    echo "---------------------------------------------------"
+    echo "Context stored in koto session: ${SESSION} (key: context.md)"
+    echo "---------------------------------------------------"
+  else
+    echo "---------------------------------------------------"
+    echo "Full context saved to wip/IMPLEMENTATION_CONTEXT.md"
+    echo "---------------------------------------------------"
+  fi
   echo ""
 }
 
@@ -73,10 +85,15 @@ display_warnings() {
   fi
 }
 
-write_context_file() {
+# Store context content via koto context (if --session) or wip/ fallback
+store_context() {
   local context="$1"
-  mkdir -p wip
-  echo "$context" > wip/IMPLEMENTATION_CONTEXT.md
+  if [ -n "$SESSION" ]; then
+    echo "$context" | koto context add "$SESSION" context.md
+  else
+    mkdir -p wip
+    echo "$context" > wip/IMPLEMENTATION_CONTEXT.md
+  fi
 }
 
 # JSON output helpers (printed at end for Claude to parse)
@@ -84,12 +101,21 @@ json_success() {
   local tier="${1:-simple}"
   local warnings_json
   warnings_json=$(printf '%s\n' "${WARNINGS[@]}" | jq -R . | jq -s .)
-  jq -n \
-    --arg status "$STATUS" \
-    --arg tier "$tier" \
-    --arg context_file "wip/IMPLEMENTATION_CONTEXT.md" \
-    --argjson warnings "$warnings_json" \
-    '{status: $status, context_available: true, context_file: $context_file, tier: $tier, warnings: $warnings}'
+  if [ -n "$SESSION" ]; then
+    jq -n \
+      --arg status "$STATUS" \
+      --arg tier "$tier" \
+      --arg session "$SESSION" \
+      --argjson warnings "$warnings_json" \
+      '{status: $status, context_available: true, context_key: "context.md", session: $session, tier: $tier, warnings: $warnings}'
+  else
+    jq -n \
+      --arg status "$STATUS" \
+      --arg tier "$tier" \
+      --arg context_file "wip/IMPLEMENTATION_CONTEXT.md" \
+      --argjson warnings "$warnings_json" \
+      '{status: $status, context_available: true, context_file: $context_file, tier: $tier, warnings: $warnings}'
+  fi
 }
 
 json_failed() {
@@ -298,7 +324,7 @@ main() {
 
     # Display, write file, show warnings, output JSON
     display_context "$issue_body" "$issue"
-    write_context_file "$issue_body"
+    store_context "$issue_body"
     display_warnings
     json_success "simple"
     exit 0
@@ -351,17 +377,38 @@ main() {
 
   # 5. Display context, write file, show warnings
   display_context "$context_md" "$issue"
-  write_context_file "$context_md"
+  store_context "$context_md"
   display_warnings
 
   # 6. Output JSON summary for Claude
   json_success "$tier"
 }
 
-# Validate argument
-if [ $# -lt 1 ]; then
+# Parse arguments
+ISSUE=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --session)
+      SESSION="${2:-}"
+      shift 2
+      ;;
+    *)
+      ISSUE="$1"
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$ISSUE" ]; then
   json_failed "Issue number required"
   exit 0
 fi
 
-main "$1"
+# Verify koto is available when --session is used
+if [ -n "$SESSION" ] && ! command -v koto &>/dev/null; then
+  WARNINGS+=("koto not found, falling back to wip/ storage")
+  STATUS="degraded"
+  SESSION=""
+fi
+
+main "$ISSUE"
