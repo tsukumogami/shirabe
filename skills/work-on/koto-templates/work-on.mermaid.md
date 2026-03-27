@@ -63,7 +63,7 @@ stateDiagram-v2
         gate: context_artifact
     end note
     note left of finalization
-        gate: summary_and_tests
+        gate: summary_exists
     end note
     note left of implementation
         gate: code_committed
@@ -72,10 +72,16 @@ stateDiagram-v2
         gate: introspection_artifact
     end note
     note left of setup_free_form
-        gate: branch_and_baseline
+        gate: baseline_exists
+    end note
+    note left of setup_free_form
+        gate: on_feature_branch
     end note
     note left of setup_issue_backed
-        gate: branch_and_baseline
+        gate: baseline_exists
+    end note
+    note left of setup_issue_backed
+        gate: on_feature_branch
     end note
     note left of staleness_check
         gate: staleness_fresh
