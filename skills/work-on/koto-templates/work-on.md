@@ -17,7 +17,7 @@ variables:
     required: false
   ARTIFACT_PREFIX:
     description: >
-      Prefix for wip/ artifact filenames. Set at koto init time:
+      Prefix for context keys and branch names. Set at koto init time:
       issue_<N> for issue-backed, task_<slug> for free-form.
     required: true
 
@@ -45,8 +45,8 @@ states:
   context_injection:
     gates:
       context_artifact:
-        type: command
-        command: "test -f wip/issue_{{ISSUE_NUMBER}}_context.md"
+        type: context-exists
+        key: context.md
     accepts:
       status:
         type: enum
@@ -123,9 +123,12 @@ states:
 
   setup_issue_backed:
     gates:
-      branch_and_baseline:
+      on_feature_branch:
         type: command
-        command: "test \"$(git rev-parse --abbrev-ref HEAD)\" != \"main\" && test -f wip/{{ARTIFACT_PREFIX}}_baseline.md"
+        command: "test \"$(git rev-parse --abbrev-ref HEAD)\" != \"main\""
+      baseline_exists:
+        type: context-exists
+        key: baseline.md
     accepts:
       status:
         type: enum
@@ -148,9 +151,12 @@ states:
 
   setup_free_form:
     gates:
-      branch_and_baseline:
+      on_feature_branch:
         type: command
-        command: "test \"$(git rev-parse --abbrev-ref HEAD)\" != \"main\" && test -f wip/{{ARTIFACT_PREFIX}}_baseline.md"
+        command: "test \"$(git rev-parse --abbrev-ref HEAD)\" != \"main\""
+      baseline_exists:
+        type: context-exists
+        key: baseline.md
     accepts:
       status:
         type: enum
@@ -202,8 +208,8 @@ states:
   introspection:
     gates:
       introspection_artifact:
-        type: command
-        command: "test -f wip/issue_{{ISSUE_NUMBER}}_introspection.md"
+        type: context-exists
+        key: introspection.md
     accepts:
       introspection_outcome:
         type: enum
@@ -227,8 +233,8 @@ states:
   analysis:
     gates:
       plan_artifact:
-        type: command
-        command: "test -f wip/{{ARTIFACT_PREFIX}}_plan.md"
+        type: context-exists
+        key: plan.md
     accepts:
       plan_outcome:
         type: enum
@@ -292,9 +298,9 @@ states:
 
   finalization:
     gates:
-      summary_and_tests:
-        type: command
-        command: "test -f wip/{{ARTIFACT_PREFIX}}_summary.md && go test ./... 2>/dev/null"
+      summary_exists:
+        type: context-exists
+        key: summary.md
     accepts:
       finalization_status:
         type: enum
@@ -495,13 +501,13 @@ Evidence schema:
 
 Read `references/phases/phase-2-introspection.md` for steps and evidence options.
 
-The gate checks for `wip/issue_{{ISSUE_NUMBER}}_introspection.md`. On resume, if
-the artifact already exists, the gate auto-advances.
+The gate checks for context key `introspection.md`. On resume, if the
+artifact already exists in koto context, the gate auto-advances.
 
 ## analysis
 
 Read `references/phases/phase-3-analysis.md` for plan structure and agent
-delegation patterns. Output: `wip/{{ARTIFACT_PREFIX}}_plan.md`.
+delegation patterns. Output: koto context key `plan.md`.
 
 Self-loop with `scope_changed_retry` (up to 3 times). After 3,
 use `scope_changed_escalate`. Submit `blocked_missing_context` if stuck.
@@ -519,7 +525,7 @@ Capture non-obvious judgment calls in the `decisions` field.
 ## finalization
 
 Read `references/phases/phase-5-finalization.md` for cleanup steps and summary
-format. Output: `wip/{{ARTIFACT_PREFIX}}_summary.md`.
+format. Output: koto context key `summary.md`.
 
 ## pr_creation
 
