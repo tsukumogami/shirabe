@@ -211,7 +211,9 @@ API. Changes are breaking and follow the workflow versioning protocol (R9).
 - [ ] Existing tag-triggered build workflows (tsuku, koto, niwa) continue
       to work after the tag is pushed by the reusable workflow
 - [ ] The sentinel CI check rejects PRs that change version files to
-      non-`-dev` values
+      non-dev-sentinel values
+- [ ] All public repos in tsukumogami (tsuku, koto, niwa, shirabe) use
+      this workflow for their releases
 
 ## Out of Scope
 
@@ -227,9 +229,9 @@ API. Changes are breaking and follow the workflow versioning protocol (R9).
   handles standard semver releases only.
 - **Hotfix releases from non-main branches.** Deferred. The MVP releases
   from main only.
-- **Migrating existing release workflows.** Tsuku, koto, and niwa adopt
-  the system on their own schedule. This PRD defines the system; migration
-  is separate work per repo.
+- **Rewriting existing build pipelines.** Tsuku, koto, and niwa keep their
+  existing build/test/publish jobs. Migration adds the reusable workflow as
+  the prepare-release step alongside existing tag-triggered builds.
 
 ## Open Questions
 
