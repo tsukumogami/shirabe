@@ -103,7 +103,7 @@
         "Agent attempts to resume an existing workflow rather than starting fresh",
         "Agent uses koto next with the workflow name to resume",
         "Agent does NOT run koto init if an active workflow is detected",
-        "Agent understands that gates auto-advance past completed work"
+        "Agent reads the koto next response to determine the current state and what work is needed"
       ]
     },
     {
