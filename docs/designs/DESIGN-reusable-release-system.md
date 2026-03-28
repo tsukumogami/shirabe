@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 upstream: docs/prds/PRD-reusable-release-system.md
 problem: |
   Four repos with different toolchains (Go+Rust, Rust, Go, JSON manifests) each
@@ -22,7 +22,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
