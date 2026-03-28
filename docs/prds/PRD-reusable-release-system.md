@@ -144,9 +144,11 @@ version files to the next dev version (patch bump + `-dev` suffix, e.g.,
 releases and enables update detection for consumers tracking HEAD.
 
 **R6: CI sentinel check**. Repos with version files include a CI workflow
-that validates the `-dev` suffix on PRs touching version files. The
-check uses a regex pattern (`^[0-9]+\.[0-9]+\.[0-9]+-dev$`), not an
-exact string match.
+that validates the dev sentinel suffix on PRs touching version files. The
+suffix is configurable per repo (e.g., `-dev`, `-SNAPSHOT`, `+dev`) via
+a setting in `.release/` or the caller workflow inputs. The default is
+`-dev`. The check uses a regex pattern that matches the configured suffix,
+not a hardcoded string.
 
 **R7: Precondition validation**. Before starting the release, the skill
 checks: clean working tree, CI green on HEAD, no existing tag for the
