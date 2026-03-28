@@ -16,8 +16,8 @@ Active
 ## Scope Summary
 
 Automated release process for shirabe that keeps git tags, plugin.json, and
-marketplace.json versions in sync using a sentinel value on main, /release skill
-manifest stamping, and tag-triggered GitHub Actions.
+marketplace.json versions in sync using a rolling dev sentinel on main, /release
+skill manifest stamping, and tag-triggered GitHub Actions.
 
 ## Decomposition Strategy
 

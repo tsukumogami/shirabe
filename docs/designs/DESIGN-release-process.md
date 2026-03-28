@@ -10,13 +10,14 @@ problem: |
 decision: |
   The /release skill stamps both manifest files with the release version and commits
   before creating the annotated tag. A tag-triggered GitHub Actions workflow creates
-  the GH release and resets manifests to 0.0.0-dev on main. A dedicated CI workflow
-  validates the sentinel on every PR that touches .claude-plugin/.
+  the GH release and advances manifests to the next dev version on main. A dedicated
+  CI workflow validates the -dev sentinel on every PR that touches .claude-plugin/.
 rationale: |
   Commit-first-then-tag is the only approach that guarantees marketplace correctness,
-  since Claude Code reads plugin.json at the tagged commit. The sentinel prevents
-  drift between releases and gives CI a trivial check. This extends the /release skill
-  naturally while keeping the tag-triggered workflow pattern consistent with koto.
+  since Claude Code reads plugin.json at the tagged commit. The rolling dev sentinel
+  prevents drift between releases, enables update detection for users tracking main,
+  and gives CI a simple pattern check. This extends the /release skill naturally while
+  keeping the tag-triggered workflow pattern consistent with koto.
 ---
 
 # DESIGN: Release Process
@@ -77,19 +78,21 @@ The /release skill handles manifest updates as a pre-tag step. The full flow:
 
 1. `/prepare-release <version>` creates a release checklist issue (unchanged).
 2. `/release <issue>` validates the checklist, generates release notes.
-3. `/release` replaces `0.0.0-dev` with the release version in both
+3. `/release` replaces the current `<version>-dev` with the release version in both
    `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
 4. `/release` commits the manifest change: `chore(release): set version to <version>`.
 5. `/release` creates an annotated tag on that commit with release notes as the message.
 6. `/release` pushes the commit and tag to origin.
 7. A tag-triggered GitHub Actions workflow (`release.yml`, triggered on `v*` tags):
    a. Creates a GitHub release using the tag's annotation as release notes.
-   b. Runs a `finalize-release` job that checks out main, resets both manifests to
-      `0.0.0-dev`, commits (`chore(release): reset version to 0.0.0-dev`), and pushes.
+   b. Runs a `finalize-release` job that checks out main, advances both manifests to
+      the next dev version (e.g., after releasing `0.3.0`, sets `0.3.1-dev`), commits
+      (`chore(release): advance to <next>-dev`), and pushes.
 
 The tag always points to a commit where plugin.json has the correct version. Main
-normally carries `0.0.0-dev`, briefly has the real version during the release commit,
-and returns to `0.0.0-dev` after finalize-release.
+carries a rolling `<version>-dev` sentinel that advances after each release. Users
+installing from HEAD get a version that changes with each release, enabling Claude
+Code's update detection.
 
 #### Alternatives Considered
 
@@ -106,20 +109,20 @@ project with no build artifacts.
 
 ### Decision 2: CI validation approach
 
-Manifests on main contain the sentinel `0.0.0-dev`. Without enforcement, a contributor
-could accidentally commit a version bump in a PR, breaking the sentinel contract. The
-check needs to fit shirabe's existing CI pattern: path-filtered triggers, single-concern
-workflows, and shell scripts in `scripts/`.
+Manifests on main contain a rolling dev sentinel (e.g., `0.3.1-dev`). Without
+enforcement, a contributor could accidentally commit a non-dev version in a PR,
+breaking the sentinel contract. The check needs to fit shirabe's existing CI pattern:
+path-filtered triggers, single-concern workflows, and shell scripts in `scripts/`.
 
 Key assumptions:
-- The sentinel value is exactly the string `0.0.0-dev` -- simple equality is sufficient.
+- The sentinel always ends with `-dev` -- a regex check on the suffix is sufficient.
 - Only `plugin.json` and `marketplace.json` contain version fields needing enforcement.
 
 #### Chosen: Dedicated workflow with shell script
 
 A new workflow `.github/workflows/check-sentinel.yml` triggers on PRs modifying
 `.claude-plugin/**`. It calls `scripts/check-sentinel.sh`, which parses both JSON
-files and verifies all version fields equal `0.0.0-dev`.
+files and verifies all version fields match the pattern `<major>.<minor>.<patch>-dev`.
 
 The workflow follows the check-evals pattern exactly: path-filtered trigger, single
 job, single step calling a script. On failure, the script reports which file has
@@ -145,22 +148,21 @@ complement CI but can't replace it.
 
 ### Summary
 
-The /release skill gains a pre-tag step that replaces `0.0.0-dev` in both
-`.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` with the release
+The /release skill gains a pre-tag step that replaces the current `<version>-dev` in
+both `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` with the release
 version, then commits before creating the annotated tag. This guarantees the tag always
 points to a commit with the correct version in plugin.json -- the field the Claude Code
 marketplace uses for update detection.
 
 After the tag is pushed, a GitHub Actions workflow (`release.yml`) creates the GitHub
-release from the tag annotation and runs a `finalize-release` job that resets both
-manifests to `0.0.0-dev` on main. This mirrors koto's pattern but adds the sentinel
-reset step.
+release from the tag annotation and runs a `finalize-release` job that advances both
+manifests to the next dev version on main (e.g., after `v0.3.0`, sets `0.3.1-dev`).
 
 Between releases, a CI check (`check-sentinel.yml`) runs on PRs that modify
-`.claude-plugin/**` and verifies the sentinel is intact. The check calls
-`scripts/check-sentinel.sh`, which uses `jq` to extract version fields and compare
-against `0.0.0-dev`. Clear error messages guide contributors who aren't familiar
-with the convention.
+`.claude-plugin/**` and verifies the dev sentinel is intact. The check calls
+`scripts/check-sentinel.sh`, which uses `jq` to extract version fields and validates
+they match `<major>.<minor>.<patch>-dev`. Clear error messages guide contributors who
+aren't familiar with the convention.
 
 The version is determined by the user at `/prepare-release` time and confirmed at
 `/release` time. No automatic semver bumping -- the human decides what the next
@@ -217,8 +219,9 @@ v* tag push
   |
   +-> finalize-release job (needs: release)
         - Checkout main with RELEASE_PAT
-        - Reset plugin.json version to 0.0.0-dev
-        - Reset marketplace.json version to 0.0.0-dev
+        - Compute next dev version: bump patch of released version, append -dev
+        - Set plugin.json version to <next>-dev
+        - Set marketplace.json version to <next>-dev
         - Commit and push to main (pull --rebase first to handle concurrent merges)
 ```
 
@@ -237,8 +240,8 @@ PR modifies .claude-plugin/**
   |
   +-> check-sentinel job
         - Run scripts/check-sentinel.sh
-        - Verify plugin.json .version == "0.0.0-dev"
-        - Verify marketplace.json .plugins[0].version == "0.0.0-dev"
+        - Verify plugin.json .version matches <major>.<minor>.<patch>-dev
+        - Verify marketplace.json .plugins[0].version matches <major>.<minor>.<patch>-dev
         - Fail with clear message if either differs
 ```
 
@@ -246,7 +249,7 @@ PR modifies .claude-plugin/**
 
 Shell script that:
 - Extracts version from both manifest files using `jq`
-- Compares against `0.0.0-dev`
+- Validates each matches `^[0-9]+\.[0-9]+\.[0-9]+-dev$`
 - On failure: reports which file, what value was found, and explains the convention
 - Exit 0 on success, exit 1 on failure
 
@@ -258,7 +261,7 @@ Shell script that:
 
 **Tag format:** `v<major>.<minor>.<patch>` (e.g., `v0.3.0`)
 
-**Sentinel value:** `0.0.0-dev` (exact string, no variations)
+**Sentinel pattern:** `<major>.<minor>.<patch>-dev` (rolling; e.g., `0.3.1-dev`)
 
 **RELEASE_PAT secret:** Required by finalize-release job to push to protected main
 branch. Same secret koto already uses.
@@ -267,8 +270,8 @@ branch. Same secret koto already uses.
 
 ```
 Normal development:
-  main has 0.0.0-dev in manifests
-  PRs validated by check-sentinel.yml
+  main has <version>-dev in manifests (e.g., 0.3.0-dev)
+  PRs validated by check-sentinel.yml (must end with -dev)
 
 Release:
   /prepare-release v0.3.0 --> creates checklist issue
@@ -282,7 +285,7 @@ Release:
 
   release.yml triggers on v0.3.0 tag:
     release job --> creates GH release with tag annotation
-    finalize-release job --> resets manifests to 0.0.0-dev on main
+    finalize-release job --> advances manifests to 0.3.1-dev on main
 ```
 
 ## Implementation Approach
@@ -292,8 +295,8 @@ Release:
 Switch manifests from their current values to the sentinel and create the CI check.
 
 Deliverables:
-- Update `.claude-plugin/plugin.json` version to `0.0.0-dev`
-- Update `.claude-plugin/marketplace.json` version to `0.0.0-dev`
+- Update `.claude-plugin/plugin.json` version to initial dev sentinel
+- Update `.claude-plugin/marketplace.json` version to initial dev sentinel
 - Create `scripts/check-sentinel.sh`
 - Create `.github/workflows/check-sentinel.yml`
 - Configure GitHub tag protection rules for `v*` tags
@@ -389,8 +392,7 @@ graph LR
 ### Negative
 - Two extra commits per release on main (version stamp + sentinel reset)
 - The /release skill needs a shirabe-specific extension (increases skill complexity)
-- `plugin.json` on main shows `0.0.0-dev` instead of the current release version
-- Contributors browsing the repo see an uninformative version in the manifest
+- `plugin.json` on main shows a dev version instead of the current release version
 
 ### Mitigations
 - Extra commits are low-frequency (shirabe doesn't release often) and consistent
@@ -399,6 +401,6 @@ graph LR
   any repo with `.claude-plugin/plugin.json` can use
 - The current release version is visible in GitHub releases and git tags -- the
   manifest on main isn't the primary place users check version
-- If finalize-release fails (leaving main with a real version instead of the
-  sentinel), the fix is a single manual commit resetting to `0.0.0-dev`. CI will
-  flag the drift on the next PR that touches `.claude-plugin/`
+- If finalize-release fails (leaving main with a release version instead of the
+  dev sentinel), the fix is a single manual commit advancing to `<next>-dev`. CI
+  will flag the missing `-dev` suffix on the next PR that touches `.claude-plugin/`

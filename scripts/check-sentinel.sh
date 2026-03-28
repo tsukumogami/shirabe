@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Validates that plugin manifest versions contain the sentinel value.
+# Validates that plugin manifest versions carry a -dev sentinel.
 # Used by CI to prevent accidental version bumps on PRs.
+# The sentinel is a rolling version like "0.3.1-dev" that advances
+# after each release.
 
-SENTINEL="0.0.0-dev"
+SENTINEL_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+-dev$'
 PLUGIN_JSON=".claude-plugin/plugin.json"
 MARKETPLACE_JSON=".claude-plugin/marketplace.json"
 
@@ -23,9 +25,10 @@ check_version() {
 
   version=$(jq -r "$filter" "$file")
 
-  if [[ "$version" != "$SENTINEL" ]]; then
-    echo "FAIL: $file has version \"$version\", expected \"$SENTINEL\""
-    echo "  Versions are set automatically at release time."
+  if [[ ! "$version" =~ $SENTINEL_PATTERN ]]; then
+    echo "FAIL: $file has version \"$version\", expected <major>.<minor>.<patch>-dev"
+    echo "  Manifest versions must end with -dev on main."
+    echo "  Release versions are set automatically at release time."
     echo "  Do not change the version in manifest files."
     errors=$((errors + 1))
   fi
@@ -38,4 +41,4 @@ if [[ $errors -gt 0 ]]; then
   exit 1
 fi
 
-echo "PASS: all manifest versions are $SENTINEL"
+echo "PASS: all manifest versions carry -dev sentinel"
