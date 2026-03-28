@@ -40,6 +40,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+# Source shared retry utility
+source "$REPO_ROOT/scripts/lib/retry.sh"
 
 # Default values
 FILE=""
@@ -251,10 +255,10 @@ main() {
         gh_args+=("--label" "$LABELS")
     fi
 
-    # Create the issue
+    # Create the issue (with retry for transient API failures)
     log "Creating issue: $TITLE"
     local output
-    output=$(gh "${gh_args[@]}" 2>&1)
+    output=$(retry gh "${gh_args[@]}" 2>&1)
 
     # Extract issue number from URL
     # gh issue create returns URL like: https://github.com/owner/repo/issues/123

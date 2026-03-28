@@ -53,6 +53,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+# Source shared retry utility
+source "$REPO_ROOT/scripts/lib/retry.sh"
 
 # Default values
 MANIFEST=""
@@ -270,14 +274,14 @@ main() {
     # If a milestone was specified, ensure it exists (create if needed)
     if [[ -n "$MILESTONE" && "$DRY_RUN" != "true" ]]; then
         local repo
-        repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
+        repo=$(retry gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
         if [[ -z "$repo" ]]; then
             log "Error: could not determine repository name"
             exit 1
         fi
 
         local existing_milestone
-        existing_milestone=$(gh api "repos/$repo/milestones" \
+        existing_milestone=$(retry gh api "repos/$repo/milestones" \
             --method GET \
             -f state=all \
             -f per_page=100 \
@@ -287,7 +291,7 @@ main() {
             log "Using existing milestone: $MILESTONE"
         else
             log "Creating milestone: $MILESTONE"
-            gh api "repos/$repo/milestones" \
+            retry gh api "repos/$repo/milestones" \
                 --method POST \
                 -f title="$MILESTONE" \
                 -f description="${MILESTONE_DESCRIPTION:-(No description provided)}" \
@@ -409,7 +413,7 @@ main() {
             body=$(echo "$body" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 
             log "  Updating #$github_number (issue $issue_id)..."
-            if gh issue edit "$github_number" --body "$body" >/dev/null 2>&1; then
+            if retry gh issue edit "$github_number" --body "$body" >/dev/null 2>&1; then
                 ((update_count++)) || true
             else
                 log "  -> FAILED to update #$github_number"
@@ -435,7 +439,7 @@ main() {
 
             # Fetch the issue body from GitHub and check for placeholders
             local current_body
-            current_body=$(gh issue view "$github_number" --json body --jq '.body' 2>/dev/null || true)
+            current_body=$(retry gh issue view "$github_number" --json body --jq '.body' 2>/dev/null || true)
 
             if ! check_placeholders "$current_body"; then
                 local unresolved

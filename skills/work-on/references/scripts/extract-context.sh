@@ -41,6 +41,12 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+
+# Source shared retry utility
+source "$REPO_ROOT/scripts/lib/retry.sh"
+
 # Initialize warning array
 declare -a WARNINGS
 STATUS="success"
@@ -291,7 +297,7 @@ main() {
 
     # Use issue body as context
     local issue_body
-    issue_body=$(gh issue view "$issue" --json body --jq '.body' 2>/dev/null) || {
+    issue_body=$(retry gh issue view "$issue" --json body --jq '.body' 2>/dev/null) || {
       json_failed "Failed to fetch issue"
       exit 0
     }

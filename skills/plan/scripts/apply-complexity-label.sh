@@ -24,6 +24,12 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+# Source shared retry utility
+source "$REPO_ROOT/scripts/lib/retry.sh"
+
 # Complexity-to-color mapping (from DESIGN-tiered-validation.md Key Interfaces section 4)
 # Uses functions instead of associative arrays for Bash 3.2 (macOS) compatibility
 complexity_color() {
@@ -79,12 +85,12 @@ LABEL_DESC="$(complexity_description "$COMPLEXITY")"
 
 # Try to apply label (fast path - label already exists)
 apply_label() {
-    gh issue edit "$ISSUE_NUMBER" --add-label "$LABEL_NAME" 2>&1
+    retry gh issue edit "$ISSUE_NUMBER" --add-label "$LABEL_NAME" 2>&1
 }
 
 # Create the label
 create_label() {
-    gh label create "$LABEL_NAME" \
+    retry gh label create "$LABEL_NAME" \
         --description "$LABEL_DESC" \
         --color "$LABEL_COLOR" 2>&1
 }
