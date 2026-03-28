@@ -68,8 +68,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.tag.outputs.tag }}
-      release-url: ${{ steps.tag.outputs.release-url }}
+      tag: ${{ steps.tag.outputs.tag || steps.tag-dry-run.outputs.tag }}
+      release-url: ${{ steps.tag.outputs.release-url || steps.tag-dry-run.outputs.release-url }}
     steps:
       - name: Validate inputs
         run: |
