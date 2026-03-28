@@ -1,0 +1,32 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Semver without v prefix (e.g., 0.3.0)'
+        required: true
+        type: string
+      tag:
+        description: 'Git tag with v prefix (e.g., v0.3.0)'
+        required: true
+        type: string
+      ref:
+        description: 'Branch to release from'
+        required: true
+        type: string
+        default: main
+
+jobs:
+  release:
+    uses: tsukumogami/shirabe/.github/workflows/release.yml@main
+    with:
+      version: ${{ inputs.version }}
+      tag: ${{ inputs.tag }}
+      ref: ${{ inputs.ref }}
+
+  finalize:
+    needs: release
+    uses: tsukumogami/shirabe/.github/workflows/finalize-release.yml@main
+    with:
+      tag: ${{ inputs.tag }}

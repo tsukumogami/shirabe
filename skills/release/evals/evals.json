@@ -1,0 +1,70 @@
+{
+  "skill_name": "release",
+  "evals": [
+    {
+      "id": 1,
+      "name": "version-recommendation",
+      "prompt": "/release",
+      "expected_output": "Analyzes conventional commits since the last tag and recommends a version bump. Presents commit counts by type and asks user to confirm or override.",
+      "assertions": [
+        "Analyzes commits or conventional commit prefixes",
+        "Recommends patch, minor, or major",
+        "Asks user to confirm or override the version"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "explicit-version",
+      "prompt": "/release 0.5.0",
+      "expected_output": "Accepts version 0.5.0, normalizes to v0.5.0 tag, runs precondition checks.",
+      "assertions": [
+        "Uses version 0.5.0 or tag v0.5.0",
+        "Runs precondition checks (clean tree, CI, tag, draft, blockers)"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "dry-run",
+      "prompt": "/release --dry-run",
+      "expected_output": "Previews the release without creating a draft or dispatching the workflow.",
+      "assertions": [
+        "Mentions dry-run",
+        "Does not create a draft release or dispatch a workflow",
+        "Shows what would happen (version stamp, tag, dev bump)"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "skill-only-fallback",
+      "prompt": "/release 1.0.0 (in a repo with no release workflow)",
+      "expected_output": "Detects no release workflow, creates the draft release, and prints manual tag/push instructions.",
+      "assertions": [
+        "Scans .github/workflows/ and reports no release workflow found",
+        "Creates draft release with notes",
+        "Prints manual git tag and git push instructions"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "first-release",
+      "prompt": "/release (in a repo with no prior tags)",
+      "expected_output": "Detects no previous release tag, asks user for version, offers empty or template editor for notes.",
+      "assertions": [
+        "Detects no previous tag exists",
+        "Asks user for version rather than recommending a bump",
+        "Handles note generation gracefully without a baseline"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "precondition-failure-blockers",
+      "prompt": "/release 0.3.0 (with open blocks-release issues)",
+      "expected_output": "Identifies open blocker issues and stops before creating a draft.",
+      "assertions": [
+        "Queries for blocks-release labeled issues",
+        "Lists the specific blocker issues found",
+        "Stops execution and does not proceed to note generation"
+      ]
+    }
+  ]
+}

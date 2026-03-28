@@ -1,0 +1,102 @@
+name: Finalize Release
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag to finalize (e.g., v0.3.0)'
+        required: true
+        type: string
+      expected-assets:
+        description: 'Expected asset count (0 = skip verification)'
+        required: false
+        type: number
+        default: 0
+    secrets:
+      token:
+        description: 'Token with release edit permission (falls back to GITHUB_TOKEN)'
+        required: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine effective token
+        id: token
+        run: |
+          if [ -n "${{ secrets.token }}" ]; then
+            echo "token=${{ secrets.token }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "token=${{ github.token }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate tag format
+        run: |
+          if ! echo "${{ inputs.tag }}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Tag '${{ inputs.tag }}' does not match v<major>.<minor>.<patch>"
+            exit 1
+          fi
+
+      - name: Verify draft release exists
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          DRAFT=$(gh release view "${{ inputs.tag }}" --repo "${{ github.repository }}" --json isDraft --jq '.isDraft' 2>/dev/null || echo "not_found")
+          if [ "$DRAFT" = "not_found" ]; then
+            echo "::error::No release found for tag ${{ inputs.tag }}"
+            echo "Create one: gh release create ${{ inputs.tag }} --draft --title '${{ inputs.tag }}'"
+            exit 1
+          fi
+          if [ "$DRAFT" != "true" ]; then
+            echo "Release ${{ inputs.tag }} is already published. Nothing to do."
+            exit 0
+          fi
+
+      - name: Verify asset count
+        if: ${{ inputs.expected-assets > 0 }}
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          ACTUAL=$(gh release view "${{ inputs.tag }}" --repo "${{ github.repository }}" --json assets --jq '.assets | length')
+          EXPECTED=${{ inputs.expected-assets }}
+          if [ "$ACTUAL" -lt "$EXPECTED" ]; then
+            echo "::error::Expected at least $EXPECTED assets, found $ACTUAL"
+            echo "Assets present:"
+            gh release view "${{ inputs.tag }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name'
+            exit 1
+          fi
+          echo "Asset count OK: $ACTUAL >= $EXPECTED"
+
+      - name: Promote draft to published
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          echo "Promoting ${{ inputs.tag }} from draft to published..."
+          if ! gh release edit "${{ inputs.tag }}" --repo "${{ github.repository }}" --draft=false; then
+            echo "::error::Failed to promote release ${{ inputs.tag }}"
+            echo "Manual fix: gh release edit ${{ inputs.tag }} --draft=false"
+            exit 1
+          fi
+          echo "Release ${{ inputs.tag }} is now published"
+
+      - name: Checkout for post-release hook
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          token: ${{ steps.token.outputs.token }}
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=$(echo "${{ inputs.tag }}" | sed 's/^v//')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Run post-release hook
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          if [ -x .release/post-release.sh ]; then
+            echo "Running .release/post-release.sh ${{ steps.version.outputs.version }}"
+            .release/post-release.sh "${{ steps.version.outputs.version }}"
+          else
+            echo "No .release/post-release.sh found, skipping"
+          fi
