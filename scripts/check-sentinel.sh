@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Validates that plugin manifest versions carry a -dev sentinel.
+# Validates that plugin manifest versions carry a dev sentinel suffix.
 # Used by CI to prevent accidental version bumps on PRs.
-# The sentinel is a rolling version like "0.3.1-dev" that advances
-# after each release.
+#
+# The suffix is configurable via the first argument or DEV_SUFFIX env var.
+# Defaults to "-dev". Other common values: "-SNAPSHOT", "+dev".
+#
+# Usage:
+#   scripts/check-sentinel.sh              # uses -dev
+#   scripts/check-sentinel.sh -SNAPSHOT    # uses -SNAPSHOT
+#   DEV_SUFFIX=-dev scripts/check-sentinel.sh
 
-SENTINEL_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+-dev$'
+SUFFIX="${1:-${DEV_SUFFIX:--dev}}"
+SENTINEL_PATTERN="^[0-9]+\.[0-9]+\.[0-9]+${SUFFIX//./\\.}$"
 PLUGIN_JSON=".claude-plugin/plugin.json"
 MARKETPLACE_JSON=".claude-plugin/marketplace.json"
 
@@ -26,8 +33,8 @@ check_version() {
   version=$(jq -r "$filter" "$file")
 
   if [[ ! "$version" =~ $SENTINEL_PATTERN ]]; then
-    echo "FAIL: $file has version \"$version\", expected <major>.<minor>.<patch>-dev"
-    echo "  Manifest versions must end with -dev on main."
+    echo "FAIL: $file has version \"$version\", expected <major>.<minor>.<patch>${SUFFIX}"
+    echo "  Manifest versions must end with ${SUFFIX} on main."
     echo "  Release versions are set automatically at release time."
     echo "  Do not change the version in manifest files."
     errors=$((errors + 1))
@@ -41,4 +48,4 @@ if [[ $errors -gt 0 ]]; then
   exit 1
 fi
 
-echo "PASS: all manifest versions carry -dev sentinel"
+echo "PASS: all manifest versions carry ${SUFFIX} sentinel"
