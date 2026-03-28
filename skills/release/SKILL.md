@@ -52,7 +52,13 @@ Normalize input: accept both `0.3.0` and `v0.3.0`.
 All must pass before proceeding:
 
 1. **Clean working tree**: `git status --porcelain` is empty
-2. **CI green on HEAD**: `gh api repos/{owner}/{repo}/commits/{sha}/status` state is success
+2. **CI green on HEAD**: Check CI status using this fallback chain:
+   - First try commit status: `gh api repos/{owner}/{repo}/commits/{sha}/status`
+   - If state is `pending` with 0 check runs (common for squash-merge commits where
+     CI ran on the PR branch, not the merge result), fall back to checking the latest
+     workflow runs on the branch: `gh run list --branch main --limit 3 --json conclusion`
+   - If the latest completed run has `conclusion: success`, treat as green
+   - Only fail if there's an actual failure, not just missing status data
 3. **No existing tag**: `git tag -l v<version>` returns empty
 4. **No existing draft**: `gh release view v<version>` returns 404
 5. **No release blockers**: Query `gh issue list --label blocks-release --state open`.
