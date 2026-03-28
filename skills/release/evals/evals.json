@@ -1,33 +1,36 @@
 {
-  "skill": "release",
-  "scenarios": [
+  "skill_name": "release",
+  "evals": [
     {
+      "id": 1,
       "name": "version-recommendation",
-      "description": "Skill analyzes conventional commits and recommends a version bump",
       "prompt": "/release",
+      "expected_output": "Skill analyzes conventional commits since the last tag and recommends a version bump (patch, minor, or major). Presents the analysis with commit counts by type and asks the user to confirm or override.",
       "assertions": [
-        "output mentions commit analysis or conventional commits",
-        "output recommends patch, minor, or major",
-        "output asks for user confirmation"
+        "Output mentions commit analysis or conventional commits",
+        "Output recommends patch, minor, or major bump",
+        "Output asks for user confirmation or override"
       ]
     },
     {
+      "id": 2,
       "name": "explicit-version",
-      "description": "Skill accepts an explicit version argument",
       "prompt": "/release 0.5.0",
+      "expected_output": "Skill accepts the explicit version 0.5.0, normalizes to v0.5.0 tag, and runs precondition checks before proceeding.",
       "assertions": [
-        "output uses version 0.5.0 or v0.5.0",
-        "output runs precondition checks"
+        "Output uses version 0.5.0 or tag v0.5.0",
+        "Output runs precondition checks (clean tree, CI green, no existing tag)"
       ]
     },
     {
+      "id": 3,
       "name": "dry-run",
-      "description": "Dry-run mode previews without side effects",
       "prompt": "/release --dry-run",
+      "expected_output": "Dry-run mode previews what would happen without creating a draft release or dispatching the workflow.",
       "assertions": [
-        "output mentions dry-run or DRY-RUN",
-        "output does not create a draft release",
-        "output shows what would happen"
+        "Output mentions dry-run",
+        "Output does not create a draft release",
+        "Output shows what the workflow would do (version stamp, tag, dev bump)"
       ]
     }
   ]
