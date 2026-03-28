@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Planned
 problem: |
   Shirabe's plugin.json and marketplace.json versions drift from git tags because
   versions are maintained manually. The Claude Code marketplace reads version from
@@ -352,6 +352,30 @@ actor with push access could redirect a tag to a different commit.
 **PAT lifecycle:** The RELEASE_PAT should be created as a fine-grained PAT with an
 expiration date. Rotation should happen when the token expires. The token's usage
 is visible in GitHub's audit log.
+
+## Implementation Issues
+
+Plan: `docs/plans/PLAN-release-process.md`
+
+| # | Title | Complexity |
+|---|-------|------------|
+| #31 | chore(release): bootstrap sentinel version in manifests | simple |
+| #32 | ci(release): add tag-triggered release workflow | testable |
+| #33 | feat(release): add pre-tag manifest hook to /release skill | simple |
+| #34 | chore(release): execute first release with new process | simple |
+
+```mermaid
+graph LR
+    I31["#31<br/>bootstrap sentinel"]
+    I32["#32<br/>release workflow"]
+    I33["#33<br/>skill hook"]
+    I34["#34<br/>first release"]
+
+    I31 --> I32
+    I31 --> I33
+    I32 --> I34
+    I33 --> I34
+```
 
 ## Consequences
 
