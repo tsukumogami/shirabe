@@ -110,18 +110,30 @@ jobs:
           fi
 
       - name: Validate draft release exists
+        id: draft
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
         run: |
-          DRAFT=$(gh release view "${{ inputs.tag }}" --json isDraft --jq '.isDraft' 2>/dev/null || echo "not_found")
-          if [ "$DRAFT" = "not_found" ]; then
-            echo "::error::No draft release found for tag ${{ inputs.tag }}"
-            echo "Create one first: gh release create ${{ inputs.tag }} --draft --title '${{ inputs.tag }}'"
-            exit 1
-          fi
-          if [ "$DRAFT" != "true" ]; then
-            echo "::error::Release ${{ inputs.tag }} exists but is not a draft (already published)"
-            exit 1
+          # gh release view can't find drafts by tag when the git tag doesn't
+          # exist yet. Use gh release list with jq filter instead.
+          DRAFT_TAG=$(gh release list --json tagName,isDraft \
+            --jq '.[] | select(.tagName == "${{ inputs.tag }}" and .isDraft) | .tagName' \
+            2>/dev/null || echo "")
+
+          if [ -z "$DRAFT_TAG" ]; then
+            # Check if a non-draft release exists (already published)
+            PUBLISHED=$(gh release list --json tagName,isDraft \
+              --jq '.[] | select(.tagName == "${{ inputs.tag }}" and (.isDraft | not)) | .tagName' \
+              2>/dev/null || echo "")
+            if [ -n "$PUBLISHED" ]; then
+              echo "::error::Release ${{ inputs.tag }} exists and is already published"
+              exit 1
+            fi
+            echo "::warning::No draft release found for ${{ inputs.tag }}. Tag annotation will use a default message."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Draft release found for ${{ inputs.tag }}"
+            echo "found=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout
@@ -160,14 +172,25 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
         run: |
-          # Extract release notes from the draft release
-          gh release view "${{ inputs.tag }}" --json body --jq '.body' > /tmp/release-notes.md
+          if [ "${{ steps.draft.outputs.found }}" = "true" ]; then
+            # Extract release notes from the draft release via API
+            gh api repos/${{ github.repository }}/releases \
+              --jq '.[] | select(.tag_name == "${{ inputs.tag }}" and .draft) | .body' \
+              > /tmp/release-notes.md
+          fi
 
-          git tag -a "${{ inputs.tag }}" --cleanup=verbatim -F /tmp/release-notes.md
+          if [ -s /tmp/release-notes.md ]; then
+            git tag -a "${{ inputs.tag }}" --cleanup=verbatim -F /tmp/release-notes.md
+          else
+            git tag -a "${{ inputs.tag }}" -m "Release ${{ inputs.tag }}"
+          fi
+
           echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
 
-          RELEASE_URL=$(gh release view "${{ inputs.tag }}" --json url --jq '.url')
-          echo "release-url=$RELEASE_URL" >> "$GITHUB_OUTPUT"
+          RELEASE_URL=$(gh api repos/${{ github.repository }}/releases \
+            --jq '.[] | select(.tag_name == "${{ inputs.tag }}") | .html_url' \
+            2>/dev/null || echo "")
+          echo "release-url=${RELEASE_URL:-unknown}" >> "$GITHUB_OUTPUT"
 
       - name: Create annotated tag (dry-run)
         if: ${{ inputs.dry-run == true }}
