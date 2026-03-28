@@ -109,10 +109,15 @@ doesn't break when shirabe updates.
 
 ### Functional Requirements
 
-**R1: Release skill**. The system includes a skill invokable as `/release <version>`.
-The skill validates preconditions, generates release notes, creates a draft
-GitHub release, and dispatches the reusable workflow. It does not push commits
-or create tags directly.
+**R1: Release skill**. The system includes a single skill invokable as
+`/release [version]`. The skill analyzes commits since the last release,
+recommends a version bump (patch/minor/major) based on conventional commit
+prefixes and breaking change indicators, and presents the recommendation
+for the user to confirm or override. It then validates preconditions
+(clean tree, CI green, no blockers, no existing tag), generates release
+notes, creates a draft GitHub release, and dispatches the reusable
+workflow. It does not push commits or create tags directly. This replaces
+the previous two-phase `/prepare-release` + `/release` split.
 
 **R2: Reusable workflow**. The system includes a GitHub Actions workflow
 triggered by `workflow_dispatch` (and callable via `workflow_call`). The
@@ -229,16 +234,19 @@ API. Changes are breaking and follow the workflow versioning protocol (R9).
 - **Pre-release/beta versions.** Deferred to a future iteration. The MVP
   handles standard semver releases only.
 - **Hotfix releases from non-main branches.** Deferred. The MVP releases
-  from main only.
+  from main only. However, the workflow accepts a `ref` input (defaulting
+  to `main`) and the dev-bump step targets a configurable branch, so
+  adding release branch support later doesn't require breaking changes.
 - **Rewriting existing build pipelines.** Tsuku, koto, and niwa keep their
   existing build/test/publish jobs. Migration adds the reusable workflow as
   the prepare-release step alongside existing tag-triggered builds.
 
 ## Open Questions
 
-- **Q1**: Should the skill support a `/prepare-release` phase (checklist
-  issue with blockers) separate from `/release` (the actual release), or
-  should it be a single command?
+- ~~**Q1**: Two-phase or single command?~~ **Resolved**: Single `/release`
+  command that handles blocker checks, version recommendation, notes
+  drafting, and workflow dispatch. The draft GH release replaces the
+  checklist issue as the persistent artifact.
 - **Q2**: When the reusable workflow pushes to main, should it use
   `GITHUB_TOKEN` (limited to the workflow's permissions) or require a PAT
   (for branch-protected repos)? Or accept either via a `token` input?
