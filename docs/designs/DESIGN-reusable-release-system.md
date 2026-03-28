@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-reusable-release-system.md
 problem: |
   Four repos with different toolchains (Go+Rust, Rust, Go, JSON manifests) each
@@ -22,7 +22,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
@@ -557,6 +557,48 @@ shirabe's `v1` tag can inject malicious workflow code into all callers.
 exists for the requested tag before starting mutations. This prevents the workflow
 from proceeding if dispatched manually without the skill's draft creation step,
 which would result in a tag with no release notes.
+
+## Implementation Issues
+
+Plan: `docs/plans/PLAN-reusable-release-system.md`
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#35: reusable workflows](https://github.com/tsukumogami/shirabe/issues/35) | None | testable |
+| [#36: shirabe adoption](https://github.com/tsukumogami/shirabe/issues/36) | [#35](https://github.com/tsukumogami/shirabe/issues/35) | simple |
+| [#37: /release skill](https://github.com/tsukumogami/shirabe/issues/37) | [#35](https://github.com/tsukumogami/shirabe/issues/35) | testable |
+| [#38: first shirabe release](https://github.com/tsukumogami/shirabe/issues/38) | [#36](https://github.com/tsukumogami/shirabe/issues/36), [#37](https://github.com/tsukumogami/shirabe/issues/37) | simple |
+| [#39: tsuku adoption](https://github.com/tsukumogami/shirabe/issues/39) | [#35](https://github.com/tsukumogami/shirabe/issues/35), [#37](https://github.com/tsukumogami/shirabe/issues/37) | simple |
+| [#40: koto adoption](https://github.com/tsukumogami/shirabe/issues/40) | [#35](https://github.com/tsukumogami/shirabe/issues/35), [#37](https://github.com/tsukumogami/shirabe/issues/37) | simple |
+| [#41: niwa adoption](https://github.com/tsukumogami/shirabe/issues/41) | [#35](https://github.com/tsukumogami/shirabe/issues/35), [#37](https://github.com/tsukumogami/shirabe/issues/37) | simple |
+
+```mermaid
+graph LR
+    I35["#35: reusable workflows"]
+    I36["#36: shirabe adoption"]
+    I37["#37: /release skill"]
+    I38["#38: first shirabe release"]
+    I39["#39: tsuku adoption"]
+    I40["#40: koto adoption"]
+    I41["#41: niwa adoption"]
+
+    I35 --> I36
+    I35 --> I37
+    I36 --> I38
+    I37 --> I38
+    I35 --> I39
+    I37 --> I39
+    I35 --> I40
+    I37 --> I40
+    I35 --> I41
+    I37 --> I41
+
+    classDef ready fill:#bbdefb
+    classDef blocked fill:#fff9c4
+
+    class I35 ready
+    class I36,I37,I38,I39,I40,I41 blocked
+```
 
 ## Consequences
 
