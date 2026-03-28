@@ -1,5 +1,5 @@
 ---
-status: Draft
+status: Accepted
 problem: |
   Repos in the tsukumogami ecosystem maintain independent release workflows that
   duplicate the same prepare-release logic and have already caused version drift
