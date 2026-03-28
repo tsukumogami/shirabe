@@ -250,8 +250,10 @@ API. Changes are breaking and follow the workflow versioning protocol (R9).
 - **Q2**: When the reusable workflow pushes to main, should it use
   `GITHUB_TOKEN` (limited to the workflow's permissions) or require a PAT
   (for branch-protected repos)? Or accept either via a `token` input?
-- **Q3**: How should the skill discover the "previous release" for
-  generating release notes? Latest semver tag? Latest GitHub release?
+- ~~**Q3**: How to discover the previous release?~~ **Resolved**: Latest
+  release tag reachable from the target branch (`git describe --tags
+  --abbrev=0 --match 'v*'`). Works for main and future release branches.
+  If no prior tag exists (first release), the skill offers an empty editor.
 
 ## Known Limitations
 
