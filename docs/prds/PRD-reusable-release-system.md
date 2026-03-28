@@ -47,7 +47,7 @@ commit) can't use it without workarounds.
   with the same skill and workflow, customized only through repo-local hooks.
 - **G2**: The tag always points to a commit with the correct release version
   in all version files. No version drift by construction.
-- **G3**: Release notes are human-authored and reviewable before publication.
+- **G3**: Release notes are agent-authored and human-reviewed before publication.
 - **G4**: Failed releases are recoverable without git surgery. The system
   fails safely and reports actionable recovery steps.
 - **G5**: New repos can adopt the system by adding a caller workflow and
