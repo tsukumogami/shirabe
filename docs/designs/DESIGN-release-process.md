@@ -360,24 +360,32 @@ is visible in GitHub's audit log.
 
 Plan: `docs/plans/PLAN-release-process.md`
 
-| # | Title | Complexity |
-|---|-------|------------|
-| #31 | chore(release): bootstrap sentinel version in manifests | simple |
-| #32 | ci(release): add tag-triggered release workflow | testable |
-| #33 | feat(release): add pre-tag manifest hook to /release skill | simple |
-| #34 | chore(release): execute first release with new process | simple |
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| ~~[#31: bootstrap sentinel](https://github.com/tsukumogami/shirabe/issues/31)~~ | ~~None~~ | ~~simple~~ |
+| [#32: release workflow](https://github.com/tsukumogami/shirabe/issues/32) | [#31](https://github.com/tsukumogami/shirabe/issues/31) | testable |
+| [#33: skill hook](https://github.com/tsukumogami/shirabe/issues/33) | [#31](https://github.com/tsukumogami/shirabe/issues/31) | simple |
+| [#34: first release](https://github.com/tsukumogami/shirabe/issues/34) | [#32](https://github.com/tsukumogami/shirabe/issues/32), [#33](https://github.com/tsukumogami/shirabe/issues/33) | simple |
 
 ```mermaid
 graph LR
-    I31["#31<br/>bootstrap sentinel"]
-    I32["#32<br/>release workflow"]
-    I33["#33<br/>skill hook"]
-    I34["#34<br/>first release"]
+    I31["#31: bootstrap sentinel"]
+    I32["#32: release workflow"]
+    I33["#33: skill hook"]
+    I34["#34: first release"]
 
     I31 --> I32
     I31 --> I33
     I32 --> I34
     I33 --> I34
+
+    classDef done fill:#c8e6c9
+    classDef ready fill:#bbdefb
+    classDef blocked fill:#fff9c4
+
+    class I31 done
+    class I32,I33 ready
+    class I34 blocked
 ```
 
 ## Consequences
