@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 problem: |
   Shirabe's plugin.json and marketplace.json versions drift from git tags because
   versions are maintained manually. The Claude Code marketplace reads version from
@@ -23,7 +23,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
