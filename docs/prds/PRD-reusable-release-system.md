@@ -160,10 +160,11 @@ hook scripts are executable (if present).
 it performs all steps (set-version, commit, tag, dev bump) but skips push
 and draft promotion. It outputs what it would have done.
 
-**R9: Workflow versioning**. The reusable workflow is versioned with semver
-tags and floating major version tags (e.g., `@v1`). Breaking changes to
-the workflow inputs, hook contract, or commit format require a new major
-version. Old major tags are preserved indefinitely.
+**R9: Workflow versioning**. The reusable workflow ships from shirabe and
+shares shirabe's version tags. Callers reference it by shirabe's major
+version (e.g., `@v1`). Breaking changes to the workflow inputs, hook
+contract, or commit format require a new shirabe major version. Old major
+tags are preserved indefinitely.
 
 ### Non-Functional Requirements
 
