@@ -24,9 +24,13 @@ jobs:
       version: ${{ inputs.version }}
       tag: ${{ inputs.tag }}
       ref: ${{ inputs.ref }}
+    secrets:
+      token: ${{ secrets.RELEASE_PAT }}
 
   finalize:
     needs: release
     uses: tsukumogami/shirabe/.github/workflows/finalize-release.yml@main
     with:
       tag: ${{ inputs.tag }}
+    secrets:
+      token: ${{ secrets.RELEASE_PAT }}
