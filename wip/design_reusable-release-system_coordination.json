@@ -1,0 +1,25 @@
+{
+  "topic": "reusable-release-system",
+  "decisions": [
+    {
+      "id": 1,
+      "question": "How should the reusable workflow coordinate with existing tag-triggered build workflows and the draft release lifecycle?",
+      "status": "pending",
+      "complexity": "critical"
+    },
+    {
+      "id": 2,
+      "question": "What authentication model should the reusable workflow use for pushing to the caller's repo?",
+      "status": "pending",
+      "complexity": "standard"
+    },
+    {
+      "id": 3,
+      "question": "What is the release skill's interface — inputs, outputs, workflow dispatch mechanism, and monitoring?",
+      "status": "pending",
+      "complexity": "standard"
+    }
+  ],
+  "cross_validation": "pending",
+  "round": 0
+}
