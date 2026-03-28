@@ -15,7 +15,7 @@ goals: |
 
 ## Status
 
-Draft
+In Progress
 
 ## Problem Statement
 
@@ -247,9 +247,9 @@ API. Changes are breaking and follow the workflow versioning protocol (R9).
   command that handles blocker checks, version recommendation, notes
   drafting, and workflow dispatch. The draft GH release replaces the
   checklist issue as the persistent artifact.
-- **Q2**: When the reusable workflow pushes to main, should it use
-  `GITHUB_TOKEN` (limited to the workflow's permissions) or require a PAT
-  (for branch-protected repos)? Or accept either via a `token` input?
+- ~~**Q2**: Token model for pushing to main?~~ **Resolved in design**:
+  Configurable `token` secret defaulting to `GITHUB_TOKEN`. Repos with
+  branch protection pass a PAT; repos without don't configure anything.
 - ~~**Q3**: How to discover the previous release?~~ **Resolved**: Latest
   release tag reachable from the target branch (`git describe --tags
   --abbrev=0 --match 'v*'`). Works for main and future release branches.
