@@ -1,0 +1,7 @@
+{"schema_version":1,"workflow":"issue_10","template_hash":"b3d0dfa154785f87c3dbd451d1275163b507bbbc612dfbd9a0721f2ae4cffb2b","created_at":"2026-03-26T20:12:11Z"}
+{"seq":1,"timestamp":"2026-03-26T20:12:11Z","type":"workflow_initialized","payload":{"template_path":"/home/dgazineu/.cache/koto/b3d0dfa154785f87c3dbd451d1275163b507bbbc612dfbd9a0721f2ae4cffb2b.json","variables":{"ISSUE_NUMBER":"10","ARTIFACT_PREFIX":"issue_10"}}}
+{"seq":2,"timestamp":"2026-03-26T20:12:11Z","type":"transitioned","payload":{"from":null,"to":"entry","condition_type":"auto"}}
+{"seq":3,"timestamp":"2026-03-26T20:12:17Z","type":"evidence_submitted","payload":{"state":"entry","fields":{"mode":"issue_backed","issue_number":"10"}}}
+{"seq":4,"timestamp":"2026-03-26T20:12:17Z","type":"transitioned","payload":{"from":"entry","to":"context_injection","condition_type":"auto"}}
+{"seq":5,"timestamp":"2026-03-26T20:12:40Z","type":"evidence_submitted","payload":{"state":"context_injection","fields":{"status":"override","detail":"Context obtained directly from gh issue view"}}}
+{"seq":6,"timestamp":"2026-03-26T20:12:40Z","type":"transitioned","payload":{"from":"context_injection","to":"setup_issue_backed","condition_type":"auto"}}
