@@ -1,11 +1,10 @@
 ---
 name: release
 description: >-
-  Release workflow. Analyzes commits to recommend a version, validates
-  preconditions (including blocker issues), generates release notes,
-  creates a draft GitHub release, dispatches the reusable workflow, and
-  monitors progress. Falls back to draft + manual tag when no workflow
-  is detected.
+  Release workflow. Analyzes commits to recommend a version, generates
+  release notes for review, creates a draft GitHub release, dispatches
+  the reusable workflow, and monitors progress. Falls back to draft +
+  manual tag when no workflow is detected.
 argument-hint: '[version] [--dry-run]'
 ---
 
@@ -26,9 +25,9 @@ identification, release notes, draft creation, workflow dispatch, and monitoring
 
 ## Phases
 
-### Phase 1: Version Selection
+### Phase 1: Version Analysis
 
-If no version argument, analyze conventional commits since the last release tag:
+Analyze conventional commits since the last release tag:
 
 ```bash
 LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")
@@ -44,8 +43,7 @@ Count commits by prefix since `$LAST_TAG`:
 | `feat:` | minor |
 | `fix:`, `docs:`, `chore:`, `ci:`, `refactor:`, `test:` | patch |
 
-Present the analysis and recommendation. The user confirms or overrides.
-Normalize input: accept both `0.3.0` and `v0.3.0`.
+Normalize version input: accept both `0.3.0` and `v0.3.0`.
 
 ### Phase 2: Precondition Checks
 
@@ -69,7 +67,9 @@ All must pass before proceeding:
 
 Report the specific failure and stop on any check.
 
-### Phase 3: Release Notes
+### Phase 3: Release Notes and Version Confirmation
+
+Generate notes, present them, and confirm the version with the user.
 
 1. Gather commits: `git log --oneline $LAST_TAG..HEAD`
 2. Gather merged PRs: `gh pr list --state merged --base main --search "merged:>$LAST_TAG_DATE"`
@@ -79,7 +79,24 @@ Report the specific failure and stop on any check.
    - One sentence per change
    - Highlight breaking changes prominently
    - Handle security-labeled PRs per user's Phase 2 decision
-5. Present for review and editing
+
+5. **Print the notes in chat** so the user can read them.
+
+6. **Use AskUserQuestion** to present the recommended version with
+   alternatives. Include the commit analysis from Phase 1:
+
+   > Based on 3 feat, 8 fix, and 1 breaking change since v0.2.0:
+   >
+   > 1. **v0.3.0 (minor) -- Recommended** because new features were added
+   > 2. **v1.0.0 (major)** -- if the breaking change warrants a major bump
+   > 3. **v0.2.1 (patch)** -- if the features are minor enough to treat as a patch
+   > 4. **Custom version** -- enter a specific version
+
+   If the user picks a different version than the one used to draft the
+   notes, update the notes title to reflect the chosen version.
+
+7. Allow the user to request edits to the notes before proceeding. Only
+   move to Phase 4 after the user confirms both version and notes.
 
 ### Phase 4: Draft Release
 
@@ -133,7 +150,7 @@ Draft release with notes: <url>
 
 When `--dry-run` is passed:
 
-- Phases 1-3 run normally (version selection, checks, notes)
+- Phases 1-3 run normally (version analysis, checks, notes + confirmation)
 - Phase 4-6 are skipped (no draft, no dispatch)
 - Print what would happen: which files change, what tag, what dev version
 
