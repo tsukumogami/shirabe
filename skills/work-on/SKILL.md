@@ -40,7 +40,7 @@ You are assigned to work on the resolved issue. The issue number determined abov
 
 ### Prerequisites
 
-Run `koto version` to verify koto >= 0.2.1 is installed. If missing:
+Run `koto version` to verify koto >= 0.3.3 is installed. If missing:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tsukumogami/koto/main/install.sh | bash
@@ -104,8 +104,8 @@ A merged PR with passing CI, referenced back to the source issue.
 **Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive` flags,
 then CLAUDE.md `## Execution Mode:` header (default: `interactive`). In --auto
 mode, follow `references/decision-protocol.md` at decision points (W1, W2).
-Safety gates (W3, W4) remain blocking in both modes. Create
-`wip/work-on_<N>_decisions.md` if any decisions are recorded.
+Safety gates (W3, W4) remain blocking in both modes. Use
+`koto decisions record <WF>` to capture any decisions made.
 
 First, resolve the input using the Input Resolution section above. Once you have an
 issue number, read the issue with `gh issue view <issue-number>`. Check for blocking

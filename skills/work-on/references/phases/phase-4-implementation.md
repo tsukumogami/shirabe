@@ -1,11 +1,24 @@
 # Implementation
 
-Execute the plan from `wip/{{ARTIFACT_PREFIX}}_plan.md`.
+Retrieve the plan from koto context and execute it:
+
+```bash
+koto context get <WF> plan.md
+```
+
+The analysis agent wrote this plan and returned only a summary. The full plan
+content is needed here to execute the implementation steps.
 
 ## Design Context
 
-If `wip/IMPLEMENTATION_CONTEXT.md` exists, review it before starting. Refer
-back when making decisions to stay aligned with design intent.
+If you need to revisit design rationale during implementation:
+
+```bash
+koto context get <WF> context.md
+```
+
+You saw this content during phase 0. Only re-read from koto if you need to
+refresh your understanding or if resuming from an interrupted session.
 
 ## Implementation Cycle
 

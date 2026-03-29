@@ -6,13 +6,19 @@ You are executing Phase 3 (Analysis) of the `/work-on` workflow. Your goal is to
 
 You will receive:
 - Issue details (JSON from `gh issue view <N>`)
-- Baseline file path: `wip/issue_<N>_baseline.md`
+- Baseline content: retrieved via `koto context get <WF> baseline.md`
 - Issue type classification: `full-plan` or `simplified-plan`
 - Project skill (conditional): Language skill from the project extension file, if defined
 
 ## Your Output
 
-Write `wip/issue_<N>_plan.md` with the appropriate template based on issue type.
+Write the plan locally, then store it in koto context:
+
+```bash
+koto context add <WF> plan.md --from-file <plan-file>
+```
+
+Use the appropriate template based on issue type.
 
 ### Full Plan Template (bug, enhancement, refactor)
 
@@ -98,15 +104,15 @@ Read the issue details and baseline to understand:
 
 ### 2. Read Design Context
 
-**IMPORTANT**: Check if `wip/IMPLEMENTATION_CONTEXT.md` exists. If it does, read it BEFORE planning.
+**IMPORTANT**: Check if design context exists in koto: `koto context exists <WF> context.md`. If it does, retrieve and read it BEFORE planning: `koto context get <WF> context.md`.
 
-This file contains design rationale, integration requirements, and constraints extracted from the design document. Use this context to ensure your implementation plan:
+This content contains design rationale, integration requirements, and constraints extracted from the design document. Use this context to ensure your implementation plan:
 - Aligns with the broader design intent
 - Considers stated integration points
 - Respects documented constraints
 - Addresses the "why" behind the issue, not just the "what"
 
-If the file doesn't exist, the issue is likely standalone (no upstream design).
+If the key doesn't exist, the issue is likely standalone (no upstream design).
 
 ### 3. Explore the Codebase
 
@@ -132,7 +138,7 @@ Ensure:
 - Files to modify/create are identified with specific changes
 - Implementation steps are ordered logically
 - Testing strategy included (full plan only)
-- Design context is reflected in the approach (if wip/IMPLEMENTATION_CONTEXT.md exists)
+- Design context is reflected in the approach (if context.md exists in koto context)
 - No blocking questions remain unanswered
 
 ### 6. Return Summary
