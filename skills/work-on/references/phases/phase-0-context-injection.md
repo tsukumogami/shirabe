@@ -13,24 +13,18 @@ ${CLAUDE_SKILL_DIR}/references/scripts/extract-context.sh <N> --session <WF>
 ```
 
 The script stores the extracted context directly into koto context under
-the key `context.md`.
+the key `context.md` and prints the full content to stdout.
 
 ### Read and Summarize
 
-Retrieve the context artifact and review it:
-
-```bash
-koto context get <WF> context.md
-```
-
-Fill in the TODO items in the frontmatter based on the design excerpt. If context
-is incomplete, gather more from:
+Review the script's stdout output. Fill in the TODO items in the frontmatter
+based on the design excerpt. If context is incomplete, gather more from:
 - Related design docs or code files
 - Recently merged PRs for relevant patterns
 - Open or closed issues for prior decisions
 - Milestone context for broader goals
 
-Store the updated content back:
+If you updated the content, store it back:
 
 ```bash
 koto context add <WF> context.md --from-file <updated-file>

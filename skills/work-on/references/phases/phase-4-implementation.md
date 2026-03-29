@@ -6,15 +6,19 @@ Retrieve the plan from koto context and execute it:
 koto context get <WF> plan.md
 ```
 
+The analysis agent wrote this plan and returned only a summary. The full plan
+content is needed here to execute the implementation steps.
+
 ## Design Context
 
-Check for design context and review it before starting:
+If you need to revisit design rationale during implementation:
 
 ```bash
-koto context exists <WF> context.md && koto context get <WF> context.md
+koto context get <WF> context.md
 ```
 
-Refer back when making decisions to stay aligned with design intent.
+You saw this content during phase 0. Only re-read from koto if you need to
+refresh your understanding or if resuming from an interrupted session.
 
 ## Implementation Cycle
 

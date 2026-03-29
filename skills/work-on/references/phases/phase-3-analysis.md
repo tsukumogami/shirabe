@@ -14,17 +14,14 @@ For full plans, load the project's language skill from the extension file.
 
 Launch an analysis agent (Task tool, `subagent_type="general-purpose"`) with:
 - Issue details from `gh issue view <N>`
-- Baseline: `koto context get <WF> baseline.md`
-- Design context (if exists): `koto context get <WF> context.md`
+- Workflow name (`<WF>`) so the agent can read from and write to koto context
 - Issue type: "full-plan" or "simplified-plan"
 - Agent instructions: `../agent-instructions/phase-3-analysis.md`
 - Language skill path (full-plan only, if defined in extension)
 
-The agent writes the plan locally and stores it in koto context:
-
-```bash
-koto context add <WF> plan.md --from-file <plan-file>
-```
+The agent reads baseline and context from koto, writes the plan to koto context,
+and returns a brief summary. The main agent does not need to read these artifacts
+— the sub-agent handles them directly.
 
 Commit: `docs: create implementation plan`
 
