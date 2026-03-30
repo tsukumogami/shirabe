@@ -241,3 +241,4 @@ exist.
 | Bounded iteration / loop counter | **new — to file** | explore, prd | Phase 3 blocker |
 | Glob-aware context-exists gate | **new — to file** | explore, design, plan, prd | Phase 3 blocker |
 | Content-match gate | **new — to file** | design, plan | Phase 3 |
+| Override-with-rationale | **new — to file** | all (any gate bypass) | Phase 2 |
