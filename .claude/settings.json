@@ -2,7 +2,6 @@
   "enabledPlugins": {
     "skill-creator@claude-plugins-official": true,
     "shirabe@shirabe": true,
-    "tsukumogami@tsukumogami": true,
     "koto-skills@koto": true
   },
   "extraKnownMarketplaces": {
