@@ -237,8 +237,8 @@ exist.
 | Template variables (`--var`) | #65 (open) | all | Phase 2 blocker |
 | Mid-state decision capture | #66 (open) | explore, design, prd | Phase 2 |
 | Evidence-to-variable promotion | #87 (open) | work-on, release | Phase 2 blocker |
-| Polling gate | **new — to file** | release, work-on | Phase 3 blocker |
-| Bounded iteration / loop counter | **new — to file** | explore, prd | Phase 3 blocker |
-| Glob-aware context-exists gate | **new — to file** | explore, design, plan, prd | Phase 3 blocker |
-| Content-match gate | **new — to file** | design, plan | Phase 3 |
-| Override-with-rationale | **new — to file** | all (any gate bypass) | Phase 2 |
+| Polling gate | koto#104 | release, work-on | Phase 3 blocker |
+| Bounded iteration / loop counter | koto#105 | explore, prd | Phase 3 blocker |
+| Glob-aware context-exists gate | koto#106 | explore, design, plan, prd | Phase 3 blocker |
+| Content-match gate | koto#107 | design, plan | Phase 3 |
+| Override-with-rationale | koto#108 | all (any gate bypass) | Phase 2 |
