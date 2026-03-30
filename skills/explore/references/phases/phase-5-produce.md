@@ -35,17 +35,19 @@ Read `wip/explore_<topic>_crystallize.md` and extract the chosen type.
 
 Route to the matching sub-file:
 
-| Chosen Type | Reference File |
-|-------------|----------------|
-| PRD | `phase-5-produce-prd.md` |
-| Design Doc | `phase-5-produce-design.md` |
-| Plan | `phase-5-produce-plan.md` |
-| Decision Record | `phase-5-produce-decision.md` |
-| Rejection Record | `phase-5-produce-rejection-record.md` |
-| No artifact | `phase-5-produce-no-artifact.md` |
-| Roadmap, Spike Report, Competitive Analysis, Prototype | `phase-5-produce-deferred.md` |
+| Chosen Type | Reference File | Handoff |
+|-------------|----------------|---------|
+| PRD | `phase-5-produce-prd.md` | Auto-continues into /prd |
+| Design Doc | `phase-5-produce-design.md` | Auto-continues into /design |
+| Decision Record | `phase-5-produce-decision.md` | Auto-continues into /decision |
+| Plan | `phase-5-produce-plan.md` | Stops — user runs /plan |
+| Rejection Record | `phase-5-produce-rejection-record.md` | Stops — terminal |
+| No artifact | `phase-5-produce-no-artifact.md` | Stops — terminal |
+| Roadmap, Spike Report, Competitive Analysis, Prototype | `phase-5-produce-deferred.md` | Stops — terminal |
 
-Read the matching file and follow its instructions.
+Read the matching file and follow its instructions. For auto-continue types,
+the produce file invokes the downstream skill directly — do not stop and ask
+the user to invoke it separately.
 
 ## Cleanup Rule
 
