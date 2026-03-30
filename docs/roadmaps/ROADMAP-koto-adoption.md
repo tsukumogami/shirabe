@@ -1,5 +1,5 @@
 ---
-status: Draft
+status: Active
 theme: |
   Convert shirabe skills from prose-based workflow management to koto-orchestrated
   workflows. Skills define what to achieve; koto workflows define how to get there.
