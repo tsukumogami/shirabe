@@ -2,7 +2,7 @@
   "enabledPlugins": {
     "skill-creator@claude-plugins-official": true,
     "shirabe@shirabe": true,
-    "tsukumogami@tsukumogami": true
+    "koto-skills@koto": true
   },
   "extraKnownMarketplaces": {
     "shirabe": {
@@ -10,6 +10,17 @@
         "source": "file",
         "path": ".claude-plugin/marketplace.json"
       }
+    },
+    "koto": {
+      "source": {
+        "source": "github",
+        "repo": "tsukumogami/koto",
+        "sparsePaths": [
+          ".claude-plugin",
+          "plugins"
+        ]
+      },
+      "autoUpdate": true
     }
   }
 }
