@@ -86,16 +86,18 @@ decisions aren't cross-validated against incomplete data.
 
 ### US5: Reduced skill complexity
 
-As a skill author, I want workflow mechanics (resume, ordering, gates)
-handled by koto templates so that SKILL.md files contain only domain-specific
-instructions.
+As a skill author, I want skills to focus on what to achieve and koto
+workflows to handle how to get there, so that I can reason about domain
+logic and workflow mechanics independently.
 
 ## Requirements
 
 ### Functional Requirements
 
-**R1: Koto templates for all skills.** Each skill gets a koto template
-defining its phases, gates, evidence schemas, and transitions. Templates
+**R1: Koto workflows for all skills.** Each skill gets a koto workflow
+template that defines how phases sequence, what gates enforce between
+them, and what evidence is required to advance. Skills define what to
+achieve in each phase; workflows define how to get there. Templates
 live alongside the skill at `skills/<name>/koto-templates/<name>.md`.
 
 **R2: Phase gate enforcement.** Phase transitions are enforced by koto
@@ -124,10 +126,11 @@ conversions, not partial work.
 
 ### Non-Functional Requirements
 
-**R8: Skill line count reduction.** After conversion, each SKILL.md's
-workflow mechanics section (resume logic, phase ordering, gate descriptions)
-is replaced by a reference to the koto template. Target: 40-60% reduction
-in SKILL.md line count.
+**R8: Separation of concerns.** After conversion, SKILL.md focuses on what
+to achieve (domain goals, output expectations, quality criteria). The koto
+workflow template handles how to get there (phase sequencing, gates,
+evidence schemas, transitions). Workflow mechanics (resume, ordering,
+gate checks) move out of SKILL.md entirely.
 
 **R9: No behavioral regression.** Converted skills produce the same outputs
 (artifacts, issues, documents) as before. The user experience doesn't change;
@@ -146,7 +149,7 @@ dependency for skill execution.
 - [ ] Interrupted workflows resume correctly from the interrupted phase
 - [ ] Koto feature request issues are filed in tsukumogami/koto
 - [ ] Skills work (with degraded enforcement) when koto is not installed
-- [ ] SKILL.md files are reduced to domain logic only
+- [ ] SKILL.md files focus on what to achieve; workflow mechanics live in koto templates
 
 ## Out of Scope
 
