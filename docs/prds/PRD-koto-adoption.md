@@ -1,5 +1,5 @@
 ---
-status: Draft
+status: Accepted
 problem: |
   Seven shirabe skills encode workflow mechanics (resume, phase ordering, gates,
   decisions) as prose instructions. This duplicates 60-80% of each skill's content,
@@ -16,7 +16,7 @@ goals: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
