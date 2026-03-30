@@ -16,8 +16,12 @@
       "source": {
         "source": "github",
         "repo": "tsukumogami/koto",
-        "sparsePaths": [".claude-plugin", "plugins"]
-      }
+        "sparsePaths": [
+          ".claude-plugin",
+          "plugins"
+        ]
+      },
+      "autoUpdate": true
     }
   }
 }
