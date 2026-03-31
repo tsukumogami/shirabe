@@ -36,11 +36,11 @@ If the decisions file doesn't exist, omit this section.>
 
 After writing, hand off to /prd:
 
-1. Read the /prd skill: `../prd/SKILL.md`
-2. Continue at Phase 2 (Discover). Phase 1 (Scope) is already done -- the
-   handoff artifact fills that role.
-
-Commit before handoff: `docs(explore): hand off <topic> to /prd`
+1. Commit: `docs(explore): hand off <topic> to /prd`
+2. Invoke the PRD skill: `/shirabe:prd <topic>`
+3. The PRD skill detects the handoff artifact and resumes at Phase 2
+   (Discover). Phase 1 (Scope) is already done -- the handoff artifact
+   fills that role.
 
 ## Artifact State
 

@@ -54,11 +54,11 @@ doesn't exist, omit this section.>
 
 After writing both files, hand off to /design:
 
-1. Read the /design skill: `../design/SKILL.md`
-2. Continue at Phase 1 (Approach Discovery). Phase 0 (Setup) is done -- the
-   handoff artifacts fill that role.
-
-Commit before handoff: `docs(explore): hand off <topic> to /design`
+1. Commit: `docs(explore): hand off <topic> to /design`
+2. Invoke the design skill: `/shirabe:design <topic>`
+3. The design skill detects the handoff artifacts and resumes at Phase 1
+   (Approach Discovery). Phase 0 (Setup) is done -- the handoff artifacts
+   fill that role.
 
 ## Artifact State
 
