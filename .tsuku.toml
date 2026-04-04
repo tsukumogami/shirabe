@@ -1,5 +1,5 @@
 # Project tools managed by tsuku.
 # See: https://tsuku.dev/docs/project-config
 [tools]
-"tsukumogami/koto" = "0.5.0"
-gh = "2"
+"tsukumogami/koto" = "latest"
+gh = "latest"
