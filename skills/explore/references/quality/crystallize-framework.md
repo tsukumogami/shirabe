@@ -18,7 +18,7 @@ something a future contributor needs to know?"
 
 ## Supported Types
 
-Five artifact types can be produced through /explore today. Each has a dedicated
+Ten artifact types can be produced through /explore today. Each has a dedicated
 command or a defined action path.
 
 ### PRD
@@ -81,20 +81,74 @@ Produces a permanent rejection artifact at docs/decisions/. Routes to phase-5-pr
 | Re-proposal risk is high (common request, non-obvious rejection reasoning) | |
 | Investigation was multi-round or adversarial | |
 
+### VISION
+
+Produces a project thesis and strategic justification. Routes to /vision.
+
+| Signals | Anti-Signals |
+|---------|-------------|
+| Project doesn't exist yet (no repo, no codebase) | Project already exists and question is about its next feature |
+| Exploration centered on "should we build this?" | Requirements or user stories emerged (route to PRD) |
+| Org fit or strategic alignment was the core question | A PRD, design doc, or roadmap already covers this project |
+| Thesis validation was the exploration's primary output | Single coherent feature emerged (route to PRD) |
+| Multiple fundamentally different project directions viable | Specific users and needs already identified |
+| Target audience not yet well-defined | Negative conclusion -- project should NOT exist (route to Rejection Record) |
+| Core question is "should this project exist?" | Scope is tactical (override or repo default) |
+| Exploration produced strategic justification arguments | |
+
+### Roadmap
+
+Produces a multi-feature sequence with priorities and milestones. Routes to /roadmap.
+
+| Signals | Anti-Signals |
+|---------|-------------|
+| Multiple features or initiatives need ordering | Single feature that doesn't need sequencing |
+| Dependencies between work items affect delivery order | No clear dependencies between items |
+| The core question is "what order do we build in across features?" | Technical approach for individual items is still debated |
+| A VISION or PRD exists and covers the strategic context | |
+
+### Spike Report
+
+Produces a feasibility assessment with findings and recommendation. Routes to /spike.
+
+| Signals | Anti-Signals |
+|---------|-------------|
+| The core question is "can we do this?" (feasibility) | The question is "should we do this?" (strategy) or "what should we build?" (requirements) |
+| Technical uncertainty blocks a decision | The approach is known; only sequencing remains |
+| A time-boxed investigation produced concrete findings | Exploration was broad, not focused on a specific technical risk |
+| Specific technical risks were identified and tested | |
+
+### Decision Record
+
+Produces a permanent record of a single architectural or process decision. Routes to /decision.
+
+| Signals | Anti-Signals |
+|---------|-------------|
+| A single decision with clear options was evaluated | Multiple interrelated decisions need a design doc |
+| The core question is "which option and why?" | The decision is low-stakes and unlikely to be questioned later |
+| Future contributors will need to understand why this choice was made | No meaningful trade-offs between options |
+| Exploration compared specific alternatives with trade-offs | |
+
+### Competitive Analysis
+
+Produces a structured analysis of the competitive landscape. Routes to /competitive-analysis. Private repos only.
+
+| Signals | Anti-Signals |
+|---------|-------------|
+| The core question is "what exists in this space?" | Repo is public (competitive analysis is private-only) |
+| Market or ecosystem understanding drove the exploration | Competitive landscape is already well-understood |
+| Multiple alternatives were evaluated with trade-offs | Exploration focused on internal technical decisions, not external landscape |
+| Findings center on external tools, products, or approaches | |
+
 ## Deferred Types
 
-The following artifact types are recognized by the Crystallize framework but not yet
-supported by /explore's Produce phase. They'll be added in Feature 5. If Crystallize
-identifies one of these as the best fit, inform the user and suggest the closest
-available alternative.
+The following artifact type is recognized by the Crystallize framework but not yet
+supported by /explore's Produce phase. If Crystallize identifies it as the best fit,
+inform the user and suggest the closest available alternative.
 
 | Type | Core Question | Closest Available Alternative |
 |------|---------------|-------------------------------|
-| Spike Report | Can we? (feasibility) | No artifact -- summarize findings, suggest next step |
-| Decision Record | Which option? (single choice) | Design Doc -- captures the decision with full context |
-| Competitive Analysis | What exists? (market/ecosystem) | No artifact -- summarize research, file as reference |
 | Prototype | Does this work? (proof-of-concept) | No artifact -- start building directly with /work-on |
-| Roadmap | What's next? (multi-feature sequence) | Plan -- covers single-feature sequencing |
 
 When a deferred type fits best, explain:
 1. Why the deferred type matches the findings
@@ -108,7 +162,8 @@ Run these four steps against the accumulated findings from all discover-converge
 
 ### Step 1: Score Each Supported Type
 
-For each of the five supported types (PRD, Design Doc, Plan, No Artifact, Rejection Record):
+For each of the ten supported types (PRD, Design Doc, Plan, No Artifact, Rejection
+Record, VISION, Roadmap, Spike Report, Decision Record, Competitive Analysis):
 - Count the number of signals present in the findings
 - Count the number of anti-signals present in the findings
 - Score = signals present minus anti-signals present
@@ -143,6 +198,17 @@ person act on this without a written contract? Yes -> No artifact. No -> PRD.
 **Design Doc vs Plan:** If a PRD or design doc already exists in the repo for this
 topic, favor Plan -- the upstream artifact is ready to decompose. If no source artifact
 exists, favor Design Doc -- the technical decisions haven't been made yet.
+
+**VISION vs PRD:** Does the project exist yet? No -> VISION. Yes -> PRD.
+
+**VISION vs Roadmap:** "Should we do this at all?" -> VISION. "What sequence?" ->
+Roadmap.
+
+**VISION vs Rejection Record:** Overall conclusion "proceed" -> VISION. "Don't
+proceed" -> Rejection Record.
+
+**VISION vs No Artifact:** Does anyone else need the strategic argument? Yes -> VISION.
+No -> No Artifact.
 
 ### Step 4: Insufficient-Signal Fallback
 
@@ -205,6 +271,10 @@ those need a design doc regardless of how quickly the user wants to start coding
 What can be compressed is scope — a lean design doc that records the decisions is
 still required. The right response is "write a lean doc and implement immediately,"
 not "skip the doc."
+
+**Exploration surfaced both strategic justification AND feature requirements.** VISION
+comes first. Strategic justification must be accepted before requirements are worth
+writing. Recommend VISION with a note that a PRD should follow.
 
 **Plan signals are present but no upstream artifact exists.** Check whether open
 decisions remain. If the scope is clear and the work is small enough that no
