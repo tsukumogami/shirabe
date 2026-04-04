@@ -11,16 +11,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install koto
+      - name: Install tsuku
         run: |
           curl -fsSL https://get.tsuku.dev/now | bash
           echo "$HOME/.tsuku/bin" >> $GITHUB_PATH
           echo "$HOME/.tsuku/tools/current" >> $GITHUB_PATH
 
-      - name: Install koto via tsuku
+      - name: Install project tools
         env:
           TSUKU_TELEMETRY: "0"
-        run: tsuku install tsukumogami/koto -y
+        run: tsuku install -y
 
       - name: Validate all koto templates
         run: |
