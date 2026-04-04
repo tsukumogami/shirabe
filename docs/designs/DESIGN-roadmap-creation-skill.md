@@ -1,6 +1,6 @@
 ---
 status: Proposed
-upstream: docs/prds/PRD-roadmap-plan-relationship.md
+upstream: docs/prds/PRD-roadmap-skill.md
 problem: |
   The roadmap artifact type has a format-reference skill but no creation
   workflow. Users manually author roadmaps or rely on /explore's inline

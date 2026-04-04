@@ -198,7 +198,22 @@ Scope:
 - Define directory conventions for terminal states (sunset/, archive/,
   done/)
 
-### Feature 6: Pipeline Documentation
+### Feature 6: Plan Skill Rework
+
+Rework /plan to enrich roadmaps directly (no separate PLAN doc when input
+is a roadmap) and establish consistent "planned" semantics across all
+upstream artifact types. When /plan consumes a roadmap, it adds the issues
+table and dependency graph into the roadmap itself, creates a milestone and
+per-feature issues, and transitions the roadmap to Active. Also formalizes
+the completion cascade: what happens to upstream artifacts when all planned
+work finishes.
+
+**Dependencies:** Feature 2 (the /roadmap skill must exist for /plan to
+enrich)
+**Status:** Not Started
+**Downstream:** PRD-plan-skill-rework.md
+
+### Feature 7: Pipeline Documentation
 
 Document the three-diamond model, the five complexity levels, the full
 transition graph, and the traceability chain as a reference document. This
@@ -231,9 +246,11 @@ level routes to VISION. The Trivial level could ship independently.
 Feature 5 (Transition Scripts) depends on Features 1 and 2 because
 it standardizes the pattern across new and existing skills.
 
-Feature 6 (Docs) depends on Features 1-5 because it documents the
-completed pipeline. Writing docs before the pipeline is complete creates
-maintenance burden.
+Feature 6 (Plan Skill Rework) depends on Feature 2 because /plan needs
+the /roadmap skill to exist before it can enrich roadmaps directly.
+
+Feature 7 (Docs) depends on Features 1-6 because it documents the
+completed pipeline.
 
 The recommended order prioritizes the highest-value, lowest-dependency
 features first:
@@ -245,7 +262,9 @@ Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
                        |
                        +---> Feature 5 (Transition Scripts)
                        |
-                       +---> Feature 6 (Docs)
+                       +---> Feature 6 (Plan Rework)
+                       |
+                       +---> Feature 7 (Docs)
 ```
 
 ## Progress
@@ -253,8 +272,9 @@ Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
 | Feature | Status | Downstream Artifact |
 |---------|--------|-------------------|
 | Feature 1: VISION Artifact Type | Done | DESIGN-vision-artifact-type.md (Current) |
-| Feature 2: Roadmap Creation Skill | Not Started | -- |
+| Feature 2: Roadmap Creation Skill | Not Started | PRD-roadmap-skill.md, DESIGN-roadmap-creation-skill.md |
 | Feature 3: Artifact Traceability | Not Started | -- |
 | Feature 4: Complexity Routing Expansion | Not Started | -- |
 | Feature 5: Standardized Transition Scripts | Not Started | -- |
-| Feature 6: Pipeline Documentation | Not Started | -- |
+| Feature 6: Plan Skill Rework | Not Started | PRD-plan-skill-rework.md |
+| Feature 7: Pipeline Documentation | Not Started | -- |
