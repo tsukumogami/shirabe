@@ -8,3 +8,15 @@
 - Reference standards for existing deferred types ship independently: roadmap, spike report, and ADR reference skills improve existing workflows regardless of VISION; not a prerequisite
 - Proceed despite supply-side demand: the maintainer is the user, and workarounds (vision repo, roadmap "Vision" section) confirm the gap exists
 - PROJECTS.md lifecycle tracking is in-scope: the registry is part of the inception workflow that VISION enables
+
+## Round 1 → Round 2 (Scope Expansion)
+- Scope expanded from "add VISION type" to "define the complete strategic-to-tactical pipeline": user identified that Round 1 narrowed prematurely; VISION is one piece of a larger picture
+- Crystallize decision (PRD for VISION) rescinded: the right artifact type depends on what the full pipeline looks like
+- Round 1 findings on VISION remain valid as input to the broader pipeline design
+
+## Round 2
+- Pipeline model: three diverge-converge diamonds (Explore/Crystallize, Specify/Scope, Implement/Ship) with 5 named transitions (Advance, Recycle, Skip, Hold, Kill)
+- 5 complexity levels (Trivial, Simple, Medium, Complex, Strategic): extends existing 3-level routing at both extremes
+- Traceability: add `upstream` frontmatter to Roadmap and Design Doc; cross-repo references use `owner/repo:path` with `private:` prefix
+- Multiple independent features to sequence → artifact should be a Roadmap, not a PRD
+- The pipeline isn't a tunnel: Kill/abandon is first-class at every stage; investment-based routing over abstract complexity labels

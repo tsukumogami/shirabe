@@ -8,27 +8,28 @@ Public
 
 ## Core Question
 
-What artifact types and workflow extensions are needed to support the journey from "I have a project idea" to "I have requirements I can design against" — the layer above PRDs that captures project thesis, org fit, and strategic justification? This may be a single VISION doc type or a small pipeline of artifacts, and it needs to integrate with the existing crystallize framework and /explore workflow.
+What does the complete strategic-to-tactical pipeline look like — from "I have a project idea" all the way through to "I have implementation tasks"? What artifact types, transitions, commands, and workflow steps does each stage need? The VISION doc is one piece; the full pipeline design is the deliverable.
 
 ## Context
 
 The current artifact-centric workflow (8 types: PRD, Design Doc, Plan, Roadmap, Spike Report, Decision Record, Competitive Analysis, Prototype) assumes you already know what project you're building. There's no artifact for "here's WHY this project should exist, WHAT it offers, and HOW it fits the org." The private tools plugin completed Features 1-7 of the artifact workflow redesign, but none address the pre-PRD layer. The vision repo's org/PROJECTS.md is empty — project inception has no structured process. The user is considering a new project for the tsukumogami org and needs this thesis validated and captured before writing requirements.
 
-## In Scope
+## In Scope (expanded in Round 2)
 
-- New artifact types that sit above PRD in the pipeline
-- Workflow changes to /explore to produce pre-PRD artifacts
+- The complete artifact pipeline from project idea to implementation tasks
+- All artifact types needed at each stage (including VISION from Round 1)
+- Transitions between stages: what triggers movement, what's automatic, what needs human input
+- Flexibility: loops (explore → discover more), skips (simple features → /work-on), branches (VISION → multiple PRDs), and re-entry points
+- How strategic/tactical scope maps to pipeline stages
+- Commands needed at each stage (existing and new)
+- How the pipeline handles different complexity levels
 - Integration with the existing crystallize framework
-- What to adopt from the private tools plugin's completed artifact types
-- Lifecycle and naming conventions for new types
-- How strategic/tactical scope affects these artifacts
 
 ## Out of Scope
 
-- Implementation of the artifacts/skills themselves (this exploration produces the design)
-- Changes to /prd, /design, or /plan commands
-- Migration of existing documents to new formats
+- Implementation of artifacts/skills themselves (this exploration produces the design)
 - Go code changes to workflow-tool
+- Migration of existing documents to new formats
 
 ## Research Leads
 
@@ -85,3 +86,23 @@ The current artifact-centric workflow (8 types: PRD, Design Doc, Plan, Roadmap, 
    Produce a Calibration section that explicitly distinguishes:
    - **Demand not validated**: majority of questions returned absent or low confidence
    - **Demand validated as absent**: positive evidence that demand doesn't exist or was rejected
+
+## Round 2 Research Leads (Full Pipeline)
+
+9. **What does the current end-to-end pipeline look like today, with all its gaps and workarounds?**
+   Map every stage from idea to merged PR. For each stage: what command runs, what artifact enters, what artifact exits, what decisions are made. Identify where the pipeline breaks or forces workarounds. Include the private plugin's completed features to show the fullest picture.
+
+10. **How do established product development frameworks model flexible, non-linear pipelines?**
+   Shape Up (bets, not backlogs), Dual Track Agile (discovery + delivery), Amazon Working Backwards, Basecamp's Hill Charts. How do they handle loops, skips, and branches? What can we learn about modeling a pipeline that isn't strictly sequential?
+
+11. **What does the complete artifact type hierarchy look like, and what are all the valid transitions?**
+   Build the full graph: VISION, PRD, Design Doc, Plan, Roadmap, Spike, Decision Record, Competitive Analysis, Rejection Record, No Artifact. For each pair, is there a valid transition? What triggers it? Where do loops occur? Where are skip paths? Model this as a directed graph with conditions on edges.
+
+12. **How should the pipeline handle different complexity levels (simple, medium, complex, strategic)?**
+   A typo fix shouldn't go through VISION. A new project shouldn't skip to /work-on. What determines which stages are needed? How does the routing table from /explore's skill already handle this, and how should it expand? Consider the existing complexity-based routing table.
+
+13. **What commands/skills are needed at each pipeline stage, and which already exist?**
+   Map commands to pipeline stages. Identify: what's missing (VISION production), what needs modification (/explore crystallize expansion), what's already complete (/prd, /design, /plan, /work-on). Consider whether VISION needs its own command or if /explore covers it.
+
+14. **How do artifacts reference each other across the pipeline, and how should traceability work?**
+   Existing patterns: PRD has `upstream` field, Design Doc references PRD, Plan references design/PRD. How should VISION connect to downstream artifacts? How do you trace from an implementation issue back to the original VISION? What about cross-repo references (vision repo → public project repos)?

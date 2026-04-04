@@ -1,28 +1,28 @@
 # Crystallize Decision: vision-doc-workflow
 
 ## Chosen Type
-PRD
+Roadmap
 
 ## Rationale
 
-The exploration produced a well-understood feature (the VISION artifact type) with clear requirements that need to be captured permanently. Multiple decisions were made during exploration — template structure, crystallize signal/anti-signal tables, scope gating to strategic-only, lifecycle states, naming conventions, PROJECTS.md integration — that will be lost when wip/ is cleaned. A PRD is the right vessel to formalize these into a durable specification.
+The exploration expanded from "add a VISION type" to "define the complete strategic-to-tactical pipeline." Round 2 revealed multiple independent, sequenceable features: VISION artifact type, Roadmap creation workflow, traceability improvements, complexity routing expansion, and pipeline documentation. No single coherent feature emerged — this is a portfolio of related improvements that need sequencing by value and dependency.
 
-Plan scored equally (2) without demotion, but the Design Doc vs Plan tiebreaker applies: no upstream PRD or design doc exists for this topic, and the documentation purpose rule is decisive — exploration decisions need permanent documentation that a Plan can't provide (a Plan decomposes an existing spec into issues; there's no spec yet).
+Roadmap is the natural vessel: it sequences multiple features, each of which will need its own PRD or design doc downstream. The existing ROADMAP-artifact-workflow-redesign.md in the private tools repo followed this same pattern (Features 1-7, each with its own PRD/design). This is effectively the next phase of that same initiative.
 
 ## Signal Evidence
 
 ### Signals Present
-- **Single coherent feature emerged**: The VISION artifact type is one capability with defined boundaries, template, lifecycle, and crystallize integration
-- **Core question is "what should we build and why?"**: The exploration answered what the VISION type should contain, how it differs from PRD/Roadmap, and why it's needed
-- **User stories or acceptance criteria are missing**: No formal specification captures the decisions made during exploration; acceptance criteria need to be written
+- **Multiple features to sequence**: VISION type, Roadmap creation, traceability fixes, complexity routing, pipeline docs — five independent work items
+- **Portfolio-level planning**: cross-cutting initiative affecting /explore, /design, /plan, and artifact schemas
+- **The core question is "what's next?"**: the what is understood from Round 1 and 2 research; the question is ordering and dependencies
 
 ### Anti-Signals Checked
-- **Requirements were provided as input**: Not present — requirements emerged from exploration, not given beforehand
-- **Multiple independent features**: Weakly present — reference standards could ship independently, but the core VISION type is a single coherent feature. Caused demotion but doesn't disqualify
-- **Independently-shippable steps**: Weakly present — same as above
+- **Single feature**: Not present — five distinct features identified
+- **Deep technical question**: Not present — the approach is clear for each feature
+- **No clear deliverables**: Not present — each feature has concrete outputs
 
 ## Alternatives Considered
-- **Plan (Score: 2, not demoted)**: Ranked lower via tiebreaker — no upstream artifact exists to decompose, and exploration decisions need a spec document before they can be broken into issues
-- **Design Doc (Score: 0, demoted)**: The integration pattern is straightforward (add to crystallize framework, add Phase 5 handler). No architectural alternatives need evaluation
-- **No Artifact (Score: 0, demoted)**: Disqualified by documentation purpose rule — decisions were made that future contributors need to know, and wip/ is cleaned before merge
-- **Rejection Record (Score: 0)**: Not applicable — exploration concluded "proceed"
+- **PRD**: Ranked lower — multiple independent features with independently-shippable steps (strong anti-signals). Each feature will get its own PRD, but the portfolio needs a Roadmap first
+- **Design Doc**: Not appropriate — no architectural decisions remain; the integration patterns are established
+- **Plan**: No upstream artifact to decompose yet; the Roadmap IS the upstream that Plans will consume
+- **No Artifact**: Disqualified — many decisions and a complete pipeline model need permanent documentation

@@ -62,4 +62,64 @@ Supporting changes include PROJECTS.md as a lifecycle-tracked project registry a
 
 Demand is supply-side: the maintainer needs this for a second project. Workarounds (vision repo, roadmap "Vision" sections) confirm the gap. The artifact workflow redesign (7 features, all shipped) never identified this layer because the org had only one project.
 
+## Scope Expansion (User Redirect)
+
+User redirected: the exploration narrowed prematurely to "add a VISION type" when the real question is the complete strategic-to-tactical pipeline. Round 2 investigated the full artifact pipeline, not just the VISION piece. The Round 1 crystallize decision (PRD for VISION) was rescinded.
+
+## Round 2
+
+### Key Insights
+
+1. Pipeline has 8 stages, 7 well-covered (Lead: current-pipeline). Stage 1 (Inception/Strategic) has 3 gaps: no VISION creation, no Roadmap creation workflow, no complexity-to-feature handoff.
+
+2. Three-diamond model captures pipeline structure (Lead: flexible-pipelines). Explore/Crystallize, Specify/Scope, Implement/Ship. Five named transitions: Advance, Recycle, Skip, Hold, Kill.
+
+3. Five complexity levels needed (Lead: complexity-routing). Trivial and Strategic extend the existing Simple/Medium/Complex table.
+
+4. Fourteen artifact node types with 30+ transitions and 6 gaps (Lead: transition-graph). VISION has no entry point; Spike/Competitive Analysis lack downstream handoffs; Roadmap features lack /explore re-entry.
+
+5. Traceability breaks at Roadmap and Design Doc (Lead: traceability). Need `upstream` fields on both. Cross-repo convention: `owner/repo:path` with `private:` prefix.
+
+6. Pipeline is a funnel, not a tunnel (Lead: flexible-pipelines). Kill/abandon is first-class at every stage.
+
+7. Existing skill patterns are consistent and extensible (PRD agents). Three-layer pattern, Phase 5 handler templates, well-exercised addition pattern.
+
+### Tensions
+
+- Investment-based routing vs complexity labels: resolved as naming change, not restructuring
+- Three diamonds vs current commands: resolved as mental model for docs, not command restructuring
+- How many features to tackle: resolved as Roadmap (sequence by value and dependency)
+
+### Gaps
+
+- Roadmap creation workflow (format reference only, no guided creation)
+- Automated downstream artifact linking (specified but never implemented)
+- Cross-repo reference convention (doesn't exist)
+- Pipeline mental model documentation (no home)
+
+### Decisions
+
+- Pipeline model: three diverge-converge diamonds with 5 named transitions
+- 5 complexity levels: Trivial, Simple, Medium, Complex, Strategic
+- Traceability: add upstream to Roadmap and Design Doc; cross-repo convention
+- Artifact type: Roadmap (multiple independent features to sequence)
+
+### User Focus
+
+Auto-mode: user redirected scope from VISION-only to complete pipeline. All leads returned with consistent findings. The pipeline is more complete than initially assumed — most gaps are at the strategic entry point and in traceability/stitching.
+
+## Accumulated Understanding
+
+The strategic-to-tactical pipeline is mostly complete. Seven of eight stages have full workflow skills. The primary gap is Stage 1 (Inception/Strategic), which needs three things: the VISION artifact type, a Roadmap creation workflow, and formalized complexity-to-feature handoff from roadmap planning issues.
+
+The pipeline's structure follows a three-diamond model: Explore/Crystallize (understand the problem), Specify/Scope (define and decompose), Implement/Ship (build and release). Five named transition decisions at each boundary: Advance, Recycle, Skip, Hold, Kill. This mental model explains how existing commands relate without requiring restructuring.
+
+Five complexity levels route work through the pipeline: Trivial (just code, no artifacts), Simple (/work-on directly), Medium (/design → /plan), Complex (/explore → full pipeline), Strategic (VISION → Roadmap → per-feature pipelines at lower levels).
+
+The traceability chain from VISION to PR requires two schema fixes (upstream fields on Roadmap and Design Doc), a cross-repo reference convention, and automated downstream artifact linking. These are small additions that close the chain completely.
+
+The work ahead is a portfolio of related improvements, not a single feature. It sequences naturally as: (1) VISION artifact type + crystallize integration, (2) Roadmap creation workflow, (3) Traceability improvements, (4) Complexity routing expansion, (5) Pipeline documentation. Each feature is independently valuable.
+
+Round 1 findings on VISION (template, lifecycle, crystallize signals, scope gating) remain valid and feed into Feature 1 of the roadmap. The PRD research agents' findings on skill patterns and lifecycle details also feed into Feature 1.
+
 ## Decision: Crystallize
