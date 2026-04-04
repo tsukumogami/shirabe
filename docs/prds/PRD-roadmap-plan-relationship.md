@@ -103,12 +103,21 @@ The crystallize framework already captures this: Roadmap signals include
 signals include "existing PRD or design doc" and "work understood well
 enough to break into issues."
 
-**R4. Roadmap -> Plan flow is the connection mechanism.** A Roadmap's
-features decompose into Plans via /plan. Each feature becomes a planning
-issue that flows through its own PRD/design/plan cycle. The Roadmap
-tracks progress across these independent pipelines. This is the hierarchy
-pattern (most common in industry tools per research): separate types
-connected by a well-defined input/output relationship.
+**R4. /plan enriches roadmaps directly — no separate PLAN doc.** When
+/plan consumes a roadmap, it creates GitHub issues (one per feature with
+needs-* labels), adds an Implementation Issues table and Mermaid dependency
+graph directly into the roadmap document, creates a GitHub milestone, and
+transitions the roadmap to Active. No separate PLAN doc is produced.
+
+Rationale: The PLAN doc would duplicate information already in the roadmap
+(feature list, dependencies, needs-* annotations, progress). The roadmap
+IS the plan at the portfolio level. Each feature's issue then triggers its
+own pipeline (PRD -> design -> plan -> implement) — the per-feature PLAN
+docs are where implementation-level planning lives.
+
+This means roadmap planning is always multi-pr (one issue per feature, each
+independently progressing through downstream workflows). The single-pr
+execution mode doesn't apply to roadmaps.
 
 ### Non-Functional
 
@@ -128,8 +137,15 @@ and /implement consumers continue to work without modification.
       format, error reporting)
 - [ ] A decision rule exists (in /explore's routing guide or skill docs)
       that distinguishes Roadmap from Plan based on abstraction level
+- [ ] /plan consuming a roadmap adds Implementation Issues table and Mermaid
+      dependency graph directly into the roadmap (no separate PLAN doc)
+- [ ] /plan consuming a roadmap creates a GitHub milestone and per-feature
+      issues with needs-* labels
+- [ ] /plan consuming a roadmap transitions the roadmap from Draft to Active
+- [ ] Roadmap planning is always multi-pr (no single-pr mode for roadmaps)
 - [ ] No changes to the Go workflow-tool binary
-- [ ] Existing Plan artifacts and /plan workflows are unaffected
+- [ ] Existing Plan artifacts and /plan workflows for design/PRD inputs
+      are unaffected
 
 ## Out of Scope
 
@@ -162,7 +178,9 @@ and /implement consumers continue to work without modification.
   Each skill follows the design doc transition script as the reference
   implementation. A shared document becomes justified when a third type
   emerges.
-- **Connection via /plan over parent-child hierarchy**: /plan already
-  consumes roadmaps and produces plans. Formalizing this as the connection
-  mechanism avoids adding nesting depth (roadmap -> plan -> issues is
-  already three levels).
+- **Enrich roadmap over separate PLAN doc**: When /plan consumes a roadmap,
+  it writes the issues table and dependency graph directly into the roadmap
+  rather than producing a thin PLAN doc that duplicates roadmap content.
+  The roadmap IS the plan at the portfolio level. This reduces artifact
+  count and avoids maintaining two documents for the same initiative.
+  Per-feature PLAN docs still exist for implementation-level decomposition.

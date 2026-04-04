@@ -1,5 +1,6 @@
 ---
 status: Proposed
+upstream: docs/prds/PRD-roadmap-plan-relationship.md
 problem: |
   The roadmap artifact type has a format-reference skill but no creation
   workflow. Users manually author roadmaps or rely on /explore's inline
@@ -248,9 +249,18 @@ Detects handoff artifact; skips Phase 1 if present.
 **No directory movement.** All roadmaps stay in `docs/roadmaps/` regardless
 of lifecycle state (matching the existing private plugin convention).
 
-**Downstream consumption.** /plan reads Active roadmaps and decomposes them
-into per-feature planning issues with needs-* labels. No changes needed
-to /plan — the output format is unchanged.
+**Downstream consumption.** /plan reads roadmaps and enriches them directly:
+creates GitHub issues (one per feature with needs-* labels), adds an
+Implementation Issues table and Mermaid dependency graph into the roadmap,
+creates a GitHub milestone, and transitions the roadmap to Active. No
+separate PLAN doc is produced — the roadmap IS the plan at the portfolio
+level. Roadmap planning is always multi-pr. Each feature's issue then
+triggers its own pipeline (PRD -> design -> plan -> implement).
+
+Note: this changes /plan's behavior when `input_type: roadmap`. The /plan
+skill's Phase 7 writes into the roadmap doc instead of creating a PLAN doc.
+This is a /plan modification, not a /roadmap deliverable — but the /roadmap
+skill must produce output that supports this flow.
 
 **Crystallize framework.** Roadmap is already a supported type in the
 crystallize framework (promoted from deferred in Feature 1). The signal
