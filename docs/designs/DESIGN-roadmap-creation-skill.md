@@ -219,7 +219,7 @@ skills/roadmap/
     roadmap-format.md               <-- format spec (adopted from private)
     phases/
       phase-1-scope.md              <-- conversational scoping (6 dimensions)
-      phase-2-discover.md           <-- 4-role agent pool
+      phase-2-discover.md           <-- 3 fixed agent roles
       phase-3-draft.md              <-- produce roadmap from findings
       phase-4-validate.md           <-- 3-role jury
 
@@ -292,7 +292,7 @@ wip/explore_<topic>_findings.md ---> phase-5-produce-roadmap.md
 Phase 1: Scope (6 coverage dimensions)
     |
     v
-Phase 2: Discover (2-3 agents from 4-role pool)
+Phase 2: Discover (3 fixed agent roles)
     |
     v
 Phase 3: Draft (produce roadmap)

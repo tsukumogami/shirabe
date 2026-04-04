@@ -106,9 +106,15 @@ continues to parse PLAN docs only.
 - [ ] All-issues-complete triggers appropriate upstream transition per R5
 - [ ] Existing /implement and /work-on workflows are unaffected
 
+## Related
+
+- **PRD-roadmap-skill.md** — prerequisite. Defines the roadmap format
+  including reserved positions for Implementation Issues and Mermaid graph
+  that this PRD's R1 populates. Must ship first.
+
 ## Out of Scope
 
-- /roadmap creation skill (separate PRD: PRD-roadmap-skill.md)
+- /roadmap creation skill (see PRD-roadmap-skill.md)
 - Changes to /implement or /work-on
 - Go code changes to parsePlanDoc()
 - New artifact types or lifecycle states

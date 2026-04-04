@@ -92,49 +92,40 @@ Implementation Issues table, Mermaid dependency graph, Progress section,
 feature descriptions. Nothing is stripped or deleted. Done roadmaps are
 historical artifacts.
 
-**R6. Progress consistency invariant.** When a feature's GitHub issue is
-closed, the roadmap must reflect it. The roadmap's Progress section and
-Implementation Issues table stay in sync with GitHub. No issue should
-show as closed on GitHub while the roadmap lists it as "Not Started."
+**R6. Format supports planning enrichment.** The roadmap format reserves
+positions for an Implementation Issues table and Mermaid dependency graph
+(after the Progress section). These sections are empty at creation time
+and populated by /plan when it consumes the roadmap. The /roadmap skill
+defines the format; /plan populates it (see PRD-plan-skill-rework.md).
 
-**R7. Planned roadmap absorbs the plan role.** When /plan consumes a
-roadmap, it enriches the roadmap directly: adds Implementation Issues
-table and Mermaid dependency graph, creates GitHub milestone and
-per-feature issues with needs-* labels, transitions Draft -> Active.
-No separate PLAN doc is produced. The roadmap IS the plan at the
-portfolio level.
-
-**R8. Roadmap planning is always multi-pr.** Each feature becomes an
-independent GitHub issue progressing through its own downstream pipeline
-(PRD -> design -> plan -> implement). Single-pr mode doesn't apply.
-
-**R9. /explore auto-continue handoff.** /explore's Phase 5 hands off to
+**R7. /explore auto-continue handoff.** /explore's Phase 5 hands off to
 /roadmap via the auto-continue pattern (writes a scope artifact, invokes
 /roadmap). Replaces the current inline production in
 phase-5-produce-deferred.md.
 
-**R10. Minimum 2 features.** A roadmap must have at least 2 features.
+**R8. Minimum 2 features.** A roadmap must have at least 2 features.
 Single-feature work doesn't need a roadmap — use a PRD.
 
 ### Non-Functional
 
-**R11. No Go code changes.** The /roadmap skill is implemented in skill
+**R9. No Go code changes.** The /roadmap skill is implemented in skill
 markdown and shell scripts, not in the workflow-tool binary.
 
-**R12. Transition script follows established interface.** The script
+**R10. Transition script follows established interface.** The script
 matches the design doc transition script's conventions (argument pattern,
 output format, error reporting).
 
 ## Acceptance Criteria
 
-- [ ] `skills/roadmap/SKILL.md` exists with creation workflow and format
-      spec
+- [ ] `skills/roadmap/SKILL.md` exists with creation workflow and format spec
 - [ ] Phase files exist (scope, discover, draft, validate)
 - [ ] `skills/roadmap/scripts/transition-status.sh` exists and enforces
       allowed/forbidden transitions
 - [ ] Draft -> Active requires human approval
 - [ ] Active -> Done requires all features terminal
 - [ ] Done roadmaps retain all content (no stripping)
+- [ ] Roadmap format reserves positions for Implementation Issues table and
+      Mermaid dependency graph (empty at creation, populated by /plan)
 - [ ] /explore Phase 5 hands off to /roadmap (auto-continue, not inline)
 - [ ] Inline roadmap production removed from phase-5-produce-deferred.md
 - [ ] Roadmap validation rejects fewer than 2 features
@@ -142,18 +133,16 @@ output format, error reporting).
 
 ## Out of Scope
 
-- Changes to /plan skill's roadmap consumption behavior (separate PRD)
+- /plan skill changes for roadmap enrichment (see PRD-plan-skill-rework.md)
+- Progress consistency enforcement mechanism (how issue closure propagates
+  to the roadmap — that's /plan and /work-on's concern)
 - Go code changes to workflow-tool
 - Changes to /implement, /work-on, or other plan consumers
 - Retroactive changes to existing roadmap artifacts
 - Shared conventions document (premature for 2 types)
 
-## Known Limitations
+## Related
 
-- R7 (planned roadmap absorbs plan role) describes what the roadmap
-  receives from /plan, but the /plan changes needed to produce this
-  output are tracked separately. The /roadmap skill must produce output
-  that supports this flow, but it doesn't implement the /plan side.
-- R6 (progress consistency) describes the invariant, not the enforcement
-  mechanism. How completion events propagate back to the roadmap is a
-  /plan and /work-on concern, tracked in the plan skill PRD.
+- **PRD-plan-skill-rework.md** — covers /plan's changes needed to enrich
+  roadmaps directly (R6's population mechanism), completion cascades, and
+  progress consistency enforcement. Deferred until the /roadmap skill ships.
