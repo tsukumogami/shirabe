@@ -1,5 +1,5 @@
 ---
-status: Draft
+status: Active
 theme: |
   Complete the strategic-to-tactical pipeline by adding the missing inception
   layer and closing gaps in traceability, routing, and artifact production.
@@ -18,7 +18,7 @@ scope: |
 
 ## Status
 
-Draft
+Active
 
 ## Theme
 
@@ -74,6 +74,13 @@ and moves files between directories based on status. The design doc skill
 already has this pattern; it should be standardized across all artifact
 skills. Terminal states (Sunset, Superseded, Done) move docs to
 status-named subdirectories.
+
+**Draft artifacts must not merge to main.** Before any PR merges,
+all artifacts it introduces must have their status validated: ROADMAPs
+must be Active (not Draft), DESIGNs must be at least Planned, PLANs
+must be Active or deleted. Each doc-type skill's transition script
+should enforce this as a precondition — or CI should validate it.
+This prevents the mistake of shipping a Draft roadmap to main.
 
 **Each skill owns its completion lifecycle cascades.** When work on an
 artifact completes (PR merges), related artifacts need status updates:
