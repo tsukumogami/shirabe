@@ -75,6 +75,16 @@ already has this pattern; it should be standardized across all artifact
 skills. Terminal states (Sunset, Superseded, Done) move docs to
 status-named subdirectories.
 
+**Each skill owns its completion lifecycle cascades.** When work on an
+artifact completes (PR merges), related artifacts need status updates:
+PLAN docs get deleted, DESIGN docs transition to Current and move to
+`current/`, upstream ROADMAPs update their progress tables. Each
+doc-type skill should know which transitions to trigger on its own
+artifacts' completion and which upstream/downstream artifacts to update.
+This is the "completion side" of the pipeline — creation skills handle
+the left-to-right flow, completion cascades handle the right-to-left
+bookkeeping.
+
 ## Features
 
 ### Feature 1: VISION Artifact Type
@@ -235,7 +245,7 @@ Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
 
 | Feature | Status | Downstream Artifact |
 |---------|--------|-------------------|
-| Feature 1: VISION Artifact Type | Not Started | DESIGN-vision-artifact-type.md |
+| Feature 1: VISION Artifact Type | Done | DESIGN-vision-artifact-type.md (Current) |
 | Feature 2: Roadmap Creation Skill | Not Started | -- |
 | Feature 3: Artifact Traceability | Not Started | -- |
 | Feature 4: Complexity Routing Expansion | Not Started | -- |
