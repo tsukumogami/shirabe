@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 problem: |
   The /explore workflow's crystallize framework has no artifact type for the
   pre-requirements layer -- project thesis, org fit, and strategic justification
