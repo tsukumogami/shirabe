@@ -2,4 +2,4 @@
 # See: https://tsuku.dev/docs/project-config
 [tools]
 "tsukumogami/koto" = "latest"
-gh = "latest"
+# gh = "latest"  # disabled: segfaults on Linux (tsukumogami/tsuku#2245)
