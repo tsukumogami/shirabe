@@ -1,0 +1,14 @@
+[
+  {
+    "name": "vision-standalone-creation",
+    "description": "Verify /vision creates a VISION doc when invoked standalone with a project topic",
+    "prompt": "/vision new-developer-portal",
+    "assertions": [
+      "Detects no handoff artifact and starts from Phase 1 (scope)",
+      "Asks scoping questions about the project thesis",
+      "Produces a VISION doc at docs/visions/VISION-new-developer-portal.md",
+      "VISION doc has all 7 required sections in correct order",
+      "Thesis section is phrased as a hypothesis, not a problem statement"
+    ]
+  }
+]
