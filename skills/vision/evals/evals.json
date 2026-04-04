@@ -1,0 +1,120 @@
+{
+  "skill_name": "vision",
+  "evals": [
+    {
+      "id": 1,
+      "name": "standalone-creation",
+      "prompt": "/vision new-developer-portal",
+      "expected_output": "Detects no handoff artifact (wip/vision_new-developer-portal_scope.md absent). Starts from Phase 1 (scope). Asks scoping questions about the project thesis, audience, and org fit. Produces a VISION doc at docs/visions/VISION-new-developer-portal.md with all 7 required sections in correct order. Thesis section is phrased as a hypothesis, not a problem statement.",
+      "files": [],
+      "expectations": [
+        "Plan checks for wip/vision_new-developer-portal_scope.md handoff artifact before deciding which phase to start from",
+        "Plan starts from Phase 0 (setup/branch creation) or Phase 1 (scope) since no handoff artifact exists",
+        "Plan includes a conversational scoping step (Phase 1) before any research or drafting",
+        "Plan includes Phase 2 (discover) with parallel research agents",
+        "Plan includes Phase 3 (draft) producing a VISION document at docs/visions/VISION-new-developer-portal.md",
+        "Plan includes Phase 4 (validate) with jury review",
+        "Plan mentions reading phase reference files (e.g. references/phases/phase-1-scope.md)",
+        "Plan mentions detecting repo visibility from CLAUDE.md or repo path"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "explore-handoff-detection",
+      "prompt": "/vision workflow-engine",
+      "expected_output": "Detects existing handoff artifact at wip/vision_workflow-engine_scope.md. Skips Phase 1 (scope) and resumes at Phase 2 (discover). Uses the handoff artifact's problem statement, research leads, and decisions as input. Does not re-ask scoping questions that were already answered during /explore.",
+      "files": ["wip/vision_workflow-engine_scope.md"],
+      "expectations": [
+        "Plan checks for wip/vision_workflow-engine_scope.md handoff artifact",
+        "Plan detects the existing handoff artifact and skips Phase 1 (scope)",
+        "Plan resumes at Phase 2 (discover) using the handoff artifact content",
+        "Plan does NOT include conversational scoping questions since handoff provides them",
+        "Plan mentions reading the handoff artifact for problem statement and research leads"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "visibility-gating-public",
+      "prompt": "/vision --auto package-registry",
+      "expected_output": "Detects Public visibility from CLAUDE.md. Produces a VISION doc with 7 required sections. Does NOT include Competitive Positioning or Resource Implications sections (private-only). All content is appropriate for public consumption.",
+      "files": [],
+      "expectations": [
+        "Plan detects Public visibility from CLAUDE.md or repo path",
+        "Plan explicitly excludes Competitive Positioning section from the VISION doc",
+        "Plan explicitly excludes Resource Implications section from the VISION doc",
+        "Plan mentions reading skills/public-content/SKILL.md for content governance",
+        "Plan includes all 7 required sections (Status, Thesis, Audience, Value Proposition, Org Fit, Success Criteria, Non-Goals)",
+        "Plan acknowledges --auto flag for non-interactive execution mode"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "lifecycle-accept-verb",
+      "prompt": "/vision accept docs/visions/VISION-package-registry.md",
+      "expected_output": "Detects lifecycle verb 'accept'. Validates Open Questions section is empty or removed. Runs transition-status.sh to transition from Draft to Accepted. Reports success. File stays in docs/visions/ (no directory movement for Accepted).",
+      "files": ["docs/visions/VISION-package-registry.md"],
+      "expectations": [
+        "Plan detects 'accept' as a lifecycle verb rather than starting the creation workflow",
+        "Plan includes validating that Open Questions section is empty or removed before transition",
+        "Plan mentions running scripts/transition-status.sh to perform the transition",
+        "Plan targets transitioning from Draft to Accepted status",
+        "Plan does NOT move the file to a different directory (file stays in docs/visions/)"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "lifecycle-sunset-with-move",
+      "prompt": "/vision sunset docs/visions/VISION-old-project.md",
+      "expected_output": "Detects lifecycle verb 'sunset'. Runs transition-status.sh to transition from Active to Sunset. File is moved to docs/visions/sunset/VISION-old-project.md via git mv. Status updated in both frontmatter and body.",
+      "files": ["docs/visions/VISION-old-project.md"],
+      "expectations": [
+        "Plan detects 'sunset' as a lifecycle verb rather than starting the creation workflow",
+        "Plan mentions running scripts/transition-status.sh to perform the transition",
+        "Plan includes moving the file to docs/visions/sunset/ directory",
+        "Plan mentions the transition is from Active to Sunset status",
+        "Plan mentions git mv or file movement for the directory change"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "jury-review-quality",
+      "prompt": "/vision --auto observability-platform",
+      "expected_output": "Phase 4 spawns 3 jury agents focused on vision-specific quality. Agents check: thesis is a hypothesis (not problem statement), success criteria are project-level (not feature-level), org fit explains why HERE, non-goals are about identity (not scope), content boundaries are respected (no features, sequencing, or architecture).",
+      "files": [],
+      "expectations": [
+        "Plan includes Phase 4 (validate) with jury review agents",
+        "Plan mentions jury checking that thesis is a hypothesis not a problem statement",
+        "Plan mentions jury checking that success criteria are project-level not feature-level",
+        "Plan mentions jury checking org fit explains why HERE",
+        "Plan mentions jury checking non-goals are about identity not just scope",
+        "Plan mentions jury checking content boundaries (no features, sequencing, or architecture)"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "empty-argument-prompts",
+      "prompt": "/vision",
+      "expected_output": "With no argument, skill asks the user what project they want to create a vision for. Does not assume a topic or start drafting immediately.",
+      "files": [],
+      "expectations": [
+        "Plan includes asking the user what project or org they want to define a vision for",
+        "Plan does NOT assume a topic or start drafting immediately",
+        "Plan does NOT proceed to Phase 1 scoping without first getting a topic from the user"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "crystallize-discrimination",
+      "prompt": "/explore --auto --strategic should we build a developer analytics dashboard",
+      "expected_output": "Exploration in strategic scope. Crystallize framework scores VISION higher than PRD because: project doesn't exist yet, exploration centered on 'should we build this', org fit is the core question. VISION signals fire, PRD anti-signals fire (no existing project). Routes to /vision via Phase 5 handoff.",
+      "files": [],
+      "expectations": [
+        "Plan involves an exploration workflow, not a direct /vision invocation",
+        "Plan includes a crystallize or artifact-type selection step",
+        "Plan scores or routes toward VISION as the appropriate artifact type",
+        "Plan reasoning mentions that the project does not exist yet as a signal for VISION over PRD",
+        "Plan mentions Phase 5 handoff to /vision after exploration completes"
+      ]
+    }
+  ]
+}

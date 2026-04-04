@@ -40,6 +40,7 @@ Route to the matching sub-file:
 | PRD | `phase-5-produce-prd.md` | Auto-continues into /prd |
 | Design Doc | `phase-5-produce-design.md` | Auto-continues into /design |
 | Decision Record | `phase-5-produce-decision.md` | Auto-continues into /decision |
+| VISION | `phase-5-produce-vision.md` | Auto-continues into /vision |
 | Plan | `phase-5-produce-plan.md` | Stops — user runs /plan |
 | Rejection Record | `phase-5-produce-rejection-record.md` | Stops — terminal |
 | No artifact | `phase-5-produce-no-artifact.md` | Stops — terminal |

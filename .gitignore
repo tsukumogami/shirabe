@@ -21,3 +21,4 @@ Thumbs.db
 
 # Eval viewer artifacts
 decision-workspace/
+.local.env
