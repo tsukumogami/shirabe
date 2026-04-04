@@ -63,7 +63,6 @@ Key assumptions:
 - Phase 3 (Draft) follows the same structural pattern as /vision and /prd
 - Always produces Draft status; Active requires human approval
 - All features start as "Not started" at creation time
-- 4-role pool is sufficient; cross-repo analyst may be needed later
 
 #### Chosen: Roadmap-adapted 4-phase pattern with domain-specific roles
 
@@ -216,7 +215,8 @@ skills/roadmap/
   scripts/
     transition-status.sh            <-- Draft/Active/Done transitions
   references/
-    roadmap-format.md               <-- format spec (adopted from private)
+    roadmap-format.md               <-- format spec (adopted from private, plus
+                                        reserved Implementation Issues + Dependency Graph)
     phases/
       phase-1-scope.md              <-- conversational scoping (6 dimensions)
       phase-2-discover.md           <-- 3 fixed agent roles
@@ -246,21 +246,25 @@ Detects handoff artifact; skips Phase 1 if present.
 - Active -> Done: `transition-status.sh <path> Done`
   (precondition: all features terminal)
 
-**No directory movement.** All roadmaps stay in `docs/roadmaps/` regardless
-of lifecycle state (matching the existing private plugin convention).
+**Active before merge (R4).** The transition script enforces that
+roadmaps must be Active before they appear on main. Draft -> Active
+requires human approval (feature list locked). The `/roadmap activate`
+lifecycle verb triggers the transition. CI or PR review validates that
+no Draft roadmaps are being merged.
 
-**Downstream consumption.** /plan reads roadmaps and enriches them directly:
-creates GitHub issues (one per feature with needs-* labels), adds an
-Implementation Issues table and Mermaid dependency graph into the roadmap,
-creates a GitHub milestone, and transitions the roadmap to Active. No
-separate PLAN doc is produced — the roadmap IS the plan at the portfolio
-level. Roadmap planning is always multi-pr. Each feature's issue then
-triggers its own pipeline (PRD -> design -> plan -> implement).
+**Permanent record on Done (R5).** Done roadmaps retain all content:
+features, sequencing rationale, progress, and any Implementation Issues
+table or Mermaid graph added by /plan. Nothing is stripped. The
+transition script allows Active -> Done only when all features have
+terminal status. No directory movement — all roadmaps stay in
+`docs/roadmaps/` regardless of lifecycle state.
 
-Note: this changes /plan's behavior when `input_type: roadmap`. The /plan
-skill's Phase 7 writes into the roadmap doc instead of creating a PLAN doc.
-This is a /plan modification, not a /roadmap deliverable — but the /roadmap
-skill must produce output that supports this flow.
+**Format reserves planning positions (R6).** The roadmap format spec
+includes two optional sections after Progress: Implementation Issues
+(table) and Dependency Graph (Mermaid). These are empty at creation
+time and reserved for /plan to populate when it consumes the roadmap.
+The /roadmap skill defines the format and section order; /plan
+populates the content (see PRD-plan-skill-rework.md for the /plan side).
 
 **Crystallize framework.** Roadmap is already a supported type in the
 crystallize framework (promoted from deferred in Feature 1). The signal
