@@ -217,23 +217,51 @@ can Active VISIONs be edited in place, is Sunset reversible, does VISION
 need Superseded alongside Sunset?
 
 Key assumptions:
-- VISIONs are infrequent enough (1-3 per project) for all-human
-  transitions
 - Downstream skills will eventually validate upstream VISION status
 - Thesis section is a reliable proxy for project identity change
+- A transition script (like design doc's `transition-status.sh`)
+  handles all state changes deterministically
 
-#### Chosen: Human-Gated Transitions with Thesis-Boundary Edits
+#### Chosen: Script-Driven Transitions with Directory Movement
 
-All transitions are human-triggered. The Thesis section is the bright line
-for edit-vs-new-VISION decisions.
+All transitions are executed by a deterministic script
+(`scripts/transition-status.sh`) that validates preconditions, updates
+status in both frontmatter and body, and moves files between directories
+when status changes. Follows the same pattern as the design doc
+transition script.
 
 **Transition table:**
 
-| Transition | Trigger | Preconditions |
-|-----------|---------|---------------|
-| Draft -> Accepted | Human approval | Open Questions empty/removed |
-| Accepted -> Active | Human marks Active | Downstream work has begun |
-| Active -> Sunset | Human decision | Abandoned, pivoted, or invalidated |
+| Transition | Preconditions | Directory Movement |
+|-----------|---------------|-------------------|
+| Draft -> Accepted | Open Questions empty/removed | None (stays in `docs/visions/`) |
+| Accepted -> Active | At least one downstream artifact references this VISION | None (stays in `docs/visions/`) |
+| Active -> Sunset | Reason provided (abandoned, pivoted, or invalidated) | Moves to `docs/visions/sunset/` |
+
+**Directory mapping:**
+
+| Status | Directory |
+|--------|-----------|
+| Draft, Accepted, Active | `docs/visions/` |
+| Sunset | `docs/visions/sunset/` |
+
+**Script interface:**
+
+```
+scripts/transition-status.sh <vision-doc-path> <target-status> [superseding-doc]
+
+# Examples:
+scripts/transition-status.sh docs/visions/VISION-koto.md Accepted
+scripts/transition-status.sh docs/visions/VISION-koto.md Active
+scripts/transition-status.sh docs/visions/VISION-koto.md Sunset
+scripts/transition-status.sh docs/visions/VISION-koto.md Sunset docs/visions/VISION-koto-v2.md
+```
+
+The script validates allowed transitions, rejects forbidden ones with
+an error, updates frontmatter + body status, adds `superseded_by` field
+when a successor is provided, and uses `git mv` to move Sunset docs.
+JSON output for programmatic consumption (same format as design doc
+script).
 
 **Forbidden transitions:** Draft -> Active (must endorse first), Draft ->
 Sunset (delete instead), Active -> Accepted/Draft (regression), Sunset ->
@@ -241,17 +269,19 @@ any (terminal, irreversible).
 
 **In-place edit rule:** Active VISIONs can be edited for everything except
 the Thesis. Thesis changes signal a project pivot -- create a new VISION
-and Sunset the old one ("Sunset: superseded by VISION-X.md").
+and Sunset the old one via the script with the superseding doc argument.
 
-**No separate Superseded state.** Sunset covers all termination scenarios
-via prose in the Status section. One Active VISION per project at a time
-makes lookup trivial.
+**No separate Superseded state.** Sunset covers all termination scenarios.
+When superseded, the script records the successor path in frontmatter
+(`superseded_by`) and in the body Status section ("Sunset: superseded by
+[VISION-X](path)"). One Active VISION per project at a time.
 
 #### Alternatives Considered
 
-- **Semi-Automated Transitions:** Automate Accepted -> Active when /prd
-  reads an upstream VISION. Rejected: automation complexity for a rare
-  event, removes human acknowledgment of project activation.
+- **Human-only transitions (no script):** Transitions done manually by
+  editing status and moving files. Rejected: error-prone (forgetting to
+  update frontmatter OR body, forgetting to move files), and the design
+  doc skill already established that scripts handle this better.
 
 - **Reversible Sunset:** Allow Sunset -> Active for project revival.
   Rejected: no other artifact type has reversible terminal state. Creates
@@ -310,6 +340,8 @@ Four deliverables:
 ```
 skills/vision/
   SKILL.md                          <-- format + creation workflow
+  scripts/
+    transition-status.sh            <-- deterministic lifecycle transitions
   references/
     phases/
       phase-1-scope.md              <-- conversational scoping
@@ -415,10 +447,11 @@ docs/visions/VISION-<topic>.md
 ### Phase 1: Vision Creation Skill
 
 Create the full `/vision` skill with format specification, creation
-workflow, lifecycle management, and phase files.
+workflow, lifecycle management, transition script, and phase files.
 
 Deliverables:
 - `skills/vision/SKILL.md`
+- `skills/vision/scripts/transition-status.sh`
 - `skills/vision/references/phases/phase-1-scope.md`
 - `skills/vision/references/phases/phase-2-discover.md`
 - `skills/vision/references/phases/phase-3-draft.md`

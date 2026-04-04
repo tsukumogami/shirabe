@@ -67,6 +67,14 @@ owns format spec, creation workflow, lifecycle management, and validation
 someone already knows what they want. This replaces the earlier approach
 of reference-only skills with inline /explore production.
 
+**Every skill uses a deterministic transition script for lifecycle
+management.** Status transitions are handled by a `scripts/transition-status.sh`
+script that validates preconditions, updates status in frontmatter and body,
+and moves files between directories based on status. The design doc skill
+already has this pattern; it should be standardized across all artifact
+skills. Terminal states (Sunset, Superseded, Done) move docs to
+status-named subdirectories.
+
 ## Features
 
 ### Feature 1: VISION Artifact Type
@@ -152,7 +160,28 @@ Changes:
 - Add Trivial complexity level bypassing all artifacts
 - Document the five-level model with signals for each level
 
-### Feature 5: Pipeline Documentation
+### Feature 5: Standardized Transition Scripts
+
+Every artifact skill should use a deterministic `scripts/transition-status.sh`
+for lifecycle management. The design doc skill already has this pattern;
+this feature standardizes it across all artifact types. Each script
+validates preconditions, updates status in frontmatter and body, moves
+files between directories based on status, and outputs JSON for
+programmatic use.
+
+**Dependencies:** Features 1 and 2 (new skills need transition scripts;
+existing skills need migration)
+**Status:** Not Started
+**Downstream:** Needs PRD
+
+Scope:
+- Define the shared interface (arguments, JSON output, exit codes)
+- Create transition scripts for VISION and Roadmap skills
+- Retrofit existing PRD and Plan skills with transition scripts
+- Define directory conventions for terminal states (sunset/, archive/,
+  done/)
+
+### Feature 6: Pipeline Documentation
 
 Document the three-diamond model, the five complexity levels, the full
 transition graph, and the traceability chain as a reference document. This
@@ -182,7 +211,10 @@ meaningful.
 Feature 4 (Routing) depends on Feature 1 because the Strategic complexity
 level routes to VISION. The Trivial level could ship independently.
 
-Feature 5 (Docs) depends on Features 1-4 because it documents the
+Feature 5 (Transition Scripts) depends on Features 1 and 2 because
+it standardizes the pattern across new and existing skills.
+
+Feature 6 (Docs) depends on Features 1-5 because it documents the
 completed pipeline. Writing docs before the pipeline is complete creates
 maintenance burden.
 
@@ -194,15 +226,18 @@ Feature 1 (VISION) ----+---> Feature 3 (Traceability)
                        |
 Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
                        |
-                       +---> Feature 5 (Docs)
+                       +---> Feature 5 (Transition Scripts)
+                       |
+                       +---> Feature 6 (Docs)
 ```
 
 ## Progress
 
 | Feature | Status | Downstream Artifact |
 |---------|--------|-------------------|
-| Feature 1: VISION Artifact Type | Not Started | -- |
-| Feature 2: Roadmap Creation Workflow | Not Started | -- |
+| Feature 1: VISION Artifact Type | Not Started | DESIGN-vision-artifact-type.md |
+| Feature 2: Roadmap Creation Skill | Not Started | -- |
 | Feature 3: Artifact Traceability | Not Started | -- |
 | Feature 4: Complexity Routing Expansion | Not Started | -- |
-| Feature 5: Pipeline Documentation | Not Started | -- |
+| Feature 5: Standardized Transition Scripts | Not Started | -- |
+| Feature 6: Pipeline Documentation | Not Started | -- |
