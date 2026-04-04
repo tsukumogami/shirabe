@@ -1,14 +1,61 @@
-[
-  {
-    "name": "vision-standalone-creation",
-    "description": "Verify /vision creates a VISION doc when invoked standalone with a project topic",
-    "prompt": "/vision new-developer-portal",
-    "assertions": [
-      "Detects no handoff artifact and starts from Phase 1 (scope)",
-      "Asks scoping questions about the project thesis",
-      "Produces a VISION doc at docs/visions/VISION-new-developer-portal.md",
-      "VISION doc has all 7 required sections in correct order",
-      "Thesis section is phrased as a hypothesis, not a problem statement"
-    ]
-  }
-]
+{
+  "skill_name": "vision",
+  "evals": [
+    {
+      "id": 1,
+      "name": "standalone-creation",
+      "prompt": "/vision new-developer-portal",
+      "expected_output": "Detects no handoff artifact (wip/vision_new-developer-portal_scope.md absent). Starts from Phase 1 (scope). Asks scoping questions about the project thesis, audience, and org fit. Produces a VISION doc at docs/visions/VISION-new-developer-portal.md with all 7 required sections in correct order. Thesis section is phrased as a hypothesis, not a problem statement.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "explore-handoff-detection",
+      "prompt": "/vision workflow-engine",
+      "expected_output": "Detects existing handoff artifact at wip/vision_workflow-engine_scope.md. Skips Phase 1 (scope) and resumes at Phase 2 (discover). Uses the handoff artifact's problem statement, research leads, and decisions as input. Does not re-ask scoping questions that were already answered during /explore.",
+      "files": ["wip/vision_workflow-engine_scope.md"]
+    },
+    {
+      "id": 3,
+      "name": "visibility-gating-public",
+      "prompt": "/vision --auto package-registry",
+      "expected_output": "Detects Public visibility from CLAUDE.md. Produces a VISION doc with 7 required sections. Does NOT include Competitive Positioning or Resource Implications sections (private-only). All content is appropriate for public consumption.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "lifecycle-accept-verb",
+      "prompt": "/vision accept docs/visions/VISION-package-registry.md",
+      "expected_output": "Detects lifecycle verb 'accept'. Validates Open Questions section is empty or removed. Runs transition-status.sh to transition from Draft to Accepted. Reports success. File stays in docs/visions/ (no directory movement for Accepted).",
+      "files": ["docs/visions/VISION-package-registry.md"]
+    },
+    {
+      "id": 5,
+      "name": "lifecycle-sunset-with-move",
+      "prompt": "/vision sunset docs/visions/VISION-old-project.md",
+      "expected_output": "Detects lifecycle verb 'sunset'. Runs transition-status.sh to transition from Active to Sunset. File is moved to docs/visions/sunset/VISION-old-project.md via git mv. Status updated in both frontmatter and body.",
+      "files": ["docs/visions/VISION-old-project.md"]
+    },
+    {
+      "id": 6,
+      "name": "jury-review-quality",
+      "prompt": "/vision --auto observability-platform",
+      "expected_output": "Phase 4 spawns 3 jury agents focused on vision-specific quality. Agents check: thesis is a hypothesis (not problem statement), success criteria are project-level (not feature-level), org fit explains why HERE, non-goals are about identity (not scope), content boundaries are respected (no features, sequencing, or architecture).",
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "empty-argument-prompts",
+      "prompt": "/vision",
+      "expected_output": "With no argument, skill asks the user what project they want to create a vision for. Does not assume a topic or start drafting immediately.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "name": "crystallize-discrimination",
+      "prompt": "/explore --auto --strategic should we build a developer analytics dashboard",
+      "expected_output": "Exploration in strategic scope. Crystallize framework scores VISION higher than PRD because: project doesn't exist yet, exploration centered on 'should we build this', org fit is the core question. VISION signals fire, PRD anti-signals fire (no existing project). Routes to /vision via Phase 5 handoff.",
+      "files": []
+    }
+  ]
+}
