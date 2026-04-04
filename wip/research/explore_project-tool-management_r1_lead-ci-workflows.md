@@ -1,236 +1,153 @@
-# Research: How Should CI Workflows Change to Use `.tsuku.toml`?
-
-**Lead Question:** How should CI workflows change to use `.tsuku.toml` instead of manual tool installs? `validate-templates.yml` currently does its own `tsuku install tsukumogami/koto`. Release workflows use `gh` and `jq`. What's the intended CI pattern -- `tsuku install` with no args?
-
-**Status:** Round 1, Complete
-
----
+# Lead: How should CI workflows change to use `.tsuku.toml`?
 
 ## Findings
 
-### 1. Current Shirabe CI Tool Installation Patterns
+### Current state of shirabe CI workflows
 
-Shirabe's CI workflows explicitly install tools on a per-step basis:
+Shirabe has 7 workflow files in `.github/workflows/`:
 
-**`validate-templates.yml`** (lines 14-23):
-- Installs tsuku binary via curl from `https://get.tsuku.dev/now`
-- Explicitly runs `tsuku install tsukumogami/koto -y` (non-interactive, single tool)
-- Uses the `-y` flag to skip confirmation in non-interactive CI environment
+| Workflow | Tools Used | How Installed |
+|----------|-----------|---------------|
+| `validate-templates.yml` | tsuku, koto | `curl get.tsuku.dev/now`, then `tsuku install tsukumogami/koto -y` |
+| `check-templates.yml` | koto | Reusable workflow from `tsukumogami/koto` (installs koto via its own `install.sh`) |
+| `check-evals.yml` | python | `actions/setup-python@v5` |
+| `check-sentinel.yml` | (none) | Shell script only |
+| `release.yml` | gh, jq | Pre-installed on GitHub runners |
+| `finalize-release.yml` | gh, jq | Pre-installed on GitHub runners |
+| `prepare-release.yml` | (none) | Calls release.yml and finalize-release.yml |
 
-**`release.yml`** (lines 82-100):
-- Does not install additional tools; uses `gh` and `jq` directly
-- Assumes these commands are pre-installed on `ubuntu-latest` runner
-- Calls `gh api` with jq filtering (lines 119-121, 125-127, etc.)
+### Only one workflow installs tsuku explicitly
 
-**`check-templates.yml`** (lines 10-13):
-- Delegates to tsukumogami/koto's reusable workflow
-- Does not install koto itself; koto workflow handles this
+`validate-templates.yml` is the only workflow that installs tsuku. It uses the
+bootstrap curl command and then runs a single `tsuku install tsukumogami/koto -y`.
+This is the primary target for `.tsuku.toml` adoption.
 
-### 2. Design Intent from `.tsuku.toml` Specification
+### The koto reusable workflow bypasses tsuku entirely
 
-**DESIGN-project-configuration.md** defines the feature explicitly:
+`check-templates.yml` delegates to `tsukumogami/koto/.github/workflows/check-template-freshness.yml@main`,
+which installs koto directly via koto's own `install.sh` (not through tsuku). This
+means even if shirabe adopts `.tsuku.toml`, the reusable workflow would still install
+koto independently. This is a separate install path that `.tsuku.toml` cannot unify
+without changes to the koto reusable workflow itself.
 
-**`tsuku install` (no arguments) behavior** (lines 224-226):
-> "Config found with tools: iterates tools, calling `runInstallWithTelemetry` for each, collecting errors instead of exiting on first failure"
+### Release workflows use only runner-preinstalled tools
 
-**Flag compatibility** (lines 227-230):
-- `--yes`/`-y`: supported in no-arg mode, skips interactive confirmation
-- `--dry-run`, `--force`, `--fresh`: supported
-- `--plan`, `--recipe`, `--from`, `--sandbox`: incompatible with no-arg mode
+`release.yml` and `finalize-release.yml` use `gh` and `jq` extensively for GitHub
+API operations. Both tools come pre-installed on `ubuntu-latest` runners, so they
+don't need tsuku. Adding them to `.tsuku.toml` for local dev parity is possible but
+has no CI benefit -- the runner versions would be used regardless unless the workflow
+explicitly installs them via tsuku.
 
-**Exit codes for no-arg install** (lines 221-225):
-- Exit 0 if all succeeded
-- Exit 15 (`ExitPartialFailure`) if some failed
-- Exit 6 (`ExitInstallFailed`) if all failed
-- Exit 2 (`ExitUsage`) if no config found
+### tsuku does not dogfood `.tsuku.toml` in its own CI
 
-**Interactive vs. CI** (lines 224, 398-400):
-- "If interactive (TTY) and no --yes flag: prompt for confirmation"
-- For CI: use `--yes`/`-y` flag to skip TTY check
+The tsuku repo has no `.tsuku.toml` file. Its CI workflows use `./tsuku install --force <tool>`
+with the locally-built binary (testing the CLI itself). There is no `tsuku install` with
+no args (project mode) anywhere in tsuku's CI. This means there's no existing CI pattern
+to follow -- shirabe would be a first adopter.
 
-### 3. The Intended CI Pattern: `tsuku install` with No Arguments
+### No GitHub Action exists for tsuku setup
 
-The design docs make this explicit:
+There is no `action.yml` in the tsuku repo and no `setup-tsuku` or equivalent action
+anywhere in the tsukumogami org. Every workflow that needs tsuku uses the raw curl
+bootstrap script. A reusable setup action would reduce duplication and improve
+cacheability.
 
-**From DESIGN-project-configuration.md, "CLI Integration" section (lines 200-230):**
-> `tsuku install` (no arguments) reads the project config and installs all declared tools
+### What a `.tsuku.toml`-based CI pattern would look like
 
-**Minimal `.tsuku.toml` content** (lines 18-19):
-```toml
-[tools]
-node = "20.16.0"
-go = "1.22"
-koto = "latest"
-jq = ""
-```
+For `validate-templates.yml`, the change is straightforward:
 
-**CI invocation pattern** (line 223):
-```bash
-tsuku install -y
-```
-
-The `-y` flag is essential in CI because:
-1. Skips the TTY/confirmation prompt that would block non-interactive shells
-2. Still respects the tools declared in `.tsuku.toml` (batch install)
-3. Works whether 0, 1, or N tools are declared
-
-### 4. From Shirabe's Perspective: No Existing `.tsuku.toml`
-
-Shirabe currently has no `.tsuku.toml` file. The repository would need:
-1. Create `.tsuku.toml` at repository root
-2. Declare koto version(s) needed
-3. Declare any other tools used in CI (e.g., `gh`, `jq`)
-4. Update workflows to call `tsuku install -y` instead of explicit tool installs
-
-Example `.tsuku.toml` for shirabe:
-```toml
-[tools]
-koto = "latest"
-```
-
-### 5. Non-Interactive CI Context: Permission Check Caveat
-
-**Security consideration from DESIGN-auto-install.md, lines 481-486:**
-> "$TSUKU_HOME/config.toml must be mode 0600 and owned by the current user before its auto_install_mode value is honoured"
-
-This applies primarily to `auto_install_mode` in tsuku's user config, **not** to `.tsuku.toml` (the project config). The permission check is about preventing untrusted `.envrc` files from bypassing confirmation via environment variables.
-
-**For CI with `tsuku install -y`:**
-- No `.tsuku.toml` permission check is enforced
-- The `-y` flag is the explicit override mechanism
-- No auto-mode escalation concern (batch install is deterministic)
-
-### 6. Release Workflows and Tool Dependencies
-
-**`release.yml` uses:**
-- `gh api` to query and manipulate releases (lines 95, 119, 125, 190)
-- `jq` to filter release JSON (lines 119, 125, etc.)
-
-These tools are already on `ubuntu-latest`. The design allows two approaches:
-
-1. **Explicit approach** (current): Rely on runner-provided `gh` and `jq`
-2. **Declarative approach** (using `.tsuku.toml`):
-   ```toml
-   [tools]
-   gh = "latest"
-   jq = "latest"
-   ```
-   Then: `tsuku install -y` before the release job runs
-
-The release workflow could use `.tsuku.toml` for reproducibility, but is not required (the tools are stable, widely available).
-
-### 7. Shell Integration and CI Compatibility
-
-**From DESIGN-shell-integration-building-blocks.md, Block 6:**
-- Project config is optional; all features work via explicit CLI
-- `tsuku run` and `tsuku exec` support project-aware version resolution
-- Shell hooks (command-not-found) are optional integration; CI doesn't use them
-
-**Implication for CI:**
-- CI should use `tsuku install -y` (batch from `.tsuku.toml`), not `tsuku run`
-- Shell activation (Block 5) is not needed in CI
-- Project-aware exec wrapper (Block 6, `tsuku exec`) is designed for interactive shells and scripts with shims
-
-### 8. Comparison to Other Repos in Workspace
-
-**Koto** (`koto/.github/workflows/validate.yml`, line 135):
 ```yaml
-run: tsuku install tsukumogami/koto -y
+# Before (current):
+- name: Install koto
+  run: |
+    curl -fsSL https://get.tsuku.dev/now | bash
+    echo "$HOME/.tsuku/bin" >> $GITHUB_PATH
+    echo "$HOME/.tsuku/tools/current" >> $GITHUB_PATH
+- name: Install koto via tsuku
+  env:
+    TSUKU_TELEMETRY: "0"
+  run: tsuku install tsukumogami/koto -y
+
+# After (with .tsuku.toml):
+- name: Install tsuku
+  run: |
+    curl -fsSL https://get.tsuku.dev/now | bash
+    echo "$HOME/.tsuku/bin" >> $GITHUB_PATH
+    echo "$HOME/.tsuku/tools/current" >> $GITHUB_PATH
+- name: Install project tools
+  env:
+    TSUKU_TELEMETRY: "0"
+  run: tsuku install -y
 ```
-Uses explicit tool name + `-y`, not batch install from config.
 
-**Tsuku** (multiple workflows):
-- Explicit installs with `--force` flag: `./tsuku install --force <tool>`
-- No `.tsuku.toml` used in tsuku's own CI (tsuku is being built, not installed as a dependency)
-- Uses `--sandbox` and `--plan` for testing scenarios
+The tsuku bootstrap step remains identical -- only the install command changes.
+The `-y` flag auto-confirms (skips interactive prompt), which is required for CI.
 
-**Pattern observation:**
-- Repos that need tsuku tools use explicit `tsuku install <tool> -y`
-- Batch install from `.tsuku.toml` is designed but not yet adopted in the workspace
-- The feature is recent (current design status)
+### Complications
 
-### 9. Practical CI Concerns Not Explicitly Addressed in Design
+1. **No caching.** There is no `actions/cache` usage for `~/.tsuku/` in any workflow.
+   Each run re-downloads tsuku and koto from scratch. A setup action could add caching.
 
-**Binary index availability:**
-- The design assumes `tsuku install` can look up tools from registry
-- CI typically has network access; registry lookup should work
-- Alternative: use explicit tool names if binary index is unavailable
+2. **Dual install path.** `check-templates.yml` uses koto's reusable workflow which
+   installs koto independently. If `.tsuku.toml` declares koto, the template freshness
+   check still won't use it. Two options: (a) accept the duplication, or (b) replace
+   the reusable workflow call with an inline job that uses `tsuku install -y`.
 
-**Error handling in batch install:**
-- Exit code 15 (`ExitPartialFailure`) allows scripts to distinguish partial success
-- CI scripts should test for this: `if [ $? -eq 15 ]; then warn "partial failure"; fi`
-- Or fail-on-any-error: `set -e` in bash
+3. **Bootstrap chicken-and-egg.** `.tsuku.toml` requires tsuku to be installed first.
+   The curl bootstrap step can't be eliminated. A GitHub Action (`tsukumogami/setup-tsuku`)
+   would wrap both bootstrap + project install into one step.
 
-**Tool versioning in CI:**
-- Pinning versions in `.tsuku.toml` ensures reproducibility across CI runs
-- Using `"latest"` is discouraged in design docs (line 398 warning)
-- CI best practice: pin all tool versions explicitly
-
----
+4. **Version pinning for CI reproducibility.** The current bootstrap script installs
+   the latest tsuku. For reproducible CI, pinning the tsuku version itself matters.
+   The bootstrap script doesn't appear to accept a version flag (would need verification).
 
 ## Implications
 
-### For Shirabe Adoption
+- The immediate CI change is minimal: one workflow (`validate-templates.yml`) replaces
+  a tool-specific install with `tsuku install -y`. The other workflows either use
+  runner-preinstalled tools or a separate reusable workflow.
 
-1. **Minimal friction transition:** Replace explicit `tsuku install tsukumogami/koto -y` with:
-   - Create `.tsuku.toml` with `[tools]\nkoto = "<pinned-version>"`
-   - Change workflow to: `tsuku install -y`
-   - This is a backwards-compatible change (works with or without config file)
+- The real value of `.tsuku.toml` in CI comes when more tools are added to the project.
+  Right now shirabe only needs koto for validation, so the payoff is alignment with
+  local development, not CI simplification.
 
-2. **Exit code handling:** Update CI scripts to handle exit code 15 if partial failure is acceptable, or use `set -e` to fail on any error.
+- A `tsukumogami/setup-tsuku` GitHub Action would make the CI pattern cleaner and
+  enable caching, but that's a tsuku-repo concern, not a shirabe concern.
 
-3. **Release workflow:** Optionally declare `gh` and `jq` in `.tsuku.toml` for reproducibility, but not required.
-
-### For CI Pattern Standardization
-
-The design intends:
-- **Interactive shells:** `tsuku run <command>` (Block 3)
-- **CI/scripts:** `tsuku install -y` (project config) or explicit names (existing pattern)
-- **Shell activation:** `tsuku shell` or hooks (Block 5, interactive only)
-
-Shirabe's CI should use batch install (`tsuku install -y`) if adopting `.tsuku.toml`.
-
-### For Error Handling
-
-Exit code 15 (`ExitPartialFailure`) is a new convention. CI scripts must be aware:
-- Exit 0 = all tools installed successfully
-- Exit 15 = some tools installed, some failed
-- Exit 6 = all tools failed
-- Exit 2 = no config file found
-
-Existing CI scripts using `set -e` or `$? != 0` will treat 15 as failure (safe default).
-
----
+- The koto reusable workflow (`check-template-freshness.yml`) is a separate concern
+  that installs koto via its own installer. Unifying this with `.tsuku.toml` would
+  require changes to the koto repo or replacing the reusable workflow call.
 
 ## Surprises
 
-1. **No `.tsuku.toml` permission checks:** The security validation in DESIGN-auto-install.md applies to `auto_install_mode` in user config, not project config. CI doesn't face the permission check concern.
+- **koto installs itself two different ways in shirabe CI.** `validate-templates.yml`
+  installs koto via tsuku, while `check-templates.yml` installs koto via koto's own
+  `install.sh` (through the reusable workflow). These could produce different koto
+  versions since `check-template-freshness.yml` defaults to `v0.5.0` while the tsuku
+  recipe resolves `latest`.
 
-2. **Exit code 15 is new:** `ExitPartialFailure` doesn't exist in current tsuku; it's part of the design but not yet implemented. CI scripts should be prepared for this when adopting batch install.
+- **tsuku doesn't dogfood `.tsuku.toml` in its own CI.** Shirabe would be pioneering
+  this pattern rather than following an established one.
 
-3. **Project config is optional in CI:** The design allows `tsuku install <tool> -y` (explicit) and `tsuku install -y` (batch from config) to coexist. Repos don't need to adopt `.tsuku.toml` immediately.
-
-4. **Shims are not for CI:** The shim system (`tsuku shim install`) is designed for interactive shells and Makefiles, not for GitHub Actions. CI should use explicit `tsuku install` commands or batch install.
-
-5. **Release workflows don't need project config:** `gh` and `jq` are already on `ubuntu-latest`. Using `.tsuku.toml` for these is optional, not required.
-
----
+- **gh and jq are used only through GitHub's `--jq` flag**, not as standalone `jq`
+  invocations. The `gh` CLI's built-in jq filtering handles all JSON parsing. Standalone
+  `jq` is never invoked.
 
 ## Open Questions
 
-1. **When will `.tsuku.toml` batch install be available?** The design is "Current" status, but implementation timeline is unclear. Early adoption relies on this feature existing.
+1. Does the tsuku bootstrap script (`get.tsuku.dev/now`) support version pinning?
+   Reproducible CI needs a specific tsuku version, not just the latest.
 
-2. **Is the binary index required for batch install?** The design mentions offline lookup from SQLite or JSON index. Does `tsuku install -y` (no explicit tool names) fail gracefully if the index isn't built?
+2. Should `check-templates.yml` switch from the koto reusable workflow to an inline
+   job that uses `tsuku install -y`? This would unify koto installation but loses the
+   reusable workflow's maintenance benefits.
 
-3. **How should partial failures be handled in CI?** Exit code 15 allows scripts to detect partial success. What's the recommended CI pattern: fail on any error, or accept partial and log warnings?
+3. Is a `tsukumogami/setup-tsuku` GitHub Action planned? That would be the cleanest
+   CI integration point.
 
-4. **For repos with multiple projects:** Does monorepo support work as intended? The design allows parent-directory traversal with first-match (no merge). Should each subproject have its own `.tsuku.toml`?
-
-5. **GitHub Actions setup-tsuku action:** Is there a reusable action for CI setup, or should each repo install tsuku manually? The design doesn't mention a canonical action.
-
----
+4. Should runner-preinstalled tools like `gh` be declared in `.tsuku.toml` for local
+   dev consistency, even though CI won't use the tsuku-installed versions?
 
 ## Summary
 
-Shirabe CI should adopt `.tsuku.toml` with `[tools] koto = "<version>"`, then use `tsuku install -y` to batch-install declared tools. This is the intended pattern from the design. CI exit codes (0 = success, 6 = all failed, 15 = partial failure) should be handled explicitly. The batch install feature is new and requires explicit `-y` flag in non-interactive contexts. Release workflows can optionally declare `gh` and `jq` but are not required to do so. This pattern is backwards-compatible and provides reproducibility without breaking existing explicit-install workflows.
-
+Only one shirabe CI workflow (`validate-templates.yml`) installs tools via tsuku, and switching it to `tsuku install -y` is a one-line change -- the tsuku bootstrap step stays the same, only the install command changes from tool-specific to project-mode. The main complication is that `check-templates.yml` uses koto's own reusable workflow with a separate install path that `.tsuku.toml` cannot unify without changes to the koto repo. The biggest open question is whether a `tsukumogami/setup-tsuku` GitHub Action is planned, since that would make the CI pattern significantly cleaner with caching and version pinning.

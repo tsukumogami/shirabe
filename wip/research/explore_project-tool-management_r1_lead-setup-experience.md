@@ -1,113 +1,31 @@
-# Lead: What does the end-to-end `.tsuku.toml` setup experience look like?
+# Lead: What does the end-to-end setup experience look like on 0.9.0?
 
 ## Findings
 
-### 1. The Complete User Journey
+### Step 1: `tsuku init`
 
-The setup flow consists of three discrete, sequential steps:
+The `init` command (`cmd/tsuku/init.go`) is minimal. It writes a static template
+to `.tsuku.toml` in the current directory:
 
-1. **`tsuku init`** (initialization)
-   - User runs `tsuku init` in project directory
-   - Non-interactive: creates `.tsuku.toml` with empty `[tools]` section and comment header
-   - Exits with error if file already exists (unless `--force` flag used)
-   - Output: "Created .tsuku.toml"
-   - Source: `/home/dgazineu/dev/niwaw/tsuku/tsukumogami-3/public/tsuku/cmd/tsuku/init.go`
+```toml
+# Project tools managed by tsuku.
+# See: https://tsuku.dev/docs/project-config
+[tools]
+```
 
-2. **Declaring tools** (manual TOML editing)
-   - User opens `.tsuku.toml` and manually adds tool declarations under `[tools]`
-   - Three supported formats:
-     - Exact version: `go = "1.22.5"`
-     - Prefix (resolves to latest matching): `go = "1.22"`
-     - Latest or empty: `jq = "latest"` or `jq = ""`
-     - Extensible table form: `python = { version = "3.12" }`
-   - **No interactive tool selection or auto-detection** -- entirely manual
-   - Documentation provides example:
-     ```toml
-     [tools]
-     go = "1.22"
-     node = "20.16.0"
-     ripgrep = "14.1.0"
-     jq = "latest"
-     ```
-   - Source: `/home/dgazineu/dev/niwaw/tsuku/tsukumogami-3/public/tsuku/docs/guides/shell-integration.md` (lines 33-51)
+There is no interactive tool selection, no scanning of existing tooling, and no
+wizard. The `--force` flag allows overwriting an existing file. That's the only
+option.
 
-3. **`tsuku install`** (batch installation)
-   - User runs `tsuku install` with no arguments
-   - Locates nearest `.tsuku.toml` via parent directory traversal (walks up until finding file, stopping at `$HOME`)
-   - **Interactive confirmation mode** (unless TTY is absent or `--yes` flag used):
-     ```
-     Using: /path/to/.tsuku.toml
-     Tools: go@1.22, jq, node@20.16.0, ripgrep@14.1.0
-     Warning: jq is unpinned (no version or "latest"). Pin versions for reproducibility.
-     Proceed? [Y/n]
-     ```
-   - Prints warning if any tools use "latest" or empty version (unpinned versions)
-   - Installs each tool in sorted alphabetical order
-   - Collects errors instead of failing on first failure
-   - Prints summary:
-     ```
-     Installed: 3 tools (go, node, ripgrep)
-     Failed: 1 tool
-       python: version 3.12 not found for linux/amd64
-     ```
-   - Source: `/home/dgazineu/dev/niwaw/tsuku/tsukumogami-3/public/tsuku/cmd/tsuku/install_project.go` (lines 26-145)
+**Friction**: After running `tsuku init`, the user is staring at an empty
+`[tools]` section with no guidance on what to put there beyond the URL comment.
+There's no `tsuku add` command to help populate it.
 
-### 2. Discovery and Traversal Behavior
+### Step 2: Declaring tools in `.tsuku.toml`
 
-**Parent directory traversal strategy** (from design doc, lines 96-107):
-- Walk up from current working directory checking each directory for `.tsuku.toml`
-- Stop at first match (first-match, no merging across directories)
-- Stop at `$HOME` unconditionally
-- Additional stop points via `TSUKU_CEILING_PATHS` environment variable (colon-separated, can only add ceilings, not remove)
-- Symlinks resolved via `filepath.EvalSymlinks` to prevent symlink-based misdirection
+The schema is defined in `internal/project/config.go`. The `ProjectConfig`
+struct has a single section:
 
-**Implementation**: `LoadProjectConfig(startDir string)` function in `/home/dgazineu/dev/niwaw/tsuku/tsukumogami-3/public/tsuku/internal/project/config.go` (lines 79-113)
-
-**Monorepo implications**: A `.tsuku.toml` at repo root applies to all subdirectories automatically. Subdirectories can declare their own config to override (no inheritance or merging).
-
-### 3. Version String Handling and Resolution
-
-**Version constraint syntax** (from design doc, lines 138-160):
-- Exact: `"20.16.0"` → passes string directly to provider
-- Prefix: `"1.22"` → provider resolves to latest matching (e.g., 1.22.5)
-- Latest: `"latest"` or `""` (empty string) → triggers `ResolveLatest` to fetch newest stable
-- **No semver ranges** (">= 1.0, < 2.0") in v1 -- not implemented by providers
-
-**Version string behavior in install**: Empty string `""` converted to "latest" before resolution (lines 113-115 of install_project.go)
-
-### 4. Error Handling and Exit Codes
-
-**New exit codes added for batch install** (from exitcodes.go, lines 58-60):
-- `ExitSuccess (0)` -- all tools installed successfully
-- `ExitPartialFailure (15)` -- some tools failed, others succeeded
-- `ExitInstallFailed (6)` -- all tools failed
-
-**Error collection strategy**: Unlike single-tool installs which fail-fast, project install aggregates errors and reports them all at end. Enables CI to see what succeeded vs. what failed.
-
-**Flags compatible with no-args install** (from install_project.go, lines 28-34):
-- `--dry-run` -- preview without installing
-- `--force` -- force reinstall even if current
-- `--fresh` -- clean install
-- `--yes` / `-y` -- skip interactive confirmation
-- `--plan`, `--recipe`, `--from`, `--sandbox` -- **incompatible** (errors if used in no-args mode)
-
-### 5. Interactive Confirmation Behavior
-
-**When confirmation prompt appears** (lines 96-104 of install_project.go):
-- Only if NOT running with `--yes` flag AND
-- Terminal is interactive (TTY is attached)
-- If user declines: exit code `ExitUserDeclined (13)`
-- Default answer is yes (hitting enter without typing proceeds)
-
-**Warning about unpinned versions** (lines 84-93 of install_project.go):
-- Detected when tool version is empty string or "latest"
-- Warning printed before confirmation prompt
-- Not a blocking error -- install proceeds if user confirms
-- Encourages explicit version pinning for reproducibility
-
-### 6. Configuration File Format and Parsing
-
-**File structure** (from config.go, lines 28-62):
 ```go
 type ProjectConfig struct {
     Tools map[string]ToolRequirement `toml:"tools"`
@@ -118,154 +36,166 @@ type ToolRequirement struct {
 }
 ```
 
-**Custom unmarshaling** handles dual format (string or inline table):
-- String: `node = "20.16.0"` → `ToolRequirement{Version: "20.16.0"}`
-- Table: `python = {version="3.12"}` → `ToolRequirement{Version: "3.12"}`
-- Implementation: `UnmarshalTOML` method (~20 lines) uses BurntSushi/toml unmarshaler interface
+Two TOML syntaxes are supported via custom `UnmarshalTOML`:
 
-**Validation constraints**:
-- `MaxTools = 256` -- upper bound to prevent resource exhaustion
-- Invalid TOML syntax causes hard parse failure before any installs attempted
-- Missing config returns nil, not error (error only if file exists but can't be parsed)
+1. **String shorthand**: `node = "20.16.0"`
+2. **Inline table**: `python = { version = "3.12" }`
 
-### 7. Documentation and User Guidance
+Special version values:
+- Empty string (`""`) or omitted: resolves to latest
+- `"latest"`: explicitly resolves to latest
+- Any other string: treated as a version constraint
 
-**Init command help** (from init.go, lines 24-31):
-```
-Short: "Initialize a project configuration file"
-Long: "Create a .tsuku.toml file in the current directory.
-This file declares which tools and versions a project requires,
-enabling reproducible development environments across machines.
-Use --force to overwrite an existing configuration file."
-```
+Org-scoped tools are also supported (`internal/project/orgkey.go`):
+- `tsukumogami/koto` -- bare repo name becomes recipe name
+- `tsukumogami/registry:tool` -- explicit recipe name after colon
 
-**User guide** provides concrete walkthrough (lines 13-98 of shell-integration.md):
-- Shows creation step-by-step
-- Explains version string semantics
-- Shows interactive install output
-- Explains exit codes
-- Documents `--dry-run`, `--yes`, and confirmation behavior
+**Friction**: The user must know the exact recipe name. There's no
+`tsuku add <tool>` that would look up the recipe and append to `.tsuku.toml`.
+Users have to manually edit the TOML file. For version pinning, users need to
+know the available version string (no `tsuku versions <tool>` integration into
+the add flow). The inline table form exists for future extensibility but
+currently only supports `version`.
 
-**Install command help** (from install.go, lines 39-80):
-- Updated to document project install mode ("With no arguments...")
-- Shows examples of both tool-specific and project install usage
-- Documents exit codes for project install specifically
-- Template comment in `.tsuku.toml` includes link: "https://tsuku.dev/docs/project-config"
+**Max tools**: 256 per file (`MaxTools` constant).
 
-### 8. Friction Points and Gaps Identified
+### Step 3: `tsuku install` (no args -- project install)
 
-**UX Friction:**
+The project install path (`cmd/tsuku/install_project.go`, `runProjectInstall`)
+does the following:
 
-1. **No tool discoverability or search in init command**
-   - `tsuku init` creates empty config, user must manually add tools by name
-   - No list of available recipes, no search, no interactive tool selector
-   - User must know tool names (e.g., "ripgrep" not "rg", "nodejs" context unclear)
-   - Contrasts with mise's detection and interactive init
+1. Calls `project.LoadProjectConfig(cwd)` which walks up directories to find
+   `.tsuku.toml`, stopping at `$HOME` or `TSUKU_CEILING_PATHS`
+2. Displays the config path and tool list
+3. Warns about unpinned versions (empty or "latest")
+4. Prompts for confirmation (`Proceed? [Y/n]`) unless `--yes` or non-TTY
+5. Installs each tool sequentially, collecting results
+6. Prints summary (installed count, failed count with errors)
+7. Exit codes: 0 (all success), 6 (all failed), 15 (partial)
 
-2. **No help text for `tsuku init --help`**
-   - Command has no --help invocation documented or tested in visible code
-   - Users may not know `--force` flag exists
+Key flags for project install:
+- `--yes` / `-y`: skip confirmation (needed for CI)
+- `--dry-run`: preview without installing
+- `--fresh`: bypass cached plans
+- `--force`: skip security warnings
 
-3. **Version string semantics unclear without docs**
-   - "1.22" vs "1.22.0" behavior depends entirely on provider
-   - No way to query what versions are actually available for a recipe
-   - User can't validate version exists until install runs
+**Friction**: Installation is sequential, not parallel. For a project with 5+
+tools, this could be slow. There's no progress indicator beyond per-tool output.
 
-4. **No monorepo inheritance**
-   - Subdirectories cannot extend parent config
-   - Design explicitly defers `extends` keyword
-   - Subdirectories must duplicate parent's declarations or rely entirely on parent
+### Step 4: No `tsuku add` command
 
-5. **Manual migration from asdf/mise**
-   - Design explicitly defers `.tool-versions` support
-   - Teams migrating from asdf must manually create `.tsuku.toml`
-   - No mapping table for asdf plugin names → tsuku recipe names
+Confirmed by scanning `main.go` -- there is no `addCmd` registered. The full
+command list includes `activate`, `cache`, `install`, `list`, `update`,
+`remove`, `recipes`, `versions`, `search`, `info`, `outdated`, `plan`, `verify`,
+`config`, `create`, `completion`, `validate`, `eval`, `shellenv`, `doctor`,
+`llm`, `registry`, `which`, `suggest`, `hook`, `hookEnv`, `shell`, `init`,
+`run`, `shim`, `selfUpdate`. No `add`.
 
-6. **Unpinned version warning is post-hoc**
-   - Warning printed during `tsuku install`, not during editing
-   - User can't see warning when editing `.tsuku.toml` file
-   - Encourages reproducibility but doesn't enforce it
+**Friction**: This is the biggest gap. The workflow is: run `tsuku init`, then
+manually open `.tsuku.toml` in an editor and type tool names. Compare with
+`npm install --save <pkg>` or `cargo add <dep>`.
 
-7. **No recipe-level metadata in config**
-   - Can't declare registry source overrides per-tool
-   - Can't declare per-tool post-install hooks
-   - Design mentions this is an extension path but not currently supported
+### Step 5: `tsuku shell` -- activating project tools in PATH
 
-### 9. Security Design
+The `shell` command (`cmd/tsuku/shell.go`) computes PATH modifications based on
+`.tsuku.toml`. Usage: `eval $(tsuku shell)`. The `shellenv` package
+(`internal/shellenv/activate.go`) resolves tool versions from the config to
+bin directories under `$TSUKU_HOME/tools/` and prepends them to PATH.
 
-**Consent model** (from design doc, lines 461-494):
-- `.tsuku.toml` requires explicit invocation (`tsuku install`)
-- No auto-install on directory entry or clone
-- Interactive confirmation prompt by default (can skip with `--yes` in CI)
-- Full tool list printed before confirmation
-- Config files with >256 tools rejected at parse time
-- All installs go through existing verification pipeline (checksums, curated registry)
+It sets `_TSUKU_DIR` and `_TSUKU_PREV_PATH` for deactivation when leaving the
+project directory.
 
-**Parent traversal trust boundary**:
-- $HOME is unconditional ceiling (can't traverse into shared parent directories above $HOME)
-- TSUKU_CEILING_PATHS can only add restrictions
-- When config found in parent directory, full path printed so user knows which file applies
+**Friction**: `tsuku shell` and `tsuku shellenv` are two different commands.
+`shellenv` is for global tsuku PATH setup; `shell` is for per-project
+activation. This naming could confuse users. The hook-env system handles
+automatic activation on directory change, but requires shell integration setup.
+
+### Step 6: `tsuku run` -- project-aware execution
+
+`tsuku run <command>` checks `.tsuku.toml` for the tool. If declared, the
+project-pinned version is installed and used automatically with no prompt
+(project config counts as consent). This is the smoothest path -- it resolves
+versions, auto-installs, and execs in one step.
+
+### Version installed
+
+The binary currently installed is **0.8.1** (`tsuku version 0.8.1`). The source
+code in the repo represents the development head, which includes all project
+config features. The version on disk is behind the source, but all the project
+config commands (`init`, project install, `shell`) are present in 0.8.1's
+feature set based on the code structure.
 
 ## Implications
 
-1. **For Shirabe adoption**: The flow is straightforward for CI (create file, `tsuku install --yes`) and local development (one-time `tsuku init`, then periodic installs). Shirabe would:
-   - Run `tsuku init` once, commit `.tsuku.toml`
-   - List current tools: koto (>=0.2.1), gh, jq, python3, claude
-   - Add to config file manually with known versions
-   - Run `tsuku install` in CI setup step
-   - No need for version pinning in CI if using `--fresh` with known versions
+For shirabe adoption:
 
-2. **Documentation burden**: Shirabe needs to decide version strings for each tool:
-   - Koto: `>= 0.2.1` is a requirement, not a version string. Must resolve to specific version or use prefix matching
-   - Python3, jq, gh, claude: Need to decide on exact versions or prefix matching
+1. **No `tsuku add`**: Shirabe's `.tsuku.toml` must be hand-authored. This is
+   fine for a one-time setup but means any future tool additions require manual
+   TOML editing.
 
-3. **UX decisions already made**: Tsuku has committed to non-interactive init, first-match traversal, and lenient batch install. These are fixed by design (no config options to tune them). Shirabe can't change the experience.
+2. **CI usage**: `tsuku install --yes` is the CI path. The `--yes` flag skips
+   interactive confirmation. Exit code 15 (partial failure) needs handling if
+   CI should fail on any tool failure.
+
+3. **Version pinning matters**: Unpinned tools trigger warnings and resolve to
+   latest, which hurts reproducibility. Shirabe should pin all tool versions.
+
+4. **Sequential install**: For CI, sequential install of 4-5 tools may add
+   meaningful time. No parallel install option exists.
+
+5. **Config schema is minimal**: Only `version` is supported per tool. No
+   per-tool options like `optional = true` or `ci-only = true` exist yet. All
+   declared tools are installed unconditionally.
+
+6. **Org-scoped tools work**: `tsukumogami/koto` syntax in `.tsuku.toml` is
+   supported for distributed recipes, which is relevant if koto is published
+   as a distributed recipe.
 
 ## Surprises
 
-1. **`tsuku init` is truly minimal** -- creates empty file and exits. No prompts, no tool detection, no installation. Unlike tools like volta or mise that offer interactive setup.
+1. **No `tsuku add` command at all.** For a tool that explicitly designed the
+   inline-table extensibility path ("for future per-tool options"), the absence
+   of a CLI command to add tools to the config is a notable gap.
 
-2. **Version strings are opaque to the schema** -- "1.22" could resolve differently for different tools depending on provider implementation. No validation that version exists until install time.
+2. **`tsuku shell` vs `tsuku shellenv` naming.** Two separate commands for
+   global vs project PATH management. The naming distinction is subtle and
+   could trip up users.
 
-3. **Confirmation prompt is before dependency resolution** -- User sees the declared version (e.g., "go@1.22") but doesn't know the resolved version (e.g., "go@1.22.5") until after confirming and install runs.
+3. **Project config is version-only.** The ToolRequirement struct has only
+   `Version`. No `optional`, `platforms`, `ci-only`, or other fields. The
+   inline-table form (`{ version = "3.12" }`) exists purely as an extension
+   point for the future.
 
-4. **No "already current" distinction in summary** -- Install summary says "Installed: 3 tools" even if all 3 were already at the declared version. Only errors get separate line.
-
-5. **Design doc is extremely thorough on security and trade-offs** -- Trade-offs section (lines 262-266) explicitly lists accepted costs (monorepo duplication, manual migration, no semver ranges). This is intentional design, not gaps.
+4. **Parent directory traversal stops at $HOME.** The ceiling behavior means
+   a `.tsuku.toml` at `~/projects/.tsuku.toml` won't be found from
+   `~/projects/foo/` if `~/projects/` equals `$HOME`. This is intentional
+   but worth noting for monorepo setups.
 
 ## Open Questions
 
-1. **How does version resolution actually work for each tool?**
-   - Koto: does `>= 0.2.1` work as version string, or must it be pinned to exact version?
-   - Python3: what does "3" vs "3.12" resolve to?
-   - Are there recipes for all five tools Shirabe needs?
+1. **What version of tsuku ships the project config feature?** The installed
+   binary is 0.8.1. The instructions mention 0.9.0. Need to confirm whether
+   0.8.1 already includes full project config support or if 0.9.0 is required.
 
-2. **What's the exact recipe name for each tool?**
-   - Design uses "go", "node", "ripgrep", "jq" as examples
-   - Are they kebab-case? What about "python3" vs "python"? "github-cli" vs "gh"?
-   - Answers require tsuku recipe registry inspection or `tsuku list` command (if it exists)
+2. **Is koto available as a tsuku recipe?** Shirabe needs koto >= 0.2.1. If
+   there's no koto recipe, tsuku can't manage it.
 
-3. **Can version pinning be optional in CI?**
-   - If `--fresh` flag always installs latest, can `.tsuku.toml` use `""` (latest)?
-   - Design says warning is printed but install proceeds, implying latest is allowed
-   - Shirabe could declare `python = ""` in config for CI if this is viable
+3. **Are gh, jq, python3 available as recipes?** Need to check the recipe
+   registry for shirabe's dependencies.
 
-4. **What does "already current" status look like in install output?**
-   - Design mentions "already-current counter" in data flow (line 404) but implementation summary doesn't separate it from "installed"
-   - Code comment in install_project.go (lines 121-124) says "we can't distinguish here without deeper state inspection"
-   - Does this mean the summary is ambiguous?
+4. **How does `tsuku install --yes` behave when a tool is already installed at
+   the pinned version?** Does it skip or reinstall? This affects CI run times.
 
-5. **How does the `--plan` flag work with project install?**
-   - install.go line 84 has condition `installPlanPath == ""` to detect no-args mode
-   - Can `tsuku install --plan` work without tool args?
-   - Is there a `tsuku eval` command that generates plans? (Mentioned in install.go help text line 70)
-
-6. **Does `--dry-run` actually skip confirmation prompt?**
-   - Code shows confirmation prompt happens before install loop (lines 96-104)
-   - Flag is marked compatible with no-args mode (design doc line 229)
-   - But does "dry-run" skip the prompt, or do you still have to confirm to preview?
+5. **What's the actual wall-clock time for a fresh `tsuku install` of 4-5
+   tools?** Sequential install could be 30-60+ seconds depending on download
+   speeds.
 
 ## Summary
 
-The end-to-end `.tsuku.toml` setup is a three-step manual flow: `tsuku init` (creates empty file), edit TOML (user adds tools by name and version), then `tsuku install` (batch-installs with interactive confirmation). Version string semantics are opaque to the schema (resolved at install time by the tool's provider), and there's no built-in tool discovery or validation until install runs, creating friction for users unfamiliar with recipe names and version string behavior. The design is intentionally minimal and secure, deferring extensibility (monorepo inheritance, `.tool-versions` compat, per-tool options) to future work, but this means Shirabe must manually determine exact versions and recipe names for all five tools before committing `.tsuku.toml` to version control.
-
+The end-to-end flow is `tsuku init` (creates empty `.tsuku.toml`), hand-edit
+the file to add tools with versions, then `tsuku install` (batch installs with
+confirmation) -- functional but with a manual editing gap where `tsuku add`
+would normally live. The main implication for shirabe is that `.tsuku.toml`
+authoring is a one-time manual task and CI needs `--yes` with careful exit code
+handling. The biggest open question is whether shirabe's specific dependencies
+(koto, gh, jq, python3) all have tsuku recipes available.

@@ -1,17 +1,24 @@
 # Demand Validation: Adopting tsuku's `.tsuku.toml` in Shirabe
 
-**Status:** Lead Research Completed  
-**Date:** 2026-04-03  
-**Focus:** Adversarial demand validation for project-level tool management  
+**Date:** 2026-04-04
+**Focus:** Adversarial demand validation for project-level tool management
 **Visibility:** Public
 
 ---
 
 ## Executive Summary
 
-Evidence shows that **tsuku's `.tsuku.toml` feature was intentionally designed, implemented, and shipped** as part of a wider shell integration initiative (PR #2175, merged 2026-03-28). However, **demand specifically for shirabe adoption is minimal and entirely internal** — no distinct external issue reporters, feature requests from users, or GitHub discussions cite tool management as a pain point in shirabe.
+No external demand exists for `.tsuku.toml` adoption in shirabe. No shirabe
+user, contributor, or issue reporter has requested project-level tool
+management. The exploration is self-directed by the maintainer as a friction
+log exercise -- the stated goal is to surface UX issues worth filing back
+against tsuku, not to solve a blocking shirabe problem.
 
-The feature itself is validated by tsuku maintainers as built and current (not planned). Shirabe has a documented dependency on koto >=0.2.1, and CI currently installs tools manually per-step. The question is whether adopting `.tsuku.toml` represents real user demand or a natural-fit optimization offered by newly available infrastructure.
+tsuku 0.9.0 (released 2026-04-04) fixes the two biggest friction points from
+the prior round: org-scoped recipes now work in `.tsuku.toml`
+(tsukumogami/tsuku#2230), and `"latest"` version strings resolve correctly
+(tsukumogami/tsuku#2229). These fixes reduce adoption friction but don't
+change the demand picture.
 
 ---
 
@@ -19,170 +26,135 @@ The feature itself is validated by tsuku maintainers as built and current (not p
 
 ### 1. Is demand real?
 
-**Verdict: Low confidence**
+**Confidence: Low**
 
-**Evidence searched:**
-- Shirabe GitHub issues: searched all 18 open issues, none mention tool declaration, project-level configuration, or developer setup friction related to missing tools
-- Shirabe commits: searched for "tool", "koto", "depend", "setup" patterns; found koto adoption merged (#29, #27, #48) but no issue expressing demand for project-level declarations
-- Tsuku GitHub issues: referenced design doc cites issue #1680 as spawn point for project configuration feature
-- Koto GitHub issues: no linked demand data visible
+Searched all 61 shirabe issues (open and closed). None mention tool
+declaration, project-level configuration, `.tsuku.toml`, or developer setup
+friction related to missing tools.
 
-**What we found:**
-- **Tsuku design doc (DESIGN-project-configuration.md, spawned from issue #1680)** identifies the problem: "Tsuku installs tools globally with no way to declare per-directory tool requirements. Projects can't specify which tools and versions they need, forcing each developer to manually discover and install the right tools."
-- This is a *tsuku-wide problem statement*, not specific to shirabe
-- No evidence that shirabe developers filed an issue or explicitly requested tool declaration support
-- Shirabe README (line 92-93) lists koto as a requirement with auto-install fallback, suggesting tool availability is already solved for CI
+The tsuku design doc (DESIGN-project-configuration.md, spawned from
+tsukumogami/tsuku#1680) frames the problem generically: "Projects can't
+specify which tools and versions they need, forcing each developer to manually
+discover and install the right tools." This is a tsuku-wide problem statement,
+not specific to shirabe.
 
-**Confidence: Low.** The problem is real in the *abstract* (tool discovery is a pain in large ecosystems), but no distinct shirabe reporter, user, or maintainer has explicitly asked for this feature in the shirabe repo.
-
----
+The scope document for this exploration (commit 4f61bb0) describes the work as
+a "friction log exercise" -- an internal initiative, not a response to reported
+demand.
 
 ### 2. What do people do today instead?
 
-**Verdict: High confidence**
+**Confidence: High**
 
-**Evidence found:**
-- **validate-templates.yml (lines 14-23):** Manual, explicit tool installation in CI:
-  ```yaml
-  - name: Install koto via tsuku
-    run: tsuku install tsukumogami/koto -y
-  ```
-- **README.md (lines 92-93):** Koto listed as a requirement with auto-install fallback:
-  > koto >= 0.2.1 (for /work-on; installed automatically if missing)
-- **CI pattern:** Each workflow step that needs a tool runs an explicit `tsuku install <tool>` command (validate-templates.yml), or assumes tools are pre-installed on the runner (release.yml uses `gh` and `jq` directly)
-- **Local development:** No documented setup step; developers presumably run `tsuku install <tool>` on demand when they encounter a missing tool
+Two durable workarounds are visible in the codebase:
 
-**Current workarounds:**
-1. **In CI:** Explicit per-tool install commands with `-y` flag
-2. **Local:** Auto-install on first use via command-not-found hook (tsuku feature), or manual discovery/install
-3. **For docs:** README lists dependencies; users read and install manually if needed
+1. **CI: explicit per-tool install commands.**
+   `.github/workflows/validate-templates.yml` (line 23) runs
+   `tsuku install tsukumogami/koto -y` directly. Release workflows assume `gh`
+   and `jq` are pre-installed on GitHub runners.
 
-**Confidence: High.** The artifact evidence (workflow files, README) is explicit and durable.
+2. **Local development: undocumented manual install.**
+   README.md states koto >= 0.2.1 is required and "installed automatically if
+   missing." No other tool requirements are declared for local development.
+   Developers presumably run `tsuku install <tool>` on demand.
 
----
+Both workarounds function. Neither has been reported as broken or insufficient.
 
 ### 3. Who specifically asked?
 
-**Verdict: Absent**
+**Confidence: Absent**
 
-**No evidence found** of a specific person, issue number, or pull request requesting `.tsuku.toml` adoption in shirabe.
+No issue, PR, comment, or commit in shirabe's history requests `.tsuku.toml`
+adoption. Searched:
 
-**What we searched:**
-- Shirabe issue tracker (#1–#61): no issue titled "tool management", "project config", "tsuku.toml", or similar
-- Shirabe commits: no commit message citing a user request for tool declaration
-- Cross-repo references: no GitHub link from koto or tsuku issues pointing to shirabe as a use case
+- Shirabe issues #1 through #61 (all states)
+- Shirabe commit messages on main
+- Cross-repo issue references from tsuku and koto pointing to shirabe
 
-**Single internal signal:** The scope document (commit 32877e1, 2026-04-03, **today**) references "the user wants to adopt `.tsuku.toml` and collect a friction log" — this is a *self-directed exploration* by an internal agent/user in the conversation, not a reported issue.
-
-**Confidence: Absent.** No external or even documented internal issue ticket exists.
-
----
+The only signal is the current exploration scope document, authored by the
+maintainer as a self-directed exercise.
 
 ### 4. What behavior change counts as success?
 
-**Verdict: Medium confidence**
+**Confidence: Medium**
 
-**Implicit acceptance criteria from scope doc:**
-- Create `.tsuku.toml` for shirabe
-- Declare koto and other tools (gh, jq, python3, claude) with version pinning
-- Update CI workflows to use `tsuku install` (no args) instead of explicit per-tool installs
-- Collect friction observations to file back against tsuku
+The scope document defines success as:
 
-**Explicit goal from scope (line 9):**
-> "We're treating this as a friction log exercise to surface UX issues worth filing back against tsuku."
+- A `.tsuku.toml` file committed to shirabe
+- CI workflows updated to use `tsuku install` (no args) instead of explicit
+  per-tool installs
+- Friction observations collected and filed as issues against tsuku
 
-**Measurable outcome:** Completion of the exploration yields:
-1. A `.tsuku.toml` file committed to shirabe
-2. CI workflows updated to use batch install
-3. A list of friction findings filed as issues or research artifacts
-
-**Confidence: Medium.** The scope doc is explicit, but it treats success as *process-driven* (friction discovery) rather than *outcome-driven* (solving a user problem). The "why" is exploratory (what's the ux like?) rather than "users need this."
-
----
+The goal is explicitly process-driven (discover friction) rather than
+outcome-driven (solve a user problem). Prior round 1 findings (commit 2598fb3)
+already produced three qa-discovered bugs filed against tsuku:
+tsukumogami/tsuku#2229, tsukumogami/tsuku#2230, tsukumogami/tsuku#2231. All
+three are now closed, with #2229 and #2230 fixed in v0.9.0.
 
 ### 5. Is it already built?
 
-**Verdict: High confidence — YES, it is built**
+**Confidence: High -- the tsuku feature is built; shirabe adoption is not**
 
-**Evidence:**
-- **Tsuku PR #2175 (merged 2026-03-28):** Implements shell integration Track B, including project configuration (`.tsuku.toml`)
-- **Commit b3e39be7 message:**
-  > "New internal/project package reads .tsuku.toml for per-directory tool requirements with parent directory traversal and $HOME ceiling. tsuku init creates the config file; tsuku install with no arguments batch-installs all declared tools with interactive confirmation and error aggregation."
-- **Design doc status:** DESIGN-project-configuration.md marked "status: Current" (not Proposed, not Done)
-- **Implementation evidence:** Multiple lead research docs found in shirabe/wip/research/ examining the actual behavior of `.tsuku.toml` (setup experience, CI workflows), suggesting the feature is already usable
-- **Code reference:** `/home/dgazineu/dev/niwaw/tsuku/tsukumogami-3/public/tsuku/internal/project/config.go` exists and contains `LoadProjectConfig` implementation
+The `.tsuku.toml` feature shipped in tsuku as part of PR #2175 (merged
+2026-03-28). Design doc DESIGN-project-configuration.md is status: Current.
+Implementation lives in `internal/project/config.go`. CLI commands `tsuku init`
+and `tsuku install` (no args) are functional.
 
-**Confidence: High.** The feature is shipped and documented. No partial work, no feature flags, no "coming soon."
-
----
+No `.tsuku.toml` file exists in shirabe or any other public repo in the
+workspace (confirmed via glob search across all of `/public/`). No repo in the
+org has adopted project-level tool management yet.
 
 ### 6. Is it already planned?
 
-**Verdict: High confidence — NO, it is not planned (it is already current)**
+**Confidence: Medium -- planned as an exploration, not as a tracked issue**
 
-**Evidence:**
-- **Design doc status:** "status: Current" — not "proposed", "under review", or "accepted"
-- **Merged PR:** PR #2175 is merged into main, not open or in draft
-- **No open issues blocking adoption:** The scope doc suggests adoption is ready ("recently shipped")
-- **Roadmap:** Tsuku README and docs don't list `.tsuku.toml` as a future feature; it's presented as a current capability
+The current branch (`docs/project-tool-management`) and scope document
+constitute the plan. There is no GitHub issue in shirabe's tracker for
+`.tsuku.toml` adoption. The exploration is tracked only via wip/ artifacts on
+this feature branch.
 
-**What *is* planned for .tsuku.toml itself:**
-- From design doc lines 262–266: "Future extensibility" includes `extends` keyword for monorepo inheritance (deferred), `.tool-versions` compatibility (deferred), per-tool options (deferred)
-- Design doc lines 289–294 note: "Track demand for `extends`" and "Track demand for a `tsuku migrate` command"
-
-**Confidence: High.** The feature is not planned; it exists.
+In tsuku's tracker, the feature itself is complete. Related follow-up work
+(`.tool-versions` compatibility, `extends` keyword for monorepo inheritance)
+is deferred per the design doc.
 
 ---
 
 ## Calibration
 
-### State Assessment
+**Demand not validated.**
 
-**Demand is NOT VALIDATED.** Here's why:
+Four of six questions returned absent or low confidence. No distinct external
+reporter, no issue requesting this, no evidence that current workarounds are
+insufficient. The exploration is self-directed by the maintainer with an
+explicit friction-log goal.
 
-1. **Absent issue evidence** (Q3): No distinct reporter, no GitHub issue, no documented user request
-2. **Low problem specificity to shirabe** (Q1): The problem (tool discovery friction) is real in the abstract, but no evidence that shirabe *developers* experience it as a blocker
-3. **Workaround exists** (Q2): Current patterns (manual installs, auto-install on first use, README docs) are functional, not broken
-4. **Scope is exploratory, not remedial** (Q4): The stated goal is "collect friction" and "file issues back against tsuku", not "solve a shirabe user problem"
+This is NOT demand validated as absent. There is no rejection evidence -- no
+discussion concluding "we don't need this," no decision to stick with manual
+installs, no maintainer statement against adoption. The feature is available,
+low-cost to adopt, and three bugs surfaced during the prior friction log have
+already been fixed upstream (v0.9.0).
 
-**However, this is NOT demand-validated-as-absent.** Here's why not:
-
-- The feature **is** built and usable (Q5 = High)
-- The feature **is not** planned as future work (Q6 = High)
-- The adoption surface is **low friction** (lead-setup-experience research doc shows straightforward three-step flow)
-- **No rejection evidence exists**: no discussion of "we tried `.tsuku.toml` and it doesn't fit", no decision to stick with manual installs, no maintainer statement that shirabe won't adopt project config
-
-**What the gap reveals:** Shirabe is in a *naturally-fit, low-effort adoption zone* where the feature exists, is stable, and costs little to use — but no active demand signal from shirabe developers or users is visible.
+**What changed since round 1:** tsuku 0.9.0 (released today) fixes
+org-scoped recipe syntax in `.tsuku.toml` (tsukumogami/tsuku#2230) and
+`"latest"` version resolution (tsukumogami/tsuku#2229). These were the two
+largest blockers identified in the prior round. The jq shared library linking
+issue (tsukumogami/tsuku#2231) is also closed. Adoption friction is materially
+lower than it was 24 hours ago, but the demand picture is unchanged.
 
 ---
 
 ## Cross-References
 
-**Supporting artifacts in shirabe repo:**
-- `/wip/explore_project-tool-management_scope.md` — Exploration charter
-- `/wip/research/explore_project-tool-management_r1_lead-setup-experience.md` — End-to-end `.tsuku.toml` UX walkthrough
-- `/wip/research/explore_project-tool-management_r1_lead-ci-workflows.md` — CI integration patterns
+**Shirabe artifacts:**
+- `wip/explore_project-tool-management_scope.md` -- Exploration charter
+- `.github/workflows/validate-templates.yml` -- Current manual koto install (line 23)
+- `README.md` -- Koto requirement declaration
 
-**Tsuku source references:**
-- `/public/tsuku/docs/designs/current/DESIGN-project-configuration.md` (issue #1680, merged in PR #2175)
-- `/public/tsuku/internal/project/config.go` (implementation)
-- `/public/tsuku/cmd/tsuku/init.go` and `/install_project.go` (CLI commands)
-
-**Shirabe internal references:**
-- `.github/workflows/validate-templates.yml` — Current manual koto install pattern
-- `README.md` (lines 92–93) — Koto requirement declaration
-
----
-
-## Recommendation for Convergence
-
-**Data point for decision:**
-
-The demand question has two possible verdicts:
-
-1. **"Demand is not validated"** → Exploratory adoption is acceptable as a friction-discovery exercise (stated goal). User/maintainer continues exploration to surface UX issues worth filing back to tsuku. Value is in feedback, not in solving a blocking shirabe problem.
-
-2. **"Demand is validated at low/medium confidence"** → A natural-fit optimization is available. Adoption is low-cost and improves CI reproducibility. Proceed for its own merits (good practice, not urgent need).
-
-Either path is defensible. The convergence question is: **Is exploring tsuku's UX (and collecting friction) a priority, or is shirabe's current tool management already sufficient?**
-
+**Tsuku artifacts:**
+- `docs/designs/current/DESIGN-project-configuration.md` (issue #1680)
+- `internal/project/config.go` -- Implementation
+- Issue #2229 (CLOSED) -- "latest" version string fix
+- Issue #2230 (CLOSED) -- Org-scoped recipe syntax fix
+- Issue #2231 (CLOSED) -- jq shared library linking fix
+- Issue #2233 (CLOSED) -- Version string behavior documentation
+- v0.9.0 release notes -- Confirms fixes shipped
