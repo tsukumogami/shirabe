@@ -1,0 +1,9 @@
+{
+  "topic": "roadmap-creation-skill",
+  "decisions": [
+    {"id": 1, "question": "What are the roadmap-specific creation workflow phases (agent roles for discover, jury criteria for validate)?", "status": "pending", "complexity": "standard"},
+    {"id": 2, "question": "How does the /explore -> /roadmap handoff change from inline production to auto-continue?", "status": "pending", "complexity": "standard"}
+  ],
+  "cross_validation": "pending",
+  "round": 0
+}
