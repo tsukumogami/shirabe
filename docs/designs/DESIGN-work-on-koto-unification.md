@@ -365,3 +365,228 @@ gate-plus-evidence pattern already used throughout the template. The hybrid
 orchestrator works because it decomposes controller.go along a natural boundary:
 ~100 lines of graph logic to a testable script, ~60 lines of context logic to
 flexible SKILL.md, and template extraction to koto itself.
+
+## Solution Architecture
+
+### Overview
+
+The unified work-on system has three layers: a koto template (per-issue state
+machine), a skill layer (SKILL.md + helper script for orchestration), and shared
+components (review panels, context assembly, entry routing). For single-issue and
+free-form tasks, only the koto template and SKILL.md are active. For plan-backed
+execution, the helper script manages the issue queue while the SKILL.md coordinates
+per-issue koto workflows.
+
+### Components
+
+```
+/work-on (user entry point)
+    |
+    v
+SKILL.md (orchestrator)
+    |
+    +-- Mode detection (issue / free-form / plan)
+    |
+    +-- [plan mode only] scripts/plan-queue.sh
+    |       |
+    |       +-- next-issue: dependency graph -> next ready issue
+    |       +-- mark-complete: update manifest, check unblocked
+    |       +-- mark-skipped: skip + transitive dependents
+    |       +-- status: aggregate progress report
+    |
+    +-- Per-issue koto workflow
+    |       |
+    |       +-- koto init <WF> --template work-on.md --var ISSUE_NUMBER=N
+    |       +-- koto next <WF> (loop until terminal)
+    |       +-- koto context set/get (cross-issue context)
+    |       +-- koto overrides record (gate bypasses with rationale)
+    |
+    +-- Review panel orchestration
+            |
+            +-- Scrutiny (3 agents parallel)
+            +-- Code review (3 agents parallel)
+            +-- QA validation (tester agent)
+```
+
+### Key Interfaces
+
+**Koto template** (`koto-templates/work-on.md`):
+- Entry state: `mode` enum `[issue_backed, free_form, plan_backed]`
+- Per-issue variables: `ISSUE_NUMBER`, `ARTIFACT_PREFIX`, `PLAN_DOC` (plan mode)
+- Terminal states: `done`, `done_blocked`, `validation_exit`
+- ~23 states, ~10 gates (after decomposition)
+
+**Queue script** (`scripts/plan-queue.sh`):
+- Input: manifest JSON file path
+- `next-issue` output: `{"issue_number": N, "title": "...", "agent_type": "coder", "dependencies_met": true}`
+- `mark-complete` output: `{"newly_unblocked": [N, ...], "remaining": M}`
+- `mark-skipped` output: `{"transitively_skipped": [N, ...], "reason": "..."}`
+- `status` output: `{"pending": N, "completed": N, "skipped": N, "blocked": N, "in_progress": N}`
+
+**Manifest schema** (`wip/work-on-plan_<topic>_manifest.json`):
+```json
+{
+  "plan_doc": "path/to/PLAN.md",
+  "branch": "impl/<topic>",
+  "pr_number": null,
+  "issues": [
+    {
+      "number": 1,
+      "title": "...",
+      "status": "pending|in_progress|completed|skipped",
+      "dependencies": [2, 3],
+      "agent_type": "coder|webdev|techwriter",
+      "koto_workflow": "work-on-issue-1"
+    }
+  ]
+}
+```
+
+**Review panel interface**:
+- Input: koto directive at scrutiny/review/qa_validation state
+- Output: aggregated JSON to koto context (`scrutiny_results.json`, etc.)
+- Evidence: `passed | blocking_retry | blocking_escalate`
+
+**Cross-issue context protocol**:
+- Per-issue context keys: `issue-<N>/summary.md`, `issue-<N>/plan.md`
+- Script-generated snapshot: `current-context.md` assembled before each issue
+- Contents: current issue info, previous 2 issue summaries, cumulative files
+  changed, key decisions
+
+### Data Flow
+
+**Single-issue mode:**
+```
+SKILL.md detects mode -> koto init (one workflow) -> koto next loop ->
+review panels at scrutiny/review/qa states -> done
+```
+
+**Plan mode:**
+```
+SKILL.md parses PLAN -> creates manifest -> plan-queue.sh next-issue ->
+koto init (per-issue) -> koto next loop -> review panels ->
+koto context set (issue summary) -> plan-queue.sh mark-complete ->
+plan-queue.sh next-issue -> [repeat] -> all issues done ->
+PR-level QA -> done
+```
+
+**Resume:**
+```
+SKILL.md reads manifest via plan-queue.sh status ->
+finds in_progress issue -> koto next --state <existing> ->
+continues from koto's persisted state
+```
+
+## Implementation Approach
+
+### Phase 1: Gate migration
+
+Migrate the existing work-on koto template to v0.6.0 structured output. This is
+independent of all other phases and unblocks strict-mode compilation.
+
+Deliverables:
+- Updated `koto-templates/work-on.md` with `gates.*` when clauses on all states
+- Decomposed `code_committed` into 3 atomic gates
+- Mixed routing on all gated states
+- Strict-mode compilation passing (`koto template compile`)
+
+### Phase 2: Review panel states
+
+Add scrutiny, review, and qa_validation states to the template between
+implementation and finalization. Wire up the gate-plus-evidence pattern.
+
+Deliverables:
+- Three new states in `koto-templates/work-on.md`
+- Updated SKILL.md phase references for panel orchestration
+- Panel result context key conventions documented
+- Override defaults for review gates (enabling formal skip with rationale)
+
+### Phase 3: Plan-backed entry path
+
+Add the plan_backed mode to the entry state and create the pre-analysis chain
+(plan_context_injection, plan_validation, setup_plan_backed).
+
+Deliverables:
+- Updated entry state with 3-way mode enum
+- Plan-backed pre-analysis states in template
+- SKILL.md mode detection logic for plan document paths
+
+### Phase 4: Queue management script
+
+Build the helper script for multi-issue orchestration.
+
+Deliverables:
+- `scripts/plan-queue.sh` with next-issue, mark-complete, mark-skipped, status
+- Manifest schema and initialization from PLAN doc
+- Unit tests for dependency resolution and auto-skip logic
+
+### Phase 5: SKILL.md orchestrator
+
+Wire the orchestrator loop into the SKILL.md for plan-backed execution.
+
+Deliverables:
+- SKILL.md orchestration section for plan mode
+- Per-issue koto workflow init with variables
+- Cross-issue context assembly logic
+- Resume reconciliation (manifest + koto state)
+- PR-level coordination (single branch, single PR)
+
+### Phase 6: Shared component extraction
+
+Extract review panel instructions, context assembly, and common phase references
+into shared files that all three modes reference.
+
+Deliverables:
+- Shared review panel orchestration instructions
+- Shared context assembly helpers
+- Updated SKILL.md referencing shared components
+
+## Security Considerations
+
+This design changes workflow orchestration, not application code. No new attack
+surfaces are introduced. The primary security-relevant aspects:
+
+- **Gate overrides**: koto's override mechanism requires rationale. This design
+  doesn't weaken that -- all overrides remain auditable via `koto overrides list`.
+- **Script execution**: `plan-queue.sh` reads and writes a manifest JSON file.
+  It doesn't execute arbitrary commands or process untrusted input beyond PLAN
+  doc content authored by the same user.
+- **Context store**: koto context keys store workflow artifacts (summaries, review
+  results). No credentials or secrets are stored in context.
+
+## Consequences
+
+### Positive
+
+- Single `/work-on` entry point replaces three workflows (work-on, /implement,
+  /implement-doc) with a unified skill
+- Gate migration to v0.6.0 enables structured error routing (agents can
+  distinguish branch vs commit vs test failures)
+- Review panel results persist in koto context beyond wip/ cleanup, providing
+  audit trails
+- Koto's override system formalizes review skipping with mandatory rationale
+- Single-issue mode has zero orchestrator overhead -- the queue script is only
+  invoked for plan-backed execution
+- The queue script is testable in CI, unlike prose-based orchestration
+
+### Negative
+
+- Two state sources for plan mode: manifest tracks issue status, koto tracks
+  workflow state. Desynchronization is possible.
+- Template grows from 17 to ~23 states, increasing cognitive load for
+  contributors modifying the workflow.
+- PLAN doc parsing in SKILL.md is prose-based and may fail on unusual formats.
+- The queue script adds a shell + jq dependency for plan-backed execution.
+- Contributors must understand both the script interface and SKILL.md
+  orchestration to modify multi-issue behavior.
+
+### Mitigations
+
+- Reconciliation check: SKILL.md verifies manifest status matches koto workflow
+  state on each loop iteration and on resume.
+- Template complexity: states follow a consistent gate-plus-evidence pattern;
+  new contributors learn one pattern, not 23 unique ones.
+- PLAN format: standardized PLAN templates with schema validation reduce
+  parsing failures.
+- Dependency: jq is widely available and already used in the workspace for other
+  scripts.
