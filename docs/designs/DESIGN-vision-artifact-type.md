@@ -5,9 +5,10 @@ problem: |
   pre-requirements layer -- project thesis, org fit, and strategic justification
   go undocumented or get shoehorned into Roadmap "Vision" sections.
 decision: |
-  Add VISION as the sixth supported crystallize type with a single template
-  (visibility-gated optional sections), anti-signal scope gating for tactical
-  suppression, and a human-gated lifecycle (Draft, Accepted, Active, Sunset).
+  Add VISION as the sixth supported crystallize type with a dedicated /vision
+  creation skill, anti-signal scope gating for tactical suppression, and a
+  human-gated lifecycle (Draft, Accepted, Active, Sunset). /explore hands off
+  to /vision the same way it hands off to /prd and /design.
 rationale: |
   VISION fills a genuine gap between "idea" and "requirements" that every major
   product framework acknowledges. The anti-signal approach for scope gating
@@ -32,7 +33,8 @@ thesis and strategic justification either go undocumented or get embedded in
 roadmap "Vision" sections, losing their identity as a distinct decision layer.
 
 This design adds VISION as a supported artifact type in the crystallize
-framework, with a reference skill, Phase 5 produce handler, and integration
+framework, with a dedicated `/vision` creation skill that owns all
+lifecycle management, a Phase 5 handoff from /explore, and integration
 into the existing pipeline.
 
 ## Decision Drivers
@@ -47,7 +49,10 @@ into the existing pipeline.
   and Strategic+Private both valid)
 - Must follow the established skill pattern (frontmatter spec, required
   sections, lifecycle, validation, quality guidance)
-- No new commands needed -- VISION is produced through /explore only
+- Each doc type should have its own skill that owns all lifecycle
+  management details for that type
+- /explore hands off to /vision (auto-continue pattern, like /prd and
+  /design), but /vision also works as a standalone command
 
 ## Considered Options
 
@@ -271,86 +276,153 @@ appropriate for an artifact created a handful of times per project.
 
 ### Overview
 
-Three new files, one modified file:
+The /vision skill follows the same pattern as /prd: a SKILL.md that
+defines both the format specification AND a multi-phase creation workflow.
+/explore hands off to /vision via the auto-continue pattern (writes a
+handoff artifact, invokes /vision in the same session). /vision also
+works standalone when someone already knows they want a vision document.
 
-1. **`skills/vision/SKILL.md`** -- Reference-only skill (no invocable
-   workflow) with the format specification embedded directly. Unlike PRD
-   which has a SKILL.md manifest plus a separate `references/prd-format.md`,
-   VISION has no creation workflow, so a single file with the full spec is
-   sufficient. No `references/` subdirectory needed.
+Four deliverables:
 
-2. **`skills/explore/references/quality/crystallize-framework.md`**
+1. **`skills/vision/SKILL.md`** -- Creation skill with format spec,
+   lifecycle management, validation rules, quality guidance, content
+   boundaries, and a multi-phase creation workflow. Follows the /prd
+   pattern: format reference embedded in the same file as the workflow.
+
+2. **`skills/vision/references/phases/*.md`** -- Phase files for the
+   creation workflow (scope, discover, draft, validate).
+
+3. **`skills/explore/references/quality/crystallize-framework.md`**
    (modified) -- Add VISION to the Supported Types section with signal
    table, tiebreaker rules, and disambiguation rule. Move from 5 to 6
    supported types in Step 1.
 
-3. **`skills/explore/references/phases/phase-5-produce-vision.md`** --
-   New Phase 5 handler for inline VISION production. Follows the pattern
-   of `phase-5-produce-deferred.md` (Roadmap section).
+4. **`skills/explore/references/phases/phase-5-produce-vision.md`** --
+   Phase 5 handoff handler. Writes `wip/vision_<topic>_scope.md` and
+   auto-invokes /vision (same pattern as phase-5-produce-prd.md).
 
-4. **`skills/explore/references/phases/phase-5-produce.md`** (modified)
-   -- Add VISION to the routing table (row between Decision Record and
-   the deferred types).
+5. **`skills/explore/references/phases/phase-5-produce.md`** (modified)
+   -- Add VISION to the routing table as auto-continue (same row pattern
+   as PRD and Design Doc).
 
 ### Components
 
 ```
 skills/vision/
-  SKILL.md              <-- format, lifecycle, validation, content boundaries
+  SKILL.md                          <-- format + creation workflow
+  references/
+    phases/
+      phase-1-scope.md              <-- conversational scoping
+      phase-2-discover.md           <-- parallel research agents
+      phase-3-draft.md              <-- produce VISION draft
+      phase-4-validate.md           <-- jury review
 
 skills/explore/
   references/
     quality/
-      crystallize-framework.md   <-- add VISION supported type
+      crystallize-framework.md      <-- add VISION supported type
     phases/
-      phase-5-produce.md         <-- add VISION routing entry
-      phase-5-produce-vision.md  <-- new: inline production handler
+      phase-5-produce.md            <-- add VISION routing entry
+      phase-5-produce-vision.md     <-- handoff to /vision (auto-continue)
 ```
 
 ### Key Interfaces
 
-**Crystallize -> Produce routing.** When `phase-5-produce.md` receives
-"VISION" as the chosen type, it reads `phase-5-produce-vision.md` and
-follows its instructions. This is the same dispatch pattern used for
-Roadmap, Spike Report, and Competitive Analysis.
+**Crystallize -> Produce handoff.** When `phase-5-produce.md` receives
+"VISION" as the chosen type, it reads `phase-5-produce-vision.md`. The
+handler writes `wip/vision_<topic>_scope.md` (synthesized from
+exploration findings) and auto-invokes /vision. This is the same
+auto-continue pattern used for PRD and Design Doc.
 
-**Produce handler -> VISION template.** The handler populates a VISION
-doc from exploration findings:
-- Thesis: from the scope file's Core Question and exploration summary
-- Audience: from research findings on target users
-- Value Proposition: from crystallize rationale
-- Org Fit: from research findings on ecosystem/portfolio positioning
-- Success Criteria: from exploration decisions and user focus
-- Non-Goals: from scope file's Out of Scope
+**Standalone entry.** `/vision <topic>` starts the creation workflow
+directly, bypassing /explore. The skill detects whether a handoff
+artifact exists (`wip/vision_<topic>_scope.md`) and skips Phase 1 if so.
 
-**Visibility check.** The handler reads the `## Visibility` section from
-`wip/explore_<topic>_scope.md` (written by Phase 0). If Public, omit
-Competitive Positioning and Resource Implications sections. If Private,
-include them as optional sections populated from research findings.
+**Creation workflow phases.** Modeled after /prd (lighter since VISIONs
+are shorter documents):
 
-**Naming.** Output file: `docs/visions/VISION-<topic>.md`. The topic
-slug is derived from the exploration topic (kebab-case).
+| Phase | Purpose | Artifact |
+|-------|---------|----------|
+| 0. Setup | Branch, visibility detection | On topic branch |
+| 1. Scope | Conversational scoping | Problem statement + research leads |
+| 2. Discover | Parallel research agents | Research findings in wip/ |
+| 3. Draft | Produce VISION draft | Complete VISION draft |
+| 4. Validate | Jury review (thesis quality, boundaries) | Validated VISION |
+
+Phase 2 agents investigate: audience validation, value proposition
+clarity, org fit evidence, competitive landscape (private only), and
+success criteria measurability.
+
+Phase 4 jury focuses on VISION-specific quality: is the thesis a
+hypothesis (not a problem statement)? Do success criteria avoid
+feature-level metrics? Does org fit explain why HERE and not elsewhere?
+Are non-goals about identity (not scope)?
+
+**Lifecycle management.** The /vision skill owns all status transitions:
+- Draft -> Accepted: `/vision accept <path>` (validates Open Questions
+  resolved)
+- Accepted -> Active: `/vision activate <path>` (validates downstream
+  artifact exists)
+- Active -> Sunset: `/vision sunset <path>` (records reason in Status
+  section)
+
+**Visibility check.** The skill reads visibility from CLAUDE.md (same
+as /explore Phase 0). Public repos get 7 required sections. Private
+repos additionally get Competitive Positioning and Resource Implications
+as optional sections.
+
+**Naming.** Output: `docs/visions/VISION-<topic>.md` (kebab-case).
 
 ### Data Flow
 
+**Via /explore handoff:**
 ```
 wip/explore_<topic>_scope.md ----+
 wip/explore_<topic>_findings.md -+---> phase-5-produce-vision.md
 wip/explore_<topic>_decisions.md +        |
                                           v
+                               wip/vision_<topic>_scope.md
+                                          |
+                                          v
+                                    /vision (auto-continue)
+                                          |
+                                          v
                                docs/visions/VISION-<topic>.md
+```
+
+**Standalone:**
+```
+/vision <topic>
+    |
+    v
+Phase 1: Scope (conversational)
+    |
+    v
+Phase 2: Discover (agents)
+    |
+    v
+Phase 3: Draft
+    |
+    v
+Phase 4: Validate (jury)
+    |
+    v
+docs/visions/VISION-<topic>.md
 ```
 
 ## Implementation Approach
 
-### Phase 1: Vision Reference Skill
+### Phase 1: Vision Creation Skill
 
-Create `skills/vision/SKILL.md` with the complete format specification.
-This is a reference-only skill (no creation workflow) that /explore's
-produce handler consults.
+Create the full `/vision` skill with format specification, creation
+workflow, lifecycle management, and phase files.
 
 Deliverables:
 - `skills/vision/SKILL.md`
+- `skills/vision/references/phases/phase-1-scope.md`
+- `skills/vision/references/phases/phase-2-discover.md`
+- `skills/vision/references/phases/phase-3-draft.md`
+- `skills/vision/references/phases/phase-4-validate.md`
 
 ### Phase 2: Crystallize Framework Update
 
@@ -364,9 +436,10 @@ remains deferred.
 Deliverables:
 - Modified `skills/explore/references/quality/crystallize-framework.md`
 
-### Phase 3: Phase 5 Produce Handler
+### Phase 3: Phase 5 Handoff Handler
 
-Create the inline production handler and add routing.
+Create the handoff handler (writes scope artifact, auto-invokes /vision)
+and add routing.
 
 Deliverables:
 - `skills/explore/references/phases/phase-5-produce-vision.md`

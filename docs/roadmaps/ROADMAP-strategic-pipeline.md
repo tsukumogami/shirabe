@@ -57,6 +57,16 @@ Five complexity levels route work through the pipeline:
 | Complex | /explore -> full pipeline | All three |
 | Strategic | VISION -> Roadmap -> per-feature | All three, with branching |
 
+## Cross-Cutting Decisions
+
+**Each document type gets its own skill with a creation workflow.** Every
+artifact type (VISION, Roadmap, etc.) should have a dedicated skill that
+owns format spec, creation workflow, lifecycle management, and validation
+-- all in one place. /explore hands off to these skills via auto-continue
+(same pattern as /prd and /design). Skills also work standalone when
+someone already knows what they want. This replaces the earlier approach
+of reference-only skills with inline /explore production.
+
 ## Features
 
 ### Feature 1: VISION Artifact Type
@@ -78,7 +88,8 @@ Key decisions from exploration:
 - Naming: `VISION-<name>.md` in `docs/visions/`
 - Frontmatter: status, thesis (summary), scope (org/project), upstream
 - Gated to strategic scope; tactical scope is a hard anti-signal
-- Produced inline in Phase 5 (not a separate command)
+- Dedicated /vision skill with creation workflow (per cross-cutting decision)
+- /explore hands off via auto-continue; also works standalone
 - Works at org-level and project-level via scope field
 - Visibility controls content richness, not availability
 
@@ -88,22 +99,22 @@ Crystallize integration:
 - Disambiguation: when exploration surfaces both thesis and requirements,
   VISION comes first (strategic justification before requirements)
 
-### Feature 2: Roadmap Creation Workflow
+### Feature 2: Roadmap Creation Skill
 
-Add a structured creation workflow for Roadmap artifacts. Currently the
-roadmap skill is format-reference-only -- it defines structure and lifecycle
-but doesn't guide creation. Compare with /prd and /design, which have
-full multi-phase creation workflows.
+Add a dedicated `/roadmap` creation skill for Roadmap artifacts (per
+cross-cutting decision: each doc type gets its own skill). Currently the
+roadmap skill is format-reference-only -- it defines structure and
+lifecycle but doesn't guide creation. The new skill owns format spec,
+creation workflow, lifecycle management, and validation, following the
+same pattern as /prd, /design, and /vision.
 
 **Dependencies:** None (independent of Feature 1)
 **Status:** Not Started
 **Downstream:** Needs PRD
 
-The creation workflow could be:
-- A new `/roadmap` creation command (peer to /prd, /design)
-- Or an expanded /explore Phase 5 handler that guides structured creation
-- The private plugin's roadmap skill defines the format; this feature adds
-  the creation process
+/explore hands off to /roadmap via auto-continue. /roadmap also works
+standalone. The private plugin's roadmap reference defines the format;
+this feature wraps it in a full creation workflow.
 
 ### Feature 3: Artifact Traceability
 

@@ -14,6 +14,10 @@
 - Crystallize decision (PRD for VISION) rescinded: the right artifact type depends on what the full pipeline looks like
 - Round 1 findings on VISION remain valid as input to the broader pipeline design
 
+## Design Phase (cross-cutting)
+- Each doc type gets its own skill with creation workflow: replaces the reference-only + inline-production pattern; skills own format, lifecycle, creation, and validation in one place; /explore hands off via auto-continue; skills also work standalone
+- Applies to: Feature 1 (VISION), Feature 2 (Roadmap), and any future artifact types
+
 ## Round 2
 - Pipeline model: three diverge-converge diamonds (Explore/Crystallize, Specify/Scope, Implement/Ship) with 5 named transitions (Advance, Recycle, Skip, Hold, Kill)
 - 5 complexity levels (Trivial, Simple, Medium, Complex, Strategic): extends existing 3-level routing at both extremes
