@@ -119,6 +119,25 @@ This means roadmap planning is always multi-pr (one issue per feature, each
 independently progressing through downstream workflows). The single-pr
 execution mode doesn't apply to roadmaps.
 
+**R5. Roadmap lifecycle gates.** A roadmap must be Active before merging
+to main (enforced by the "draft artifacts must not merge" cross-cutting
+rule). Draft -> Active requires human approval that the feature list is
+locked. Active -> Done requires all features to have reached a terminal
+state (delivered or explicitly dropped with rationale).
+
+**R6. Roadmaps are permanent records.** When a roadmap reaches Done, it
+retains its Implementation Issues table, Mermaid dependency graph, and
+Progress section. Nothing is deleted or stripped. Done roadmaps are
+historical artifacts showing what was planned, what shipped, and what
+was dropped. This differs from PLANs, which are deleted on completion.
+
+**R7. Progress consistency invariant.** When a feature's GitHub issue is
+closed, the roadmap's Progress section and Implementation Issues table
+must reflect the completion. No issue should show as closed on GitHub
+while the roadmap still lists it as "Not Started" or "In Progress."
+This is enforced by the completion lifecycle cascade: downstream
+completion events propagate back to the roadmap.
+
 ### Non-Functional
 
 **R5. No Go code changes.** Shared conventions are implemented in skill
@@ -143,6 +162,11 @@ and /implement consumers continue to work without modification.
       issues with needs-* labels
 - [ ] /plan consuming a roadmap transitions the roadmap from Draft to Active
 - [ ] Roadmap planning is always multi-pr (no single-pr mode for roadmaps)
+- [ ] Roadmap must be Active (not Draft) before merging to main
+- [ ] Done roadmaps retain all content (issues table, dependency graph,
+      progress) — nothing stripped
+- [ ] Feature completion on GitHub is reflected in the roadmap's Progress
+      section and Implementation Issues table (no stale status)
 - [ ] No changes to the Go workflow-tool binary
 - [ ] Existing Plan artifacts and /plan workflows for design/PRD inputs
       are unaffected
