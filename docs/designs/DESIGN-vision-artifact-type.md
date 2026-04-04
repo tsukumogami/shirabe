@@ -1,3 +1,20 @@
+---
+status: Proposed
+problem: |
+  The /explore workflow's crystallize framework has no artifact type for the
+  pre-requirements layer -- project thesis, org fit, and strategic justification
+  go undocumented or get shoehorned into Roadmap "Vision" sections.
+decision: |
+  Add VISION as the sixth supported crystallize type with a single template
+  (visibility-gated optional sections), anti-signal scope gating for tactical
+  suppression, and a human-gated lifecycle (Draft, Accepted, Active, Sunset).
+rationale: |
+  VISION fills a genuine gap between "idea" and "requirements" that every major
+  product framework acknowledges. The anti-signal approach for scope gating
+  requires zero structural changes to the scoring mechanism, and the heavy
+  anti-signal count (7) prevents false-positive recommendations.
+---
+
 # DESIGN: Vision Artifact Type
 
 ## Status
@@ -30,4 +47,383 @@ into the existing pipeline.
   and Strategic+Private both valid)
 - Must follow the established skill pattern (frontmatter spec, required
   sections, lifecycle, validation, quality guidance)
-- No new commands needed — VISION is produced through /explore only
+- No new commands needed -- VISION is produced through /explore only
+
+## Considered Options
+
+### Decision 1: Template Structure
+
+**Context.** The VISION template needs to capture project thesis, audience,
+value proposition, org fit, success criteria, and non-goals. It must work at
+both org-level (why does this org exist) and project-level (why does this
+project exist within the org), and handle the visibility dimension (public
+repos get fewer sections than private). Two research threads -- an
+exploration template proposal and a codebase skill pattern analysis --
+converged on nearly identical structures.
+
+Key assumptions:
+- The `vision-format.md` reference file lives in the skill's `references/`
+  directory alongside other format files
+- Open Questions follows the PRD pattern (Draft only, must resolve for
+  Accepted)
+- VISIONs are infrequent; template optimizes for clarity over brevity
+- The persistent Active state is a novel but acceptable lifecycle deviation
+
+#### Chosen: Section Matrix (single template with visibility-gated optional sections)
+
+A single template with a `scope` field (`org` | `project`) and a visibility
+matrix that gates two optional sections to private repos.
+
+**Frontmatter:**
+
+```yaml
+---
+status: Draft
+thesis: |
+  1 paragraph: the core belief about why this project/org should exist.
+scope: org | project
+upstream: docs/visions/VISION-<parent>.md  # optional, project-level only
+---
+```
+
+Required fields: `status`, `thesis`, `scope`. Optional: `upstream`.
+
+**Required sections (in order):**
+
+1. **Status** -- current lifecycle state
+2. **Thesis** -- the core bet, written as a hypothesis ("We believe
+   [audience] needs [capability] because [insight]"), not a problem
+   statement
+3. **Audience** -- who benefits, describing their current situation
+4. **Value Proposition** -- category of value delivered, not features
+5. **Org Fit** -- how this relates to the broader portfolio
+6. **Success Criteria** -- project-level outcomes (adoption, ecosystem,
+   quality signals), not feature acceptance criteria
+7. **Non-Goals** -- what this project deliberately is NOT, each with
+   reasoning
+
+**Optional sections:**
+
+- **Open Questions** -- Draft status only, must resolve for Accepted
+- **Downstream Artifacts** -- added when downstream work starts
+
+**Visibility-gated (private repos only):**
+
+- **Competitive Positioning** -- market alternatives
+- **Resource Implications** -- investment and opportunity cost
+
+**Section matrix:**
+
+| Section | Public | Private | Org | Project |
+|---------|--------|---------|-----|---------|
+| Status | Required | Required | Required | Required |
+| Thesis | Required | Required | Required | Required |
+| Audience | Required | Required | Required | Required |
+| Value Proposition | Required | Required | Required | Required |
+| Competitive Positioning | -- | Optional | Optional | Optional |
+| Resource Implications | -- | Optional | Optional | Optional |
+| Org Fit | Required | Required | Required | Required |
+| Success Criteria | Required | Required | Required | Required |
+| Non-Goals | Required | Required | Required | Required |
+| Open Questions | Draft only | Draft only | Draft only | Draft only |
+| Downstream Artifacts | When exists | When exists | When exists | When exists |
+
+**Content boundaries (VISION does NOT contain):**
+
+- Feature requirements or user stories (PRD)
+- Feature sequencing or timelines (Roadmap)
+- Technical architecture decisions (Design Doc)
+- Implementation tasks (Plan)
+- Full competitive analysis (separate artifact; VISION can reference
+  positioning but not duplicate analysis)
+
+#### Alternatives Considered
+
+- **Strict PRD Mirror** (fixed sections, no visibility gating): simplest
+  approach, but ignores the visibility constraint. Private repos lose the
+  ability to capture competitive positioning and resource implications.
+
+- **Dual Template** (separate org and project templates): two format files
+  with ~70% overlap. Org/project differences are in section guidance, not
+  structure. Creates sync burden with no precedent in the current system.
+
+### Decision 2: Crystallize Framework Integration
+
+**Context.** The crystallize framework scores artifact types using
+signal/anti-signal tables and a demotion rule. VISION is the sixth
+supported type. The open question: should tactical scope be a pre-filter
+(remove from candidates before scoring) or a regular anti-signal?
+
+Key assumptions:
+- The demotion rule remains absolute (1 anti-signal demotes below all
+  clean-scoring types)
+- No other future type needs scope-based gating at type-selection level
+
+#### Chosen: Anti-Signal for tactical scope gating
+
+Tactical scope is VISION's seventh anti-signal: "Scope is tactical
+(override or repo default)." It participates in the standard scoring and
+demotion procedure -- no structural changes to the framework.
+
+**Signal/anti-signal table (8 signals, 7 anti-signals):**
+
+| Signals | Anti-Signals |
+|---------|-------------|
+| Project doesn't exist yet (no repo, no codebase) | Project already exists and question is about its next feature |
+| Exploration centered on "should we build this?" | Requirements or user stories emerged (route to PRD) |
+| Org fit or strategic alignment was the core question | A PRD, design doc, or roadmap already covers this project |
+| Thesis validation was the exploration's primary output | Single coherent feature emerged (route to PRD) |
+| Multiple fundamentally different project directions viable | Specific users and needs already identified |
+| Target audience not yet well-defined | Negative conclusion -- project should NOT exist (route to Rejection Record) |
+| Core question is "should this project exist?" | Scope is tactical (override or repo default) |
+| Exploration produced strategic justification arguments | |
+
+**Tiebreaker rules (4 new entries for Step 3):**
+
+1. **VISION vs PRD:** Does the project exist yet? No -> VISION. Yes -> PRD.
+2. **VISION vs Roadmap:** "Should we do this at all?" -> VISION. "What
+   sequence?" -> Roadmap.
+3. **VISION vs Rejection Record:** "Proceed" -> VISION. "Don't proceed" ->
+   Rejection Record.
+4. **VISION vs No Artifact:** Does anyone else need the strategic argument?
+   Yes -> VISION. No -> No Artifact.
+
+**Disambiguation rule:**
+
+When exploration surfaces both strategic justification AND feature
+requirements, VISION comes first. Strategic justification must be accepted
+before requirements are worth writing.
+
+#### Alternatives Considered
+
+- **Pre-Filter:** Remove VISION from candidates when scope is tactical.
+  Rejected: introduces a structural concept (candidate filtering) that
+  doesn't exist in the framework, violating the no-structural-changes
+  constraint. Reduces observability by hiding suppression reasoning.
+
+- **Hybrid:** Pre-filter for scope, anti-signals for content. Rejected:
+  combines both mechanisms' costs without proportional benefit.
+
+### Decision 3: Lifecycle Transition Rules
+
+**Context.** VISION has four states (Draft, Accepted, Active, Sunset) --
+decided during exploration. Open questions: what triggers each transition,
+can Active VISIONs be edited in place, is Sunset reversible, does VISION
+need Superseded alongside Sunset?
+
+Key assumptions:
+- VISIONs are infrequent enough (1-3 per project) for all-human
+  transitions
+- Downstream skills will eventually validate upstream VISION status
+- Thesis section is a reliable proxy for project identity change
+
+#### Chosen: Human-Gated Transitions with Thesis-Boundary Edits
+
+All transitions are human-triggered. The Thesis section is the bright line
+for edit-vs-new-VISION decisions.
+
+**Transition table:**
+
+| Transition | Trigger | Preconditions |
+|-----------|---------|---------------|
+| Draft -> Accepted | Human approval | Open Questions empty/removed |
+| Accepted -> Active | Human marks Active | Downstream work has begun |
+| Active -> Sunset | Human decision | Abandoned, pivoted, or invalidated |
+
+**Forbidden transitions:** Draft -> Active (must endorse first), Draft ->
+Sunset (delete instead), Active -> Accepted/Draft (regression), Sunset ->
+any (terminal, irreversible).
+
+**In-place edit rule:** Active VISIONs can be edited for everything except
+the Thesis. Thesis changes signal a project pivot -- create a new VISION
+and Sunset the old one ("Sunset: superseded by VISION-X.md").
+
+**No separate Superseded state.** Sunset covers all termination scenarios
+via prose in the Status section. One Active VISION per project at a time
+makes lookup trivial.
+
+#### Alternatives Considered
+
+- **Semi-Automated Transitions:** Automate Accepted -> Active when /prd
+  reads an upstream VISION. Rejected: automation complexity for a rare
+  event, removes human acknowledgment of project activation.
+
+- **Reversible Sunset:** Allow Sunset -> Active for project revival.
+  Rejected: no other artifact type has reversible terminal state. Creates
+  ambiguity when superseded VISIONs are reversed. New VISION for revival
+  is cleaner.
+
+## Decision Outcome
+
+The three decisions compose cleanly. A single template (Decision 1) with
+visibility-gated sections is scored by the crystallize framework using
+anti-signals (Decision 2), and managed through human-gated lifecycle
+transitions (Decision 3).
+
+The design is intentionally conservative: VISION has the most anti-signals
+(7) of any supported type, ensuring it's only recommended when the
+exploration genuinely points to a pre-project strategic artifact. The
+heavy anti-signal count reflects that VISION occupies a narrow niche.
+The lifecycle is the simplest in the system (all human-triggered),
+appropriate for an artifact created a handful of times per project.
+
+## Solution Architecture
+
+### Overview
+
+Three new files, one modified file:
+
+1. **`skills/vision/SKILL.md`** -- Reference-only skill (no invocable
+   workflow) with the format specification embedded directly. Unlike PRD
+   which has a SKILL.md manifest plus a separate `references/prd-format.md`,
+   VISION has no creation workflow, so a single file with the full spec is
+   sufficient. No `references/` subdirectory needed.
+
+2. **`skills/explore/references/quality/crystallize-framework.md`**
+   (modified) -- Add VISION to the Supported Types section with signal
+   table, tiebreaker rules, and disambiguation rule. Move from 5 to 6
+   supported types in Step 1.
+
+3. **`skills/explore/references/phases/phase-5-produce-vision.md`** --
+   New Phase 5 handler for inline VISION production. Follows the pattern
+   of `phase-5-produce-deferred.md` (Roadmap section).
+
+4. **`skills/explore/references/phases/phase-5-produce.md`** (modified)
+   -- Add VISION to the routing table (row between Decision Record and
+   the deferred types).
+
+### Components
+
+```
+skills/vision/
+  SKILL.md              <-- format, lifecycle, validation, content boundaries
+
+skills/explore/
+  references/
+    quality/
+      crystallize-framework.md   <-- add VISION supported type
+    phases/
+      phase-5-produce.md         <-- add VISION routing entry
+      phase-5-produce-vision.md  <-- new: inline production handler
+```
+
+### Key Interfaces
+
+**Crystallize -> Produce routing.** When `phase-5-produce.md` receives
+"VISION" as the chosen type, it reads `phase-5-produce-vision.md` and
+follows its instructions. This is the same dispatch pattern used for
+Roadmap, Spike Report, and Competitive Analysis.
+
+**Produce handler -> VISION template.** The handler populates a VISION
+doc from exploration findings:
+- Thesis: from the scope file's Core Question and exploration summary
+- Audience: from research findings on target users
+- Value Proposition: from crystallize rationale
+- Org Fit: from research findings on ecosystem/portfolio positioning
+- Success Criteria: from exploration decisions and user focus
+- Non-Goals: from scope file's Out of Scope
+
+**Visibility check.** The handler reads the `## Visibility` section from
+`wip/explore_<topic>_scope.md` (written by Phase 0). If Public, omit
+Competitive Positioning and Resource Implications sections. If Private,
+include them as optional sections populated from research findings.
+
+**Naming.** Output file: `docs/visions/VISION-<topic>.md`. The topic
+slug is derived from the exploration topic (kebab-case).
+
+### Data Flow
+
+```
+wip/explore_<topic>_scope.md ----+
+wip/explore_<topic>_findings.md -+---> phase-5-produce-vision.md
+wip/explore_<topic>_decisions.md +        |
+                                          v
+                               docs/visions/VISION-<topic>.md
+```
+
+## Implementation Approach
+
+### Phase 1: Vision Reference Skill
+
+Create `skills/vision/SKILL.md` with the complete format specification.
+This is a reference-only skill (no creation workflow) that /explore's
+produce handler consults.
+
+Deliverables:
+- `skills/vision/SKILL.md`
+
+### Phase 2: Crystallize Framework Update
+
+Add VISION to the crystallize framework as a supported type. Update
+the scoring procedure, add tiebreaker rules and disambiguation. Also
+clean up the stale "Deferred Types" section -- it still lists Roadmap,
+Spike Report, Competitive Analysis, and Decision Record as deferred,
+but all four already have working produce handlers. Only Prototype
+remains deferred.
+
+Deliverables:
+- Modified `skills/explore/references/quality/crystallize-framework.md`
+
+### Phase 3: Phase 5 Produce Handler
+
+Create the inline production handler and add routing.
+
+Deliverables:
+- `skills/explore/references/phases/phase-5-produce-vision.md`
+- Modified `skills/explore/references/phases/phase-5-produce.md`
+
+### Phase 4: Evals
+
+Create eval scenarios for the vision skill per CLAUDE.md conventions.
+
+Deliverables:
+- `skills/vision/evals/evals.json`
+
+## Security Considerations
+
+This design adds a document template, a scoring table entry, and a
+produce handler to the workflow skills. It does not download, execute,
+or process external inputs. It requires no filesystem, network, or
+process permissions beyond what /explore already has, and introduces
+no new dependencies.
+
+The one relevant dimension is the **visibility gate**: the Phase 5
+produce handler relies on the `## Visibility` value in the exploration
+scope file (written by Phase 0 from CLAUDE.md) to decide whether to
+include Competitive Positioning and Resource Implications sections. If
+the scope file has an incorrect visibility value, private content could
+appear in a public repo's VISION doc. This is low severity -- CLAUDE.md
+is the authoritative source (immutable per repo), Phase 0 reads it
+directly, and PR review catches mismatches. The same pattern is already
+used for Design Doc's Market Context and Competitive Analysis's
+private-repo restriction.
+
+## Consequences
+
+### Positive
+
+- Fills the pre-PRD gap: project thesis and strategic justification get
+  their own artifact type instead of being shoehorned into Roadmaps or
+  lost in wip/ research files
+- Follows established patterns: the skill structure, crystallize
+  integration, and produce handler all mirror existing types
+- Heavy anti-signal count (7) prevents false-positive VISION
+  recommendations
+
+### Negative
+
+- Adds a sixth supported type to the crystallize framework, increasing
+  the scoring surface (6 types x signals/anti-signals per type)
+- VISION's lifecycle (persistent Active, no Done) is a novel pattern that
+  status management tooling hasn't handled before
+- The Thesis-boundary edit rule requires human judgment about what counts
+  as a "Thesis change" vs a rewording
+
+### Mitigations
+
+- The scoring surface increase is minimal: the framework is type-agnostic,
+  so adding one type doesn't change the procedure complexity
+- The novel lifecycle is simple enough (4 states, all human-triggered)
+  that tooling changes are trivial
+- The Thesis boundary can be refined through usage if it proves too coarse
+  or too fine in practice, without changing the lifecycle states
