@@ -1,0 +1,5 @@
+# Project tools managed by tsuku.
+# See: https://tsuku.dev/docs/project-config
+[tools]
+"tsukumogami/koto" = "latest"
+# gh = "latest"  # disabled: segfaults on Linux (tsukumogami/tsuku#2245)
