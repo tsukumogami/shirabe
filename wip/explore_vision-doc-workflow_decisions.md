@@ -7,7 +7,7 @@
 - Gate VISION to strategic scope: tactical scope is a hard anti-signal; VISION degenerates into a redundant project brief in tactical mode
 - Reference standards for existing deferred types ship independently: roadmap, spike report, and ADR reference skills improve existing workflows regardless of VISION; not a prerequisite
 - Proceed despite supply-side demand: the maintainer is the user, and workarounds (vision repo, roadmap "Vision" section) confirm the gap exists
-- PROJECTS.md lifecycle tracking is in-scope: the registry is part of the inception workflow that VISION enables
+- PROJECTS.md lifecycle tracking deferred: too custom to this org; a generic project tracking integration (GH Projects, JIRA, etc.) would be more useful in the future
 
 ## Round 1 → Round 2 (Scope Expansion)
 - Scope expanded from "add VISION type" to "define the complete strategic-to-tactical pipeline": user identified that Round 1 narrowed prematurely; VISION is one piece of a larger picture

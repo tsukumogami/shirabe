@@ -157,21 +157,6 @@ This is a docs artifact, not code. Could be:
 - An update to the workspace CLAUDE.md pipeline section
 - A standalone skill reference (like planning-context)
 
-### Feature 6: PROJECTS.md Lifecycle Registry
-
-Make PROJECTS.md a lifecycle-tracked project registry with states:
-Idea -> Evaluating -> Committed -> Active -> Maintained -> Archived ->
-Rejected. Connect it to the /explore workflow so project status updates
-when VISION docs are created and accepted.
-
-**Dependencies:** Feature 1 (VISION type triggers registry updates)
-**Status:** Not Started
-**Downstream:** Needs PRD
-
-This feature lives in the private vision repo (where PROJECTS.md resides)
-but the skill logic lives in shirabe. The produce handler needs to be
-location-agnostic and output formatted entries for the user to integrate.
-
 ## Sequencing Rationale
 
 Features 1 and 2 are independent and can proceed in parallel. Both fill
@@ -190,10 +175,6 @@ Feature 5 (Docs) depends on Features 1-4 because it documents the
 completed pipeline. Writing docs before the pipeline is complete creates
 maintenance burden.
 
-Feature 6 (Registry) depends on Feature 1 because it's triggered by
-VISION doc creation. It also lives in a different repo (private vision),
-adding coordination overhead.
-
 The recommended order prioritizes the highest-value, lowest-dependency
 features first:
 
@@ -203,8 +184,6 @@ Feature 1 (VISION) ----+---> Feature 3 (Traceability)
 Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
                        |
                        +---> Feature 5 (Docs)
-                       |
-                       +---> Feature 6 (Registry)
 ```
 
 ## Progress
@@ -216,4 +195,3 @@ Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
 | Feature 3: Artifact Traceability | Not Started | -- |
 | Feature 4: Complexity Routing Expansion | Not Started | -- |
 | Feature 5: Pipeline Documentation | Not Started | -- |
-| Feature 6: PROJECTS.md Lifecycle Registry | Not Started | -- |
