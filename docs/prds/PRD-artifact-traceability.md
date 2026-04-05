@@ -98,8 +98,8 @@ document. The link appears alongside the `upstream` field documentation.
 
 ### Non-functional
 
-**R6. No Go code changes.** All changes are in skill markdown, format
-specs, and shell scripts.
+**R6. Markdown and shell only.** All changes are in skill markdown, format
+specs, and shell scripts. No compiled code changes.
 
 **R7. Convention consistency.** The cross-repo format (`owner/repo:path`)
 is a compact string, consistent with how the design skill's
@@ -130,7 +130,7 @@ is a compact string, consistent with how the design skill's
   missing, but automation is a separate feature)
 - Changes to Design Doc, VISION, or Plan schemas (already have upstream)
 - Changes to the `spawned_from` pattern in Design Docs (separate concern)
-- Go code changes to workflow-tool
+- Compiled code changes
 - Retroactive updates to existing artifacts
 
 ## Decisions and trade-offs
