@@ -67,7 +67,9 @@ produced architectural choices, dependency selections, or design rationale, thos
 live in a permanent document. The question is not "is anything still undecided?" —
 it's "did we decide something a future contributor needs to know?"
 
-For each of the five supported types (PRD, Design Doc, Plan, No Artifact, Rejection Record):
+For each of the ten supported types (PRD, Design Doc, Plan, No Artifact,
+Rejection Record, VISION, Roadmap, Spike Report, Decision Record,
+Competitive Analysis):
 
 1. Walk through the signal table. For each signal, check whether the findings
    provide evidence for or against it. Be specific -- cite actual findings,
@@ -75,13 +77,13 @@ For each of the five supported types (PRD, Design Doc, Plan, No Artifact, Reject
 2. Walk through the anti-signal table the same way.
 3. Score = count of signals present minus count of anti-signals present.
 
-Also check the deferred types (Spike Report, Decision Record, Competitive
-Analysis, Prototype, Roadmap). If a deferred type scores highest, handle it
-per the framework's Deferred Types section before continuing.
+Also check the deferred type (Prototype). If the deferred type scores
+highest, handle it per the framework's Deferred Types section before
+continuing.
 
 ### 4.4 Rank and Demote
 
-Rank supported types by score, highest first.
+Rank all supported types by score, highest first.
 
 Apply the demotion rule: any type with one or more anti-signals present drops
 below all types without anti-signals, regardless of raw score. A type scoring
@@ -189,7 +191,7 @@ Commit: `docs(explore): crystallize artifact type for <topic>`
 Before proceeding:
 - [ ] Crystallize framework loaded from the full reference file
 - [ ] Accumulated findings read (not just the latest round)
-- [ ] All five supported types scored with specific evidence
+- [ ] All ten supported types scored with specific evidence
 
 ## Artifact State
 
