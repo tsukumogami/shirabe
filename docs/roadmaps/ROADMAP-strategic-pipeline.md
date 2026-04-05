@@ -96,8 +96,8 @@ success criteria, and non-goals -- the pre-PRD layer that justifies a
 project's existence.
 
 **Dependencies:** None
-**Status:** Not Started
-**Downstream:** Needs PRD
+**Status:** Done
+**Downstream:** DESIGN-vision-artifact-type.md (Current)
 
 Key decisions from exploration:
 - Template: thesis, audience, value proposition, org fit, success criteria,
@@ -128,8 +128,8 @@ creation workflow, lifecycle management, and validation, following the
 same pattern as /prd, /design, and /vision.
 
 **Dependencies:** None (independent of Feature 1)
-**Status:** Not Started
-**Downstream:** Needs PRD
+**Status:** Done
+**Downstream:** DESIGN-roadmap-creation-skill.md (Current)
 
 /explore hands off to /roadmap via auto-continue. /roadmap also works
 standalone. The private plugin's roadmap reference defines the format;
