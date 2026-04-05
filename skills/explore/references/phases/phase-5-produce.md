@@ -44,7 +44,8 @@ Route to the matching sub-file:
 | Plan | `phase-5-produce-plan.md` | Stops — user runs /plan |
 | Rejection Record | `phase-5-produce-rejection-record.md` | Stops — terminal |
 | No artifact | `phase-5-produce-no-artifact.md` | Stops — terminal |
-| Roadmap, Spike Report, Competitive Analysis, Prototype | `phase-5-produce-deferred.md` | Stops — terminal |
+| Roadmap | `phase-5-produce-roadmap.md` | Auto-continues into /roadmap |
+| Spike Report, Competitive Analysis, Prototype | `phase-5-produce-deferred.md` | Stops — terminal |
 
 Read the matching file and follow its instructions. For auto-continue types,
 the produce file invokes the downstream skill directly — do not stop and ask
