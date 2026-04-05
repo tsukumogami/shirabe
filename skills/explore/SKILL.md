@@ -53,9 +53,42 @@ When a user isn't sure what to build, use this table to recommend a starting poi
 
 | Complexity | Signals | Recommended Path |
 |------------|---------|------------------|
-| Simple | Clear requirements, few files, one person | `/work-on` or `/prd` then implement |
-| Medium | Known approach, some integration risk | `/design` then `/plan` |
-| Complex | Multiple unknowns, shape unclear | `/explore` to discover first |
+| Trivial | Self-evident change, no issue needed, single file, no design decisions | `/work-on` directly (no issue) |
+| Simple | Clear requirements, few files, one person, no competing approaches | `/work-on` or `/prd` then implement |
+| Medium | Known approach, some integration risk, design decisions between viable options | `/design` then `/plan` |
+| Complex | Multiple unknowns, shape unclear, can't state requirements or approach | `/explore` to discover first |
+| Strategic | Project inception, multi-feature sequencing, thesis validation needed | VISION or `/roadmap` then per-feature pipeline |
+
+### Detection Algorithm
+
+Check top-down. Stop at the first YES.
+
+```
+1. Does the request reference project direction, multi-feature sequencing,
+   or thesis validation?
+   YES -> Strategic
+   Boundary: if it's about one feature within an existing project -> Complex
+
+2. Can the user clearly state what to build AND how to build it?
+   NO (either is unknown) -> Complex
+   Boundary: if they know what but not how -> Medium
+
+3. Are there design decisions where reasonable people could disagree
+   on the approach?
+   YES -> Medium
+   Boundary: if you can list the decision questions now -> Medium;
+   if too many unknowns to even frame questions -> Complex
+
+4. Does a GitHub issue exist (or should one exist) with defined scope?
+   YES -> Simple
+   Boundary: if no design decisions and clear acceptance criteria -> Simple;
+   if "done" is self-evident without criteria -> Trivial
+
+5. Is the change self-evident and fire-and-forget?
+   YES -> Trivial
+
+6. Default -> Simple (create an issue and proceed)
+```
 
 ## Crystallize Framework
 
