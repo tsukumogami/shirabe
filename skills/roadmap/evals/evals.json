@@ -1,0 +1,61 @@
+{
+  "skill_name": "roadmap",
+  "evals": [
+    {
+      "id": 1,
+      "name": "standalone-creation",
+      "prompt": "/roadmap developer-tooling-pipeline",
+      "expected_output": "Detects no handoff artifact. Starts from Phase 1 (scope). Asks scoping questions about the initiative theme, features, and dependencies. Produces a roadmap at docs/roadmaps/ROADMAP-developer-tooling-pipeline.md with all required sections. Draft status.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "explore-handoff-detection",
+      "prompt": "/roadmap release-automation",
+      "expected_output": "Detects existing handoff artifact at wip/roadmap_release-automation_scope.md. Skips Phase 1 (scope) and resumes at Phase 2 (discover). Uses the handoff artifact's theme statement and candidate features as input.",
+      "files": ["wip/roadmap_release-automation_scope.md"]
+    },
+    {
+      "id": 3,
+      "name": "lifecycle-activate",
+      "prompt": "/roadmap activate docs/roadmaps/ROADMAP-release-automation.md",
+      "expected_output": "Detects 'activate' as a lifecycle verb. Validates at least 2 features exist. Runs transition-status.sh to transition from Draft to Active. Reports success.",
+      "files": ["docs/roadmaps/ROADMAP-release-automation.md"]
+    },
+    {
+      "id": 4,
+      "name": "lifecycle-done",
+      "prompt": "/roadmap done docs/roadmaps/ROADMAP-release-automation.md",
+      "expected_output": "Detects 'done' as a lifecycle verb. Validates all features have terminal status. Runs transition-status.sh to transition from Active to Done. Roadmap stays in docs/roadmaps/ (no directory movement).",
+      "files": ["docs/roadmaps/ROADMAP-release-automation.md"]
+    },
+    {
+      "id": 5,
+      "name": "minimum-features-validation",
+      "prompt": "/roadmap --auto single-feature-project",
+      "expected_output": "During Phase 4 validation, the jury catches that fewer than 2 features exist. Validation fails. The roadmap is not finalized until at least 2 features are present.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "jury-review-quality",
+      "prompt": "/roadmap --auto observability-stack",
+      "expected_output": "Phase 4 spawns 3 jury agents: theme coherence reviewer (features belong together), sequencing and dependency reviewer (dependencies explicit, rationale justified), annotation and boundary reviewer (needs-* labels accurate, no downstream content).",
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "crystallize-discrimination",
+      "prompt": "/explore --auto --strategic improve CI pipeline reliability and add deployment automation",
+      "expected_output": "Exploration in strategic scope with multiple features to sequence. Crystallize framework scores Roadmap higher than PRD because multiple independent features need coordinated sequencing. Routes to /roadmap via Phase 5 handoff.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "name": "empty-argument-prompts",
+      "prompt": "/roadmap",
+      "expected_output": "With no argument, skill asks the user what initiative they want to create a roadmap for. Does not assume a topic or start drafting immediately.",
+      "files": []
+    }
+  ]
+}
