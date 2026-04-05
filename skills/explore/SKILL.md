@@ -38,16 +38,19 @@ When a user isn't sure what to build, use this table to recommend a starting poi
 | "I know what we need but haven't written it down" | `/prd <topic>` | Requirements need to be captured and agreed on |
 | "I have a design doc, need to break it into issues" | `/plan <design-doc-path>` | Decomposition of an existing artifact |
 | "This is simple, just do it" | `/work-on <issue>` | No artifact needed, go straight to implementation |
+| "I need to justify this project" or "I have a multi-feature initiative" | `/explore --strategic <topic>` | Strategic scope; needs VISION or Roadmap before features |
 
 ### Quick Decision Table
 
 | Core Question | Best Fit | Alternative |
 |---------------|----------|-------------|
+| "Do I need any artifact at all?" | No artifact, `/work-on` directly | `/prd` if scope creep is likely |
 | "What should we build and why?" | PRD | Explore (if even the question is unclear) |
 | "How should we build this?" | Design Doc | Explore (if multiple paths exist) |
 | "What order do we build in?" | Plan | Design Doc (if approach isn't decided) |
 | "Can we build this?" (feasibility) | Explore | No artifact (just try it) |
 | "What exists already?" (landscape) | Explore | No artifact (write up findings) |
+| "Should this project exist?" or "Which features should we build?" | VISION or Roadmap via `/explore --strategic` | `/explore` without flag if scope is unclear |
 
 ### Complexity-Based Routing
 
