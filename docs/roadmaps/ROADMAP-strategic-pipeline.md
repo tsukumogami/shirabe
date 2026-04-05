@@ -202,6 +202,27 @@ This is a docs artifact, not code. Could be:
 - An update to the workspace CLAUDE.md pipeline section
 - A standalone skill reference (like planning-context)
 
+### Feature 7: Crystallize Framework Calibration
+
+Recalibrate the crystallize framework's scoring to better handle work
+where the answer is known but undocumented. Currently the framework biases
+toward "what's unknown" (design docs, spikes) over "what's known but not
+written down" (PRDs, VISIONs). It pushes users toward answering open
+questions before capturing agreed-upon decisions, when the right order is
+often the reverse: document what's settled, then investigate what's open.
+
+**Dependencies:** None (can be done independently, but benefits from F4
+routing improvements being in place)
+**Status:** Not Started
+**Downstream:** Needs PRD
+
+Changes:
+- Review crystallize signal/anti-signal tables for documentation-bias
+- Add signals that detect "known but undocumented" scenarios
+- Adjust scoring so PRD and VISION score higher when requirements or
+  thesis are verbally agreed but not written down
+- Consider adding a "document first" principle to the framework
+
 ## Sequencing Rationale
 
 Features 1 and 2 are independent and can proceed in parallel. Both fill
@@ -223,6 +244,11 @@ Deferred until F2 ships and /plan is tried with a real roadmap.
 Feature 6 (Docs) depends on Features 1-4 because it documents the
 completed pipeline.
 
+Feature 7 (Crystallize Calibration) is independent but benefits from F4's
+routing improvements being in place. It addresses a scoring bias discovered
+during F3/F4 work where the framework pushes toward design docs when PRDs
+or VISIONs are the right next step.
+
 The recommended order prioritizes the highest-value, lowest-dependency
 features first:
 
@@ -234,6 +260,8 @@ Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
                        +---> Feature 5 (Plan Rework) [future]
                        |
                        +---> Feature 6 (Docs)
+
+Feature 7 (Crystallize Calibration) --- independent
 ```
 
 ## Progress
@@ -246,3 +274,4 @@ Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
 | Feature 4: Complexity Routing Expansion | Not Started | -- |
 | Feature 5: Plan Skill Rework | Future | PRD-plan-skill-rework.md (Draft) |
 | Feature 6: Pipeline Documentation | Not Started | -- |
+| Feature 7: Crystallize Framework Calibration | Not Started | -- |
