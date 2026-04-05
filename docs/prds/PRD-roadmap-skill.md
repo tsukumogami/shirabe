@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Done
 problem: |
   The roadmap artifact type has a format-reference skill but no creation
   workflow or lifecycle management. Roadmaps are manually authored or

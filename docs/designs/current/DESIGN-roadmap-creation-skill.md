@@ -1,5 +1,5 @@
 ---
-status: Planned
+status: Current
 upstream: docs/prds/PRD-roadmap-skill.md
 problem: |
   The roadmap artifact type has a format-reference skill but no creation

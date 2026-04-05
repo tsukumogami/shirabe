@@ -243,7 +243,7 @@ Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
 | Feature | Status | Downstream Artifact |
 |---------|--------|-------------------|
 | Feature 1: VISION Artifact Type | Done | DESIGN-vision-artifact-type.md (Current) |
-| Feature 2: Roadmap Creation Skill | In Progress | PRD-roadmap-skill.md, DESIGN-roadmap-creation-skill.md |
+| Feature 2: Roadmap Creation Skill | Done | PRD-roadmap-skill.md (Done), DESIGN-roadmap-creation-skill.md (Current) |
 | Feature 3: Artifact Traceability | Not Started | -- |
 | Feature 4: Complexity Routing Expansion | Not Started | -- |
 | Feature 5: Plan Skill Rework | Future | PRD-plan-skill-rework.md (Draft) |
