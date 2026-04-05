@@ -1,9 +1,0 @@
-{
-  "topic": "artifact-traceability",
-  "decisions": [
-    {"id": 1, "question": "How should creation workflows detect upstream context and populate the upstream field across different entry points?", "status": "complete", "complexity": "standard", "report": "wip/design_artifact-traceability_decision_1_report.md"},
-    {"id": 2, "question": "Where does the shared cross-repo reference convention live, what does it contain, and how do skills link to it?", "status": "complete", "complexity": "standard", "report": "wip/design_artifact-traceability_decision_2_report.md"}
-  ],
-  "cross_validation": "pending",
-  "round": 0
-}

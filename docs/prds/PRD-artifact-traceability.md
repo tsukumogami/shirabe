@@ -1,5 +1,5 @@
 ---
-status: In Progress
+status: Done
 problem: |
   The artifact pipeline has traceability fields on most types (VISION, PRD,
   Design Doc, Plan) but Roadmaps lack an upstream field, the /prd creation
@@ -17,7 +17,7 @@ upstream: docs/roadmaps/ROADMAP-strategic-pipeline.md
 
 ## Status
 
-In Progress
+Done
 
 ## Problem statement
 
