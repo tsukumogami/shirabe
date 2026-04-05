@@ -181,8 +181,7 @@ work finishes.
 
 **Dependencies:** Feature 2 (the /roadmap skill must exist for /plan to
 enrich)
-**Status:** Future (deferred until F2 ships and /plan is tried with a real
-roadmap)
+**Status:** Not Started
 **Downstream:** PRD-plan-skill-rework.md (Draft)
 
 ### Feature 6: Pipeline Documentation
@@ -223,6 +222,82 @@ Changes:
   thesis are verbally agreed but not written down
 - Consider adding a "document first" principle to the framework
 
+### Feature 8: Completion Cascade Automation
+
+Formalize the completion cascade (delete PLAN, move DESIGN to Current,
+update PRD to Done, update ROADMAP progress) as a skill-driven step
+instead of manual memory. Surfaced during F5 review: the cascade has
+blocking design questions around milestone completion detection (who
+triggers it after the last issue closes?), feature identification (how
+does the cascade know which roadmap feature completed?), and the
+"dropped" path (what status do abandoned PRDs, designs, and roadmap
+features get?).
+
+**Dependencies:** Feature 5 (cascade needs roadmap enrichment to be in
+place), Feature 3 (cascade reads upstream chain from frontmatter fields)
+**Status:** Not Started
+**Downstream:** Needs PRD
+
+Changes:
+- Define the cascade trigger mechanism (per-issue vs milestone-level)
+- Specify how to identify which roadmap feature completed
+- Add "Dropped" handling for PRDs, designs, and roadmap features
+- Implement as a skill step in /implement Phase 2 or /work-on finalization
+
+### Feature 9: Upstream Context Propagation
+
+Close the gap where /prd doesn't read upstream from plan issue context.
+When /prd is invoked from a needs-prd plan issue, it should read the
+`Roadmap:` line from the issue body to set the upstream field
+automatically, instead of requiring `--upstream` to be passed manually.
+
+**Dependencies:** Feature 5 (plan issues from roadmap mode must exist)
+**Status:** Not Started
+**Downstream:** Needs PRD
+
+Changes:
+- Add issue-context detection to /prd's Context Resolution
+- Define how /prd knows it's in issue context (invocation mechanism)
+- Read `Roadmap:` line from issue body as upstream path
+
+### Feature 10: Progress Consistency
+
+When a planned issue is closed, the upstream artifact's tracking section
+should reflect it. For roadmaps: Progress section feature status. For
+PLAN docs: Issues table strikethrough. The principle is documented but
+not enforced; the enforcement mechanism (hook, /work-on completion step,
+CI check) needs its own design.
+
+**Dependencies:** Feature 8 (shares the milestone-detection problem)
+**Status:** Not Started
+**Downstream:** Needs PRD
+
+Changes:
+- Define the enforcement mechanism for progress propagation
+- Implement per-issue progress updates on issue closure
+- Handle partial completion (some issues done, others pending)
+
+### Feature 11: Lifecycle Script Hardening
+
+Three gaps surfaced during F5 review: PRDs have no transition script
+(the only artifact type with 3+ states that lacks one), the design doc
+transition script has no `validate_transition()` function (unlike vision
+and roadmap scripts), and no artifact type has a "Dropped" lifecycle
+state for abandoned work.
+
+**Dependencies:** None (independent hardening)
+**Status:** Not Started
+**Downstream:** Needs PRD
+
+Changes:
+- Add `skills/prd/scripts/transition-status.sh` with Draft -> Accepted
+  -> Done transitions and Open Questions precondition for acceptance
+- Add `validate_transition()` to design doc transition script
+- Consider "Dropped" state or convention for abandoned PRDs, designs,
+  and roadmap features
+- Consider extracting shared transition-script functions into a common
+  library (three scripts share ~70% identical code)
+
 ## Sequencing Rationale
 
 Features 1 and 2 are independent and can proceed in parallel. Both fill
@@ -239,29 +314,45 @@ level routes to VISION. The Trivial level could ship independently.
 
 Feature 5 (Plan Skill Rework) depends on Feature 2 because /plan needs
 the /roadmap skill to exist before it can enrich roadmaps directly.
-Deferred until F2 ships and /plan is tried with a real roadmap.
+F2 is done; F5 is now unblocked. Scope was trimmed during review to
+focus on roadmap enrichment only (R1-R3). Cascade, upstream propagation,
+progress consistency, and lifecycle hardening became separate features.
 
 Feature 6 (Docs) depends on Features 1-4 because it documents the
 completed pipeline.
 
 Feature 7 (Crystallize Calibration) is independent but benefits from F4's
-routing improvements being in place. It addresses a scoring bias discovered
-during F3/F4 work where the framework pushes toward design docs when PRDs
-or VISIONs are the right next step.
+routing improvements being in place.
 
-The recommended order prioritizes the highest-value, lowest-dependency
-features first:
+Feature 8 (Completion Cascade) depends on F5 (roadmap enrichment must be
+in place) and F3 (cascade reads upstream chain from frontmatter). Has
+blocking design questions around milestone detection, feature
+identification, and dropped-work handling surfaced during F5 review.
+
+Feature 9 (Upstream Context Propagation) depends on F5 (plan issues from
+roadmap mode must exist).
+
+Feature 10 (Progress Consistency) depends on F8 (shares the
+milestone-detection problem).
+
+Feature 11 (Lifecycle Script Hardening) is independent. Can ship any
+time.
 
 ```
 Feature 1 (VISION) ----+---> Feature 3 (Traceability)
                        |
 Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
                        |
-                       +---> Feature 5 (Plan Rework) [future]
+                       +---> Feature 5 (Plan Rework)
+                       |         |
+                       |         +---> Feature 8 (Cascade) ---> Feature 10 (Progress)
+                       |         |
+                       |         +---> Feature 9 (Upstream Propagation)
                        |
                        +---> Feature 6 (Docs)
 
 Feature 7 (Crystallize Calibration) --- independent
+Feature 11 (Lifecycle Hardening) --- independent
 ```
 
 ## Progress
@@ -272,6 +363,10 @@ Feature 7 (Crystallize Calibration) --- independent
 | Feature 2: Roadmap Creation Skill | Done | PRD-roadmap-skill.md (Done), DESIGN-roadmap-creation-skill.md (Current) |
 | Feature 3: Artifact Traceability | Done | PRD-artifact-traceability.md (Done), DESIGN-artifact-traceability.md (Current) |
 | Feature 4: Complexity Routing Expansion | Done | PRD-complexity-routing-expansion.md (Done), DESIGN-complexity-routing-expansion.md (Current) |
-| Feature 5: Plan Skill Rework | Future | PRD-plan-skill-rework.md (Draft) |
+| Feature 5: Plan Skill Rework | Not Started | PRD-plan-skill-rework.md (Draft) |
 | Feature 6: Pipeline Documentation | Not Started | -- |
 | Feature 7: Crystallize Framework Calibration | Not Started | -- |
+| Feature 8: Completion Cascade Automation | Not Started | -- |
+| Feature 9: Upstream Context Propagation | Not Started | -- |
+| Feature 10: Progress Consistency | Not Started | -- |
+| Feature 11: Lifecycle Script Hardening | Not Started | -- |
