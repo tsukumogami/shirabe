@@ -10,21 +10,21 @@ problem: |
   backed entirely by koto, handling free-form tasks, single issues, and
   full plan execution through shared components.
 decision: |
-  A single monolithic koto template with 3-way entry routing handles all
-  modes. Per-issue koto workflows provide state machine enforcement. A
-  hybrid orchestrator splits multi-issue queue management between a
-  deterministic helper script (dependency graph, issue selection) and
-  SKILL.md (context assembly, koto workflow management). All gates migrate
-  to v0.6.0 strict mode with selective decomposition. Review panels use
-  context-exists gates for persistence and evidence enums for routing.
+  Two koto templates: a per-issue template (work-on.md, 3-way entry routing)
+  and a plan orchestrator template (work-on-plan.md) that uses koto v0.7.0's
+  hierarchical workflows to spawn and coordinate child workflows via
+  children-complete gates. A dependency graph script handles inter-child
+  ordering -- the one thing koto hierarchy doesn't express. All gates
+  migrate to v0.6.0 strict mode with selective decomposition. Review panels
+  use context-exists gates for persistence and evidence enums for routing.
 rationale: |
-  Each component operates at the abstraction level where it's most reliable:
-  koto handles per-issue state enforcement, the skill layer handles
-  judgment-intensive orchestration, and the helper script handles deterministic
-  graph operations. The monolithic template works because per-issue workflows
-  eliminate multi-issue complexity. Strict gate mode and the hybrid review
-  panel approach both follow the same gate-plus-evidence pattern already
-  established in the template.
+  Koto v0.7.0's hierarchical workflows eliminate the manifest file and
+  reconciliation protocol that the original design required. The parent
+  template uses children-complete gates to wait for child workflows, and
+  koto workflows --children provides state queries. The dependency graph
+  script remains because koto can't express inter-child ordering, but it
+  shrinks to a single subcommand. Koto is now the single source of truth
+  for both per-issue and plan-level state.
 ---
 
 # DESIGN: work-on-koto-unification
@@ -49,6 +49,11 @@ rationale, and compiler validation enforces the gate/transition/override
 contract. The legacy gate format is supported via a transitory
 `--allow-legacy-gates` flag.
 
+Koto v0.7.0 added hierarchical multi-level workflows: parent workflows spawn
+children via `koto init --parent`, wait for completion via `children-complete`
+gates, and query child state via `koto workflows --children`. This eliminates
+the need for an external manifest to track multi-issue progress.
+
 The goal is a single `/work-on` entry point that:
 - Handles free-form tasks, single issues, and plan document paths
 - Uses koto for all orchestration (replacing workflow-tool)
@@ -63,12 +68,13 @@ Exploration identified a three-layer architecture:
 
 ## Decision Drivers
 
-- Koto's state machine is per-workflow by design; hierarchical states were
-  explicitly deferred to "a later phase"
+- Koto v0.7.0 supports hierarchical workflows: parent-child links, children-complete
+  gates, and hierarchy discovery -- but not inter-child dependency ordering
 - The existing work-on template has 17 states and 8 gates that need v0.6.0
   migration
-- workflow-tool's controller loop (dependency resolution, queue management,
-  variable interpolation) has no koto equivalent today
+- workflow-tool's dependency resolution and queue selection have no koto equivalent;
+  other controller capabilities (state tracking, status queries) are now covered by
+  koto hierarchy
 - Review panels (3-agent scrutiny, 3-agent code review, QA) require multi-agent
   orchestration that koto gates can't express
 - Cross-issue context must be bounded to prevent context window exhaustion on
@@ -87,8 +93,8 @@ These choices were settled during exploration and should be treated as constrain
   multi-agent orchestration with feedback loops isn't expressible as gates
 - **Gate migration proceeds independently**: mechanical refactoring not blocked by
   orchestrator design
-- **External state tracking for orchestrator**: hybrid approach with koto context
-  for content and a structured manifest for issue tracking
+- **Koto hierarchy for plan-level state**: v0.7.0's parent-child workflows replace
+  the external manifest; koto is the single source of truth for issue progress
 
 ## Considered Options
 
@@ -158,56 +164,82 @@ visibility, partial resume) is no longer worth making.
 
 ### Decision 2: Multi-issue orchestrator architecture
 
+*Revised after koto v0.7.0 shipped hierarchical workflow support.*
+
 The /implement workflow's controller.go provides ~240 lines of orchestration:
 dependency graph resolution, next-issue selection, auto-skip, variable
-interpolation, directive generation. Koto replaces per-issue state advancement
-but has no dependency graph, queue management, or multi-workflow coordination.
-The orchestrator must live in the skill layer. The question is what form it takes.
+interpolation, directive generation. Koto v0.7.0 now handles parent-child
+workflow links, state tracking across children, and completion gating via
+`children-complete`. The remaining gap is inter-child dependency ordering --
+koto can tell you when all children are done, but not which child to spawn next
+based on a dependency graph.
 
-The core tension: dependency graph operations are deterministic and must be
-reliable at scale (10+ issues with complex dependency chains). Context assembly
-(deciding what prior summaries to include, what decisions to carry forward) is
-flexible and benefits from agent judgment. These have different reliability
-requirements.
+The core tension is narrower than before: dependency graph resolution is the
+only operation that needs external logic. Status tracking, child discovery,
+and completion detection are all in koto now.
 
-#### Chosen: Hybrid orchestrator (script for graph, SKILL.md for context)
+#### Chosen: Koto parent workflow + dependency script
 
-Split responsibilities along the deterministic/flexible boundary. A queue
-management script handles dependency graph computation, issue selection, auto-skip,
-and status tracking. The SKILL.md handles PLAN doc parsing, cross-issue context
-assembly, koto workflow management, and PR-level coordination.
+A plan orchestrator template (`work-on-plan.md`) manages the plan-level
+lifecycle as a koto workflow. The SKILL.md spawns child workflows via
+`koto init issue-N --parent <plan-WF> --template work-on.md --var ISSUE_NUMBER=N`.
+A lightweight dependency script determines spawn order.
 
-The script (`scripts/plan-queue.sh`) reuses the existing dependency graph logic
-from `skills/plan/scripts/build-dependency-graph.sh` and exposes four subcommands:
-- `next-issue <manifest>`: computes dependency graph, returns next ready issue as JSON
-- `mark-complete <manifest> <N>`: marks issue completed, checks for newly unblocked issues
-- `mark-skipped <manifest> <N> <reason>`: marks issue skipped, auto-skips transitive dependents
-- `status <manifest>`: returns aggregate state (counts by status, blocked issues, progress)
+The parent template has states:
+- `parse_plan`: extract issue outlines and dependencies from PLAN doc
+- `spawn_and_execute`: iterative state where the skill layer spawns ready
+  children and runs them; self-loops until all children are spawned
+- `await_completion`: `children-complete` gate waits for all children to
+  reach terminal state
+- `pr_coordination`: PR-level QA, finalization, CI monitoring
+- `done` / `done_blocked`: terminal states
 
-The SKILL.md orchestration handles PLAN doc parsing into the manifest, per-issue
-koto init with issue-specific variables, cross-issue context assembly from koto
-context keys, the koto execution loop per issue, and resume via manifest + koto
-workflow state reconciliation.
+The dependency script (`scripts/plan-deps.sh`) reuses existing logic from
+`skills/plan/scripts/build-dependency-graph.sh` and exposes one subcommand:
+- `next-ready <plan-doc> <completed-json>`: given the PLAN doc's dependency
+  graph and a JSON array of completed issue numbers, returns the next
+  spawnable issues as JSON
 
-Single-issue mode bypasses the script entirely -- the SKILL.md detects single-issue
-vs plan mode and uses the existing koto-only loop for single issues.
+The SKILL.md orchestration at `spawn_and_execute`:
+1. Calls `koto workflows --children <plan-WF>` to get current child states
+2. Builds the completed list from children in terminal states
+3. Calls `plan-deps.sh next-ready` with the completed list
+4. Spawns new children for returned issues
+5. Runs each child via `koto next` until terminal or blocking
+6. Self-loops until no more issues to spawn and all spawned children are terminal
+7. Submits evidence to advance to `await_completion`
+
+The `children-complete` gate at `await_completion` confirms all children reached
+terminal state. Its structured output (`total`, `completed`, `all_complete`,
+per-child state array) provides the parent's transition routing.
+
+Cross-issue context: the SKILL.md reads completed child context via
+`koto context get <child-WF> summary.md` to assemble snapshots for the
+next child. Koto's hierarchical context means parents can read child
+outputs directly -- no shared manifest needed.
+
+Single-issue and free-form modes don't create a parent workflow -- they run
+the per-issue template directly, same as today.
 
 #### Alternatives Considered
 
-**SKILL.md-embedded orchestrator**: All logic in prose instructions. Rejected
-because dependency graph operations in natural language are unreliable for >5
-issues. The agent may miss transitive blocks, fail to auto-skip, or select blocked
-issues. Not testable in CI.
+**Hybrid orchestrator with external manifest** (original Decision 2): Script
+manages a manifest JSON with issue statuses, dependency graph, and queue
+selection. SKILL.md manages context assembly and koto workflow init. Was the
+best option before v0.7.0. Rejected now because koto hierarchy eliminates the
+manifest, the reconciliation protocol, and 3 of the script's 4 subcommands.
+Two sources of truth become one.
 
-**Full script orchestrator**: Script handles everything including context assembly.
-Rejected because context assembly requires reading koto state, assembling summaries,
-and making judgment calls about what context matters -- capabilities a script handles
-poorly without significant complexity.
+**SKILL.md-only orchestrator**: All logic in prose, including dependency
+resolution. Still rejected -- dependency graph operations in natural language
+are unreliable for >5 issues and not testable in CI. The script remains
+necessary for this specific operation.
 
-**Koto meta-workflow**: A second koto template manages the queue. Rejected because
-koto provides no dependency graph support, nested workflows are untested, and the
-implementation cost is too high. Koto's roadmap includes "hierarchical states in a
-later phase" -- revisit when that ships.
+**Full koto orchestration (no script)**: Parent template handles everything
+including dependency ordering. Rejected because koto v0.7.0 has no declarative
+inter-child dependency mechanism. The `children-complete` gate checks
+completion, not ordering. A future koto release could add dependency-aware
+child spawning, which would eliminate the script entirely.
 
 ### Decision 3: Gate migration patterns for v0.6.0
 
@@ -333,66 +365,71 @@ clean resume semantics.
 
 ## Decision Outcome
 
-**Chosen: Monolithic template + Hybrid orchestrator + Strict gates + Context/evidence review panels**
+**Chosen: Two templates + Koto hierarchy + Dependency script + Strict gates + Context/evidence review panels**
 
 ### Summary
 
-The unified work-on workflow uses a single koto template with a 3-way entry branch
-that routes issue-backed, free-form, and plan-backed modes through mode-specific
-pre-analysis chains before converging at a shared analysis state. Post-analysis,
-the template flows through implementation, three new review states (scrutiny, review,
-qa_validation), finalization, PR creation, and CI monitoring. The template grows from
-17 to approximately 23 states.
+The unified work-on workflow uses two koto templates: a per-issue template
+(`work-on.md`, ~23 states, 3-way entry routing) and a plan orchestrator template
+(`work-on-plan.md`) that uses koto v0.7.0's hierarchical workflows to manage
+multi-issue execution. Single issues and free-form tasks use `work-on.md` directly.
+Plan-backed execution creates a parent workflow from `work-on-plan.md`, which
+spawns child workflows from `work-on.md` via `koto init --parent`.
 
-For single issues and free-form tasks, the workflow runs exactly as today -- one koto
-workflow, linear state progression, no orchestrator overhead. For plan-backed
-execution, a skill-layer orchestrator manages the issue queue: a helper script
-(`scripts/plan-queue.sh`) handles dependency graph computation and issue selection
-deterministically, while the SKILL.md handles PLAN doc parsing, per-issue koto
-workflow initialization (`koto init` with issue-specific variables), cross-issue
-context assembly from koto context keys, and PR-level coordination. Each plan issue
-gets its own koto workflow with its own state file.
+The per-issue template routes issue-backed, free-form, and plan-backed modes through
+mode-specific pre-analysis chains before converging at a shared analysis state.
+Post-analysis, it flows through implementation, three review states (scrutiny, review,
+qa_validation), finalization, PR creation, and CI monitoring.
+
+The plan orchestrator template manages the plan lifecycle: parse the PLAN doc, spawn
+and execute child workflows respecting dependency order, wait for all children via
+a `children-complete` gate, then coordinate PR-level QA and finalization. A
+lightweight dependency script (`scripts/plan-deps.sh`) handles the one thing koto
+hierarchy doesn't -- inter-child dependency ordering. The script exposes a single
+subcommand (`next-ready`) that takes the dependency graph and completed issue list
+and returns which issues can be spawned next.
+
+Koto is the single source of truth for all state. The parent workflow tracks plan
+progress. Each child workflow tracks per-issue progress. `koto workflows --children`
+provides hierarchy discovery. Cross-issue context flows via `koto context get
+<child-WF> summary.md` -- parents read child outputs directly. No manifest file or
+reconciliation protocol needed.
 
 All gates migrate to v0.6.0 strict mode with structured output routing. The
-`code_committed` gate decomposes into three atomic gates (`on_feature_branch_impl`,
-`has_commits`, `tests_passing`) so agents can distinguish failure types. Every
-gated state uses mixed routing -- `gates.*` conditions combined with agent evidence
-enums in when clauses.
-
-Review panels write results to koto context for persistence and audit trail, then
-the skill layer submits evidence enums for transition routing. Feedback loops
-transition back to implementation; on re-entry to a review state, the gate fails
-(stale results), triggering a fresh panel run. Koto's override mechanism provides
-formal review skipping with mandatory rationale.
+`code_committed` gate decomposes into three atomic gates so agents can distinguish
+failure types. Review panels write results to koto context for persistence, then the
+skill layer submits evidence enums for transition routing. Koto's override mechanism
+provides formal review skipping with mandatory rationale.
 
 ### Rationale
 
-The decisions reinforce each other through a consistent layering principle: koto
-handles per-issue state machine enforcement (gates, transitions, resume), the skill
-layer handles judgment-intensive orchestration (context assembly, panel evaluation,
-mode detection), and a helper script handles deterministic graph operations
-(dependency resolution, auto-skip). Each component operates at the abstraction level
-where it's most reliable.
+Koto v0.7.0's hierarchical workflows collapse the original three-layer architecture
+(koto + skill orchestrator + manifest/script) into a cleaner two-layer design
+(koto for all state + script for dependency ordering). The parent-child link
+(`koto init --parent`) and `children-complete` gate replace the manifest JSON,
+the reconciliation protocol, and three of the original script's four subcommands.
+Koto's event log becomes the single source of truth for both per-issue and
+plan-level state, eliminating the two-source desynchronization risk.
 
-The monolithic template works because per-issue workflows eliminate the complexity
-that originally motivated template splitting. Strict gate mode works because mixed
-routing preserves the existing agent evidence flow while adding structured gate
-conditions. The hybrid review panel approach works because it follows the same
-gate-plus-evidence pattern already used throughout the template. The hybrid
-orchestrator works because it decomposes controller.go along a natural boundary:
-~100 lines of graph logic to a testable script, ~60 lines of context logic to
-flexible SKILL.md, and template extraction to koto itself.
+The dependency script remains because koto v0.7.0 treats children as unordered --
+it can tell you when they're all done, but not which to spawn next. This is a
+narrow, testable responsibility. A future koto release adding dependency-aware
+child spawning would eliminate the script entirely.
+
+The per-issue template, gate migration, and review panel decisions are unchanged
+from the original design -- they operate at the per-issue level where koto
+hierarchy has no effect.
 
 ## Solution Architecture
 
 ### Overview
 
-The unified work-on system has three layers: a koto template (per-issue state
-machine), a skill layer (SKILL.md + helper script for orchestration), and shared
-components (review panels, context assembly, entry routing). For single-issue and
-free-form tasks, only the koto template and SKILL.md are active. For plan-backed
-execution, the helper script manages the issue queue while the SKILL.md coordinates
-per-issue koto workflows.
+The unified work-on system uses two koto templates and a dependency script. For
+single-issue and free-form tasks, the per-issue template runs directly. For
+plan-backed execution, a parent workflow (plan orchestrator template) spawns child
+workflows (per-issue template) using koto v0.7.0's hierarchy. The SKILL.md
+coordinates mode detection, child spawning with dependency ordering, and
+cross-issue context assembly.
 
 ### Components
 
@@ -400,25 +437,31 @@ per-issue koto workflows.
 /work-on (user entry point)
     |
     v
-SKILL.md (orchestrator)
+SKILL.md (coordinator)
     |
     +-- Mode detection (issue / free-form / plan)
     |
-    +-- [plan mode only] scripts/plan-queue.sh
-    |       |
-    |       +-- next-issue: dependency graph -> next ready issue
-    |       +-- mark-complete: update manifest, check unblocked
-    |       +-- mark-skipped: skip + transitive dependents
-    |       +-- status: aggregate progress report
-    |
-    +-- Per-issue koto workflow
+    +-- [single-issue / free-form]
     |       |
     |       +-- koto init <WF> --template work-on.md --var ISSUE_NUMBER=N
     |       +-- koto next <WF> (loop until terminal)
-    |       +-- koto context set/get (cross-issue context)
-    |       +-- koto overrides record (gate bypasses with rationale)
     |
-    +-- Review panel orchestration
+    +-- [plan mode]
+    |       |
+    |       +-- koto init <plan-WF> --template work-on-plan.md
+    |       |
+    |       +-- At spawn_and_execute state:
+    |       |     +-- koto workflows --children <plan-WF> (get child states)
+    |       |     +-- scripts/plan-deps.sh next-ready (dependency ordering)
+    |       |     +-- koto init issue-N --parent <plan-WF> --template work-on.md
+    |       |     +-- koto next issue-N (run child until terminal)
+    |       |     +-- koto context get issue-N summary.md (read child output)
+    |       |     +-- [loop: spawn next ready children]
+    |       |
+    |       +-- At await_completion state:
+    |             +-- children-complete gate (all children terminal)
+    |
+    +-- Review panel orchestration (shared, runs within per-issue template)
             |
             +-- Scrutiny (3 agents parallel)
             +-- Code review (3 agents parallel)
@@ -427,62 +470,46 @@ SKILL.md (orchestrator)
 
 ### Key Interfaces
 
-**Koto template** (`koto-templates/work-on.md`):
+**Per-issue template** (`koto-templates/work-on.md`):
 - Entry state: `mode` enum `[issue_backed, free_form, plan_backed]`
 - Per-issue variables: `ISSUE_NUMBER`, `ARTIFACT_PREFIX`, `PLAN_DOC` (plan mode)
 - Terminal states: `done`, `done_blocked`, `validation_exit`
 - ~23 states, ~10 gates (after decomposition)
 
-**Queue script** (`scripts/plan-queue.sh`):
-- Input: manifest JSON file path
-- `next-issue` output: `{"issue_number": N, "title": "...", "agent_type": "coder", "dependencies_met": true}`
-- `mark-complete` output: `{"newly_unblocked": [N, ...], "remaining": M}`
-- `mark-skipped` output: `{"transitively_skipped": [N, ...], "reason": "..."}`
-- `status` output: `{"pending": N, "completed": N, "skipped": N, "blocked": N, "in_progress": N}`
+**Plan orchestrator template** (`koto-templates/work-on-plan.md`):
+- States: `parse_plan` -> `spawn_and_execute` -> `await_completion` ->
+  `pr_coordination` -> `done` / `done_blocked`
+- Gate at `await_completion`:
+  ```yaml
+  gates:
+    children_done:
+      type: children-complete
+      completion: "terminal"
+  transitions:
+    - target: pr_coordination
+      when:
+        gates.children_done.all_complete: true
+  ```
+- Structured output: `{total, completed, pending, all_complete, children: [{name, state, complete}]}`
 
-**Manifest schema** (`wip/work-on-plan_<topic>_manifest.json`):
-```json
-{
-  "plan_doc": "path/to/PLAN.md",
-  "branch": "impl/<topic>",
-  "pr_number": null,
-  "issues": [
-    {
-      "number": 1,
-      "title": "...",
-      "status": "pending|in_progress|completed|skipped",
-      "dependencies": [2, 3],
-      "agent_type": "coder|webdev|techwriter",
-      "koto_workflow": "work-on-issue-1"
-    }
-  ]
-}
-```
+**Dependency script** (`scripts/plan-deps.sh`):
+- Reuses `skills/plan/scripts/build-dependency-graph.sh`
+- Single subcommand: `next-ready <plan-doc> <completed-json>`
+- Input: PLAN doc path + JSON array of completed issue numbers
+- Output: `[{"number": N, "title": "...", "agent_type": "coder"}]`
 
-**Review panel interface**:
+**Review panel interface** (unchanged):
 - Input: koto directive at scrutiny/review/qa_validation state
 - Output: aggregated JSON to koto context (`scrutiny_results.json`, etc.)
 - Evidence: `passed | blocking_retry | blocking_escalate`
 
 **Cross-issue context protocol**:
-- Per-issue context keys: `issue-<N>/summary.md`, `issue-<N>/plan.md`
-- Script-generated snapshot: `current-context.md` assembled before each issue
-- Contents: current issue info, previous 2 issue summaries, cumulative files
-  changed, key decisions
-- Assembly rules: SKILL.md reads the 2 most recent completed issues' summaries
-  via `koto context get <session> issue-<N>/summary.md`, computes cumulative
-  files changed from all completed summaries, and writes the snapshot to context
-  as `current-context.md` before calling `koto next` for the new issue
-- Sliding window: issues older than the 2 most recent are represented as a
-  one-line entry (number, title, status) rather than full summaries
-
-**Manifest-koto reconciliation protocol**:
-- On each orchestrator loop iteration: verify the manifest's status for the
-  active issue matches koto's current state (`koto query <WF> --field state`)
-- On resume: call `plan-queue.sh status` to find any `in_progress` issue, then
-  verify the corresponding koto workflow exists and is not in a terminal state
-- On mismatch: log the divergence, trust koto's state (source of truth for
-  per-issue progress), and update the manifest to match
+- Parent reads child outputs: `koto context get <child-WF> summary.md`
+- SKILL.md assembles snapshot from 2 most recent completed children's summaries
+  plus cumulative files changed, writes to current child's context as
+  `current-context.md` before starting it
+- Sliding window: children older than the 2 most recent are represented as
+  one-line entries (number, title, status) rather than full summaries
 
 ### Data Flow
 
@@ -494,18 +521,22 @@ review panels at scrutiny/review/qa states -> done
 
 **Plan mode:**
 ```
-SKILL.md parses PLAN -> creates manifest -> plan-queue.sh next-issue ->
-koto init (per-issue) -> koto next loop -> review panels ->
-koto context set (issue summary) -> plan-queue.sh mark-complete ->
-plan-queue.sh next-issue -> [repeat] -> all issues done ->
-PR-level QA -> done
+SKILL.md detects plan -> koto init plan-WF (parent) ->
+  parse_plan state: SKILL.md extracts issues from PLAN doc ->
+  spawn_and_execute state:
+    plan-deps.sh next-ready -> spawn ready children via koto init --parent ->
+    run each child via koto next loop -> child reaches terminal ->
+    read child context (summary) -> plan-deps.sh next-ready (repeat) ->
+    all children spawned and running ->
+  await_completion state: children-complete gate passes ->
+  pr_coordination: PR-level QA -> done
 ```
 
 **Resume:**
 ```
-SKILL.md reads manifest via plan-queue.sh status ->
-finds in_progress issue -> koto next --state <existing> ->
-continues from koto's persisted state
+SKILL.md calls koto next on parent -> parent is at spawn_and_execute ->
+koto workflows --children shows existing children and their states ->
+plan-deps.sh next-ready with completed children -> resume or spawn next
 ```
 
 ## Implementation Approach
@@ -538,32 +569,35 @@ Deliverables:
 
 ### Phase 3: Plan-backed entry path
 
-Add the plan_backed mode to the entry state and create the pre-analysis chain
-(plan_context_injection, plan_validation, setup_plan_backed).
+Add the plan_backed mode to the per-issue entry state and create the pre-analysis
+chain (plan_context_injection, plan_validation, setup_plan_backed).
 
 Deliverables:
 - Updated entry state with 3-way mode enum
-- Plan-backed pre-analysis states in template
+- Plan-backed pre-analysis states in per-issue template
 - SKILL.md mode detection logic for plan document paths
 
-### Phase 4: Queue management script
+### Phase 4: Plan orchestrator template and dependency script
 
-Build the helper script for multi-issue orchestration.
-
-Deliverables:
-- `scripts/plan-queue.sh` with next-issue, mark-complete, mark-skipped, status
-- Manifest schema and initialization from PLAN doc
-- Unit tests for dependency resolution and auto-skip logic
-
-### Phase 5: SKILL.md orchestrator
-
-Wire the orchestrator loop into the SKILL.md for plan-backed execution.
+Create the parent workflow template and the dependency ordering script.
 
 Deliverables:
-- SKILL.md orchestration section for plan mode
-- Per-issue koto workflow init with variables
-- Cross-issue context assembly logic
-- Resume reconciliation (manifest + koto state)
+- `koto-templates/work-on-plan.md` with plan lifecycle states and
+  `children-complete` gate
+- `scripts/plan-deps.sh` with `next-ready` subcommand
+- Reuse of `build-dependency-graph.sh` for graph computation
+- Unit tests for dependency resolution logic
+
+### Phase 5: SKILL.md plan orchestration
+
+Wire the plan-mode orchestration into SKILL.md: parent workflow init, child
+spawning loop, cross-issue context assembly, and resume.
+
+Deliverables:
+- SKILL.md plan-mode section using `koto init --parent` for child creation
+- Spawn loop using `koto workflows --children` + `plan-deps.sh next-ready`
+- Cross-issue context assembly via `koto context get <child> summary.md`
+- Resume logic via parent workflow state + child discovery
 - PR-level coordination (single branch, single PR)
 
 ### Phase 6: Shared component extraction
@@ -583,9 +617,9 @@ surfaces are introduced. The primary security-relevant aspects:
 
 - **Gate overrides**: koto's override mechanism requires rationale. This design
   doesn't weaken that -- all overrides remain auditable via `koto overrides list`.
-- **Script execution**: `plan-queue.sh` reads and writes a manifest JSON file.
-  It doesn't execute arbitrary commands or process untrusted input beyond PLAN
-  doc content authored by the same user.
+- **Script execution**: `plan-deps.sh` reads the PLAN doc and a JSON array of
+  completed issue numbers. It doesn't execute arbitrary commands or process
+  untrusted input beyond PLAN doc content authored by the same user.
 - **Template variable interpolation**: koto substitutes `--var` values into gate
   command strings before shell execution. `ISSUE_NUMBER` must be validated as
   numeric and `PLAN_DOC` as a valid file path at `koto init` time to prevent
@@ -599,33 +633,38 @@ surfaces are introduced. The primary security-relevant aspects:
 
 - Single `/work-on` entry point replaces three workflows (work-on, /implement,
   /implement-doc) with a unified skill
+- Koto is the single source of truth for all state -- no manifest file, no
+  reconciliation protocol, no two-source desynchronization risk
+- Koto hierarchy provides resume for free -- `koto next` on the parent discovers
+  existing children and their states without external tracking
 - Gate migration to v0.6.0 enables structured error routing (agents can
   distinguish branch vs commit vs test failures)
 - Review panel results persist in koto context beyond wip/ cleanup, providing
   audit trails
 - Koto's override system formalizes review skipping with mandatory rationale
-- Single-issue mode has zero orchestrator overhead -- the queue script is only
-  invoked for plan-backed execution
-- The queue script is testable in CI, unlike prose-based orchestration
+- Single-issue mode has zero orchestrator overhead -- the parent template and
+  dependency script are only used for plan-backed execution
+- The dependency script is small (~1 subcommand) and testable in CI
 
 ### Negative
 
-- Two state sources for plan mode: manifest tracks issue status, koto tracks
-  workflow state. Desynchronization is possible.
-- Template grows from 17 to ~23 states, increasing cognitive load for
+- Two templates to maintain (`work-on.md` and `work-on-plan.md`) instead of one.
+- Per-issue template grows from 17 to ~23 states, increasing cognitive load for
   contributors modifying the workflow.
 - PLAN doc parsing in SKILL.md is prose-based and may fail on unusual formats.
-- The queue script adds a shell + jq dependency for plan-backed execution.
-- Contributors must understand both the script interface and SKILL.md
-  orchestration to modify multi-issue behavior.
+- The dependency script adds a shell + jq dependency for plan-backed execution.
+- Koto v0.7.0 hierarchy is new -- less battle-tested than the v0.6.0 features.
 
 ### Mitigations
 
-- Reconciliation check: SKILL.md verifies manifest status matches koto workflow
-  state on each loop iteration and on resume.
+- Template separation: the plan orchestrator template is small (~5 states) and
+  changes rarely; the per-issue template is where most workflow evolution happens.
 - Template complexity: states follow a consistent gate-plus-evidence pattern;
   new contributors learn one pattern, not 23 unique ones.
 - PLAN format: standardized PLAN templates with schema validation reduce
   parsing failures.
 - Dependency: jq is widely available and already used in the workspace for other
   scripts.
+- Hierarchy maturity: the `children-complete` gate is conceptually simple
+  (scan children, check terminal state). Early adoption helps surface issues
+  before more complex hierarchies are built.
