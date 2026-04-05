@@ -101,6 +101,19 @@
       ],
       "fixture_dir": "fixtures/adversarial-diagnostic-topic",
       "files": []
+    },
+    {
+      "id": 12,
+      "name": "roadmap-handoff-upstream-propagation",
+      "prompt": "/explore --auto --strategic new monitoring infrastructure with alerting and dashboards",
+      "expected_output": "Exploration in strategic scope with multiple features to sequence. Crystallize framework scores Roadmap highest. Phase 5 routes to the roadmap handoff handler (phase-5-produce-roadmap.md). The handler writes a scope artifact and invokes /roadmap.",
+      "files": [],
+      "expectations": [
+        "Transcript describes Phase 5 routing to the roadmap produce handler or phase-5-produce-roadmap.md",
+        "Transcript describes writing a scope artifact (wip/roadmap_*_scope.md) as part of the roadmap handoff",
+        "Transcript describes invoking or handing off to /roadmap or /shirabe:roadmap after the scope artifact is written",
+        "Transcript identifies this as a strategic-scope exploration with multiple features needing coordinated sequencing"
+      ]
     }
   ]
 }

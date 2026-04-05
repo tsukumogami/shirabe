@@ -46,7 +46,8 @@ provides a self-contained summary so readers can understand the design without
 reading the full document.
 
 **Optional fields:**
-- `upstream: docs/prds/PRD-<name>.md` -- link to source PRD (set by /design Phase 0)
+- `upstream: docs/prds/PRD-<name>.md` -- link to source PRD (set by /design Phase 0).
+  For cross-repo upstream references, see `references/cross-repo-references.md`.
 - `spawned_from` -- for child designs created from needs-design issues:
   ```yaml
   spawned_from:

@@ -142,18 +142,16 @@ frontmatter fields to Roadmap and Design Doc schemas, and establishing
 cross-repo reference conventions.
 
 **Dependencies:** Feature 1 (VISION type must exist for full chain)
-**Status:** Not Started
-**Downstream:** Needs PRD
+**Status:** Done
+**Downstream:** PRD-artifact-traceability.md (Done), DESIGN-artifact-traceability.md (Current)
 
-Three changes:
-1. Add `upstream` to Roadmap frontmatter (currently missing)
-2. Add `upstream` to Design Doc frontmatter (currently uses `spawned_from`
-   for child designs but has no general PRD-to-design link)
-3. Cross-repo reference convention: `owner/repo:path` with `private:`
-   prefix for visibility boundaries
-
-Stretch: automate Downstream Artifacts section updates when workflows
-create new artifacts (currently manual and often missing).
+Three changes delivered:
+1. Added `upstream` to Roadmap frontmatter (optional, points to VISION)
+2. Extended /roadmap and /prd creation workflows to set `upstream` at
+   creation time via `--upstream` flag (Design Doc already had this)
+3. Cross-repo reference convention: `owner/repo:path` documented in
+   shared `references/cross-repo-references.md` (dropped `private:`
+   prefix per research — redundant with visibility governance)
 
 ### Feature 4: Complexity Routing Expansion
 
@@ -244,7 +242,7 @@ Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
 |---------|--------|-------------------|
 | Feature 1: VISION Artifact Type | Done | DESIGN-vision-artifact-type.md (Current) |
 | Feature 2: Roadmap Creation Skill | Done | PRD-roadmap-skill.md (Done), DESIGN-roadmap-creation-skill.md (Current) |
-| Feature 3: Artifact Traceability | Not Started | -- |
+| Feature 3: Artifact Traceability | Done | PRD-artifact-traceability.md (Done), DESIGN-artifact-traceability.md (Current) |
 | Feature 4: Complexity Routing Expansion | Not Started | -- |
 | Feature 5: Plan Skill Rework | Future | PRD-plan-skill-rework.md (Draft) |
 | Feature 6: Pipeline Documentation | Not Started | -- |

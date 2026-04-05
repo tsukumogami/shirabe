@@ -28,6 +28,12 @@ Read all available context:
 - `wip/research/prd_<topic>_phase2_*.md` files (from Phase 2, if they exist)
 - Any notes from Phase 2 synthesis
 
+**Detect upstream:** Check `$ARGUMENTS` for an `--upstream <path>` flag. If
+present, store the path for inclusion in frontmatter (step 3.2). The upstream
+path typically points to a Roadmap document when the PRD is part of a
+multi-feature initiative. If `--upstream` is not provided, omit the field
+from frontmatter.
+
 ### 3.2 Draft the PRD
 
 Write a complete PRD draft following the `prd` skill structure. Use the Write tool to
@@ -51,7 +57,8 @@ create `docs/prds/PRD-<topic>.md`.
   existed, and why the chosen option won. Include decisions made during this
   drafting phase as well.
 
-Set frontmatter status to "Draft".
+Set frontmatter status to "Draft". If an `--upstream` path was detected in
+step 3.1, include `upstream: <path>` in frontmatter. Otherwise omit the field.
 
 ### 3.3 Present the Draft
 

@@ -36,7 +36,8 @@ Required fields: `status`, `thesis`, `scope`. Optional: `upstream`.
 - **scope** -- `org` (why does this org exist) or `project` (why does this
   project exist within the org)
 - **upstream** -- path to parent VISION when a project-level doc derives from
-  an org-level one. Project-level only; omit for org-level.
+  an org-level one. Project-level only; omit for org-level. For cross-repo
+  upstream references, see `references/cross-repo-references.md`.
 
 Frontmatter status must match the Status section in the body -- agent workflows
 parse frontmatter to determine lifecycle state, so divergence causes silent
