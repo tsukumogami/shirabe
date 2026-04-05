@@ -30,8 +30,9 @@ source_issue: 123  # optional, GitHub issue number that triggered this PRD
 ```
 
 Required fields: `status`, `problem`, `goals`. Optional: `upstream` (path to
-parent artifact when this PRD is part of a larger effort), `source_issue`
-(GitHub issue number that triggered this PRD). Each
+parent artifact when this PRD is part of a larger effort; for cross-repo
+upstream references, see `references/cross-repo-references.md`),
+`source_issue` (GitHub issue number that triggered this PRD). Each
 field should be 1 paragraph using YAML literal block scalars (`|`). Frontmatter
 status must match the Status section in the body -- agent workflows parse
 frontmatter to determine lifecycle state, so divergence causes silent errors.
