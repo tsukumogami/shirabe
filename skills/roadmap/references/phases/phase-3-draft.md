@@ -29,6 +29,12 @@ Read all available context:
 - Any notes from Phase 2 synthesis
 - `skills/roadmap/references/roadmap-format.md` (format specification)
 
+**Detect upstream:** Check `$ARGUMENTS` for an `--upstream <path>` flag. If
+present, store the path for inclusion in frontmatter (step 3.2). The upstream
+path typically points to a VISION document passed by /explore or by the user
+in standalone invocation. If `--upstream` is not provided, omit the field from
+frontmatter.
+
 ### 3.2 Draft the ROADMAP
 
 Write a complete ROADMAP draft following `references/roadmap-format.md`. Use the Write
@@ -36,6 +42,8 @@ tool to create `docs/roadmaps/ROADMAP-<topic>.md`.
 
 **Drafting guidance:**
 
+- **Frontmatter**: Include `status`, `theme`, `scope`, and `upstream` (if detected
+  in step 3.1). Omit `upstream` when no path was provided.
 - **Status**: Set to "Draft". Active requires human approval via lifecycle transition.
 - **Theme**: Synthesize from Phase 1's theme statement and Phase 2's findings. Should
   explain what initiative ties the features together and why coordinated sequencing

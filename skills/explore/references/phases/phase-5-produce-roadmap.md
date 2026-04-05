@@ -40,8 +40,15 @@ If the decisions file doesn't exist, omit this section.>
 After writing, hand off to /roadmap:
 
 1. Commit: `docs(explore): hand off <topic> to /roadmap`
-2. Invoke the roadmap skill: `/shirabe:roadmap <topic>`
-3. The roadmap skill detects the handoff artifact and resumes at Phase 2
+2. **Detect upstream VISION.** Check the crystallize artifact
+   (`wip/explore_<topic>_crystallize.md`) and findings for a VISION
+   document path. If the exploration identified a specific VISION (e.g.,
+   `docs/visions/VISION-<name>.md`), pass it as `--upstream` in the
+   invocation. If no VISION was identified, omit the flag.
+3. Invoke the roadmap skill:
+   - With VISION: `/shirabe:roadmap <topic> --upstream <vision-path>`
+   - Without VISION: `/shirabe:roadmap <topic>`
+4. The roadmap skill detects the handoff artifact and resumes at Phase 2
    (Discover). Phase 1 (Scope) is already done -- the handoff artifact
    fills that role.
 

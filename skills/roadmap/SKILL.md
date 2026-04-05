@@ -86,6 +86,12 @@ Also parse `--max-rounds=N` (default: 2 for roadmap's discover loop). In
 evidence rather than blocking on user input. Create
 `wip/roadmap_<topic>_decisions.md` to track decisions.
 
+**Upstream:** check `$ARGUMENTS` for `--upstream <path>`. If present, the
+path is stored and written to frontmatter during Phase 3 (draft). Typically
+points to a VISION document. Passed by /explore when it identified a VISION
+during crystallization, or by the user in standalone invocation. When not
+provided, the upstream field is omitted from frontmatter.
+
 Log: `Drafting roadmap...`
 
 ### Workflow Phases
