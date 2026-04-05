@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 upstream: docs/prds/PRD-complexity-routing-expansion.md
 problem: |
   The /explore skill's routing tables have 3 complexity levels but the
@@ -19,7 +19,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
