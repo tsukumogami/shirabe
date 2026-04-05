@@ -56,6 +56,19 @@
       "prompt": "/prd search-indexing",
       "expected_output": "Phase 0 creates a feature branch named docs/search-indexing (kebab-case) before starting scoping. Work happens off main. If already on a matching branch, skips creation.",
       "files": []
+    },
+    {
+      "id": 9,
+      "name": "upstream-propagation",
+      "prompt": "/prd feature-flags --upstream docs/roadmaps/ROADMAP-platform.md",
+      "expected_output": "Detects --upstream flag from arguments. Stores the roadmap path. During Phase 3 (draft), includes upstream: docs/roadmaps/ROADMAP-platform.md in the PRD frontmatter. Does not treat --upstream as part of the topic.",
+      "files": [],
+      "expectations": [
+        "Transcript detects and parses the --upstream flag from $ARGUMENTS",
+        "Transcript stores the upstream path (docs/roadmaps/ROADMAP-platform.md) for use in Phase 3",
+        "Transcript describes including upstream: in the PRD frontmatter during Phase 3 drafting",
+        "Transcript does NOT treat --upstream as part of the topic name"
+      ]
     }
   ]
 }

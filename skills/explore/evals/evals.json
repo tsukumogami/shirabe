@@ -101,6 +101,19 @@
       ],
       "fixture_dir": "fixtures/adversarial-diagnostic-topic",
       "files": []
+    },
+    {
+      "id": 12,
+      "name": "roadmap-handoff-upstream-propagation",
+      "prompt": "/explore --auto --strategic new monitoring infrastructure with alerting and dashboards",
+      "expected_output": "Exploration in strategic scope. Crystallize scores Roadmap highest (multiple features to sequence). Phase 5 produce-roadmap handler checks for a VISION identified during exploration. If a VISION was identified, passes --upstream <vision-path> when invoking /roadmap. If no VISION context, invokes /roadmap without --upstream.",
+      "files": [],
+      "expectations": [
+        "Transcript describes Phase 5 routing to the roadmap handoff handler",
+        "Transcript mentions checking for a VISION document identified during exploration",
+        "Transcript describes passing --upstream to /roadmap when a VISION was identified, or omitting it when no VISION context exists",
+        "Transcript invokes /shirabe:roadmap with the topic (the --upstream flag is conditional on VISION identification)"
+      ]
     }
   ]
 }
