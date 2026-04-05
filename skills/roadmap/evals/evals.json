@@ -6,56 +6,104 @@
       "name": "standalone-creation",
       "prompt": "/roadmap developer-tooling-pipeline",
       "expected_output": "Detects no handoff artifact. Starts from Phase 1 (scope). Asks scoping questions about the initiative theme, features, and dependencies. Produces a roadmap at docs/roadmaps/ROADMAP-developer-tooling-pipeline.md with all required sections. Draft status.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript checks for handoff artifact wip/roadmap_developer-tooling-pipeline_scope.md and determines it does not exist",
+        "Transcript starts from Phase 1 (scope) as the first workflow phase",
+        "Transcript describes asking the user scoping questions about the initiative theme, features, and dependencies",
+        "Transcript plans to produce output at docs/roadmaps/ROADMAP-developer-tooling-pipeline.md",
+        "Transcript mentions creating the document in Draft status"
+      ]
     },
     {
       "id": 2,
       "name": "explore-handoff-detection",
       "prompt": "/roadmap release-automation",
       "expected_output": "Detects existing handoff artifact at wip/roadmap_release-automation_scope.md. Skips Phase 1 (scope) and resumes at Phase 2 (discover). Uses the handoff artifact's theme statement and candidate features as input.",
-      "files": ["wip/roadmap_release-automation_scope.md"]
+      "files": ["wip/roadmap_release-automation_scope.md"],
+      "expectations": [
+        "Transcript checks for and detects existing handoff artifact at wip/roadmap_release-automation_scope.md",
+        "Transcript explicitly skips Phase 1 (scope) because the handoff artifact exists",
+        "Transcript proceeds to Phase 2 (discover) after detecting the handoff",
+        "Transcript describes using the handoff artifact's theme statement and candidate features as input for Phase 2"
+      ]
     },
     {
       "id": 3,
       "name": "lifecycle-activate",
       "prompt": "/roadmap activate docs/roadmaps/ROADMAP-release-automation.md",
       "expected_output": "Detects 'activate' as a lifecycle verb. Validates at least 2 features exist. Runs transition-status.sh to transition from Draft to Active. Reports success.",
-      "files": ["docs/roadmaps/ROADMAP-release-automation.md"]
+      "files": ["docs/roadmaps/ROADMAP-release-automation.md"],
+      "expectations": [
+        "Transcript identifies 'activate' as a lifecycle verb from the arguments",
+        "Transcript plans to validate that at least 2 features exist in the roadmap",
+        "Transcript plans to run scripts/transition-status.sh to perform the Draft to Active transition",
+        "Transcript does NOT plan to execute the full creation workflow (Phases 1-4)"
+      ]
     },
     {
       "id": 4,
       "name": "lifecycle-done",
       "prompt": "/roadmap done docs/roadmaps/ROADMAP-release-automation.md",
       "expected_output": "Detects 'done' as a lifecycle verb. Validates all features have terminal status. Runs transition-status.sh to transition from Active to Done. Roadmap stays in docs/roadmaps/ (no directory movement).",
-      "files": ["docs/roadmaps/ROADMAP-release-automation.md"]
+      "files": ["docs/roadmaps/ROADMAP-release-automation.md"],
+      "expectations": [
+        "Transcript identifies 'done' as a lifecycle verb from the arguments",
+        "Transcript plans to validate that all features have terminal status (delivered or dropped)",
+        "Transcript plans to run scripts/transition-status.sh to perform the Active to Done transition",
+        "Transcript confirms roadmap stays in docs/roadmaps/ with no directory movement"
+      ]
     },
     {
       "id": 5,
       "name": "minimum-features-validation",
       "prompt": "/roadmap --auto single-feature-project",
       "expected_output": "During Phase 4 validation, the jury catches that fewer than 2 features exist. Validation fails. The roadmap is not finalized until at least 2 features are present.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript recognizes the --auto flag and plans to operate in auto mode",
+        "Transcript includes Phase 4 jury validation as a required step",
+        "Transcript mentions the minimum 2 features requirement as a validation check",
+        "Transcript describes what happens when fewer than 2 features are found (validation failure or redirect to PRD)"
+      ]
     },
     {
       "id": 6,
       "name": "jury-review-quality",
       "prompt": "/roadmap --auto observability-stack",
       "expected_output": "Phase 4 spawns 3 jury agents: theme coherence reviewer (features belong together), sequencing and dependency reviewer (dependencies explicit, rationale justified), annotation and boundary reviewer (needs-* labels accurate, no downstream content).",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript describes spawning 3 distinct jury agents in Phase 4",
+        "Transcript includes a theme coherence reviewer that checks whether features belong together under the theme",
+        "Transcript includes a sequencing and dependency reviewer that validates dependency relationships and ordering rationale",
+        "Transcript includes an annotation and boundary reviewer that checks needs-* labels and absence of downstream content"
+      ]
     },
     {
       "id": 7,
       "name": "crystallize-discrimination",
       "prompt": "/explore --auto --strategic improve CI pipeline reliability and add deployment automation",
       "expected_output": "Exploration in strategic scope with multiple features to sequence. Crystallize framework scores Roadmap higher than PRD because multiple independent features need coordinated sequencing. Routes to /roadmap via Phase 5 handoff.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript recognizes this as an /explore command, not /roadmap directly",
+        "Transcript identifies the request contains multiple independent features needing coordinated sequencing",
+        "Transcript describes a crystallize or artifact type selection step that scores Roadmap higher than PRD",
+        "Transcript describes a Phase 5 handoff that routes to /roadmap with a scope artifact"
+      ]
     },
     {
       "id": 8,
       "name": "empty-argument-prompts",
       "prompt": "/roadmap",
       "expected_output": "With no argument, skill asks the user what initiative they want to create a roadmap for. Does not assume a topic or start drafting immediately.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript identifies that no argument was provided (empty $ARGUMENTS)",
+        "Transcript plans to ask the user what initiative they want to create a roadmap for",
+        "Transcript does NOT assume a topic or begin drafting without user input"
+      ]
     }
   ]
 }
