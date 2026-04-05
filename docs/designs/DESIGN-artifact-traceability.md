@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-artifact-traceability.md
 problem: |
   Roadmaps lack an upstream frontmatter field, /prd never populates its
