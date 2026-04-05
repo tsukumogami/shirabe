@@ -1,5 +1,5 @@
 ---
-status: In Progress
+status: Done
 problem: |
   The /explore skill routes work through a 3-level complexity table
   (Simple/Medium/Complex) but the pipeline supports 5 levels. Trivial work
@@ -17,7 +17,7 @@ upstream: docs/roadmaps/ROADMAP-strategic-pipeline.md
 
 ## Status
 
-In Progress
+Done
 
 ## Problem statement
 

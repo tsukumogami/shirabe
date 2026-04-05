@@ -1,8 +1,0 @@
-{
-  "topic": "complexity-routing-expansion",
-  "decisions": [
-    {"id": 1, "question": "What exact signals, paths, and tiebreaker rules go in the 5-level complexity routing table, and how should the detection algorithm be presented?", "status": "pending", "complexity": "standard"}
-  ],
-  "cross_validation": "pending",
-  "round": 0
-}

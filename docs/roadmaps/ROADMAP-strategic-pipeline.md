@@ -160,14 +160,14 @@ Expand the /explore complexity routing table from 3 levels
 level maps to a specific command path through the pipeline.
 
 **Dependencies:** Feature 1 (Strategic level needs VISION to route to)
-**Status:** Not Started
-**Downstream:** Needs PRD
+**Status:** Done
+**Downstream:** PRD-complexity-routing-expansion.md (Done), DESIGN-complexity-routing-expansion.md (Current)
 
-Changes:
-- Update /explore SKILL.md routing tables
-- Add Strategic complexity level with VISION/Roadmap entry points
-- Add Trivial complexity level bypassing all artifacts
-- Document the five-level model with signals for each level
+Changes delivered:
+- Expanded Complexity-Based Routing table to 5 levels with observable signals
+- Added top-down detection algorithm with tiebreaker rules at all 4 boundaries
+- Updated Artifact Type Routing Guide and Quick Decision Table for consistency
+- Fixed Phase 4 stale type count (5 -> 10 supported types)
 
 ### Feature 5: Plan Skill Rework
 
@@ -271,7 +271,7 @@ Feature 7 (Crystallize Calibration) --- independent
 | Feature 1: VISION Artifact Type | Done | DESIGN-vision-artifact-type.md (Current) |
 | Feature 2: Roadmap Creation Skill | Done | PRD-roadmap-skill.md (Done), DESIGN-roadmap-creation-skill.md (Current) |
 | Feature 3: Artifact Traceability | Done | PRD-artifact-traceability.md (Done), DESIGN-artifact-traceability.md (Current) |
-| Feature 4: Complexity Routing Expansion | Not Started | -- |
+| Feature 4: Complexity Routing Expansion | Done | PRD-complexity-routing-expansion.md (Done), DESIGN-complexity-routing-expansion.md (Current) |
 | Feature 5: Plan Skill Rework | Future | PRD-plan-skill-rework.md (Draft) |
 | Feature 6: Pipeline Documentation | Not Started | -- |
 | Feature 7: Crystallize Framework Calibration | Not Started | -- |
