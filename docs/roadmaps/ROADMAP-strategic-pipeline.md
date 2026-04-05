@@ -1,5 +1,5 @@
 ---
-status: Draft
+status: Active
 theme: |
   Complete the strategic-to-tactical pipeline by adding the missing inception
   layer and closing gaps in traceability, routing, and artifact production.
@@ -18,7 +18,7 @@ scope: |
 
 ## Status
 
-Draft
+Active
 
 ## Theme
 
@@ -67,23 +67,24 @@ owns format spec, creation workflow, lifecycle management, and validation
 someone already knows what they want. This replaces the earlier approach
 of reference-only skills with inline /explore production.
 
-**Every skill uses a deterministic transition script for lifecycle
-management.** Status transitions are handled by a `scripts/transition-status.sh`
-script that validates preconditions, updates status in frontmatter and body,
-and moves files between directories based on status. The design doc skill
-already has this pattern; it should be standardized across all artifact
-skills. Terminal states (Sunset, Superseded, Done) move docs to
-status-named subdirectories.
+**Every skill includes a transition script for lifecycle management.**
+Each skill's `scripts/transition-status.sh` validates preconditions,
+updates status in frontmatter and body, and moves files between
+directories based on status. The design doc skill established this
+pattern; new skills follow it by convention.
 
-**Each skill owns its completion lifecycle cascades.** When work on an
-artifact completes (PR merges), related artifacts need status updates:
-PLAN docs get deleted, DESIGN docs transition to Current and move to
-`current/`, upstream ROADMAPs update their progress tables. Each
-doc-type skill should know which transitions to trigger on its own
-artifacts' completion and which upstream/downstream artifacts to update.
-This is the "completion side" of the pipeline — creation skills handle
-the left-to-right flow, completion cascades handle the right-to-left
-bookkeeping.
+**Draft artifacts must not merge to main.** Before any PR merges,
+all artifacts it introduces must have their status validated: ROADMAPs
+must be Active (not Draft), DESIGNs must be at least Planned, PLANs
+must be Active or deleted. Each doc-type skill's transition script
+should enforce this as a precondition — or CI should validate it.
+This prevents the mistake of shipping a Draft roadmap to main.
+
+**Completion cascades are a principle, not yet enforced.** When work on
+an artifact completes, related artifacts need status updates (PLAN docs
+deleted, DESIGNs to Current, ROADMAPs update progress). Each skill
+should handle its own completion side. The enforcement mechanism is
+TBD — currently manual.
 
 ## Features
 
@@ -95,8 +96,8 @@ success criteria, and non-goals -- the pre-PRD layer that justifies a
 project's existence.
 
 **Dependencies:** None
-**Status:** Not Started
-**Downstream:** Needs PRD
+**Status:** Done
+**Downstream:** DESIGN-vision-artifact-type.md (Current)
 
 Key decisions from exploration:
 - Template: thesis, audience, value proposition, org fit, success criteria,
@@ -127,8 +128,8 @@ creation workflow, lifecycle management, and validation, following the
 same pattern as /prd, /design, and /vision.
 
 **Dependencies:** None (independent of Feature 1)
-**Status:** Not Started
-**Downstream:** Needs PRD
+**Status:** Done
+**Downstream:** DESIGN-roadmap-creation-skill.md (Current)
 
 /explore hands off to /roadmap via auto-continue. /roadmap also works
 standalone. The private plugin's roadmap reference defines the format;
@@ -170,26 +171,21 @@ Changes:
 - Add Trivial complexity level bypassing all artifacts
 - Document the five-level model with signals for each level
 
-### Feature 5: Standardized Transition Scripts
+### Feature 5: Plan Skill Rework
 
-Every artifact skill should use a deterministic `scripts/transition-status.sh`
-for lifecycle management. The design doc skill already has this pattern;
-this feature standardizes it across all artifact types. Each script
-validates preconditions, updates status in frontmatter and body, moves
-files between directories based on status, and outputs JSON for
-programmatic use.
+Rework /plan to enrich roadmaps directly (no separate PLAN doc when input
+is a roadmap) and establish consistent "planned" semantics across all
+upstream artifact types. When /plan consumes a roadmap, it adds the issues
+table and dependency graph into the roadmap itself, creates a milestone and
+per-feature issues, and transitions the roadmap to Active. Also formalizes
+the completion cascade: what happens to upstream artifacts when all planned
+work finishes.
 
-**Dependencies:** Features 1 and 2 (new skills need transition scripts;
-existing skills need migration)
-**Status:** Not Started
-**Downstream:** Needs PRD
-
-Scope:
-- Define the shared interface (arguments, JSON output, exit codes)
-- Create transition scripts for VISION and Roadmap skills
-- Retrofit existing PRD and Plan skills with transition scripts
-- Define directory conventions for terminal states (sunset/, archive/,
-  done/)
+**Dependencies:** Feature 2 (the /roadmap skill must exist for /plan to
+enrich)
+**Status:** Future (deferred until F2 ships and /plan is tried with a real
+roadmap)
+**Downstream:** PRD-plan-skill-rework.md (Draft)
 
 ### Feature 6: Pipeline Documentation
 
@@ -198,7 +194,8 @@ transition graph, and the traceability chain as a reference document. This
 gives the pipeline a conceptual home that individual skill docs can
 reference.
 
-**Dependencies:** Features 1-4 (documents the completed pipeline)
+**Dependencies:** Features 1-4 (documents the completed pipeline; F5 is
+deferred and not a prerequisite for docs)
 **Status:** Not Started
 **Downstream:** Needs Design (documentation architecture)
 
@@ -221,12 +218,12 @@ meaningful.
 Feature 4 (Routing) depends on Feature 1 because the Strategic complexity
 level routes to VISION. The Trivial level could ship independently.
 
-Feature 5 (Transition Scripts) depends on Features 1 and 2 because
-it standardizes the pattern across new and existing skills.
+Feature 5 (Plan Skill Rework) depends on Feature 2 because /plan needs
+the /roadmap skill to exist before it can enrich roadmaps directly.
+Deferred until F2 ships and /plan is tried with a real roadmap.
 
-Feature 6 (Docs) depends on Features 1-5 because it documents the
-completed pipeline. Writing docs before the pipeline is complete creates
-maintenance burden.
+Feature 6 (Docs) depends on Features 1-4 because it documents the
+completed pipeline.
 
 The recommended order prioritizes the highest-value, lowest-dependency
 features first:
@@ -236,7 +233,7 @@ Feature 1 (VISION) ----+---> Feature 3 (Traceability)
                        |
 Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
                        |
-                       +---> Feature 5 (Transition Scripts)
+                       +---> Feature 5 (Plan Rework) [future]
                        |
                        +---> Feature 6 (Docs)
 ```
@@ -246,8 +243,8 @@ Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
 | Feature | Status | Downstream Artifact |
 |---------|--------|-------------------|
 | Feature 1: VISION Artifact Type | Done | DESIGN-vision-artifact-type.md (Current) |
-| Feature 2: Roadmap Creation Skill | Not Started | -- |
+| Feature 2: Roadmap Creation Skill | Done | PRD-roadmap-skill.md (Done), DESIGN-roadmap-creation-skill.md (Current) |
 | Feature 3: Artifact Traceability | Not Started | -- |
 | Feature 4: Complexity Routing Expansion | Not Started | -- |
-| Feature 5: Standardized Transition Scripts | Not Started | -- |
+| Feature 5: Plan Skill Rework | Future | PRD-plan-skill-rework.md (Draft) |
 | Feature 6: Pipeline Documentation | Not Started | -- |

@@ -7,7 +7,6 @@ directly rather than handing off to another skill.
 ## Table of Contents
 
 - [Unsupported Type (Prototype)](#unsupported-type-prototype-only)
-- [Roadmap](#roadmap)
 - [Spike Report](#spike-report)
 - [Competitive Analysis](#competitive-analysis)
 
@@ -37,69 +36,6 @@ structure, recommend the design doc.
 
 If the user picks spike report, follow the Spike Report section below.
 If the user picks design doc, read `phase-5-produce-design.md` instead.
-
----
-
-## Roadmap
-
-Produce a roadmap directly.
-
-Write `docs/roadmaps/ROADMAP-<topic>.md`:
-
-```markdown
----
-status: Draft
-theme: |
-  <1 paragraph synthesized from exploration findings. What initiative is
-  being sequenced and why does coordination matter?>
-scope: |
-  <1 paragraph bounding the roadmap. Which features are included, which
-  are deliberately excluded?>
----
-
-# ROADMAP: <Topic>
-
-## Status
-
-Draft
-
-## Theme
-
-<Expanded from frontmatter. What capability area, why sequencing matters.>
-
-## Features
-
-<Ordered list of features identified during exploration. For each:>
-
-### Feature N: <Name>
-
-<1-2 sentence description. What this feature delivers.>
-
-**Dependencies:** <which earlier features must complete first, or "None">
-**Status:** Not Started
-**Downstream:** <path to PRD/design doc if known, or "Needs PRD">
-
-## Sequencing Rationale
-
-<Why this order? What constraints drive the sequencing? Distinguish hard
-technical dependencies from soft preferences.>
-
-## Progress
-
-| Feature | Status | Downstream Artifact |
-|---------|--------|-------------------|
-| Feature 1: <name> | Not Started | -- |
-| Feature 2: <name> | Not Started | -- |
-```
-
-Commit: `docs(explore): produce roadmap for <topic>`
-
-Tell the user:
-
-> Created `docs/roadmaps/ROADMAP-<topic>.md` as a Draft roadmap. Review the
-> feature list and sequencing, then transition to Active when ready.
->
-> To start work on individual features, create PRDs for each one.
 
 ---
 
