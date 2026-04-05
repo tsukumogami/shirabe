@@ -106,13 +106,13 @@
       "id": 12,
       "name": "roadmap-handoff-upstream-propagation",
       "prompt": "/explore --auto --strategic new monitoring infrastructure with alerting and dashboards",
-      "expected_output": "Exploration in strategic scope. Crystallize scores Roadmap highest (multiple features to sequence). Phase 5 produce-roadmap handler checks for a VISION identified during exploration. If a VISION was identified, passes --upstream <vision-path> when invoking /roadmap. If no VISION context, invokes /roadmap without --upstream.",
+      "expected_output": "Exploration in strategic scope with multiple features to sequence. Crystallize framework scores Roadmap highest. Phase 5 routes to the roadmap handoff handler (phase-5-produce-roadmap.md). The handler writes a scope artifact and invokes /roadmap.",
       "files": [],
       "expectations": [
-        "Transcript describes Phase 5 routing to the roadmap handoff handler",
-        "Transcript mentions checking for a VISION document identified during exploration",
-        "Transcript describes passing --upstream to /roadmap when a VISION was identified, or omitting it when no VISION context exists",
-        "Transcript invokes /shirabe:roadmap with the topic (the --upstream flag is conditional on VISION identification)"
+        "Transcript describes Phase 5 routing to the roadmap produce handler or phase-5-produce-roadmap.md",
+        "Transcript describes writing a scope artifact (wip/roadmap_*_scope.md) as part of the roadmap handoff",
+        "Transcript describes invoking or handing off to /roadmap or /shirabe:roadmap after the scope artifact is written",
+        "Transcript identifies this as a strategic-scope exploration with multiple features needing coordinated sequencing"
       ]
     }
   ]
