@@ -72,15 +72,13 @@ Check top-down. Stop at the first YES.
    YES -> Strategic
    Boundary: if it's about one feature within an existing project -> Complex
 
-2. Can the user clearly state what to build AND how to build it?
-   NO (either is unknown) -> Complex
-   Boundary: if they know what but not how -> Medium
+2. Can the user clearly state what to build?
+   NO (the problem itself is unclear) -> Complex
 
 3. Are there design decisions where reasonable people could disagree
    on the approach?
    YES -> Medium
-   Boundary: if you can list the decision questions now -> Medium;
-   if too many unknowns to even frame questions -> Complex
+   Boundary: if too many unknowns to even frame the questions -> Complex
 
 4. Does a GitHub issue exist (or should one exist) with defined scope?
    YES -> Simple
