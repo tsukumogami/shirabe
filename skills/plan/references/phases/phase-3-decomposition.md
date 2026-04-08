@@ -326,32 +326,33 @@ Then proceed to step 3.6 (Execution Mode Selection).
 
 ### 3.6 Execution Mode Selection
 
-After writing the decomposition artifact, evaluate the decomposition to recommend an execution mode. The execution mode determines how subsequent phases produce artifacts: single-pr mode yields lighter outlines and a PLAN doc, while multi-pr mode produces full issue bodies and GitHub milestone+issues.
+After writing the decomposition artifact, evaluate whether the work *must*
+be split across multiple PRs, or can ship as one.
 
-#### Heuristic Signals: multi-pr
+**Default to single-pr.** Only choose multi-pr when a hard constraint makes
+a single PR impossible or impractical. The question isn't "can these be
+separate PRs?" but "must they be?"
 
-| Signal | Strength |
-|--------|----------|
-| Cross-repo changes mentioned in design | Strong |
-| CI/CD dependencies (merge-then-trigger patterns) | Strong |
-| Multiple independently-shippable features | Moderate |
-| Design specifies sequential deployment steps | Moderate |
-| Roadmap input (planning issues need GitHub tracking) | Moderate |
+#### Hard constraints that require multi-pr
 
-#### Heuristic Signals: single-pr
+| Constraint | Why it forces multi-pr |
+|------------|----------------------|
+| Cross-repo changes | A single PR can't span repositories |
+| Merge gates between steps | Step N must be merged and deployed before step N+1 can start |
+| Roadmap input | Planning issues track independent feature work by different people in different repos |
 
-| Signal | Strength |
-|--------|----------|
-| All changes in one repo | Moderate |
-| No merge gates between steps | Strong |
-| Linear sequence with shared branch possible | Moderate |
-| Issue count <= ~8 | Weak (suggestive, not decisive) |
+#### When single-pr is correct
+
+Everything else. Changes in one repo with no merge gates between steps belong
+in a single PR, regardless of issue count, number of files, or whether the
+issues *could* be independent. A single branch with sequential commits is
+simpler to review and merge.
 
 #### Procedure
 
-1. Scan the decomposition artifact for the signals above.
-2. Tally signal strengths. A single Strong signal toward either mode outweighs multiple Weak/Moderate signals for the opposite mode.
-3. Formulate a recommendation with a one-sentence rationale.
+1. Check for hard constraints from the table above.
+2. If none found, recommend single-pr.
+3. If a constraint applies, recommend multi-pr with the specific constraint as rationale.
 4. Present the recommendation to the user using AskUserQuestion:
 
 ```

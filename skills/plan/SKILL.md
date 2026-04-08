@@ -217,6 +217,8 @@ document filename: `DESIGN-foo-bar.md` produces topic `foo-bar`, `ROADMAP-foo-ba
 produces topic `foo-bar`.
 
 ```
+if input_type == roadmap AND roadmap has populated Issues table
+                                              -> Phase 7 complete
 if GitHub issues exist for this design        -> Resume at Phase 7 (verify/complete)
 if wip/plan_<topic>_review.md exists          -> Resume at Phase 7
 if wip/plan_<topic>_dependencies.md exists    -> Resume at Phase 6
@@ -231,6 +233,9 @@ To check for existing GitHub issues:
 ```bash
 gh issue list --search "Design: <design-doc-path>" --json number,title,state
 ```
+
+For roadmap input, check the roadmap file's Implementation Issues section
+for content rows beyond the table header. If populated, Phase 7 is complete.
 
 When resuming, read the existing artifact to restore context before continuing.
 
@@ -311,21 +316,25 @@ scope from Context Resolution throughout.
 
 Final artifacts depend on execution mode:
 
-**multi-pr mode:**
+**multi-pr mode (design/prd/topic input):**
 - `docs/plans/PLAN-<topic>.md` with status Active
 - GitHub milestone (1:1 with the plan)
 - GitHub issues with complexity labels, acceptance criteria, and milestone assignment
 - Source design doc status updated to "Planned"
+
+**multi-pr mode (roadmap input):**
+- Roadmap enriched directly -- Implementation Issues table and Dependency Graph
+  written into the roadmap's reserved sections (no separate PLAN doc)
+- GitHub milestone + per-feature planning issues with `needs-*` labels
+- Table uses `Feature | Issues | Status` format from `roadmap-format.md`
+- Roadmap stays Active (no status transition)
 
 **single-pr mode:**
 - `docs/plans/PLAN-<topic>.md` with status Draft
 - Issue Outlines section populated with structured outlines (goal, AC, dependencies)
 - No GitHub issues or milestone created
 - Source design doc status updated to "Planned"
-
-**Roadmap input** (either mode): planning issues with per-feature `needs-*` labels
-instead of code-level issues. PLAN `upstream` field points to the roadmap.
-Decomposition strategy is "feature-by-feature planning."
+- Not available for roadmap input (roadmap mode is always multi-pr)
 
 ### Begin
 

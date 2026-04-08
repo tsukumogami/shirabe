@@ -181,8 +181,8 @@ work finishes.
 
 **Dependencies:** Feature 2 (the /roadmap skill must exist for /plan to
 enrich)
-**Status:** Not Started
-**Downstream:** PRD-plan-skill-rework.md (Draft)
+**Status:** Done
+**Downstream:** PRD-plan-skill-rework.md (Done), DESIGN-plan-skill-rework.md (Current)
 
 ### Feature 6: Pipeline Documentation
 
@@ -306,6 +306,33 @@ Changes:
 - Consider extracting shared transition-script functions into a common
   library (three scripts share ~70% identical code)
 
+### Feature 12: Artifact Type Decision Reference
+
+Create a shared reference document (`references/artifact-type-signals.md`)
+that defines observable signals for deciding what artifact type a piece of
+work needs next. Multiple skills currently make this decision with ad-hoc
+logic: /plan assigns needs-* labels in Phase 1, /explore scores artifact
+types in its crystallize framework, /triage decides what an untriaged
+issue needs. Each uses different heuristics for the same underlying
+question.
+
+A shared reference gives all skills a consistent decision pattern with
+clear discriminators between "requirements need capturing" (PRD),
+"approach needs deciding" (design doc), "feasibility needs testing"
+(spike), and "single choice needs making" (decision record).
+
+**Dependencies:** None (independent, but benefits from F4's signal-based
+routing pattern)
+**Status:** Not Started
+**Downstream:** Needs PRD
+
+Changes:
+- Create `references/artifact-type-signals.md` with observable signals
+  and discriminators for each artifact type
+- Update /plan Phase 1 to reference the shared document for needs-* labels
+- Update /explore crystallize framework to reference or delegate to it
+- Update /triage to use the same decision pattern
+
 ## Sequencing Rationale
 
 Features 1 and 2 are independent and can proceed in parallel. Both fill
@@ -346,6 +373,10 @@ milestone-detection problem).
 Feature 11 (Lifecycle Script Hardening) is independent. Can ship any
 time.
 
+Feature 12 (Artifact Type Decision Reference) is independent. Benefits
+from F4's signal-based routing pattern. Once shipped, F5's /plan Phase 1,
+F7's crystallize calibration, and /triage can all consume it.
+
 ```
 Feature 1 (VISION) ----+---> Feature 3 (Traceability)
                        |
@@ -361,6 +392,7 @@ Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
 
 Feature 7 (Crystallize Calibration) --- independent
 Feature 11 (Lifecycle Hardening) --- independent
+Feature 12 (Artifact Type Decision Reference) --- independent
 ```
 
 ## Progress
@@ -371,10 +403,11 @@ Feature 11 (Lifecycle Hardening) --- independent
 | Feature 2: Roadmap Creation Skill | Done | PRD-roadmap-skill.md (Done), DESIGN-roadmap-creation-skill.md (Current) |
 | Feature 3: Artifact Traceability | Done | PRD-artifact-traceability.md (Done), DESIGN-artifact-traceability.md (Current) |
 | Feature 4: Complexity Routing Expansion | Done | PRD-complexity-routing-expansion.md (Done), DESIGN-complexity-routing-expansion.md (Current) |
-| Feature 5: Plan Skill Rework | Not Started | PRD-plan-skill-rework.md (Draft) |
+| Feature 5: Plan Skill Rework | Done | PRD-plan-skill-rework.md (Done), DESIGN-plan-skill-rework.md (Current) |
 | Feature 6: Pipeline Documentation | Not Started | -- |
 | Feature 7: Crystallize Framework Calibration | Not Started | -- |
 | Feature 8: Completion Cascade Automation | Not Started | -- |
 | Feature 9: Upstream Context Propagation | Not Started | -- |
 | Feature 10: Progress Consistency | Not Started | -- |
 | Feature 11: Lifecycle Script Hardening | Not Started | -- |
+| Feature 12: Artifact Type Decision Reference | Not Started | -- |
