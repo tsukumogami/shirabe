@@ -200,26 +200,33 @@ Delivered as `references/pipeline-model.md` -- a single reference document
 covering the three-diamond model, five complexity levels, named transitions,
 artifact lifecycle states, traceability chain, and skill routing table.
 
-### Feature 7: Crystallize Framework Calibration
+### Feature 7: Crystallize Calibration and Artifact Type Decision Reference
 
-Recalibrate the crystallize framework's scoring to better handle work
-where the answer is known but undocumented. Currently the framework biases
-toward "what's unknown" (design docs, spikes) over "what's known but not
-written down" (PRDs, VISIONs). It pushes users toward answering open
-questions before capturing agreed-upon decisions, when the right order is
-often the reverse: document what's settled, then investigate what's open.
+Recalibrate the crystallize framework's scoring and extract signal
+definitions into a shared reference. Two problems share a root cause: the
+framework biases toward investigation artifacts ("what's unknown") over
+documentation artifacts ("what's known but not written down"), and its
+signal tables are trapped inside /explore while other skills (/plan,
+/triage) make the same decision with ad-hoc heuristics.
+
+Merges the original F7 (calibration) with F12 (shared reference). The
+signal definitions move to `references/artifact-type-signals.md`,
+calibrated with "known but undocumented" scenarios. The crystallize
+framework and /plan Phase 1 both consume the shared reference.
 
 **Dependencies:** None (can be done independently, but benefits from F4
 routing improvements being in place)
-**Status:** Not Started
-**Downstream:** Needs PRD
+**Status:** In Progress
+**Downstream:** PRD-crystallize-calibration.md (Draft)
 
 Changes:
-- Review crystallize signal/anti-signal tables for documentation-bias
-- Add signals that detect "known but undocumented" scenarios
-- Adjust scoring so PRD and VISION score higher when requirements or
-  thesis are verbally agreed but not written down
-- Consider adding a "document first" principle to the framework
+- Create `references/artifact-type-signals.md` with calibrated signal
+  tables for all artifact types
+- Add "known but undocumented" signals for PRD, VISION, and Design Doc
+- Soften anti-signals that penalize documentation of agreements
+- Review and adjust the demotion rule if needed
+- Update crystallize framework to reference the shared signal document
+- Update /plan Phase 1 to reference the shared signal document
 
 ### Feature 8: Completion Cascade Automation
 
@@ -305,33 +312,6 @@ Changes:
 - Consider extracting shared transition-script functions into a common
   library (three scripts share ~70% identical code)
 
-### Feature 12: Artifact Type Decision Reference
-
-Create a shared reference document (`references/artifact-type-signals.md`)
-that defines observable signals for deciding what artifact type a piece of
-work needs next. Multiple skills currently make this decision with ad-hoc
-logic: /plan assigns needs-* labels in Phase 1, /explore scores artifact
-types in its crystallize framework, /triage decides what an untriaged
-issue needs. Each uses different heuristics for the same underlying
-question.
-
-A shared reference gives all skills a consistent decision pattern with
-clear discriminators between "requirements need capturing" (PRD),
-"approach needs deciding" (design doc), "feasibility needs testing"
-(spike), and "single choice needs making" (decision record).
-
-**Dependencies:** None (independent, but benefits from F4's signal-based
-routing pattern)
-**Status:** Not Started
-**Downstream:** Needs PRD
-
-Changes:
-- Create `references/artifact-type-signals.md` with observable signals
-  and discriminators for each artifact type
-- Update /plan Phase 1 to reference the shared document for needs-* labels
-- Update /explore crystallize framework to reference or delegate to it
-- Update /triage to use the same decision pattern
-
 ## Sequencing Rationale
 
 Features 1 and 2 are independent and can proceed in parallel. Both fill
@@ -355,8 +335,9 @@ progress consistency, and lifecycle hardening became separate features.
 Feature 6 (Docs) depends on Features 1-4 because it documents the
 completed pipeline.
 
-Feature 7 (Crystallize Calibration) is independent but benefits from F4's
-routing improvements being in place.
+Feature 7 (Crystallize Calibration + Artifact Type Decision Reference)
+is independent but benefits from F4's routing improvements. Merges the
+original F7 and F12 -- calibration and shared reference are the same work.
 
 Feature 8 (Completion Cascade) depends on F5 (roadmap enrichment must be
 in place) and F3 (cascade reads upstream chain from frontmatter). Has
@@ -372,10 +353,6 @@ milestone-detection problem).
 Feature 11 (Lifecycle Script Hardening) is independent. Can ship any
 time.
 
-Feature 12 (Artifact Type Decision Reference) is independent. Benefits
-from F4's signal-based routing pattern. Once shipped, F5's /plan Phase 1,
-F7's crystallize calibration, and /triage can all consume it.
-
 ```
 Feature 1 (VISION) ----+---> Feature 3 (Traceability)
                        |
@@ -389,9 +366,8 @@ Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
                        |
                        +---> Feature 6 (Docs)
 
-Feature 7 (Crystallize Calibration) --- independent
+Feature 7 (Crystallize Calibration + Decision Reference) --- independent
 Feature 11 (Lifecycle Hardening) --- independent
-Feature 12 (Artifact Type Decision Reference) --- independent
 ```
 
 ## Progress
@@ -404,9 +380,8 @@ Feature 12 (Artifact Type Decision Reference) --- independent
 | Feature 4: Complexity Routing Expansion | Done | PRD-complexity-routing-expansion.md (Done), DESIGN-complexity-routing-expansion.md (Current) |
 | Feature 5: Plan Skill Rework | Done | PRD-plan-skill-rework.md (Done), DESIGN-plan-skill-rework.md (Current) |
 | Feature 6: Pipeline Documentation | Done | PRD-pipeline-documentation.md (Done) |
-| Feature 7: Crystallize Framework Calibration | In Progress | PRD-crystallize-calibration.md (Draft) |
+| Feature 7: Crystallize Calibration + Decision Reference | In Progress | PRD-crystallize-calibration.md (Draft) |
 | Feature 8: Completion Cascade Automation | Not Started | -- |
 | Feature 9: Upstream Context Propagation | Not Started | -- |
 | Feature 10: Progress Consistency | Not Started | -- |
 | Feature 11: Lifecycle Script Hardening | Not Started | -- |
-| Feature 12: Artifact Type Decision Reference | Not Started | -- |
