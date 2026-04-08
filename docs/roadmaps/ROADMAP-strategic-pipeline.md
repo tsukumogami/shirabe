@@ -404,7 +404,7 @@ Feature 12 (Artifact Type Decision Reference) --- independent
 | Feature 3: Artifact Traceability | Done | PRD-artifact-traceability.md (Done), DESIGN-artifact-traceability.md (Current) |
 | Feature 4: Complexity Routing Expansion | Done | PRD-complexity-routing-expansion.md (Done), DESIGN-complexity-routing-expansion.md (Current) |
 | Feature 5: Plan Skill Rework | Done | PRD-plan-skill-rework.md (Done), DESIGN-plan-skill-rework.md (Current) |
-| Feature 6: Pipeline Documentation | Not Started | -- |
+| Feature 6: Pipeline Documentation | In Progress | PRD-pipeline-documentation.md (Draft) |
 | Feature 7: Crystallize Framework Calibration | Not Started | -- |
 | Feature 8: Completion Cascade Automation | Not Started | -- |
 | Feature 9: Upstream Context Propagation | Not Started | -- |
