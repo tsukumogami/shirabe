@@ -6,49 +6,105 @@
       "name": "design-doc-planning",
       "prompt": "/plan docs/designs/DESIGN-plugin-registry.md",
       "expected_output": "Detects input_type as design, validates the design doc status is Accepted, runs all 7 phases, produces wip/ artifacts and a PLAN-plugin-registry.md with dependency graph and implementation sequence",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript detects input_type as design from the DESIGN-*.md path pattern",
+        "Transcript mentions validating the design doc status is Accepted before proceeding",
+        "Transcript describes reading phase-1-analysis.md and producing wip/plan_plugin-registry_analysis.md",
+        "Transcript describes all 7 phases in sequential order (Analysis, Milestone, Decomposition, Generation, Dependencies, Review, Creation)",
+        "Transcript mentions producing a PLAN doc at docs/plans/PLAN-plugin-registry.md",
+        "Transcript describes context resolution (visibility and scope detection)",
+        "Transcript mentions resume logic check for existing wip/ artifacts"
+      ]
     },
     {
       "id": 2,
       "name": "direct-topic-no-document",
       "prompt": "/plan add rate limiting to the API gateway",
       "expected_output": "Detects input_type as topic (not a file path), skips status validation, proceeds directly through planning phases without an upstream document reference, produces PLAN-add-rate-limiting-to-the-api-gateway.md",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript detects input_type as topic (not a file path)",
+        "Transcript explicitly states status validation is skipped for topic input",
+        "Transcript proceeds through planning phases without referencing an upstream document",
+        "Transcript derives a topic slug for wip/ artifact naming",
+        "Transcript describes producing a PLAN doc (not enriching any existing document)",
+        "Transcript mentions all 7 phases"
+      ]
     },
     {
       "id": 3,
       "name": "walking-skeleton-flag",
       "prompt": "/plan docs/designs/DESIGN-event-pipeline.md --walking-skeleton",
       "expected_output": "Forces walking skeleton decomposition strategy regardless of component coupling analysis. The first issue in the dependency graph is the skeleton issue exercising the full pipeline end-to-end, with all thickening issues depending on it",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript parses the --walking-skeleton flag from arguments",
+        "Transcript forces walking skeleton decomposition strategy (not horizontal)",
+        "Transcript describes the skeleton issue as the first issue exercising the full pipeline end-to-end",
+        "Transcript describes thickening issues that depend on the skeleton issue",
+        "Transcript mentions reading phase-3-decomposition.md for decomposition",
+        "Transcript mentions the walking-skeleton-issue.md template"
+      ]
     },
     {
       "id": 4,
       "name": "horizontal-decomposition-flag",
       "prompt": "/plan docs/designs/DESIGN-cli-parser.md --no-skeleton",
       "expected_output": "Forces horizontal (layer-by-layer) decomposition. Issues build one component fully before moving to the next. No skeleton issue appears. Decomposition strategy section documents the horizontal choice with rationale",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript parses the --no-skeleton flag from arguments",
+        "Transcript forces horizontal (layer-by-layer) decomposition strategy",
+        "Transcript describes building components fully before moving to the next",
+        "Transcript does NOT mention a skeleton issue or walking skeleton approach",
+        "Transcript documents the horizontal decomposition choice with rationale"
+      ]
     },
     {
       "id": 5,
       "name": "single-pr-execution-mode",
       "prompt": "/plan docs/designs/DESIGN-config-validation.md",
       "expected_output": "For a small design (few issues, low complexity), recommends single-pr mode. Phase 4 produces structured outlines instead of full issue bodies. Phase 7 writes Issue Outlines into the PLAN doc, creates no GitHub issues or milestone, and sets PLAN status to Draft",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript describes execution mode selection between Phase 3 and Phase 4",
+        "Transcript recommends or considers single-pr mode based on small scope",
+        "Transcript describes Phase 4 producing structured outlines (not full issue bodies)",
+        "Transcript describes Phase 7 writing Issue Outlines into the PLAN doc",
+        "Transcript states no GitHub issues or milestone are created in single-pr mode",
+        "Transcript sets PLAN status to Draft (not Active)"
+      ]
     },
     {
       "id": 6,
       "name": "multi-pr-execution-mode",
       "prompt": "/plan docs/designs/DESIGN-authentication-system.md",
       "expected_output": "For a large design (many issues, mixed complexity, deep dependencies), recommends multi-pr mode. Phase 4 generates full issue body files via agents. Phase 7 creates a GitHub milestone, creates issues with complexity labels, populates the Implementation Issues table, and sets PLAN status to Active",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript describes execution mode selection between Phase 3 and Phase 4",
+        "Transcript recommends or considers multi-pr mode based on large/complex scope",
+        "Transcript describes Phase 4 generating full issue body files via agents",
+        "Transcript describes Phase 7 creating a GitHub milestone",
+        "Transcript describes Phase 7 creating GitHub issues with complexity labels",
+        "Transcript sets PLAN status to Active",
+        "Transcript mentions populating the Implementation Issues table"
+      ]
     },
     {
       "id": 7,
       "name": "auto-mode-non-interactive",
       "prompt": "/plan docs/designs/DESIGN-notification-service.md --auto",
       "expected_output": "Runs non-interactively with no user prompts at decision points. Follows references/decision-protocol.md for all choices (decomposition strategy, execution mode). Creates wip/plan_notification-service_decisions.md logging each automated decision with rationale",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript parses the --auto flag from arguments",
+        "Transcript describes non-interactive execution with no user prompts at decision points",
+        "Transcript mentions following references/decision-protocol.md for automated decisions",
+        "Transcript describes creating wip/plan_notification-service_decisions.md to log decisions",
+        "Transcript describes all 7 phases executing without user interaction"
+      ]
     },
     {
       "id": 8,
@@ -57,12 +113,13 @@
       "expected_output": "Detects input_type as roadmap, validates status is Active. Uses feature-by-feature decomposition. Each roadmap feature becomes one planning issue with a needs_label. Phase 7 writes the Implementation Issues table and Dependency Graph directly into the roadmap's reserved sections. No separate PLAN doc is created. The roadmap stays Active.",
       "files": [],
       "expectations": [
-        "Transcript detects input_type as roadmap and validates Active status",
-        "Transcript uses feature-by-feature decomposition strategy",
-        "Transcript writes Implementation Issues table into the roadmap file (not a PLAN doc)",
-        "Transcript writes Dependency Graph into the roadmap file",
-        "Transcript does NOT create a docs/plans/PLAN-*.md file for roadmap input",
-        "Roadmap status remains Active after enrichment"
+        "Transcript detects input_type as roadmap from the ROADMAP-*.md path pattern",
+        "Transcript validates that roadmap status is Active",
+        "Transcript uses feature-by-feature decomposition strategy (not walking skeleton or horizontal)",
+        "Transcript describes writing Implementation Issues table into the roadmap file directly",
+        "Transcript describes writing Dependency Graph into the roadmap file directly",
+        "Transcript does NOT create a separate docs/plans/PLAN-*.md file for roadmap input",
+        "Transcript states roadmap status remains Active (no status transition)"
       ]
     },
     {
@@ -72,8 +129,10 @@
       "expected_output": "Detects roadmap input. Rejects --single-pr with an error explaining that roadmap features are independently scoped and require multi-pr mode.",
       "files": [],
       "expectations": [
-        "Transcript rejects single-pr mode for roadmap input",
-        "Transcript explains why roadmap mode requires multi-pr"
+        "Transcript detects input_type as roadmap",
+        "Transcript rejects or flags the --single-pr flag as incompatible with roadmap input",
+        "Transcript explains that roadmap features are independently scoped and require multi-pr mode",
+        "Transcript does NOT proceed with single-pr execution for the roadmap"
       ]
     },
     {
@@ -83,9 +142,10 @@
       "expected_output": "Detects input_type as design. Produces a PLAN doc at docs/plans/PLAN-cache-layer.md. Does NOT attempt to enrich the design doc directly. Design doc status transitions to Planned.",
       "files": [],
       "expectations": [
-        "Transcript creates a docs/plans/PLAN-*.md file",
-        "Transcript does NOT write Implementation Issues into the design doc",
-        "Design doc status transitions from Accepted to Planned"
+        "Transcript detects input_type as design (not roadmap)",
+        "Transcript describes creating a PLAN doc at docs/plans/PLAN-cache-layer.md",
+        "Transcript does NOT describe writing Implementation Issues into the design doc directly",
+        "Transcript describes transitioning design doc status from Accepted to Planned"
       ]
     }
   ]
