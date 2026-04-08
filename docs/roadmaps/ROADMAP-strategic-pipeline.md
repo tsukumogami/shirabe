@@ -181,8 +181,8 @@ work finishes.
 
 **Dependencies:** Feature 2 (the /roadmap skill must exist for /plan to
 enrich)
-**Status:** Not Started
-**Downstream:** PRD-plan-skill-rework.md (Draft)
+**Status:** In Progress
+**Downstream:** PRD-plan-skill-rework.md (Accepted)
 
 ### Feature 6: Pipeline Documentation
 
@@ -371,7 +371,7 @@ Feature 11 (Lifecycle Hardening) --- independent
 | Feature 2: Roadmap Creation Skill | Done | PRD-roadmap-skill.md (Done), DESIGN-roadmap-creation-skill.md (Current) |
 | Feature 3: Artifact Traceability | Done | PRD-artifact-traceability.md (Done), DESIGN-artifact-traceability.md (Current) |
 | Feature 4: Complexity Routing Expansion | Done | PRD-complexity-routing-expansion.md (Done), DESIGN-complexity-routing-expansion.md (Current) |
-| Feature 5: Plan Skill Rework | Not Started | PRD-plan-skill-rework.md (Draft) |
+| Feature 5: Plan Skill Rework | In Progress | PRD-plan-skill-rework.md (Accepted) |
 | Feature 6: Pipeline Documentation | Not Started | -- |
 | Feature 7: Crystallize Framework Calibration | Not Started | -- |
 | Feature 8: Completion Cascade Automation | Not Started | -- |
