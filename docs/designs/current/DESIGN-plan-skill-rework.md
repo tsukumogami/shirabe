@@ -1,5 +1,5 @@
 ---
-status: Planned
+status: Current
 upstream: docs/prds/PRD-plan-skill-rework.md
 problem: |
   Phase 7 of the /plan skill produces a PLAN doc for every input type,
@@ -21,7 +21,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
