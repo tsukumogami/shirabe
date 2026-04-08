@@ -233,6 +233,13 @@ does the cascade know which roadmap feature completed?), and the
 "dropped" path (what status do abandoned PRDs, designs, and roadmap
 features get?).
 
+The cascade should also compress completed PRDs and design docs.
+These artifacts accumulate implementation scaffolding (phases,
+acceptance criteria, boilerplate) that's useful during active work but
+becomes dead weight once the work ships. Compression preserves the
+durable context -- decisions, trade-offs, rationale -- while removing
+the parts that are now captured in code or git history.
+
 **Dependencies:** Feature 5 (cascade needs roadmap enrichment to be in
 place), Feature 3 (cascade reads upstream chain from frontmatter fields)
 **Status:** Not Started
@@ -242,6 +249,7 @@ Changes:
 - Define the cascade trigger mechanism (per-issue vs milestone-level)
 - Specify how to identify which roadmap feature completed
 - Add "Dropped" handling for PRDs, designs, and roadmap features
+- Compress completed PRDs and design docs as part of the cascade
 - Implement as a skill step in /implement Phase 2 or /work-on finalization
 
 ### Feature 9: Upstream Context Propagation
