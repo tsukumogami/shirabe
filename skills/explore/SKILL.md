@@ -64,7 +64,7 @@ When a user isn't sure what to build, use this table to recommend a starting poi
 
 ### Detection Algorithm
 
-Check top-down. Stop at the first YES.
+Check from highest complexity down. Stop at the first YES.
 
 ```
 1. Does the request reference project direction, multi-feature sequencing,
