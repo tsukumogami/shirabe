@@ -200,19 +200,13 @@ Delivered as `references/pipeline-model.md` -- a single reference document
 covering the three-diamond model, five complexity levels, named transitions,
 artifact lifecycle states, traceability chain, and skill routing table.
 
-### Feature 7: Crystallize Calibration and Artifact Type Decision Reference
+### Feature 7: Crystallize Framework Calibration
 
-Recalibrate the crystallize framework's scoring and extract signal
-definitions into a shared reference. Two problems share a root cause: the
-framework biases toward investigation artifacts ("what's unknown") over
-documentation artifacts ("what's known but not written down"), and its
-signal tables are trapped inside /explore while other skills (/plan,
-/triage) make the same decision with ad-hoc heuristics.
-
-Merges the original F7 (calibration) with F12 (shared reference). The
-signal definitions move to `references/artifact-type-signals.md`,
-calibrated with "known but undocumented" scenarios. The crystallize
-framework and /plan Phase 1 both consume the shared reference.
+Recalibrate the crystallize framework's scoring to handle work where the
+answer is known but undocumented. The framework biases toward investigation
+artifacts ("what's unknown") over documentation artifacts ("what's known
+but not written down"). Fix the signal tables directly in
+crystallize-framework.md.
 
 **Dependencies:** None (can be done independently, but benefits from F4
 routing improvements being in place)
@@ -220,13 +214,22 @@ routing improvements being in place)
 **Downstream:** PRD-crystallize-calibration.md (Draft)
 
 Changes:
-- Create `references/artifact-type-signals.md` with calibrated signal
-  tables for all artifact types
 - Add "known but undocumented" signals for PRD, VISION, and Design Doc
 - Soften anti-signals that penalize documentation of agreements
 - Review and adjust the demotion rule if needed
-- Update crystallize framework to reference the shared signal document
-- Update /plan Phase 1 to reference the shared signal document
+- Preserve investigation routing for genuinely open questions
+
+### Feature 12: Artifact Type Decision Reference
+
+Extract the crystallize framework's signal definitions into a shared
+reference document consumable by multiple skills. Deferred until a second
+consumer beyond /explore exists (e.g., a /triage skill). /plan's needs-*
+label logic is a four-line lookup that doesn't warrant the indirection.
+
+**Dependencies:** Feature 7 (calibrated signals should exist before
+extracting them)
+**Status:** Not Started
+**Downstream:** Needs PRD
 
 ### Feature 8: Completion Cascade Automation
 
@@ -335,9 +338,12 @@ progress consistency, and lifecycle hardening became separate features.
 Feature 6 (Docs) depends on Features 1-4 because it documents the
 completed pipeline.
 
-Feature 7 (Crystallize Calibration + Artifact Type Decision Reference)
-is independent but benefits from F4's routing improvements. Merges the
-original F7 and F12 -- calibration and shared reference are the same work.
+Feature 7 (Crystallize Calibration) is independent but benefits from F4's
+routing improvements being in place.
+
+Feature 12 (Artifact Type Decision Reference) depends on F7 (calibrated
+signals should exist before extracting). Deferred until a second consumer
+beyond /explore exists.
 
 Feature 8 (Completion Cascade) depends on F5 (roadmap enrichment must be
 in place) and F3 (cascade reads upstream chain from frontmatter). Has
@@ -366,8 +372,9 @@ Feature 2 (Roadmap) ---+---> Feature 4 (Routing)
                        |
                        +---> Feature 6 (Docs)
 
-Feature 7 (Crystallize Calibration + Decision Reference) --- independent
+Feature 7 (Crystallize Calibration) --- independent
 Feature 11 (Lifecycle Hardening) --- independent
+Feature 12 (Artifact Type Decision Reference) --- depends on F7, deferred
 ```
 
 ## Progress
@@ -380,8 +387,9 @@ Feature 11 (Lifecycle Hardening) --- independent
 | Feature 4: Complexity Routing Expansion | Done | PRD-complexity-routing-expansion.md (Done), DESIGN-complexity-routing-expansion.md (Current) |
 | Feature 5: Plan Skill Rework | Done | PRD-plan-skill-rework.md (Done), DESIGN-plan-skill-rework.md (Current) |
 | Feature 6: Pipeline Documentation | Done | PRD-pipeline-documentation.md (Done) |
-| Feature 7: Crystallize Calibration + Decision Reference | In Progress | PRD-crystallize-calibration.md (Draft) |
+| Feature 7: Crystallize Framework Calibration | In Progress | PRD-crystallize-calibration.md (Draft) |
 | Feature 8: Completion Cascade Automation | Not Started | -- |
 | Feature 9: Upstream Context Propagation | Not Started | -- |
 | Feature 10: Progress Consistency | Not Started | -- |
 | Feature 11: Lifecycle Script Hardening | Not Started | -- |
+| Feature 12: Artifact Type Decision Reference | Not Started | -- |
