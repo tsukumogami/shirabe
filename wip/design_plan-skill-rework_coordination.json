@@ -1,9 +1,0 @@
-{
-  "topic": "plan-skill-rework",
-  "decisions": [
-    {"id": 1, "question": "How should Phase 7 branch and write into the roadmap?", "status": "complete", "complexity": "standard", "chosen": "Direct Roadmap Enrichment (no PLAN doc for roadmap input)", "report": "wip/design_plan-skill-rework_decision_1_report.md"},
-    {"id": 2, "question": "What table format should the enriched roadmap use?", "status": "complete", "complexity": "standard", "chosen": "Roadmap reserved format with needs-label in Status", "report": "wip/design_plan-skill-rework_decision_2_report.md"}
-  ],
-  "cross_validation": "passed",
-  "round": 0
-}
