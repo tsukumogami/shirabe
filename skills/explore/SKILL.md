@@ -38,24 +38,58 @@ When a user isn't sure what to build, use this table to recommend a starting poi
 | "I know what we need but haven't written it down" | `/prd <topic>` | Requirements need to be captured and agreed on |
 | "I have a design doc, need to break it into issues" | `/plan <design-doc-path>` | Decomposition of an existing artifact |
 | "This is simple, just do it" | `/work-on <issue>` | No artifact needed, go straight to implementation |
+| "I need to justify this project" or "I have a multi-feature initiative" | `/explore --strategic <topic>` | Strategic scope; needs VISION or Roadmap before features |
 
 ### Quick Decision Table
 
 | Core Question | Best Fit | Alternative |
 |---------------|----------|-------------|
+| "Do I need any artifact at all?" | No artifact, `/work-on` directly | `/prd` if scope creep is likely |
 | "What should we build and why?" | PRD | Explore (if even the question is unclear) |
 | "How should we build this?" | Design Doc | Explore (if multiple paths exist) |
 | "What order do we build in?" | Plan | Design Doc (if approach isn't decided) |
 | "Can we build this?" (feasibility) | Explore | No artifact (just try it) |
 | "What exists already?" (landscape) | Explore | No artifact (write up findings) |
+| "Should this project exist?" or "Which features should we build?" | VISION or Roadmap via `/explore --strategic` | `/explore` without flag if scope is unclear |
 
 ### Complexity-Based Routing
 
 | Complexity | Signals | Recommended Path |
 |------------|---------|------------------|
-| Simple | Clear requirements, few files, one person | `/work-on` or `/prd` then implement |
-| Medium | Known approach, some integration risk | `/design` then `/plan` |
-| Complex | Multiple unknowns, shape unclear | `/explore` to discover first |
+| Trivial | Self-evident change, no issue needed, single file, no design decisions | `/work-on` directly (no issue) |
+| Simple | Clear requirements, few files, one person, no competing approaches | `/work-on` or `/prd` then implement |
+| Medium | Known approach, some integration risk, design decisions between viable options | `/design` then `/plan` |
+| Complex | Multiple unknowns, shape unclear, can't state requirements or approach | `/explore` to discover first |
+| Strategic | Project inception, multi-feature sequencing, thesis validation needed | VISION or `/roadmap` then per-feature pipeline |
+
+### Detection Algorithm
+
+Check from highest complexity down. Stop at the first YES.
+
+```
+1. Does the request reference project direction, multi-feature sequencing,
+   or thesis validation?
+   YES -> Strategic
+   Boundary: if it's about one feature within an existing project -> Complex
+
+2. Can the user clearly state what to build?
+   NO (the problem itself is unclear) -> Complex
+
+3. Are there design decisions where reasonable people could disagree
+   on the approach?
+   YES -> Medium
+   Boundary: if too many unknowns to even frame the questions -> Complex
+
+4. Does a GitHub issue exist (or should one exist) with defined scope?
+   YES -> Simple
+   Boundary: if no design decisions and clear acceptance criteria -> Simple;
+   if "done" is self-evident without criteria -> Trivial
+
+5. Is the change self-evident and fire-and-forget?
+   YES -> Trivial
+
+6. Default -> Simple (create an issue and proceed)
+```
 
 ## Crystallize Framework
 

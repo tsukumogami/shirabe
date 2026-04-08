@@ -114,6 +114,32 @@
         "Transcript describes invoking or handing off to /roadmap or /shirabe:roadmap after the scope artifact is written",
         "Transcript identifies this as a strategic-scope exploration with multiple features needing coordinated sequencing"
       ]
+    },
+    {
+      "id": 13,
+      "name": "trivial-classification",
+      "prompt": "fix a typo in the README, the word 'recieve' should be 'receive'",
+      "expected_output": "Routes as Trivial complexity. The routing advisor recognizes this as a self-evident, fire-and-forget change. Recommends /work-on directly without creating an issue or artifact. Does NOT launch the full explore workflow.",
+      "files": [],
+      "expectations": [
+        "Transcript classifies the request as Trivial complexity or recognizes it as a simple direct fix",
+        "Transcript recommends /work-on or direct implementation rather than /explore, /prd, or /design",
+        "Transcript does NOT launch the full discover-converge exploration loop",
+        "Transcript does NOT recommend creating an issue for this change"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "strategic-classification",
+      "prompt": "I'm thinking about building a new developer tool for managing cloud credentials across teams. I need to figure out if this is worth pursuing, who the audience is, and what features to prioritize.",
+      "expected_output": "Routes as Strategic complexity. The routing advisor recognizes project inception signals: new project, audience undefined, feature prioritization needed. Recommends /explore --strategic or VISION as the starting point. Does NOT route to /prd or /design directly.",
+      "files": [],
+      "expectations": [
+        "Transcript classifies the request as Strategic complexity or recognizes project-inception signals",
+        "Transcript recommends /explore --strategic or starting with a VISION document",
+        "Transcript does NOT recommend /prd or /design as the first step",
+        "Transcript identifies signals like project inception, undefined audience, or multi-feature prioritization"
+      ]
     }
   ]
 }

@@ -1,14 +1,15 @@
 ---
 status: Draft
 problem: |
-  The /plan skill produces separate PLAN docs regardless of input type, but
-  when consuming roadmaps this creates a thin duplicate of information already
-  in the roadmap. The plan skill also lacks a unified model for how "being
-  planned" works across different upstream artifact types.
+  The /plan skill produces a separate PLAN doc when consuming roadmaps,
+  duplicating information the roadmap already has. The roadmap format
+  reserves positions for an Issues table and Mermaid dependency graph,
+  but /plan writes them into a separate PLAN doc instead of enriching
+  the roadmap directly.
 goals: |
-  Rework /plan to enrich roadmaps directly (no separate PLAN doc) and
-  establish a consistent model for what "planned" means across all upstream
-  artifact types (roadmaps, design docs, PRDs).
+  Rework /plan's roadmap mode to enrich the roadmap directly (no separate
+  PLAN doc), always use multi-pr, and create per-feature GitHub issues.
+  Preserve existing behavior for design doc and PRD inputs.
 upstream: docs/roadmaps/ROADMAP-strategic-pipeline.md
 ---
 
@@ -18,113 +19,146 @@ upstream: docs/roadmaps/ROADMAP-strategic-pipeline.md
 
 Draft
 
-## Problem Statement
+## Problem statement
 
-The /plan skill currently produces a PLAN doc for every input type (design
-doc, PRD, roadmap). For design docs and PRDs, this makes sense -- the PLAN
-doc adds decomposition strategy, dependency graph, and issue tracking that
-the upstream artifact shouldn't carry. But for roadmaps, the PLAN doc is
-a thin duplicate: the roadmap already has features (work items), dependencies,
-sequencing rationale, and progress tracking.
+When /plan consumes a roadmap, it creates a separate PLAN doc that
+duplicates the roadmap's feature list, dependencies, and sequencing. The
+PLAN doc adds an Issues table and Mermaid dependency graph, but these
+should live in the roadmap itself — the format already reserves positions
+for them (added in F2). The current flow forces users to track two
+documents for one initiative.
 
-Additionally, /plan lacks a unified model for what "being planned" means.
-Design docs get status "Planned." PRDs get status "In Progress." Roadmaps
-get... nothing (they don't change status when /plan runs). The completion
-cascade is also inconsistent: PLAN docs get deleted when done, but design
-docs transition to "Current." There's no consistent answer to "what happens
-to the upstream artifact when all planned work is complete?"
+The duplication also creates a maintenance problem: when features are
+added, reordered, or dropped, both the roadmap and the PLAN doc need
+updating. The roadmap is the source of truth for features; the PLAN doc
+is a derivative that adds only the issue links and dependency graph.
+Those belong in the roadmap.
 
 ## Goals
 
 - /plan enriches roadmaps directly instead of producing separate PLAN docs
-- Establish consistent "planned" semantics across all upstream types
-- Define the completion cascade: what happens to upstream artifacts when
-  all planned work finishes
-- Progress consistency: downstream completion events propagate to upstream
-  artifacts
+- Roadmap mode is always multi-pr (features are independent work items)
+- Per-feature GitHub issues created with needs-* labels
+- Existing /plan behavior for design docs and PRDs is unchanged
 
-## User Stories
+## User stories
 
 1. As a user who planned a roadmap, I want the issues table and dependency
-   graph to live in the roadmap itself so I have one document to track.
+   graph to live in the roadmap itself so I have one document to track
+   instead of two.
 
-2. As a user completing features, I want the roadmap's progress to update
-   when I close GitHub issues so the roadmap stays accurate.
+2. As a user adding or dropping features from a roadmap, I want one place
+   to update instead of keeping a roadmap and PLAN doc in sync.
 
-3. As a user who finished all planned work, I want a clear answer to
-   "what do I do with the upstream artifact now?" regardless of whether
-   it's a roadmap, design doc, or PRD.
+3. As a contributor picking up a roadmap feature, I want a GitHub issue
+   with the right needs-* label so I know what artifact to produce next.
 
 ## Requirements
 
 ### Functional
 
 **R1. Roadmap mode: enrich instead of produce.** When /plan consumes a
-roadmap (`input_type: roadmap`), it adds Implementation Issues table and
-Mermaid dependency graph directly into the roadmap document. Creates
-GitHub milestone and per-feature issues with needs-* labels. Transitions
-roadmap Draft -> Active. No separate PLAN doc produced.
+roadmap (`input_type: roadmap`), it writes the Implementation Issues table
+and Mermaid dependency graph directly into the roadmap document at the
+reserved positions (defined in `roadmap-format.md`). Creates GitHub
+milestone and per-feature issues with needs-* labels. No separate PLAN
+doc produced.
 
-**R2. Roadmap mode is always multi-pr.** Each feature becomes an
-independent GitHub issue. Single-pr mode doesn't apply to roadmaps.
+Note: the roadmap must already be Active when /plan consumes it. This
+matches the existing validation rule in /plan's Phase 1 (roadmaps must
+be Active). The roadmap's Draft -> Active transition happens via
+`/roadmap activate` before /plan runs, not during /plan execution.
 
-**R3. Consistent upstream status transitions.** When /plan runs:
-- Roadmap: Draft -> Active (features locked, planning complete)
+**R2. Roadmap mode is always multi-pr.** Each roadmap feature becomes an
+independent GitHub issue with a needs-* label. Single-pr mode doesn't
+apply — roadmap features are independently scoped and may be worked on by
+different people or in different repos. If `--single-pr` is passed with
+a roadmap input, /plan should reject it with an error explaining why.
+
+**R3. Consistent upstream status transitions.** When /plan runs on each
+input type:
+- Roadmap: no status change (already Active, stays Active)
 - Design doc: Accepted -> Planned (existing behavior, preserved)
-- PRD: Accepted -> In Progress (existing behavior, preserved)
+- PRD consumed directly by /plan: no status change (PRD lifecycle
+  transitions are owned by /prd and the completion cascade, not /plan)
 
-**R4. Progress consistency invariant.** When a planned issue is closed
-on GitHub, the upstream artifact's tracking section must reflect it.
-For roadmaps: Progress section and Issues table. For PLAN docs: Issues
-table (existing strikethrough behavior). The invariant is the same;
-the target artifact differs by input type.
+### Non-functional
 
-**R5. Completion cascade.** When all planned issues reach terminal state:
-- Roadmap: transition to Done (all features delivered or dropped)
-- PLAN doc from design: delete PLAN, transition design to Current
-- PLAN doc from PRD: delete PLAN, transition PRD to Done
+**R4. Backward compatible.** Existing PLAN docs, /implement workflows,
+and design-doc-based planning are unaffected. Changes only affect
+roadmap-mode behavior in /plan's Phase 7.
 
-### Non-Functional
-
-**R6. Backward compatible.** Existing Plan docs, /implement workflows,
-and design-doc-based planning are unaffected. The changes only affect
-roadmap-mode behavior and formalize cascades that were previously manual.
-
-**R7. No Go code changes for roadmap mode.** Roadmap enrichment is
+**R5. No Go code changes for roadmap mode.** Roadmap enrichment is
 handled in the skill's Phase 7, not in the Go binary. `parsePlanDoc()`
-continues to parse PLAN docs only.
+continues to parse PLAN docs only — it doesn't need to parse enriched
+roadmaps.
 
-## Acceptance Criteria
+## Acceptance criteria
 
-- [ ] /plan consuming a roadmap adds Issues table + Mermaid graph into
-      the roadmap (no PLAN doc produced)
+- [ ] /plan consuming a roadmap writes Issues table + Mermaid graph into
+      the roadmap document at reserved positions (no PLAN doc produced)
 - [ ] /plan consuming a roadmap creates milestone + per-feature issues
-- [ ] /plan consuming a roadmap transitions it Draft -> Active
-- [ ] Roadmap mode is always multi-pr
+      with needs-* labels
+- [ ] /plan consuming a roadmap does not change roadmap status (already
+      Active)
+- [ ] Roadmap mode is always multi-pr (single-pr rejected with error)
 - [ ] Design doc and PRD modes continue to produce PLAN docs (unchanged)
-- [ ] Issue closure propagates to upstream artifact's tracking section
-- [ ] All-issues-complete triggers appropriate upstream transition per R5
 - [ ] Existing /implement and /work-on workflows are unaffected
+- [ ] /plan's Phase 1 validation still requires Active roadmaps
+
+## Out of scope
+
+- Completion cascade automation (see F8 in roadmap)
+- /prd reading upstream from plan issue context (see F9 in roadmap)
+- Progress consistency enforcement (see F10 in roadmap)
+- PRD transition script (see F11 in roadmap)
+- Changes to /implement's controller loop or issue state machine
+- Go code changes to parsePlanDoc() or workflow-tool
+- New artifact types or lifecycle states
+- Retroactive changes to existing PLAN docs or roadmaps
+
+## Decisions and trade-offs
+
+**Roadmap stays Active, /plan doesn't transition it.** The original draft
+had /plan transitioning roadmaps Draft -> Active. Review found this
+contradicts /plan's Phase 1 validation rule (roadmaps must already be
+Active). The roadmap's Draft -> Active transition is owned by `/roadmap
+activate`, which validates feature count and requires human approval.
+/plan consumes an already-Active roadmap and enriches it.
+
+**Progress consistency deferred.** The principle ("issue closure should
+propagate to upstream artifact status") is real but the mechanism (hook,
+skill step, CI check) needs its own design. Including it here would
+conflate a clear plan-skill change with an unsolved orchestration
+problem. See F10.
+
+**Cascade deferred.** The completion cascade has blocking design questions
+surfaced by review: milestone completion detection (who triggers it?),
+feature identification (how does the cascade know which feature
+completed?), and the "dropped" path (what status do abandoned artifacts
+get?). These need their own PRD. See F8.
+
+## Known limitations
+
+- Without the completion cascade (F8), upstream artifact status updates
+  after implementation remain manual. The memory note
+  (`feedback_completion_cascade.md`) documents the steps.
+- Without /prd issue-context detection (F9), users must pass `--upstream`
+  manually when running /prd from a plan issue.
 
 ## Related
 
-- **PRD-roadmap-skill.md** — prerequisite. Defines the roadmap format
-  including reserved positions for Implementation Issues and Mermaid graph
-  that this PRD's R1 populates. Must ship first.
-
-## Out of Scope
-
-- /roadmap creation skill (see PRD-roadmap-skill.md)
-- Changes to /implement or /work-on
-- Go code changes to parsePlanDoc()
-- New artifact types or lifecycle states
-- How /complete-milestone interacts with the cascade (future refinement)
-
-## Known Limitations
-
-- The progress consistency invariant (R4) describes what must be true,
-  not how enforcement works. The mechanism (hook, skill step, or CI
-  check) is a design decision.
-- The completion cascade (R5) is triggered by "all issues terminal" but
-  detecting this reliably requires either polling or event-driven
-  automation, which is outside current skill capabilities.
+- **ROADMAP-strategic-pipeline.md** — Feature 5 describes this work
+- **PRD-roadmap-skill.md** (Done) — defined the roadmap format including
+  reserved positions for Implementation Issues and Dependency Graph that
+  R1 populates
+- **DESIGN-artifact-traceability.md** (Current) — F3 added the upstream
+  fields that future cascade work (F8) relies on
+- **F8 (Completion Cascade Automation)** — formalizes the cascade as a
+  skill-driven step with milestone detection and dropped-feature handling
+- **F9 (Upstream Context Propagation)** — /prd reads upstream from plan
+  issue body automatically
+- **F10 (Progress Consistency)** — issue closure propagates to upstream
+  artifact tracking sections
+- **F11 (Lifecycle Script Hardening)** — PRD transition script, design
+  doc validate_transition(), dropped states
