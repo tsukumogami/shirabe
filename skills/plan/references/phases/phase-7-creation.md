@@ -1,18 +1,25 @@
 # Phase 7: PLAN Artifact Creation
 
 Create the PLAN artifact and (in multi-pr mode) GitHub milestone and issues.
+When input is a roadmap, enrich the roadmap directly instead of producing a
+PLAN doc.
 
 ## Table of Contents
 
 - [Resume Check](#resume-check)
 - [Prerequisites](#prerequisites)
-- [multi-pr Mode](#multi-pr-mode): 7.1 Create GitHub Issues, 7.2 Write PLAN Artifact, 7.3 Verify Creation, 7.4 Validate Traceability
+- [multi-pr Mode](#multi-pr-mode): 7.1 Create GitHub Issues, 7.2 Write Output Artifact, 7.3 Verify Creation, 7.4 Validate Traceability
 - [single-pr Mode](#single-pr-mode): 7.1 Write PLAN Artifact, 7.2 Suggest Next Steps
 - [Common Steps](#common-steps-both-modes): 7.5 Status Transition, 7.6 Cleanup, 7.7 Report Summary, 7.8 Upstream Issue Update
 
 ## Resume Check
 
-Check if `docs/plans/PLAN-<topic>.md` exists.
+**For roadmap input** (`input_type: roadmap`): Read the roadmap file at the
+`upstream` path. If the Implementation Issues section has content rows beyond
+the table header (i.e., feature-to-issue mappings exist), Phase 7 is complete.
+Skip to Common Steps.
+
+**For all other input types**: Check if `docs/plans/PLAN-<topic>.md` exists.
 
 | Existing Status | Action |
 |-----------------|--------|
@@ -119,7 +126,74 @@ This handles forward references -- an issue can reference any other issue in the
 
 Complexity labels are applied via: `${CLAUDE_SKILL_DIR}/scripts/apply-complexity-label.sh`
 
-### 7.2 Write PLAN Artifact
+### 7.2 Write Output Artifact
+
+**Branch on input_type** from the decomposition artifact's frontmatter:
+
+- **roadmap**: Follow [7.2a Enrich Roadmap](#72a-enrich-roadmap)
+- **design, prd, or topic**: Follow [7.2b Write PLAN Artifact](#72b-write-plan-artifact)
+
+#### 7.2a Enrich Roadmap
+
+When `input_type: roadmap`, write the Implementation Issues table and
+Dependency Graph directly into the roadmap instead of creating a PLAN doc.
+
+**Prerequisite validation:**
+
+1. **Verify reserved sections exist.** Read the roadmap file at the `upstream`
+   path and check for the HTML comment markers:
+   ```
+   <!-- Populated by /plan during decomposition. Do not fill manually. -->
+   ```
+   If the markers are missing, STOP with an error:
+   > "This roadmap predates the format spec and is missing reserved sections
+   > (Implementation Issues, Dependency Graph). Add the reserved sections
+   > from `roadmap-format.md` before running /plan."
+
+2. **Enforce multi-pr.** If `execution_mode: single-pr` was set in the
+   decomposition artifact, STOP with an error:
+   > "Roadmap features are independently scoped and may be worked on by
+   > different people or in different repos. Single-pr mode doesn't apply
+   > to roadmap input. Remove the --single-pr flag and re-run."
+
+**Populate Implementation Issues section:**
+
+1. Read the roadmap file.
+2. Locate the Implementation Issues section by the HTML comment marker.
+3. Replace everything from the comment marker to the next `##` heading
+   (exclusive) with the populated table. Preserve the comment marker.
+
+Use the `Feature | Issues | Status` format from `roadmap-format.md`:
+
+```markdown
+<!-- Populated by /plan during decomposition. Do not fill manually. -->
+
+### Milestone: [<Name>](<milestone-url>)
+
+| Feature | Issues | Status |
+|---------|--------|--------|
+| <Feature 1 name> | [#N](<url>) | needs-prd |
+| <Feature 2 name> | [#M](<url>) | needs-design |
+```
+
+- Feature names come from the decomposition artifact's feature list
+- Issue links come from the batch script's output mapping (`wip/plan_<topic>_mapping.json`)
+- Status carries each issue's `needs_label` from the manifest
+
+**Populate Dependency Graph section:**
+
+1. Locate the Dependency Graph section by its HTML comment marker.
+2. Replace everything from the comment marker to the next `##` heading
+   (exclusive) with the full Mermaid diagram. Preserve the comment marker.
+
+Use the same Mermaid format as PLAN docs. Node classes match the needs-*
+labels (e.g., `needsPrd`, `needsDesign`).
+
+**Write the modified roadmap back.** Do NOT create a PLAN doc.
+
+Skip to step 7.3 (Verify Creation).
+
+#### 7.2b Write PLAN Artifact
 
 Create `docs/plans/PLAN-<topic>.md` with the following structure.
 
