@@ -52,10 +52,41 @@
     },
     {
       "id": 8,
-      "name": "roadmap-input-type",
+      "name": "roadmap-enrichment",
       "prompt": "/plan docs/roadmaps/ROADMAP-q3-platform.md",
-      "expected_output": "Detects input_type as roadmap, validates status is Active. Uses feature-by-feature decomposition (not walking skeleton or horizontal). Each roadmap feature becomes one planning issue with simple complexity and a needs_label (needs-prd, needs-design, needs-spike, or needs-decision). PLAN upstream field points to the roadmap",
-      "files": []
+      "expected_output": "Detects input_type as roadmap, validates status is Active. Uses feature-by-feature decomposition. Each roadmap feature becomes one planning issue with a needs_label. Phase 7 writes the Implementation Issues table and Dependency Graph directly into the roadmap's reserved sections. No separate PLAN doc is created. The roadmap stays Active.",
+      "files": [],
+      "expectations": [
+        "Transcript detects input_type as roadmap and validates Active status",
+        "Transcript uses feature-by-feature decomposition strategy",
+        "Transcript writes Implementation Issues table into the roadmap file (not a PLAN doc)",
+        "Transcript writes Dependency Graph into the roadmap file",
+        "Transcript does NOT create a docs/plans/PLAN-*.md file for roadmap input",
+        "Roadmap status remains Active after enrichment"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "roadmap-single-pr-rejected",
+      "prompt": "/plan docs/roadmaps/ROADMAP-q3-platform.md --single-pr",
+      "expected_output": "Detects roadmap input. Rejects --single-pr with an error explaining that roadmap features are independently scoped and require multi-pr mode.",
+      "files": [],
+      "expectations": [
+        "Transcript rejects single-pr mode for roadmap input",
+        "Transcript explains why roadmap mode requires multi-pr"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "design-doc-still-produces-plan",
+      "prompt": "/plan docs/designs/DESIGN-cache-layer.md",
+      "expected_output": "Detects input_type as design. Produces a PLAN doc at docs/plans/PLAN-cache-layer.md. Does NOT attempt to enrich the design doc directly. Design doc status transitions to Planned.",
+      "files": [],
+      "expectations": [
+        "Transcript creates a docs/plans/PLAN-*.md file",
+        "Transcript does NOT write Implementation Issues into the design doc",
+        "Design doc status transitions from Accepted to Planned"
+      ]
     }
   ]
 }
