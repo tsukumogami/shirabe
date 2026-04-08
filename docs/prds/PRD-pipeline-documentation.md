@@ -1,5 +1,5 @@
 ---
-status: Draft
+status: Done
 problem: |
   Individual skills (/explore, /prd, /design, /plan, /work-on) are well
   documented, but the system connecting them isn't. The three-diamond model,
@@ -15,7 +15,7 @@ upstream: docs/roadmaps/ROADMAP-strategic-pipeline.md
 
 ## Status
 
-Draft
+Done
 
 ## Problem statement
 
