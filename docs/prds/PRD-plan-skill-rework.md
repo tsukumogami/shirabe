@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: In Progress
 problem: |
   The /plan skill produces a separate PLAN doc when consuming roadmaps,
   duplicating information the roadmap already has. The roadmap format
@@ -17,7 +17,7 @@ upstream: docs/roadmaps/ROADMAP-strategic-pipeline.md
 
 ## Status
 
-Accepted
+In Progress
 
 ## Problem statement
 
