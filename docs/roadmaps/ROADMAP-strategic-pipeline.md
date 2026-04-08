@@ -193,13 +193,12 @@ reference.
 
 **Dependencies:** Features 1-4 (documents the completed pipeline; F5 is
 deferred and not a prerequisite for docs)
-**Status:** Not Started
-**Downstream:** Needs Design (documentation architecture)
+**Status:** Done
+**Downstream:** PRD-pipeline-documentation.md (Done)
 
-This is a docs artifact, not code. Could be:
-- A `docs/guides/pipeline.md` reference document
-- An update to the workspace CLAUDE.md pipeline section
-- A standalone skill reference (like planning-context)
+Delivered as `references/pipeline-model.md` -- a single reference document
+covering the three-diamond model, five complexity levels, named transitions,
+artifact lifecycle states, traceability chain, and skill routing table.
 
 ### Feature 7: Crystallize Framework Calibration
 
@@ -404,7 +403,7 @@ Feature 12 (Artifact Type Decision Reference) --- independent
 | Feature 3: Artifact Traceability | Done | PRD-artifact-traceability.md (Done), DESIGN-artifact-traceability.md (Current) |
 | Feature 4: Complexity Routing Expansion | Done | PRD-complexity-routing-expansion.md (Done), DESIGN-complexity-routing-expansion.md (Current) |
 | Feature 5: Plan Skill Rework | Done | PRD-plan-skill-rework.md (Done), DESIGN-plan-skill-rework.md (Current) |
-| Feature 6: Pipeline Documentation | In Progress | PRD-pipeline-documentation.md (Draft) |
+| Feature 6: Pipeline Documentation | Done | PRD-pipeline-documentation.md (Done) |
 | Feature 7: Crystallize Framework Calibration | Not Started | -- |
 | Feature 8: Completion Cascade Automation | Not Started | -- |
 | Feature 9: Upstream Context Propagation | Not Started | -- |
