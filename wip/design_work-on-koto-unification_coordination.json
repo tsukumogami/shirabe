@@ -1,0 +1,39 @@
+{
+  "topic": "work-on-koto-unification",
+  "decisions": [
+    {
+      "id": 1,
+      "question": "How should the unified koto template be structured for three entry modes?",
+      "status": "complete",
+      "complexity": "standard",
+      "chosen": "Single monolithic template with 3 entry branches",
+      "report_file": "wip/design_work-on-koto-unification_decision_1_report.md"
+    },
+    {
+      "id": 2,
+      "question": "How should the skill-layer orchestrator manage multi-issue execution?",
+      "status": "complete",
+      "complexity": "critical",
+      "chosen": "Hybrid orchestrator (script for graph, SKILL.md for context)",
+      "report_file": "wip/design_work-on-koto-unification_decision_2_report.md"
+    },
+    {
+      "id": 3,
+      "question": "What are the specific gate migration patterns for v0.6.0?",
+      "status": "complete",
+      "complexity": "standard",
+      "chosen": "Strict mode with selective decomposition",
+      "report_file": "wip/design_work-on-koto-unification_decision_3_report.md"
+    },
+    {
+      "id": 4,
+      "question": "How do review panels integrate with koto per-issue state transitions?",
+      "status": "complete",
+      "complexity": "standard",
+      "chosen": "Hybrid -- context for persistence, evidence for transitions",
+      "report_file": "wip/design_work-on-koto-unification_decision_4_report.md"
+    }
+  ],
+  "cross_validation": "passed",
+  "round": 0
+}
