@@ -472,7 +472,13 @@ SKILL.md (coordinator)
 
 **Per-issue template** (`koto-templates/work-on.md`):
 - Entry state: `mode` enum `[issue_backed, free_form, plan_backed]`
-- Per-issue variables: `ISSUE_NUMBER`, `ARTIFACT_PREFIX`, `PLAN_DOC` (plan mode)
+- Per-issue variables:
+  - `ISSUE_NUMBER` (issue_backed, and plan_backed when `ISSUE_SOURCE=github`)
+  - `ARTIFACT_PREFIX` (all modes)
+  - `PLAN_DOC` (plan_backed)
+  - `ISSUE_SOURCE` enum `[github, plan_outline]` (plan_backed only) --
+    determines whether the plan-backed pre-analysis reads from GitHub via
+    `gh issue view` or extracts the item section from the PLAN doc
 - Terminal states: `done`, `done_blocked`, `validation_exit`
 - ~23 states, ~10 gates (after decomposition)
 
@@ -570,7 +576,11 @@ Deliverables:
 ### Phase 3: Plan-backed entry path
 
 Add the plan_backed mode to the per-issue entry state and create the pre-analysis
-chain (plan_context_injection, plan_validation, setup_plan_backed).
+chain (plan_context_injection, plan_validation, setup_plan_backed). The
+`plan_context_injection` state routes on `ISSUE_SOURCE`: when `github`, it runs
+`gh issue view <ISSUE_NUMBER>` and the existing staleness check; when
+`plan_outline`, it extracts the item's section from `PLAN_DOC` and skips
+staleness (no GitHub issue to check against).
 
 Deliverables:
 - Updated entry state with 3-way mode enum
@@ -622,8 +632,9 @@ surfaces are introduced. The primary security-relevant aspects:
   untrusted input beyond PLAN doc content authored by the same user.
 - **Template variable interpolation**: koto substitutes `--var` values into gate
   command strings before shell execution. `ISSUE_NUMBER` must be validated as
-  numeric and `PLAN_DOC` as a valid file path at `koto init` time to prevent
-  shell injection via crafted variable values.
+  numeric, `PLAN_DOC` as a valid file path, and `ISSUE_SOURCE` against its enum
+  values at `koto init` time to prevent shell injection via crafted variable
+  values.
 - **Context store**: koto context keys store workflow artifacts (summaries, review
   results). No credentials or secrets are stored in context.
 
