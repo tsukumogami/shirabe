@@ -11,11 +11,12 @@
     },
     {
       "id": 2,
-      "question": "How should the skill-layer orchestrator manage multi-issue execution?",
+      "question": "How should the multi-issue orchestrator work given koto v0.8.0 batch spawning?",
       "status": "complete",
       "complexity": "critical",
-      "chosen": "Hybrid orchestrator (script for graph, SKILL.md for context)",
-      "report_file": "wip/design_work-on-koto-unification_decision_2_report.md"
+      "chosen": "Pure koto orchestration via materialize_children (no script)",
+      "report_file": "wip/design_work-on-koto-unification_decision_2_report.md",
+      "revised": "2026-04-14: re-evaluated after koto v0.8.0 release (tsukumogami/koto#130 merged). Dropped plan-deps.sh; single-state fan-out per E10."
     },
     {
       "id": 3,
@@ -35,5 +36,5 @@
     }
   ],
   "cross_validation": "passed",
-  "round": 0
+  "round": 1
 }
