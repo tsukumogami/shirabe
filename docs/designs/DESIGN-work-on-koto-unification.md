@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Planned
 problem: |
   The work-on skill and the private /implement workflow serve overlapping
   purposes with different orchestration backends. work-on uses koto for
@@ -37,7 +37,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Planned
 
 ## Context and Problem Statement
 
