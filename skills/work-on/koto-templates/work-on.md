@@ -218,13 +218,27 @@ states:
         type: enum
         values: [completed, override, blocked]
         required: true
+      issue_source:
+        type: enum
+        values: [github, plan_outline]
+        description: >
+          Source of issue data. github routes directly to setup; plan_outline routes
+          through plan_validation first since the outline item needs validation before setup.
       detail:
         type: string
         description: Override type or failure reason
     transitions:
+      # github path: context injected from GitHub issue, proceed to setup directly
       - target: setup_plan_backed
         when:
           status: completed
+          issue_source: github
+          gates.context_artifact.exists: true
+      # plan_outline path: outline extracted from PLAN doc, validate before setup
+      - target: plan_validation
+        when:
+          status: completed
+          issue_source: plan_outline
           gates.context_artifact.exists: true
       - target: setup_plan_backed
         when:
@@ -736,8 +750,12 @@ Obtain the issue context for a plan-backed task. Behavior differs by ISSUE_SOURC
   PLAN_DOC variable. Extract the specific issue outline from the PLAN doc and write
   it as `context.md`, then proceed to plan_validation.
 
-Submit `status: completed` after writing `context.md`, `status: override` if
-context is provided differently, or `status: blocked` if context cannot be obtained.
+Submit `status: completed` with `issue_source` set to match the source used,
+`status: override` if context is provided differently, or `status: blocked` if context cannot be obtained.
+
+Evidence schema:
+- `status`: `completed`, `override`, or `blocked`
+- `issue_source`: `github` or `plan_outline` (required when status is completed; determines next state)
 
 ## plan_validation
 

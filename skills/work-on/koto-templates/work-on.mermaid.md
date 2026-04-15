@@ -30,7 +30,8 @@ stateDiagram-v2
     introspection --> analysis : gates.introspection_artifact.exists: true, introspection_outcome: approach_unchanged
     introspection --> analysis : gates.introspection_artifact.exists: true, introspection_outcome: approach_updated
     introspection --> analysis
-    plan_context_injection --> setup_plan_backed : gates.context_artifact.exists: true, status: completed
+    plan_context_injection --> setup_plan_backed : gates.context_artifact.exists: true, issue_source: github, status: completed
+    plan_context_injection --> plan_validation : gates.context_artifact.exists: true, issue_source: plan_outline, status: completed
     plan_context_injection --> setup_plan_backed : status: override
     plan_context_injection --> done_blocked : status: blocked
     plan_context_injection --> setup_plan_backed
