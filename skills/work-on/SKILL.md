@@ -77,10 +77,13 @@ The script outputs a JSON array of `{name, vars, waits_on}` objects. koto materi
 Before dispatching each child, collect summaries from all completed children and write a combined context file to the new child's context. Don't skip this step even when only one prior child has completed.
 
 ```bash
-# For each completed child workflow:
-koto context get <child-name> summary.md >> current-context.md
-# Then pass the combined context to the new child:
-koto context set <new-child-name> current-context.md < current-context.md
+# Collect summaries from all completed children
+rm -f current-context.md
+for child in <completed-child-names>; do
+  koto context get "$child" summary.md >> current-context.md
+done
+# Write the combined context into the new child's session
+koto context add <new-child-name> current-context.md --from-file current-context.md
 ```
 
 This gives each child awareness of what prior children found, decided, or changed — particularly useful when later issues build on earlier ones.
@@ -92,7 +95,7 @@ When the parent workflow reaches `escalate` state, one or more children reached 
 1. Read per-child data: `koto context get <plan-slug> batch_final_view`
 2. Identify failed children (`outcome: failure`, `reason` field) and skipped children (`outcome: skipped`, `skipped_because_chain`)
 3. Write a `failure_reason` summary covering which children failed, why, and what the user should do
-4. Submit: `koto next <plan-slug> --field failure_reason="<summary>"`
+4. Submit: `koto next <plan-slug> --with-data '{"failure_reason": "<summary>"}'`
 
 The `failure_reason` field is required — omitting it prevents `context_assignments` from propagating the reason downstream.
 
