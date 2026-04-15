@@ -14,7 +14,7 @@ Diamond 2: SPECIFY / SCOPE
   /prd, /design (diverge) -> /plan (converge) -> issues
 
 Diamond 3: IMPLEMENT / SHIP
-  /work-on, /implement (diverge) -> /release (converge) -> shipped
+  /work-on (diverge) -> /release (converge) -> shipped
 ```
 
 Diamond 1 discovers what to build and what artifact to produce. Diamond 2

@@ -17,7 +17,7 @@ argument-hint: '<doc-path-or-topic> [--walking-skeleton|--no-skeleton] [--strate
 
 Plans turn accepted designs into implementable work. They define the decomposition
 strategy, issue sequencing, and dependency graph that guide implementation through
-/work-on and /implement-doc. When planning a roadmap, the output is planning issues
+/work-on. When planning a roadmap, the output is planning issues
 (one per feature) rather than code-level issues.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.

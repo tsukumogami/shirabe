@@ -23,10 +23,12 @@ Different consumers validate different aspects of PLAN artifacts.
 - Source design doc status transitions to "Planned"
 
 ## During /work-on (consuming the plan)
+
+All modes:
 - Issue dependencies resolved (blockers are closed)
 - Issue body has acceptance criteria
 - Complexity label matches issue content
 
-## During /implement-doc (consuming the plan, single-pr mode)
+Single-pr mode:
 - PLAN doc has Issue Outlines section populated
 - Outlines have goal, acceptance criteria, and dependency references

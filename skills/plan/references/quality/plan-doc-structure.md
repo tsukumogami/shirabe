@@ -45,7 +45,7 @@ The `milestone` field is always present (it names the logical work unit) but Git
 | Status | Meaning | Trigger |
 |--------|---------|---------|
 | Draft | Plan being written during /plan phases | /plan creates the PLAN artifact |
-| Active | Implementation underway | multi-pr: GitHub issues created; single-pr: /implement-doc or /work-on starts |
+| Active | Implementation underway | multi-pr: GitHub issues created; single-pr: /work-on starts |
 | Done | Implementation complete, move to `docs/plans/done/` | multi-pr: all issues closed; single-pr: PR merged |
 
 **Coordinated lifecycle with design docs:**
@@ -54,7 +54,7 @@ The `milestone` field is always present (it names the logical work unit) but Git
 |------------|----------|---------|
 | Accepted | _(doesn't exist)_ | /design or /explore approval |
 | Planned | Draft | /plan creates the PLAN artifact |
-| Planned | Active | /plan finishes (issues created or /implement-doc starts) |
+| Planned | Active | /plan finishes (issues created or /work-on starts) |
 | Planned | _(updated per issue)_ | Issues implemented via /work-on |
 | Current | Done | /complete-milestone (all issues closed) |
 
@@ -77,7 +77,7 @@ Every PLAN artifact has these 7 sections, in order:
 | Issue Outlines | Populated with structured outlines (goal, acceptance criteria, dependencies) | Empty or omitted |
 | Implementation Issues | Empty or omitted (no GitHub issues to link) | Populated with issue table |
 
-In single-pr mode, Phase 4 agents produce structured outlines that become sub-sections under Issue Outlines. These give /implement-doc the decomposition it needs without creating GitHub artifacts. The PLAN doc stays at Draft and transitions to Active when /implement-doc or /work-on starts.
+In single-pr mode, Phase 4 agents produce structured outlines that become sub-sections under Issue Outlines. These give /work-on the decomposition it needs without creating GitHub artifacts. The PLAN doc stays at Draft and transitions to Active when /work-on starts.
 
 In multi-pr mode, Phase 4 agents write full issue body files. Phase 7 creates GitHub issues and milestones, populates the Implementation Issues table with links, and transitions the PLAN doc to Active.
 

@@ -305,7 +305,7 @@ No Implementation Issues table in single-pr mode.
 
 ### 7.2 Suggest Next Steps
 
-Recommend running `/implement-doc docs/plans/PLAN-<topic>.md` to begin implementation.
+Recommend running `/work-on docs/plans/PLAN-<topic>.md` to begin implementation.
 
 ---
 
@@ -384,7 +384,7 @@ PLAN document: `docs/plans/PLAN-<topic>.md`
 Design doc status: Planned
 
 ### Next Steps
-Run `/implement-doc docs/plans/PLAN-<topic>.md` to begin implementation.
+Run `/work-on docs/plans/PLAN-<topic>.md` to begin implementation.
 ```
 
 ### 7.8 Upstream Issue Update
