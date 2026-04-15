@@ -285,6 +285,40 @@
         "Agent does NOT plan to implement anything when mode is skipped",
         "Agent understands skipped_due_to_dep_failure has skipped_marker: true"
       ]
+    },
+    {
+      "id": 18,
+      "name": "plan-orchestrator-all-success",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on docs/plans/PLAN-fixture.md",
+      "expected_output": "Agent detects PLAN.md input, initializes work-on-plan.md template, runs plan-to-tasks.sh to produce tasks JSON, submits tasks to koto via --with-data, monitors children, and when all succeed submits batch_outcome: all_success and routes to pr_coordination.",
+      "files": [],
+      "expectations": [
+        "Agent plans to initialize work-on-plan.md template (not work-on.md) for PLAN.md input",
+        "Agent plans to run plan-to-tasks.sh to produce tasks JSON from the PLAN doc",
+        "Agent plans to pipe plan-to-tasks.sh output to koto via --with-data",
+        "Agent plans to submit tasks field with the JSON array from plan-to-tasks.sh",
+        "Agent plans to submit batch_outcome: all_success when all children succeed",
+        "Agent plans to route to pr_coordination after all children succeed"
+      ]
+    },
+    {
+      "id": 19,
+      "name": "plan-orchestrator-needs-attention",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on docs/plans/PLAN-fixture.md -- one child fails",
+      "expected_output": "Agent detects PLAN.md input, initializes work-on-plan.md, runs plan-to-tasks.sh, monitors children. One child reaches done_blocked. Agent submits batch_outcome: needs_attention and routes to escalate state. In escalate, agent reads batch_final_view, writes failure_reason summary with the failed child name and reason, then routes to done_blocked.",
+      "files": [],
+      "expectations": [
+        "Agent plans to submit batch_outcome: needs_attention when a child reaches done_blocked",
+        "Agent plans to route to escalate state (not pr_coordination) when needs_attention",
+        "Agent plans to read batch_final_view in escalate state for per-child failure details",
+        "Agent plans to include failure_reason and reason_source from batch_final_view in the summary",
+        "Agent plans to submit failure_reason to escalate state evidence",
+        "Agent plans to route to done_blocked after escalate (no retry)"
+      ]
     }
   ]
 }
