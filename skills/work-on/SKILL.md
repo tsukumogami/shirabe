@@ -34,6 +34,74 @@ Your project's extension file (`.claude/shirabe-extensions/work-on.md`) defines 
 
 ---
 
+## Plan Mode
+
+When `$ARGUMENTS` is a path to a PLAN.md file, the skill runs as a plan orchestrator rather than working on a single issue. Plan mode coordinates multiple per-issue child workflows and assembles a combined PR after all children complete.
+
+### Mode Detection
+
+When invoked as `/work-on <argument>`:
+
+- If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` — **plan mode**
+- If the argument is an issue reference (`#N` or a GitHub issue URL) — **issue-backed mode**
+- If the argument is a free-form task description — **free-form mode**
+
+Plan mode detection takes priority: check for a PLAN.md path before checking for an issue number.
+
+### Initialization
+
+Derive the plan slug from the filename: `PLAN-foo-bar.md` → `plan-foo-bar`.
+
+```bash
+koto init <plan-slug> \
+  --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on-plan.md \
+  --var PLAN_DOC=<path-to-plan>
+```
+
+### First Tick: Submitting Tasks
+
+On the first tick, run `plan-to-tasks.sh` (owned by the `/plan` skill) to generate a tasks JSON array from the PLAN doc, then pipe it to koto:
+
+```bash
+# mktemp sandwich — handles large outputs safely
+TMP=$(mktemp)
+${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}} > "$TMP"
+koto next <plan-slug> --with-data @"$TMP"
+rm -f "$TMP"
+```
+
+The script outputs a JSON array of `{name, vars, waits_on}` objects. koto materializes one child workflow per task, using `work-on.md` as the default template with `failure_policy: skip_dependents`.
+
+### Cross-Issue Context Assembly
+
+Before dispatching each child, collect summaries from all completed children and write a combined context file to the new child's context. Don't skip this step even when only one prior child has completed.
+
+```bash
+# For each completed child workflow:
+koto context get <child-name> summary.md >> current-context.md
+# Then pass the combined context to the new child:
+koto context set <new-child-name> current-context.md < current-context.md
+```
+
+This gives each child awareness of what prior children found, decided, or changed — particularly useful when later issues build on earlier ones.
+
+### Escalation Handling
+
+When the parent workflow reaches `escalate` state, one or more children reached `done_blocked` or were skipped due to dependency failure:
+
+1. Read per-child data: `koto context get <plan-slug> batch_final_view`
+2. Identify failed children (`outcome: failure`, `reason` field) and skipped children (`outcome: skipped`, `skipped_because_chain`)
+3. Write a `failure_reason` summary covering which children failed, why, and what the user should do
+4. Submit: `koto next <plan-slug> --field failure_reason="<summary>"`
+
+The `failure_reason` field is required — omitting it prevents `context_assignments` from propagating the reason downstream.
+
+### PR Description (pr_coordination)
+
+In `pr_coordination` state, read `batch_final_view` and assemble a PR description table. For each child include: `name`, `outcome`, `reason` (if failed or skipped), `reason_source`, and `skipped_because_chain` (if skipped). Update the PR with `gh pr edit`.
+
+---
+
 You are assigned to work on the resolved issue. The issue number determined above replaces `<N>` throughout this workflow. The workflow name `<WF>` is the ARTIFACT_PREFIX value: `issue_<N>` for issue-backed, `task_<slug>` for free-form.
 
 ## Koto Orchestration

@@ -319,6 +319,37 @@
         "Agent plans to submit failure_reason to escalate state evidence",
         "Agent plans to route to done_blocked after escalate (no retry)"
       ]
+    },
+    {
+      "id": 20,
+      "name": "plan-mode-detection-from-path",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on docs/plans/PLAN-my-feature.md",
+      "expected_output": "Agent detects PLAN.md path input and plans to use work-on-plan.md template (not work-on.md). Plans to init koto with work-on-plan.md and PLAN_DOC variable, then pipe plan-to-tasks.sh output to koto next.",
+      "files": [],
+      "expectations": [
+        "Agent plans to detect PLAN.md path and use plan mode (not issue-backed or free-form)",
+        "Agent plans to initialize work-on-plan.md template (not work-on.md)",
+        "Agent plans to run plan-to-tasks.sh to generate tasks JSON from the PLAN doc",
+        "Agent plans to pipe plan-to-tasks.sh output to koto next via --with-data",
+        "Agent does NOT plan to call gh issue view for a PLAN.md input"
+      ]
+    },
+    {
+      "id": 21,
+      "name": "plan-mode-cross-issue-context",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on docs/plans/PLAN-my-feature.md -- dispatching child N+1 after child N completed",
+      "expected_output": "Before dispatching child N+1, agent plans to read completed children's summaries via koto context get and write combined current-context.md to the new child's context. Does not skip this step even when only one prior child has completed.",
+      "files": [],
+      "expectations": [
+        "Agent plans to read prior completed children's summaries via koto context get before dispatching the next child",
+        "Agent plans to write combined current-context.md to the dispatched child's context",
+        "Agent plans to include context from ALL completed children (not just the immediately preceding one)",
+        "Agent does NOT dispatch a new child without first assembling cross-issue context"
+      ]
     }
   ]
 }
