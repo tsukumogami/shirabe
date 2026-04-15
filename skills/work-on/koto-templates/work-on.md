@@ -59,6 +59,7 @@ states:
       - target: setup_issue_backed
         when:
           status: completed
+          gates.context_artifact.exists: true
       - target: setup_issue_backed
         when:
           status: override
@@ -141,6 +142,8 @@ states:
       - target: staleness_check
         when:
           status: completed
+          gates.on_feature_branch.exit_code: 0
+          gates.baseline_exists.exists: true
       - target: staleness_check
         when:
           status: override
@@ -169,6 +172,8 @@ states:
       - target: analysis
         when:
           status: completed
+          gates.on_feature_branch.exit_code: 0
+          gates.baseline_exists.exists: true
       - target: analysis
         when:
           status: override
@@ -182,6 +187,9 @@ states:
       staleness_fresh:
         type: command
         command: "check-staleness.sh --issue {{ISSUE_NUMBER}} | jq -e '.introspection_recommended == false'"
+        override_default:
+          exit_code: 0
+          error: ""
     accepts:
       staleness_signal:
         type: enum
@@ -197,6 +205,7 @@ states:
       - target: analysis
         when:
           staleness_signal: fresh
+          gates.staleness_fresh.exit_code: 0
       - target: analysis
         when:
           staleness_signal: override
@@ -225,9 +234,11 @@ states:
       - target: analysis
         when:
           introspection_outcome: approach_unchanged
+          gates.introspection_artifact.exists: true
       - target: analysis
         when:
           introspection_outcome: approach_updated
+          gates.introspection_artifact.exists: true
       - target: analysis
 
   analysis:
@@ -253,6 +264,7 @@ states:
       - target: implementation
         when:
           plan_outcome: plan_ready
+          gates.plan_artifact.exists: true
       - target: analysis
         when:
           plan_outcome: scope_changed_retry
@@ -265,9 +277,15 @@ states:
 
   implementation:
     gates:
-      code_committed:
+      on_feature_branch_impl:
         type: command
-        command: "test \"$(git rev-parse --abbrev-ref HEAD)\" != \"main\" && test \"$(git log --oneline main..HEAD | wc -l)\" -gt 0 && go test ./... 2>/dev/null"
+        command: "test \"$(git rev-parse --abbrev-ref HEAD)\" != \"main\""
+      has_commits:
+        type: command
+        command: "test \"$(git log --oneline main..HEAD | wc -l)\" -gt 0"
+      tests_passing:
+        type: command
+        command: "go test ./... 2>/dev/null"
     accepts:
       implementation_status:
         type: enum
@@ -286,6 +304,9 @@ states:
       - target: finalization
         when:
           implementation_status: complete
+          gates.on_feature_branch_impl.exit_code: 0
+          gates.has_commits.exit_code: 0
+          gates.tests_passing.exit_code: 0
       - target: implementation
         when:
           implementation_status: partial_tests_failing_retry
@@ -313,9 +334,11 @@ states:
       - target: pr_creation
         when:
           finalization_status: ready_for_pr
+          gates.summary_exists.exists: true
       - target: pr_creation
         when:
           finalization_status: deferred_items_noted
+          gates.summary_exists.exists: true
       - target: pr_creation
 
   pr_creation:
@@ -355,6 +378,7 @@ states:
       - target: done
         when:
           ci_outcome: passing
+          gates.ci_passing.exit_code: 0
       - target: done
         when:
           ci_outcome: failing_fixed

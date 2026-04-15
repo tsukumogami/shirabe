@@ -173,6 +173,22 @@
         "Agent attempts to install koto using curl and the install script",
         "Agent does NOT skip koto and fall back to manual orchestration"
       ]
+    },
+    {
+      "id": 11,
+      "name": "gate-failure-blocks-transition",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "gate-failure",
+      "prompt": "/work-on #42",
+      "expected_output": "In the implementation state, when has_commits gate returns non-zero exit (no commits on branch yet), the workflow does not advance to finalization. The state requires re-entry after commits are made.",
+      "files": [],
+      "expectations": [
+        "When the has_commits gate returns non-zero exit code, the workflow does not route to finalization",
+        "The implementation state requires gate.has_commits.exit_code to be 0 before transitioning to finalization",
+        "Agent retries or reports the gate failure without advancing to finalization",
+        "Gate-based routing is respected: evidence alone (implementation_status: complete) is insufficient if gates fail"
+      ]
     }
   ]
 }
