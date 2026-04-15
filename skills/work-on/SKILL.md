@@ -74,19 +74,7 @@ The script outputs a JSON array of `{name, vars, waits_on}` objects. koto materi
 
 ### Cross-Issue Context Assembly
 
-Before dispatching each child, collect summaries from all completed children and write a combined context file to the new child's context. Don't skip this step even when only one prior child has completed.
-
-```bash
-# Collect summaries from all completed children
-rm -f current-context.md
-for child in <completed-child-names>; do
-  koto context get "$child" summary.md >> current-context.md
-done
-# Write the combined context into the new child's session
-koto context add <new-child-name> current-context.md --from-file current-context.md
-```
-
-This gives each child awareness of what prior children found, decided, or changed — particularly useful when later issues build on earlier ones.
+Read `references/shared/cross-issue-context.md` for details.
 
 ### Escalation Handling
 
@@ -154,22 +142,7 @@ Use `koto rewind <WF>` to step back.
 
 ### Review Panel
 
-After implementation completes, the workflow passes through three panel states before
-finalization:
-
-1. **scrutiny** — three parallel reviewers (completeness, justification, intent). Reference:
-   `references/phases/phase-4a-scrutiny.md`. Output: `scrutiny_results.json`.
-2. **review** — three parallel reviewers (pragmatic, architect, maintainer). Reference:
-   `references/phases/phase-4b-review.md`. Output: `review_results.json`.
-3. **qa_validation** — QA validation panel. Reference: `references/phases/phase-4c-qa.md`.
-   Output: `qa_results.json`.
-
-Each panel state accepts `passed`, `blocking_retry`, or `blocking_escalate`. A `blocking_retry`
-returns to `implementation`; `blocking_escalate` routes to `done_blocked` with `failure_reason`
-written to context. Panel states carry `override_default` so skipping is auditable via
-`koto overrides list`. The retry loop is capped at 2 cycles — after 2 blocking_retry outcomes,
-the next panel pass must emit `blocking_escalate`. `blocking_escalate` requires a `failure_reason`
-field; omitting it prevents koto context_assignments from propagating the reason downstream.
+Read `references/shared/review-panel-orchestration.md` for details.
 
 ### Resume
 
