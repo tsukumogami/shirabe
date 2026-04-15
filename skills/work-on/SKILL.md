@@ -74,7 +74,7 @@ The script outputs a JSON array of `{name, vars, waits_on}` objects. koto materi
 
 ### Cross-Issue Context Assembly
 
-Read `references/shared/cross-issue-context.md` for details.
+After each child completes and before dispatching the next, run the context assembly step in `references/cross-issue-context.md`.
 
 ### Escalation Handling
 
@@ -142,7 +142,7 @@ Use `koto rewind <WF>` to step back.
 
 ### Review Panel
 
-Read `references/shared/review-panel-orchestration.md` for details.
+Read `references/review-panel-orchestration.md` for details (panel states: `scrutiny`, `review`, `qa_validation` — require parallel spawns, not standard directive execution).
 
 ### Resume
 
