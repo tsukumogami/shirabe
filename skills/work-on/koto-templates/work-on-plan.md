@@ -31,6 +31,9 @@ states:
       failure_policy: skip_dependents
       default_template: work-on.md
     transitions:
+      # Gate guards ensure children are complete; evidence routes success vs attention.
+      # Note: koto v0.8.0 children-complete gate exposes all_complete, not all_success/needs_attention.
+      # W4 warning is expected — routing is evidence-driven per the design intent.
       - target: pr_coordination
         when:
           batch_outcome: all_success
@@ -67,11 +70,6 @@ states:
         required: true
         description: Summary of which children failed and why, for the batch view
     transitions:
-      - target: done_blocked
-        when:
-          failure_reason: ""
-        context_assignments:
-          failure_reason: ${evidence.failure_reason}
       - target: done_blocked
         context_assignments:
           failure_reason: ${evidence.failure_reason}
