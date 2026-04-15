@@ -93,8 +93,7 @@ Spawn and coordinate per-issue work-on children from the PLAN document.
 **First tick**: run `plan-to-tasks.sh` to populate the tasks evidence, then submit it to koto:
 
 ```bash
-TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
-# Or use mktemp sandwich:
+# plan-to-tasks.sh is owned by /plan skill; outputs {name, vars, waits_on} JSON array
 TMP=$(mktemp)
 ${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}} > "$TMP"
 koto next work-on-plan --with-data @"$TMP"
