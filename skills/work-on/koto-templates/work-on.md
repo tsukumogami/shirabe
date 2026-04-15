@@ -606,6 +606,12 @@ states:
   done_blocked:
     terminal: true
     failure: true
+    accepts:
+      failure_reason:
+        type: string
+        description: >
+          Reason for the blocking failure. Written to context via context_assignments
+          on incoming transitions so koto can populate the batch view's reason field.
 
   skipped_due_to_dep_failure:
     terminal: true
