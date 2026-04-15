@@ -197,14 +197,13 @@
       "mode": "execute",
       "scenario": "review-panel-passed",
       "prompt": "/work-on #42",
-      "expected_output": "Agent enters scrutiny state, all three panel reviewers emit passed, workflow advances through scrutiny -> review -> qa_validation -> finalization without returning to implementation.",
+      "expected_output": "Agent enters scrutiny state, runs three panel reviewers (completeness, justification, intent) in parallel, receives passed verdicts from all three, then submits scrutiny_outcome: passed to advance to review.",
       "files": [],
       "expectations": [
-        "Agent submits scrutiny_outcome: passed after panel review",
-        "Agent submits review_outcome: passed after code review panel",
-        "Agent submits qa_outcome: passed after QA validation",
-        "Workflow advances from qa_validation to finalization without returning to implementation",
-        "Each panel state's context-exists gate is checked before advancing"
+        "Agent submits scrutiny_outcome: passed when panel reviewers all approve",
+        "Agent does not submit blocking_retry or blocking_escalate when issues are found to be correctable",
+        "Agent checks scrutiny_results context-exists gate status before submitting evidence",
+        "Agent plans to run all three panel reviewers before submitting scrutiny outcome"
       ]
     },
     {
@@ -235,7 +234,7 @@
       "expectations": [
         "Agent submits scrutiny_outcome: blocking_escalate with failure_reason",
         "Workflow routes to done_blocked without retrying implementation",
-        "failure_reason is written to koto context via context_assignments",
+        "Agent includes failure_reason string in the evidence submitted to koto (required for context_assignments to propagate)",
         "Agent reports the escalation reason to the user"
       ]
     }
