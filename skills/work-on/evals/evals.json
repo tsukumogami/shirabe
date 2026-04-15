@@ -209,19 +209,18 @@
     },
     {
       "id": 13,
-      "name": "review-panel-retry-loop",
+      "name": "scrutiny-blocking-retry-entry",
       "tier": 2,
       "mode": "execute",
-      "scenario": "review-panel-retry",
+      "scenario": "scrutiny-blocking-retry-entry",
       "prompt": "/work-on #42",
-      "expected_output": "Scrutiny panel emits blocking_retry. Workflow returns to implementation state. Implementation agent addresses feedback. Workflow re-enters scrutiny with stale gate (artifact missing), panel runs again with fresh results.",
+      "expected_output": "Scrutiny panel finds blocking issues and emits blocking_retry. Workflow returns to implementation state rather than done_blocked. Agent recognizes the retry path and prepares to address the blocking feedback.",
       "files": [],
       "expectations": [
-        "Agent submits scrutiny_outcome: blocking_retry after panel finds issues",
+        "Agent submits scrutiny_outcome: blocking_retry after panel finds blocking issues",
         "Workflow returns to implementation state (not done_blocked)",
-        "Agent makes corrections in implementation state",
-        "Workflow re-enters scrutiny state after implementation",
-        "Stale scrutiny_results gate causes panel to run again with fresh results"
+        "Agent recognizes that blocking_retry loops back to implementation, not escalation",
+        "Agent does NOT submit blocking_escalate for correctable issues"
       ]
     },
     {
