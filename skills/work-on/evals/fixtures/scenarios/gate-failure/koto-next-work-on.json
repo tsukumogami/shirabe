@@ -1,0 +1,22 @@
+{
+  "action": "execute",
+  "state": "implementation",
+  "directive": "Write code and commit changes. Gate 'has_commits' is currently failing (exit code 1): no commits found on branch above main. You cannot transition to finalization until this gate passes. Make at least one commit before submitting implementation_status: complete.",
+  "advanced": false,
+  "gates": {
+    "on_feature_branch_impl": {"exit_code": 0, "error": ""},
+    "has_commits": {"exit_code": 1, "error": "no commits found on this branch above main"},
+    "tests_passing": {"exit_code": 0, "error": ""}
+  },
+  "expects": {
+    "event_type": "evidence_submitted",
+    "fields": {
+      "implementation_status": {
+        "type": "enum",
+        "required": true,
+        "values": ["complete", "partial_tests_failing_retry", "partial_tests_failing_escalate", "blocked"]
+      }
+    }
+  },
+  "error": null
+}
