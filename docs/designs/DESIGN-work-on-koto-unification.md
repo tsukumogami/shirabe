@@ -121,7 +121,7 @@ in that repo (shipped via tsukumogami/koto#130). Quick gloss:
 | `E10` | Compile error | `materialize_children` and `children-complete` must be co-located on the same state (single-state fan-out) |
 | `W4` | Compile warning | A materialized state routing only on `all_complete` without handling `any_failed` / `needs_attention` -- silent failure-swallowing |
 | `W5` | Compile warning | A `failure: true` terminal with no path that writes `failure_reason` to context |
-| `F5` | Compile warning | A batch-eligible child template missing a reachable `skipped_marker: true` state |
+| `F5` | Compile warning | A batch-eligible child template missing a reachable `skipped_marker: true` state. Treated as enforcing here -- shirabe CI asserts no F5 warnings on `work-on.md` since batch eligibility is required. |
 | `R0`-`R9` | Runtime rules | Pre-append validators on `tasks` submissions: non-empty list, name regex, DAG, dangling refs, name uniqueness, limit caps, immutability, etc. |
 | `InvalidBatchReason` | Error envelope | Typed enum returned via `action: "error"` when R0-R9 reject a submission (e.g., `Cycle`, `NameRegex`, `SpawnedTaskMutated`) |
 
@@ -267,10 +267,9 @@ status rendering, resume diagnostics) or a direct handoff to koto.
 The plan orchestrator template (`work-on-plan.md`) declares a single batched
 state that accepts a `tasks` evidence field, materializes children via
 `materialize_children`, and holds until `children-complete` reports the batch
-done. A parser script owned by /plan (`skills/plan/scripts/plan-to-tasks.sh`,
-decided separately -- see the companion decision report at
-`wip/decision_plan-parser-script_report.md`) transforms PLAN.md into the
-task-entry JSON on stdout; /work-on pipes its output directly into
+done. A parser script owned by /plan (`skills/plan/scripts/plan-to-tasks.sh`;
+see Decision 5 below) transforms PLAN.md into the task-entry JSON on
+stdout; /work-on pipes its output directly into
 `koto next --with-data @-` (or a `mktemp` sandwich cleaned in the same
 expression if koto rejects stdin). No JSON file persists in the repo tree
 or in `wip/`; after submission, koto's context store owns the payload.
@@ -613,7 +612,7 @@ test surface, with ambiguous responsibility boundaries.
 
 The unified work-on workflow uses two koto templates: a per-issue template
 (`work-on.md`, ~24 states, 3-way entry routing) and a plan orchestrator
-template (`work-on-plan.md`, ~5 states). Single issues and free-form tasks use
+template (`work-on-plan.md`, 4 states). Single issues and free-form tasks use
 `work-on.md` directly. Plan-backed execution creates a parent workflow from
 `work-on-plan.md`, whose batched `spawn_and_await` state declares
 `materialize_children` over a `tasks`-typed evidence field. Koto's scheduler
@@ -762,6 +761,12 @@ SKILL.md (coordinator)
 **Plan orchestrator template** (`koto-templates/work-on-plan.md`):
 - States: `spawn_and_await` (initial) -> `pr_coordination` | `escalate`
   -> `done` / `done_blocked` (4 states total)
+- The `done` and `done_blocked` terminal names are reused by both
+  templates. They live in separate workflows (parent and per-issue child),
+  so koto treats them as distinct -- but readers should keep the context
+  in mind: a child reaching `done_blocked` raises `failed` in the parent's
+  batch view, while the parent's own `done_blocked` is the terminal for
+  unrecoverable plan-level failure.
 - `spawn_and_await` state (single-state fan-out per E10):
   ```yaml
   spawn_and_await:
@@ -953,12 +958,13 @@ Deliverables:
 
 ### Phase 4: Plan orchestrator template
 
-Author the parent workflow template. The template is 5 states plus a
+Author the parent workflow template. The template is 4 states plus a
 reference to /plan's parser script for first-tick tasks submission.
 
 Deliverables:
-- `koto-templates/work-on-plan.md` with `parse_plan`, `spawn_and_await`
-  (single-state fan-out), `pr_coordination`, `escalate`, `done` / `done_blocked`
+- `koto-templates/work-on-plan.md` with `spawn_and_await` (initial,
+  single-state fan-out), `pr_coordination`, `escalate`, and the
+  `done` / `done_blocked` terminal pair
 - `materialize_children` hook pointing at `tasks` evidence field with
   `default_template: work-on.md` and `failure_policy: skip_dependents`
 - `children-complete` gate co-located on `spawn_and_await` (E10)
@@ -1006,9 +1012,11 @@ Deliverables:
 - No prose-level PLAN parsing in SKILL.md; parsing is delegated to the
   script entirely
 - Cross-issue context assembly via `koto context get <child> summary.md`
-  with sliding window (2 most recent full, older as one-liners)
-- Escalate-state directive guiding inspection of `batch_final_view` and
-  the retry decision
+  for all completed children (windowing deferred until a real plan
+  demonstrates a context budget problem)
+- Escalate-state directive: agent inspects `batch_final_view`, writes a
+  `failure_reason` summary, transitions to `done_blocked`. The
+  `retry_failed` evidence path is deferred to a future revision.
 - PR-level coordination: description from `batch_final_view`, single
   branch, single PR
 
@@ -1107,7 +1115,7 @@ surfaces are introduced. The primary security-relevant aspects:
 
 ### Mitigations
 
-- Template separation: the plan orchestrator template is small (~5 states)
+- Template separation: the plan orchestrator template is small (4 states)
   and changes rarely; the per-issue template is where most workflow
   evolution happens.
 - Template complexity: states follow a consistent gate-plus-evidence
@@ -1123,9 +1131,10 @@ surfaces are introduced. The primary security-relevant aspects:
 - Koto pinning: the workspace's koto installation is controlled by tsuku, so
   the version floor is a tsuku recipe concern. Shirabe's CI should assert
   the minimum koto version as part of template compilation.
-- Name sanitization: a small helper function in SKILL.md (documented with
-  examples) produces compliant names from outline titles. Regex violations
-  fail fast at submission with typed `InvalidBatchReason::NameRegex`.
+- Name sanitization: lives in `plan-to-tasks.sh` with deterministic
+  collision handling and fixture coverage. Regex violations fail fast at
+  submission with typed `InvalidBatchReason::NameRegex` -- the script's
+  output is validated by koto's R9 before any state changes.
 - Batch-eligibility requirements: the three per-issue template additions are
   small and localized. F5 fires at compile time if `skipped_marker` is
   missing; W5 fires if `failure_reason` is not written on a failure terminal;
