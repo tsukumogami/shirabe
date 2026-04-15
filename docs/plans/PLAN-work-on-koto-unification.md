@@ -4,7 +4,7 @@ status: Draft
 execution_mode: single-pr
 upstream: docs/designs/DESIGN-work-on-koto-unification.md
 milestone: "work-on koto unification"
-issue_count: 7
+issue_count: 8
 ---
 
 # PLAN: work-on-koto-unification
@@ -59,11 +59,14 @@ compile the template in strict mode (no `--allow-legacy-gates`).
 - [ ] Mixed routing on all gated states: when clauses combine `gates.*`
       conditions with existing agent evidence fields
 - [ ] `koto template compile` succeeds in strict mode
-- [ ] Negative-path verification: at least one eval scenario exercises
-      a gate-failure path -- e.g., an implementation state with
-      `has_commits` returning non-zero exit must not transition to
-      `scrutiny` and must route to the expected retry/blocked state
-- [ ] Existing evals (`skills/work-on/evals/evals.json`) still pass
+- [ ] Negative-path verification: add an eval scenario named
+      `gate-failure-blocks-transition` that exercises a gate-failure
+      path -- e.g., an implementation state with `has_commits` returning
+      non-zero exit must not transition to `scrutiny` and must route to
+      the expected retry/blocked state. Verifies the core invariant the
+      strict-mode migration exists to enforce.
+- [ ] Existing 10 scenarios in `skills/work-on/evals/evals.json`
+      continue to pass unchanged
 - [ ] CI green
 
 **Dependencies**: None.
@@ -97,7 +100,15 @@ references.
 - [ ] Override defaults declared for the review gates so formal
       skipping is auditable via `koto overrides list`
 - [ ] Strict-mode `koto template compile` passes
-- [ ] Existing evals still pass; new evals cover the three review states
+- [ ] Existing 10 scenarios continue to pass unchanged
+- [ ] New eval scenarios added: (a) `review-panel-passed` -- all three
+      panels emit `passed`, workflow reaches `finalization`; (b)
+      `review-panel-retry-loop` -- scrutiny emits `blocking_retry`,
+      state returns to `implementation`, re-enters `scrutiny` with
+      stale gate failing, panel re-runs with fresh results;
+      (c) `review-panel-escalate` -- panel emits `blocking_escalate`,
+      routes to `done_blocked` with `failure_reason` written via
+      `context_assignments`
 - [ ] CI green
 
 **Dependencies**: Blocked by Issue 1.
@@ -129,7 +140,12 @@ contract reference document.
 - [ ] Exit codes: 0 success, 1 malformed input, 2 PLAN schema mismatch
 - [ ] `skills/plan/scripts/plan-to-tasks_test.sh` exercises three
       starter fixtures (one multi-pr, one single-pr, one diamond
-      dependency graph)
+      dependency graph) and is invoked by a CI target
+- [ ] `skills/plan/evals/evals.json` gains at least one scenario
+      verifying the parser contract from /plan's POV (expected output:
+      the script exists at the documented path and produces
+      schema-valid JSON). /plan's existing 8 scenarios continue to
+      pass unchanged.
 - [ ] `skills/plan/SKILL.md` reference table lists `plan-to-tasks.sh`
       as a stable sub-operation with full path via
       `${CLAUDE_PLUGIN_ROOT}`
@@ -168,8 +184,15 @@ Template must compile in strict mode with no F5 or W5 warnings.
       warnings
 - [ ] CI assertion: `done_blocked.failure == true` in the compiled
       template
-- [ ] Evals extend to cover plan-backed mode on an issue-backed and an
-      outline-only item
+- [ ] New eval scenarios added: (a) `plan-backed-github-issue` -- entry
+      with `mode: plan_backed`, `ISSUE_SOURCE: github`, valid
+      `ISSUE_NUMBER`, `PLAN_DOC`; routes through
+      `plan_context_injection` to `analysis` via the gh-issue-view
+      path; (b) `plan-backed-outline-item` -- entry with `mode:
+      plan_backed`, `ISSUE_SOURCE: plan_outline`; routes through the
+      PLAN-extract path skipping staleness; (c) `skipped-marker-reached`
+      -- scheduler routes a child into `skipped_due_to_dep_failure`
+      after a dependency fails, terminal reachable per F5
 - [ ] CI green
 
 **Dependencies**: Blocked by Issue 1, Issue 2.
@@ -208,8 +231,13 @@ invariants.
       `batch_final_view`'s per-child fields (name, outcome, reason,
       reason_source, skipped_because_chain)
 - [ ] Strict-mode `koto template compile` passes
-- [ ] Template-level evals: at least one fixture exercising a diamond
-      batch (4 tasks with a diamond dep graph) reaching `all_success`
+- [ ] New eval scenarios added to `skills/work-on/evals/evals.json`:
+      (a) `plan-orchestrator-all-success` -- parent init,
+      `plan-to-tasks.sh` pipe, 4-task diamond batch, all children
+      succeed, routes to `pr_coordination`;
+      (b) `plan-orchestrator-needs-attention` -- same setup with one
+      child reaching `done_blocked`, routes to `escalate`, batch view
+      surfaces `failure_reason` and `reason_source`
 - [ ] CI green
 
 **Dependencies**: Blocked by Issue 3, Issue 4.
@@ -243,11 +271,17 @@ description rendering from `batch_final_view`.
       `done_blocked`
 - [ ] PR description rendering: `pr_coordination` directive consumes
       the listed `batch_final_view` fields
-- [ ] `skills/work-on/evals/evals.json` extended with plan-mode
-      scenarios covering at least one multi-issue plan and one
-      escalate-path recovery
-- [ ] Existing issue-backed and free-form modes remain functionally
-      unchanged
+- [ ] New eval scenarios added: (a) `plan-mode-detection-from-path`
+      -- input is a PLAN.md path; skill plans to init `work-on-plan.md`
+      (not `work-on.md`) and pipe script stdout into `koto next
+      --with-data @-`; (b) `plan-mode-cross-issue-context` -- before
+      dispatching child N+1, skill plans to read prior completed
+      children's summaries via `koto context get <child> summary.md`
+      and write combined `current-context.md` to the new child's
+      context
+- [ ] All 10 existing `skills/work-on/evals/evals.json` scenarios
+      (issue-backed, free-form, resume, blocking labels, etc.)
+      continue to pass unchanged
 - [ ] CI green
 
 **Dependencies**: Blocked by Issue 4, Issue 5.
@@ -272,11 +306,76 @@ Pure extraction; no behavior change.
       modes extracted to shared files
 - [ ] SKILL.md and per-mode sections reference the shared files rather
       than carrying duplicated prose
-- [ ] No behavior change: existing evals still pass without
-      modification
+- [ ] No behavior change: all eval scenarios (existing + those added
+      by Issues 1-6) continue to pass unchanged
 - [ ] CI green
 
 **Dependencies**: Blocked by Issue 2, Issue 6.
+
+---
+
+### Issue 8: test(work-on): end-to-end verification and eval suite run
+
+**Complexity**: testable
+
+**Goal**: Consolidate eval coverage with end-to-end scenarios that
+exercise the unified skill across multiple modes and workflow
+lifecycles, then run the complete eval suites for both /work-on and
+/plan through an agent with `/skill-creator` loaded per shirabe's
+convention. This is the gating verification step before the PR can
+merge.
+
+**Context**: Issues 1-7 add unit-level and state-level eval coverage
+for their respective surfaces, but end-to-end scenarios (full plan-
+mode lifecycle, cross-mode regression, resume across workflow
+boundaries) can only be authored once all pieces exist. Running the
+evals via the `/skill-creator`-backed flow is the project's required
+gate for skill changes -- CI existence checks don't substitute for
+actually running the assertions.
+
+**Acceptance Criteria**:
+- [ ] New end-to-end eval scenarios added to
+      `skills/work-on/evals/evals.json`:
+  - [ ] `e2e-plan-mode-happy-path` -- Tier 2 (execute mode) scenario:
+        given a fixture PLAN.md with 4 issues in a diamond
+        dependency, agent performs full flow (parent init, script
+        pipe, child dispatch loop with cross-issue context, all
+        children reach `done`, parent reaches `pr_coordination`,
+        PR description assembles from `batch_final_view`)
+  - [ ] `e2e-plan-mode-escalate-recovery` -- Tier 2: same fixture
+        with one child that will fail, agent performs full flow up
+        through `escalate`, inspects `batch_final_view` per-child
+        fields, writes `failure_reason` summary, transitions to
+        `done_blocked`
+  - [ ] `e2e-resume-plan-mode` -- Tier 2: run the happy-path flow
+        partway, interrupt (simulate session boundary), resume via
+        `koto next <plan-WF>`; verify tasks stay in koto context
+        (union-by-name re-submission is no-op), already-completed
+        children stay terminal, remaining children proceed
+  - [ ] `e2e-cross-mode-no-contamination` -- Tier 1 scenario: same
+        agent session invokes `/work-on #42`, then `/work-on "a
+        freeform task"`, then `/work-on docs/plans/PLAN-fixture.md`;
+        each uses the correct template and vars, no mode state leaks
+        between invocations
+- [ ] `skills/work-on/evals/fixtures/` gains any PLAN.md fixtures
+      needed by the Tier 2 scenarios
+- [ ] All scenarios in `skills/work-on/evals/evals.json` pass when
+      run via `bash scripts/run-evals.sh work-on` through an agent
+      with `/skill-creator` loaded per the shirabe extension
+      convention
+- [ ] All scenarios in `skills/plan/evals/evals.json` pass under the
+      same flow (regression check for the /plan surface changes from
+      Issue 3)
+- [ ] Eval run results recorded in the PR description with pass/fail
+      counts for both skills
+- [ ] CI green
+
+**Dependencies**: Blocked by Issue 7.
+
+**Note**: Per shirabe's CLAUDE.md extension, running evals is
+delegated to a /skill-creator-loaded agent -- the CI existence check
+(`check-evals-exist.sh`) is not a substitute. This issue's completion
+requires actual eval runs, not just file edits.
 
 ## Dependency Graph
 
@@ -289,6 +388,7 @@ graph LR
     I5["#5: plan orchestrator template"]
     I6["#6: SKILL.md plan wiring"]
     I7["#7: extract shared components"]
+    I8["#8: e2e eval suite"]
 
     I1 --> I2
     I1 --> I4
@@ -299,20 +399,21 @@ graph LR
     I4 --> I6
     I5 --> I6
     I6 --> I7
+    I7 --> I8
 
     classDef ready fill:#bbdefb
     classDef blocked fill:#fff9c4
     class I1,I3 ready
-    class I2,I4,I5,I6,I7 blocked
+    class I2,I4,I5,I6,I7,I8 blocked
 ```
 
 **Legend**: Blue = ready, Yellow = blocked.
 
 ## Implementation Sequence
 
-**Critical path (6 steps):**
+**Critical path (7 steps):**
 ```
-Issue 1 -> Issue 2 -> Issue 4 -> Issue 5 -> Issue 6 -> Issue 7
+Issue 1 -> Issue 2 -> Issue 4 -> Issue 5 -> Issue 6 -> Issue 7 -> Issue 8
 ```
 
 **Initial parallel roots**: Issues 1 and 3 have no dependencies and can be
@@ -337,10 +438,16 @@ before Issue 5 begins; Issues 1 and 2 must land before Issue 4 begins.
 6. **Issue 6** (SKILL.md plan wiring) -- integrates the orchestrator
    template and the now-complete per-issue template into the skill's
    prose.
-7. **Issue 7** (shared component extraction) -- runs last, after panel
+7. **Issue 7** (shared component extraction) -- runs after panel
    states (2) and plan orchestration (6) have landed, so the extracted
    shapes reflect actual cross-mode usage.
+8. **Issue 8** (e2e eval suite) -- final gate. Adds end-to-end scenarios
+   that require all pieces to exist, then runs the complete eval suites
+   for both /work-on and /plan through a `/skill-creator`-backed agent
+   per shirabe convention. Blocks the PR until assertions pass.
 
-In single-pr mode, all seven issues ship together on one branch with one
-PR. The sequencing above minimizes per-commit compile risk: each step
-leaves the template compilable in strict mode.
+In single-pr mode, all eight issues ship together on one branch with
+one PR. The sequencing above minimizes per-commit compile risk: each
+step leaves the template compilable in strict mode. Eval scenarios
+accumulate across Issues 1-7, then Issue 8 consolidates the suite and
+gates the merge.
