@@ -371,5 +371,6 @@ Final artifacts depend on execution mode:
 | `${CLAUDE_SKILL_DIR}/scripts/build-dependency-graph.sh` | Phase 5 |
 | `${CLAUDE_SKILL_DIR}/scripts/create-issues-batch.sh` | Phase 7 multi-pr (**stable sub-operation** via `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/create-issues-batch.sh`) |
 | `${CLAUDE_SKILL_DIR}/scripts/create-issue.sh` | Phase 7 multi-pr (**stable sub-operation** via `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/create-issue.sh`) |
+| `${CLAUDE_SKILL_DIR}/scripts/plan-to-tasks.sh` | When emitting koto task-entry JSON from a PLAN doc (**stable sub-operation** via `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh`) |
 | `${CLAUDE_SKILL_DIR}/scripts/render-template.sh` | Phase 4 |
 | `${CLAUDE_SKILL_DIR}/scripts/apply-complexity-label.sh` | Phase 7 multi-pr |
