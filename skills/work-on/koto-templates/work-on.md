@@ -2,13 +2,14 @@
 name: work-on
 version: "1.0"
 description: >
-  Implementation workflow for issue-backed and free-form tasks. Split topology:
+  Implementation workflow for issue-backed, free-form, and plan-backed tasks. Split topology:
   issue-backed mode routes through context_injection, setup, and staleness_check;
-  free-form mode routes through task_validation, research, and post_research_validation.
-  Both paths converge at analysis and share all subsequent states. Requires two
-  variables: ISSUE_NUMBER (issue-backed only) and ARTIFACT_PREFIX (always). Self-loops
-  use conditional when blocks (scope_changed_retry, partial_tests_failing_retry,
-  creation_failed_retry) to avoid triggering cycle detection.
+  free-form mode routes through task_validation, research, and post_research_validation;
+  plan-backed mode routes through plan_context_injection, optional plan_validation, and
+  setup_plan_backed, skipping staleness. All paths converge at analysis and share all
+  subsequent states. Requires two variables: ISSUE_NUMBER (issue-backed only) and
+  ARTIFACT_PREFIX (always). Self-loops use conditional when blocks (scope_changed_retry,
+  partial_tests_failing_retry, creation_failed_retry) to avoid triggering cycle detection.
 initial_state: entry
 
 variables:
@@ -20,13 +21,19 @@ variables:
       Prefix for context keys and branch names. Set at koto init time:
       issue_<N> for issue-backed, task_<slug> for free-form.
     required: true
+  ISSUE_SOURCE:
+    description: Source of issue data for plan-backed mode (github or plan_outline)
+    required: false
+  PLAN_DOC:
+    description: Path to the PLAN document for plan-backed mode
+    required: false
 
 states:
   entry:
     accepts:
       mode:
         type: enum
-        values: [issue_backed, free_form]
+        values: [issue_backed, free_form, plan_backed, skipped]
         required: true
       issue_number:
         type: string
@@ -34,6 +41,10 @@ states:
       task_description:
         type: string
         description: Task description (required for free_form mode)
+      issue_source:
+        type: enum
+        values: [github, plan_outline]
+        description: Source of issue data (plan-backed mode only)
     transitions:
       - target: context_injection
         when:
@@ -41,6 +52,12 @@ states:
       - target: task_validation
         when:
           mode: free_form
+      - target: plan_context_injection
+        when:
+          mode: plan_backed
+      - target: skipped_due_to_dep_failure
+        when:
+          mode: skipped
 
   context_injection:
     gates:
@@ -66,6 +83,8 @@ states:
       - target: done_blocked
         when:
           status: blocked
+        context_assignments:
+          failure_reason: "context_injection blocked: ${evidence.detail}"
       - target: setup_issue_backed
 
   task_validation:
@@ -150,6 +169,8 @@ states:
       - target: done_blocked
         when:
           status: blocked
+        context_assignments:
+          failure_reason: "setup_issue_backed blocked: ${evidence.detail}"
       - target: staleness_check
 
   setup_free_form:
@@ -180,6 +201,88 @@ states:
       - target: done_blocked
         when:
           status: blocked
+        context_assignments:
+          failure_reason: "setup_free_form blocked: ${evidence.detail}"
+      - target: analysis
+
+  plan_context_injection:
+    gates:
+      context_artifact:
+        type: context-exists
+        key: context.md
+        override_default:
+          exists: true
+          error: ""
+    accepts:
+      status:
+        type: enum
+        values: [completed, override, blocked]
+        required: true
+      detail:
+        type: string
+        description: Override type or failure reason
+    transitions:
+      - target: setup_plan_backed
+        when:
+          status: completed
+          gates.context_artifact.exists: true
+      - target: setup_plan_backed
+        when:
+          status: override
+      - target: done_blocked
+        when:
+          status: blocked
+        context_assignments:
+          failure_reason: "plan_context_injection blocked: ${evidence.detail}"
+      - target: setup_plan_backed
+
+  plan_validation:
+    accepts:
+      verdict:
+        type: enum
+        values: [proceed, exit]
+        required: true
+      rationale:
+        type: string
+        description: Reasoning behind the validation verdict
+    transitions:
+      - target: setup_plan_backed
+        when:
+          verdict: proceed
+      - target: validation_exit
+        when:
+          verdict: exit
+
+  setup_plan_backed:
+    gates:
+      on_feature_branch:
+        type: command
+        command: "test \"$(git rev-parse --abbrev-ref HEAD)\" != \"main\""
+      baseline_exists:
+        type: context-exists
+        key: baseline.md
+    accepts:
+      status:
+        type: enum
+        values: [completed, override, blocked]
+        required: true
+      detail:
+        type: string
+        description: Override type or failure reason
+    transitions:
+      - target: analysis
+        when:
+          status: completed
+          gates.on_feature_branch.exit_code: 0
+          gates.baseline_exists.exists: true
+      - target: analysis
+        when:
+          status: override
+      - target: done_blocked
+        when:
+          status: blocked
+        context_assignments:
+          failure_reason: "setup_plan_backed blocked: ${evidence.detail}"
       - target: analysis
 
   staleness_check:
@@ -212,6 +315,8 @@ states:
       - target: done_blocked
         when:
           staleness_signal: blocked
+        context_assignments:
+          failure_reason: "staleness_check blocked: ${evidence.detail}"
       - target: analysis
 
   introspection:
@@ -231,6 +336,8 @@ states:
       - target: done_blocked
         when:
           introspection_outcome: issue_superseded
+        context_assignments:
+          failure_reason: "issue superseded: ${evidence.rationale}"
       - target: analysis
         when:
           introspection_outcome: approach_unchanged
@@ -271,9 +378,13 @@ states:
       - target: done_blocked
         when:
           plan_outcome: scope_changed_escalate
+        context_assignments:
+          failure_reason: "scope changed: escalation required: ${evidence.approach_summary}"
       - target: done_blocked
         when:
           plan_outcome: blocked_missing_context
+        context_assignments:
+          failure_reason: "analysis blocked: missing context: ${evidence.approach_summary}"
 
   implementation:
     gates:
@@ -313,9 +424,13 @@ states:
       - target: done_blocked
         when:
           implementation_status: partial_tests_failing_escalate
+        context_assignments:
+          failure_reason: "implementation blocked: ${evidence.rationale}"
       - target: done_blocked
         when:
           implementation_status: blocked
+        context_assignments:
+          failure_reason: "implementation blocked: ${evidence.rationale}"
 
   scrutiny:
     gates:
@@ -450,6 +565,8 @@ states:
       - target: done_blocked
         when:
           pr_status: creation_failed_escalate
+        context_assignments:
+          failure_reason: "pr_creation failed after retries: ${evidence.pr_url}"
 
   ci_monitor:
     gates:
@@ -479,6 +596,8 @@ states:
       - target: done_blocked
         when:
           ci_outcome: failing_unresolvable
+        context_assignments:
+          failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
       - target: done
 
   done:
@@ -486,6 +605,11 @@ states:
 
   done_blocked:
     terminal: true
+    failure: true
+
+  skipped_due_to_dep_failure:
+    terminal: true
+    skipped_marker: true
 ---
 
 ## entry
@@ -498,14 +622,15 @@ Determine the workflow mode and provide the initial context for this task.
 **Free-form mode**: you have a task description but no issue. Submit evidence with
 `mode: free_form` and include the `task_description` field.
 
-**Plan-backed tasks** (from a PLAN document) use free-form mode. The skill layer
-extracts the goal and acceptance criteria from the PLAN doc and provides them as
-the task description.
+**Plan-backed mode**: you have an issue from a koto parent workflow (spawned via
+plan orchestrator). Submit with `mode: plan_backed` and include `issue_source`
+(either `github` or `plan_outline`).
 
 Evidence schema:
-- `mode`: `issue_backed` or `free_form`
+- `mode`: `issue_backed`, `free_form`, `plan_backed`, or `skipped`
 - `issue_number`: GitHub issue number (issue-backed only)
 - `task_description`: what to build (free-form only)
+- `issue_source`: `github` or `plan_outline` (plan-backed only)
 
 ## context_injection
 
@@ -594,6 +719,40 @@ Read `references/phases/phase-1-setup.md` for branch naming and baseline format.
 
 If the gate fails, submit `status: completed` after creating the branch and baseline,
 `status: override` if reusing an existing branch, or `status: blocked`.
+
+## plan_context_injection
+
+Obtain the issue context for a plan-backed task. Behavior differs by ISSUE_SOURCE:
+
+- If ISSUE_SOURCE is `github`: read the GitHub issue with `gh issue view $ISSUE_NUMBER`
+  and write it to koto context as `context.md`. Then proceed to setup_plan_backed.
+- If ISSUE_SOURCE is `plan_outline`: the PLAN doc is already available via the
+  PLAN_DOC variable. Extract the specific issue outline from the PLAN doc and write
+  it as `context.md`, then proceed to plan_validation.
+
+Submit `status: completed` after writing `context.md`, `status: override` if
+context is provided differently, or `status: blocked` if context cannot be obtained.
+
+## plan_validation
+
+Validate that the plan outline item (ISSUE_SOURCE=plan_outline path) is clear
+enough for direct implementation. Check that acceptance criteria exist and are
+specific enough to code against.
+
+Submit `verdict: proceed` to continue to setup_plan_backed, or `verdict: exit`
+with rationale to route to validation_exit.
+
+Evidence schema:
+- `verdict`: `proceed` or `exit`
+- `rationale`: reasoning behind the validation verdict
+
+## setup_plan_backed
+
+Read `references/phases/phase-1-setup.md` for branch naming and baseline format.
+For plan-backed tasks, use ARTIFACT_PREFIX as the baseline key.
+
+Submit `status: completed` after creating the branch and baseline, `status: override`
+if reusing an existing branch, or `status: blocked`.
 
 ## staleness_check
 
@@ -697,3 +856,9 @@ back to the originating state. `koto rewind` rewinds one step per call; call
 it repeatedly to reach a non-adjacent origin state. For example, if blocked
 from ci_monitor, one rewind reaches pr_creation; from analysis, one rewind
 reaches the previous state in the path.
+
+## skipped_due_to_dep_failure
+
+This task was skipped because a dependency failed. The parent orchestrator set
+`mode: skipped` at entry. No action needed — this terminal state records that the
+task was intentionally bypassed due to an upstream failure.

@@ -16,6 +16,8 @@ stateDiagram-v2
     context_injection --> setup_issue_backed
     entry --> context_injection : mode: issue_backed
     entry --> task_validation : mode: free_form
+    entry --> plan_context_injection : mode: plan_backed
+    entry --> skipped_due_to_dep_failure : mode: skipped
     finalization --> implementation : finalization_status: issues_found
     finalization --> pr_creation : finalization_status: ready_for_pr, gates.summary_exists.exists: true
     finalization --> pr_creation : finalization_status: deferred_items_noted, gates.summary_exists.exists: true
@@ -28,6 +30,12 @@ stateDiagram-v2
     introspection --> analysis : gates.introspection_artifact.exists: true, introspection_outcome: approach_unchanged
     introspection --> analysis : gates.introspection_artifact.exists: true, introspection_outcome: approach_updated
     introspection --> analysis
+    plan_context_injection --> setup_plan_backed : gates.context_artifact.exists: true, status: completed
+    plan_context_injection --> setup_plan_backed : status: override
+    plan_context_injection --> done_blocked : status: blocked
+    plan_context_injection --> setup_plan_backed
+    plan_validation --> setup_plan_backed : verdict: proceed
+    plan_validation --> validation_exit : verdict: exit
     post_research_validation --> setup_free_form : verdict: ready
     post_research_validation --> validation_exit : verdict: needs_design
     post_research_validation --> validation_exit : verdict: exit
@@ -52,6 +60,10 @@ stateDiagram-v2
     setup_issue_backed --> staleness_check : status: override
     setup_issue_backed --> done_blocked : status: blocked
     setup_issue_backed --> staleness_check
+    setup_plan_backed --> analysis : gates.baseline_exists.exists: true, gates.on_feature_branch.exit_code: 0, status: completed
+    setup_plan_backed --> analysis : status: override
+    setup_plan_backed --> done_blocked : status: blocked
+    setup_plan_backed --> analysis
     staleness_check --> introspection : staleness_signal: stale_requires_introspection
     staleness_check --> analysis : gates.staleness_fresh.exit_code: 0, staleness_signal: fresh
     staleness_check --> analysis : staleness_signal: override
@@ -61,6 +73,7 @@ stateDiagram-v2
     task_validation --> validation_exit : verdict: exit
     done --> [*]
     done_blocked --> [*]
+    skipped_due_to_dep_failure --> [*]
     validation_exit --> [*]
     note left of analysis
         gate: plan_artifact
@@ -86,6 +99,9 @@ stateDiagram-v2
     note left of introspection
         gate: introspection_artifact
     end note
+    note left of plan_context_injection
+        gate: context_artifact
+    end note
     note left of qa_validation
         gate: qa_results
     end note
@@ -105,6 +121,12 @@ stateDiagram-v2
         gate: baseline_exists
     end note
     note left of setup_issue_backed
+        gate: on_feature_branch
+    end note
+    note left of setup_plan_backed
+        gate: baseline_exists
+    end note
+    note left of setup_plan_backed
         gate: on_feature_branch
     end note
     note left of staleness_check

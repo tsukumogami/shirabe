@@ -237,6 +237,54 @@
         "Agent includes failure_reason string in the evidence submitted to koto (required for context_assignments to propagate)",
         "Agent reports the escalation reason to the user"
       ]
+    },
+    {
+      "id": 15,
+      "name": "plan-backed-github-issue",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on -- plan-backed task, ISSUE_SOURCE=github, ISSUE_NUMBER=42, PLAN_DOC=docs/plans/PLAN-foo.md",
+      "expected_output": "Agent detects plan_backed mode, submits entry with mode: plan_backed and issue_source: github. Routes through plan_context_injection to read the GitHub issue, then proceeds to setup_plan_backed, skips staleness, continues to analysis.",
+      "files": [],
+      "expectations": [
+        "Agent plans to submit entry evidence with mode: plan_backed",
+        "Agent plans to set issue_source: github in entry evidence",
+        "Agent plans to route through plan_context_injection state",
+        "Agent plans to read GitHub issue via gh issue view for ISSUE_SOURCE=github",
+        "Agent plans to proceed to setup_plan_backed after context injection",
+        "Agent plans to route to analysis without staleness_check (plan-backed skips staleness)"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "plan-backed-outline-item",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on -- plan-backed task, ISSUE_SOURCE=plan_outline, ARTIFACT_PREFIX=outline-feat-add-x, PLAN_DOC=docs/plans/PLAN-foo.md",
+      "expected_output": "Agent detects plan_backed mode with ISSUE_SOURCE=plan_outline. Routes through plan_context_injection (extracts issue outline from PLAN doc), plan_validation, setup_plan_backed, then analysis. Does not call gh issue view.",
+      "files": [],
+      "expectations": [
+        "Agent plans to submit entry with mode: plan_backed and issue_source: plan_outline",
+        "Agent plans to extract the issue outline from the PLAN doc (not call gh issue view)",
+        "Agent plans to route through plan_validation state",
+        "Agent plans to skip staleness_check for plan_outline source",
+        "Agent does NOT plan to call gh issue view for plan_outline source"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "skipped-marker-reached",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on -- scheduler routes child into skipped state due to failed dependency",
+      "expected_output": "Agent recognizes mode: skipped at entry and routes to skipped_due_to_dep_failure terminal. Does not perform any implementation work.",
+      "files": [],
+      "expectations": [
+        "Agent plans to recognize mode: skipped as a valid entry mode",
+        "Agent plans to route to skipped_due_to_dep_failure terminal state",
+        "Agent does NOT plan to implement anything when mode is skipped",
+        "Agent understands skipped_due_to_dep_failure has skipped_marker: true"
+      ]
     }
   ]
 }
