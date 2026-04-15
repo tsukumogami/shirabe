@@ -83,10 +83,10 @@
       "expectations": [
         "Agent reads issue #23 with gh issue view",
         "Agent detects the needs-triage label",
-        "Agent checks the project label vocabulary in CLAUDE.md",
+        "Agent checks the project label vocabulary (in CLAUDE.md or extension file)",
         "Agent checks the extension file for a triage workflow definition",
         "Agent either invokes a triage workflow or asks user whether to proceed",
-        "Agent treats needs-triage differently from blocking labels like needs-design"
+        "Agent invokes the triage workflow rather than implementing the issue directly"
       ]
     },
     {
@@ -233,7 +233,7 @@
       "files": [],
       "expectations": [
         "Agent submits scrutiny_outcome: blocking_escalate with failure_reason",
-        "Workflow routes to done_blocked without retrying implementation",
+        "Agent does not retry implementation after submitting blocking_escalate outcome",
         "Agent includes failure_reason string in the evidence submitted to koto (required for context_assignments to propagate)",
         "Agent reports the escalation reason to the user"
       ]

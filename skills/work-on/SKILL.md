@@ -16,11 +16,11 @@ The input `$ARGUMENTS` can be an issue reference or a milestone reference.
 
 **Issue inputs**: `71`, `#71`, or issue URL - resolve directly to the issue number.
 
-**Milestone inputs**: `M3`, `M#3`, milestone URL, or `"Milestone Name"` - list open issues in the milestone and select the first unblocked one (an issue is blocked if its Dependencies section references open issues). If multiple unblocked issues exist, pick the one with lowest number. If no unblocked issues exist, report which issues are blocked and stop.
+**Milestone inputs**: `M3`, `M#3`, milestone URL, or `"Milestone Name"` - list open issues in the milestone and select the first unblocked one (an issue is blocked if its Dependencies section references open issues). If multiple unblocked issues exist, pick the one with lowest number. Report to the user which issue was selected and why (e.g., "Selected issue #N — lowest-numbered unblocked issue in milestone M3"). If no unblocked issues exist, report which issues are blocked and stop.
 
 ### Handling `needs-triage` Issues
 
-If the selected issue has a `needs-triage` label, the issue needs classification before implementation. Check your project's label vocabulary (defined in `## Label Vocabulary` in CLAUDE.md) for the routing options available. If your project's extension file defines a triage workflow, invoke it now. Otherwise, ask the user whether to proceed directly or reclassify the issue.
+If the selected issue has a `needs-triage` label, the issue needs classification before implementation. Read CLAUDE.md and check its `## Label Vocabulary` section for the routing options available. If your project's extension file defines a triage workflow, invoke it now. Otherwise, ask the user whether to proceed directly or reclassify the issue.
 
 ### Handling Blocking Labels
 
@@ -61,10 +61,12 @@ When `$ARGUMENTS` begins with `-- plan-backed`, extract these variables from the
 
 Submit entry evidence: `{"mode": "plan_backed", "issue_source": "<source>", "issue_number": "<N>"}`.
 
-For `ISSUE_SOURCE=github`: read the GitHub issue with `gh issue view <ISSUE_NUMBER>` during the `plan_context_injection` state to get the issue title, body, and labels.
-For `ISSUE_SOURCE=plan_outline`: extract the outline from the PLAN doc during `plan_context_injection` instead.
+For `ISSUE_SOURCE=github`: read the GitHub issue with `gh issue view <ISSUE_NUMBER>` during the `plan_context_injection` state to get the issue title, body, and labels. Then proceed directly to `setup_plan_backed` → `analysis`.
+For `ISSUE_SOURCE=plan_outline`: extract the outline from the PLAN doc during `plan_context_injection`. Then route through `plan_validation` → `setup_plan_backed` → `analysis`.
 
-Skip staleness checks in plan-backed mode. Proceed to `setup_plan_backed` then `analysis`.
+Skip staleness checks in plan-backed mode.
+
+If the koto scheduler marks this child as skipped due to a failed dependency (`failure_policy: skip_dependents`), the workflow enters with `mode: skipped`. Submit entry evidence `{"mode": "skipped"}` and enter the execution loop — koto routes directly to the `skipped_due_to_dep_failure` terminal state, which carries `skipped_marker: true`. Do not perform any implementation work.
 
 ### Initialization
 
@@ -83,12 +85,13 @@ On the first tick, run `plan-to-tasks.sh` (owned by the `/plan` skill) to genera
 ```bash
 # mktemp sandwich — handles large outputs safely
 TMP=$(mktemp)
-${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}} > "$TMP"
+TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
+echo "{\"tasks\": $TASKS}" > "$TMP"
 koto next <plan-slug> --with-data @"$TMP"
 rm -f "$TMP"
 ```
 
-The script outputs a JSON array of `{name, vars, waits_on}` objects. koto materializes one child workflow per task, using `work-on.md` as the default template with `failure_policy: skip_dependents`.
+The script outputs a JSON array of `{name, vars, waits_on}` objects. Wrap it in `{"tasks": [...]}` before submitting — the `spawn_and_await` state expects the array under the `tasks` field. koto materializes one child workflow per task, using `work-on.md` as the default template with `failure_policy: skip_dependents`.
 
 ### Monitoring Children (spawn_and_await)
 
@@ -106,7 +109,7 @@ After each child completes and before dispatching the next, run the context asse
 When the parent workflow reaches `escalate` state, one or more children reached `done_blocked` or were skipped due to dependency failure:
 
 1. Read per-child data: `koto context get <plan-slug> batch_final_view`
-2. Identify failed children (`outcome: failure`, `reason` field) and skipped children (`outcome: skipped`, `skipped_because_chain`)
+2. Identify failed children (`outcome: failure`, `reason` field, `reason_source`) and skipped children (`outcome: skipped`, `skipped_because_chain`)
 3. Write a `failure_reason` summary covering which children failed, why, and what the user should do
 4. Submit: `koto next <plan-slug> --with-data '{"failure_reason": "<summary>"}'`
 
