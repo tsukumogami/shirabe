@@ -96,9 +96,34 @@ revision, collapses to two layers:
   migration
 - Review panels (3-agent scrutiny, 3-agent code review, QA) require multi-agent
   orchestration that koto gates can't express
-- Cross-issue context must be bounded to prevent context window exhaustion on
-  large plans (50+ issues)
+- Cross-issue context should stay below typical agent context windows;
+  shirabe plans of 3-15 issues fit comfortably with no special handling
 - The v0.6.0 `--allow-legacy-gates` flag is transitory and will be removed
+
+## Koto v0.8.0 Reference
+
+This design references several koto v0.8.0 mechanics by short ID. The
+canonical specification is the koto repository (tsukumogami/koto) and the
+batch-spawning design at `docs/designs/current/DESIGN-batch-child-spawning.md`
+in that repo (shipped via tsukumogami/koto#130). Quick gloss:
+
+| ID | Kind | Meaning |
+|----|------|---------|
+| `materialize_children` | Template hook | State-level block declaring a `from_field` (a `tasks`-typed evidence field), `failure_policy`, and `default_template`. Drives the scheduler. |
+| `children-complete` | Gate type | Per-state gate that aggregates child workflow states into derived booleans (`all_complete`, `all_success`, `any_failed`, `needs_attention`, etc.) |
+| `ready_to_drive` | Gate flag | Per-child boolean: `true` when child is non-terminal and all its `waits_on` ancestors are terminal-success. Workers only dispatch on children with this `true`. |
+| `retry_failed` | Reserved evidence | Submitting `retry_failed` rewinds and respawns failed children. Deferred to a future revision in this design. |
+| `batch_final_view` | Terminal field | Frozen snapshot on the parent's `done` response containing per-child `name`, `state`, `outcome`, `reason`, `reason_source`, etc. |
+| `failure: true` | State field | Marks a terminal state as a failure so the batch view reports `outcome: failure` instead of `success` |
+| `skipped_marker: true` | State field | Marks a terminal state as the routing target for children whose dependencies failed. Required by F5 if the template is batch-eligible. |
+| `failure_reason` | Context key | Per-child context key written on the path to a failure terminal; surfaces in the batch view's per-child `reason` field |
+| `union-by-name` | Submission rule | Re-submitting a `tasks` payload merges by `name`: spawned entries are locked (R8 immutability), un-spawned are last-write-wins |
+| `E10` | Compile error | `materialize_children` and `children-complete` must be co-located on the same state (single-state fan-out) |
+| `W4` | Compile warning | A materialized state routing only on `all_complete` without handling `any_failed` / `needs_attention` -- silent failure-swallowing |
+| `W5` | Compile warning | A `failure: true` terminal with no path that writes `failure_reason` to context |
+| `F5` | Compile warning | A batch-eligible child template missing a reachable `skipped_marker: true` state |
+| `R0`-`R9` | Runtime rules | Pre-append validators on `tasks` submissions: non-empty list, name regex, DAG, dangling refs, name uniqueness, limit caps, immutability, etc. |
+| `InvalidBatchReason` | Error envelope | Typed enum returned via `action: "error"` when R0-R9 reject a submission (e.g., `Cycle`, `NameRegex`, `SpawnedTaskMutated`) |
 
 ## Decisions Already Made
 
@@ -161,13 +186,41 @@ All post-analysis states remain shared. The parent workflow (Decision 2) handles
 sequencing across issues by declaring a batch over the task list; this template
 runs unchanged as the child template for each task.
 
-Three additive changes make the template batch-eligible under koto v0.8.0:
-- `failure: true` on the `done_blocked` terminal state so the batch view
-  reports `outcome: failure` rather than counting a blocked issue as success
-- A new `skipped_marker: true` terminal state (required by F5) that the
-  scheduler routes children into when a dependency fails
-- `failure_reason` written to context on paths to `done_blocked` (required
-  by W5) so the batch view's per-child `reason` field is informative
+Three additive changes make the template batch-eligible under koto v0.8.0.
+These are bundled here as a checklist for contributors editing
+`work-on.md`; each is enforced by a koto compile-time warning, so missing
+one fails template compilation, not a runtime test:
+
+| Required addition | Compile guard | Where |
+|-------------------|---------------|-------|
+| `failure: true` on `done_blocked` terminal | (no warning -- defaults to false; CI assertion required) | Terminal state declaration |
+| New `skipped_marker: true` terminal state, reachable from initial state | F5 | Add `skipped_due_to_dep_failure` terminal |
+| `failure_reason` written to context on every path to `done_blocked` | W5 | Each failure-routing state writes it (see convention below) |
+
+`failure_reason` write convention: each state that can route to
+`done_blocked` writes `failure_reason` as part of the same evidence
+submission that selects the `done_blocked` transition. This co-locates
+the reason with the routing decision (each state knows why it's
+escalating) and avoids the alternative of reconstructing a reason from
+earlier evidence at the terminal. The pattern, applied uniformly:
+
+```yaml
+implementation:
+  accepts:
+    implementation_status:
+      type: enum
+      values: [complete, partial_tests_failing_retry, blocked]
+    failure_reason:
+      type: string
+      required_when: { implementation_status: blocked }
+  transitions:
+    - target: scrutiny
+      when: { implementation_status: complete }
+    - target: done_blocked
+      when: { implementation_status: blocked }
+      context_assignments:
+        failure_reason: ${evidence.failure_reason}
+```
 
 This preserves compile-time path validation (koto checks mutual exclusivity and
 reachability across all three branches), full resume reliability (koto state files
@@ -229,10 +282,12 @@ on the same state, which the advance loop parks at until completion.
 
 ```yaml
 spawn_and_await:
+  initial: true
   directive: |
-    If you have not submitted a task list, regenerate it via:
-      bash ${SHIRABE_ROOT}/skills/plan/scripts/plan-to-tasks.sh $PLAN_DOC \
-        | koto next $WF --with-data @-
+    If tasks have not been submitted yet (koto context get $WF tasks
+    returns no entry), regenerate them via:
+      bash ${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh \
+        $PLAN_DOC | koto next $WF --with-data @-
     (Or `mktemp`-sandwich if koto rejects stdin.) The response carries
     item_schema; the script's output already matches it.
     If the batch is already running, invoke `koto next <WF>` with no data
@@ -259,19 +314,26 @@ spawn_and_await:
 
 The plan orchestrator's full state sequence:
 
-1. `parse_plan` -- SKILL.md extracts issue outlines and dependencies into
-   `tasks.json`. Simple transition forward.
-2. `spawn_and_await` -- batched state per the YAML above. Handles first-time
-   submission, resume (re-submitting is a no-op under koto's union-by-name
-   rules), and retry (agent submits `retry_failed` evidence to rewind failed
-   children).
-3. `pr_coordination` -- reached on `all_success`. Runs plan-level PR QA,
+1. `spawn_and_await` -- initial state. Batched per the YAML above. On first
+   tick, the directive invokes the parser script (Decision 5) and pipes
+   its stdout into `koto next --with-data @-`. Handles resume
+   (re-submitting is a no-op under koto's union-by-name rules) without
+   special handling.
+2. `pr_coordination` -- reached on `all_success`. Runs plan-level PR QA,
    assembles the PR description from `batch_final_view`, handles CI.
-4. `escalate` -- reached on `needs_attention`. Directive instructs the agent
-   to inspect failed children via the batch view's `reason`/`reason_source`
-   fields and decide between `retry_failed` (return to `spawn_and_await`) or
-   human escalation (transition to `done_blocked`).
-5. `done` / `done_blocked` -- terminal states.
+3. `escalate` -- reached on `needs_attention`. Directive instructs the
+   agent to inspect failed children via the batch view's `reason` and
+   `reason_source` fields, write a human-readable failure summary, then
+   transition to `done_blocked`. The `retry_failed` evidence path is
+   deferred to a future revision: in v1, plan-level failures escalate
+   to a human rather than retrying automatically. This keeps the agent
+   in the loop for unexpected failures while leaving room to add
+   retry semantics once a real recurrent-failure pattern emerges.
+4. `done` / `done_blocked` -- terminal states.
+
+A previous draft included a `parse_plan` precursor state. Decision 5
+moved task assembly to a parser script invoked from `spawn_and_await`'s
+directive, which made `parse_plan` vestigial; it was removed.
 
 Each task entry:
 ```json
@@ -463,6 +525,86 @@ live only in wip/ (cleaned pre-merge). Resume requires fragile skill-layer
 detection of prior completion. Rejected because it loses the audit trail and
 clean resume semantics.
 
+### Decision 5: How /work-on obtains koto tasks evidence from a PLAN doc
+
+The plan orchestrator template's `spawn_and_await` state needs a tasks JSON
+payload submitted via `koto next --with-data`. The question is how /work-on
+produces that payload from a PLAN doc.
+
+Three constraints bound the answer. PLAN.md is the only artifact that
+should land in main -- multi-pr plans routinely merge, and any JSON sidecar
+committed alongside would accumulate in main's history. /work-on's current
+convention is koto-native: the skill uses koto's context store as the
+primary state path, with `wip/` only as a degradation fallback when koto
+is unreachable (the `work-on.md` template has no `wip/` references).
+Format authority: /plan writes PLAN.md and owns its `schema: plan/v1`, so
+parsing logic should co-locate with the authority that controls format
+evolution.
+
+#### Chosen: Parser script owned by /plan, piped to koto by /work-on
+
+Add `skills/plan/scripts/plan-to-tasks.sh` (bash + jq, following the
+existing `build-dependency-graph.sh` pattern). The script takes a PLAN.md
+path as argument and emits tasks JSON on stdout matching koto's task-entry
+schema (array of `{name, vars, waits_on}` with `template` omitted so the
+hook's `default_template` applies). Name sanitization for outline-only
+items lives in the script with fixture coverage; collision handling is
+deterministic.
+
+The plan-orchestrator template's `spawn_and_await` directive invokes the
+script and pipes directly into koto:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh" "$PLAN_DOC" \
+  | koto next "$WF" --with-data @-
+```
+
+If koto rejects stdin, the fallback is a `mktemp` sandwich cleaned in the
+same shell expression -- the tempfile lives in `$TMPDIR`, exists for
+microseconds, and never reaches the repo tree. After submission, koto's
+context owns the payload (key: `tasks`, retrievable via `koto context get
+<plan-WF> tasks`); re-submission is a no-op under koto's union-by-name
+rule. No JSON file persists anywhere in the repo.
+
+The script is the sole producer of the task shape. PLAN schema changes
+and parser changes travel together in /plan's PR with CI validating both.
+Rerunning from a merged PLAN (fresh clone, only `docs/plans/PLAN-foo.md`
+present) requires nothing new: the script regenerates JSON deterministically.
+
+#### Alternatives Considered
+
+**Inline prose parsing in /work-on**: SKILL.md prose reads PLAN.md and
+composes tasks JSON inline. Rejected because 10-15k tokens per parse
+(doubled across resume cycles) is material and LLM extraction is
+probabilistic on edge cases (struck-through rows, child reference rows,
+multi-line descriptions, Mermaid graph edges) -- a wrong dep edge routes
+the wrong issue first and looks correct. No CI testability.
+
+**Parser script owned by /work-on**: Same runtime mechanics as the chosen
+option but with the script in `skills/work-on/scripts/`. Rejected on
+format authority grounds: PLAN schema lives with /plan's writer, so the
+reader belongs there too. Otherwise schema changes require coordinated
+updates across skills with no CI bridge.
+
+**Sidecar JSON in `docs/plans/`**: /plan emits a `.tasks.json` file
+alongside PLAN.md. Rejected because it pollutes main on multi-pr merges.
+
+**Sidecar JSON in `wip/`**: /plan or /work-on stages tasks JSON in `wip/`.
+Rejected because /work-on no longer uses `wip/` for workflow state -- the
+current skill is koto-context-first, and the template has no `wip/`
+references. A new wip/ artifact would violate that invariant.
+
+**Machine-readable block embedded in PLAN.md**: Extend frontmatter or add
+a fenced `koto-tasks` block carrying task data inline. Rejected because
+it duplicates the Implementation Issues table content within the same
+file (no auto-sync, editor drift risk) and forces a `plan/v1` -> `v2`
+schema migration for marginal benefit.
+
+**Hybrid (prose driven, script for hard bits)**: SKILL.md prose with
+targeted script invocation for graph extraction. Rejected as worst-of-both:
+still pays inline parsing's token cost while requiring the script's CI
+test surface, with ambiguous responsibility boundaries.
+
 ## Decision Outcome
 
 **Chosen: Two templates + Pure koto orchestration + Strict gates + Context/evidence review panels**
@@ -489,14 +631,14 @@ monitoring. Three additions make it batch-eligible: `failure: true` on
 `done_blocked`, a `skipped_marker: true` terminal state, and `failure_reason`
 written to context on escalation.
 
-The plan orchestrator template has five states: `parse_plan` (SKILL.md
-assembles `tasks.json`), `spawn_and_await` (batched; `materialize_children`,
-`accepts: tasks`, and `children-complete` gate co-located per E10),
-`pr_coordination` (reached on `all_success`; renders PR description from
-`batch_final_view`), `escalate` (reached on `needs_attention`; agent decides
-between `retry_failed` or human escalation), and `done` / `done_blocked`
-terminals. Resume is mechanical: re-submitting the same `tasks.json` is a
-no-op under koto's union-by-name rules.
+The plan orchestrator template has four states: `spawn_and_await`
+(initial, batched; `materialize_children`, `accepts: tasks`, and
+`children-complete` gate co-located per E10), `pr_coordination` (reached
+on `all_success`; renders PR description from `batch_final_view`),
+`escalate` (reached on `needs_attention`; agent inspects failures, writes
+failure_reason summary, transitions to done_blocked), and `done` /
+`done_blocked` terminals. Resume is mechanical: re-submitting the same
+tasks JSON is a no-op under koto's union-by-name rules.
 
 All gates migrate to v0.6.0 strict mode. The `code_committed` gate decomposes
 into three atomic gates so agents can distinguish failure types. Review
@@ -567,13 +709,10 @@ SKILL.md (coordinator)
     |       +-- koto init <plan-WF> --template work-on-plan.md
     |       |       --var PLAN_DOC=<path>
     |       |
-    |       +-- At parse_plan state:
-    |       |     +-- submits trivial evidence to advance
-    |       |     (no PLAN parsing here; tasks are assembled at spawn_and_await)
-    |       |
-    |       +-- At spawn_and_await state:
+    |       +-- At spawn_and_await state (initial):
     |       |     +-- first tick (if tasks not yet in koto context):
-    |       |         bash /plan/scripts/plan-to-tasks.sh $PLAN_DOC |
+    |       |         bash ${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/
+    |       |              plan-to-tasks.sh $PLAN_DOC |
     |       |         koto next <plan-WF> --with-data @-
     |       |     +-- koto validates (R0-R9), stores in context, materializes
     |       |         ready children atomically
@@ -586,8 +725,9 @@ SKILL.md (coordinator)
     |       |
     |       +-- At escalate state (if reached):
     |       |     +-- agent inspects batch_final_view per-child reason
-    |       |     +-- submits retry_failed evidence -> returns to spawn_and_await
-    |       |     +-- OR transitions to done_blocked with failure_reason
+    |       |     +-- writes failure_reason summary to context
+    |       |     +-- transitions to done_blocked
+    |       |     (retry_failed deferred to future revision; v1 escalates to human)
     |       |
     |       +-- At pr_coordination state:
     |             +-- PR description rendered from batch_final_view
@@ -620,8 +760,8 @@ SKILL.md (coordinator)
 - ~24 states, ~10 gates (after decomposition)
 
 **Plan orchestrator template** (`koto-templates/work-on-plan.md`):
-- States: `parse_plan` -> `spawn_and_await` -> `pr_coordination` | `escalate`
-  -> `done` / `done_blocked`
+- States: `spawn_and_await` (initial) -> `pr_coordination` | `escalate`
+  -> `done` / `done_blocked` (4 states total)
 - `spawn_and_await` state (single-state fan-out per E10):
   ```yaml
   spawn_and_await:
@@ -677,14 +817,40 @@ persists in the repo tree or in `wip/`.
 
 **Cross-issue context protocol**:
 - Parent reads child outputs: `koto context get <child-WF> summary.md`
-- SKILL.md assembles snapshot from 2 most recent completed children's
-  summaries plus cumulative files changed, writes to current child's context
-  as `current-context.md` before the scheduler dispatches it
-- Sliding window: children older than the 2 most recent are represented as
-  one-line entries (number, title, status) rather than full summaries
-- `batch_final_view` on the parent's terminal `done` response provides the
-  full batch snapshot (per-child `name`, `state`, `outcome`, `reason`,
-  `reason_source`) for PR description assembly
+- SKILL.md assembles a snapshot from all completed children's summaries
+  and writes it to the current child's context as `current-context.md`
+  before the scheduler dispatches it
+- Context size: typical shirabe plans are 3-15 issues, so a flat "include
+  everything completed so far" approach stays within context budgets. A
+  sliding window (most-recent-N full + older as one-liners) is deferred
+  until a real plan demonstrates a budget problem; adding it later is a
+  prose-only change in SKILL.md
+- `batch_final_view` on the parent's terminal `done` response provides
+  the full batch snapshot for PR description assembly. The
+  `pr_coordination` directive consumes these per-child fields:
+  - `name` -- the task name (e.g., `issue-47`); used for issue links
+  - `outcome` -- `success | failure | skipped | spawn_failed`
+  - `reason` -- failure reason (from context's `failure_reason` key on
+    failed children, or auto-derived for skipped/spawn_failed)
+  - `reason_source` -- `failure_reason | state_name | skipped | not_spawned`
+    (for diagnostic clarity in the PR body)
+  - `skipped_because_chain` -- present on skipped children; lists the
+    upstream failure path
+
+**Koto context store conventions**:
+- The submitted `tasks` payload lives at koto context key `tasks` on the
+  parent workflow after submission. Read it with
+  `koto context get <plan-WF> tasks`
+- Re-submitting an identical (or schema-compatible) `tasks` payload is a
+  no-op per koto's union-by-name rule; submitting a schema-incompatible
+  payload returns `action: "error"` with a typed `InvalidBatchReason`
+  envelope (see Koto v0.8.0 reference below)
+- Per-child summaries are written by the per-issue template at the
+  `finalization` state directive to the child's context key `summary.md`;
+  the parent reads them via `koto context get <child-WF> summary.md`
+- Review panel results (`scrutiny_results.json`, `review_results.json`,
+  `qa_results.json`) live in the per-issue child's context, written by
+  the panel orchestration directives
 
 ### Data Flow
 
@@ -696,8 +862,7 @@ review panels at scrutiny/review/qa states -> done
 
 **Plan mode:**
 ```
-SKILL.md detects plan -> koto init plan-WF ->
-  parse_plan state: SKILL.md submits trivial evidence to advance ->
+SKILL.md detects plan -> koto init plan-WF (initial: spawn_and_await) ->
   spawn_and_await state:
     first tick (no tasks in koto context yet):
       bash plan-to-tasks.sh $PLAN_DOC | koto next --with-data @-
@@ -712,8 +877,7 @@ SKILL.md detects plan -> koto init plan-WF ->
   [all_success] pr_coordination: PR description from batch_final_view,
     plan-level QA, CI monitoring -> done
   [needs_attention] escalate: agent inspects failed children,
-    submits retry_failed (returns to spawn_and_await) or
-    transitions to done_blocked with failure_reason
+    writes failure_reason summary, transitions to done_blocked
 ```
 
 **Resume:**
@@ -729,6 +893,16 @@ SKILL.md calls koto next on parent -> parent is at spawn_and_await ->
 ```
 
 ## Implementation Approach
+
+The phases below are roughly sequential, but **Phases 1 and 2 are
+independently shippable**. Gate migration (Phase 1) is a mechanical
+template refactor with no dependencies on the rest of the design. Review
+panel states (Phase 2) build on Phase 1 but stand alone -- they're
+useful in single-issue and free-form modes today, before any plan-mode
+work lands. A reasonable sequencing is two short PRs (Phase 1, then
+Phase 2) before the larger plan-orchestrator work begins, to derisk
+strict-mode compilation and panel state authoring against the existing
+template before adding new templates and a parser script.
 
 ### Phase 1: Gate migration
 
@@ -804,14 +978,19 @@ Deliverables:
   - Output: tasks JSON array on stdout matching koto's task-entry schema
   - Handles both multi-pr mode (Implementation Issues table) and
     single-pr mode (Issue Outlines)
+  - Owns task-name generation including sanitization for outline-only
+    items (`outline-<slug>` with deterministic collision handling)
   - Exit codes: 0 success, 1 malformed input, 2 PLAN schema mismatch
-- `skills/plan/scripts/plan-to-tasks_test.sh` with fixture PLANs covering:
-  multi-pr table parsing, single-pr outline parsing, struck-through row
-  skip, child reference row ignore, diamond dependency graph, empty
-  dependencies, single-issue plan
+- `skills/plan/scripts/plan-to-tasks_test.sh` with three starter
+  fixtures: one multi-pr plan, one single-pr plan, one diamond
+  dependency graph. Add fixtures bug-driven as edge cases (struck-through
+  rows, child reference rows, etc.) actually break against real PLANs.
+- Add `plan-to-tasks.sh` as a "stable sub-operation" in /plan's SKILL.md
+  reference table, alongside `create-issue.sh` and
+  `create-issues-batch.sh`. This is the cross-skill contract pin
 - A short contract reference (`skills/plan/references/plan-to-tasks-contract.md`)
-  documenting the CLI shape and JSON output schema so /work-on's template
-  directive stays grounded
+  documenting the CLI shape, JSON output schema, and name-sanitization
+  rules so /work-on's template directive stays grounded
 
 ### Phase 5: SKILL.md plan orchestration
 
@@ -918,9 +1097,9 @@ surfaces are introduced. The primary security-relevant aspects:
   rows, multi-line descriptions) that fixture tests must cover.
 - Pinned koto version is now load-bearing. The workflow requires koto v0.8.0
   or later.
-- Task-name sanitization for outline-only items (not GitHub-issue-backed)
-  lives in SKILL.md prose and needs care for edge cases (slug collisions,
-  regex violations).
+- Task-name sanitization for outline-only items lives in the parser
+  script with fixture coverage; collision handling is deterministic but
+  needs upkeep if PLAN outline titles ever produce non-trivial collisions.
 - The per-issue template must preserve three additive requirements
   (`failure: true`, `skipped_marker` state, `failure_reason` writes) to
   remain batch-eligible. Contributors modifying `work-on.md` need to know
