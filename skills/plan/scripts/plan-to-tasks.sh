@@ -58,12 +58,9 @@ validate_name() {
     return 0
 }
 
-# Convert a bash array of strings to a JSON array.
+# Convert a bash array (passed by nameref) to a JSON array on stdout.
 # Handles empty arrays correctly (returns []).
-# Usage: array_to_json_array "${arr[@]+"${arr[@]}"}"
-# But call as: array_to_json_array_safe arr_name
-# Actually just inline with length check.
-# Returns JSON array string on stdout.
+# Usage: array_to_json <array-variable-name>
 array_to_json() {
     local -n _arr_ref=$1
     if [[ ${#_arr_ref[@]} -eq 0 ]]; then
@@ -84,28 +81,6 @@ slugify() {
         | sed 's/-\+/-/g' \
         | sed 's/^-//;s/-$//')
     echo "$slug"
-}
-
-# Parse YAML frontmatter block (between first --- and second ---)
-# Returns the value of a given key (simple scalar values only)
-parse_frontmatter_key() {
-    local content="$1"
-    local key="$2"
-    echo "$content" | awk -v key="$key" '
-        /^---$/ {
-            count++
-            if (count == 2) exit
-            next
-        }
-        count == 1 {
-            if (match($0, "^" key ": *(.+)$", a)) {
-                # Strip surrounding quotes if present
-                val = a[1]
-                gsub(/^["'"'"']|["'"'"']$/, "", val)
-                print val
-            }
-        }
-    '
 }
 
 # Extract the frontmatter block as raw text (between --- markers)
@@ -336,7 +311,10 @@ process_single_pr() {
             die_schema "generated name '${base_name}' violates R9 regex ^[a-z][a-z0-9-]*$"
         fi
 
-        # Handle collisions
+        # Handle collisions.
+        # slug_counts stores the number of times a base_name has appeared.
+        # The first occurrence (count=1) gets no suffix; subsequent occurrences
+        # get a numeric suffix equal to their count (e.g. -2, -3).
         if [[ -z "${slug_counts[$base_name]+x}" ]]; then
             slug_counts[$base_name]=1
             issue_names+=("$base_name")
