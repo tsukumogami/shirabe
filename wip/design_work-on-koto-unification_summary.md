@@ -47,13 +47,33 @@ Koto shipped declarative batch child spawning (tsukumogami/koto#130, v0.8.0). De
 **Outcome:** Option 3 (N/A with justification)
 **Summary:** Design restructures internal workflow orchestration without new attack surfaces, external dependencies, or data exposure paths. The v0.8.0 revision shrinks the surface further (no shell script, no jq dependency) and gains typed pre-append validators (koto R0-R9).
 
+### PLAN parser script decision (2026-04-14, late)
+Ran `/shirabe:decision` on "how should /work-on obtain koto tasks
+evidence from a PLAN doc?" to resolve an open implementation detail.
+Outcome: parser script owned by /plan
+(`skills/plan/scripts/plan-to-tasks.sh`), /work-on pipes its stdout into
+`koto next --with-data @-`. No JSON file lives in the repo tree or in
+`wip/`. Decision report at
+`wip/decision_plan-parser-script_report.md`.
+
+Design updates applied:
+- Frontmatter rationale and decision lines
+- Decision 2's "Chosen" description and alternatives note
+- `spawn_and_await` directive YAML
+- Solution Architecture Overview, Components, Key Interfaces, Data Flow,
+  Resume sections
+- Implementation Approach: Phase 4 reference, new Phase 4b for the
+  script prerequisite, Phase 5 delegation
+- Security Considerations task-list submission bullet
+- Consequences (Positive, Negative, Mitigations)
+
 ## Blockers
 None. Koto v0.8.0 resolved the previous blocker (#129/#130). Design is
 ready for /plan.
 
 ## Current Status
 **Phase:** 6 - Final Review (complete, awaiting approval)
-**Last Updated:** 2026-04-14
+**Last Updated:** 2026-04-14 (PLAN parser decision applied)
 
 ## Next Steps
 1. Human review and approval of the revised design

@@ -14,11 +14,14 @@ decision: |
   Two koto templates: a per-issue template (work-on.md, 3-way entry routing)
   and a plan orchestrator template (work-on-plan.md) whose batched state
   declares a materialize_children hook over a tasks-typed evidence field.
-  The skill layer composes tasks.json once from the PLAN doc and submits it
-  via koto next --with-data @tasks.json; koto's scheduler owns DAG
-  resolution, ready-dispatch, retry, and terminal observability. All gates
-  migrate to v0.6.0 strict mode with selective decomposition. Review panels
-  use context-exists gates for persistence and evidence enums for routing.
+  A parser script owned by /plan (plan-to-tasks.sh) transforms PLAN.md into
+  the tasks JSON; /work-on pipes its stdout directly into koto via
+  --with-data, so no intermediate file touches the repo tree. Koto's
+  scheduler owns DAG resolution, ready-dispatch, retry, and terminal
+  observability; koto's context store owns the tasks payload after
+  submission. All gates migrate to v0.6.0 strict mode with selective
+  decomposition. Review panels use context-exists gates for persistence
+  and evidence enums for routing.
 rationale: |
   Koto v0.8.0's declarative batch spawning collapses the orchestrator to a
   single state with materialize_children, accepts: tasks, and a
@@ -211,9 +214,14 @@ status rendering, resume diagnostics) or a direct handoff to koto.
 The plan orchestrator template (`work-on-plan.md`) declares a single batched
 state that accepts a `tasks` evidence field, materializes children via
 `materialize_children`, and holds until `children-complete` reports the batch
-done. The SKILL.md composes the task list once from the PLAN doc and submits
-it via `koto next <plan-WF> --with-data @tasks.json`. No orchestration script
-exists in the repo.
+done. A parser script owned by /plan (`skills/plan/scripts/plan-to-tasks.sh`,
+decided separately -- see the companion decision report at
+`wip/decision_plan-parser-script_report.md`) transforms PLAN.md into the
+task-entry JSON on stdout; /work-on pipes its output directly into
+`koto next --with-data @-` (or a `mktemp` sandwich cleaned in the same
+expression if koto rejects stdin). No JSON file persists in the repo tree
+or in `wip/`; after submission, koto's context store owns the payload.
+No orchestration script exists in the repo.
 
 The batched state follows koto's mandatory single-state fan-out pattern (E10):
 `materialize_children`, `accepts: tasks`, and `children-complete` gate all live
@@ -222,10 +230,11 @@ on the same state, which the advance loop parks at until completion.
 ```yaml
 spawn_and_await:
   directive: |
-    If you have not submitted a task list, parse the PLAN doc and submit
-    via `koto next <WF> --with-data @tasks.json`. Each task entry shape:
-    {name, vars, waits_on}. The response carries item_schema; validate
-    before submission.
+    If you have not submitted a task list, regenerate it via:
+      bash ${SHIRABE_ROOT}/skills/plan/scripts/plan-to-tasks.sh $PLAN_DOC \
+        | koto next $WF --with-data @-
+    (Or `mktemp`-sandwich if koto rejects stdin.) The response carries
+    item_schema; the script's output already matches it.
     If the batch is already running, invoke `koto next <WF>` with no data
     to drive the next ready child.
   accepts:
@@ -283,6 +292,14 @@ Mixed populations work transparently: outline-only items set
 `ISSUE_SOURCE: "plan_outline"` and use a sanitized name like
 `outline-<slug>`; the per-issue template's 3-way entry routing handles both.
 
+The parser script is the sole producer of this shape. It reads PLAN.md's
+Implementation Issues table and dependency graph (or Issue Outlines in
+single-pr mode) and emits deterministic JSON. PLAN schema changes and
+parser changes travel together in /plan's PR, giving the format and its
+reader a single authority. On resume or on a fresh clone of a merged
+PLAN, re-running the script yields identical output -- no "rebuild mode"
+ceremony is needed.
+
 Single-issue and free-form modes are unaffected. They run the per-issue
 template directly with no parent workflow.
 
@@ -294,7 +311,10 @@ because koto's R0-R9 validators run pre-append on submission with typed
 `InvalidBatchReason` errors -- the typed envelope is richer than any shape
 check a shell script would perform, and errors surface via the same
 `action: "error"` response the rest of the workflow uses. A preflight script
-would be a weaker duplicate.
+would be a weaker duplicate. (Note: this rejection is about *orchestration*
+and validation scripts, not about the PLAN parser script -- which is a
+distinct concern covered separately and sits with /plan as the format
+authority.)
 
 **Retain the script, use it only for resume diagnostics**
 (`plan-deps.sh status` reads koto's output and renders a human summary).
@@ -456,7 +476,10 @@ template (`work-on-plan.md`, ~5 states). Single issues and free-form tasks use
 `work-on-plan.md`, whose batched `spawn_and_await` state declares
 `materialize_children` over a `tasks`-typed evidence field. Koto's scheduler
 owns DAG resolution, ready-dispatch, retry, and terminal observability --
-there are no orchestration scripts in this design.
+there are no orchestration scripts in this design. A single parser script
+owned by /plan (`plan-to-tasks.sh`) transforms PLAN.md into the tasks JSON
+on stdout; /work-on pipes it straight into `koto next --with-data`, so no
+intermediate JSON file lives in the repo tree or in `wip/`.
 
 The per-issue template routes issue-backed, free-form, and plan-backed modes
 through mode-specific pre-analysis chains before converging at a shared
@@ -515,13 +538,14 @@ primary correctness check for the batch contract.
 
 ### Overview
 
-The unified work-on system uses two koto templates and no orchestration
-scripts. For single-issue and free-form tasks, the per-issue template runs
-directly. For plan-backed execution, a parent workflow (plan orchestrator
-template) declares a batch over a submitted task list; koto's scheduler
-spawns children (per-issue template instances) and drives them to completion.
-The SKILL.md coordinates mode detection, task-list composition, cross-issue
-context assembly, and retry decisions.
+The unified work-on system uses two koto templates and one parser script
+(owned by /plan). For single-issue and free-form tasks, the per-issue
+template runs directly. For plan-backed execution, a parent workflow (plan
+orchestrator template) declares a batch over a submitted task list; koto's
+scheduler spawns children (per-issue template instances) and drives them to
+completion. The SKILL.md coordinates mode detection, invokes /plan's parser
+script to produce the tasks JSON, pipes it into koto, assembles cross-issue
+context, and makes retry decisions.
 
 ### Components
 
@@ -544,13 +568,15 @@ SKILL.md (coordinator)
     |       |       --var PLAN_DOC=<path>
     |       |
     |       +-- At parse_plan state:
-    |       |     +-- SKILL.md reads PLAN doc
-    |       |     +-- Composes tasks.json (name, vars, waits_on per item)
     |       |     +-- submits trivial evidence to advance
+    |       |     (no PLAN parsing here; tasks are assembled at spawn_and_await)
     |       |
     |       +-- At spawn_and_await state:
-    |       |     +-- first tick: koto next <plan-WF> --with-data @tasks.json
-    |       |     +-- koto scheduler materializes ready children atomically
+    |       |     +-- first tick (if tasks not yet in koto context):
+    |       |         bash /plan/scripts/plan-to-tasks.sh $PLAN_DOC |
+    |       |         koto next <plan-WF> --with-data @-
+    |       |     +-- koto validates (R0-R9), stores in context, materializes
+    |       |         ready children atomically
     |       |     +-- subsequent ticks: koto next <plan-WF> (no data)
     |       |         drives next ready child via ready_to_drive gate
     |       |     +-- SKILL.md reads koto context get <child> summary.md
@@ -631,8 +657,18 @@ SKILL.md (coordinator)
 | `waits_on` | array of string | sibling task names from PLAN doc dependencies |
 | `template` | string (optional) | omitted; hook's `default_template` applies |
 
-Submission via `koto next <plan-WF> --with-data @tasks.json` (1 MB payload
-cap; plans well below this in practice).
+**Parser script** (`skills/plan/scripts/plan-to-tasks.sh`):
+- Input: PLAN.md path as argument
+- Output: JSON array of task entries (matching the schema above) on stdout
+- Exit codes: 0 success, 1 malformed input, 2 PLAN schema mismatch
+- Unit-tested via `plan-to-tasks_test.sh` with fixture PLANs covering
+  multi-pr mode, single-pr mode, struck-through rows, child reference rows,
+  and diamond dependency patterns
+
+Submission flow: the script's stdout is piped directly into
+`koto next <plan-WF> --with-data @-` (or a `mktemp` sandwich if koto rejects
+stdin). The 1 MB payload cap is well above real plan sizes. No JSON file
+persists in the repo tree or in `wip/`.
 
 **Review panel interface** (unchanged):
 - Input: koto directive at scrutiny/review/qa_validation state
@@ -661,11 +697,12 @@ review panels at scrutiny/review/qa states -> done
 **Plan mode:**
 ```
 SKILL.md detects plan -> koto init plan-WF ->
-  parse_plan state: SKILL.md reads PLAN doc, composes tasks.json ->
-    submits trivial evidence to advance ->
+  parse_plan state: SKILL.md submits trivial evidence to advance ->
   spawn_and_await state:
-    first tick: koto next --with-data @tasks.json
-      -> scheduler validates (R0-R9), materializes ready children ->
+    first tick (no tasks in koto context yet):
+      bash plan-to-tasks.sh $PLAN_DOC | koto next --with-data @-
+      -> scheduler validates (R0-R9), stores tasks in koto context,
+         materializes ready children ->
     subsequent ticks: koto next (no data)
       -> scheduler dispatches children with ready_to_drive: true ->
       -> SKILL.md assembles cross-issue context before each child ->
@@ -682,11 +719,13 @@ SKILL.md detects plan -> koto init plan-WF ->
 **Resume:**
 ```
 SKILL.md calls koto next on parent -> parent is at spawn_and_await ->
-  if tasks.json not yet submitted: re-submit (same payload is a no-op under
-    union-by-name rules)
-  if already submitted: koto next drives the next ready child via scheduler ->
-    scheduler returns existing child states from disk; SKILL.md resumes
-    child-level koto next loops for non-terminal children
+  if tasks already in koto context: koto next drives the next ready child
+    via scheduler; scheduler returns existing child states from disk;
+    SKILL.md resumes child-level koto next loops for non-terminal children
+  if tasks not in koto context (fresh clone of merged PLAN): re-run
+    `plan-to-tasks.sh | koto next --with-data @-`; deterministic output
+    reproduces the same submission; union-by-name rules make re-submission
+    a no-op for any already-spawned children
 ```
 
 ## Implementation Approach
@@ -740,8 +779,8 @@ Deliverables:
 
 ### Phase 4: Plan orchestrator template
 
-Author the parent workflow template. No scripts -- the plan orchestrator is a
-5-state template plus `tasks.json` composition in SKILL.md prose.
+Author the parent workflow template. The template is 5 states plus a
+reference to /plan's parser script for first-tick tasks submission.
 
 Deliverables:
 - `koto-templates/work-on-plan.md` with `parse_plan`, `spawn_and_await`
@@ -750,24 +789,49 @@ Deliverables:
   `default_template: work-on.md` and `failure_policy: skip_dependents`
 - `children-complete` gate co-located on `spawn_and_await` (E10)
 - Transitions on `all_success` and `needs_attention` (W4 compliance)
+- `spawn_and_await` directive referencing `skills/plan/scripts/plan-to-tasks.sh`
+  by path, with the pipe-to-koto invocation pattern
 - Strict-mode compilation passing
+
+### Phase 4b: /plan parser script (prerequisite for Phase 4 template)
+
+Add the PLAN-to-tasks parser script owned by /plan. This is a prerequisite
+for Phase 4 because the template directive references it by path.
+
+Deliverables:
+- `skills/plan/scripts/plan-to-tasks.sh` (bash + jq):
+  - Input: PLAN.md path as argument
+  - Output: tasks JSON array on stdout matching koto's task-entry schema
+  - Handles both multi-pr mode (Implementation Issues table) and
+    single-pr mode (Issue Outlines)
+  - Exit codes: 0 success, 1 malformed input, 2 PLAN schema mismatch
+- `skills/plan/scripts/plan-to-tasks_test.sh` with fixture PLANs covering:
+  multi-pr table parsing, single-pr outline parsing, struck-through row
+  skip, child reference row ignore, diamond dependency graph, empty
+  dependencies, single-issue plan
+- A short contract reference (`skills/plan/references/plan-to-tasks-contract.md`)
+  documenting the CLI shape and JSON output schema so /work-on's template
+  directive stays grounded
 
 ### Phase 5: SKILL.md plan orchestration
 
-Wire the plan-mode orchestration into SKILL.md: parent workflow init, PLAN doc
-parsing into `tasks.json`, cross-issue context assembly, and retry handling.
+Wire the plan-mode orchestration into SKILL.md: parent workflow init,
+script-to-koto pipe at first tick, cross-issue context assembly, and
+retry handling.
 
 Deliverables:
 - SKILL.md plan-mode section using `koto init` for the parent and
-  `koto next --with-data @tasks.json` for batch submission
-- PLAN doc parser in SKILL.md prose producing `tasks.json` (name
-  sanitization, var assembly, deps extraction)
+  `plan-to-tasks.sh | koto next --with-data @-` for first-tick submission
+  (fall back to `mktemp` sandwich if koto rejects stdin; verify at
+  implementation time)
+- No prose-level PLAN parsing in SKILL.md; parsing is delegated to the
+  script entirely
 - Cross-issue context assembly via `koto context get <child> summary.md`
   with sliding window (2 most recent full, older as one-liners)
-- Escalate-state directive guiding inspection of `batch_final_view` and the
-  retry decision
-- PR-level coordination: description from `batch_final_view`, single branch,
-  single PR
+- Escalate-state directive guiding inspection of `batch_final_view` and
+  the retry decision
+- PR-level coordination: description from `batch_final_view`, single
+  branch, single PR
 
 ### Phase 6: Shared component extraction
 
@@ -786,11 +850,15 @@ surfaces are introduced. The primary security-relevant aspects:
 
 - **Gate overrides**: koto's override mechanism requires rationale. This design
   doesn't weaken that -- all overrides remain auditable via `koto overrides list`.
-- **Task-list submission**: `koto next --with-data @tasks.json` reads a local
-  file authored by the same user driving the skill. Koto's R0-R9 validators
-  reject malformed payloads pre-append with typed `InvalidBatchReason` errors
-  (cycle, dangling ref, duplicate name, limit overflow, name regex violation,
-  reserved name collision). No shell interpretation of submitted content.
+- **Task-list submission**: `plan-to-tasks.sh` reads a local PLAN.md
+  authored by the same user driving the skill and emits JSON on stdout,
+  which /work-on pipes into `koto next --with-data @-`. Koto's R0-R9
+  validators reject malformed payloads pre-append with typed
+  `InvalidBatchReason` errors (cycle, dangling ref, duplicate name, limit
+  overflow, name regex violation, reserved name collision). No shell
+  interpretation of submitted content. The script itself is bash + jq
+  with fixture-driven tests; it reads the PLAN path argument as a file
+  (no shell eval) and treats PLAN content as data, not code.
 - **Template variable interpolation**: koto substitutes `vars` entries into
   gate command strings before shell execution. `ISSUE_NUMBER` must be validated
   as numeric, `PLAN_DOC` as a valid file path, and `ISSUE_SOURCE` against its
@@ -815,8 +883,9 @@ surfaces are introduced. The primary security-relevant aspects:
 - Koto is the single source of truth for all state -- no manifest file, no
   reconciliation protocol, no dependency script, no two-source
   desynchronization risk.
-- Zero shell scripts participate in plan orchestration. Testing is integration
-  testing against koto, not unit testing a dependency-graph implementation.
+- Zero orchestration scripts. The only script is /plan's PLAN-to-tasks
+  parser, which is input translation (format authority stays with /plan)
+  rather than workflow orchestration.
 - Koto hierarchy plus batch scheduling provides resume for free --
   re-submitting `tasks.json` is a no-op under union-by-name rules; the
   scheduler picks up from on-disk child state.
@@ -841,8 +910,12 @@ surfaces are introduced. The primary security-relevant aspects:
 - Per-issue template grows from 17 to ~24 states (including review panel
   states and the new `skipped_marker` terminal), increasing cognitive load
   for contributors modifying the workflow.
-- PLAN doc parsing in SKILL.md is prose-based and may fail on unusual
-  formats.
+- Cross-skill coupling: /work-on's plan-orchestrator template directive
+  references `skills/plan/scripts/plan-to-tasks.sh` by path. The contract
+  is narrow (one CLI signature, one stdout format) but it is a contract.
+- PLAN parser maintenance: bash + jq parsing of a markdown table has edge
+  cases (embedded pipes in titles, struck-through rows, child reference
+  rows, multi-line descriptions) that fixture tests must cover.
 - Pinned koto version is now load-bearing. The workflow requires koto v0.8.0
   or later.
 - Task-name sanitization for outline-only items (not GitHub-issue-backed)
@@ -860,9 +933,14 @@ surfaces are introduced. The primary security-relevant aspects:
   evolution happens.
 - Template complexity: states follow a consistent gate-plus-evidence
   pattern; new contributors learn one pattern, not 24 unique ones.
-- PLAN format: standardized PLAN templates with schema validation reduce
-  parsing failures. The koto `tasks` schema validation (R0-R9) catches
-  bad compositions before they hit state.
+- PLAN format: the parser script lives with /plan, so PLAN schema changes
+  and parser changes travel in one PR with CI validation on both sides.
+  The koto `tasks` schema validation (R0-R9) catches bad compositions
+  before they hit state.
+- Cross-skill contract: a short contract reference document
+  (`skills/plan/references/plan-to-tasks-contract.md`) pins the CLI
+  signature and stdout format so future /work-on contributors can rely
+  on a stable interface.
 - Koto pinning: the workspace's koto installation is controlled by tsuku, so
   the version floor is a tsuku recipe concern. Shirabe's CI should assert
   the minimum koto version as part of template compilation.
