@@ -379,6 +379,10 @@ states:
         when:
           ci_outcome: passing
           gates.ci_passing.exit_code: 0
+      # failing_fixed: agent pushed a follow-up commit to fix CI; the gate
+      # polls the PR and may be stale relative to the new push. Gate check
+      # is inappropriate here -- the agent's direct observation is the
+      # authoritative signal.
       - target: done
         when:
           ci_outcome: failing_fixed

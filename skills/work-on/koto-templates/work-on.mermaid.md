@@ -66,7 +66,9 @@ stateDiagram-v2
         gate: summary_exists
     end note
     note left of implementation
-        gate: code_committed
+        gate: on_feature_branch_impl
+        gate: has_commits
+        gate: tests_passing
     end note
     note left of introspection
         gate: introspection_artifact
