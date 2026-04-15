@@ -24,13 +24,15 @@ If the selected issue has a `needs-triage` label, the issue needs classification
 
 ### Handling Blocking Labels
 
-After resolving the issue and reading it with `gh issue view`, check for blocking labels before proceeding. Your project's label vocabulary is defined in `## Label Vocabulary` in CLAUDE.md.
+After resolving the issue and reading it with `gh issue view`, check for blocking labels before proceeding.
 
-If the issue has any label indicating it is not yet ready for implementation (such as labels requiring design, requirements definition, or feasibility investigation), display the appropriate routing message and **stop execution**.
+The label `needs-design` is universally recognized: if an issue carries it, stop immediately and inform the user that a design document is required before implementation can begin. This check applies even if no project label vocabulary is defined.
+
+Other blocking labels (requiring design, requirements definition, or feasibility investigation) are defined in your project's label vocabulary (`## Label Vocabulary` in CLAUDE.md). If the issue has any such label, display the appropriate routing message and **stop execution**.
 
 If the issue has a label indicating it tracks a child artifact whose implementation is underway, stop and direct the user to work on the child artifact instead.
 
-Your project's extension file (`.claude/shirabe-extensions/work-on.md`) defines the specific label names and routing messages to use.
+Your project's extension file (`.claude/shirabe-extensions/work-on.md`) defines additional label names and routing messages to use.
 
 ---
 
@@ -42,11 +44,27 @@ When `$ARGUMENTS` is a path to a PLAN.md file, the skill runs as a plan orchestr
 
 When invoked as `/work-on <argument>`:
 
-- If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` — **plan mode**
+- If `$ARGUMENTS` begins with `-- plan-backed` — **plan-backed child mode** (highest priority; the plan orchestrator is spawning this as a per-issue child workflow)
+- If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` — **plan orchestrator mode**
 - If the argument is an issue reference (`#N` or a GitHub issue URL) — **issue-backed mode**
 - If the argument is a free-form task description — **free-form mode**
 
-Plan mode detection takes priority: check for a PLAN.md path before checking for an issue number.
+Plan-backed child mode is checked first. Plan orchestrator mode is checked before issue-backed mode.
+
+### Plan-Backed Child Mode
+
+When `$ARGUMENTS` begins with `-- plan-backed`, extract these variables from the remaining arguments:
+- `ISSUE_SOURCE`: `github` or `plan_outline`
+- `ISSUE_NUMBER`: GitHub issue number (github source only)
+- `ARTIFACT_PREFIX`: workflow name for this child
+- `PLAN_DOC`: path to the parent PLAN document
+
+Submit entry evidence: `{"mode": "plan_backed", "issue_source": "<source>", "issue_number": "<N>"}`.
+
+For `ISSUE_SOURCE=github`: read the GitHub issue with `gh issue view <ISSUE_NUMBER>` during the `plan_context_injection` state to get the issue title, body, and labels.
+For `ISSUE_SOURCE=plan_outline`: extract the outline from the PLAN doc during `plan_context_injection` instead.
+
+Skip staleness checks in plan-backed mode. Proceed to `setup_plan_backed` then `analysis`.
 
 ### Initialization
 
@@ -71,6 +89,13 @@ rm -f "$TMP"
 ```
 
 The script outputs a JSON array of `{name, vars, waits_on}` objects. koto materializes one child workflow per task, using `work-on.md` as the default template with `failure_policy: skip_dependents`.
+
+### Monitoring Children (spawn_and_await)
+
+After submitting tasks, the workflow enters `spawn_and_await`. Monitor child progress via `koto workflows`. When all children reach terminal states, inspect their outcomes and submit:
+
+- `batch_outcome: all_success` — all children completed without failure; routes to `pr_coordination`
+- `batch_outcome: needs_attention` — one or more children reached `done_blocked` or were skipped; routes to `escalate`
 
 ### Cross-Issue Context Assembly
 
@@ -171,9 +196,9 @@ Safety gates (W3, W4) remain blocking in both modes. Use
 `koto decisions record <WF>` to capture any decisions made.
 
 First, resolve the input using the Input Resolution section above. Once you have an
-issue number, read the issue with `gh issue view <issue-number>`. Check for blocking
-labels as defined in your project's label vocabulary (CLAUDE.md `## Label Vocabulary`)
-and stop if any are present.
+issue number, read the issue with `gh issue view <issue-number>`. Apply the Handling
+Blocking Labels rules (including `needs-design` universal check) and stop if any
+blocking label is present.
 
 Detect repo visibility from CLAUDE.md (`## Repo Visibility: Public|Private`). If not
 found, infer from repo path (`private/` -> Private, `public/` -> Public; default to
@@ -193,5 +218,5 @@ Then:
 4. Enter the execution loop.
 
 If no extension file exists at `.claude/shirabe-extensions/work-on.md`, the skill
-proceeds with generic behavior: no language-specific quality checks, no label blocking
-(blocking label check is skipped if no label vocabulary is defined in CLAUDE.md).
+proceeds with generic behavior: no language-specific quality checks. The `needs-design`
+blocking label is still enforced regardless.

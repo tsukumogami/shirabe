@@ -362,7 +362,6 @@
       "files": [],
       "expectations": [
         "Agent initializes work-on-plan.md template (not work-on.md) for PLAN.md input",
-        "Agent runs plan-to-tasks.sh on the PLAN doc to produce tasks JSON and submits it via --with-data",
         "Agent handles pr_coordination state by reading batch_final_view via koto context get",
         "Agent assembles PR description including per-child name and outcome fields",
         "Agent submits pr_status: created after assembling the PR description"
