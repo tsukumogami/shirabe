@@ -20,7 +20,7 @@ stateDiagram-v2
     finalization --> pr_creation : finalization_status: ready_for_pr, gates.summary_exists.exists: true
     finalization --> pr_creation : finalization_status: deferred_items_noted, gates.summary_exists.exists: true
     finalization --> pr_creation
-    implementation --> finalization : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, gates.tests_passing.exit_code: 0, implementation_status: complete
+    implementation --> scrutiny : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, gates.tests_passing.exit_code: 0, implementation_status: complete
     implementation --> implementation : implementation_status: partial_tests_failing_retry
     implementation --> done_blocked : implementation_status: partial_tests_failing_escalate
     implementation --> done_blocked : implementation_status: blocked
@@ -34,7 +34,16 @@ stateDiagram-v2
     pr_creation --> ci_monitor : pr_status: created
     pr_creation --> pr_creation : pr_status: creation_failed_retry
     pr_creation --> done_blocked : pr_status: creation_failed_escalate
+    qa_validation --> finalization : gates.qa_results.exists: true, qa_outcome: passed
+    qa_validation --> implementation : qa_outcome: blocking_retry
+    qa_validation --> done_blocked : qa_outcome: blocking_escalate
     research --> post_research_validation
+    review --> qa_validation : gates.review_results.exists: true, review_outcome: passed
+    review --> implementation : review_outcome: blocking_retry
+    review --> done_blocked : review_outcome: blocking_escalate
+    scrutiny --> review : gates.scrutiny_results.exists: true, scrutiny_outcome: passed
+    scrutiny --> implementation : scrutiny_outcome: blocking_retry
+    scrutiny --> done_blocked : scrutiny_outcome: blocking_escalate
     setup_free_form --> analysis : gates.baseline_exists.exists: true, gates.on_feature_branch.exit_code: 0, status: completed
     setup_free_form --> analysis : status: override
     setup_free_form --> done_blocked : status: blocked
@@ -76,6 +85,15 @@ stateDiagram-v2
     end note
     note left of introspection
         gate: introspection_artifact
+    end note
+    note left of qa_validation
+        gate: qa_results
+    end note
+    note left of review
+        gate: review_results
+    end note
+    note left of scrutiny
+        gate: scrutiny_results
     end note
     note left of setup_free_form
         gate: baseline_exists

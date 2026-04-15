@@ -81,6 +81,23 @@ Repeat:
 **Errors:** exit 1 = gate failed (fix and retry), exit 2 = bad evidence (check `expects`).
 Use `koto rewind <WF>` to step back.
 
+### Review Panel
+
+After implementation completes, the workflow passes through three panel states before
+finalization:
+
+1. **scrutiny** — three parallel reviewers (completeness, justification, intent). Reference:
+   `references/phases/phase-4a-scrutiny.md`. Output: `scrutiny_results.json`.
+2. **review** — three parallel reviewers (pragmatic, architect, maintainer). Reference:
+   `references/phases/phase-4b-review.md`. Output: `review_results.json`.
+3. **qa_validation** — QA validation panel. Reference: `references/phases/phase-4c-qa.md`.
+   Output: `qa_results.json`.
+
+Each panel state accepts `passed`, `blocking_retry`, or `blocking_escalate`. A `blocking_retry`
+returns to `implementation`; `blocking_escalate` routes to `done_blocked` with `failure_reason`
+written to context. Panel states carry `override_default` so skipping is auditable via
+`koto overrides list`.
+
 ### Resume
 
 1. `koto workflows` — find the active workflow name

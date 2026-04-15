@@ -301,7 +301,7 @@ states:
           alternatives_considered fields. Captures non-obvious judgment calls
           made during implementation.
     transitions:
-      - target: finalization
+      - target: scrutiny
         when:
           implementation_status: complete
           gates.on_feature_branch_impl.exit_code: 0
@@ -316,6 +316,96 @@ states:
       - target: done_blocked
         when:
           implementation_status: blocked
+
+  scrutiny:
+    gates:
+      scrutiny_results:
+        type: context-exists
+        key: scrutiny_results.json
+        override_default:
+          exists: true
+          error: ""
+    accepts:
+      scrutiny_outcome:
+        type: enum
+        values: [passed, blocking_retry, blocking_escalate]
+        required: true
+      failure_reason:
+        type: string
+        description: Reason for blocking escalation (required when scrutiny_outcome is blocking_escalate)
+    transitions:
+      - target: review
+        when:
+          scrutiny_outcome: passed
+          gates.scrutiny_results.exists: true
+      - target: implementation
+        when:
+          scrutiny_outcome: blocking_retry
+      - target: done_blocked
+        when:
+          scrutiny_outcome: blocking_escalate
+        context_assignments:
+          failure_reason: ${evidence.failure_reason}
+
+  review:
+    gates:
+      review_results:
+        type: context-exists
+        key: review_results.json
+        override_default:
+          exists: true
+          error: ""
+    accepts:
+      review_outcome:
+        type: enum
+        values: [passed, blocking_retry, blocking_escalate]
+        required: true
+      failure_reason:
+        type: string
+        description: Reason for blocking escalation
+    transitions:
+      - target: qa_validation
+        when:
+          review_outcome: passed
+          gates.review_results.exists: true
+      - target: implementation
+        when:
+          review_outcome: blocking_retry
+      - target: done_blocked
+        when:
+          review_outcome: blocking_escalate
+        context_assignments:
+          failure_reason: ${evidence.failure_reason}
+
+  qa_validation:
+    gates:
+      qa_results:
+        type: context-exists
+        key: qa_results.json
+        override_default:
+          exists: true
+          error: ""
+    accepts:
+      qa_outcome:
+        type: enum
+        values: [passed, blocking_retry, blocking_escalate]
+        required: true
+      failure_reason:
+        type: string
+        description: Reason for blocking escalation
+    transitions:
+      - target: finalization
+        when:
+          qa_outcome: passed
+          gates.qa_results.exists: true
+      - target: implementation
+        when:
+          qa_outcome: blocking_retry
+      - target: done_blocked
+        when:
+          qa_outcome: blocking_escalate
+        context_assignments:
+          failure_reason: ${evidence.failure_reason}
 
   finalization:
     gates:
@@ -549,6 +639,24 @@ code review guidance, and commit patterns.
 Self-loop with `partial_tests_failing_retry` (up to 3 times). After 3,
 use `partial_tests_failing_escalate`. Submit `blocked` for external blockers.
 Capture non-obvious judgment calls in the `decisions` field.
+
+## scrutiny
+
+Run the scrutiny panel (three parallel reviewers: completeness, justification, intent). Read `references/phases/phase-4a-scrutiny.md` for detailed steps and reviewer prompts. Output: koto context key `scrutiny_results.json`.
+
+Submit `scrutiny_outcome: passed` when all reviewers clear the implementation, `blocking_retry` when reviewers find correctable issues and the implementation agent has addressed them, or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
+
+## review
+
+Run the code review panel (three parallel reviewers: pragmatic, architect, maintainer). Read `references/phases/phase-4b-review.md` for detailed steps and reviewer prompts. Output: koto context key `review_results.json`.
+
+Submit `review_outcome: passed` when all reviewers approve, `blocking_retry` when reviewers find correctable issues and the implementation agent has addressed them, or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
+
+## qa_validation
+
+Run the QA validation panel. Read `references/phases/phase-4c-qa.md` for detailed steps. Output: koto context key `qa_results.json`.
+
+Submit `qa_outcome: passed` when QA approves the implementation, `blocking_retry` when QA finds correctable defects, or `blocking_escalate` when defects cannot be resolved without escalation. Include `failure_reason` for `blocking_escalate`.
 
 ## finalization
 

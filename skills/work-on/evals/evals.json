@@ -189,6 +189,56 @@
         "Agent retries or reports the gate failure without advancing to finalization",
         "Gate-based routing is respected: evidence alone (implementation_status: complete) is insufficient if gates fail"
       ]
+    },
+    {
+      "id": 12,
+      "name": "review-panel-passed",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "review-panel-passed",
+      "prompt": "/work-on #42",
+      "expected_output": "Agent enters scrutiny state, all three panel reviewers emit passed, workflow advances through scrutiny -> review -> qa_validation -> finalization without returning to implementation.",
+      "files": [],
+      "expectations": [
+        "Agent submits scrutiny_outcome: passed after panel review",
+        "Agent submits review_outcome: passed after code review panel",
+        "Agent submits qa_outcome: passed after QA validation",
+        "Workflow advances from qa_validation to finalization without returning to implementation",
+        "Each panel state's context-exists gate is checked before advancing"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "review-panel-retry-loop",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "review-panel-retry",
+      "prompt": "/work-on #42",
+      "expected_output": "Scrutiny panel emits blocking_retry. Workflow returns to implementation state. Implementation agent addresses feedback. Workflow re-enters scrutiny with stale gate (artifact missing), panel runs again with fresh results.",
+      "files": [],
+      "expectations": [
+        "Agent submits scrutiny_outcome: blocking_retry after panel finds issues",
+        "Workflow returns to implementation state (not done_blocked)",
+        "Agent makes corrections in implementation state",
+        "Workflow re-enters scrutiny state after implementation",
+        "Stale scrutiny_results gate causes panel to run again with fresh results"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "review-panel-escalate",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "review-panel-escalate",
+      "prompt": "/work-on #42",
+      "expected_output": "Panel emits blocking_escalate. Workflow routes to done_blocked with failure_reason written via context_assignments. Agent does not retry implementation.",
+      "files": [],
+      "expectations": [
+        "Agent submits scrutiny_outcome: blocking_escalate with failure_reason",
+        "Workflow routes to done_blocked without retrying implementation",
+        "failure_reason is written to koto context via context_assignments",
+        "Agent reports the escalation reason to the user"
+      ]
     }
   ]
 }
