@@ -12,6 +12,9 @@ variables:
   PLAN_DOC:
     description: Path to the PLAN.md document driving this orchestration run
     required: true
+  SHARED_BRANCH:
+    description: Shared branch name for all children; created by the orchestrator before spawning
+    required: false
 
 states:
   spawn_and_await:
@@ -90,17 +93,30 @@ states:
 
 Spawn and coordinate per-issue work-on children from the PLAN document.
 
-**First tick**: run `plan-to-tasks.sh` to populate the tasks evidence, then submit it to koto:
+**Before spawning children**, create the shared branch and draft PR:
 
 ```bash
-# plan-to-tasks.sh is owned by /plan skill; outputs {name, vars, waits_on} JSON array
+PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
+git checkout -b impl/$PLAN_SLUG
+git push -u origin impl/$PLAN_SLUG
+gh pr create --draft \
+  --title "impl: $PLAN_SLUG" \
+  --body "Implements $(basename {{PLAN_DOC}})."
+```
+
+**First tick**: run `plan-to-tasks.sh`, inject the shared branch into each task's vars, then submit to koto:
+
+```bash
+PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
 TMP=$(mktemp)
-${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}} > "$TMP"
+TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
+TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "impl/$PLAN_SLUG" '[.[] | .vars.SHARED_BRANCH = $b]')
+echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
 koto next work-on-plan --with-data @"$TMP"
 rm -f "$TMP"
 ```
 
-Submit `tasks` as the output of `plan-to-tasks.sh` — a JSON array of `{name, vars, waits_on}` objects. koto materializes children from this array, one per task, using `work-on.md` as the default template with `failure_policy: skip_dependents`.
+Submit `tasks` as a JSON array of `{name, vars, waits_on}` objects — with `SHARED_BRANCH` injected into each task's `vars`. koto materializes one child per task, using `work-on.md` as the default template with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches.
 
 Once children are dispatched, monitor their progress via `koto workflows`. When all children have reached terminal states, inspect their outcomes via `koto status` and `koto context get` to determine the batch outcome, then submit `batch_outcome`:
 - `all_success` if `gates.batch_done.all_complete` is true and all children reached a non-failure terminal state

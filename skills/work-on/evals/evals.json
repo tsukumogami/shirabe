@@ -268,7 +268,8 @@
         "Agent plans to extract the issue outline from the PLAN doc (not call gh issue view)",
         "Agent plans to route through plan_validation state",
         "Agent plans to skip staleness_check for plan_outline source",
-        "Agent does NOT plan to call gh issue view for plan_outline source"
+        "Agent does NOT plan to call gh issue view for plan_outline source",
+        "Agent plans to use status: override in setup_plan_backed when SHARED_BRANCH is provided, committing directly to it instead of creating a new branch"
       ]
     },
     {
@@ -296,8 +297,9 @@
       "files": [],
       "expectations": [
         "Agent plans to initialize work-on-plan.md template (not work-on.md) for PLAN.md input",
+        "Agent plans to create a shared branch (impl/<plan-slug>) and draft PR before spawning children",
         "Agent plans to run plan-to-tasks.sh to produce tasks JSON from the PLAN doc",
-        "Agent plans to pipe plan-to-tasks.sh output to koto via --with-data",
+        "Agent plans to inject SHARED_BRANCH into each task's vars before submitting to koto",
         "Agent plans to submit tasks field with the JSON array from plan-to-tasks.sh",
         "Agent plans to submit batch_outcome: all_success when all children succeed",
         "Agent plans to route to pr_coordination after all children succeed"

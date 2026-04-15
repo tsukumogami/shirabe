@@ -66,6 +66,8 @@ For `ISSUE_SOURCE=plan_outline`: extract the outline from the PLAN doc during `p
 
 Skip staleness checks in plan-backed mode.
 
+When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new branch. In `setup_plan_backed`, submit `status: override` and commit directly to `SHARED_BRANCH`. All child workflows in the batch share this branch and the same draft PR.
+
 If the koto scheduler marks this child as skipped due to a failed dependency (`failure_policy: skip_dependents`), the workflow enters with `mode: skipped`. Submit entry evidence `{"mode": "skipped"}` and enter the execution loop — koto routes directly to the `skipped_due_to_dep_failure` terminal state, which carries `skipped_marker: true`. Do not perform any implementation work.
 
 ### Initialization
@@ -78,6 +80,21 @@ koto init <plan-slug> \
   --var PLAN_DOC=<path-to-plan>
 ```
 
+### Shared Branch and Draft PR
+
+Before spawning children, create the shared branch and a draft PR:
+
+```bash
+PLAN_SLUG=$(basename <path-to-plan> .md | sed 's/^PLAN-//')
+git checkout -b impl/$PLAN_SLUG
+git push -u origin impl/$PLAN_SLUG
+gh pr create --draft \
+  --title "<plan title>" \
+  --body "Implements $(basename <path-to-plan>)."
+```
+
+All child workflows commit to this branch. The draft PR tracks progress throughout; `pr_coordination` updates the description when the batch completes.
+
 ### First Tick: Submitting Tasks
 
 On the first tick, run `plan-to-tasks.sh` (owned by the `/plan` skill) to generate a tasks JSON array from the PLAN doc, then pipe it to koto:
@@ -85,8 +102,10 @@ On the first tick, run `plan-to-tasks.sh` (owned by the `/plan` skill) to genera
 ```bash
 # mktemp sandwich — handles large outputs safely
 TMP=$(mktemp)
+PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
-echo "{\"tasks\": $TASKS}" > "$TMP"
+TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "impl/$PLAN_SLUG" '[.[] | .vars.SHARED_BRANCH = $b]')
+echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
 koto next <plan-slug> --with-data @"$TMP"
 rm -f "$TMP"
 ```
@@ -150,6 +169,16 @@ koto init <WF> --template ${CLAUDE_SKILL_DIR}/koto-templates/work-on.md \
 
 **Plan-backed mode** uses free-form init. Extract the goal and acceptance criteria from the
 PLAN doc and provide them as the task description in the entry evidence.
+
+### Branch Setup
+
+Branch creation is conditional. Before creating a new branch in any setup state, check whether you already have an appropriate working branch:
+
+- **User instruction**: if the user asked you to continue on the current branch, submit `status: override` in the setup state
+- **Plan-backed mode**: if `SHARED_BRANCH` is set, the orchestrator has already created the branch — commit directly to it with `status: override`
+- **Resuming work**: if already on a feature branch from a previous session on this issue, `status: override` is correct
+
+Only create a new branch when none of the above apply. The setup states (`setup_issue_backed`, `setup_free_form`, `setup_plan_backed`) all accept `status: override` for these cases.
 
 ### Execution Loop
 

@@ -27,6 +27,11 @@ variables:
   PLAN_DOC:
     description: Path to the PLAN document for plan-backed mode
     required: false
+  SHARED_BRANCH:
+    description: >
+      Shared branch name provided by the plan orchestrator. When set, skip branch
+      creation in setup states and commit directly to this branch.
+    required: false
 
 states:
   entry:

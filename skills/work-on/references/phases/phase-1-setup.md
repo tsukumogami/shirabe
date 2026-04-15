@@ -13,7 +13,12 @@ Review the issue with `gh issue view <issue-number>`:
 
 ### Create Feature Branch
 
-Branch naming:
+Before creating a new branch, check whether you already have an appropriate one:
+- If `SHARED_BRANCH` is set (plan-backed mode), use it — skip branch creation
+- If the user instructed you to continue on the current branch, use it
+- If already on a feature branch from a previous session on this work, use it
+
+When none of the above apply, create a new branch:
 - `feature/<N>-<desc>` for new functionality
 - `fix/<N>-<desc>` for bug fixes
 - `chore/<N>-<desc>` for maintenance
