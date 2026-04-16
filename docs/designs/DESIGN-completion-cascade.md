@@ -243,10 +243,10 @@ done
 **`run-cascade.sh` CLI:**
 ```bash
 run-cascade.sh [--push] <plan-doc-path>
-# --push: commit and push changes; without this flag, stages only (dry-run-safe)
-# Exit 0: cascade ran (partial or complete)
-# Exit 1: PLAN doc not found
-# Outputs JSON: { "steps": [...], "cascade_status": "completed|partial|skipped" }
+# --push: commit and push; without this flag, stages only (dry-run-safe)
+# Exit 0: cascade ran (completed, partial, or skipped)
+# Exit 1: PLAN doc not found or path validation failed at the PLAN level
+# Outputs JSON to stdout (see Output Format below)
 ```
 
 The `plan_completion` directive calls `run-cascade.sh --push {{PLAN_DOC}}`. Without
@@ -254,6 +254,100 @@ The `plan_completion` directive calls `run-cascade.sh --push {{PLAN_DOC}}`. With
 before-status and after-status) but does not commit or push — enabling dry-run
 inspection. The `--push` flag is explicit so the intent is visible in the template
 and the script is safe to run manually without side effects.
+
+**Output format:**
+
+The script always emits a JSON object to stdout, regardless of success or failure.
+This is the primary interface for the agent — the agent reads this output to
+understand what happened and decide whether any recovery action is needed. The
+agent must never need to read the script source to understand a failure.
+
+```json
+{
+  "cascade_status": "completed | partial | skipped",
+  "steps": [
+    {
+      "action": "delete_plan | transition_design | transition_prd | update_roadmap_feature | transition_roadmap",
+      "target": "<path of the document being acted on>",
+      "found_in": "<path of the document where the reference to target was discovered>",
+      "status": "ok | skipped | failed",
+      "detail": "<human-readable description — required when status is skipped or failed>"
+    }
+  ]
+}
+```
+
+The `detail` field is the recovery surface. Every `skipped` or `failed` step must
+include a sentence that names what was being attempted and why it could not proceed,
+written so an agent can act on it without reading the script.
+
+**Error message contract:**
+
+Each failure class has a prescribed message format so the agent sees consistent,
+parseable descriptions:
+
+| Failure | `detail` message |
+|---------|-----------------|
+| Upstream file not found | `"upstream field in <found_in> references <target>, but that file does not exist — cannot transition <artifact-type> to <target-status>"` |
+| Path escapes repo | `"upstream field in <found_in> references <target>, which resolves outside the repository root — refusing to operate on files outside the working tree"` |
+| File not git-tracked | `"upstream field in <found_in> references <target>, but that file is not tracked by git — it may be a new uncommitted file or a typo in the upstream field"` |
+| Transition script failed | `"attempted to transition <target> from <old-status> to <new-status> (referenced in <found_in>), but transition-status.sh exited with: <error text>"` |
+| ROADMAP feature not found | `"searched <target> for a feature whose Downstream: field references plan slug '<slug>' (from <found_in>), but no matching feature entry was found — ROADMAP feature status was not updated"` |
+| Issue still open | `"feature '<feature-name>' in <target> references issue <url> which is still open — not transitioning <target> to Done; close the issue first or run the cascade again after it closes"` |
+| Unknown artifact type | `"upstream field in <found_in> references <target>, which has an unrecognized filename prefix — expected DESIGN-*, PRD-*, ROADMAP-*, or VISION-*; stopping chain walk here"` |
+
+For the VISION terminal case, no step entry is emitted — the chain walk simply
+stops and the overall status reflects work done up to that point.
+
+**Example output — partial cascade (upstream file missing):**
+
+```json
+{
+  "cascade_status": "partial",
+  "steps": [
+    {
+      "action": "delete_plan",
+      "target": "docs/plans/PLAN-foo.md",
+      "found_in": null,
+      "status": "ok",
+      "detail": null
+    },
+    {
+      "action": "transition_design",
+      "target": "docs/designs/DESIGN-foo.md",
+      "found_in": "docs/plans/PLAN-foo.md",
+      "status": "ok",
+      "detail": null
+    },
+    {
+      "action": "transition_prd",
+      "target": "docs/prds/PRD-foo.md",
+      "found_in": "docs/designs/DESIGN-foo.md",
+      "status": "failed",
+      "detail": "upstream field in docs/designs/DESIGN-foo.md references docs/prds/PRD-foo.md, but that file does not exist — cannot transition PRD to Done"
+    }
+  ]
+}
+```
+
+**Example output — ROADMAP feature not found:**
+
+```json
+{
+  "cascade_status": "partial",
+  "steps": [
+    { "action": "delete_plan", "target": "...", "status": "ok" },
+    { "action": "transition_design", "target": "...", "status": "ok" },
+    {
+      "action": "update_roadmap_feature",
+      "target": "docs/roadmaps/ROADMAP-strategic-pipeline.md",
+      "found_in": "docs/prds/PRD-foo.md",
+      "status": "skipped",
+      "detail": "searched docs/roadmaps/ROADMAP-strategic-pipeline.md for a feature whose Downstream: field references plan slug 'foo' (from docs/prds/PRD-foo.md), but no matching feature entry was found — ROADMAP feature status was not updated"
+    }
+  ]
+}
+```
 
 **`validate_upstream_path`:**
 ```bash
@@ -305,7 +399,8 @@ update rather than silently succeeding. All substitutions use `awk` with
 
 1. Locate the feature entry whose `**Downstream:**` field mentions the plan slug.
    Use `grep -F <plan-slug>` to find the line, then walk up to find the enclosing
-   `### Feature N:` heading. If not found, emit a warning and return `partial`.
+   `### Feature N:` heading. If not found, record a `skipped` step with the
+   prescribed "feature not found" message and return — do not update the file.
 2. Update the feature's `**Status:**` to `Done` and `**Downstream:**` to include
    the DESIGN doc at Current status, using `awk` with `ENVIRON` for literal-safe
    substitution.
@@ -318,6 +413,9 @@ update rather than silently succeeding. All substitutions use `awk` with
 
 After all nodes are processed, the script commits and pushes all staged changes
 in a single commit: `chore(cascade): post-implementation artifact transitions`.
+Then it emits the JSON result to stdout. The `plan_completion` directive reads
+this output and uses the `steps` array to determine `cascade_status` and whether
+any `failed` or `skipped` steps require follow-up.
 
 ### Data Flow
 
