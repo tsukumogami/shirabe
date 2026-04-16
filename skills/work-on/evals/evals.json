@@ -252,7 +252,8 @@
         "Agent plans to route through plan_context_injection state",
         "Agent plans to read GitHub issue via gh issue view for ISSUE_SOURCE=github",
         "Agent plans to proceed to setup_plan_backed after context injection",
-        "Agent plans to route to analysis without staleness_check (plan-backed skips staleness)"
+        "Agent plans to route to analysis without staleness_check (plan-backed skips staleness)",
+        "Agent plans to use status: override in setup_plan_backed when SHARED_BRANCH is provided, committing directly to it instead of creating a new branch"
       ]
     },
     {
@@ -297,12 +298,14 @@
       "files": [],
       "expectations": [
         "Agent plans to initialize work-on-plan.md template (not work-on.md) for PLAN.md input",
-        "Agent plans to create a shared branch (impl/<plan-slug>) and draft PR before spawning children",
+        "Agent plans to create a shared branch (impl/<plan-slug>) in orchestrator_setup before spawning children",
+        "Agent plans to create a draft PR on the shared branch in orchestrator_setup before spawning children",
         "Agent plans to run plan-to-tasks.sh to produce tasks JSON from the PLAN doc",
         "Agent plans to inject SHARED_BRANCH into each task's vars before submitting to koto",
         "Agent plans to submit tasks field with the JSON array from plan-to-tasks.sh",
         "Agent plans to submit batch_outcome: all_success when all children succeed",
-        "Agent plans to route to pr_coordination after all children succeed"
+        "Agent plans to route to pr_finalization after all children succeed",
+        "Agent plans to mark the PR ready for review and monitor CI in pr_finalization and ci_monitor states"
       ]
     },
     {
@@ -315,7 +318,7 @@
       "files": [],
       "expectations": [
         "Agent plans to submit batch_outcome: needs_attention when a child reaches done_blocked",
-        "Agent plans to route to escalate state (not pr_coordination) when needs_attention",
+        "Agent plans to route to escalate state (not pr_finalization) when needs_attention",
         "Agent plans to read batch_final_view in escalate state for per-child failure details",
         "Agent plans to include failure_reason and reason_source from batch_final_view in the summary",
         "Agent plans to submit failure_reason to escalate state evidence",
@@ -360,13 +363,14 @@
       "mode": "execute",
       "scenario": "e2e-plan-happy",
       "prompt": "/work-on skills/work-on/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent detects PLAN.md path, initializes work-on-plan.md template with PLAN_DOC var, runs plan-to-tasks.sh on the fixture to produce tasks JSON, submits tasks to koto. Then receives pr_coordination state, reads batch_final_view via koto context get, assembles PR description with per-child outcomes, and submits pr_status: created.",
+      "expected_output": "Agent detects PLAN.md path, initializes work-on-plan.md template with PLAN_DOC var, runs plan-to-tasks.sh on the fixture to produce tasks JSON, submits tasks to koto. Then receives pr_finalization state, reads batch_final_view via koto context get, assembles PR description with per-child outcomes, updates the PR, marks it ready, and submits finalization_status: updated.",
       "files": [],
       "expectations": [
         "Agent initializes work-on-plan.md template (not work-on.md) for PLAN.md input",
-        "Agent handles pr_coordination state by reading batch_final_view via koto context get",
+        "Agent handles pr_finalization state by reading batch_final_view via koto context get",
         "Agent assembles PR description including per-child name and outcome fields",
-        "Agent submits pr_status: created after assembling the PR description"
+        "Agent marks the PR ready for review with gh pr ready",
+        "Agent submits finalization_status: updated after assembling and updating the PR description"
       ]
     },
     {

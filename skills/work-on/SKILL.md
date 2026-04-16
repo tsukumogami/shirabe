@@ -82,35 +82,21 @@ koto init <plan-slug> \
 
 ### Shared Branch and Draft PR
 
-Before spawning children, create the shared branch and a draft PR:
+The `orchestrator_setup` state creates the shared branch and draft PR before any children are spawned. The script is idempotent — on a re-run after a crash, it reuses the existing branch and PR:
 
 ```bash
 PLAN_SLUG=$(basename <path-to-plan> .md | sed 's/^PLAN-//')
-git checkout -b impl/$PLAN_SLUG
-git push -u origin impl/$PLAN_SLUG
-gh pr create --draft \
-  --title "<plan title>" \
-  --body "Implements $(basename <path-to-plan>)."
+git checkout impl/$PLAN_SLUG 2>/dev/null || git checkout -b impl/$PLAN_SLUG
+git push -u origin impl/$PLAN_SLUG 2>/dev/null || true
+gh pr list --head impl/$PLAN_SLUG --json number --jq '.[0].number' | grep -q . || \
+  gh pr create --draft --title "impl: $PLAN_SLUG" --body "Implements $(basename <path-to-plan>)."
 ```
 
-All child workflows commit to this branch. The draft PR tracks progress throughout; `pr_coordination` updates the description when the batch completes.
+Submit `status: completed` after branch and PR exist, or `status: blocked` with `detail` if either step fails. All child workflows then commit to this branch; `pr_coordination` updates the description when the batch completes.
 
 ### First Tick: Submitting Tasks
 
-On the first tick, run `plan-to-tasks.sh` (owned by the `/plan` skill) to generate a tasks JSON array from the PLAN doc, then pipe it to koto:
-
-```bash
-# mktemp sandwich — handles large outputs safely
-TMP=$(mktemp)
-PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
-TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
-TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "impl/$PLAN_SLUG" '[.[] | .vars.SHARED_BRANCH = $b]')
-echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
-koto next <plan-slug> --with-data @"$TMP"
-rm -f "$TMP"
-```
-
-The script outputs a JSON array of `{name, vars, waits_on}` objects. Wrap it in `{"tasks": [...]}` before submitting — the `spawn_and_await` state expects the array under the `tasks` field. koto materializes one child workflow per task, using `work-on.md` as the default template with `failure_policy: skip_dependents`.
+In `spawn_and_await`, run `plan-to-tasks.sh` to produce a JSON array from the PLAN doc, inject `SHARED_BRANCH` (the branch created in `orchestrator_setup`) into each task's `vars` via `jq`, wrap in `{"tasks": [...]}`, and submit with `--with-data`. The `spawn_and_await` directive in the koto template has the full script.
 
 ### Monitoring Children (spawn_and_await)
 
@@ -134,9 +120,11 @@ When the parent workflow reaches `escalate` state, one or more children reached 
 
 The `failure_reason` field is required — omitting it prevents `context_assignments` from propagating the reason downstream.
 
-### PR Description (pr_coordination)
+### PR Finalization (pr_finalization)
 
-In `pr_coordination` state, read `batch_final_view` and assemble a PR description table. For each child include: `name`, `outcome`, `reason` (if failed or skipped), `reason_source`, and `skipped_because_chain` (if skipped). Update the PR with `gh pr edit`.
+In `pr_finalization` state, read `batch_final_view` and assemble a PR description table. For each child include: `name`, `outcome`, `reason` (if failed or skipped), `reason_source`, and `skipped_because_chain` (if skipped). Update the PR with `gh pr edit`, then mark it ready with `gh pr ready`. Submit `finalization_status: updated` with `pr_url`.
+
+After `pr_finalization`, the workflow enters `ci_monitor` to wait for CI to pass. Fix any failures and submit `ci_outcome: failing_fixed`, or escalate with `ci_outcome: failing_unresolvable`.
 
 ---
 

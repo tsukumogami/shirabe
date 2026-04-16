@@ -2,21 +2,36 @@
 name: work-on-plan
 version: "1.0"
 description: >
-  Plan orchestrator template. Spawns and coordinates per-issue work-on.md children
-  from a PLAN document via koto v0.8.0 batch execution. Takes a tasks evidence field
-  (populated by plan-to-tasks.sh), materializes children, and coordinates final PR
-  description assembly.
-initial_state: spawn_and_await
+  Plan orchestrator template. Creates a shared branch and draft PR, spawns and
+  coordinates per-issue work-on.md children via koto v0.8.0 batch execution,
+  finalizes the PR description, marks it ready, and monitors CI to green.
+initial_state: orchestrator_setup
 
 variables:
   PLAN_DOC:
     description: Path to the PLAN.md document driving this orchestration run
     required: true
-  SHARED_BRANCH:
-    description: Shared branch name for all children; created by the orchestrator before spawning
-    required: false
 
 states:
+  orchestrator_setup:
+    accepts:
+      status:
+        type: enum
+        values: [completed, blocked]
+        required: true
+      detail:
+        type: string
+        description: Failure reason if blocked
+    transitions:
+      - target: spawn_and_await
+        when:
+          status: completed
+      - target: done_blocked
+        when:
+          status: blocked
+        context_assignments:
+          failure_reason: "orchestrator_setup blocked: ${evidence.detail}"
+
   spawn_and_await:
     gates:
       batch_done:
@@ -37,7 +52,7 @@ states:
       # Gate guards ensure children are complete; evidence routes success vs attention.
       # Note: koto v0.8.0 children-complete gate exposes all_complete, not all_success/needs_attention.
       # W4 warning is expected — routing is evidence-driven per the design intent.
-      - target: pr_coordination
+      - target: pr_finalization
         when:
           batch_outcome: all_success
           gates.batch_done.all_complete: true
@@ -47,24 +62,54 @@ states:
           gates.batch_done.all_complete: true
       - target: escalate
 
-  pr_coordination:
+  pr_finalization:
     accepts:
-      pr_status:
+      finalization_status:
         type: enum
-        values: [created, creation_failed]
+        values: [updated, update_failed]
         required: true
       pr_url:
         type: string
-        description: URL of the created or updated pull request
+        description: URL of the pull request
+    transitions:
+      - target: ci_monitor
+        when:
+          finalization_status: updated
+      - target: done_blocked
+        when:
+          finalization_status: update_failed
+        context_assignments:
+          failure_reason: "pr_finalization failed: could not update or ready the PR"
+
+  ci_monitor:
+    gates:
+      ci_passing:
+        type: command
+        command: "gh pr checks $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json state --jq '[.[] | select(.state != \"SUCCESS\")] | length == 0' | grep -q true"
+    accepts:
+      ci_outcome:
+        type: enum
+        values: [passing, failing_fixed, failing_unresolvable]
+        required: true
+      rationale:
+        type: string
+        description: What was fixed or why CI failures are unresolvable
     transitions:
       - target: done
         when:
-          pr_status: created
+          ci_outcome: passing
+          gates.ci_passing.exit_code: 0
+      # failing_fixed: agent pushed a follow-up commit to fix CI; gate may be stale.
+      # Agent's direct observation is the authoritative signal.
+      - target: done
+        when:
+          ci_outcome: failing_fixed
       - target: done_blocked
         when:
-          pr_status: creation_failed
+          ci_outcome: failing_unresolvable
         context_assignments:
-          failure_reason: "PR coordination failed after batch completion"
+          failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
+      - target: done
 
   escalate:
     accepts:
@@ -89,20 +134,25 @@ states:
         description: Reason for blocking failure (populated via context_assignments)
 ---
 
-## spawn_and_await
+## orchestrator_setup
 
-Spawn and coordinate per-issue work-on children from the PLAN document.
-
-**Before spawning children**, create the shared branch and draft PR:
+Create the shared branch and draft PR. This runs once before children are spawned.
 
 ```bash
 PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
-git checkout -b impl/$PLAN_SLUG
-git push -u origin impl/$PLAN_SLUG
-gh pr create --draft \
-  --title "impl: $PLAN_SLUG" \
-  --body "Implements $(basename {{PLAN_DOC}})."
+git checkout impl/$PLAN_SLUG 2>/dev/null || git checkout -b impl/$PLAN_SLUG
+git push -u origin impl/$PLAN_SLUG 2>/dev/null || true
+gh pr list --head impl/$PLAN_SLUG --json number --jq '.[0].number' | grep -q . || \
+  gh pr create --draft --title "impl: $PLAN_SLUG" --body "Implements $(basename {{PLAN_DOC}})."
 ```
+
+The script is idempotent — if the branch or PR already exists (e.g., after a crash and re-run), it reuses them.
+
+Submit `status: completed` after branch and draft PR exist, or `status: blocked` with `detail` if either step fails.
+
+## spawn_and_await
+
+Spawn and coordinate per-issue work-on children from the PLAN document.
 
 **First tick**: run `plan-to-tasks.sh`, inject the shared branch into each task's vars, then submit to koto:
 
@@ -122,18 +172,30 @@ Once children are dispatched, monitor their progress via `koto workflows`. When 
 - `all_success` if `gates.batch_done.all_complete` is true and all children reached a non-failure terminal state
 - `needs_attention` if `gates.batch_done.all_complete` is true but some children reached `done_blocked` or were skipped
 
-## pr_coordination
+## pr_finalization
 
-Assemble the pull request description from the batch results. Read `koto context get work-on-plan batch_final_view` to get per-child outcome data.
+Assemble the pull request description from the batch results, update the PR, and mark it ready for review.
 
-For each child in `batch_final_view`, include:
-- `name`: child workflow name
-- `outcome`: `success`, `failure`, or `skipped`
-- `reason`: failure or skip reason (if applicable)
-- `reason_source`: where the reason came from
-- `skipped_because_chain`: dependency chain that caused the skip (if skipped)
+1. Read `koto context get work-on-plan batch_final_view` to get per-child outcome data.
+2. Assemble a PR description. For each child include:
+   - `name`: child workflow name
+   - `outcome`: `success`, `failure`, or `skipped`
+   - `reason`: failure or skip reason (if applicable)
+   - `reason_source`: where the reason came from
+   - `skipped_because_chain`: dependency chain that caused the skip (if skipped)
+3. Update the PR description: `gh pr edit <pr-number> --body "<assembled description>"`
+4. Mark ready for review: `gh pr ready <pr-number>`
 
-Create or update the PR with the assembled description. Submit `pr_status: created` with `pr_url`, or `pr_status: creation_failed` if the PR cannot be created.
+Submit `finalization_status: updated` with `pr_url` after the PR is updated and marked ready, or `finalization_status: update_failed` if either step fails.
+
+## ci_monitor
+
+Monitor CI on the shared branch until all checks pass.
+
+Read `references/phases/phase-6-pr.md` for CI monitoring guidance.
+
+If the gate fails (CI not yet green), fix what you can and submit `ci_outcome: failing_fixed`.
+If failures are unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
 
 ## escalate
 
@@ -148,10 +210,10 @@ Submit `failure_reason` with this summary. The workflow routes to `done_blocked`
 
 ## done
 
-Plan orchestration is complete. All per-issue children succeeded and the PR has been created or updated.
+Plan orchestration is complete. All per-issue children succeeded, the PR description has been updated, and CI is green.
 
 ## done_blocked
 
-Plan orchestration reached a blocking condition. Either some children failed and could not be resolved, or the PR could not be created after successful batch completion.
+Plan orchestration reached a blocking condition. One of: orchestrator setup failed, some children failed and could not be resolved, the PR could not be finalized, or CI failures are unresolvable.
 
 The `failure_reason` context key contains the details. Use `koto context get work-on-plan failure_reason` to read it.

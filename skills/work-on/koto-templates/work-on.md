@@ -780,8 +780,11 @@ Evidence schema:
 Read `references/phases/phase-1-setup.md` for branch naming and baseline format.
 For plan-backed tasks, use ARTIFACT_PREFIX as the baseline key.
 
+When `SHARED_BRANCH` is set, submit `status: override` — the orchestrator has already
+created the branch. Commit directly to `SHARED_BRANCH` without creating a new one.
+
 Submit `status: completed` after creating the branch and baseline, `status: override`
-if reusing an existing branch, or `status: blocked`.
+if reusing an existing branch (including when `SHARED_BRANCH` is set), or `status: blocked`.
 
 ## staleness_check
 

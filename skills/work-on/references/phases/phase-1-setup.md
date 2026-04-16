@@ -23,6 +23,8 @@ When none of the above apply, create a new branch:
 - `fix/<N>-<desc>` for bug fixes
 - `chore/<N>-<desc>` for maintenance
 
+Continue with baseline establishment regardless of which branch path was taken — the baseline step applies in all cases.
+
 ### Establish Baseline
 
 Run the project's test suite. Use project-specific commands from the language
