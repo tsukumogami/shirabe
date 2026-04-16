@@ -2,9 +2,9 @@
 name: work-on-plan
 version: "1.0"
 description: >
-  Plan orchestrator template. Creates a shared branch and draft PR, spawns and
-  coordinates per-issue work-on.md children via koto v0.8.0 batch execution,
-  finalizes the PR description, marks it ready, and monitors CI to green.
+  Plan orchestrator template. Creates a shared branch and draft PR, spawns
+  per-issue work-on.md children, awaits batch completion, finalizes the PR
+  description, marks it ready, and monitors CI to green.
 initial_state: orchestrator_setup
 
 variables:
@@ -50,8 +50,6 @@ states:
       default_template: work-on.md
     transitions:
       # Gate guards ensure children are complete; evidence routes success vs attention.
-      # Note: koto v0.8.0 children-complete gate exposes all_complete, not all_success/needs_attention.
-      # W4 warning is expected — routing is evidence-driven per the design intent.
       - target: pr_finalization
         when:
           batch_outcome: all_success
@@ -166,7 +164,7 @@ Submit `status: completed` after branch and draft PR exist, or `status: blocked`
 
 Spawn and coordinate per-issue work-on children from the PLAN document.
 
-**First tick**: run `plan-to-tasks.sh`, inject the shared branch into each task's vars, then submit to koto:
+**Tick 1 — spawn**: run `plan-to-tasks.sh`, inject the shared branch into each task's vars, then submit `tasks`:
 
 ```bash
 PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
@@ -178,11 +176,23 @@ koto next work-on-plan --with-data @"$TMP"
 rm -f "$TMP"
 ```
 
-Submit `tasks` as a JSON array of `{name, vars, waits_on}` objects — with `SHARED_BRANCH` injected into each task's `vars`. koto materializes one child per task, using `work-on.md` as the default template with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches.
+koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches.
 
-Once children are dispatched, monitor their progress via `koto workflows`. When all children have reached terminal states, inspect their outcomes via `koto status` and `koto context get` to determine the batch outcome, then submit `batch_outcome`:
-- `all_success` if `gates.batch_done.all_complete` is true and all children reached a non-failure terminal state
-- `needs_attention` if `gates.batch_done.all_complete` is true but some children reached `done_blocked` or were skipped
+**Tick 2 — complete**: once all children reach terminal states, the `batch_done` gate unblocks. Re-submit the same `tasks` array alongside `batch_outcome` — koto deduplicates children that already exist:
+
+```bash
+PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
+TMP=$(mktemp)
+TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
+TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "impl/$PLAN_SLUG" '[.[] | .vars.SHARED_BRANCH = $b]')
+echo "{\"tasks\": $TASKS_WITH_BRANCH, \"batch_outcome\": \"all_success\"}" > "$TMP"
+koto next work-on-plan --with-data @"$TMP"
+rm -f "$TMP"
+```
+
+Check progress at any time with `koto status work-on-plan`. Set `batch_outcome` to:
+- `all_success` if all children reached a non-failure terminal state
+- `needs_attention` if any children reached `done_blocked` or were skipped
 
 ## pr_finalization
 
