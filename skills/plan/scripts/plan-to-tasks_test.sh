@@ -492,6 +492,279 @@ FIXTURE
     teardown
 }
 
+# ── Test: <<ISSUE:N>> placeholder dependencies (single-pr) ──
+test_single_pr_placeholder_deps() {
+    local name="single-pr <<ISSUE:N>> placeholder deps"
+    setup
+
+    cat > "$TEST_DIR/plan-placeholder.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Placeholder Test"
+issue_count: 3
+---
+
+# PLAN: placeholder-test
+
+## Status
+
+Draft
+
+## Scope Summary
+
+Test plan for placeholder dependency format.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: add base component
+
+**Goal**: Build the base.
+
+**Dependencies**: None.
+
+---
+
+### Issue 2: feat: add middle layer
+
+**Goal**: Add middle layer.
+
+**Dependencies**: None.
+
+---
+
+### Issue 3: feat: add top layer
+
+**Goal**: Add top layer dependent on Issue 2.
+
+**Dependencies**: <<ISSUE:2>>
+
+## Dependency Graph
+
+(omitted)
+
+## Implementation Sequence
+
+Critical path: Issue 2 -> Issue 3.
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-placeholder.md" 2>/dev/null)
+
+    # Assert: valid JSON array with 3 elements
+    local count
+    count=$(echo "$output" | jq 'length' 2>/dev/null) || true
+    if [[ "$count" != "3" ]]; then
+        fail "$name" "expected 3 elements, got: $count (output: $output)"
+        teardown
+        return
+    fi
+    pass "$name (array length)"
+
+    # Assert: Issue 3 waits_on Issue 2's generated name
+    local issue2_name issue3_waits
+    issue2_name=$(echo "$output" | jq -r '.[1].name' 2>/dev/null) || true
+    issue3_waits=$(echo "$output" | jq -r '.[2].waits_on[0]' 2>/dev/null) || true
+    if [[ "$issue3_waits" != "$issue2_name" ]]; then
+        fail "$name" "Issue 3 should wait on '${issue2_name}', got: $issue3_waits"
+    else
+        pass "$name (<<ISSUE:2>> resolves to issue 2 name)"
+    fi
+
+    # Assert: Issue 1 and Issue 2 have no waits_on
+    local waits_1 waits_2
+    waits_1=$(echo "$output" | jq -r '.[0].waits_on | length' 2>/dev/null) || true
+    waits_2=$(echo "$output" | jq -r '.[1].waits_on | length' 2>/dev/null) || true
+    if [[ "$waits_1" != "0" || "$waits_2" != "0" ]]; then
+        fail "$name" "Issues 1 and 2 should have empty waits_on, got: $waits_1, $waits_2"
+    else
+        pass "$name (issues 1 and 2 have no waits_on)"
+    fi
+
+    teardown
+}
+
+# ── Test: section-header ### Dependencies format (single-pr) ──
+test_single_pr_section_header_deps() {
+    local name="single-pr section-header ### Dependencies deps"
+    setup
+
+    cat > "$TEST_DIR/plan-section-deps.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Section Header Test"
+issue_count: 2
+---
+
+# PLAN: section-header-test
+
+## Status
+
+Draft
+
+## Scope Summary
+
+Test plan for section-header dependency format.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: add foundation layer
+
+**Goal**: Build the foundation.
+
+**Dependencies**: None.
+
+---
+
+### Issue 2: feat: add extension layer
+
+**Goal**: Add extension.
+
+### Dependencies
+
+Issue 1
+
+## Dependency Graph
+
+(omitted)
+
+## Implementation Sequence
+
+Critical path: Issue 1 -> Issue 2.
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-section-deps.md" 2>/dev/null)
+
+    # Assert: valid JSON array with 2 elements
+    local count
+    count=$(echo "$output" | jq 'length' 2>/dev/null) || true
+    if [[ "$count" != "2" ]]; then
+        fail "$name" "expected 2 elements, got: $count (output: $output)"
+        teardown
+        return
+    fi
+    pass "$name (array length)"
+
+    # Assert: Issue 2 waits_on Issue 1's generated name
+    local issue1_name issue2_waits
+    issue1_name=$(echo "$output" | jq -r '.[0].name' 2>/dev/null) || true
+    issue2_waits=$(echo "$output" | jq -r '.[1].waits_on[0]' 2>/dev/null) || true
+    if [[ "$issue2_waits" != "$issue1_name" ]]; then
+        fail "$name" "Issue 2 should wait on '${issue1_name}', got: $issue2_waits"
+    else
+        pass "$name (### Dependencies section resolves to issue 1 name)"
+    fi
+
+    # Assert: Issue 1 has no waits_on
+    local waits_1
+    waits_1=$(echo "$output" | jq -r '.[0].waits_on | length' 2>/dev/null) || true
+    if [[ "$waits_1" != "0" ]]; then
+        fail "$name" "Issue 1 should have empty waits_on, got length: $waits_1"
+    else
+        pass "$name (issue 1 waits_on empty)"
+    fi
+
+    teardown
+}
+
+# ── Test: long title is truncated to 64 chars (single-pr) ──
+test_single_pr_name_truncation() {
+    local name="single-pr long title truncated to 64 chars"
+    setup
+
+    cat > "$TEST_DIR/plan-long-name.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Truncation Test"
+issue_count: 1
+---
+
+# PLAN: truncation-test
+
+## Status
+
+Draft
+
+## Scope Summary
+
+Test plan for name truncation.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: fix(plan-to-tasks): fix placeholder parsing dependency format and name truncation to avoid koto length errors
+
+**Goal**: Fix all the parsing bugs.
+
+**Dependencies**: None.
+
+## Dependency Graph
+
+(omitted)
+
+## Implementation Sequence
+
+Single issue.
+FIXTURE
+
+    local output stderr_output
+    stderr_output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-long-name.md" 2>&1 >/dev/null) || true
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-long-name.md" 2>/dev/null)
+
+    # Assert: script emits a truncation warning to stderr
+    if echo "$stderr_output" | grep -qi "truncat"; then
+        pass "$name (truncation warning emitted)"
+    else
+        fail "$name" "expected truncation warning on stderr, got: $stderr_output"
+    fi
+
+    # Assert: valid JSON (script should not die)
+    local count
+    count=$(echo "$output" | jq 'length' 2>/dev/null) || true
+    if [[ "$count" != "1" ]]; then
+        fail "$name" "expected 1 element, got: $count (output: $output)"
+        teardown
+        return
+    fi
+    pass "$name (array length)"
+
+    # Assert: generated name is at most 64 chars
+    local generated_name name_len
+    generated_name=$(echo "$output" | jq -r '.[0].name' 2>/dev/null) || true
+    name_len=${#generated_name}
+    if [[ $name_len -gt 64 ]]; then
+        fail "$name" "expected name length <= 64, got: $name_len (name: $generated_name)"
+    else
+        pass "$name (name length ${name_len} <= 64)"
+    fi
+
+    # Assert: name still starts with outline-
+    if [[ ! "$generated_name" =~ ^outline- ]]; then
+        fail "$name" "expected name to start with 'outline-', got: $generated_name"
+    else
+        pass "$name (name starts with outline-)"
+    fi
+
+    teardown
+}
+
 # ── Run all tests ──
 echo "Running plan-to-tasks.sh tests..." >&2
 echo "" >&2
@@ -502,6 +775,9 @@ test_single_pr_diamond
 test_missing_file_exit_code
 test_wrong_schema_exit_code
 test_missing_execution_mode
+test_single_pr_placeholder_deps
+test_single_pr_section_header_deps
+test_single_pr_name_truncation
 
 echo "" >&2
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed" >&2
