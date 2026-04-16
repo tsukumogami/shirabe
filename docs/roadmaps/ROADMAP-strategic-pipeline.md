@@ -241,8 +241,8 @@ the parts that are now captured in code or git history.
 
 **Dependencies:** Feature 5 (cascade needs roadmap enrichment to be in
 place), Feature 3 (cascade reads upstream chain from frontmatter fields)
-**Status:** Not Started
-**Downstream:** Needs PRD
+**Status:** In Progress
+**Downstream:** DESIGN-work-on-koto-unification.md (Current)
 
 Changes:
 - Define the cascade trigger mechanism (per-issue vs milestone-level)
@@ -405,7 +405,7 @@ Feature 12 (Artifact Type Decision Reference) --- independent
 | Feature 5: Plan Skill Rework | Done | PRD-plan-skill-rework.md (Done), DESIGN-plan-skill-rework.md (Current) |
 | Feature 6: Pipeline Documentation | Done | PRD-pipeline-documentation.md (Done) |
 | Feature 7: Crystallize Framework Calibration | Not Started | -- |
-| Feature 8: Completion Cascade Automation | Not Started | -- |
+| Feature 8: Completion Cascade Automation | In Progress | DESIGN-work-on-koto-unification.md (Current) |
 | Feature 9: Upstream Context Propagation | Not Started | -- |
 | Feature 10: Progress Consistency | Not Started | -- |
 | Feature 11: Lifecycle Script Hardening | Not Started | -- |
