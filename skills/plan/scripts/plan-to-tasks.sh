@@ -240,7 +240,9 @@ process_single_pr() {
     local -a issue_titles=()
     local -a issue_deps_raw=()
 
+    local KOTO_NAME_MAX=64
     local in_section=0
+    local in_deps_section=0
     local current_number=""
     local current_title=""
     local current_deps=""
@@ -268,6 +270,7 @@ process_single_pr() {
             current_number="${BASH_REMATCH[1]}"
             current_title="${BASH_REMATCH[2]}"
             current_deps=""
+            in_deps_section=0
             continue
         fi
 
@@ -277,6 +280,33 @@ process_single_pr() {
             # Remove trailing period
             current_deps="${current_deps%.}"
             continue
+        fi
+
+        # Detect section-header dependency format: ### Dependencies
+        if [[ -n "$current_number" && "$line" =~ ^###[[:space:]]+Dependencies([[:space:]]|$) ]]; then
+            in_deps_section=1
+            continue
+        fi
+
+        # Accumulate lines inside a ### Dependencies section
+        if [[ -n "$current_number" && $in_deps_section -eq 1 ]]; then
+            if [[ -z "$line" ]]; then
+                continue
+            elif [[ "$line" =~ ^---$ ]]; then
+                in_deps_section=0
+                continue
+            elif [[ "$line" =~ ^### ]]; then
+                # Another heading ends the deps section; fall through to process it
+                in_deps_section=0
+            else
+                # Accumulate the line as dependency content
+                if [[ -n "$current_deps" ]]; then
+                    current_deps="${current_deps}, ${line}"
+                else
+                    current_deps="$line"
+                fi
+                continue
+            fi
         fi
     done < "$file"
 
@@ -307,6 +337,17 @@ process_single_pr() {
 
         local base_name="outline-${slug}"
 
+        # Truncate name if it exceeds koto's maximum length
+        if [[ ${#base_name} -gt $KOTO_NAME_MAX ]]; then
+            local orig_base="$base_name"
+            base_name="${base_name:0:$KOTO_NAME_MAX}"
+            # Strip trailing dash introduced by truncation
+            while [[ "${base_name: -1}" == "-" ]]; do
+                base_name="${base_name%?}"
+            done
+            log "Warning: name '${orig_base}' (${#orig_base} chars) truncated to '${base_name}'"
+        fi
+
         if ! validate_name "$base_name"; then
             die_schema "generated name '${base_name}' violates R9 regex ^[a-z][a-z0-9-]*$"
         fi
@@ -323,6 +364,12 @@ process_single_pr() {
             ((count_val++)) || true
             slug_counts[$base_name]=$count_val
             local suffixed_name="${base_name}-${count_val}"
+            if [[ ${#suffixed_name} -gt $KOTO_NAME_MAX ]]; then
+                suffixed_name="${suffixed_name:0:$KOTO_NAME_MAX}"
+                while [[ "${suffixed_name: -1}" == "-" ]]; do
+                    suffixed_name="${suffixed_name%?}"
+                done
+            fi
             if ! validate_name "$suffixed_name"; then
                 die_schema "generated name '${suffixed_name}' violates R9 regex ^[a-z][a-z0-9-]*$"
             fi
@@ -345,6 +392,14 @@ process_single_pr() {
 
         # Parse waits_on from deps_raw
         local waits_on=()
+
+        # Normalize <<ISSUE:N>> placeholders to "Issue N" before parsing
+        local re_ph='<<ISSUE:([0-9]+)>>'
+        while [[ "$deps_raw" =~ $re_ph ]]; do
+            local ph_num="${BASH_REMATCH[1]}"
+            deps_raw="${deps_raw/<<ISSUE:${ph_num}>>/Issue ${ph_num}}"
+        done
+
         if [[ "$deps_raw" != "None" && -n "$deps_raw" ]]; then
             # Extract all "Issue N" references
             local remaining="$deps_raw"
