@@ -430,15 +430,53 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "After CI passes for a plan orchestration, what does the plan_completion state do?",
-      "expected_output": "Agent reads the completion cascade steps from the work-on template: deletes the PLAN doc via git rm, transitions the DESIGN doc to Current using skills/design/scripts/transition-status.sh, transitions related PRDs to Done using skills/prd/scripts/transition-status.sh, updates the ROADMAP feature status, and transitions the ROADMAP to Done if all features are complete. Submits cascade_status: completed, partial, or skipped depending on what upstream links were found.",
+      "expected_output": "Agent invokes skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}} as the plan_completion step, reads cascade_status from the JSON output, and submits it to koto. Does not execute the cascade steps individually.",
       "files": [],
       "expectations": [
-        "Agent plans to git rm the PLAN doc and push after implementation is complete",
-        "Agent plans to run skills/design/scripts/transition-status.sh to transition the DESIGN doc to Current",
-        "Agent plans to run skills/prd/scripts/transition-status.sh to transition related PRDs to Done",
-        "Agent plans to update the ROADMAP feature status and downstream links to reflect completion",
-        "Agent plans to transition the ROADMAP to Done if all features are complete",
-        "Agent plans to submit cascade_status: completed when all steps ran, partial when some upstream links were missing, skipped when PLAN had no upstream field"
+        "Agent invokes run-cascade.sh --push {{PLAN_DOC}} as the plan_completion step rather than executing the cascade steps individually",
+        "Agent reads cascade_status from the JSON output emitted by run-cascade.sh",
+        "Agent submits cascade_status to koto (completed, partial, or skipped)",
+        "Agent does NOT manually git rm the PLAN doc, run transition-status.sh, or update ROADMAP entries directly"
+      ]
+    },
+    {
+      "id": 27,
+      "name": "e2e-cascade-design-roadmap",
+      "tier": 2,
+      "mode": "execute",
+      "prompt": "Run the plan_completion cascade for skills/work-on/evals/fixtures/plans/PLAN-cascade-test-short.md",
+      "expected_output": "Agent runs run-cascade.sh --push on PLAN-cascade-test-short.md. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-short.md to Current, updates the ROADMAP-cascade-test.md Feature 1 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed.",
+      "files": [
+        "skills/work-on/evals/fixtures/plans/PLAN-cascade-test-short.md",
+        "skills/work-on/evals/fixtures/designs/DESIGN-cascade-test-short.md",
+        "skills/work-on/evals/fixtures/roadmaps/ROADMAP-cascade-test.md"
+      ],
+      "expectations": [
+        "DESIGN-cascade-test-short.md is transitioned to Current (status field updated, file may move to current/)",
+        "ROADMAP-cascade-test.md Feature 1 Status is updated to Done",
+        "ROADMAP-cascade-test.md Feature 1 Downstream references the DESIGN doc at Current",
+        "cascade_status is completed"
+      ]
+    },
+    {
+      "id": 28,
+      "name": "e2e-cascade-design-prd-roadmap",
+      "tier": 2,
+      "mode": "execute",
+      "prompt": "Run the plan_completion cascade for skills/work-on/evals/fixtures/plans/PLAN-cascade-test-full.md",
+      "expected_output": "Agent runs run-cascade.sh --push on PLAN-cascade-test-full.md. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-full.md to Current, transitions PRD-cascade-test-full.md to Done, updates ROADMAP-cascade-test.md Feature 2 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed.",
+      "files": [
+        "skills/work-on/evals/fixtures/plans/PLAN-cascade-test-full.md",
+        "skills/work-on/evals/fixtures/designs/DESIGN-cascade-test-full.md",
+        "skills/work-on/evals/fixtures/prds/PRD-cascade-test-full.md",
+        "skills/work-on/evals/fixtures/roadmaps/ROADMAP-cascade-test.md"
+      ],
+      "expectations": [
+        "DESIGN-cascade-test-full.md is transitioned to Current",
+        "PRD-cascade-test-full.md is transitioned to Done",
+        "ROADMAP-cascade-test.md Feature 2 Status is updated to Done",
+        "ROADMAP-cascade-test.md Feature 2 Downstream references the DESIGN doc at Current",
+        "cascade_status is completed"
       ]
     }
   ]
