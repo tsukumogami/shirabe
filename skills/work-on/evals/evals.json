@@ -456,7 +456,8 @@
         "ROADMAP-cascade-test.md Feature 1 Status is updated to Done",
         "ROADMAP-cascade-test.md Feature 1 Downstream references the DESIGN doc at Current",
         "cascade_status is completed"
-      ]
+      ],
+      "scenario": "e2e-cascade-short"
     },
     {
       "id": 28,
@@ -477,7 +478,8 @@
         "ROADMAP-cascade-test.md Feature 2 Status is updated to Done",
         "ROADMAP-cascade-test.md Feature 2 Downstream references the DESIGN doc at Current",
         "cascade_status is completed"
-      ]
+      ],
+      "scenario": "e2e-cascade-full"
     }
   ]
 }
