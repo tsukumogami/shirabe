@@ -1,0 +1,34 @@
+{
+  "topic": "completion-cascade",
+  "decisions": [
+    {
+      "id": 1,
+      "question": "Chain walking + implementation form: generic upstream-chain walker vs. hardcoded sequence; shell script vs. directive prose.",
+      "status": "complete",
+      "complexity": "critical",
+      "report_file": "wip/design_completion-cascade_decision_1_report.md",
+      "chosen": "Generic chain walker + shell script",
+      "confidence": "high"
+    },
+    {
+      "id": 2,
+      "question": "Compression strategy: what constitutes removable boilerplate in each artifact type, and how to strip safely.",
+      "status": "complete",
+      "complexity": "standard",
+      "report_file": "wip/design_completion-cascade_decision_2_report.md",
+      "chosen": "Strip Implementation Issues from DESIGN; leave PRD body untouched",
+      "confidence": "high"
+    },
+    {
+      "id": 3,
+      "question": "Utilities sharing: how shirabe reimplements logic from private tools/ci scripts without a runtime dependency.",
+      "status": "complete",
+      "complexity": "standard",
+      "report_file": "wip/design_completion-cascade_decision_3_report.md",
+      "chosen": "Inline utilities in the cascade script",
+      "confidence": "high"
+    }
+  ],
+  "cross_validation": "passed",
+  "round": 0
+}
