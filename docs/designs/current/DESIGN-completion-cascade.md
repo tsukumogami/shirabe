@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Current
 problem: |
   After a plan's implementation completes, a sequence of artifact lifecycle
   transitions runs manually: delete the PLAN doc, move the DESIGN to Current,
@@ -28,7 +28,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Current
 
 ## Context and Problem Statement
 
