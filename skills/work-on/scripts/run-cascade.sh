@@ -43,6 +43,7 @@ STEPS_JSON=""      # accumulates JSON step objects, comma-separated
 ANY_FAILED=false
 STAGED_FILES=()    # files staged for commit
 HANDLE_DESIGN_NEW_PATH=""  # return value from handle_design (avoids subshell capture)
+CASCADE_DESIGN_PATH=""     # path to the DESIGN doc after transition (set in main loop for use by handle_roadmap)
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -303,7 +304,7 @@ handle_prd() {
         return 1
     fi
 
-    git add "$path"
+    git add "$path" || true
     STAGED_FILES+=("$path")
     add_step "transition_prd" "$path" "$found_in" "ok" ""
 }
@@ -325,7 +326,6 @@ handle_roadmap() {
     downstream_line=$(grep -n -F "$plan_slug" "$path" | grep -i "Downstream:" | head -1 | cut -d: -f1) || true
 
     if [[ -z "$downstream_line" ]]; then
-        ANY_FAILED=true
         add_step "update_roadmap_feature" "$path" "$found_in" "skipped" \
             "searched $path for a feature whose Downstream: field references plan slug '$plan_slug' (from $found_in), but no matching feature entry was found — ROADMAP feature status was not updated"
         return 0
@@ -333,41 +333,53 @@ handle_roadmap() {
 
     # Walk up from downstream_line to find the enclosing ### Feature N: heading
     local feature_line
-    feature_line=$(head -n "$downstream_line" "$path" | grep -n "^### Feature" | tail -1 | cut -d: -f1) || true
+    feature_line=$(head -n "$downstream_line" "$path" | grep -n "^### " | tail -1 | cut -d: -f1) || true
 
     if [[ -z "$feature_line" ]]; then
-        ANY_FAILED=true
         add_step "update_roadmap_feature" "$path" "$found_in" "skipped" \
             "searched $path for a feature whose Downstream: field references plan slug '$plan_slug' (from $found_in), but no matching feature entry was found — ROADMAP feature status was not updated"
         return 0
     fi
 
-    # Update the feature's **Status:** to Done using awk with ENVIRON
-    # Find the **Status:** line within the feature entry (between feature_line and next ###)
-    export CASCADE_PLAN_SLUG="$plan_slug"
+    # Export variables for all awk substitutions; use ENVIRON["var"] inside awk (not -v)
+    export CASCADE_FEATURE_LINE="$feature_line"
+    export CASCADE_DOWNSTREAM_LINE="$downstream_line"
+
+    # Update **Status:** for this feature entry using ENVIRON (not -v)
     local tmp
     tmp=$(mktemp)
-
-    # Update **Status:** field for this specific feature entry
-    awk -v fline="$feature_line" '
+    awk '
+        BEGIN { fline = ENVIRON["CASCADE_FEATURE_LINE"] + 0 }
         NR == fline { in_feature = 1 }
         in_feature && /^\*\*Status:\*\*/ {
-            sub(/\*\*Status:\*\*.*/, "**Status:** Done")
+            print "**Status:** Done"
             in_feature = 0
+            next
         }
-        in_feature && NR > fline && /^###/ { in_feature = 0 }
+        in_feature && NR > fline && /^### / { in_feature = 0 }
         { print }
     ' "$path" > "$tmp" && mv "$tmp" "$path"
 
-    # Update **Downstream:** to include "Done" marker
-    local design_path
-    design_path=$(get_frontmatter_field "upstream" "$found_in") || true
-
-    # Get design basename for downstream reference
+    # Update **Downstream:** to reference the DESIGN doc at Current using ENVIRON (not -v)
     local design_ref=""
-    if [[ -n "$design_path" ]]; then
-        design_ref=$(basename "$design_path")
+    if [[ -n "${CASCADE_DESIGN_PATH:-}" ]]; then
+        design_ref=$(basename "$CASCADE_DESIGN_PATH")
     fi
+    export CASCADE_DESIGN_REF="$design_ref"
+    tmp=$(mktemp)
+    awk '
+        BEGIN { dsline = ENVIRON["CASCADE_DOWNSTREAM_LINE"] + 0 }
+        NR == dsline && /^\*\*Downstream:\*\*/ {
+            ref = ENVIRON["CASCADE_DESIGN_REF"]
+            if (ref != "") {
+                print "**Downstream:** " ref " (Current)"
+            } else {
+                print
+            }
+            next
+        }
+        { print }
+    ' "$path" > "$tmp" && mv "$tmp" "$path"
 
     add_step "update_roadmap_feature" "$path" "$found_in" "ok" ""
 
@@ -383,25 +395,26 @@ handle_roadmap() {
     done <<< "$feature_statuses"
 
     if [[ "$all_done" == "true" ]]; then
-        log_info "All ROADMAP features Done. Checking open issues before transitioning ROADMAP."
+        log_info "All ROADMAP features Done. Checking all issue URLs in ROADMAP before transitioning."
 
-        # Find any open issue URLs in the feature entry
+        # Check all GitHub issue URLs in the entire ROADMAP file (not just the current feature)
         local open_issues=false
+        local open_issue_url=""
         local issue_urls
-        issue_urls=$(sed -n "${feature_line},/^###/p" "$path" | grep -oE 'https://github\.com/[^/]+/[^/]+/issues/[0-9]+' || true)
+        issue_urls=$(grep -oE 'https://github\.com/[^/]+/[^/]+/issues/[0-9]+' "$path" || true)
         while IFS= read -r issue_url; do
             [[ -z "$issue_url" ]] && continue
             if ! check_issue_closed "$issue_url"; then
                 open_issues=true
-                local feature_name
-                feature_name=$(sed -n "${feature_line}p" "$path" | sed 's/^### //')
-                add_step "transition_roadmap" "$path" "$found_in" "skipped" \
-                    "feature '$feature_name' in $path references issue $issue_url which is still open — not transitioning $path to Done; close the issue first or run the cascade again after it closes"
+                open_issue_url="$issue_url"
                 break
             fi
         done <<< "$issue_urls"
 
-        if [[ "$open_issues" == "false" ]]; then
+        if [[ "$open_issues" == "true" ]]; then
+            add_step "transition_roadmap" "$path" "$found_in" "skipped" \
+                "$path references issue $open_issue_url which is still open — not transitioning $path to Done; close the issue first or run the cascade again after it closes"
+        else
             local script="$REPO_ROOT/skills/roadmap/scripts/transition-status.sh"
             local result
             if ! result=$(bash "$script" "$path" Done 2>&1); then
@@ -416,7 +429,7 @@ handle_roadmap() {
         fi
     fi
 
-    git add "$path"
+    git add "$path" || true
     STAGED_FILES+=("$path")
 }
 
@@ -562,8 +575,10 @@ while [[ -n "$current_upstream" ]]; do
             # Continue chain from the (possibly moved) design doc
             if [[ -n "$HANDLE_DESIGN_NEW_PATH" ]] && [[ -f "$HANDLE_DESIGN_NEW_PATH" ]]; then
                 current_doc="$HANDLE_DESIGN_NEW_PATH"
+                CASCADE_DESIGN_PATH="$HANDLE_DESIGN_NEW_PATH"
             else
                 current_doc="$next_path"
+                CASCADE_DESIGN_PATH="$next_path"
             fi
             ;;
         PRD-*)

@@ -415,7 +415,7 @@ states:
         command: "test \"$(git log --oneline main..HEAD | wc -l)\" -gt 0"
       tests_passing:
         type: command
-        command: "go test ./... 2>/dev/null"
+        command: "[ ! -f go.mod ] || go test ./... 2>/dev/null"
     accepts:
       implementation_status:
         type: enum
