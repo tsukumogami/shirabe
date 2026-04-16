@@ -128,15 +128,11 @@ After `pr_finalization`, the workflow enters `ci_monitor` to wait for CI to pass
 
 ### Completion Cascade (plan_completion)
 
-After CI passes, the workflow enters `plan_completion` to clean up plan artifacts and transition upstream documents:
+After CI passes, the workflow enters `plan_completion` and runs `skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}}`.
 
-1. **Delete the PLAN doc** — `git rm <plan-doc>`, commit, push
-2. **Transition DESIGN to Current** — read the PLAN doc's `upstream` field; run `skills/design/scripts/transition-status.sh <design-path> Current`, commit, push
-3. **Transition PRDs to Done** — read the DESIGN doc's `upstream` field for PRD paths; run `skills/prd/scripts/transition-status.sh <prd-path> Done` for each, commit, push
-4. **Update ROADMAP feature** — read the PRD's `upstream` field for the ROADMAP; update the relevant feature's status and downstream links, commit, push
-5. **Transition ROADMAP to Done** — if all features in the ROADMAP are Done, run `skills/roadmap/scripts/transition-status.sh <roadmap-path> Done`, commit, push
+The script walks the `upstream` frontmatter chain from the PLAN doc and applies the appropriate lifecycle transition at each node: DESIGN → Current, PRD → Done, ROADMAP feature status update, and optional ROADMAP → Done when all features complete. It emits a JSON result containing `cascade_status` (`completed | partial | skipped`) and a `steps` array describing what ran.
 
-Submit `cascade_status: completed` when all applicable steps ran, `cascade_status: partial` when some upstream links were missing, or `cascade_status: skipped` when the PLAN doc had no `upstream` field.
+Submit `cascade_status` from the JSON output. All three values route to `done`.
 
 ---
 
