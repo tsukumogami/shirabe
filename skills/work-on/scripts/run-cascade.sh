@@ -63,15 +63,17 @@ log_info() {
 get_frontmatter_field() {
     local field="$1"
     local doc="$2"
+    # Use index() for literal prefix match — avoids regex injection when field
+    # names contain metacharacters (e.g. dots, plus signs).
     awk -v field="$field" '
         /^---$/ { count++; next }
         count == 2 { exit }
-        count == 1 && $0 ~ "^" field ": " {
-            sub("^" field ": *", "")
+        count == 1 && index($0, field ": ") == 1 {
+            val = substr($0, length(field ": ") + 1)
             # Strip surrounding quotes if present
-            gsub(/^'"'"'|'"'"'$/, "")
-            gsub(/^"|"$/, "")
-            print
+            gsub(/^'"'"'|'"'"'$/, "", val)
+            gsub(/^"|"$/, "", val)
+            print val
             exit
         }
     ' "$doc" 2>/dev/null || true
@@ -552,10 +554,9 @@ while [[ -n "$current_upstream" ]]; do
 
         if [[ ! -f "$next_path" ]]; then
             detail="upstream field in $found_in references $next_path, but that file does not exist — cannot transition $artifact_type to $target_status"
-        elif [[ -L "$next_path" ]] || [[ ! -f "$next_path" ]]; then
-            detail="upstream field in $found_in references $next_path, which resolves outside the repository root — refusing to operate on files outside the working tree"
         else
-            detail="upstream field in $found_in references $next_path, but that file is not tracked by git — it may be a new uncommitted file or a typo in the upstream field"
+            # File exists but validate_upstream_path rejected it (symlink, outside repo, or untracked)
+            detail="upstream field in $found_in references $next_path, but that file is not tracked by git — it may be a new uncommitted file, a symlink, or a typo in the upstream field"
         fi
 
         case "$node_name" in
