@@ -126,6 +126,18 @@ In `pr_finalization` state, read `batch_final_view` and assemble a PR descriptio
 
 After `pr_finalization`, the workflow enters `ci_monitor` to wait for CI to pass. Fix any failures and submit `ci_outcome: failing_fixed`, or escalate with `ci_outcome: failing_unresolvable`.
 
+### Completion Cascade (plan_completion)
+
+After CI passes, the workflow enters `plan_completion` to clean up plan artifacts and transition upstream documents:
+
+1. **Delete the PLAN doc** — `git rm <plan-doc>`, commit, push
+2. **Transition DESIGN to Current** — read the PLAN doc's `upstream` field; run `skills/design/scripts/transition-status.sh <design-path> Current`, commit, push
+3. **Transition PRDs to Done** — read the DESIGN doc's `upstream` field for PRD paths; run `skills/prd/scripts/transition-status.sh <prd-path> Done` for each, commit, push
+4. **Update ROADMAP feature** — read the PRD's `upstream` field for the ROADMAP; update the relevant feature's status and downstream links, commit, push
+5. **Transition ROADMAP to Done** — if all features in the ROADMAP are Done, run `skills/roadmap/scripts/transition-status.sh <roadmap-path> Done`, commit, push
+
+Submit `cascade_status: completed` when all applicable steps ran, `cascade_status: partial` when some upstream links were missing, or `cascade_status: skipped` when the PLAN doc had no `upstream` field.
+
 ---
 
 You are assigned to work on the resolved issue. The issue number determined above replaces `<N>` throughout this workflow. The workflow name `<WF>` is the ARTIFACT_PREFIX value: `issue_<N>` for issue-backed, `task_<slug>` for free-form.

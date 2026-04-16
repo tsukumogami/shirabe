@@ -294,7 +294,7 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on docs/plans/PLAN-fixture.md",
-      "expected_output": "Agent detects PLAN.md input, initializes work-on-plan.md template, runs plan-to-tasks.sh to produce tasks JSON, submits tasks to koto via --with-data, monitors children, and when all succeed submits batch_outcome: all_success and routes to pr_coordination.",
+      "expected_output": "Agent detects PLAN.md input, initializes work-on-plan.md template, runs plan-to-tasks.sh to produce tasks JSON, submits tasks to koto via --with-data, monitors children, and when all succeed submits batch_outcome: all_success, routes to pr_finalization, then ci_monitor, then plan_completion where it deletes the PLAN doc and transitions upstream artifacts.",
       "files": [],
       "expectations": [
         "Agent plans to initialize work-on-plan.md template (not work-on.md) for PLAN.md input",
@@ -305,7 +305,8 @@
         "Agent plans to submit tasks field with the JSON array from plan-to-tasks.sh",
         "Agent plans to submit batch_outcome: all_success when all children succeed",
         "Agent plans to route to pr_finalization after all children succeed",
-        "Agent plans to mark the PR ready for review and monitor CI in pr_finalization and ci_monitor states"
+        "Agent plans to mark the PR ready for review and monitor CI in pr_finalization and ci_monitor states",
+        "Agent plans to run plan_completion cascade after CI passes: delete PLAN doc, transition DESIGN to Current, transition PRDs to Done, update ROADMAP feature status"
       ]
     },
     {
@@ -421,6 +422,23 @@
         "For invocation (3) plan mode, agent plans to use work-on-plan.md template (not work-on.md) with PLAN_DOC var",
         "Agent does not reuse or carry over ISSUE_NUMBER, ARTIFACT_PREFIX, or template from one invocation to the next",
         "Each mode submits correct entry evidence: issue_backed uses mode: issue_backed; free_form uses mode: free_form; plan mode initializes plan orchestrator"
+      ]
+    },
+    {
+      "id": 26,
+      "name": "plan-completion-cascade",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "After CI passes for a plan orchestration, what does the plan_completion state do?",
+      "expected_output": "Agent reads the completion cascade steps from the work-on template: deletes the PLAN doc via git rm, transitions the DESIGN doc to Current using skills/design/scripts/transition-status.sh, transitions related PRDs to Done using skills/prd/scripts/transition-status.sh, updates the ROADMAP feature status, and transitions the ROADMAP to Done if all features are complete. Submits cascade_status: completed, partial, or skipped depending on what upstream links were found.",
+      "files": [],
+      "expectations": [
+        "Agent plans to git rm the PLAN doc and push after implementation is complete",
+        "Agent plans to run skills/design/scripts/transition-status.sh to transition the DESIGN doc to Current",
+        "Agent plans to run skills/prd/scripts/transition-status.sh to transition related PRDs to Done",
+        "Agent plans to update the ROADMAP feature status and downstream links to reflect completion",
+        "Agent plans to transition the ROADMAP to Done if all features are complete",
+        "Agent plans to submit cascade_status: completed when all steps ran, partial when some upstream links were missing, skipped when PLAN had no upstream field"
       ]
     }
   ]

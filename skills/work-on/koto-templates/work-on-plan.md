@@ -95,13 +95,13 @@ states:
         type: string
         description: What was fixed or why CI failures are unresolvable
     transitions:
-      - target: done
+      - target: plan_completion
         when:
           ci_outcome: passing
           gates.ci_passing.exit_code: 0
       # failing_fixed: agent pushed a follow-up commit to fix CI; gate may be stale.
       # Agent's direct observation is the authoritative signal.
-      - target: done
+      - target: plan_completion
         when:
           ci_outcome: failing_fixed
       - target: done_blocked
@@ -109,6 +109,18 @@ states:
           ci_outcome: failing_unresolvable
         context_assignments:
           failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
+      - target: plan_completion
+
+  plan_completion:
+    accepts:
+      cascade_status:
+        type: enum
+        values: [completed, partial, skipped]
+        required: true
+      cascade_detail:
+        type: string
+        description: Summary of what the cascade did or why steps were skipped
+    transitions:
       - target: done
 
   escalate:
@@ -196,6 +208,74 @@ Read `references/phases/phase-6-pr.md` for CI monitoring guidance.
 
 If the gate fails (CI not yet green), fix what you can and submit `ci_outcome: failing_fixed`.
 If failures are unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
+
+## plan_completion
+
+Run the completion cascade: clean up plan artifacts and transition upstream documents.
+
+Read the PLAN doc frontmatter to find the upstream chain, then work through each step.
+Submit `cascade_detail` with a brief summary of what was done.
+
+**Step 1 — Delete the PLAN doc**
+
+```bash
+git rm {{PLAN_DOC}}
+git commit -m "chore: delete PLAN doc after implementation complete"
+git push
+```
+
+**Step 2 — Transition the DESIGN doc to Current**
+
+Read the PLAN doc's `upstream` frontmatter field to find the DESIGN doc path. If present:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/skills/design/scripts/transition-status.sh <design-path> Current
+git add <design-path or new-path>
+git commit -m "docs(design): transition DESIGN doc to Current"
+git push
+```
+
+If `upstream` is absent or the path doesn't exist, skip this step and note it in `cascade_detail`.
+
+**Step 3 — Transition related PRDs to Done**
+
+Read the DESIGN doc's `upstream` frontmatter field to find PRD paths. For each PRD found:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/skills/prd/scripts/transition-status.sh <prd-path> Done
+git add <prd-path>
+git commit -m "docs(prd): transition PRD to Done"
+git push
+```
+
+Skip PRDs that are already Done or don't exist.
+
+**Step 4 — Update ROADMAP feature status**
+
+Read the PRD's `upstream` frontmatter field to find the ROADMAP path. If present, open the ROADMAP and find the feature entry that references this plan's work. Update the feature's `**Status:**` line and the summary table row to reflect completion. Update the `**Downstream:**` field to include the DESIGN doc at Current status.
+
+```bash
+git add <roadmap-path>
+git commit -m "docs(roadmap): update feature status to reflect completion"
+git push
+```
+
+**Step 5 — Transition ROADMAP to Done if all features are complete**
+
+After updating the ROADMAP, check whether every feature in the ROADMAP now has `**Status:** Done`. If all features are Done:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/skills/roadmap/scripts/transition-status.sh <roadmap-path> Done
+git add <roadmap-path>
+git commit -m "docs(roadmap): transition ROADMAP to Done — all features complete"
+git push
+```
+
+**Submitting evidence**
+
+- `cascade_status: completed` — all applicable steps ran successfully
+- `cascade_status: partial` — some steps ran, some were skipped due to missing upstream links or files
+- `cascade_status: skipped` — PLAN doc had no `upstream` field; no upstream documents to transition
 
 ## escalate
 
