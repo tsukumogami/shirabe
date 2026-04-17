@@ -16,3 +16,6 @@ jobs:
 
       - name: Run plan-to-tasks tests
         run: bash skills/plan/scripts/plan-to-tasks_test.sh
+
+      - name: Run validate-plan tests
+        run: bash skills/plan/scripts/validate-plan_test.sh
