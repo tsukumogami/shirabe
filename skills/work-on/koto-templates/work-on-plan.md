@@ -149,6 +149,8 @@ states:
 
 ## orchestrator_setup
 
+Before running the script, check the current branch context. Derive `PLAN_SLUG` from `{{PLAN_DOC}}` (strip the `PLAN-` prefix), then run `git rev-parse --abbrev-ref HEAD` to get the current branch and `gh pr list --head <current-branch> --json number --jq '.[0].number'` to find any open PR on it. If the current branch is non-main and an open PR already covers this work, submit `status: override` rather than running the creation script.
+
 Create the shared branch and draft PR. This runs once before children are spawned.
 
 ```bash
