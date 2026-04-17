@@ -8,6 +8,7 @@ stateDiagram-v2
     ci_monitor --> plan_completion
     escalate --> done_blocked
     orchestrator_setup --> spawn_and_await : status: completed
+    orchestrator_setup --> spawn_and_await : status: override
     orchestrator_setup --> done_blocked : status: blocked
     plan_completion --> done
     pr_finalization --> ci_monitor : finalization_status: updated
