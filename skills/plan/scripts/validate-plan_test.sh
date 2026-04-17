@@ -299,6 +299,39 @@ EOF
     teardown
 }
 
+# ── Test: valid PLAN with Planned upstream exits 0 ──
+# /plan transitions the upstream design Accepted -> Planned when creating the PLAN doc,
+# so Planned must be accepted in CI (which runs after the PLAN doc is created).
+test_valid_with_planned_upstream() {
+    local name="valid PLAN with Planned upstream exits 0"
+    setup
+
+    # Create a tracked design with status Planned (post-/plan transition)
+    cat > "$TEST_DIR/repo/docs/designs/DESIGN-planned.md" <<'EOF'
+---
+status: Planned
+---
+
+# DESIGN: planned
+EOF
+    git -C "$TEST_DIR/repo" add docs/designs/DESIGN-planned.md
+    git -C "$TEST_DIR/repo" commit -q -m "add design"
+
+    write_valid_plan "$TEST_DIR/repo/docs/plans/PLAN-test.md" \
+        "upstream: docs/designs/DESIGN-planned.md"
+
+    local exit_code=0
+    "$VALIDATOR" "$TEST_DIR/repo/docs/plans/PLAN-test.md" 2>/dev/null || exit_code=$?
+
+    if [[ "$exit_code" -eq 0 ]]; then
+        pass "$name"
+    else
+        fail "$name" "expected exit 0, got: $exit_code"
+    fi
+
+    teardown
+}
+
 # ── Test: file not found exits 1 ──
 test_file_not_found() {
     local name="file not found exits 1"
@@ -326,6 +359,7 @@ test_upstream_file_not_found
 test_upstream_file_not_tracked
 test_upstream_wrong_status
 test_valid_with_accepted_upstream
+test_valid_with_planned_upstream
 test_file_not_found
 
 echo "" >&2
