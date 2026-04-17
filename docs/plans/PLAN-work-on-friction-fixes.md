@@ -3,7 +3,7 @@ schema: plan/v1
 status: Draft
 execution_mode: single-pr
 milestone: "Work-on Friction Fixes"
-issue_count: 2
+issue_count: 5
 ---
 
 # PLAN: Work-on Friction Fixes
@@ -14,11 +14,11 @@ Draft
 
 ## Scope Summary
 
-Fix two gaps found during the work-on-hardening execution: a missing topic-input row in the milestone derivation phase reference, and the absence of an override path in the plan orchestrator's setup state for agents that already have an appropriate branch.
+Fix gaps found during the work-on-hardening execution: a missing topic-input row in the milestone derivation phase reference, the absence of an override path in the plan orchestrator's setup state for existing branches, and three workflow gaps that caused agents to blindly create new branches instead of reasoning about the user's intent.
 
 ## Decomposition Strategy
 
-Horizontal decomposition. Both issues address independent gaps with no shared code or ordering constraint. Each is a contained change to one or two files.
+Horizontal decomposition. All issues address independent gaps with no shared code or ordering constraint. Each is a contained change to one or two files.
 
 ## Issue Outlines
 
@@ -55,26 +55,78 @@ Add `status: override` as a valid evidence value in the `orchestrator_setup` sta
 
 **Dependencies**: None
 
+---
+
+### Issue 3: fix(work-on): add branch context check to orchestrator_setup directive
+
+**Goal**
+
+Add a short context-evaluation step to the `orchestrator_setup` directive in `skills/work-on/koto-templates/work-on-plan.md` so agents are prompted to assess whether they are already on an appropriate branch before running the branch-creation script.
+
+**Acceptance Criteria**
+
+- [ ] The `orchestrator_setup` directive instructs the agent to check the current branch and any existing open PR for the plan slug before creating a new branch
+- [ ] The directive explicitly states: if the current branch is non-main and an open PR already covers this work, submit `status: override` rather than running the creation script
+- [ ] The existing script block and `status: completed` / `status: blocked` instructions are unchanged
+
+**Dependencies**: None
+
+---
+
+### Issue 4: fix(work-on): add branch intent pre-flight to plan orchestrator initialization
+
+**Goal**
+
+Add a pre-flight step to the plan orchestrator initialization section of `skills/work-on/SKILL.md` so agents are prompted to surface the user's branch intent before calling `koto init` — not after they're already inside `orchestrator_setup`.
+
+**Acceptance Criteria**
+
+- [ ] The plan orchestrator initialization section in SKILL.md includes a step before `koto init`: check whether the user has specified a branch to work on or whether the agent is already on a non-default branch that should be reused
+- [ ] The step instructs the agent to note the intended shared branch so it can submit `status: override` in `orchestrator_setup` rather than creating a new branch
+- [ ] The step is placed before the `koto init` invocation, not inside the state-execution loop
+
+**Dependencies**: None
+
+---
+
+### Issue 5: fix(work-on): prompt branch context evaluation at plan orchestrator entry
+
+**Goal**
+
+Add an entry-point check to the plan orchestrator section of `skills/work-on/SKILL.md` that prompts the agent to evaluate branch context as the very first step of plan mode — before any koto operations — so that "work on this plan in this same branch" type instructions are honored rather than overridden by the template's default behavior.
+
+**Acceptance Criteria**
+
+- [ ] The Plan Mode section of SKILL.md opens with a branch context evaluation step listing the signals an agent should check: current branch name, open PRs on that branch, any explicit branch instruction from the user
+- [ ] The step maps each signal to an action: existing `impl/<slug>` branch with open PR → `status: override`; explicit user branch instruction → `status: override`; no applicable branch → create new with `status: completed`
+- [ ] This step appears before Mode Detection and before Initialization
+
+**Dependencies**: None
+
 ## Dependency Graph
 
 ```mermaid
 graph LR
     I1["Issue 1: docs(plan): milestone topic input"]
     I2["Issue 2: fix(work-on): orchestrator_setup override"]
+    I3["Issue 3: fix(work-on): branch check in directive"]
+    I4["Issue 4: fix(work-on): branch pre-flight in init"]
+    I5["Issue 5: fix(work-on): branch context at entry"]
 
     classDef done fill:#c8e6c9
     classDef ready fill:#bbdefb
     classDef blocked fill:#fff9c4
 
-    class I1,I2 ready
+    class I1,I2,I3,I4,I5 ready
 ```
 
 **Legend**: Green = done, Blue = ready, Yellow = blocked
 
 ## Implementation Sequence
 
-**Critical path**: none — both issues are independent and can be worked in either order or in parallel.
+**Critical path**: none — all issues are independent and can be worked in any order or in parallel.
 
 **Recommended order**:
-1. Issue 1 (docs only, zero risk, quick to verify)
-2. Issue 2 (template + docs, needs koto template verification)
+1. Issues 1 & 2 (already implemented)
+2. Issue 5 (entry-point check catches the problem earliest)
+3. Issues 3 & 4 (reinforce the fix deeper in the flow)
