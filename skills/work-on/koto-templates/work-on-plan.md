@@ -17,7 +17,7 @@ states:
     accepts:
       status:
         type: enum
-        values: [completed, blocked]
+        values: [completed, override, blocked]
         required: true
       detail:
         type: string
@@ -26,6 +26,9 @@ states:
       - target: spawn_and_await
         when:
           status: completed
+      - target: spawn_and_await
+        when:
+          status: override
       - target: done_blocked
         when:
           status: blocked
@@ -158,7 +161,7 @@ gh pr list --head impl/$PLAN_SLUG --json number --jq '.[0].number' | grep -q . |
 
 The script is idempotent — if the branch or PR already exists (e.g., after a crash and re-run), it reuses them.
 
-Submit `status: completed` after branch and draft PR exist, or `status: blocked` with `detail` if either step fails.
+Submit `status: completed` after branch and draft PR exist, `status: override` if the agent is already on an appropriate branch with an existing PR (skipping branch/PR creation), or `status: blocked` with `detail` if either step fails.
 
 ## spawn_and_await
 

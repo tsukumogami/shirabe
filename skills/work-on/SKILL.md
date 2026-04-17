@@ -92,7 +92,9 @@ gh pr list --head impl/$PLAN_SLUG --json number --jq '.[0].number' | grep -q . |
   gh pr create --draft --title "impl: $PLAN_SLUG" --body "Implements $(basename <path-to-plan>)."
 ```
 
-Submit `status: completed` after branch and PR exist, or `status: blocked` with `detail` if either step fails. All child workflows then commit to this branch; `pr_coordination` updates the description when the batch completes.
+Submit `status: completed` after branch and PR exist, `status: override` if a branch and PR already exist and should be reused (e.g. the agent is already on an appropriate branch from the session that produced the PLAN doc), or `status: blocked` with `detail` if either step fails. All child workflows then commit to this branch; `pr_finalization` updates the description when the batch completes.
+
+When submitting `status: override`, ensure the current checkout is already on the intended shared branch and that a PR for it exists. Child workflows read the `SHARED_BRANCH` variable injected by `plan-to-tasks.sh` — set it to the current branch name in the task vars if the orchestrator skipped branch creation.
 
 ### First Tick: Submitting Tasks
 
