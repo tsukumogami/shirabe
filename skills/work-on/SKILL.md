@@ -80,6 +80,10 @@ If the koto scheduler marks this child as skipped due to a failed dependency (`f
 
 ### Initialization
 
+Before calling `koto init`, check the user's branch intent:
+- If the user specified a branch to work on, or you are already on a non-default branch that has an open PR for this work, note that branch as the intended shared branch. You will submit `status: override` in `orchestrator_setup` rather than running the branch-creation script.
+- Only if no applicable branch exists should you let `orchestrator_setup` create a new `impl/<slug>` branch.
+
 Derive the plan slug from the filename: `PLAN-foo-bar.md` → `plan-foo-bar`.
 
 ```bash
