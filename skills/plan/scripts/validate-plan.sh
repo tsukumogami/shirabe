@@ -164,9 +164,11 @@ fi
 upstream_frontmatter=$(extract_frontmatter "$upstream_abs")
 upstream_status=$(echo "$upstream_frontmatter" | get_field "status")
 
-if [[ "$upstream_status" != "Accepted" ]]; then
-    log_error "upstream file '${upstream_val}' has status '${upstream_status}' — expected 'Accepted' — ${PLAN_PATH}"
-    log_error "  the upstream document must be in 'Accepted' status before planning can proceed"
+# Accept both Accepted and Planned: /plan transitions the upstream design from
+# Accepted → Planned when creating the PLAN doc, so both are valid states on PRs.
+if [[ "$upstream_status" != "Accepted" && "$upstream_status" != "Planned" ]]; then
+    log_error "upstream file '${upstream_val}' has status '${upstream_status}' — expected 'Accepted' or 'Planned' — ${PLAN_PATH}"
+    log_error "  the upstream document must be Accepted (before planning) or Planned (after planning starts)"
     exit 3
 fi
 
