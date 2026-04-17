@@ -40,6 +40,14 @@ Your project's extension file (`.claude/shirabe-extensions/work-on.md`) defines 
 
 When `$ARGUMENTS` is a path to a PLAN.md file, the skill runs as a plan orchestrator rather than working on a single issue. Plan mode coordinates multiple per-issue child workflows and assembles a combined PR after all children complete.
 
+### Branch Context Evaluation
+
+Before running any koto operations, evaluate the branch context to determine whether `orchestrator_setup` should reuse an existing branch or create a new one. Check three signals in order: the current branch name, any open PRs whose head matches that branch, and any explicit branch instruction the user provided in their message.
+
+If the current branch name matches `impl/<slug>` (where `<slug>` is the plan slug derived from the PLAN doc filename) and an open PR exists for that branch, the branch and PR are already in place — submit `status: override` in `orchestrator_setup` rather than running the branch-creation script. If the user explicitly instructed you to work on the current branch (e.g. "use this branch", "continue on this branch", "work here"), also submit `status: override`. In either override case, confirm that the checkout is already on the intended shared branch before proceeding. If neither condition applies — you are on `main`, a docs branch, or any branch that doesn't match `impl/<slug>` with an open PR — let `orchestrator_setup` run normally and submit `status: completed` after the branch and PR are created.
+
+This check must happen before Mode Detection and before any `koto init` or `koto next` calls.
+
 ### Mode Detection
 
 When invoked as `/work-on <argument>`:
@@ -71,10 +79,6 @@ When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new b
 If the koto scheduler marks this child as skipped due to a failed dependency (`failure_policy: skip_dependents`), the workflow enters with `mode: skipped`. Submit entry evidence `{"mode": "skipped"}` and enter the execution loop — koto routes directly to the `skipped_due_to_dep_failure` terminal state, which carries `skipped_marker: true`. Do not perform any implementation work.
 
 ### Initialization
-
-**Before calling `koto init`**, check the user's branch intent:
-- If the user specified a branch to work on, or you are already on a non-default branch that has an open PR for this work, note that branch as the intended shared branch. You will submit `status: override` in `orchestrator_setup` rather than running the branch-creation script.
-- Only if no applicable branch exists should you let `orchestrator_setup` create a new `impl/<slug>` branch.
 
 Derive the plan slug from the filename: `PLAN-foo-bar.md` → `plan-foo-bar`.
 
