@@ -240,6 +240,7 @@ process_single_pr() {
     local -a issue_titles=()
     local -a issue_deps_raw=()
 
+    # 64 chars: koto rejects names with length_out_of_range above this limit (empirically verified)
     local KOTO_NAME_MAX=64
     local in_section=0
     local in_deps_section=0
@@ -296,7 +297,9 @@ process_single_pr() {
                 in_deps_section=0
                 continue
             elif [[ "$line" =~ ^### ]]; then
-                # Another heading ends the deps section; fall through to process it
+                # Another ### heading ends the deps section.
+                # Intentional fall-through: the line is processed by the heading
+                # checks below (e.g., ### Issue N: Title saves the current issue).
                 in_deps_section=0
             else
                 # Accumulate the line as dependency content
@@ -393,7 +396,9 @@ process_single_pr() {
         # Parse waits_on from deps_raw
         local waits_on=()
 
-        # Normalize <<ISSUE:N>> placeholders to "Issue N" before parsing
+        # Normalize <<ISSUE:N>> placeholders to "Issue N" before parsing.
+        # /plan uses <<ISSUE:N>> in single-pr Issue Outlines; without this
+        # normalization, all dependency edges are silently dropped.
         local re_ph='<<ISSUE:([0-9]+)>>'
         while [[ "$deps_raw" =~ $re_ph ]]; do
             local ph_num="${BASH_REMATCH[1]}"
