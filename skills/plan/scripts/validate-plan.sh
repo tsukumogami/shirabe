@@ -172,6 +172,6 @@ if [[ "$upstream_status" != "Accepted" && "$upstream_status" != "Planned" ]]; th
     exit 3
 fi
 
-log_ok "upstream '${upstream_val}' is Accepted"
+log_ok "upstream '${upstream_val}' is ${upstream_status}"
 log_ok "${PLAN_PATH} is valid"
 exit 0
