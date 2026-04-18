@@ -22,7 +22,9 @@ rationale: |
   issue_type at implementation) rely on agent convention but ship immediately;
   structural enforcement via template forks would double the states to maintain.
   Explicit annotations over static analysis avoids false positives that would
-  degrade the parallelism the orchestrator provides.
+  degrade the parallelism the orchestrator provides. koto v0.8.2 ships
+  materialize_children and batch_final_view natively, eliminating the need for
+  workaround documentation in the affected directives.
 ---
 
 # DESIGN: Work-on Orchestrator Efficiency
@@ -55,18 +57,19 @@ One coordination gap: two issues in the same plan can touch the same file
 concurrently, with the second write silently overwriting the first. No mechanism
 in the PLAN doc format or `plan-to-tasks.sh` prevents this.
 
-Finally, the template's `batch_final_view` context key and gate key naming
-conventions have discoverability gaps: `batch_final_view` is documented in
-directives but absent from the koto binary; gate labels omit `.json` while
-context keys include it, which isn't obvious to agents or template authors.
+Finally, the template's gate key naming convention has a discoverability gap:
+gate labels omit `.json` while context keys include it (e.g., gate name
+`review_results`, context key `review_results.json`), which isn't obvious to
+agents or template authors. The `batch_final_view` context key was also absent
+from the koto binary until v0.8.2; it is now available.
 
 ## Decision Drivers
 
 - Minimize maintenance surface: forks double the states to maintain; single-template
   solutions are preferred.
 - No koto engine changes required for shirabe-side fixes: `{{SESSION_NAME}}` is a
-  built-in variable; two-field routing is supported today; `batch_final_view` is
-  deferred to a koto feature request.
+  built-in variable; two-field routing is supported today; `batch_final_view` and
+  `materialize_children` are available in koto v0.8.2.
 - Near-zero false positive rate for file-conflict detection: static analysis of
   prose generates spurious dependencies on commonly-referenced files like `SKILL.md`.
 - Preserve parallelism: the orchestrator's value is concurrent execution; over-serializing
@@ -332,8 +335,10 @@ terminal state. Add `shared` to `pr_creation` accepts with a transition to `done
 Update `pr_creation` and `analysis` directives with the new paths.
 
 **`skills/work-on/koto-templates/work-on-plan.md`**: Replace `koto next work-on-plan`
-with `koto next {{SESSION_NAME}}` in both tick scripts of `spawn_and_await`. Update
-the spawn directive to read `issue_type` from task vars and pass it as `--var ISSUE_TYPE=<type>`.
+with `koto next {{SESSION_NAME}}` in both tick scripts of `spawn_and_await` and in all
+`koto context get work-on-plan` calls in `pr_finalization` and `escalate` directives.
+Add `vars_field: vars` to the `materialize_children` block so koto passes each task's
+`vars` object (including `issue_type`) as `--var` flags automatically when spawning children.
 
 **`skills/work-on/SKILL.md`**: Document the `already_complete` analysis path and the
 `pr_status: shared` plan-backed child convention.
@@ -399,18 +404,25 @@ Two optional fields added to the Issue Outline spec:
 
 ### Orchestrator-to-child data flow
 
-The orchestrator's spawn directive (in `work-on-plan.md`) already passes variables
-at `koto init` time via `--var` flags. The spawn directive is updated to include:
+`work-on-plan.md` already declares `materialize_children` in its `spawn_and_await`
+state; koto v0.8.2 now executes it. Koto reads the tasks JSON from the context store,
+resolves `waits_on` dependencies, and calls `koto init` per child automatically. The
+`vars` field on each task entry is passed as `--var` flags.
 
-```bash
-koto init "{{SESSION_NAME}}_$TASK_NAME" \
-  --template work-on.md \
-  --var ISSUE_TYPE="${TASK_ISSUE_TYPE:-code}" \
-  --var SHARED_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+The only template change needed is adding `vars_field: vars` to the existing
+`materialize_children` block:
+
+```yaml
+materialize_children:
+  from_field: tasks
+  failure_policy: skip_dependents
+  default_template: work-on.md
+  vars_field: vars          # NEW: passes task.vars as --var flags to koto init
 ```
 
-Where `$TASK_ISSUE_TYPE` is read from the task's `vars.issue_type` field in the tasks
-JSON produced by `plan-to-tasks.sh`.
+`plan-to-tasks.sh` populates `vars.issue_type` from the `**Type**:` annotation,
+so koto automatically passes `--var ISSUE_TYPE=<type>` when spawning each child.
+No bash loop or manual `koto init` calls are needed in the directive.
 
 ### Template consistency CI
 
@@ -455,7 +467,9 @@ Implement the three new paths in `work-on.md`:
 3. `pr_status: shared` in `pr_creation` + transition to `done`.
    Update `pr_creation` directive for plan-backed children.
 
-Update `work-on-plan.md` spawn directive to pass `ISSUE_TYPE` and to use `{{SESSION_NAME}}`.
+Update `work-on-plan.md`: add `vars_field: vars` to `materialize_children`; replace
+all `work-on-plan` literals with `{{SESSION_NAME}}` in `spawn_and_await` tick scripts
+and in `koto context get work-on-plan` calls in `pr_finalization` and `escalate`.
 
 Update SKILL.md for the new `already_complete` path and `pr_status: shared` convention.
 
@@ -473,18 +487,17 @@ Update SKILL.md for the new `already_complete` path and `pr_status: shared` conv
 2. Write `.github/workflows/check-template-consistency.yml`.
 3. Add test coverage for the script.
 
-### Koto feature requests (filed separately, not implemented here)
+### Koto feature requests (filed as issues, not implemented here)
 
-- **`batch_final_view`**: File a koto issue requesting the v0.8.0 batch spawning
-  subsystem: `materialize_children` hook, DAG scheduler, `batch_final_view` context
-  key on terminal responses. The current template was authored against this spec;
-  agents work around it using `koto workflows --children` + `koto status` + 
-  `koto context get <child> failure_reason`. The directive should document this workaround
-  explicitly until koto v0.8.0 ships.
-- **`is_set` operator in `when` conditions**: File a koto issue requesting variable
-  existence checks in `when` clauses. This would enable Approach c for plan-backed
-  children (variable-based routing without command-gate workaround) and opens up
-  cleaner conditional branching patterns generally.
+- **`batch_final_view`**: Shipped in koto v0.8.2 (tsukumogami/koto#142). The
+  `materialize_children` hook, DAG scheduler, and `batch_final_view` context key are
+  all available. The `{{SESSION_NAME}}` fix in Phase 2 also corrects the hardcoded
+  `work-on-plan` name in all `koto context get` calls, making the existing directive
+  references work correctly.
+- **`is_set` operator in `when` conditions**: Filed as tsukumogami/koto#141. Not yet
+  implemented. Would enable Approach c for plan-backed children (variable-based routing
+  without command-gate workaround). Approach a (`pr_status: shared`) remains the
+  chosen implementation path until this lands.
 
 ## Security Considerations
 
@@ -508,8 +521,10 @@ The template changes do not introduce new input surfaces. Template variables
 - Pre-implemented issues exit cleanly with a success terminal rather than driving
   through implementation states that produce empty commits.
 - Plan-backed children no longer report the orchestrator's PR as their own.
-- The `koto next {{SESSION_NAME}}` fix makes `work-on-plan.md` reusable under any
-  workflow name, not just the literal `work-on-plan`.
+- The `{{SESSION_NAME}}` fix makes `work-on-plan.md` reusable under any workflow
+  name and corrects all `koto context get work-on-plan batch_final_view` calls in
+  `pr_finalization` and `escalate` — which now work correctly since koto v0.8.2
+  ships `batch_final_view`.
 - CI enforces mermaid/YAML state sync, `default_template` correctness, and
   workflow-name consistency — three invariants currently maintained only by manual convention.
 
