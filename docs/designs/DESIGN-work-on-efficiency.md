@@ -116,8 +116,8 @@ is whether to skip these states for docs issues, and how.
 
 **Option A — Two-field discrimination at `implementation` (chosen)**
 
-Add `issue_type: {docs, code}` to `implementation.accepts`. Transitions from
-`implementation` become:
+Add `issue_type: {code, docs, task}` to `implementation.accepts`. `docs` and `task`
+route identically (skip panels); `code` goes through scrutiny/review/QA. Transitions:
 
 ```yaml
 - target: scrutiny
@@ -128,12 +128,16 @@ Add `issue_type: {docs, code}` to `implementation.accepts`. Transitions from
   when:
     implementation_status: complete
     issue_type: docs
+- target: finalization
+  when:
+    implementation_status: complete
+    issue_type: task
 ```
 
-The mutual exclusivity requirement is satisfied: both transitions share `issue_type`
-with disjoint values. The plan orchestrator passes `issue_type` as an init variable
-when spawning children, reading it from the PLAN doc's Issue Outline `**Type**:`
-annotation.
+The mutual exclusivity requirement is satisfied: all three transitions share `issue_type`
+with pairwise disjoint values. The `issue_type` value submitted at `implementation`
+comes from the analysis agent's classification decision (see Decision 5), which may
+differ from the PLAN author's original `**Type**:` annotation.
 
 **Option B — Post-analysis routing state**
 
@@ -269,34 +273,57 @@ and is out of scope.
 
 ---
 
-### Decision 5: Issue type propagation from PLAN to child workflow
+### Decision 5: Issue type — who decides, and when
 
-**Context**: The docs fast path (Decision 1) requires `issue_type` to be passed to each
-child workflow at initialization. The orchestrator must know the issue type from the PLAN
-doc and inject it as a variable when spawning children.
+**Context**: Routing at `implementation` depends on `issue_type`. Two parties have
+relevant information: the PLAN author (knows the intended scope at planning time) and
+the analysis agent (has read the actual issue and codebase, knows the real scope).
+The PLAN author classifies earlier but with less information; the agent classifies later
+but with full context. The question is which party is authoritative.
 
-**Option A — `**Type**:` annotation in Issue Outline (chosen)**
+**Model chosen — PLAN suggests, analysis decides**
 
-Add an optional `**Type**:` field to the Issue Outline format:
+The PLAN `**Type**:` annotation is a default, not a binding declaration. It is passed
+as the template variable `ISSUE_TYPE` when the child is initialized, giving the analysis
+agent a starting point. The analysis agent confirms or overrides this classification based
+on what it actually finds. At `implementation`, the agent submits the type it confirmed
+at analysis (koto's no-path-memory constraint requires re-submission).
 
 ```
-**Type**: docs
+**Type**: docs                              ← PLAN author's default hint
+     ↓ flows as ISSUE_TYPE init variable
+analysis: agent confirms or overrides       ← authoritative classification
+     ↓ agent carries decision forward
+implementation: agent re-submits issue_type ← used for routing
 ```
 
-`plan-to-tasks.sh` reads this field and adds `issue_type` to the task's `vars` object.
-The orchestrator's spawn directive passes it to `koto init` as `--var ISSUE_TYPE=<type>`.
-The child workflow reads it as initial evidence or as a template variable.
+This means `analysis.accepts` gains an optional `issue_type` field. The directive
+instructs the agent: "Confirm or override `{{ISSUE_TYPE}}` based on what the work
+actually entails. A `docs` outline that requires touching Go code should be reclassified
+to `code`. A `code` outline whose full scope is a comment change should be reclassified
+to `docs`." If the agent submits no `issue_type` at analysis (because the PLAN annotation
+is clearly correct), the `implementation` directive defaults to `{{ISSUE_TYPE}}`.
 
-Defaults to `code` when absent, preserving current behavior for existing plans.
+Valid values: `code` (full review pipeline), `docs` (no panels; writing, structure,
+clarity are the criteria), `task` (no panels; operational work — run commands, execute
+scripts, produce no meaningful code artifacts for review). `code` is the default when
+`**Type**:` is absent.
 
-**Option B — Infer from issue title or acceptance criteria keywords**
+**Option B — PLAN annotation is authoritative**
 
-Keyword detection ("update SKILL.md", "add section", etc.) to auto-classify. False
-positive and negative rates are both high: "update the CI script" might be classified
-as docs, "add a new state to the template" might be classified as docs (it edits a
-file), but the state change triggers template recompilation and needs code-path scrutiny.
+The `**Type**:` value flows unchanged from PLAN to `implementation` with no analysis
+override. Simpler, but the PLAN author classifies before understanding full scope. A
+`docs` annotation on an issue that turns out to require a Go change would silently skip
+scrutiny and review — the wrong outcome.
 
-**Rejected**: Option B (classification quality unreliable without explicit annotation).
+**Option C — Agent at analysis decides without PLAN hint**
+
+No `**Type**:` field in PLAN format. The analysis agent classifies from scratch. Requires
+analysis instructions to be comprehensive about classification criteria, and introduces
+inconsistency: two agents reading the same outline might classify differently.
+
+**Rejected**: Option B (wrong party is authoritative). Option C (no hint increases
+classification variance and removes author intent from the process).
 
 ---
 
@@ -328,11 +355,13 @@ files). The false-negative rate is too high to be meaningful without also scanni
 
 Eight changes are in scope, grouped by component:
 
-**`skills/work-on/koto-templates/work-on.md`**: Add `issue_type` field to `implementation`
-accepts with two-field routing to `scrutiny` (code) or `finalization` (docs). Add
-`already_complete` to `analysis` accepts with a transition to `done_already_complete`
-terminal state. Add `shared` to `pr_creation` accepts with a transition to `done`.
-Update `pr_creation` and `analysis` directives with the new paths.
+**`skills/work-on/koto-templates/work-on.md`**: Add optional `issue_type` field to
+`analysis.accepts` (for classification confirmation/override). Add `issue_type` field
+to `implementation.accepts` with three-way routing: `code` → `scrutiny`, `docs` →
+`finalization`, `task` → `finalization`. Add `already_complete` to `analysis.accepts`
+with a transition to `done_already_complete` terminal state. Add `shared` to
+`pr_creation.accepts` with a transition to `done`. Update `analysis`, `implementation`,
+and `pr_creation` directives with the new paths.
 
 **`skills/work-on/koto-templates/work-on-plan.md`**: Replace `koto next work-on-plan`
 with `koto next {{SESSION_NAME}}` in both tick scripts of `spawn_and_await` and in all
@@ -351,7 +380,9 @@ edges for shared files. Parse `**Type**:` to populate `issue_type` in the vars o
 
 **`skills/work-on/references/phases/phase-3-analysis.md`** and
 **`skills/work-on/references/agent-instructions/phase-3-analysis.md`**: Add guidance
-for detecting pre-implemented work and submitting `already_complete` evidence.
+for detecting pre-implemented work and submitting `already_complete` evidence. Add
+classification guidance: confirm or override `{{ISSUE_TYPE}}` based on actual scope;
+submit `issue_type` alongside `plan_outcome` when reclassifying.
 
 **`.github/workflows/check-template-consistency.yml`** + **`scripts/validate-template-mermaid.sh`**:
 New CI job triggering on `skills/*/koto-templates/**`. Runs three checks.
@@ -360,17 +391,18 @@ New CI job triggering on `skills/*/koto-templates/**`. Runs three checks.
 
 ### Child workflow routing (work-on.md)
 
-The state machine adds three new paths, all using existing koto mechanisms:
+The state machine adds new paths using existing koto mechanisms:
 
 ```
 analysis
-  ├── plan_ready       → implementation
+  ├── plan_ready       → implementation   (issue_type confirmed here)
   ├── already_complete → done_already_complete  [NEW]
   └── ...              → done_blocked
 
 implementation
   ├── complete + issue_type: code → scrutiny     [MODIFIED]
   ├── complete + issue_type: docs → finalization [NEW]
+  ├── complete + issue_type: task → finalization [NEW]
   └── ...
 
 pr_creation
@@ -383,8 +415,11 @@ pr_creation
 The parent orchestrator's `batch_outcome: all_success` logic treats it as a success.
 
 `issue_type` is declared as a template variable (`required: false, default: code`) in
-the frontmatter. Existing single-issue workflows that don't pass `issue_type` default
-to the code path, preserving current behavior.
+the frontmatter — this carries the PLAN author's hint into the workflow. The analysis
+agent confirms or overrides it by optionally submitting `issue_type` alongside
+`plan_outcome`. The implementation agent re-submits the confirmed type for routing.
+Existing single-issue workflows that don't pass `ISSUE_TYPE` default to `code`,
+preserving current behavior.
 
 ### PLAN doc format extensions
 
@@ -396,9 +431,12 @@ Two optional fields added to the Issue Outline spec:
 **Goal**: ...
 **Acceptance Criteria**: ...
 **Dependencies**: ...
-**Type**: docs                                   # optional: docs | code (default: code)
+**Type**: docs                                   # optional: code | docs | task (default: code)
 **Files**: `path/to/file.md`, `path/to/other.md` # optional: write targets for conflict detection
 ```
+
+`**Type**:` is a default hint for the analysis agent, not a binding declaration.
+The agent may reclassify during analysis if actual scope differs from the outline.
 
 `plan-to-tasks.sh` extracts both fields alongside the existing `**Dependencies**:` parsing.
 
@@ -458,12 +496,14 @@ These are independent of all other changes and can ship as a preparatory PR.
 
 ### Phase 2: Child workflow routing additions
 
-Implement the three new paths in `work-on.md`:
+Implement the new paths in `work-on.md`:
 
 1. `done_already_complete` terminal state + `analysis → done_already_complete` transition.
-   Update `analysis` directive and both phase-3 reference files.
-2. Two-field routing at `implementation` (`issue_type: docs → finalization`).
-   Add `ISSUE_TYPE` template variable declaration.
+   Add optional `issue_type` to `analysis.accepts`. Update `analysis` directive and both
+   phase-3 reference files with: (a) `already_complete` guidance, (b) classification
+   confirmation/override instructions.
+2. Three-way routing at `implementation` (`code` → `scrutiny`, `docs`/`task` → `finalization`).
+   Add `ISSUE_TYPE` template variable declaration (`required: false, default: code`).
 3. `pr_status: shared` in `pr_creation` + transition to `done`.
    Update `pr_creation` directive for plan-backed children.
 
@@ -530,8 +570,11 @@ The template changes do not introduce new input surfaces. Template variables
 
 ### Negative
 
-- Agents must submit `issue_type` at every `implementation` visit (not just at entry).
-  This is a small verbosity increase.
+- Agents must submit `issue_type` at `implementation` (re-submission of the analysis
+  decision). Small verbosity increase; the directive makes this mechanical.
+- Analysis agents must actively confirm or reclassify `{{ISSUE_TYPE}}`. This is a
+  new responsibility, though a lightweight one: most outlines will match their annotation
+  and the agent simply confirms without further thought.
 - Plan authors must add `**Type**:` and `**Files**:` annotations when relevant. This
   is low friction (optional fields) but requires awareness of the new conventions.
 - The `pr_status: shared` path relies on agent convention. A plan-backed child that
