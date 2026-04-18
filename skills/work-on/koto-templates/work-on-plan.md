@@ -51,6 +51,7 @@ states:
       from_field: tasks
       failure_policy: skip_dependents
       default_template: work-on.md
+      vars_field: vars
     transitions:
       # Gate guards ensure children are complete; evidence routes success vs attention.
       - target: pr_finalization
@@ -177,7 +178,7 @@ TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
 TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "impl/$PLAN_SLUG" '[.[] | .vars.SHARED_BRANCH = $b]')
 echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
-koto next work-on-plan --with-data @"$TMP"
+koto next {{SESSION_NAME}} --with-data @"$TMP"
 rm -f "$TMP"
 ```
 
@@ -191,7 +192,7 @@ TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
 TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "impl/$PLAN_SLUG" '[.[] | .vars.SHARED_BRANCH = $b]')
 echo "{\"tasks\": $TASKS_WITH_BRANCH, \"batch_outcome\": \"all_success\"}" > "$TMP"
-koto next work-on-plan --with-data @"$TMP"
+koto next {{SESSION_NAME}} --with-data @"$TMP"
 rm -f "$TMP"
 ```
 
@@ -203,7 +204,7 @@ Check progress at any time with `koto status work-on-plan`. Set `batch_outcome` 
 
 Assemble the pull request description from the batch results, update the PR, and mark it ready for review.
 
-1. Read `koto context get work-on-plan batch_final_view` to get per-child outcome data.
+1. Read `koto context get {{SESSION_NAME}} batch_final_view` to get per-child outcome data.
 2. Assemble a PR description. For each child include:
    - `name`: child workflow name
    - `outcome`: `success`, `failure`, or `skipped`
@@ -247,7 +248,7 @@ All three values route to `done`.
 
 One or more children reached `done_blocked` or were skipped due to dependency failure. Inspect `batch_final_view` to understand which children failed and why.
 
-Read `koto context get work-on-plan batch_final_view` to get the full per-child data. Summarize:
+Read `koto context get {{SESSION_NAME}} batch_final_view` to get the full per-child data. Summarize:
 - Which children failed (name + `reason` field)
 - Which children were skipped (name + `skipped_because_chain`)
 - What the user should do to resolve the blockers
@@ -262,4 +263,4 @@ Plan orchestration is complete. All per-issue children succeeded, the PR descrip
 
 Plan orchestration reached a blocking condition. One of: orchestrator setup failed, some children failed and could not be resolved, the PR could not be finalized, or CI failures are unresolvable.
 
-The `failure_reason` context key contains the details. Use `koto context get work-on-plan failure_reason` to read it.
+The `failure_reason` context key contains the details. Use `koto context get {{SESSION_NAME}} failure_reason` to read it.

@@ -835,17 +835,23 @@ Capture non-obvious judgment calls in the `decisions` field.
 
 Run the scrutiny panel (three parallel reviewers: completeness, justification, intent). Read `references/phases/phase-4a-scrutiny.md` for detailed steps and reviewer prompts. Output: koto context key `scrutiny_results.json`.
 
+Note on gate discoverability: The gate name is `scrutiny_results`; the context key is `scrutiny_results.json` (with `.json` suffix).
+
 Submit `scrutiny_outcome: passed` when all reviewers clear the implementation, `blocking_retry` when reviewers find correctable issues and the implementation agent has addressed them, or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 
 ## review
 
 Run the code review panel (three parallel reviewers: pragmatic, architect, maintainer). Read `references/phases/phase-4b-review.md` for detailed steps and reviewer prompts. Output: koto context key `review_results.json`.
 
+Note on gate discoverability: The gate name is `review_results`; the context key is `review_results.json` (with `.json` suffix).
+
 Submit `review_outcome: passed` when all reviewers approve, `blocking_retry` when reviewers find correctable issues and the implementation agent has addressed them, or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 
 ## qa_validation
 
 Run the QA validation panel. Read `references/phases/phase-4c-qa.md` for detailed steps. Output: koto context key `qa_results.json`.
+
+Note on gate discoverability: The gate name is `qa_results`; the context key is `qa_results.json` (with `.json` suffix).
 
 Submit `qa_outcome: passed` when QA approves the implementation, `blocking_retry` when QA finds correctable defects, or `blocking_escalate` when defects cannot be resolved without escalation. Include `failure_reason` for `blocking_escalate`.
 
