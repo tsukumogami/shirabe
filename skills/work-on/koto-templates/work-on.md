@@ -375,11 +375,17 @@ states:
     accepts:
       plan_outcome:
         type: enum
-        values: [plan_ready, blocked_missing_context, scope_changed_retry, scope_changed_escalate]
+        values: [plan_ready, already_complete, blocked_missing_context, scope_changed_retry, scope_changed_escalate]
         required: true
       approach_summary:
         type: string
         description: Summary of the implementation approach
+      issue_type:
+        type: enum
+        values: [code, docs, task]
+        description: >
+          Issue type classification confirmed during analysis. Flows as ISSUE_TYPE context
+          for downstream routing. Defaults to code when omitted.
       decisions:
         type: string
         description: >
@@ -391,6 +397,9 @@ states:
         when:
           plan_outcome: plan_ready
           gates.plan_artifact.exists: true
+      - target: done_already_complete
+        when:
+          plan_outcome: already_complete
       - target: analysis
         when:
           plan_outcome: scope_changed_retry
@@ -622,6 +631,9 @@ states:
   done:
     terminal: true
 
+  done_already_complete:
+    terminal: true
+
   done_blocked:
     terminal: true
     failure: true
@@ -818,6 +830,19 @@ artifact already exists in koto context, the gate auto-advances.
 Read `references/phases/phase-3-analysis.md` for plan structure and agent
 delegation patterns. Output: koto context key `plan.md`.
 
+**Already-complete detection**: during analysis, check whether the issue goal is
+already fully satisfied by current code. If all acceptance criteria are already met,
+submit `plan_outcome: already_complete` — no implementation needed. Routes to
+`done_already_complete` (a non-failure terminal).
+
+**Issue type classification**: confirm or override the `ISSUE_TYPE` hint from the
+plan context. Set `issue_type` to:
+- `code` — implementation work that runs through scrutiny/review/QA
+- `docs` — writing or structural changes that skip code review panels
+- `task` — operational work (scripts, commands) with no meaningful review artifact
+
+When `issue_type` is omitted, downstream states treat it as `code`.
+
 Self-loop with `scope_changed_retry` (up to 3 times). After 3,
 use `scope_changed_escalate`. Submit `blocked_missing_context` if stuck.
 Capture non-obvious decisions in the `decisions` field.
@@ -880,6 +905,12 @@ If unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
 ## done
 
 The workflow is complete. The PR has been created and CI is passing.
+
+## done_already_complete
+
+Analysis confirmed the issue goal is already satisfied by current code. All
+acceptance criteria were met before any implementation was needed. No commits
+were required. This is a successful terminal state — it is not a failure.
 
 ## done_blocked
 
