@@ -81,6 +81,65 @@ In single-pr mode, Phase 4 agents produce structured outlines that become sub-se
 
 In multi-pr mode, Phase 4 agents write full issue body files. Phase 7 creates GitHub issues and milestones, populates the Implementation Issues table with links, and transitions the PLAN doc to Active.
 
+### Issue Outline Format
+
+Each issue under `## Issue Outlines` follows this structure:
+
+```markdown
+### Issue N: <title>
+
+**Goal**: <one sentence describing what this issue delivers>
+
+**Acceptance Criteria**:
+- [ ] <specific, testable criterion>
+
+**Dependencies**: None | Blocked by <<ISSUE:N>>
+
+**Type**: code                                    # optional: code | docs | task (default: code)
+**Files**: `path/to/file.md`, `path/to/other.md`  # optional: write targets for conflict detection
+```
+
+**`**Type**:`** (optional)
+
+Valid values: `code`, `docs`, `task`. Default: `code`.
+
+This is a hint for the analysis agent, not a binding declaration. The analysis agent
+may confirm or override this classification based on what the work actually entails.
+The value flows as the `ISSUE_TYPE` template variable when the child workflow is
+initialized. Routing at `implementation` is determined by the agent's confirmed type,
+not the PLAN author's annotation.
+
+- `code` — implementation that runs through the full scrutiny/review/QA pipeline
+- `docs` — writing, structure, and clarity changes that skip the code review panels
+- `task` — operational work (run commands, execute scripts) that produces no meaningful
+  code or doc artifacts for review; skips code review panels
+
+**`**Files**:`** (optional)
+
+Comma-separated list of file paths, each enclosed in backticks. Declares which files
+this issue intends to write to. `plan-to-tasks.sh` parses this field and auto-adds
+`waits_on` edges between outlines that share a file, preventing concurrent overwrites.
+
+This field is opt-in — add it only when concurrent file conflicts are plausible. Omitting
+it does not prevent parallel execution; it means the author accepts responsibility for
+ensuring no conflicts exist.
+
+Example with both optional fields:
+
+```markdown
+### Issue 3: feat(work-on): add issue_type routing
+
+**Goal**: Add issue_type routing to work-on.md.
+
+**Acceptance Criteria**:
+- [ ] Three-way routing at implementation.accepts
+
+**Dependencies**: Blocked by <<ISSUE:2>>
+
+**Type**: docs
+**Files**: `skills/work-on/koto-templates/work-on.md`, `skills/work-on/SKILL.md`
+```
+
 ### Decomposition Strategies
 
 Three decomposition strategies are available:
