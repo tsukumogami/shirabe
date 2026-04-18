@@ -454,28 +454,21 @@ states:
           alternatives_considered fields. Captures non-obvious judgment calls
           made during implementation.
     transitions:
-      # code (default): run scrutiny/review/QA panels
-      - target: scrutiny
-        when:
-          implementation_status: complete
-          issue_type: code
-          gates.on_feature_branch_impl.exit_code: 0
-          gates.has_commits.exit_code: 0
-          gates.tests_passing.exit_code: 0
-      # docs: skip panels, go directly to finalization
+      # docs: skip scrutiny/review/QA panels, go directly to finalization
       - target: finalization
         when:
           implementation_status: complete
           issue_type: docs
           gates.on_feature_branch_impl.exit_code: 0
           gates.has_commits.exit_code: 0
-      # task: skip panels, go directly to finalization
+      # task: skip scrutiny/review/QA panels, go directly to finalization
       - target: finalization
         when:
           implementation_status: complete
           issue_type: task
           gates.on_feature_branch_impl.exit_code: 0
-      # default (no issue_type or code): run panels
+      # code (default): run scrutiny/review/QA panels
+      # Also handles omitted issue_type (defaults to code behavior)
       - target: scrutiny
         when:
           implementation_status: complete
