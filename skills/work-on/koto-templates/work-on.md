@@ -606,7 +606,7 @@ states:
     accepts:
       pr_status:
         type: enum
-        values: [created, creation_failed_retry, creation_failed_escalate]
+        values: [created, shared, creation_failed_retry, creation_failed_escalate]
         required: true
       pr_url:
         type: string
@@ -615,6 +615,9 @@ states:
       - target: ci_monitor
         when:
           pr_status: created
+      - target: done
+        when:
+          pr_status: shared
       - target: pr_creation
         when:
           pr_status: creation_failed_retry
@@ -924,8 +927,12 @@ format. Output: koto context key `summary.md`.
 
 ## pr_creation
 
-Read `references/phases/phase-6-pr.md` for PR format, pre-PR verification,
-and push instructions.
+If `SHARED_BRANCH` is set, this child is running on the orchestrator's shared
+branch and the orchestrator owns the PR. Submit `pr_status: shared` — no PR
+creation step is needed here.
+
+Otherwise, read `references/phases/phase-6-pr.md` for PR format, pre-PR
+verification, and push instructions.
 
 Check if a PR already exists: `gh pr list --head $(git rev-parse --abbrev-ref HEAD)`
 

@@ -42,6 +42,7 @@ stateDiagram-v2
     post_research_validation --> validation_exit : verdict: needs_design
     post_research_validation --> validation_exit : verdict: exit
     pr_creation --> ci_monitor : pr_status: created
+    pr_creation --> done : pr_status: shared
     pr_creation --> pr_creation : pr_status: creation_failed_retry
     pr_creation --> done_blocked : pr_status: creation_failed_escalate
     qa_validation --> finalization : gates.qa_results.exists: true, qa_outcome: passed

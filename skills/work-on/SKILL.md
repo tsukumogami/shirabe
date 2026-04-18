@@ -77,6 +77,8 @@ Skip staleness checks in plan-backed mode.
 
 When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new branch. In `setup_plan_backed`, submit `status: override` and commit directly to `SHARED_BRANCH`. All child workflows in the batch share this branch and the same draft PR.
 
+**PR creation for plan-backed children**: when `SHARED_BRANCH` is set, the orchestrator owns the PR. At the `pr_creation` state, submit `pr_status: shared` — skip PR creation and route directly to `done`. The orchestrator's `pr_finalization` state updates the shared PR after all children complete.
+
 **Issue type classification**: the orchestrator passes `ISSUE_TYPE` as a hint from the PLAN outline's `**Type**:` field. During `analysis`, the analysis agent confirms or overrides this value based on what the work actually entails, then includes `issue_type` in its evidence. During `implementation`, the agent re-submits the confirmed `issue_type` to route post-implementation:
 - `code` (default) — proceeds through scrutiny → review → qa_validation
 - `docs` — skips panels, goes directly to finalization
