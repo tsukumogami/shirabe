@@ -51,7 +51,6 @@ states:
       from_field: tasks
       failure_policy: skip_dependents
       default_template: work-on.md
-      vars_field: vars
     transitions:
       # Gate guards ensure children are complete; evidence routes success vs attention.
       - target: pr_finalization
@@ -134,7 +133,7 @@ states:
     transitions:
       - target: done_blocked
         context_assignments:
-          failure_reason: ${evidence.failure_reason}
+          failure_reason: "${evidence.failure_reason}"
 
   done:
     terminal: true
