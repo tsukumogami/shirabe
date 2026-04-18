@@ -3,6 +3,7 @@ stateDiagram-v2
     direction LR
     [*] --> entry
     analysis --> implementation : gates.plan_artifact.exists: true, plan_outcome: plan_ready
+    analysis --> done_already_complete : plan_outcome: already_complete
     analysis --> analysis : plan_outcome: scope_changed_retry
     analysis --> done_blocked : plan_outcome: scope_changed_escalate
     analysis --> done_blocked : plan_outcome: blocked_missing_context
@@ -73,6 +74,7 @@ stateDiagram-v2
     task_validation --> research : verdict: proceed
     task_validation --> validation_exit : verdict: exit
     done --> [*]
+    done_already_complete --> [*]
     done_blocked --> [*]
     skipped_due_to_dep_failure --> [*]
     validation_exit --> [*]
