@@ -235,10 +235,13 @@ process_multi_pr() {
 process_single_pr() {
     local file="$1"
 
-    # First pass: collect all issue outlines with their titles and dependencies
+    # First pass: collect all issue outlines with their titles, dependencies,
+    # optional Type, and optional Files annotations.
     local -a issue_numbers=()
     local -a issue_titles=()
     local -a issue_deps_raw=()
+    local -a issue_types=()    # empty string = not specified
+    local -a issue_files=()    # space-separated list of backtick-quoted paths (no backticks)
 
     # 64 chars: koto rejects names with length_out_of_range above this limit (empirically verified)
     local KOTO_NAME_MAX=64
@@ -247,6 +250,8 @@ process_single_pr() {
     local current_number=""
     local current_title=""
     local current_deps=""
+    local current_type=""
+    local current_files=""
 
     while IFS= read -r line; do
         # Detect section header
@@ -267,10 +272,14 @@ process_single_pr() {
                 issue_numbers+=("$current_number")
                 issue_titles+=("$current_title")
                 issue_deps_raw+=("$current_deps")
+                issue_types+=("$current_type")
+                issue_files+=("$current_files")
             fi
             current_number="${BASH_REMATCH[1]}"
             current_title="${BASH_REMATCH[2]}"
             current_deps=""
+            current_type=""
+            current_files=""
             in_deps_section=0
             continue
         fi
@@ -280,6 +289,23 @@ process_single_pr() {
             current_deps="${BASH_REMATCH[1]}"
             # Remove trailing period
             current_deps="${current_deps%.}"
+            continue
+        fi
+
+        # Detect **Type**: line (optional field)
+        if [[ -n "$current_number" && "$line" =~ \*\*Type\*\*:[[:space:]]*([a-z]+) ]]; then
+            current_type="${BASH_REMATCH[1]}"
+            continue
+        fi
+
+        # Detect **Files**: line (optional field)
+        # Extract only backtick-quoted tokens, e.g. `path/to/file.md`
+        if [[ -n "$current_number" && "$line" =~ \*\*Files\*\*: ]]; then
+            # Extract all backtick-quoted tokens using sed.
+            # Matches `token` patterns and outputs one token per line.
+            local extracted_files
+            extracted_files=$(echo "$line" | grep -o '`[^`]*`' | tr -d '`' | tr '\n' ' ' | sed 's/ $//')
+            current_files="$extracted_files"
             continue
         fi
 
@@ -318,6 +344,8 @@ process_single_pr() {
         issue_numbers+=("$current_number")
         issue_titles+=("$current_title")
         issue_deps_raw+=("$current_deps")
+        issue_types+=("$current_type")
+        issue_files+=("$current_files")
     fi
 
     local count="${#issue_numbers[@]}"
@@ -386,12 +414,30 @@ process_single_pr() {
         number_to_name["${issue_numbers[$i]}"]="${issue_names[$i]}"
     done
 
+    # Build a file-to-first-name map for Files-based waits_on edges.
+    # When two outlines share a file path, the later one must wait on the earlier one.
+    declare -A file_first_owner=()  # file_path -> name of first outline that declares it
+    for i in "${!issue_numbers[@]}"; do
+        local files_str="${issue_files[$i]}"
+        if [[ -z "$files_str" ]]; then
+            continue
+        fi
+        local name="${issue_names[$i]}"
+        for fpath in $files_str; do
+            if [[ -z "${file_first_owner[$fpath]+x}" ]]; then
+                file_first_owner["$fpath"]="$name"
+            fi
+        done
+    done
+
     # Third pass: build JSON entries
     local json_entries=()
     for i in "${!issue_numbers[@]}"; do
         local issue_num="${issue_numbers[$i]}"
         local name="${issue_names[$i]}"
         local deps_raw="${issue_deps_raw[$i]}"
+        local issue_type="${issue_types[$i]}"
+        local files_str="${issue_files[$i]}"
 
         # Parse waits_on from deps_raw
         local waits_on=()
@@ -418,15 +464,51 @@ process_single_pr() {
             done
         fi
 
+        # Add file-based waits_on edges: if this outline declares a file that
+        # was already claimed by an earlier outline, wait on that earlier outline.
+        if [[ -n "$files_str" ]]; then
+            for fpath in $files_str; do
+                local owner="${file_first_owner[$fpath]+x}"
+                if [[ -n "$owner" ]]; then
+                    local owner_name="${file_first_owner[$fpath]}"
+                    # Only add if the owner is a different outline and not already in waits_on
+                    if [[ "$owner_name" != "$name" ]]; then
+                        local already=0
+                        for w in "${waits_on[@]+"${waits_on[@]}"}"; do
+                            if [[ "$w" == "$owner_name" ]]; then
+                                already=1
+                                break
+                            fi
+                        done
+                        if [[ $already -eq 0 ]]; then
+                            waits_on+=("$owner_name")
+                        fi
+                    fi
+                fi
+            done
+        fi
+
         local waits_json
         waits_json=$(array_to_json waits_on)
 
-        json_entries+=("$(jq -n \
-            --arg name "$name" \
-            --arg issue_source "plan_outline" \
-            --arg artifact_prefix "$name" \
-            --argjson waits_on "$waits_json" \
-            '{name: $name, vars: {ISSUE_SOURCE: $issue_source, ARTIFACT_PREFIX: $artifact_prefix}, waits_on: $waits_on}')")
+        # Build the vars object. Always include ISSUE_SOURCE and ARTIFACT_PREFIX.
+        # Include ISSUE_TYPE only when the outline specifies a **Type**: annotation.
+        if [[ -n "$issue_type" ]]; then
+            json_entries+=("$(jq -n \
+                --arg name "$name" \
+                --arg issue_source "plan_outline" \
+                --arg artifact_prefix "$name" \
+                --arg issue_type "$issue_type" \
+                --argjson waits_on "$waits_json" \
+                '{name: $name, vars: {ISSUE_SOURCE: $issue_source, ARTIFACT_PREFIX: $artifact_prefix, ISSUE_TYPE: $issue_type}, waits_on: $waits_on}')")
+        else
+            json_entries+=("$(jq -n \
+                --arg name "$name" \
+                --arg issue_source "plan_outline" \
+                --arg artifact_prefix "$name" \
+                --argjson waits_on "$waits_json" \
+                '{name: $name, vars: {ISSUE_SOURCE: $issue_source, ARTIFACT_PREFIX: $artifact_prefix}, waits_on: $waits_on}')")
+        fi
     done
 
     printf '%s\n' "${json_entries[@]}" | jq -s .

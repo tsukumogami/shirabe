@@ -766,6 +766,197 @@ FIXTURE
 }
 
 # ── Run all tests ──
+# ── Fixture: Type and Files annotations ──
+
+test_single_pr_type_annotation() {
+    local name="single-pr **Type**: annotation"
+    setup
+
+    cat > "$TEST_DIR/plan.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Test"
+issue_count: 2
+---
+
+## Issue Outlines
+
+### Issue 1: code issue
+
+**Goal**: Code work.
+
+**Acceptance Criteria**:
+- [ ] AC
+
+**Dependencies**: None
+
+**Type**: code
+
+### Issue 2: docs issue
+
+**Goal**: Doc work.
+
+**Acceptance Criteria**:
+- [ ] AC
+
+**Dependencies**: None
+
+**Type**: docs
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan.md" 2>/dev/null)
+
+    local i1_type
+    i1_type=$(echo "$output" | jq -r '.[0].vars.ISSUE_TYPE // "absent"')
+    if [[ "$i1_type" == "code" ]]; then
+        pass "$name (Issue 1 ISSUE_TYPE=code)"
+    else
+        fail "$name (Issue 1 ISSUE_TYPE)" "expected 'code', got '$i1_type'"
+    fi
+
+    local i2_type
+    i2_type=$(echo "$output" | jq -r '.[1].vars.ISSUE_TYPE // "absent"')
+    if [[ "$i2_type" == "docs" ]]; then
+        pass "$name (Issue 2 ISSUE_TYPE=docs)"
+    else
+        fail "$name (Issue 2 ISSUE_TYPE)" "expected 'docs', got '$i2_type'"
+    fi
+
+    teardown
+}
+
+test_single_pr_missing_type() {
+    local name="single-pr missing **Type**: produces no ISSUE_TYPE"
+    setup
+
+    cat > "$TEST_DIR/plan.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Test"
+issue_count: 1
+---
+
+## Issue Outlines
+
+### Issue 1: no type
+
+**Goal**: No type annotation.
+
+**Acceptance Criteria**:
+- [ ] AC
+
+**Dependencies**: None
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan.md" 2>/dev/null)
+
+    local has_type
+    has_type=$(echo "$output" | jq -r '.[0].vars | has("ISSUE_TYPE")')
+    if [[ "$has_type" == "false" ]]; then
+        pass "$name (no ISSUE_TYPE key)"
+    else
+        fail "$name (ISSUE_TYPE key present)" "expected key absent, got: has_key=$has_type"
+    fi
+
+    teardown
+}
+
+test_single_pr_files_waits_on() {
+    local name="single-pr **Files**: shared file generates waits_on"
+    setup
+
+    cat > "$TEST_DIR/plan.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Test"
+issue_count: 3
+---
+
+## Issue Outlines
+
+### Issue 1: writes shared file
+
+**Goal**: First.
+
+**Acceptance Criteria**:
+- [ ] AC
+
+**Dependencies**: None
+
+**Files**: `shared/output.md`
+
+### Issue 2: also writes shared file
+
+**Goal**: Second.
+
+**Acceptance Criteria**:
+- [ ] AC
+
+**Dependencies**: None
+
+**Files**: `shared/output.md`, `other/file.md`
+
+### Issue 3: writes different file
+
+**Goal**: Third.
+
+**Acceptance Criteria**:
+- [ ] AC
+
+**Dependencies**: None
+
+**Files**: `unique/file.md`
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan.md" 2>/dev/null)
+
+    # Issue 1 has no waits_on (it's the first owner of shared/output.md)
+    local i1_waits
+    i1_waits=$(echo "$output" | jq -r '.[0].waits_on | length')
+    if [[ "$i1_waits" == "0" ]]; then
+        pass "$name (Issue 1 waits_on empty)"
+    else
+        fail "$name (Issue 1 waits_on)" "expected 0, got $i1_waits"
+    fi
+
+    # Issue 2 waits on Issue 1 because they share shared/output.md
+    local i2_waits
+    i2_waits=$(echo "$output" | jq -r '.[1].waits_on | length')
+    if [[ "$i2_waits" == "1" ]]; then
+        pass "$name (Issue 2 waits_on length=1)"
+    else
+        fail "$name (Issue 2 waits_on length)" "expected 1, got $i2_waits"
+    fi
+
+    local i2_waits_name
+    i2_waits_name=$(echo "$output" | jq -r '.[1].waits_on[0]')
+    if [[ "$i2_waits_name" == "outline-writes-shared-file" ]]; then
+        pass "$name (Issue 2 waits_on references Issue 1)"
+    else
+        fail "$name (Issue 2 waits_on target)" "expected 'outline-writes-shared-file', got '$i2_waits_name'"
+    fi
+
+    # Issue 3 has no shared files, no waits_on
+    local i3_waits
+    i3_waits=$(echo "$output" | jq -r '.[2].waits_on | length')
+    if [[ "$i3_waits" == "0" ]]; then
+        pass "$name (Issue 3 no shared file, waits_on empty)"
+    else
+        fail "$name (Issue 3 waits_on)" "expected 0, got $i3_waits"
+    fi
+
+    teardown
+}
+
 echo "Running plan-to-tasks.sh tests..." >&2
 echo "" >&2
 
@@ -778,6 +969,9 @@ test_missing_execution_mode
 test_single_pr_placeholder_deps
 test_single_pr_section_header_deps
 test_single_pr_name_truncation
+test_single_pr_type_annotation
+test_single_pr_missing_type
+test_single_pr_files_waits_on
 
 echo "" >&2
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed" >&2
