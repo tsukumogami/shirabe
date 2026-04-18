@@ -23,7 +23,9 @@ stateDiagram-v2
     finalization --> pr_creation : finalization_status: ready_for_pr, gates.summary_exists.exists: true
     finalization --> pr_creation : finalization_status: deferred_items_noted, gates.summary_exists.exists: true
     finalization --> pr_creation
-    implementation --> scrutiny : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, gates.tests_passing.exit_code: 0, implementation_status: complete
+    implementation --> scrutiny : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, gates.tests_passing.exit_code: 0, implementation_status: complete, issue_type: code
+    implementation --> finalization : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: docs
+    implementation --> finalization : gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: task
     implementation --> implementation : implementation_status: partial_tests_failing_retry
     implementation --> done_blocked : implementation_status: partial_tests_failing_escalate
     implementation --> done_blocked : implementation_status: blocked
