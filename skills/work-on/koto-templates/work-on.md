@@ -16,6 +16,13 @@ variables:
   ISSUE_NUMBER:
     description: GitHub issue number for issue-backed workflows
     required: false
+  ISSUE_TYPE:
+    description: >
+      Issue type hint supplied by the plan orchestrator (code, docs, or task).
+      The analysis agent confirms or overrides this value during analysis and
+      re-submits it with implementation evidence for routing.
+    required: false
+    default: code
   ARTIFACT_PREFIX:
     description: >
       Prefix for context keys and branch names. Set at koto init time:
@@ -430,6 +437,13 @@ states:
         type: enum
         values: [complete, partial_tests_failing_retry, partial_tests_failing_escalate, blocked]
         required: true
+      issue_type:
+        type: enum
+        values: [code, docs, task]
+        description: >
+          Issue type confirmed during analysis. Determines post-implementation routing:
+          code goes through scrutiny/review/QA; docs and task go directly to finalization.
+          Defaults to code when omitted.
       rationale:
         type: string
         description: What was accomplished or what is blocking progress
@@ -440,6 +454,28 @@ states:
           alternatives_considered fields. Captures non-obvious judgment calls
           made during implementation.
     transitions:
+      # code (default): run scrutiny/review/QA panels
+      - target: scrutiny
+        when:
+          implementation_status: complete
+          issue_type: code
+          gates.on_feature_branch_impl.exit_code: 0
+          gates.has_commits.exit_code: 0
+          gates.tests_passing.exit_code: 0
+      # docs: skip panels, go directly to finalization
+      - target: finalization
+        when:
+          implementation_status: complete
+          issue_type: docs
+          gates.on_feature_branch_impl.exit_code: 0
+          gates.has_commits.exit_code: 0
+      # task: skip panels, go directly to finalization
+      - target: finalization
+        when:
+          implementation_status: complete
+          issue_type: task
+          gates.on_feature_branch_impl.exit_code: 0
+      # default (no issue_type or code): run panels
       - target: scrutiny
         when:
           implementation_status: complete
@@ -851,6 +887,15 @@ Capture non-obvious decisions in the `decisions` field.
 
 Read `references/phases/phase-4-implementation.md` for the implementation cycle,
 code review guidance, and commit patterns.
+
+When submitting `implementation_status: complete`, also submit `issue_type` as the
+value confirmed during analysis (from `analysis.accepts.issue_type`). This determines
+post-implementation routing:
+- `code` (default) — proceeds through scrutiny → review → qa_validation
+- `docs` — skips panels, goes directly to finalization
+- `task` — skips panels, goes directly to finalization
+
+If `issue_type` is not submitted, the default transition routes to scrutiny (code behavior).
 
 Self-loop with `partial_tests_failing_retry` (up to 3 times). After 3,
 use `partial_tests_failing_escalate`. Submit `blocked` for external blockers.

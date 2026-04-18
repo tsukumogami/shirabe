@@ -66,6 +66,7 @@ When `$ARGUMENTS` begins with `-- plan-backed`, extract these variables from the
 - `ISSUE_NUMBER`: GitHub issue number (github source only)
 - `ARTIFACT_PREFIX`: workflow name for this child
 - `PLAN_DOC`: path to the parent PLAN document
+- `ISSUE_TYPE`: issue type hint (`code`, `docs`, or `task`) from the PLAN outline's `**Type**:` field
 
 Submit entry evidence: `{"mode": "plan_backed", "issue_source": "<source>", "issue_number": "<N>"}`.
 
@@ -75,6 +76,13 @@ For `ISSUE_SOURCE=plan_outline`: extract the outline from the PLAN doc during `p
 Skip staleness checks in plan-backed mode.
 
 When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new branch. In `setup_plan_backed`, submit `status: override` and commit directly to `SHARED_BRANCH`. All child workflows in the batch share this branch and the same draft PR.
+
+**Issue type classification**: the orchestrator passes `ISSUE_TYPE` as a hint from the PLAN outline's `**Type**:` field. During `analysis`, the analysis agent confirms or overrides this value based on what the work actually entails, then includes `issue_type` in its evidence. During `implementation`, the agent re-submits the confirmed `issue_type` to route post-implementation:
+- `code` (default) — proceeds through scrutiny → review → qa_validation
+- `docs` — skips panels, goes directly to finalization
+- `task` — skips panels, goes directly to finalization
+
+When `ISSUE_TYPE` is not passed (standalone issue-backed or free-form mode), omitting `issue_type` from evidence defaults to `code` behavior.
 
 If the koto scheduler marks this child as skipped due to a failed dependency (`failure_policy: skip_dependents`), the workflow enters with `mode: skipped`. Submit entry evidence `{"mode": "skipped"}` and enter the execution loop — koto routes directly to the `skipped_due_to_dep_failure` terminal state, which carries `skipped_marker: true`. Do not perform any implementation work.
 
