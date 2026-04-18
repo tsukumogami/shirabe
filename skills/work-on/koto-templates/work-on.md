@@ -441,9 +441,8 @@ states:
         type: enum
         values: [code, docs, task]
         description: >
-          Issue type confirmed during analysis. Determines post-implementation routing:
-          code goes through scrutiny/review/QA; docs and task go directly to finalization.
-          Defaults to code when omitted.
+          Issue type confirmed during analysis. Required when submitting complete —
+          determines post-implementation routing. Use code if unsure.
       rationale:
         type: string
         description: What was accomplished or what is blocking progress
@@ -454,27 +453,27 @@ states:
           alternatives_considered fields. Captures non-obvious judgment calls
           made during implementation.
     transitions:
-      # docs: skip scrutiny/review/QA panels, go directly to finalization
+      # code: run scrutiny/review/QA panels (all gates must pass)
+      - target: scrutiny
+        when:
+          implementation_status: complete
+          issue_type: code
+          gates.on_feature_branch_impl.exit_code: 0
+          gates.has_commits.exit_code: 0
+          gates.tests_passing.exit_code: 0
+      # docs: skip panels, go directly to finalization (no tests_passing check)
       - target: finalization
         when:
           implementation_status: complete
           issue_type: docs
           gates.on_feature_branch_impl.exit_code: 0
           gates.has_commits.exit_code: 0
-      # task: skip scrutiny/review/QA panels, go directly to finalization
+      # task: skip panels, go directly to finalization (no commits required)
       - target: finalization
         when:
           implementation_status: complete
           issue_type: task
           gates.on_feature_branch_impl.exit_code: 0
-      # code (default): run scrutiny/review/QA panels
-      # Also handles omitted issue_type (defaults to code behavior)
-      - target: scrutiny
-        when:
-          implementation_status: complete
-          gates.on_feature_branch_impl.exit_code: 0
-          gates.has_commits.exit_code: 0
-          gates.tests_passing.exit_code: 0
       - target: implementation
         when:
           implementation_status: partial_tests_failing_retry
