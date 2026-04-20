@@ -22,3 +22,6 @@ Thumbs.db
 # Eval viewer artifacts
 decision-workspace/
 .local.env
+
+# Local overlay files (e.g. CLAUDE.local.md)
+*.local*
