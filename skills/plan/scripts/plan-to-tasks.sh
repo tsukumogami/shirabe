@@ -293,8 +293,8 @@ process_single_pr() {
         fi
 
         # Detect **Type**: line (optional field)
-        if [[ -n "$current_number" && "$line" =~ \*\*Type\*\*:[[:space:]]*([a-z]+) ]]; then
-            current_type="${BASH_REMATCH[1]}"
+        if [[ -n "$current_number" && "$line" =~ \*\*Type\*\*:[[:space:]]*([a-zA-Z]+) ]]; then
+            current_type=$(echo "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')
             continue
         fi
 

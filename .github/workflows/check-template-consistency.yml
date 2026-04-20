@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'skills/*/koto-templates/**'
+      - 'skills/*/koto-templates/*.mermaid.md'
       - 'scripts/validate-template-mermaid.sh'
 
 jobs:

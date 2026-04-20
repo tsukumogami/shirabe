@@ -957,6 +957,86 @@ FIXTURE
     teardown
 }
 
+# ── Test: mixed-case **Type**: annotation normalized to lowercase ──
+test_single_pr_type_annotation_mixed_case() {
+    local name="single-pr **Type**: mixed-case normalized to lowercase"
+    setup
+
+    cat > "$TEST_DIR/plan.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Test"
+issue_count: 3
+---
+
+## Issue Outlines
+
+### Issue 1: code issue mixed case
+
+**Goal**: Code work.
+
+**Acceptance Criteria**:
+- [ ] AC
+
+**Dependencies**: None
+
+**Type**: Code
+
+### Issue 2: docs issue mixed case
+
+**Goal**: Doc work.
+
+**Acceptance Criteria**:
+- [ ] AC
+
+**Dependencies**: None
+
+**Type**: Docs
+
+### Issue 3: task issue mixed case
+
+**Goal**: Task work.
+
+**Acceptance Criteria**:
+- [ ] AC
+
+**Dependencies**: None
+
+**Type**: Task
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan.md" 2>/dev/null)
+
+    local i1_type
+    i1_type=$(echo "$output" | jq -r '.[0].vars.ISSUE_TYPE // "absent"')
+    if [[ "$i1_type" == "code" ]]; then
+        pass "$name (Issue 1 ISSUE_TYPE=code from 'Code')"
+    else
+        fail "$name (Issue 1 ISSUE_TYPE)" "expected 'code', got '$i1_type'"
+    fi
+
+    local i2_type
+    i2_type=$(echo "$output" | jq -r '.[1].vars.ISSUE_TYPE // "absent"')
+    if [[ "$i2_type" == "docs" ]]; then
+        pass "$name (Issue 2 ISSUE_TYPE=docs from 'Docs')"
+    else
+        fail "$name (Issue 2 ISSUE_TYPE)" "expected 'docs', got '$i2_type'"
+    fi
+
+    local i3_type
+    i3_type=$(echo "$output" | jq -r '.[2].vars.ISSUE_TYPE // "absent"')
+    if [[ "$i3_type" == "task" ]]; then
+        pass "$name (Issue 3 ISSUE_TYPE=task from 'Task')"
+    else
+        fail "$name (Issue 3 ISSUE_TYPE)" "expected 'task', got '$i3_type'"
+    fi
+
+    teardown
+}
+
 echo "Running plan-to-tasks.sh tests..." >&2
 echo "" >&2
 
@@ -972,6 +1052,7 @@ test_single_pr_name_truncation
 test_single_pr_type_annotation
 test_single_pr_missing_type
 test_single_pr_files_waits_on
+test_single_pr_type_annotation_mixed_case
 
 echo "" >&2
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed" >&2
