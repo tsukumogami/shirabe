@@ -1,0 +1,1 @@
+{"number":42,"title":"feat: add user profile endpoint","state":"OPEN","labels":[],"body":"## Goal\nAdd a GET /users/:id/profile endpoint.\n\n## Acceptance Criteria\n- Endpoint returns user profile data\n- Returns 404 when user not found\n\n## Dependencies\nNone"}

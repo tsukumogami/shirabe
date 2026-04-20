@@ -1,0 +1,1 @@
+{"number":42,"title":"docs: update installation guide for v2","state":"OPEN","labels":["documentation"],"body":"## Goal\nUpdate the installation guide to reflect the new v2 setup steps.\n\n## Acceptance Criteria\n- Installation guide updated with v2 steps\n- Old v1 steps removed or marked deprecated\n\n## Dependencies\nNone"}

@@ -101,12 +101,12 @@ Each issue under `## Issue Outlines` follows this structure:
 
 **`**Type**:`** (optional)
 
-Valid values: `code`, `docs`, `task`. Default: `code`.
+Valid values: `code`, `docs`, `task`. When absent, the `ISSUE_TYPE` template variable
+is omitted entirely when the child workflow is initialized.
 
 This is a hint for the analysis agent, not a binding declaration. The analysis agent
 may confirm or override this classification based on what the work actually entails.
-The value flows as the `ISSUE_TYPE` template variable when the child workflow is
-initialized. Routing at `implementation` is determined by the agent's confirmed type,
+Routing at `implementation` is determined by the agent's confirmed type,
 not the PLAN author's annotation.
 
 - `code` — implementation that runs through the full scrutiny/review/QA pipeline
@@ -117,8 +117,11 @@ not the PLAN author's annotation.
 **`**Files**:`** (optional)
 
 Comma-separated list of file paths, each enclosed in backticks. Declares which files
-this issue intends to write to. `plan-to-tasks.sh` parses this field and auto-adds
-`waits_on` edges between outlines that share a file, preventing concurrent overwrites.
+this issue intends to write to. `plan-to-tasks.sh` parses this field and wires a star
+topology to prevent concurrent overwrites: the first outline to declare a file becomes
+its owner; every later outline that shares that file gets a `waits_on` edge pointing to
+the owner. Two non-owner outlines that share the same file do NOT wait on each other —
+only on the owner.
 
 This field is opt-in — add it only when concurrent file conflicts are plausible. Omitting
 it does not prevent parallel execution; it means the author accepts responsibility for

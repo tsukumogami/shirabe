@@ -57,6 +57,7 @@ The `template` field is intentionally omitted (set by the caller).
 |-----|-------|
 | `ISSUE_SOURCE` | `"plan_outline"` |
 | `ARTIFACT_PREFIX` | Same as `name` (e.g., `"outline-add-core-parser"`) |
+| `ISSUE_TYPE` | Value of the **Type**: annotation, omitted if annotation is absent |
 
 ## Frontmatter Requirements
 
@@ -112,6 +113,10 @@ All emitted `name` values must match:
 
 The script validates every generated name and exits 2 if any name violates R9 after sanitization.
 
+## Koto Name Length Limit
+
+Koto enforces a maximum of 64 characters for task names. If a sanitized name exceeds this limit, the script truncates it to 64 characters, strips any trailing `-`, then logs a warning to stderr. The script does not exit — truncated names are valid as long as they still pass R9 and remain unique after the Collision Suffix Rule is applied.
+
 ## Collision Suffix Rule
 
 When two issue titles produce the same slug, the second occurrence gets a numeric suffix:
@@ -153,7 +158,7 @@ Dependencies line formats:
 - `**Dependencies**: Blocked by Issue N.` — single dependency
 - `**Dependencies**: Blocked by Issue N, Issue M.` — multiple dependencies
 
-Dependency references resolve to the `outline-<slug>` name of the referenced issue.
+Dependency references also support the `<<ISSUE:N>>` placeholder format as an alternative to `Issue N`. Both forms resolve to the `outline-<slug>` name of the referenced issue.
 Exit 2 if a referenced issue number has no corresponding outline heading.
 
 ## Examples

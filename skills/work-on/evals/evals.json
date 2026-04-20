@@ -480,6 +480,74 @@
         "cascade_status is completed"
       ],
       "scenario": "e2e-cascade-full"
+    },
+    {
+      "id": 29,
+      "name": "already-complete-terminal",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "already-complete",
+      "prompt": "/work-on #42",
+      "expected_output": "Agent receives the analysis state. Recognizes the issue goal is already fully satisfied by current code and submits plan_outcome: already_complete. Workflow routes to done_already_complete terminal state. Agent does not proceed to implementation. Reports to user that the issue is already resolved.",
+      "files": [],
+      "expectations": [
+        "Agent submits plan_outcome: already_complete from the analysis state",
+        "Agent recognizes done_already_complete as a non-failure terminal state",
+        "Agent does NOT submit plan_outcome: plan_ready when the goal is already met",
+        "Agent does NOT proceed to implementation after submitting already_complete",
+        "Agent reports to the user that the issue is already resolved"
+      ]
+    },
+    {
+      "id": 30,
+      "name": "docs-issue-type-skips-panels",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "docs-routing",
+      "prompt": "/work-on #42",
+      "expected_output": "Agent receives the implementation state for a documentation issue. Submits implementation_status: complete with issue_type: docs. Workflow routes directly to finalization without visiting scrutiny, review, or qa_validation states.",
+      "files": [],
+      "expectations": [
+        "Agent submits implementation_status: complete with issue_type: docs",
+        "Agent does NOT submit issue_type: code for a documentation issue",
+        "Agent understands that issue_type: docs routes to finalization directly, skipping review panels",
+        "Agent does NOT attempt to run scrutiny or review panels for a docs issue type",
+        "Agent recognizes that tests_passing gate is not required for docs type transitions"
+      ]
+    },
+    {
+      "id": 31,
+      "name": "task-issue-type-skips-panels",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "task-routing",
+      "prompt": "/work-on #42",
+      "expected_output": "Agent receives the implementation state for an operational task issue. Submits implementation_status: complete with issue_type: task. Workflow routes directly to finalization without visiting scrutiny, review, or qa_validation. Agent recognizes that task type does not require commits before transitioning.",
+      "files": [],
+      "expectations": [
+        "Agent submits implementation_status: complete with issue_type: task",
+        "Agent does NOT submit issue_type: code for an operational task",
+        "Agent understands that issue_type: task routes to finalization directly, skipping review panels",
+        "Agent does NOT attempt to run scrutiny or review panels for a task issue type",
+        "Agent recognizes that has_commits gate is not required for task type transitions"
+      ]
+    },
+    {
+      "id": 32,
+      "name": "pr-shared-skips-ci-monitor",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "pr-shared",
+      "prompt": "/work-on #42",
+      "expected_output": "Agent receives the pr_creation state with SHARED_BRANCH set. Recognizes this child is running on the orchestrator's shared branch where the orchestrator owns the PR. Submits pr_status: shared. Workflow routes directly to done without visiting ci_monitor.",
+      "files": [],
+      "expectations": [
+        "Agent submits pr_status: shared from pr_creation state",
+        "Agent does NOT attempt to create a new PR when SHARED_BRANCH is indicated",
+        "Agent understands that pr_status: shared routes directly to done, bypassing ci_monitor",
+        "Agent does NOT run gh pr create when the orchestrator already owns the PR",
+        "Agent recognizes done as the terminal state reached via the shared path"
+      ]
     }
   ]
 }
