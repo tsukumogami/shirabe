@@ -890,7 +890,8 @@ post-implementation routing:
 - `docs` — skips panels, goes directly to finalization
 - `task` — skips panels, goes directly to finalization
 
-If `issue_type` is not submitted, the default transition routes to scrutiny (code behavior).
+**`issue_type` is required when submitting `complete`.** Omitting it means no transition
+fires and the workflow stalls with no error. Use `code` if the issue type is unclear.
 
 Self-loop with `partial_tests_failing_retry` (up to 3 times). After 3,
 use `partial_tests_failing_escalate`. Submit `blocked` for external blockers.

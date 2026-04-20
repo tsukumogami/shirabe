@@ -61,7 +61,6 @@ states:
         when:
           batch_outcome: needs_attention
           gates.batch_done.all_complete: true
-      - target: escalate
 
   pr_finalization:
     accepts:
@@ -183,19 +182,21 @@ rm -f "$TMP"
 
 koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches.
 
-**Tick 2 — complete**: once all children reach terminal states, the `batch_done` gate unblocks. Re-submit the same `tasks` array alongside `batch_outcome` — koto deduplicates children that already exist:
+**Tick 2 — complete**: once all children reach terminal states, the `batch_done` gate unblocks. Inspect child outcomes via `koto workflows`, determine `batch_outcome`, then re-submit the same `tasks` array alongside it — koto deduplicates children that already exist:
 
 ```bash
 PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
 TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
 TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "impl/$PLAN_SLUG" '[.[] | .vars.SHARED_BRANCH = $b]')
-echo "{\"tasks\": $TASKS_WITH_BRANCH, \"batch_outcome\": \"all_success\"}" > "$TMP"
+# Set OUTCOME to "all_success" if no child reached done_blocked, else "needs_attention"
+OUTCOME="all_success"  # replace with "needs_attention" if any child failed
+echo "{\"tasks\": $TASKS_WITH_BRANCH, \"batch_outcome\": \"$OUTCOME\"}" > "$TMP"
 koto next {{SESSION_NAME}} --with-data @"$TMP"
 rm -f "$TMP"
 ```
 
-Check progress at any time with `koto status work-on-plan`. Set `batch_outcome` to:
+Check progress at any time with `koto status {{SESSION_NAME}}`. Set `batch_outcome` to:
 - `all_success` if all children reached a non-failure terminal state
 - `needs_attention` if any children reached `done_blocked` or were skipped
 
