@@ -15,7 +15,6 @@ stateDiagram-v2
     pr_finalization --> done_blocked : finalization_status: update_failed
     spawn_and_await --> pr_finalization : batch_outcome: all_success, gates.batch_done.all_complete: true
     spawn_and_await --> escalate : batch_outcome: needs_attention, gates.batch_done.all_complete: true
-    spawn_and_await --> escalate
     done --> [*]
     done_blocked --> [*]
     note left of ci_monitor
