@@ -1,5 +1,5 @@
 ---
-status: Planned
+status: Current
 problem: |
   The work-on plan orchestrator drives all child issues through 10+ state
   transitions regardless of issue type or implementation status. Doc-only
@@ -31,7 +31,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
