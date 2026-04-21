@@ -1,0 +1,1 @@
+{"number":42,"title":"task: enable feature flag for new dashboard in production","state":"OPEN","labels":["task"],"body":"## Goal\nEnable the new-dashboard feature flag in the production config file.\n\n## Acceptance Criteria\n- Feature flag new_dashboard set to true in config/production.toml\n\n## Dependencies\nNone"}

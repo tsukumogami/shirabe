@@ -147,6 +147,73 @@
         "Transcript does NOT describe writing Implementation Issues into the design doc directly",
         "Transcript describes transitioning design doc status from Accepted to Planned"
       ]
+    },
+    {
+      "id": 11,
+      "name": "plan-to-tasks-parser-contract",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/plan -- what does plan-to-tasks.sh produce for a single-pr PLAN doc?",
+      "expected_output": "Agent identifies that skills/plan/scripts/plan-to-tasks.sh exists at the documented path, explains it reads a PLAN.md and emits a JSON array of {name, vars, waits_on} objects, with ISSUE_SOURCE=plan_outline and outline-<slug> names for single-pr mode.",
+      "files": [],
+      "expectations": [
+        "Agent identifies plan-to-tasks.sh at skills/plan/scripts/plan-to-tasks.sh",
+        "Agent explains the script produces a JSON array on stdout",
+        "Agent knows single-pr mode emits ISSUE_SOURCE=plan_outline",
+        "Agent knows names follow outline-<slug> pattern for single-pr",
+        "Agent knows exit codes: 0=success, 1=malformed input, 2=schema mismatch"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "plan-to-tasks-type-annotation",
+      "prompt": "Run plan-to-tasks.sh on a PLAN doc where Issue 1 has **Type**: docs and Issue 2 has **Type**: code. Describe the output.",
+      "expected_output": "Issue 1 task has vars.ISSUE_TYPE=docs; Issue 2 task has vars.ISSUE_TYPE=code. Both ISSUE_SOURCE and ARTIFACT_PREFIX are also present in vars.",
+      "files": [],
+      "expectations": [
+        "Agent understands **Type**: lines in Issue Outlines set vars.ISSUE_TYPE in the task JSON",
+        "Agent outputs vars.ISSUE_TYPE=docs for the docs-typed issue",
+        "Agent outputs vars.ISSUE_TYPE=code for the code-typed issue",
+        "Agent includes both ISSUE_SOURCE and ARTIFACT_PREFIX alongside ISSUE_TYPE in vars"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "plan-to-tasks-files-waits-on",
+      "prompt": "Run plan-to-tasks.sh on a PLAN doc where Issue 1 declares **Files**: `shared/output.md` and Issue 2 also declares **Files**: `shared/output.md`. Describe the waits_on output.",
+      "expected_output": "Issue 2 waits_on includes Issue 1's task name because they share shared/output.md. Issue 1 has no file-generated waits_on.",
+      "files": [],
+      "expectations": [
+        "Agent understands **Files**: lines cause waits_on edges between outlines that share a file",
+        "Issue 1 has no waits_on (it is the first owner of shared/output.md)",
+        "Issue 2 has waits_on referencing Issue 1's task name",
+        "The waits_on edge is generated from file sharing, not from an explicit **Dependencies**: line"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "plan-to-tasks-no-type-no-issue-type",
+      "prompt": "Run plan-to-tasks.sh on a PLAN doc where an Issue Outline has no **Type**: line. Describe the vars output for that issue.",
+      "expected_output": "The task's vars object does not include an ISSUE_TYPE key. ISSUE_SOURCE and ARTIFACT_PREFIX are present. The template variable default (code) handles the absent key downstream.",
+      "files": [],
+      "expectations": [
+        "Agent understands that missing **Type**: produces no ISSUE_TYPE key in vars",
+        "Agent does NOT set ISSUE_TYPE to 'code' explicitly; the key is simply absent",
+        "ISSUE_SOURCE and ARTIFACT_PREFIX are still present in vars"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "plan-to-tasks-non-shared-files-no-extra-edges",
+      "prompt": "Run plan-to-tasks.sh on a PLAN doc where Issue 1 declares **Files**: `file-a.md` and Issue 2 declares **Files**: `file-b.md`. Describe the waits_on output.",
+      "expected_output": "Neither issue has file-generated waits_on edges. The two outlines declare different files, so no conflict exists.",
+      "files": [],
+      "expectations": [
+        "Agent understands that non-shared files generate no waits_on edges",
+        "Issue 1 waits_on is empty",
+        "Issue 2 waits_on is empty",
+        "No additional edges beyond those from explicit **Dependencies**: lines"
+      ]
     }
   ]
 }

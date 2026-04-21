@@ -95,7 +95,19 @@ Use the appropriate template based on issue type.
 
 ## Your Tasks
 
-### 1. Understand the Issue
+### 1. Check for Already-Complete
+
+Before investing in analysis, check whether the issue goal is already satisfied by
+current code. Read the acceptance criteria from the issue (or plan outline context.md)
+and verify each one against current code.
+
+If every criterion is already met, **stop here** and return `plan_outcome: already_complete`
+to the main agent. No plan file needed. This is a clean exit, not a failure.
+
+This check is especially important for plan-backed children where a sibling may have
+already implemented the needed changes.
+
+### 2. Understand the Issue
 
 Read the issue details and baseline to understand:
 - What problem is being solved
@@ -141,12 +153,22 @@ Ensure:
 - Design context is reflected in the approach (if context.md exists in koto context)
 - No blocking questions remain unanswered
 
-### 6. Return Summary
+### 6. Classify Issue Type
+
+Confirm the issue type for the main agent to include in evidence:
+- `code` — changes to executable source, tests, CI configs; full scrutiny/review/QA
+- `docs` — markdown, design docs, skills, spec files; skips code review panels
+- `task` — operational work (run scripts, commands) with no review artifact
+
+If the plan context supplied an `ISSUE_TYPE` hint, use it unless your assessment
+clearly differs. Note any override in your summary.
+
+### 7. Return Summary
 
 Return to main chat with a brief summary (2-3 sentences):
 - How many files identified for modification/creation
 - Which approach was chosen and why
-- Number of implementation steps
+- Confirmed issue type (`code`, `docs`, or `task`)
 - Any blocking questions
 
 **Do NOT return the full plan content** - it's in the file.

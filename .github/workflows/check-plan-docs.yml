@@ -1,0 +1,26 @@
+name: Check PLAN docs
+
+on:
+  pull_request:
+    paths:
+      - 'docs/plans/PLAN-*.md'
+
+jobs:
+  validate-plan-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate changed PLAN docs
+        run: |
+          BASE_REF="${{ github.event.pull_request.base.sha }}"
+          FAILED=0
+          while IFS= read -r plan_file; do
+            if [[ -f "$plan_file" ]]; then
+              echo "Validating: $plan_file"
+              bash skills/plan/scripts/validate-plan.sh "$plan_file" || FAILED=1
+            fi
+          done < <(git diff --name-only "$BASE_REF"...HEAD -- 'docs/plans/PLAN-*.md')
+          exit $FAILED

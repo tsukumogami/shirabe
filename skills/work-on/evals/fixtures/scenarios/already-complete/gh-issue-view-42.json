@@ -1,0 +1,1 @@
+{"number":42,"title":"fix: add null check to user lookup","state":"OPEN","labels":[],"body":"## Goal\nAdd a null check to the user lookup function to prevent crashes when the user is not found.\n\n## Acceptance Criteria\n- `getUserById` returns null instead of throwing when user is not found\n\n## Dependencies\nNone"}

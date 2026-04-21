@@ -1,0 +1,17 @@
+name: Check template consistency
+
+on:
+  pull_request:
+    paths:
+      - 'skills/*/koto-templates/**'
+      - 'skills/*/koto-templates/*.mermaid.md'
+      - 'scripts/validate-template-mermaid.sh'
+
+jobs:
+  check-template-consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate koto template consistency
+        run: bash scripts/validate-template-mermaid.sh

@@ -16,21 +16,147 @@ The input `$ARGUMENTS` can be an issue reference or a milestone reference.
 
 **Issue inputs**: `71`, `#71`, or issue URL - resolve directly to the issue number.
 
-**Milestone inputs**: `M3`, `M#3`, milestone URL, or `"Milestone Name"` - list open issues in the milestone and select the first unblocked one (an issue is blocked if its Dependencies section references open issues). If multiple unblocked issues exist, pick the one with lowest number. If no unblocked issues exist, report which issues are blocked and stop.
+**Milestone inputs**: `M3`, `M#3`, milestone URL, or `"Milestone Name"` - list open issues in the milestone and select the first unblocked one (an issue is blocked if its Dependencies section references open issues). If multiple unblocked issues exist, pick the one with lowest number. Report to the user which issue was selected and why (e.g., "Selected issue #N — lowest-numbered unblocked issue in milestone M3"). If no unblocked issues exist, report which issues are blocked and stop.
 
 ### Handling `needs-triage` Issues
 
-If the selected issue has a `needs-triage` label, the issue needs classification before implementation. Check your project's label vocabulary (defined in `## Label Vocabulary` in CLAUDE.md) for the routing options available. If your project's extension file defines a triage workflow, invoke it now. Otherwise, ask the user whether to proceed directly or reclassify the issue.
+If the selected issue has a `needs-triage` label, the issue needs classification before implementation. Read CLAUDE.md and check its `## Label Vocabulary` section for the routing options available. If your project's extension file defines a triage workflow, invoke it now. Otherwise, ask the user whether to proceed directly or reclassify the issue.
 
 ### Handling Blocking Labels
 
-After resolving the issue and reading it with `gh issue view`, check for blocking labels before proceeding. Your project's label vocabulary is defined in `## Label Vocabulary` in CLAUDE.md.
+After resolving the issue and reading it with `gh issue view`, check for blocking labels before proceeding.
 
-If the issue has any label indicating it is not yet ready for implementation (such as labels requiring design, requirements definition, or feasibility investigation), display the appropriate routing message and **stop execution**.
+The label `needs-design` is universally recognized: if an issue carries it, stop immediately and inform the user that a design document is required before implementation can begin. This check applies even if no project label vocabulary is defined.
+
+Other blocking labels (requiring design, requirements definition, or feasibility investigation) are defined in your project's label vocabulary (`## Label Vocabulary` in CLAUDE.md). If the issue has any such label, display the appropriate routing message and **stop execution**.
 
 If the issue has a label indicating it tracks a child artifact whose implementation is underway, stop and direct the user to work on the child artifact instead.
 
-Your project's extension file (`.claude/shirabe-extensions/work-on.md`) defines the specific label names and routing messages to use.
+Your project's extension file (`.claude/shirabe-extensions/work-on.md`) defines additional label names and routing messages to use.
+
+---
+
+## Plan Mode
+
+When `$ARGUMENTS` is a path to a PLAN.md file, the skill runs as a plan orchestrator rather than working on a single issue. Plan mode coordinates multiple per-issue child workflows and assembles a combined PR after all children complete.
+
+### Branch Context Evaluation
+
+Before running any koto operations, evaluate the branch context to determine whether `orchestrator_setup` should reuse an existing branch or create a new one. Check three signals in order: the current branch name, any open PRs whose head matches that branch, and any explicit branch instruction the user provided in their message.
+
+If the current branch name matches `impl/<slug>` (where `<slug>` is the plan slug derived from the PLAN doc filename) and an open PR exists for that branch, the branch and PR are already in place — submit `status: override` in `orchestrator_setup` rather than running the branch-creation script. If the user explicitly instructed you to work on the current branch (e.g. "use this branch", "continue on this branch", "work here"), also submit `status: override`. In either override case, confirm that the checkout is already on the intended shared branch before proceeding. If neither condition applies — you are on `main`, a docs branch, or any branch that doesn't match `impl/<slug>` with an open PR — let `orchestrator_setup` run normally and submit `status: completed` after the branch and PR are created.
+
+This check must happen before Mode Detection and before any `koto init` or `koto next` calls.
+
+### Mode Detection
+
+When invoked as `/work-on <argument>`:
+
+- If `$ARGUMENTS` begins with `-- plan-backed` — **plan-backed child mode** (highest priority; the plan orchestrator is spawning this as a per-issue child workflow)
+- If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` — **plan orchestrator mode**
+- If the argument is an issue reference (`#N` or a GitHub issue URL) — **issue-backed mode**
+- If the argument is a free-form task description — **free-form mode**
+
+Plan-backed child mode is checked first. Plan orchestrator mode is checked before issue-backed mode.
+
+### Plan-Backed Child Mode
+
+When `$ARGUMENTS` begins with `-- plan-backed`, extract these variables from the remaining arguments:
+- `ISSUE_SOURCE`: `github` or `plan_outline`
+- `ISSUE_NUMBER`: GitHub issue number (github source only)
+- `ARTIFACT_PREFIX`: workflow name for this child
+- `PLAN_DOC`: path to the parent PLAN document
+- `ISSUE_TYPE`: issue type hint (`code`, `docs`, or `task`) from the PLAN outline's `**Type**:` field
+
+Submit entry evidence: `{"mode": "plan_backed", "issue_source": "<source>", "issue_number": "<N>"}`.
+
+For `ISSUE_SOURCE=github`: read the GitHub issue with `gh issue view <ISSUE_NUMBER>` during the `plan_context_injection` state to get the issue title, body, and labels. Then proceed directly to `setup_plan_backed` → `analysis`.
+For `ISSUE_SOURCE=plan_outline`: extract the outline from the PLAN doc during `plan_context_injection`. Then route through `plan_validation` → `setup_plan_backed` → `analysis`.
+
+Skip staleness checks in plan-backed mode.
+
+When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new branch. In `setup_plan_backed`, submit `status: override` and commit directly to `SHARED_BRANCH`. All child workflows in the batch share this branch and the same draft PR.
+
+**PR creation for plan-backed children**: when `SHARED_BRANCH` is set, the orchestrator owns the PR. At the `pr_creation` state, submit `pr_status: shared` — skip PR creation and route directly to `done`. The orchestrator's `pr_finalization` state updates the shared PR after all children complete.
+
+**Issue type classification**: the orchestrator passes `ISSUE_TYPE` as a hint from the PLAN outline's `**Type**:` field. During `analysis`, the analysis agent confirms or overrides this value based on what the work actually entails, then includes `issue_type` in its evidence. During `implementation`, the agent re-submits the confirmed `issue_type` to route post-implementation:
+- `code` (default) — proceeds through scrutiny → review → qa_validation
+- `docs` — skips panels, goes directly to finalization
+- `task` — skips panels, goes directly to finalization
+
+When `ISSUE_TYPE` is not passed (standalone issue-backed or free-form mode), omitting `issue_type` from evidence defaults to `code` behavior.
+
+If the koto scheduler marks this child as skipped due to a failed dependency (`failure_policy: skip_dependents`), the workflow enters with `mode: skipped`. Submit entry evidence `{"mode": "skipped"}` and enter the execution loop — koto routes directly to the `skipped_due_to_dep_failure` terminal state, which carries `skipped_marker: true`. Do not perform any implementation work.
+
+### Initialization
+
+Before calling `koto init`, check the user's branch intent:
+- If the user specified a branch to work on, or you are already on a non-default branch that has an open PR for this work, note that branch as the intended shared branch. You will submit `status: override` in `orchestrator_setup` rather than running the branch-creation script.
+- Only if no applicable branch exists should you let `orchestrator_setup` create a new `impl/<slug>` branch.
+
+Derive the plan slug from the filename: `PLAN-foo-bar.md` → `plan-foo-bar`.
+
+```bash
+koto init <plan-slug> \
+  --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on-plan.md \
+  --var PLAN_DOC=<path-to-plan>
+```
+
+### Shared Branch and Draft PR
+
+The `orchestrator_setup` state creates the shared branch and draft PR before any children are spawned. The script is idempotent — on a re-run after a crash, it reuses the existing branch and PR:
+
+```bash
+PLAN_SLUG=$(basename <path-to-plan> .md | sed 's/^PLAN-//')
+git checkout impl/$PLAN_SLUG 2>/dev/null || git checkout -b impl/$PLAN_SLUG
+git push -u origin impl/$PLAN_SLUG 2>/dev/null || true
+gh pr list --head impl/$PLAN_SLUG --json number --jq '.[0].number' | grep -q . || \
+  gh pr create --draft --title "impl: $PLAN_SLUG" --body "Implements $(basename <path-to-plan>)."
+```
+
+Submit `status: completed` after branch and PR exist, `status: override` if a branch and PR already exist and should be reused (e.g. the agent is already on an appropriate branch from the session that produced the PLAN doc), or `status: blocked` with `detail` if either step fails. All child workflows then commit to this branch; `pr_finalization` updates the description when the batch completes.
+
+When submitting `status: override`, ensure the current checkout is already on the intended shared branch and that a PR for it exists. Child workflows read the `SHARED_BRANCH` variable injected by `plan-to-tasks.sh` — set it to the current branch name in the task vars if the orchestrator skipped branch creation.
+
+### First Tick: Submitting Tasks
+
+In `spawn_and_await`, run `plan-to-tasks.sh` to produce a JSON array from the PLAN doc, inject `SHARED_BRANCH` (the branch created in `orchestrator_setup`) into each task's `vars` via `jq`, wrap in `{"tasks": [...]}`, and submit with `--with-data`. The `spawn_and_await` directive in the koto template has the full script.
+
+### Monitoring Children (spawn_and_await)
+
+After submitting tasks, the workflow enters `spawn_and_await`. Monitor child progress via `koto workflows`. When all children reach terminal states, inspect their outcomes and submit:
+
+- `batch_outcome: all_success` — all children completed without failure; routes to `pr_coordination`
+- `batch_outcome: needs_attention` — one or more children reached `done_blocked` or were skipped; routes to `escalate`
+
+### Cross-Issue Context Assembly
+
+After each child completes and before dispatching the next, run the context assembly step in `references/cross-issue-context.md`.
+
+### Escalation Handling
+
+When the parent workflow reaches `escalate` state, one or more children reached `done_blocked` or were skipped due to dependency failure:
+
+1. Read per-child data: `koto context get <plan-slug> batch_final_view`
+2. Identify failed children (`outcome: failure`, `reason` field, `reason_source`) and skipped children (`outcome: skipped`, `skipped_because_chain`)
+3. Write a `failure_reason` summary covering which children failed, why, and what the user should do
+4. Submit: `koto next <plan-slug> --with-data '{"failure_reason": "<summary>"}'`
+
+The `failure_reason` field is required — omitting it prevents `context_assignments` from propagating the reason downstream.
+
+### PR Finalization (pr_finalization)
+
+In `pr_finalization` state, read `batch_final_view` and assemble a PR description table. For each child include: `name`, `outcome`, `reason` (if failed or skipped), `reason_source`, and `skipped_because_chain` (if skipped). Update the PR with `gh pr edit`, then mark it ready with `gh pr ready`. Submit `finalization_status: updated` with `pr_url`.
+
+After `pr_finalization`, the workflow enters `ci_monitor` to wait for CI to pass. Fix any failures and submit `ci_outcome: failing_fixed`, or escalate with `ci_outcome: failing_unresolvable`.
+
+### Completion Cascade (plan_completion)
+
+After CI passes, the workflow enters `plan_completion` and runs `skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}}`.
+
+The script walks the `upstream` frontmatter chain from the PLAN doc and applies the appropriate lifecycle transition at each node: DESIGN → Current, PRD → Done, ROADMAP feature status update, and optional ROADMAP → Done when all features complete. It emits a JSON result containing `cascade_status` (`completed | partial | skipped`) and a `steps` array describing what ran.
+
+Submit `cascade_status` from the JSON output. All three values route to `done`.
 
 ---
 
@@ -64,6 +190,16 @@ koto init <WF> --template ${CLAUDE_SKILL_DIR}/koto-templates/work-on.md \
 **Plan-backed mode** uses free-form init. Extract the goal and acceptance criteria from the
 PLAN doc and provide them as the task description in the entry evidence.
 
+### Branch Setup
+
+Branch creation is conditional. Before creating a new branch in any setup state, check whether you already have an appropriate working branch:
+
+- **User instruction**: if the user asked you to continue on the current branch, submit `status: override` in the setup state
+- **Plan-backed mode**: if `SHARED_BRANCH` is set, the orchestrator has already created the branch — commit directly to it with `status: override`
+- **Resuming work**: if already on a feature branch from a previous session on this issue, `status: override` is correct
+
+Only create a new branch when none of the above apply. The setup states (`setup_issue_backed`, `setup_free_form`, `setup_plan_backed`) all accept `status: override` for these cases.
+
 ### Execution Loop
 
 Repeat:
@@ -80,6 +216,10 @@ Repeat:
 
 **Errors:** exit 1 = gate failed (fix and retry), exit 2 = bad evidence (check `expects`).
 Use `koto rewind <WF>` to step back.
+
+### Review Panel
+
+Read `references/review-panel-orchestration.md` for details (panel states: `scrutiny`, `review`, `qa_validation` — require parallel spawns, not standard directive execution).
 
 ### Resume
 
@@ -108,9 +248,9 @@ Safety gates (W3, W4) remain blocking in both modes. Use
 `koto decisions record <WF>` to capture any decisions made.
 
 First, resolve the input using the Input Resolution section above. Once you have an
-issue number, read the issue with `gh issue view <issue-number>`. Check for blocking
-labels as defined in your project's label vocabulary (CLAUDE.md `## Label Vocabulary`)
-and stop if any are present.
+issue number, read the issue with `gh issue view <issue-number>`. Apply the Handling
+Blocking Labels rules (including `needs-design` universal check) and stop if any
+blocking label is present.
 
 Detect repo visibility from CLAUDE.md (`## Repo Visibility: Public|Private`). If not
 found, infer from repo path (`private/` -> Private, `public/` -> Public; default to
@@ -130,5 +270,5 @@ Then:
 4. Enter the execution loop.
 
 If no extension file exists at `.claude/shirabe-extensions/work-on.md`, the skill
-proceeds with generic behavior: no language-specific quality checks, no label blocking
-(blocking label check is skipped if no label vocabulary is defined in CLAUDE.md).
+proceeds with generic behavior: no language-specific quality checks. The `needs-design`
+blocking label is still enforced regardless.

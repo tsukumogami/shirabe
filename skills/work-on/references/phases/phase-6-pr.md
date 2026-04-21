@@ -42,6 +42,10 @@ If a check is red and you cannot fix it, ask the user.
 ## Evidence (pr_creation)
 
 - `pr_status: created` + `pr_url`
+- `pr_status: shared` — set when running as a plan-backed child with `SHARED_BRANCH`
+  set. No PR is created or monitored; the phase routes directly to done. Using
+  `created` instead would enter `ci_monitor` and monitor the orchestrator's PR,
+  not this child's work.
 - `pr_status: creation_failed_retry` (up to 3)
 - `pr_status: creation_failed_escalate`
 

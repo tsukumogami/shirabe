@@ -70,6 +70,15 @@ case "$ARGS" in
       exit 0
     fi
     ;;
+  *"context get"*)
+    if [ -f "$SCENARIO_DIR/koto-context-batch-final-view.json" ]; then
+      cat "$SCENARIO_DIR/koto-context-batch-final-view.json"
+      exit 0
+    fi
+    # Default: empty batch view
+    echo '{"children":[]}'
+    exit 0
+    ;;
 esac
 
 echo "koto shim: no match for args: $ARGS" >&2

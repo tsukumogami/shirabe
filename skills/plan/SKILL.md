@@ -17,7 +17,7 @@ argument-hint: '<doc-path-or-topic> [--walking-skeleton|--no-skeleton] [--strate
 
 Plans turn accepted designs into implementable work. They define the decomposition
 strategy, issue sequencing, and dependency graph that guide implementation through
-/work-on and /implement-doc. When planning a roadmap, the output is planning issues
+/work-on. When planning a roadmap, the output is planning issues
 (one per feature) rather than code-level issues.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
@@ -371,5 +371,6 @@ Final artifacts depend on execution mode:
 | `${CLAUDE_SKILL_DIR}/scripts/build-dependency-graph.sh` | Phase 5 |
 | `${CLAUDE_SKILL_DIR}/scripts/create-issues-batch.sh` | Phase 7 multi-pr (**stable sub-operation** via `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/create-issues-batch.sh`) |
 | `${CLAUDE_SKILL_DIR}/scripts/create-issue.sh` | Phase 7 multi-pr (**stable sub-operation** via `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/create-issue.sh`) |
+| `${CLAUDE_SKILL_DIR}/scripts/plan-to-tasks.sh` | When emitting koto task-entry JSON from a PLAN doc (**stable sub-operation** via `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh`) |
 | `${CLAUDE_SKILL_DIR}/scripts/render-template.sh` | Phase 4 |
 | `${CLAUDE_SKILL_DIR}/scripts/apply-complexity-label.sh` | Phase 7 multi-pr |

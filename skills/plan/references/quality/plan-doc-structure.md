@@ -45,7 +45,7 @@ The `milestone` field is always present (it names the logical work unit) but Git
 | Status | Meaning | Trigger |
 |--------|---------|---------|
 | Draft | Plan being written during /plan phases | /plan creates the PLAN artifact |
-| Active | Implementation underway | multi-pr: GitHub issues created; single-pr: /implement-doc or /work-on starts |
+| Active | Implementation underway | multi-pr: GitHub issues created; single-pr: /work-on starts |
 | Done | Implementation complete, move to `docs/plans/done/` | multi-pr: all issues closed; single-pr: PR merged |
 
 **Coordinated lifecycle with design docs:**
@@ -54,7 +54,7 @@ The `milestone` field is always present (it names the logical work unit) but Git
 |------------|----------|---------|
 | Accepted | _(doesn't exist)_ | /design or /explore approval |
 | Planned | Draft | /plan creates the PLAN artifact |
-| Planned | Active | /plan finishes (issues created or /implement-doc starts) |
+| Planned | Active | /plan finishes (issues created or /work-on starts) |
 | Planned | _(updated per issue)_ | Issues implemented via /work-on |
 | Current | Done | /complete-milestone (all issues closed) |
 
@@ -77,9 +77,71 @@ Every PLAN artifact has these 7 sections, in order:
 | Issue Outlines | Populated with structured outlines (goal, acceptance criteria, dependencies) | Empty or omitted |
 | Implementation Issues | Empty or omitted (no GitHub issues to link) | Populated with issue table |
 
-In single-pr mode, Phase 4 agents produce structured outlines that become sub-sections under Issue Outlines. These give /implement-doc the decomposition it needs without creating GitHub artifacts. The PLAN doc stays at Draft and transitions to Active when /implement-doc or /work-on starts.
+In single-pr mode, Phase 4 agents produce structured outlines that become sub-sections under Issue Outlines. These give /work-on the decomposition it needs without creating GitHub artifacts. The PLAN doc stays at Draft and transitions to Active when /work-on starts.
 
 In multi-pr mode, Phase 4 agents write full issue body files. Phase 7 creates GitHub issues and milestones, populates the Implementation Issues table with links, and transitions the PLAN doc to Active.
+
+### Issue Outline Format
+
+Each issue under `## Issue Outlines` follows this structure:
+
+```markdown
+### Issue N: <title>
+
+**Goal**: <one sentence describing what this issue delivers>
+
+**Acceptance Criteria**:
+- [ ] <specific, testable criterion>
+
+**Dependencies**: None | Blocked by <<ISSUE:N>>
+
+**Type**: code                                    # optional: code | docs | task (default: code)
+**Files**: `path/to/file.md`, `path/to/other.md`  # optional: write targets for conflict detection
+```
+
+**`**Type**:`** (optional)
+
+Valid values: `code`, `docs`, `task`. When absent, the `ISSUE_TYPE` template variable
+is omitted entirely when the child workflow is initialized.
+
+This is a hint for the analysis agent, not a binding declaration. The analysis agent
+may confirm or override this classification based on what the work actually entails.
+Routing at `implementation` is determined by the agent's confirmed type,
+not the PLAN author's annotation.
+
+- `code` — implementation that runs through the full scrutiny/review/QA pipeline
+- `docs` — writing, structure, and clarity changes that skip the code review panels
+- `task` — operational work (run commands, execute scripts) that produces no meaningful
+  code or doc artifacts for review; skips code review panels
+
+**`**Files**:`** (optional)
+
+Comma-separated list of file paths, each enclosed in backticks. Declares which files
+this issue intends to write to. `plan-to-tasks.sh` parses this field and wires a star
+topology to prevent concurrent overwrites: the first outline to declare a file becomes
+its owner; every later outline that shares that file gets a `waits_on` edge pointing to
+the owner. Two non-owner outlines that share the same file do NOT wait on each other —
+only on the owner.
+
+This field is opt-in — add it only when concurrent file conflicts are plausible. Omitting
+it does not prevent parallel execution; it means the author accepts responsibility for
+ensuring no conflicts exist.
+
+Example with both optional fields:
+
+```markdown
+### Issue 3: feat(work-on): add issue_type routing
+
+**Goal**: Add issue_type routing to work-on.md.
+
+**Acceptance Criteria**:
+- [ ] Three-way routing at implementation.accepts
+
+**Dependencies**: Blocked by <<ISSUE:2>>
+
+**Type**: docs
+**Files**: `skills/work-on/koto-templates/work-on.md`, `skills/work-on/SKILL.md`
+```
 
 ### Decomposition Strategies
 
