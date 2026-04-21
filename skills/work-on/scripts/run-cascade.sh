@@ -34,6 +34,10 @@
 
 set -euo pipefail
 
+# Portable substitute for GNU realpath -m: normalize path without requiring existence.
+# macOS ships coreutils without realpath; python3 is available on both platforms.
+_realpath_m() { python3 -c "import os,sys; print(os.path.abspath(sys.argv[1]))" "$1"; }
+
 # ── Global state ──────────────────────────────────────────────────────────────
 
 PUSH=false
@@ -92,7 +96,7 @@ validate_upstream_path() {
 
     # Resolve to absolute path
     local abs_path
-    abs_path=$(realpath -m "$path" 2>/dev/null) || {
+    abs_path=$(_realpath_m "$path" 2>/dev/null) || {
         log_warn "validate_upstream_path: realpath failed for '$path'"
         return 1
     }

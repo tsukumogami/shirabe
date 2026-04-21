@@ -16,6 +16,10 @@
 
 set -euo pipefail
 
+# Portable realpath: resolve to absolute path (file need not exist).
+# macOS ships without standalone realpath; python3 is available on both platforms.
+_realpath() { python3 -c "import os,sys; print(os.path.abspath(sys.argv[1]))" "$1"; }
+
 usage() {
     cat >&2 <<'EOF'
 Usage: validate-plan.sh <PLAN.md-path>
@@ -137,7 +141,7 @@ if [[ -z "$upstream_val" ]]; then
 fi
 
 # Resolve repo root relative to the PLAN file's location
-repo_root=$(git -C "$(dirname "$(realpath "$PLAN_PATH")")" rev-parse --show-toplevel 2>/dev/null) || {
+repo_root=$(git -C "$(dirname "$(_realpath "$PLAN_PATH")")" rev-parse --show-toplevel 2>/dev/null) || {
     log_error "could not determine git repo root from ${PLAN_PATH} — is this file in a git repository?"
     exit 3
 }
