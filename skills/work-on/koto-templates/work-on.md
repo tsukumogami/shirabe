@@ -280,6 +280,10 @@ states:
           verdict: exit
 
   setup_plan_backed:
+    skip_if:
+      vars.SHARED_BRANCH:
+        is_set: true
+      status: override
     gates:
       on_feature_branch:
         type: command

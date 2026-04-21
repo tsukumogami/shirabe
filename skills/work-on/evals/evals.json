@@ -533,6 +533,22 @@
       ]
     },
     {
+      "id": 33,
+      "name": "setup-plan-backed-shared-branch-skip",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "setup-shared-skip",
+      "prompt": "/work-on #42",
+      "expected_output": "Agent receives setup_plan_backed state with advanced: true, indicating koto auto-advanced via skip_if because SHARED_BRANCH is set. Agent does not manually submit evidence for setup_plan_backed. Agent calls koto next again immediately to continue to analysis.",
+      "files": [],
+      "expectations": [
+        "Agent does NOT submit status: completed or status: override manually for setup_plan_backed when advanced: true",
+        "Agent recognizes advanced: true means koto auto-advanced this state via skip_if",
+        "Agent calls koto next again without submitting any evidence for setup_plan_backed",
+        "Agent continues to the analysis state after the auto-advance"
+      ]
+    },
+    {
       "id": 32,
       "name": "pr-shared-skips-ci-monitor",
       "tier": 2,
