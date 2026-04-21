@@ -210,9 +210,9 @@ setup_stub_scripts() {
 # Stub: transition design to Current
 DOC="$1"
 TARGET="$2"
-# Update status in file
+# Update status in file (sed -i.bak is portable across GNU and BSD sed)
 if grep -q '^status:' "$DOC"; then
-    sed -i "s/^status:.*/status: $TARGET/" "$DOC"
+    sed -i.bak "s/^status:.*/status: $TARGET/" "$DOC" && rm -f "${DOC}.bak"
 fi
 # Simulate move to current/ for Current target
 if [[ "$TARGET" == "Current" ]]; then
@@ -234,11 +234,11 @@ EOF
 DOC="$1"
 TARGET="$2"
 if grep -q '^status:' "$DOC"; then
-    sed -i "s/^status:.*/status: $TARGET/" "$DOC"
+    sed -i.bak "s/^status:.*/status: $TARGET/" "$DOC" && rm -f "${DOC}.bak"
 fi
 if grep -q '^## Status' "$DOC"; then
-    # Update body status
-    sed -i '/^## Status/{n;s/.*/'"$TARGET"'/}' "$DOC" 2>/dev/null || true
+    # Update body status (BSD sed requires semicolon before closing brace)
+    sed -i.bak '/^## Status/{n;s/.*/'"$TARGET"'/;}' "$DOC" 2>/dev/null; rm -f "${DOC}.bak" 2>/dev/null || true
 fi
 jq -n --arg p "$DOC" --arg ns "$TARGET" \
     '{success: true, doc_path: $p, old_status: "Accepted", new_status: $ns}'
@@ -251,7 +251,7 @@ EOF
 DOC="$1"
 TARGET="$2"
 if grep -q '^status:' "$DOC"; then
-    sed -i "s/^status:.*/status: $TARGET/" "$DOC"
+    sed -i.bak "s/^status:.*/status: $TARGET/" "$DOC" && rm -f "${DOC}.bak"
 fi
 jq -n --arg p "$DOC" --arg ns "$TARGET" \
     '{success: true, doc_path: $p, old_status: "Active", new_status: $ns}'

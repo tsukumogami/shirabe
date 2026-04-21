@@ -1,21 +1,26 @@
 name: Run skill evals
 
 on:
-  pull_request:
-    paths:
-      - 'skills/**'
+  schedule:
+    - cron: '0 4 * * 1'  # Mondays at 04:00 UTC
   workflow_dispatch:
     inputs:
       skill:
         description: 'Skill name to eval (leave empty for all)'
         required: false
         default: ''
+      ref:
+        description: 'Branch or ref to run evals on'
+        required: false
+        default: 'main'
 
 jobs:
   run-evals:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -23,6 +28,11 @@ jobs:
 
       - name: Install claude CLI
         run: npm install -g @anthropic-ai/claude-code
+
+      - name: Add official plugin marketplace
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: claude plugin marketplace add anthropics/claude-plugins-official
 
       - name: Install skill-creator plugin
         env:

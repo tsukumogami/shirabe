@@ -19,6 +19,9 @@
 
 set -euo pipefail
 
+# Portable in-place sed: BSD sed (macOS) requires a backup extension; GNU does not.
+_sed_i() { sed -i.bak "$1" "$2" && rm -f "${2}.bak"; }
+
 # Valid statuses
 VALID_STATUSES="Draft Accepted In Progress Done"
 
@@ -120,7 +123,7 @@ update_frontmatter_status() {
     local escaped_status
     escaped_status=$(printf '%s' "$new_status" | sed 's/[[\.*^$()+?{|]/\\&/g')
 
-    sed -i "s/^status:.*$/status: ${escaped_status}/" "$doc_path" || {
+    _sed_i "s/^status:.*$/status: ${escaped_status}/" "$doc_path" || {
         json_error "Failed to update status in frontmatter" 3
     }
 }
@@ -134,7 +137,7 @@ update_body_status() {
     escaped_old=$(printf '%s\n' "$old_status" | sed 's/[[\.*^$()+?{|]/\\&/g')
     escaped_new=$(printf '%s\n' "$new_status" | sed 's/[&/\]/\\&/g')
 
-    sed -i "s/^${escaped_old}$/${escaped_new}/" "$doc_path" || {
+    _sed_i "s/^${escaped_old}$/${escaped_new}/" "$doc_path" || {
         json_error "Failed to update status in file body" 3
     }
 }

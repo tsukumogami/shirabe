@@ -17,6 +17,9 @@
 
 set -euo pipefail
 
+# Portable in-place sed: BSD sed (macOS) requires a backup extension; GNU does not.
+_sed_i() { sed -i.bak "$1" "$2" && rm -f "${2}.bak"; }
+
 # Status to directory mapping (function instead of associative array for Bash 3.2 compatibility)
 status_dir() {
     case "$1" in
@@ -242,7 +245,7 @@ update_frontmatter_status() {
     local superseding_doc="${3:-}"
 
     # Update the status: line in frontmatter
-    sed -i "s/^status:.*$/status: ${new_status}/" "$doc_path" || {
+    _sed_i "s/^status:.*$/status: ${new_status}/" "$doc_path" || {
         json_error "Failed to update status in frontmatter" 3
     }
 
@@ -250,10 +253,12 @@ update_frontmatter_status() {
     if [[ "$new_status" == "Sunset" ]] && [[ -n "$superseding_doc" ]]; then
         # Check if superseded_by already exists
         if grep -q '^superseded_by:' "$doc_path"; then
-            sed -i "s|^superseded_by:.*$|superseded_by: ${superseding_doc}|" "$doc_path"
+            _sed_i "s|^superseded_by:.*$|superseded_by: ${superseding_doc}|" "$doc_path"
         else
-            # Insert superseded_by after status line
-            sed -i "/^status:/a superseded_by: ${superseding_doc}" "$doc_path"
+            # Insert superseded_by after status line (awk is portable; sed /a is not)
+            awk -v sup="superseded_by: ${superseding_doc}" \
+                '/^status:/ { print; print sup; next } 1' \
+                "$doc_path" > "${doc_path}.tmp" && mv "${doc_path}.tmp" "$doc_path"
         fi
     fi
 }
@@ -270,7 +275,7 @@ update_body_status() {
     escaped_new=$(printf '%s\n' "$new_status_line" | sed 's/[&/\]/\\&/g')
 
     # Replace the old status line with new status line
-    sed -i "s/^${escaped_old}$/${escaped_new}/" "$doc_path" || {
+    _sed_i "s/^${escaped_old}$/${escaped_new}/" "$doc_path" || {
         json_error "Failed to update status in file" 3
     }
 }
