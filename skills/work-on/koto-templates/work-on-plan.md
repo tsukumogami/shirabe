@@ -109,7 +109,6 @@ states:
           ci_outcome: failing_unresolvable
         context_assignments:
           failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
-      - target: plan_completion
 
   plan_completion:
     accepts:
@@ -122,6 +121,14 @@ states:
         description: Summary of what the cascade did or why steps were skipped
     transitions:
       - target: done
+        when:
+          cascade_status: completed
+      - target: done
+        when:
+          cascade_status: partial
+      - target: done
+        when:
+          cascade_status: skipped
 
   escalate:
     accepts:

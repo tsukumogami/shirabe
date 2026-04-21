@@ -5,12 +5,13 @@ stateDiagram-v2
     ci_monitor --> plan_completion : ci_outcome: passing, gates.ci_passing.exit_code: 0
     ci_monitor --> plan_completion : ci_outcome: failing_fixed
     ci_monitor --> done_blocked : ci_outcome: failing_unresolvable
-    ci_monitor --> plan_completion
     escalate --> done_blocked
     orchestrator_setup --> spawn_and_await : status: completed
     orchestrator_setup --> spawn_and_await : status: override
     orchestrator_setup --> done_blocked : status: blocked
-    plan_completion --> done
+    plan_completion --> done : cascade_status: completed
+    plan_completion --> done : cascade_status: partial
+    plan_completion --> done : cascade_status: skipped
     pr_finalization --> ci_monitor : finalization_status: updated
     pr_finalization --> done_blocked : finalization_status: update_failed
     spawn_and_await --> pr_finalization : batch_outcome: all_success, gates.batch_done.all_complete: true
