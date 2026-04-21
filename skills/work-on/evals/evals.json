@@ -533,6 +533,22 @@
       ]
     },
     {
+      "id": 34,
+      "name": "entry-plan-outline-skip",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "entry-plan-outline-skip",
+      "prompt": "/work-on #42",
+      "expected_output": "Agent receives entry state with advanced: true, indicating koto auto-advanced via skip_if because ISSUE_SOURCE is plan_outline. Agent does not manually submit mode: plan_backed — it calls koto next again to continue to plan_context_injection.",
+      "files": [],
+      "expectations": [
+        "Agent does NOT submit mode: plan_backed manually for entry when advanced: true",
+        "Agent recognizes advanced: true means koto auto-advanced entry via skip_if on ISSUE_SOURCE=plan_outline",
+        "Agent calls koto next again without submitting any evidence for entry",
+        "Agent continues to plan_context_injection after the auto-advance"
+      ]
+    },
+    {
       "id": 33,
       "name": "setup-plan-backed-shared-branch-skip",
       "tier": 2,

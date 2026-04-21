@@ -42,6 +42,9 @@ variables:
 
 states:
   entry:
+    skip_if:
+      vars.ISSUE_SOURCE: plan_outline
+      mode: plan_backed
     accepts:
       mode:
         type: enum
