@@ -228,13 +228,13 @@ FIXTURE
     fi
     pass "$name (array length)"
 
-    # Assert: names start with outline-
+    # Assert: names start with o-
     local name1
     name1=$(echo "$output" | jq -r '.[0].name' 2>/dev/null) || true
-    if [[ ! "$name1" =~ ^outline- ]]; then
-        fail "$name" "expected name to start with 'outline-', got: $name1"
+    if [[ ! "$name1" =~ ^o- ]]; then
+        fail "$name" "expected name to start with 'o-', got: $name1"
     else
-        pass "$name (name starts with outline-)"
+        pass "$name (name starts with o-)"
     fi
 
     # Assert: ISSUE_SOURCE=plan_outline
@@ -755,11 +755,11 @@ FIXTURE
         pass "$name (name length ${name_len} <= 64)"
     fi
 
-    # Assert: name still starts with outline-
-    if [[ ! "$generated_name" =~ ^outline- ]]; then
-        fail "$name" "expected name to start with 'outline-', got: $generated_name"
+    # Assert: name still starts with o-
+    if [[ ! "$generated_name" =~ ^o- ]]; then
+        fail "$name" "expected name to start with 'o-', got: $generated_name"
     else
-        pass "$name (name starts with outline-)"
+        pass "$name (name starts with o-)"
     fi
 
     teardown
@@ -939,10 +939,10 @@ FIXTURE
 
     local i2_waits_name
     i2_waits_name=$(echo "$output" | jq -r '.[1].waits_on[0]')
-    if [[ "$i2_waits_name" == "outline-writes-shared-file" ]]; then
+    if [[ "$i2_waits_name" == "o-writes-shared-file" ]]; then
         pass "$name (Issue 2 waits_on references Issue 1)"
     else
-        fail "$name (Issue 2 waits_on target)" "expected 'outline-writes-shared-file', got '$i2_waits_name'"
+        fail "$name (Issue 2 waits_on target)" "expected 'o-writes-shared-file', got '$i2_waits_name'"
     fi
 
     # Issue 3 has no shared files, no waits_on

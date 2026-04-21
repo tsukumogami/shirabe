@@ -56,7 +56,7 @@ The `template` field is intentionally omitted (set by the caller).
 | Key | Value |
 |-----|-------|
 | `ISSUE_SOURCE` | `"plan_outline"` |
-| `ARTIFACT_PREFIX` | Same as `name` (e.g., `"outline-add-core-parser"`) |
+| `ARTIFACT_PREFIX` | Same as `name` (e.g., `"o-add-core-parser"`) |
 | `ISSUE_TYPE` | Value of the **Type**: annotation, omitted if annotation is absent |
 
 ## Frontmatter Requirements
@@ -85,7 +85,7 @@ For each `### Issue N: <Title>` heading:
 3. Replace every character not in `[a-z0-9]` with `-`
 4. Collapse consecutive `-` to a single `-`
 5. Strip leading and trailing `-`
-6. Prepend `outline-` to get the base name
+6. Prepend `o-` to get the base name
 7. Validate against R9 regex (`^[a-z][a-z0-9-]*$`); exit 2 if empty after steps 3-5
 
 **Example:**
@@ -96,7 +96,7 @@ For each `### Issue N: <Title>` heading:
   -> replace:   "feat-work-on---migrate-gates-to-koto-v0-6-0-strict-mode"
   -> collapse:  "feat-work-on-migrate-gates-to-koto-v0-6-0-strict-mode"
   -> strip:     "feat-work-on-migrate-gates-to-koto-v0-6-0-strict-mode"
-  -> prepend:   "outline-feat-work-on-migrate-gates-to-koto-v0-6-0-strict-mode"
+  -> prepend:   "o-feat-work-on-migrate-gates-to-koto-v0-6-0-strict-mode"
 ```
 
 ## R9 Regex
@@ -123,9 +123,9 @@ When two issue titles produce the same slug, the second occurrence gets a numeri
 
 | Occurrence | Name |
 |------------|------|
-| First | `outline-<slug>` |
-| Second | `outline-<slug>-2` |
-| Third | `outline-<slug>-3` |
+| First | `o-<slug>` |
+| Second | `o-<slug>-2` |
+| Third | `o-<slug>-3` |
 | ... | ... |
 
 The suffixed names also pass R9 validation.
@@ -158,7 +158,7 @@ Dependencies line formats:
 - `**Dependencies**: Blocked by Issue N.` — single dependency
 - `**Dependencies**: Blocked by Issue N, Issue M.` — multiple dependencies
 
-Dependency references also support the `<<ISSUE:N>>` placeholder format as an alternative to `Issue N`. Both forms resolve to the `outline-<slug>` name of the referenced issue.
+Dependency references also support the `<<ISSUE:N>>` placeholder format as an alternative to `Issue N`. Both forms resolve to the `o-<slug>` name of the referenced issue.
 Exit 2 if a referenced issue number has no corresponding outline heading.
 
 ## Examples
@@ -198,14 +198,14 @@ Output:
 ```json
 [
   {
-    "name": "outline-feat-add-parser",
-    "vars": {"ISSUE_SOURCE": "plan_outline", "ARTIFACT_PREFIX": "outline-feat-add-parser"},
+    "name": "o-feat-add-parser",
+    "vars": {"ISSUE_SOURCE": "plan_outline", "ARTIFACT_PREFIX": "o-feat-add-parser"},
     "waits_on": []
   },
   {
-    "name": "outline-feat-add-validator",
-    "vars": {"ISSUE_SOURCE": "plan_outline", "ARTIFACT_PREFIX": "outline-feat-add-validator"},
-    "waits_on": ["outline-feat-add-parser"]
+    "name": "o-feat-add-validator",
+    "vars": {"ISSUE_SOURCE": "plan_outline", "ARTIFACT_PREFIX": "o-feat-add-validator"},
+    "waits_on": ["o-feat-add-parser"]
   }
 ]
 ```

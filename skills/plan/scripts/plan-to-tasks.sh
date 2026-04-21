@@ -366,7 +366,7 @@ process_single_pr() {
             die_schema "issue ${issue_numbers[$i]} title '${title}' produces empty slug after sanitization"
         fi
 
-        local base_name="outline-${slug}"
+        local base_name="o-${slug}"
 
         # Truncate name if it exceeds koto's maximum length
         if [[ ${#base_name} -gt $KOTO_NAME_MAX ]]; then
