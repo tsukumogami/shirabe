@@ -217,25 +217,6 @@ Repeat:
 **Errors:** exit 1 = gate failed (fix and retry), exit 2 = bad evidence (check `expects`).
 Use `koto rewind <WF>` to step back.
 
-### Terminal States
-
-The workflow can terminate at several states. Only `done_blocked` is a
-failure; the others are successful exits:
-
-- `done` — PR created and CI passing. The normal happy path.
-- `done_already_complete` — analysis found every acceptance criterion already
-  satisfied in current code, so no commits were needed. Submit
-  `plan_outcome: already_complete` at `analysis` to reach this state. Common
-  in plan-backed mode when a sibling issue's commit already covers this
-  issue's scope. Treat this as a success, not a skip.
-- `validation_exit` — free-form task validation rejected the task as not
-  ready for direct implementation (needs a design, needs an issue, or scope
-  too large).
-- `skipped_due_to_dep_failure` — plan-backed children bypass implementation
-  when an upstream dependency failed. Marked as skipped, not failed.
-- `done_blocked` — only failure terminal. Requires human intervention; use
-  `koto rewind <WF>` to back up once the blocker is resolved.
-
 ### Review Panel
 
 Read `references/review-panel-orchestration.md` for details (panel states: `scrutiny`, `review`, `qa_validation` — require parallel spawns, not standard directive execution).
