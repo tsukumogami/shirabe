@@ -119,6 +119,17 @@ Each artifact's `upstream` field points to its parent. The chain enables:
 - Tracing an implementation issue back to its strategic justification
 - Completion cascades (when issues close, propagate status upstream)
 
+When a plan runs through `/work-on PLAN-*.md` and the resulting PR merges with
+passing CI, the completion cascade fires automatically. A single script walks
+the `upstream` chain from the PLAN doc and applies the right transition at
+each node: DESIGN moves to Current (with the Implementation Issues section
+compressed out), PRD moves to Done, the ROADMAP feature entry is updated, and
+the ROADMAP itself moves to Done once all its features complete. Failures at
+any node are best-effort — they don't block the PR — and the cascade emits a
+JSON result recording which steps ran. See `skills/work-on/scripts/run-cascade.sh`
+for the implementation and `docs/designs/current/DESIGN-completion-cascade.md`
+for the design.
+
 For cross-repo traceability, see `references/cross-repo-references.md`.
 For the upstream/downstream field convention, see
 `DESIGN-artifact-traceability.md`.
@@ -132,6 +143,7 @@ skills apply and in what order.
 |-----------|---------------|
 | Trivial fix (typo, config) | /work-on directly |
 | Simple task with issue | /work-on -> /release |
+| Full plan ready to ship | /work-on PLAN-*.md (plan orchestrator) -> /release |
 | Known approach, design decisions exist | /design -> /plan -> /work-on |
 | Shape unclear, multiple unknowns | /explore -> (crystallize) -> /prd or /design -> /plan -> /work-on |
 | New project, thesis needed | /explore --strategic -> /vision -> /roadmap -> per-feature pipeline |
