@@ -67,10 +67,12 @@ merges, you run it again for the next issue.
 Or you can hand the whole plan to `/work-on docs/plans/PLAN-plugin-system.md`.
 That mode runs the plan as a batch: shirabe creates one shared branch and
 draft PR, spawns a child workflow per issue with dependency-aware scheduling,
-and when the batch merges it walks the `upstream` chain of artifacts (plan →
-design → PRD → roadmap) and advances each to the right lifecycle state
-automatically. Issues tagged `docs` or `task` skip the code-review panels so
-documentation-only work doesn't pay for gates it doesn't need.
+and once CI passes on the ready PR it walks the `upstream` chain of artifacts
+(plan → design → PRD → roadmap), applies the lifecycle transition at each
+node, and pushes those changes as a final commit on the same PR. The PR then
+merges with the upstream artifacts already transitioned. Issues tagged `docs`
+or `task` skip the code-review panels so documentation-only work doesn't pay
+for gates it doesn't need.
 
 The whole process produces a paper trail -- PRD, design doc, plan, and focused
 PRs -- that you can point to later when someone asks "why did we build it this
