@@ -3,7 +3,7 @@ schema: plan/v1
 status: Draft
 execution_mode: multi-pr
 milestone: "Work-on Friction Fixes"
-issue_count: 7
+issue_count: 10
 ---
 
 # PLAN: Work-on Friction Fixes
@@ -17,29 +17,30 @@ to Active.
 
 ## Scope Summary
 
-Seven open design questions for the `/shirabe:work-on` skill, distilled
-from an external agent's five-issue friction-log run. Each item warrants
-a standalone DESIGN doc because the right shape of the fix is
-contested (multiple viable approaches) rather than obvious. When a
-design is Accepted, `/plan` turns it into its own implementation plan
-and issues.
+Ten open items from an external agent's `/shirabe:work-on` friction-log
+run that remain after the initial skill-hardening PR. Seven are design
+questions (#1-7) that each warrant a standalone DESIGN doc because the
+right shape of the fix is contested; three are implementation
+follow-ups (#8-10) surfaced during the first-pass implementation whose
+scope is already clear enough to go straight to `/work-on`.
 
-The ready-to-implement items from the same friction-log triage landed
-directly in the PR that introduced this PLAN; only the design-requiring
-items remain open.
+The seven ready-to-implement items from the same triage already landed
+in the PR that introduced this PLAN, so they're not in the outline list.
 
 ## Decomposition Strategy
 
-**Horizontal, one planning issue per design question.** Each item maps
-1:1 to a single `docs(design): …` issue carrying a `needs-design`
-label. The issues track the creation of DESIGN docs, not code — the
-design work, not the implementation — so every issue is `simple`
-complexity. Downstream implementation issues will be planned separately
-from each accepted design via `/plan`.
+**Horizontal, mixed issue kinds.** Each item maps 1:1 to a GitHub
+issue. Items 1-7 are `docs(design): …` planning issues carrying
+`needs-design`; they produce a DESIGN doc and spawn their own
+downstream implementation plan via `/plan`. Items 8-10 are direct
+implementation issues (complexity `simple`) that `/work-on` can handle
+without an intermediate design step. All ten share the `Work-on
+Friction Fixes` milestone.
 
 Dependencies are minimal. Only #6 (context findings cache) waits on #1
 (remote DESIGN doc resolution): the cache key scheme can't be chosen
-without first deciding how the resolver finds documents.
+without first deciding how the resolver finds documents. Items 8-10
+are independent and can run in any order once this PR merges.
 
 ## Issue Outlines
 
@@ -164,6 +165,63 @@ scoping lives in work-on itself or in a future language skill.
 
 **Type**: docs
 
+### Issue 8: task(work-on): re-run work-on evals after CLAUDE_PLUGIN_ROOT change
+
+**Goal**: Confirm that the env-var standardization that landed with
+this PLAN's parent PR doesn't regress any eval assertion that still
+checks for `CLAUDE_SKILL_DIR` in skill output.
+
+**Acceptance Criteria**:
+- [ ] `scripts/run-evals.sh work-on` runs end-to-end
+- [ ] All current work-on eval assertions pass
+- [ ] If any fail, fix the assertions (or the skill if the failure
+  reveals a real regression) in a follow-up PR
+
+**Dependencies**: None
+
+**Type**: task
+
+### Issue 9: docs(work-on): rewrite phase-3 agent-instructions for dual consumption
+
+**Goal**: Update `skills/work-on/references/agent-instructions/phase-3-analysis.md`
+so it reads naturally whether consumed by the main agent (simplified
+plans, inline) or a subagent (full plans, delegated). The current
+"You will receive…" framing assumes a fresh subagent.
+
+Options: (a) split into `phase-3-fullplan-agent.md` +
+`phase-3-simplified-inline.md`; (b) rewrite the single file in
+agent-neutral voice with sections for each path.
+
+**Acceptance Criteria**:
+- [ ] Main-agent inline consumption and subagent delegated consumption
+  both read cleanly
+- [ ] `phase-3-analysis.md` (the phase reference, not the agent
+  instructions) links to whatever shape the chosen option produces
+
+**Dependencies**: None
+
+**Type**: docs
+
+### Issue 10: docs(work-on): consolidate `/tmp/koto-<WF>/` tmp-path convention
+
+**Goal**: Create `skills/work-on/references/tmp-path-convention.md`
+that owns the `/tmp/koto-<WF>/` convention, and replace the inline
+convention explanations in `phase-1-setup.md`,
+`agent-instructions/phase-3-analysis.md`, and `phase-5-finalization.md`
+with one-line references to the new file. Prevents drift when someone
+updates the convention.
+
+**Acceptance Criteria**:
+- [ ] `skills/work-on/references/tmp-path-convention.md` exists and is
+  the single authoritative description
+- [ ] The three phase files reference it rather than duplicating the
+  text
+- [ ] Existing work-on evals pass
+
+**Dependencies**: None
+
+**Type**: docs
+
 ## Implementation Issues
 
 _Table populated after GitHub issues are created. Until then, see Issue
@@ -187,6 +245,12 @@ Outlines above for the canonical list._
 | _Decide the cache key scheme for `extract-context.sh` so sibling issues on one branch don't re-investigate the same design-doc dead ends._ | | |
 | <<ISSUE:7>> | None | simple |
 | _Decide how setup detects monorepo structure and scopes baseline tests to touched packages. Also decides whether scoping belongs in work-on or a future language skill._ | | |
+| <<ISSUE:8>> | None | simple |
+| _Re-run work-on evals after the `CLAUDE_PLUGIN_ROOT` standardization merges, to catch any assertion that still expects the old env-var string._ | | |
+| <<ISSUE:9>> | None | simple |
+| _Rewrite or split `agent-instructions/phase-3-analysis.md` so it reads cleanly for both main-agent (simplified plans, inline) and subagent (full plans, delegated) consumption._ | | |
+| <<ISSUE:10>> | None | simple |
+| _Consolidate the `/tmp/koto-<WF>/` convention into a single reference file, and collapse the inline explanations in phase-1, phase-3 agent-instructions, and phase-5 into one-line references._ | | |
 
 ## Dependency Graph
 
@@ -199,6 +263,9 @@ graph TD
   I5["#5 docs(design): multi-issue bundling"]
   I6["#6 docs(design): context findings cache"]
   I7["#7 docs(design): monorepo baseline scoping"]
+  I8["#8 task(work-on): re-run evals after env-var change"]
+  I9["#9 docs(work-on): rewrite phase-3 agent-instructions"]
+  I10["#10 docs(work-on): consolidate tmp-path convention"]
 
   I1 --> I6
 
@@ -214,22 +281,27 @@ graph TD
 
   class I1,I2,I3,I4,I5,I7 needsDesign
   class I6 blocked
+  class I8,I9,I10 ready
 ```
 
 **Legend**: Purple = needs-design, Yellow = blocked on a prerequisite
-design, Green = done.
+design, Blue = ready to implement, Green = done.
 
 ## Implementation Sequence
 
-Six of the seven can start in parallel: #1, #2, #3, #4, #5, #7. Issue
-#6 waits on #1 being Accepted because the cache key scheme depends on
+Nine of the ten can start in parallel once this PR merges: #1-#5, #7
+on the design track; #8-#10 on the implementation track. Only #6
+waits — on #1 being Accepted, because its cache key scheme depends on
 the resolution strategy.
 
 **Priority signal**: #5 (multi-issue bundling) was the highest-impact
 single item in the source triage. Starting its DESIGN doc first keeps
-the downstream implementation plan unblocked the earliest.
+the downstream implementation plan unblocked the earliest. Among the
+implementation items, #8 (eval re-run) should go first since it
+verifies that no assertion regressed against the env-var change.
 
-**Per-design-doc follow-up**: each of the seven spawns its own
-implementation plan via `/plan` once the design is Accepted. This PLAN
-closes when those seven downstream plans have each reached Done (or a
-design is explicitly dropped).
+**Per-design-doc follow-up**: each of #1-7 spawns its own
+implementation plan via `/plan` once the design is Accepted. Items
+#8-10 close directly via `/work-on`. This PLAN closes when all
+downstream plans have reached Done and #8-10 are closed (or an item
+is explicitly dropped).
