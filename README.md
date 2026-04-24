@@ -20,7 +20,7 @@ built-in validation gates so nothing important gets skipped.
 | `/decision` | Structured decision-making for contested choices with adversarial agents, cross-examination, and synthesis |
 | `/plan` | Decompose a design doc or PRD into sequenced GitHub issues with dependency graphs and complexity labels |
 | `/review-plan` | Adversarial review of a plan across scope, design fidelity, acceptance criteria, and sequencing |
-| `/work-on` | Implement a GitHub issue end-to-end: branch, analysis, code, tests, and pull request |
+| `/work-on` | Implement a GitHub issue, milestone, or full plan end-to-end: branch, analysis, code, three-panel review, tests, and pull request |
 
 Skills are designed to chain together. `/explore` helps you figure out what you
 need, then hands off to `/prd`, `/design`, or `/plan`. `/review-plan` catches
@@ -60,8 +60,19 @@ weak acceptance criteria, or sequencing problems.
 
 **Step 5 -- Implement.** You run `/work-on M3` (the milestone). shirabe picks
 the first unblocked issue, creates a branch, analyzes the code, implements
-the change, runs tests, and opens a PR. When that one merges, you run it again
-for the next issue.
+the change, runs it through a three-panel review (completeness/justification/intent,
+then pragmatic/architect/maintainer, then QA), and opens a PR. When that one
+merges, you run it again for the next issue.
+
+Or you can hand the whole plan to `/work-on docs/plans/PLAN-plugin-system.md`.
+That mode runs the plan as a batch: shirabe creates one shared branch and
+draft PR, spawns a child workflow per issue with dependency-aware scheduling,
+and once CI passes on the ready PR it walks the `upstream` chain of artifacts
+(plan → design → PRD → roadmap), applies the lifecycle transition at each
+node, and pushes those changes as a final commit on the same PR. The PR then
+merges with the upstream artifacts already transitioned. Issues tagged `docs`
+or `task` skip the code-review panels so documentation-only work doesn't pay
+for gates it doesn't need.
 
 The whole process produces a paper trail -- PRD, design doc, plan, and focused
 PRs -- that you can point to later when someone asks "why did we build it this
