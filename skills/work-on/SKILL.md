@@ -176,14 +176,14 @@ curl -fsSL https://raw.githubusercontent.com/tsukumogami/koto/main/install.sh | 
 
 **Issue-backed mode:**
 ```bash
-koto init <WF> --template ${CLAUDE_SKILL_DIR}/koto-templates/work-on.md \
+koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md \
   --var ISSUE_NUMBER=<N> \
   --var ARTIFACT_PREFIX=issue_<N>
 ```
 
 **Free-form mode:**
 ```bash
-koto init <WF> --template ${CLAUDE_SKILL_DIR}/koto-templates/work-on.md \
+koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md \
   --var ARTIFACT_PREFIX=task_<slug>
 ```
 
