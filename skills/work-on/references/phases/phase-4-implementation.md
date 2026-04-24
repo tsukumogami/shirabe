@@ -63,6 +63,17 @@ If the project tracks coverage:
 - Overall coverage drop: max 1%
 - Per-function coverage drop: max 10%
 
+## Acceptance Criteria Validation Scripts
+
+Some issue bodies include a shell validation script (for example,
+`grep -qE "pattern" path/to/file`). Treat these as **advisory, not
+authoritative**. Verify the AC's intent against the code; do not rewrite the
+implementation to make a literal script pass. Issue authors can introduce
+regex bugs or pattern drift that cause a script to fail even when the AC is
+satisfied, and a cosmetic script pass does not prove the behaviour is
+correct. If a script fails but the AC is met, note the divergence in the
+summary; if the script succeeds but the AC is not met, the script is wrong.
+
 ## Implementation Review
 
 **Self-review (always):** `git diff main...HEAD`, then re-read acceptance
