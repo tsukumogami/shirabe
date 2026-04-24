@@ -63,6 +63,34 @@ If the project tracks coverage:
 - Overall coverage drop: max 1%
 - Per-function coverage drop: max 10%
 
+## Re-confirm Acceptance Criteria Mid-Implementation
+
+After the main implementation commits land and before you run
+Implementation Review, re-read the issue body once more against what
+actually shipped. The goal is to catch AC drift that end-of-phase
+self-review misses because by then you've stopped thinking about the
+original wording.
+
+Do this:
+
+1. `gh issue view <N>` (or re-read the plan outline in plan-backed mode)
+   — don't rely on what's still in your conversation context; issues and
+   outlines change.
+2. Walk each acceptance criterion in order. For each, point at the
+   commit or file that satisfies it.
+3. For any AC that's only partially satisfied or that you interpreted
+   differently than written, decide: revise the code, or note a
+   documented deviation in the summary.
+
+If an AC is literally under-specified or contradicts reality (e.g., an
+AC references `rule.config.pattern` but the rest of the system uses
+`rule.tools`), implement what makes sense for the system and record a
+decision via `koto decisions record` — don't ship a contorted
+implementation to transcribe the AC verbatim.
+
+This step is cheap (usually < 2 minutes) and has caught real AC
+deviations in practice where the first read glossed over specifics.
+
 ## Acceptance Criteria Validation Scripts
 
 Some issue bodies include a shell validation script (for example,
