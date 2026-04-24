@@ -5,8 +5,8 @@ Verify changes, create summary, clean up artifacts.
 ## Auto-Skip
 
 Check CLAUDE.md label vocabulary for summary-skippable labels. Default: skip
-for `docs`, `config`, `chore`; generate for `bug`, `enhancement`, `refactor`,
-`security`.
+for `docs`, `config`, `chore`, `validation:simple`; generate for `bug`,
+`enhancement`, `refactor`, `security`.
 
 ## Steps
 
