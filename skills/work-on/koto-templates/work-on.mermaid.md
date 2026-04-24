@@ -27,6 +27,7 @@ stateDiagram-v2
     implementation --> finalization : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: docs
     implementation --> finalization : gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: task
     implementation --> implementation : implementation_status: partial_tests_failing_retry
+    implementation --> analysis : implementation_status: scope_expanded_retry
     implementation --> done_blocked : implementation_status: partial_tests_failing_escalate
     implementation --> done_blocked : implementation_status: blocked
     introspection --> done_blocked : introspection_outcome: issue_superseded

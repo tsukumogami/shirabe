@@ -88,4 +88,11 @@ and design intent drift.
 - `implementation_status: complete` — all steps done, tests pass
 - `implementation_status: partial_tests_failing_retry` — fixing failures (up to 3)
 - `implementation_status: partial_tests_failing_escalate` — cannot fix
+- `implementation_status: scope_expanded_retry` — scope grew beyond the plan mid-implementation; route back to `analysis` to rewrite the plan rather than proceeding with stale decisions
 - `implementation_status: blocked` — external blocker
+
+Use `scope_expanded_retry` when the user or the code reveals new scope during
+implementation — e.g., the user asks to configure behaviour that was previously
+hard-coded, or a referenced file turns out to need parallel changes. Explain
+the change in `rationale`; the transition rewinds to `analysis` so the plan can
+absorb it cleanly.
