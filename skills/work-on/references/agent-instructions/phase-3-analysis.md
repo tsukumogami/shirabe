@@ -12,11 +12,16 @@ You will receive:
 
 ## Your Output
 
-Write the plan locally, then store it in koto context:
+Write the plan to the per-session tmp directory, then store it in koto context:
 
 ```bash
-koto context add <WF> plan.md --from-file <plan-file>
+mkdir -p /tmp/koto-<WF>
+# write plan content to /tmp/koto-<WF>/plan.md
+koto context add <WF> plan.md --from-file /tmp/koto-<WF>/plan.md
 ```
+
+Always use the `/tmp/koto-<WF>/` subdirectory for transient artifacts. Bare
+`/tmp/plan.md` collides with sibling workflows on the same machine.
 
 Use the appropriate template based on issue type.
 

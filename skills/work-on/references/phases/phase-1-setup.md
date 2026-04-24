@@ -32,11 +32,20 @@ skill or CLAUDE.md.
 
 ### Document Baseline
 
-Write the baseline content to a local file, then store it in koto context:
+Write the baseline content to a local file under the per-session tmp
+directory, then store it in koto context:
 
 ```bash
-koto context add <WF> baseline.md --from-file <baseline-file>
+mkdir -p /tmp/koto-<WF>
+# write baseline content to /tmp/koto-<WF>/baseline.md
+koto context add <WF> baseline.md --from-file /tmp/koto-<WF>/baseline.md
 ```
+
+**Per-session tmp paths.** Always use `/tmp/koto-<WF>/<artifact>.md` for
+transient artifacts (baseline, plan, summary, and so on). Bare `/tmp/plan.md`
+or `/tmp/baseline.md` collide between concurrent `/work-on` sessions and
+between sibling issues on the same branch, silently overwriting each
+other. The per-session subdirectory namespaces everything by workflow.
 
 Baseline format:
 

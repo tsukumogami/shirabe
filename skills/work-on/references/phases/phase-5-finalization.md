@@ -20,11 +20,18 @@ Run complete test suite, build, linting. All must pass.
 
 ### Create Summary (if not skipped)
 
-Write the summary locally, then store in koto context:
+Write the summary to the per-session tmp directory, then store in koto
+context:
 
 ```bash
-koto context add <WF> summary.md --from-file <summary-file>
+mkdir -p /tmp/koto-<WF>
+# write summary content to /tmp/koto-<WF>/summary.md
+koto context add <WF> summary.md --from-file /tmp/koto-<WF>/summary.md
 ```
+
+Follow the same `/tmp/koto-<WF>/` convention as phase-1 baseline and
+phase-3 plan artifacts — bare `/tmp/summary.md` collides with sibling
+workflows.
 
 Summary format:
 
