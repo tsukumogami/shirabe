@@ -6,22 +6,46 @@ Research the codebase and create an implementation plan.
 
 Parse issue labels:
 - **Full plan** (bug, enhancement, refactor): alternatives, risks, testing strategy
-- **Simplified plan** (docs, config, chore): files and steps only
+- **Simplified plan** (docs, config, chore, validation:simple): files and steps only
 
 For full plans, load the project's language skill from the extension file.
 
 ## Agent Delegation
 
+Delegation is **opt-out for simplified plans, required for full plans**.
+
+### Full plans: delegate to a subagent
+
 Launch an analysis agent (Task tool, `subagent_type="general-purpose"`) with:
 - Issue details from `gh issue view <N>`
 - Workflow name (`<WF>`) so the agent can read from and write to koto context
-- Issue type: "full-plan" or "simplified-plan"
+- Issue type: `full-plan`
 - Agent instructions: `../agent-instructions/phase-3-analysis.md`
-- Language skill path (full-plan only, if defined in extension)
+- Language skill path (if defined in extension)
 
 The agent reads baseline and context from koto, writes the plan to koto context,
 and returns a brief summary. The main agent does not need to read these artifacts
 — the sub-agent handles them directly.
+
+### Simplified plans: write the plan inline
+
+For simplified-plan labels the main agent has already read the issue, baseline,
+and any design context while walking phase 0-2; delegating to a fresh
+general-purpose subagent only to regurgitate that context is pure overhead. The
+simplified-plan template in `../agent-instructions/phase-3-analysis.md` is short
+enough that the main agent writes it directly:
+
+1. Read the simplified-plan template in `../agent-instructions/phase-3-analysis.md`.
+2. Fill it in from the issue + baseline already in context.
+3. Write the plan to a local file under the per-session tmp directory
+   (see phase-1 for the path convention).
+4. Store it in koto context: `koto context add <WF> plan.md --from-file <path>`.
+5. Proceed to phase 4 with `plan_outcome: plan_ready` and `issue_type: docs|task|code`
+   as appropriate.
+
+Delegate for simplified plans only when the main agent's context is genuinely
+too limited to write the plan accurately (e.g., resuming a session with no
+prior context on the issue).
 
 Commit: `docs: create implementation plan`
 
