@@ -32,29 +32,10 @@ skill or CLAUDE.md.
 
 ### Document Baseline
 
-Pipe the baseline content directly into koto context. `koto context
-add` reads from stdin — assemble the content in the same shell
-invocation:
-
-```bash
-{ printf '%s\n' "# Baseline" "" "## Environment"; \
-  ./run-tests; \
-  ...remaining sections... } \
-  | koto context add <WF> baseline.md
-```
-
-If you assemble the baseline via the Write tool first, write to an
-ephemeral path and ingest, then clean up:
-
-```bash
-TMP=$(mktemp); ...write content to "$TMP"...
-koto context add <WF> baseline.md --from-file "$TMP"
-rm "$TMP"
-```
-
-work-on is a koto-driven workflow; baseline content lives in koto
-context. See `CLAUDE.md` § "Intermediate Storage" for why `wip/` is
-not used here.
+Pipe the baseline content into koto context under the key
+`baseline.md`. See [`koto-context-conventions.md`](../koto-context-conventions.md)
+for the canonical ingestion pattern (stdin pipe; ephemeral
+`mktemp`+`rm` alternative).
 
 Baseline format:
 
