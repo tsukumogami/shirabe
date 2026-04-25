@@ -1,7 +1,7 @@
 ---
 name: work-on
-description: Implement a GitHub issue end-to-end: branch creation, analysis, coding, tests, and pull request with CI monitoring. Use when given an issue number, issue URL, milestone reference, or asked to work on, implement, fix, build, tackle, pick up, or close a specific issue. Automatically selects the next unblocked issue when given a milestone. Handles the full cycle from reading the issue to merging a passing PR.
-argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name">'
+description: Implement work end-to-end with branch creation, analysis, coding, tests, and a pull request with CI monitoring. Accepts a GitHub issue (number or URL), a milestone (selects the next unblocked issue), a PLAN document path (drives multiple issues through one shared branch and PR), or a free-form task description. Use when asked to work on, implement, fix, build, tackle, pick up, close, or ship work — at any size, from a single issue to a whole plan.
+argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description">'
 ---
 @.claude/shirabe-extensions/work-on.md
 @.claude/shirabe-extensions/work-on.local.md
