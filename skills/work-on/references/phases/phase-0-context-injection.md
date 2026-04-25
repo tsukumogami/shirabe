@@ -9,7 +9,7 @@ Extract design context for the current issue.
 Run the context extraction script with the koto session name:
 
 ```bash
-${CLAUDE_SKILL_DIR}/references/scripts/extract-context.sh <N> --session <WF>
+${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/scripts/extract-context.sh <N> --session <WF>
 ```
 
 The script stores the extracted context directly into koto context under

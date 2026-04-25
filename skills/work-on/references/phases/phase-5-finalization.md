@@ -5,8 +5,8 @@ Verify changes, create summary, clean up artifacts.
 ## Auto-Skip
 
 Check CLAUDE.md label vocabulary for summary-skippable labels. Default: skip
-for `docs`, `config`, `chore`; generate for `bug`, `enhancement`, `refactor`,
-`security`.
+for `docs`, `config`, `chore`, `validation:simple`; generate for `bug`,
+`enhancement`, `refactor`, `security`.
 
 ## Steps
 
@@ -20,11 +20,25 @@ Run complete test suite, build, linting. All must pass.
 
 ### Create Summary (if not skipped)
 
-Write the summary locally, then store in koto context:
+Pipe the summary directly into koto context — `koto context add` reads
+from stdin, so no on-disk artifact is required:
 
 ```bash
-koto context add <WF> summary.md --from-file <summary-file>
+{ printf '%s\n' "# Summary" ""; \
+  ...assemble content... } \
+  | koto context add <WF> summary.md
 ```
+
+If you assemble the summary via the Write tool first, write to a
+transient location under `wip/` and pipe via `--from-file`:
+
+```bash
+koto context add <WF> summary.md --from-file wip/summary.md
+```
+
+Same convention as phase-1 baseline and phase-3 plan artifacts:
+koto-managed content belongs in koto context; `wip/` is the only
+legitimate intermediate. Do not write to `/tmp/`.
 
 Summary format:
 

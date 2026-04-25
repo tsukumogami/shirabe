@@ -442,7 +442,7 @@ states:
     accepts:
       implementation_status:
         type: enum
-        values: [complete, partial_tests_failing_retry, partial_tests_failing_escalate, blocked]
+        values: [complete, partial_tests_failing_retry, partial_tests_failing_escalate, scope_expanded_retry, blocked]
         required: true
       issue_type:
         type: enum
@@ -484,6 +484,10 @@ states:
       - target: implementation
         when:
           implementation_status: partial_tests_failing_retry
+      # scope expanded mid-implementation: rewrite the plan in analysis
+      - target: analysis
+        when:
+          implementation_status: scope_expanded_retry
       - target: done_blocked
         when:
           implementation_status: partial_tests_failing_escalate
