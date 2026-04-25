@@ -104,15 +104,15 @@ graph TD
   I1["feat(work-on): add skip_if to setup_plan_backed"]
   I2["feat(work-on): add skip_if to entry for plan_outline"]
 
-  classDef done fill:#86efac,stroke:#16a34a,color:#000
-  classDef ready fill:#93c5fd,stroke:#2563eb,color:#000
-  classDef blocked fill:#fde047,stroke:#ca8a04,color:#000
-  classDef needsDesign fill:#d8b4fe,stroke:#7c3aed,color:#000
-  classDef needsPrd fill:#fdba74,stroke:#ea580c,color:#000
-  classDef needsSpike fill:#f9a8d4,stroke:#db2777,color:#000
-  classDef needsDecision fill:#a5f3fc,stroke:#0891b2,color:#000
-  classDef tracksDesign fill:#e9d5ff,stroke:#7c3aed,color:#000
-  classDef tracksPlan fill:#bfdbfe,stroke:#3b82f6,color:#000
+  classDef done fill:#c8e6c9
+  classDef ready fill:#bbdefb
+  classDef blocked fill:#fff9c4
+  classDef needsDesign fill:#e1bee7
+  classDef needsPrd fill:#b3e5fc
+  classDef needsSpike fill:#ffcdd2
+  classDef needsDecision fill:#d1c4e9
+  classDef tracksDesign fill:#FFE0B2,stroke:#F57C00,color:#000
+  classDef tracksPlan fill:#FFE0B2,stroke:#F57C00,color:#000
 
   class I1 ready
   class I2 ready

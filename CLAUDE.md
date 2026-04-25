@@ -42,6 +42,18 @@ The rule:
   location (`/tmp/`, `$TMPDIR`, `mktemp`-produced paths). The
   invariant: no persistent on-disk shadow of koto-managed content.
 
+## Authoring koto-using Skills
+
+When creating or updating a shirabe skill that calls `koto` (`koto
+init`, `koto next`, `koto context`, `koto decisions`, etc.), consult
+`/koto-skills:koto-author` before prescribing the integration pattern.
+The author skill points at koto's canonical references (`cli-usage`,
+`custom-skill-authoring`, template format) and surfaces idioms that
+aren't obvious from reading existing shirabe skills alone. Several
+shirabe-side mistakes (over-eager on-disk staging; assumptions about
+which env vars are auto-set in the plugin loader) would have been
+avoided by checking these references first.
+
 ## Skill Evals
 
 Whenever a skill is created or updated, create or update its evals at
