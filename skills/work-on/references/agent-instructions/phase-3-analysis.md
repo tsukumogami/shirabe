@@ -12,16 +12,26 @@ You will receive:
 
 ## Your Output
 
-Write the plan to the per-session tmp directory, then store it in koto context:
+Pipe the plan content directly into koto context — `koto context add`
+reads from stdin, so no on-disk artifact is required:
 
 ```bash
-mkdir -p /tmp/koto-<WF>
-# write plan content to /tmp/koto-<WF>/plan.md
-koto context add <WF> plan.md --from-file /tmp/koto-<WF>/plan.md
+{ printf '%s\n' "# Issue <N> Implementation Plan" ""; \
+  ...assemble content... } \
+  | koto context add <WF> plan.md
 ```
 
-Always use the `/tmp/koto-<WF>/` subdirectory for transient artifacts. Bare
-`/tmp/plan.md` collides with sibling workflows on the same machine.
+If you assemble the plan via the Write tool first, write to a transient
+location under `wip/` (the workspace's non-koto scratch convention;
+auto-cleaned by koto at workflow termination) and pipe via
+`--from-file`:
+
+```bash
+koto context add <WF> plan.md --from-file wip/plan.md
+```
+
+Do not write to `/tmp/`. koto-managed content belongs in koto context;
+`wip/` is the only legitimate intermediate.
 
 Use the appropriate template based on issue type.
 

@@ -5,33 +5,40 @@ complexity_rationale: Create one new reference file, replace inline blocks with 
 
 ## Goal
 
-Consolidate the `/tmp/koto-<WF>/` per-session tmp-path convention into
-a single reference file
-(`skills/work-on/references/tmp-path-convention.md`), and replace the
-inline convention text in `phase-1-setup.md`,
+Consolidate the koto-context-ingestion convention (pipe via stdin to
+`koto context add`; use `wip/` only for agent-side intermediates; never
+write to `/tmp/`) into a single reference file
+(`skills/work-on/references/koto-context-conventions.md`), and replace
+the inline convention text in `phase-1-setup.md`,
 `agent-instructions/phase-3-analysis.md`, and `phase-5-finalization.md`
-with one-line references. Prevents drift when someone edits one copy
-of the convention.
+with one-line references. Prevents drift when the convention changes.
 
 ## Context
 
-Commit `5e58a36` ("feat(work-on): prescribe per-session tmp paths for
-transient artifacts") introduced the `/tmp/koto-<WF>/` convention by
-documenting it inline in three phase files (phase-1 baseline, phase-3
-agent-instructions plan, phase-5 summary). That landed quickly but
-sets up a drift trap: change the convention in one file and the other
-two go stale silently.
+Two earlier commits in this PR introduced and then corrected the
+convention text:
 
-The right shape is a single reference file owning the convention text,
-referenced from each phase. If the convention later changes (e.g.,
-adding a cleanup step, renaming the directory), one file needs editing
-and three references stay correct.
+- `5e58a36` ("feat(work-on): prescribe per-session tmp paths") solved
+  a collision symptom (concurrent workflows overwriting `/tmp/plan.md`)
+  by prescribing `/tmp/koto-<WF>/`. This was the wrong direction.
+- A follow-up commit corrects the convention to: pipe content via
+  stdin to `koto context add` (the canonical koto pattern, per koto's
+  cli-usage guide), with `wip/` as the only legitimate intermediate
+  for agent-assembled content. `/tmp/` is removed from prescribed
+  conventions entirely.
+
+The corrected convention text now appears inline in three phase files.
+This is the same drift trap as the original `/tmp/koto-<WF>/` text —
+change one copy, others go stale silently. Consolidating into a single
+reference owned by `koto-context-conventions.md` (or similar) lets one
+edit propagate.
 
 ## Acceptance Criteria
 
-- [ ] `skills/work-on/references/tmp-path-convention.md` exists as
-  the single authoritative description of the per-session tmp-path
-  convention
+- [ ] `skills/work-on/references/koto-context-conventions.md` exists
+  and is the single authoritative description of the koto-context
+  ingestion convention (stdin piping; `wip/` for intermediates; no
+  `/tmp/`)
 - [ ] `phase-1-setup.md` references it from the Document Baseline
   subsection rather than duplicating the explanation
 - [ ] `agent-instructions/phase-3-analysis.md` references it from the

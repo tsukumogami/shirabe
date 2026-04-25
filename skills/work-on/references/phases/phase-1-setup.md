@@ -32,20 +32,27 @@ skill or CLAUDE.md.
 
 ### Document Baseline
 
-Write the baseline content to a local file under the per-session tmp
-directory, then store it in koto context:
+Pipe the baseline content directly into koto context — `koto context
+add` reads from stdin, so no on-disk artifact is needed for koto-managed
+content:
 
 ```bash
-mkdir -p /tmp/koto-<WF>
-# write baseline content to /tmp/koto-<WF>/baseline.md
-koto context add <WF> baseline.md --from-file /tmp/koto-<WF>/baseline.md
+{ printf '%s\n' "# Baseline" "" "## Environment" ...; \
+  ./run-tests; ...assemble content... } \
+  | koto context add <WF> baseline.md
 ```
 
-**Per-session tmp paths.** Always use `/tmp/koto-<WF>/<artifact>.md` for
-transient artifacts (baseline, plan, summary, and so on). Bare `/tmp/plan.md`
-or `/tmp/baseline.md` collide between concurrent `/work-on` sessions and
-between sibling issues on the same branch, silently overwriting each
-other. The per-session subdirectory namespaces everything by workflow.
+If your agent uses the Write tool to assemble content first, write to a
+transient location under `wip/` (the workspace's non-koto scratch
+convention; auto-cleaned by koto at workflow termination) and pipe:
+
+```bash
+# (agent has produced wip/baseline.md via Write)
+koto context add <WF> baseline.md --from-file wip/baseline.md
+```
+
+Do not write to `/tmp/`. koto-managed content belongs in koto context;
+the only legitimate intermediate is the workspace's `wip/` directory.
 
 Baseline format:
 
