@@ -80,7 +80,7 @@ descriptions only._
 | <<ISSUE:9>> | None | simple |
 | _Rewrite or split `agent-instructions/phase-3-analysis.md` so it reads cleanly for both main-agent (simplified plans, inline) and subagent (full plans, delegated) consumption._ | | |
 | <<ISSUE:10>> | None | simple |
-| _Consolidate the koto-context ingestion convention (stdin piping; `wip/` for agent-side intermediates; no `/tmp/`) into a single reference file, and collapse the inline explanations in phase-1, phase-3 agent-instructions, and phase-5 into one-line references._ | | |
+| _Consolidate the koto-context ingestion convention (stdin piping; koto-driven workflows do not stage on disk) into a single reference file, and collapse the inline explanations in phase-1, phase-3 agent-instructions, and phase-5 into one-line references._ | | |
 
 ## Dependency Graph
 

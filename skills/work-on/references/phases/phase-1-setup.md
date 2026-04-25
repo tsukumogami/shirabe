@@ -32,27 +32,29 @@ skill or CLAUDE.md.
 
 ### Document Baseline
 
-Pipe the baseline content directly into koto context — `koto context
-add` reads from stdin, so no on-disk artifact is needed for koto-managed
-content:
+Pipe the baseline content directly into koto context. `koto context
+add` reads from stdin — assemble the content in the same shell
+invocation:
 
 ```bash
-{ printf '%s\n' "# Baseline" "" "## Environment" ...; \
-  ./run-tests; ...assemble content... } \
+{ printf '%s\n' "# Baseline" "" "## Environment"; \
+  ./run-tests; \
+  ...remaining sections... } \
   | koto context add <WF> baseline.md
 ```
 
-If your agent uses the Write tool to assemble content first, write to a
-transient location under `wip/` (the workspace's non-koto scratch
-convention; auto-cleaned by koto at workflow termination) and pipe:
+If you assemble the baseline via the Write tool first, write to an
+ephemeral path and ingest, then clean up:
 
 ```bash
-# (agent has produced wip/baseline.md via Write)
-koto context add <WF> baseline.md --from-file wip/baseline.md
+TMP=$(mktemp); ...write content to "$TMP"...
+koto context add <WF> baseline.md --from-file "$TMP"
+rm "$TMP"
 ```
 
-Do not write to `/tmp/`. koto-managed content belongs in koto context;
-the only legitimate intermediate is the workspace's `wip/` directory.
+work-on is a koto-driven workflow; baseline content lives in koto
+context. See `CLAUDE.md` § "Intermediate Storage" for why `wip/` is
+not used here.
 
 Baseline format:
 

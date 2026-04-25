@@ -20,25 +20,27 @@ Run complete test suite, build, linting. All must pass.
 
 ### Create Summary (if not skipped)
 
-Pipe the summary directly into koto context — `koto context add` reads
-from stdin, so no on-disk artifact is required:
+Pipe the summary directly into koto context. `koto context add` reads
+from stdin — assemble the content in the same shell invocation:
 
 ```bash
 { printf '%s\n' "# Summary" ""; \
-  ...assemble content... } \
+  ...remaining sections... } \
   | koto context add <WF> summary.md
 ```
 
-If you assemble the summary via the Write tool first, write to a
-transient location under `wip/` and pipe via `--from-file`:
+If you assemble the summary via the Write tool first, write to an
+ephemeral path and ingest, then clean up:
 
 ```bash
-koto context add <WF> summary.md --from-file wip/summary.md
+TMP=$(mktemp); ...write content to "$TMP"...
+koto context add <WF> summary.md --from-file "$TMP"
+rm "$TMP"
 ```
 
-Same convention as phase-1 baseline and phase-3 plan artifacts:
-koto-managed content belongs in koto context; `wip/` is the only
-legitimate intermediate. Do not write to `/tmp/`.
+Same convention as phase-1 baseline and phase-3 plan: work-on is a
+koto-driven workflow, so the summary lives in koto context. See
+`CLAUDE.md` § "Intermediate Storage" for why `wip/` is not used here.
 
 Summary format:
 
@@ -72,9 +74,6 @@ Summary format:
 ### Commit
 
 Commit summary: `docs: add implementation summary`
-
-Artifact cleanup is handled automatically by koto when the workflow reaches
-a terminal state. No manual `rm -rf wip/` needed.
 
 ### Consider Manual Testing
 

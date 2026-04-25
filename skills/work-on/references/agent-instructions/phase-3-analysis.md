@@ -12,26 +12,26 @@ You will receive:
 
 ## Your Output
 
-Pipe the plan content directly into koto context — `koto context add`
-reads from stdin, so no on-disk artifact is required:
+Pipe the plan content directly into koto context. `koto context add`
+reads from stdin — assemble the content in the same shell invocation:
 
 ```bash
 { printf '%s\n' "# Issue <N> Implementation Plan" ""; \
-  ...assemble content... } \
+  ...remaining sections... } \
   | koto context add <WF> plan.md
 ```
 
-If you assemble the plan via the Write tool first, write to a transient
-location under `wip/` (the workspace's non-koto scratch convention;
-auto-cleaned by koto at workflow termination) and pipe via
-`--from-file`:
+If you assemble the plan via the Write tool first, write to an
+ephemeral path and ingest, then clean up:
 
 ```bash
-koto context add <WF> plan.md --from-file wip/plan.md
+TMP=$(mktemp); ...write content to "$TMP"...
+koto context add <WF> plan.md --from-file "$TMP"
+rm "$TMP"
 ```
 
-Do not write to `/tmp/`. koto-managed content belongs in koto context;
-`wip/` is the only legitimate intermediate.
+work-on is a koto-driven workflow; the plan lives in koto context. See
+`CLAUDE.md` § "Intermediate Storage" for why `wip/` is not used here.
 
 Use the appropriate template based on issue type.
 
