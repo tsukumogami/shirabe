@@ -5,8 +5,8 @@ Verify changes, create summary, clean up artifacts.
 ## Auto-Skip
 
 Check CLAUDE.md label vocabulary for summary-skippable labels. Default: skip
-for `docs`, `config`, `chore`; generate for `bug`, `enhancement`, `refactor`,
-`security`.
+for `docs`, `config`, `chore`, `validation:simple`; generate for `bug`,
+`enhancement`, `refactor`, `security`.
 
 ## Steps
 
@@ -20,11 +20,10 @@ Run complete test suite, build, linting. All must pass.
 
 ### Create Summary (if not skipped)
 
-Write the summary locally, then store in koto context:
-
-```bash
-koto context add <WF> summary.md --from-file <summary-file>
-```
+Pipe the summary into koto context under the key `summary.md`. See
+[`../koto-context-conventions.md`](../koto-context-conventions.md)
+for the canonical ingestion pattern (stdin pipe; ephemeral
+`mktemp`+`rm` alternative).
 
 Summary format:
 
@@ -58,9 +57,6 @@ Summary format:
 ### Commit
 
 Commit summary: `docs: add implementation summary`
-
-Artifact cleanup is handled automatically by koto when the workflow reaches
-a terminal state. No manual `rm -rf wip/` needed.
 
 ### Consider Manual Testing
 

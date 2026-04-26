@@ -21,6 +21,39 @@ When running /explore or /plan here:
 - No emojis in code or committed documentation
 - Never add AI attribution or co-author lines to commits or PRs
 
+## Intermediate Storage
+
+shirabe historically uses `wip/` as the standard location for
+intermediate workflow artifacts because `wip/` is committed to git and
+visible to the user during review. koto context replaces `wip/` for
+koto-driven workflows: koto provides cloud-backed storage for workflow
+context with the same review and traceability properties, removing
+the need to pollute git history with intermediates.
+
+The rule:
+
+- **Non-koto workflows** use `wip/` for intermediate artifacts.
+- **koto-driven workflows** use koto context (`koto context add`) for
+  every artifact that should be reviewable or traceable downstream.
+  `wip/` is not a koto-driven-workflow location.
+- **Agent-side scratch when assembling content for koto context** can
+  use any on-disk location, but the file must either be explicitly
+  deleted after `koto context add` succeeds, or live in an auto-wiped
+  location (`/tmp/`, `$TMPDIR`, `mktemp`-produced paths). The
+  invariant: no persistent on-disk shadow of koto-managed content.
+
+## Authoring koto-using Skills
+
+When creating or updating a shirabe skill that calls `koto` (`koto
+init`, `koto next`, `koto context`, `koto decisions`, etc.), consult
+`/koto-skills:koto-author` before prescribing the integration pattern.
+The author skill points at koto's canonical references (`cli-usage`,
+`custom-skill-authoring`, template format) and surfaces idioms that
+aren't obvious from reading existing shirabe skills alone. Several
+shirabe-side mistakes (over-eager on-disk staging; assumptions about
+which env vars are auto-set in the plugin loader) would have been
+avoided by checking these references first.
+
 ## Skill Evals
 
 Whenever a skill is created or updated, create or update its evals at

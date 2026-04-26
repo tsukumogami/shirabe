@@ -1,24 +1,41 @@
-# Agent Instructions: Phase 3 Analysis
+# Phase 3 Analysis Instructions
 
-You are executing Phase 3 (Analysis) of the `/work-on` workflow. Your goal is to research the codebase and create a detailed implementation plan.
+Phase 3 of the `/work-on` workflow produces an implementation plan
+from the issue and baseline. These instructions are followed by:
 
-## Your Inputs
+- A general-purpose subagent dispatched by the main agent for the
+  full-plan flow (issues labeled `bug`, `enhancement`, or `refactor`).
+- The main agent itself, inline, for the simplified-plan flow (issues
+  labeled `docs`, `config`, `chore`, or `validation:simple`).
 
-You will receive:
-- Issue details (JSON from `gh issue view <N>`)
-- Baseline content: retrieved via `koto context get <WF> baseline.md`
+The work and outputs are the same in both flows; only the dispatch
+mechanism differs. Any reference to "the agent" below applies to
+whichever entity is running these instructions.
+
+## Inputs Needed
+
+The plan needs:
+
+- Issue details (from `gh issue view <N>`)
+- Baseline content (read via `koto context get <WF> baseline.md`)
 - Issue type classification: `full-plan` or `simplified-plan`
-- Project skill (conditional): Language skill from the project extension file, if defined
+- Design context (read via `koto context get <WF> context.md` if it
+  exists)
+- Project's language skill (full-plan only, if defined in the
+  extension file)
 
-## Your Output
+For full-plan delegation, the main agent passes this context to the
+subagent in the dispatch prompt. For simplified-plan inline, the main
+agent already has it from earlier phases.
 
-Write the plan locally, then store it in koto context:
+## Output
 
-```bash
-koto context add <WF> plan.md --from-file <plan-file>
-```
+Pipe the assembled plan into koto context under the key `plan.md`.
+See [`../koto-context-conventions.md`](../koto-context-conventions.md)
+for the canonical ingestion pattern (stdin pipe; ephemeral
+`mktemp`+`rm` alternative).
 
-Use the appropriate template based on issue type.
+Use the appropriate template based on issue type:
 
 ### Full Plan Template (bug, enhancement, refactor)
 
@@ -61,10 +78,10 @@ Use the appropriate template based on issue type.
 - [ ] <Specific, verifiable criterion>
 
 ## Open Questions
-<List any questions - if blocking, include in your summary for main chat>
+<List any questions; flag blocking ones in the closing summary>
 ```
 
-### Simplified Plan Template (docs, config, chore)
+### Simplified Plan Template (docs, config, chore, validation:simple)
 
 ```markdown
 # Issue <N> Implementation Plan
@@ -93,19 +110,22 @@ Use the appropriate template based on issue type.
 <Any blocking questions>
 ```
 
-## Your Tasks
+## Tasks
 
 ### 1. Check for Already-Complete
 
-Before investing in analysis, check whether the issue goal is already satisfied by
-current code. Read the acceptance criteria from the issue (or plan outline context.md)
-and verify each one against current code.
+Before investing in analysis, check whether the issue goal is already
+satisfied by current code. Read the acceptance criteria from the issue
+(or plan outline `context.md`) and verify each one against current code.
 
-If every criterion is already met, **stop here** and return `plan_outcome: already_complete`
-to the main agent. No plan file needed. This is a clean exit, not a failure.
+If every criterion is already met, **stop here** and signal
+`plan_outcome: already_complete`. No plan content is written. This is
+a clean exit, not a failure. (Full-plan subagent: return that signal
+to the main agent. Simplified-plan inline: submit it as the next koto
+evidence.)
 
-This check is especially important for plan-backed children where a sibling may have
-already implemented the needed changes.
+This check is especially important for plan-backed children where a
+sibling may have already implemented the needed changes.
 
 ### 2. Understand the Issue
 
@@ -114,70 +134,85 @@ Read the issue details and baseline to understand:
 - What acceptance criteria must be met
 - What the baseline test/build status is
 
-### 2. Read Design Context
+### 3. Read Design Context
 
-**IMPORTANT**: Check if design context exists in koto: `koto context exists <WF> context.md`. If it does, retrieve and read it BEFORE planning: `koto context get <WF> context.md`.
+Check whether design context exists in koto:
+`koto context exists <WF> context.md`. If it does, retrieve and read it
+before planning: `koto context get <WF> context.md`.
 
-This content contains design rationale, integration requirements, and constraints extracted from the design document. Use this context to ensure your implementation plan:
+This content carries design rationale, integration requirements, and
+constraints extracted from the upstream design document. Use it to
+ensure the plan:
+
 - Aligns with the broader design intent
 - Considers stated integration points
 - Respects documented constraints
 - Addresses the "why" behind the issue, not just the "what"
 
-If the key doesn't exist, the issue is likely standalone (no upstream design).
+If the key doesn't exist, the issue is standalone (no upstream design).
 
-### 3. Explore the Codebase
+### 4. Explore the Codebase
 
-Use Glob, Grep, and Read tools to find:
+Use Glob, Grep, and Read to find:
 - Existing patterns relevant to this issue
 - Files that will likely need modification
 - Similar implementations as references
 - Dependencies and integration points
 
-### 4. Design Solution
+### 5. Design the Solution
 
 For non-trivial issues:
 - Consider at least 2 approaches
 - Evaluate trade-offs (complexity, maintainability, performance)
 - Select the approach that best fits project conventions
 
-### 5. Create Plan
+### 6. Write the Plan
 
-Write the implementation plan using the appropriate template for the issue type.
+Use the appropriate template above. Ensure:
 
-Ensure:
-- All sections appropriate for issue type are present
+- All sections appropriate for the issue type are present
 - Files to modify/create are identified with specific changes
 - Implementation steps are ordered logically
 - Testing strategy included (full plan only)
-- Design context is reflected in the approach (if context.md exists in koto context)
+- Design context is reflected in the approach (when `context.md`
+  existed)
 - No blocking questions remain unanswered
 
-### 6. Classify Issue Type
+### 7. Classify Issue Type
 
-Confirm the issue type for the main agent to include in evidence:
-- `code` — changes to executable source, tests, CI configs; full scrutiny/review/QA
-- `docs` — markdown, design docs, skills, spec files; skips code review panels
-- `task` — operational work (run scripts, commands) with no review artifact
+Confirm the issue type to be included in the next evidence submission:
 
-If the plan context supplied an `ISSUE_TYPE` hint, use it unless your assessment
-clearly differs. Note any override in your summary.
+- `code` — changes to executable source, tests, or CI configs; runs
+  through scrutiny / review / QA
+- `docs` — markdown, design docs, skills, or spec files; skips code
+  review panels
+- `task` — operational work (run scripts, commands) with no review
+  artifact; skips code review panels
 
-### 7. Return Summary
+If the plan context supplied an `ISSUE_TYPE` hint, use it unless the
+assessment clearly differs. Note any override in the closing summary.
 
-Return to main chat with a brief summary (2-3 sentences):
+### 8. Closing Summary
+
+Produce a brief summary (2-3 sentences) covering:
+
 - How many files identified for modification/creation
 - Which approach was chosen and why
-- Confirmed issue type (`code`, `docs`, or `task`)
+- Confirmed `issue_type` (`code`, `docs`, or `task`)
 - Any blocking questions
 
-**Do NOT return the full plan content** - it's in the file.
+**Do not include the full plan content** — that's in koto context.
+
+For full-plan delegation: return this summary to the main agent.
+For simplified-plan inline: this becomes the rationale on the next
+`koto next` evidence submission.
 
 ## Success Criteria
 
-Your plan is complete when:
-- [ ] Plan has all appropriate sections for issue type
-- [ ] At least 2 alternatives considered (if non-trivial)
+The plan is complete when:
+
+- [ ] Plan has all appropriate sections for the issue type
+- [ ] At least 2 alternatives considered (full plan, non-trivial issues)
 - [ ] Files to modify/create identified with specific changes
 - [ ] Implementation steps are ordered and actionable
 - [ ] Testing strategy present (full plan only)

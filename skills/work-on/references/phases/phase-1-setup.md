@@ -32,11 +32,10 @@ skill or CLAUDE.md.
 
 ### Document Baseline
 
-Write the baseline content to a local file, then store it in koto context:
-
-```bash
-koto context add <WF> baseline.md --from-file <baseline-file>
-```
+Pipe the baseline content into koto context under the key
+`baseline.md`. See [`koto-context-conventions.md`](../koto-context-conventions.md)
+for the canonical ingestion pattern (stdin pipe; ephemeral
+`mktemp`+`rm` alternative).
 
 Baseline format:
 

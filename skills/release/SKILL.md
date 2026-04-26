@@ -100,14 +100,21 @@ Generate notes, present them, and confirm the version with the user.
 
 ### Phase 4: Draft Release
 
+Phase 3 produces the notes in chat. Before invoking `gh release
+create`, persist them to `wip/release-notes-<version>.md` (per
+shirabe's `CLAUDE.md` § "Intermediate Storage"; `/release` is not a
+koto-driven skill, so intermediates belong in `wip/`):
+
 ```bash
 gh release create "v<version>" \
   --draft \
   --title "v<version>" \
-  --notes-file /tmp/release-notes-<version>.md
+  --notes-file wip/release-notes-<version>.md
 ```
 
-The draft survives workflow failures and is editable in the GitHub UI.
+The draft survives workflow failures and is editable in the GitHub
+UI. The `wip/` file is cleaned per the standard pre-merge wip/
+cleanup convention.
 
 ### Phase 5: Workflow Dispatch
 
