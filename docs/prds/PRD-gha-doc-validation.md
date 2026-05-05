@@ -235,6 +235,23 @@ every issue in the PR in one pass rather than fixing one error at a time.
 Adopting the workflow requires only a caller workflow file in the downstream repo.
 No scripts, configs, or schema files are copied.
 
+**R13a: Shared Go implementation.**
+Validation logic is implemented as a Go CLI tool in shirabe's source tree. Both the
+GHA workflow and plugin skills call the same binary, so validation behavior is
+identical in CI and in local plugin contexts. Bash is not used for validation logic.
+
+The GHA workflow builds the binary from shirabe's source during the workflow run
+(a second `actions/checkout` step fetches shirabe at the pinned ref; Go is
+pre-installed on GitHub-hosted `ubuntu-latest` runners). Plugin skills call the
+installed binary by name; the binary is installed separately via
+`go install github.com/tsukumogami/shirabe/cmd/shirabe-docval@latest` as part
+of shirabe plugin setup. A skill that requires the binary checks for it and emits
+an actionable error if it is not found rather than silently degrading.
+
+The exact Go package structure, binary name, and build optimization (caching,
+pre-built release artifacts) are design decisions deferred to the implementation
+design doc.
+
 **R14: Stable job name within a major version.**
 The reusable workflow exposes a job named `validate-docs`. This name does not
 change in any v1.x release. Downstream repos that add `validate-docs` to branch
@@ -243,7 +260,8 @@ protection rules will not silently lose blocking protection on patch upgrades.
 **R15: Fast execution.**
 The static validation workflow completes in under 60 seconds for a PR touching
 up to 5 doc files, measured as wall-clock time on a GitHub-hosted `ubuntu-latest`
-runner. This is validated by inspection of a CI run in shirabe's own repo.
+runner, including the binary build step from R13a. This is validated by inspection
+of a CI run in shirabe's own repo.
 
 **R16: shirabe branch protection updated.**
 shirabe's branch protection adds `validate-docs` as a required status check on the
@@ -302,6 +320,7 @@ main branch. The existing `check-plan-docs` required check is removed once
 
 - **Downstream repos configure blocking themselves.** The reusable workflow can't declare itself as a required status check — that setting lives in each repo's branch protection rules. If the job name changes between major versions, blocking is silently removed without any error.
 - **Opt-in requires touching each doc.** A team that wants to opt in all 50 existing docs at once must open a PR that adds `schema: design/v1` (or the equivalent) to each file. There is no batch opt-in mechanism. Changed-files-only means these schema additions are themselves what triggers first-time validation on each doc.
+- **Plugin skills require `shirabe-docval` installed separately.** The GHA workflow builds the binary from shirabe's source during the CI run. Plugin skills running locally require the binary to be installed via `go install` — it is not bundled with the Claude Code plugin itself. Skills emit a clear error if the binary is missing.
 - **Status enum override requires listing all wanted values.** Repos with non-canonical status values must pass a complete replacement list via `custom-statuses`, including any canonical values they want to keep. Partial additions aren't supported in v1.
 - **Compute runs in the caller's account.** Runner minutes are billed to the downstream repo's GitHub account, not shirabe's. For public repos, GitHub-hosted runners are free. For private repos, the static validation job is expected to complete well under 60 seconds per run, making per-run cost negligible. No v1 requirement addresses cost management for private downstream repos.
 - **VISION format not yet validated in practice.** No downstream repo has published VISION docs as of this writing. Real-world edge cases may surface after initial adoption.
@@ -350,6 +369,14 @@ in v1 lets existing repos adopt without a pre-adoption cleanup sprint.
 The workflow collects all validation errors before exiting. Fail-fast stops at the
 first error, requiring multiple PR iterations to surface all problems. Collect-all
 gives contributors a complete picture in one CI run.
+
+**Go for validation logic (not bash)**
+The validation logic is implemented in Go rather than bash. Go provides structured
+frontmatter parsing, typed error handling, and `go test` — none of which bash offers
+without significant tooling. The primary reason to use bash would be zero-dependency
+execution, but Go is pre-installed on every GitHub-hosted runner and the plugin's
+target users are developers who can run `go install`. The shared binary eliminates
+the drift risk that comes from maintaining two implementations in different languages.
 
 **`check-plan-docs` removed when `validate-docs` ships**
 Once `validate-docs` is confirmed to cover Plan validation (R6), the existing
