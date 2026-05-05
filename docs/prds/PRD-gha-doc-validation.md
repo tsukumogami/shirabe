@@ -235,22 +235,20 @@ every issue in the PR in one pass rather than fixing one error at a time.
 Adopting the workflow requires only a caller workflow file in the downstream repo.
 No scripts, configs, or schema files are copied.
 
-**R13a: Shared Go implementation.**
-Validation logic is implemented as a Go CLI tool in shirabe's source tree. Both the
-GHA workflow and plugin skills call the same binary, so validation behavior is
-identical in CI and in local plugin contexts. Bash is not used for validation logic.
+**R13a: Go implementation for the GHA workflow.**
+Validation logic is implemented as a Go CLI tool in shirabe's source tree rather
+than as inline bash. Bash is not used for validation logic. The GHA workflow builds
+the binary from shirabe's source during the workflow run: a second `actions/checkout`
+step fetches shirabe at the pinned ref, then `go build` produces the binary. Go is
+pre-installed on GitHub-hosted `ubuntu-latest` runners; no additional setup step is
+required.
 
-The GHA workflow builds the binary from shirabe's source during the workflow run
-(a second `actions/checkout` step fetches shirabe at the pinned ref; Go is
-pre-installed on GitHub-hosted `ubuntu-latest` runners). Plugin skills call the
-installed binary by name; the binary is installed separately via
-`go install github.com/tsukumogami/shirabe/cmd/shirabe-docval@latest` as part
-of shirabe plugin setup. A skill that requires the binary checks for it and emits
-an actionable error if it is not found rather than silently degrading.
-
-The exact Go package structure, binary name, and build optimization (caching,
-pre-built release artifacts) are design decisions deferred to the implementation
-design doc.
+Plugin skills do not call the binary directly. Shirabe's skills are creation
+workflows — they produce docs by having Claude follow the format spec. CI is the
+validation checkpoint. Local validation via the binary is a future capability; its
+distribution mechanism (a tsuku recipe that installs a pre-built binary is the
+natural fit for this ecosystem, but cross-platform release infrastructure is
+required) is deferred to the implementation design doc.
 
 **R14: Stable job name within a major version.**
 The reusable workflow exposes a job named `validate-docs`. This name does not
@@ -320,7 +318,7 @@ main branch. The existing `check-plan-docs` required check is removed once
 
 - **Downstream repos configure blocking themselves.** The reusable workflow can't declare itself as a required status check — that setting lives in each repo's branch protection rules. If the job name changes between major versions, blocking is silently removed without any error.
 - **Opt-in requires touching each doc.** A team that wants to opt in all 50 existing docs at once must open a PR that adds `schema: design/v1` (or the equivalent) to each file. There is no batch opt-in mechanism. Changed-files-only means these schema additions are themselves what triggers first-time validation on each doc.
-- **Plugin skills require `shirabe-docval` installed separately.** The GHA workflow builds the binary from shirabe's source during the CI run. Plugin skills running locally require the binary to be installed via `go install` — it is not bundled with the Claude Code plugin itself. Skills emit a clear error if the binary is missing.
+- **Local binary distribution is unresolved for v1.** The GHA workflow builds the binary from shirabe's source during each CI run. Plugin skills don't call the binary in v1 — they rely on workflow-enforced structure. When local validation via the binary becomes a skill requirement, a distribution mechanism (tsuku recipe with pre-built binaries is the natural fit) will need to be established and maintained.
 - **Status enum override requires listing all wanted values.** Repos with non-canonical status values must pass a complete replacement list via `custom-statuses`, including any canonical values they want to keep. Partial additions aren't supported in v1.
 - **Compute runs in the caller's account.** Runner minutes are billed to the downstream repo's GitHub account, not shirabe's. For public repos, GitHub-hosted runners are free. For private repos, the static validation job is expected to complete well under 60 seconds per run, making per-run cost negligible. No v1 requirement addresses cost management for private downstream repos.
 - **VISION format not yet validated in practice.** No downstream repo has published VISION docs as of this writing. Real-world edge cases may surface after initial adoption.
@@ -374,9 +372,11 @@ gives contributors a complete picture in one CI run.
 The validation logic is implemented in Go rather than bash. Go provides structured
 frontmatter parsing, typed error handling, and `go test` — none of which bash offers
 without significant tooling. The primary reason to use bash would be zero-dependency
-execution, but Go is pre-installed on every GitHub-hosted runner and the plugin's
-target users are developers who can run `go install`. The shared binary eliminates
-the drift risk that comes from maintaining two implementations in different languages.
+execution, but Go is pre-installed on every GitHub-hosted runner, which is the only
+execution context the binary needs to support in v1. Plugin skills don't call the
+binary; they rely on Claude's own format awareness during creation workflows. A
+future capability that brings local validation to skills will need to address binary
+distribution (a tsuku recipe is the natural path for this ecosystem).
 
 **`check-plan-docs` removed when `validate-docs` ships**
 Once `validate-docs` is confirmed to cover Plan validation (R6), the existing
