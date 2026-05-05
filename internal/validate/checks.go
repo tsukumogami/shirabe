@@ -92,7 +92,7 @@ func checkFC03(doc Doc, spec FormatSpec) []ValidationError {
 	bodyStatus := ""
 	for _, line := range doc.Body {
 		if !foundHeading {
-			if line == "## Status" {
+			if strings.TrimRight(line, " \t") == "## Status" {
 				foundHeading = true
 			}
 			continue

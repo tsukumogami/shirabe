@@ -1,7 +1,5 @@
 package validate
 
-import "fmt"
-
 // Config holds optional overrides for the validation run.
 type Config struct {
 	CustomStatuses map[string][]string // format schema version → replacement enum
@@ -13,14 +11,7 @@ type Config struct {
 func validateFile(doc Doc, spec FormatSpec, cfg Config) []ValidationError {
 	// 1. Schema gate: if doc.Schema != spec.SchemaVersion, return SCHEMA notice.
 	if schemaErr := checkSchema(doc, spec); schemaErr != nil {
-		return []ValidationError{
-			{
-				File:    doc.Path,
-				Line:    1,
-				Code:    "SCHEMA",
-				Message: fmt.Sprintf("schema %q not in supported range, skipping", doc.Schema),
-			},
-		}
+		return []ValidationError{*schemaErr}
 	}
 
 	// 2. Run FC01, FC02, FC03, FC04 in order, collect all errors.
