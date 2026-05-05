@@ -50,7 +50,7 @@ var Formats = map[string]FormatSpec{
 	},
 	"vision/v1": {
 		Name:          "VISION",
-		Prefix:        "VISION",
+		Prefix:        "VISION-",
 		SchemaVersion: "vision/v1",
 		RequiredFields: []string{"status", "thesis", "scope"},
 		ValidStatuses:  []string{"Draft", "Accepted", "Active", "Sunset"},
