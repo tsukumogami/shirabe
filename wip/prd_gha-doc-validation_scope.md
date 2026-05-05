@@ -4,13 +4,14 @@
 
 shirabe defines five doc formats (Design, PRD, VISION, Roadmap, Plan) with frontmatter schemas, status lifecycles, and required sections — but only Plan has any CI validation, and that validation is non-reusable (hardcoded path, runs only in shirabe's own repo). Repos that adopt shirabe's doc formats have no way to enforce structural correctness in CI without copying validation scripts manually, which creates a maintenance burden and means updates never reach downstream repos automatically. Validation logic needs to live in one place (shirabe) and be consumed via a reusable GHA workflow so improvements reach all adopters on every run.
 
+**Scope note (from exploration):** Schema versioning (extending `schema: plan/v1` to all formats) is a constraint the reusable validation system must accommodate, not a requirement this PRD defines. It belongs in a follow-on design doc or decision record when implementation begins.
+
 ## Initial Scope
 
 ### In Scope
 
 - Reusable GitHub Actions workflow (`validate.yml`) hosted in shirabe, callable via `uses: tsukumogami/shirabe/.github/workflows/validate.yml@v1` from any downstream repo
 - Static/deterministic validation tier covering all five persistent doc formats: frontmatter field completeness, status enum validity, frontmatter/body status synchronization, required section presence, and format-specific structural rules (Mermaid syntax in Plan, reserved section presence in Roadmap, public-repo section exclusion in VISION, etc.)
-- Schema versioning: a `schema: <format>/<version>` frontmatter field for all doc formats (Plan already uses `schema: plan/v1`), giving validators a stable anchor and enabling format evolution
 - Configuration-driven design: one reusable workflow with optional config input; start with no config required and add configuration options incrementally
 - Version pinning via tags (`@v1`) so downstream repos can control when they upgrade
 - Thin caller workflow template: approximately 10 lines, one `uses:` reference, no scripts to copy
@@ -19,6 +20,7 @@ shirabe defines five doc formats (Design, PRD, VISION, Roadmap, Plan) with front
 
 - AI-powered semantic validation tier (future direction — acknowledged but not in v1 requirements)
 - Mermaid diagram validation (explicitly deferred: the existing validator needs architectural splitting before it can ship portably)
+- Schema versioning definition (accommodate as a constraint, not a requirement — follow-on design doc)
 - Non-GHA CI systems
 - Per-format separate reusable workflows (one configurable workflow is the design)
 - Migration of any specific downstream repo's existing copied scripts (the new system serves future adopters; migration is downstream repos' choice)
@@ -31,9 +33,9 @@ shirabe defines five doc formats (Design, PRD, VISION, Roadmap, Plan) with front
 
 2. **Which formats are in scope for v1 vs. later releases?** Plan already has a (non-reusable) validator. Design seems highest-value to add next (most used upstream dependency). The PRD needs to decide whether v1 covers all five formats or starts with a subset.
 
-3. **How does the schema versioning field propagate to existing docs?** The `schema: plan/v1` pattern is proven for Plan. Adopting it for Design, PRD, VISION, and Roadmap means existing docs in downstream repos are missing the field. Grandfathering approach (cutoff date, optional enforcement) needs to be defined as a requirement.
+3. **What does the user story look like for a downstream repo maintainer adopting this?** Exploration surfaced the gap (koto and niwa have design docs with no CI validation) but didn't define the specific personas and their acceptance criteria.
 
-4. **What does the user story look like for a downstream repo maintainer adopting this?** The PRD needs user stories. Exploration surfaced the gap (koto and niwa have design docs with no CI validation) but didn't define the specific personas and their acceptance criteria.
+4. **What is the grandfathering story for existing docs in downstream repos?** New check rules shouldn't fail docs that predate them. The PRD should define a requirement for how validators handle pre-existing non-conforming docs (cutoff date, explicit opt-in, or warning-only mode).
 
 ## Coverage Notes
 
@@ -47,4 +49,4 @@ shirabe defines five doc formats (Design, PRD, VISION, Roadmap, Plan) with front
 - **Single configurable reusable workflow**: one `validate.yml` with config-driven behavior; no config required at launch; add options incrementally. Per-format separate workflows are out.
 - **Private tools repo: not referenced**: shirabe is the new canonical home for all doc validation logic. No dependency on or reference to prior script copying patterns.
 - **AI semantic validation tier: future work**: vision doc acknowledges direction but does not define requirements or acceptance criteria for it.
-- **Schema and versioning: foundational**: the frontmatter-derived `schema: <format>/<version>` field (extending Plan's existing `schema: plan/v1`) is part of the system's foundation, not an optional enhancement.
+- **Schema and versioning: a constraint, not a v1 requirement**: the validation system must accommodate the existing `schema: plan/v1` field and be designed so that other formats can adopt a similar field later, but this PRD does not define the schema versioning system itself.
