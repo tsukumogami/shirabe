@@ -235,20 +235,24 @@ every issue in the PR in one pass rather than fixing one error at a time.
 Adopting the workflow requires only a caller workflow file in the downstream repo.
 No scripts, configs, or schema files are copied.
 
-**R13a: Go implementation for the GHA workflow.**
-Validation logic is implemented as a Go CLI tool in shirabe's source tree rather
-than as inline bash. Bash is not used for validation logic. The GHA workflow builds
-the binary from shirabe's source during the workflow run: a second `actions/checkout`
-step fetches shirabe at the pinned ref, then `go build` produces the binary. Go is
-pre-installed on GitHub-hosted `ubuntu-latest` runners; no additional setup step is
-required.
+**R13a: shirabe CLI — shared Go implementation, distributed via tsuku and install script.**
+Validation logic is implemented as a Go CLI named `shirabe`. Bash is not used for
+validation logic. The CLI is the canonical implementation for both CI and local use.
 
-Plugin skills do not call the binary directly. Shirabe's skills are creation
-workflows — they produce docs by having Claude follow the format spec. CI is the
-validation checkpoint. Local validation via the binary is a future capability; its
-distribution mechanism (a tsuku recipe that installs a pre-built binary is the
-natural fit for this ecosystem, but cross-platform release infrastructure is
-required) is deferred to the implementation design doc.
+**Distribution:** The `shirabe` binary is available via:
+- `tsuku install shirabe` (primary)
+- A `curl | bash` install script for environments without tsuku
+
+**GHA workflow:** The reusable workflow builds the binary from shirabe's source
+during the workflow run — a second `actions/checkout` step fetches shirabe at the
+pinned ref, then `go build` produces the binary. Go is pre-installed on
+GitHub-hosted `ubuntu-latest` runners; no additional setup step is required.
+
+**Plugin skills:** Skills that perform local doc validation check whether `shirabe`
+is in PATH. If it is not found, the skill offers to install it (via `tsuku install
+shirabe` if tsuku is available, otherwise via the curl script). Local validation is
+optional: if the user declines or the install fails, the skill continues without it.
+CI remains the authoritative validation checkpoint.
 
 **R14: Stable job name within a major version.**
 The reusable workflow exposes a job named `validate-docs`. This name does not
@@ -318,7 +322,7 @@ main branch. The existing `check-plan-docs` required check is removed once
 
 - **Downstream repos configure blocking themselves.** The reusable workflow can't declare itself as a required status check — that setting lives in each repo's branch protection rules. If the job name changes between major versions, blocking is silently removed without any error.
 - **Opt-in requires touching each doc.** A team that wants to opt in all 50 existing docs at once must open a PR that adds `schema: design/v1` (or the equivalent) to each file. There is no batch opt-in mechanism. Changed-files-only means these schema additions are themselves what triggers first-time validation on each doc.
-- **Local binary distribution is unresolved for v1.** The GHA workflow builds the binary from shirabe's source during each CI run. Plugin skills don't call the binary in v1 — they rely on workflow-enforced structure. When local validation via the binary becomes a skill requirement, a distribution mechanism (tsuku recipe with pre-built binaries is the natural fit) will need to be established and maintained.
+- **Skills treat local validation as optional.** When `shirabe` is not in PATH, skills offer to install it but continue without it if declined. CI remains the authoritative validation gate; local validation is a convenience, not a correctness guarantee.
 - **Status enum override requires listing all wanted values.** Repos with non-canonical status values must pass a complete replacement list via `custom-statuses`, including any canonical values they want to keep. Partial additions aren't supported in v1.
 - **Compute runs in the caller's account.** Runner minutes are billed to the downstream repo's GitHub account, not shirabe's. For public repos, GitHub-hosted runners are free. For private repos, the static validation job is expected to complete well under 60 seconds per run, making per-run cost negligible. No v1 requirement addresses cost management for private downstream repos.
 - **VISION format not yet validated in practice.** No downstream repo has published VISION docs as of this writing. Real-world edge cases may surface after initial adoption.
@@ -369,14 +373,12 @@ first error, requiring multiple PR iterations to surface all problems. Collect-a
 gives contributors a complete picture in one CI run.
 
 **Go for validation logic (not bash)**
-The validation logic is implemented in Go rather than bash. Go provides structured
-frontmatter parsing, typed error handling, and `go test` — none of which bash offers
-without significant tooling. The primary reason to use bash would be zero-dependency
-execution, but Go is pre-installed on every GitHub-hosted runner, which is the only
-execution context the binary needs to support in v1. Plugin skills don't call the
-binary; they rely on Claude's own format awareness during creation workflows. A
-future capability that brings local validation to skills will need to address binary
-distribution (a tsuku recipe is the natural path for this ecosystem).
+The validation logic is implemented in Go as the `shirabe` CLI rather than as bash
+scripts. Go provides structured frontmatter parsing, typed error handling, and
+`go test`. Go is pre-installed on GitHub-hosted runners, and the `shirabe` CLI is
+available via `tsuku install shirabe` or a curl script for local use. A single
+implementation serves both CI and local skill validation — no duplicate logic to
+drift apart.
 
 **`check-plan-docs` removed when `validate-docs` ships**
 Once `validate-docs` is confirmed to cover Plan validation (R6), the existing
