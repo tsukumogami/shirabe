@@ -66,7 +66,12 @@ func validateCmd() *cobra.Command {
 
 				doc, err := validate.ParseDoc(path)
 				if err != nil {
-					fmt.Printf("::error file=%s,line=1::could not read file: %v\n", path, err)
+					fmt.Println(annotation.FormatError(validate.ValidationError{
+						File:    path,
+						Line:    1,
+						Code:    "IO",
+						Message: fmt.Sprintf("could not read file: %v", err),
+					}))
 					hasErrors = true
 					continue
 				}

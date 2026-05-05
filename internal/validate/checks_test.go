@@ -1,6 +1,8 @@
 package validate
 
 import (
+	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -317,6 +319,166 @@ func TestCheckFC04(t *testing.T) {
 		errs := checkFC04(doc, designSpec)
 		if len(errs) != len(designSpec.RequiredSections) {
 			t.Errorf("expected %d errors, got %d", len(designSpec.RequiredSections), len(errs))
+		}
+	})
+}
+
+// --- checkPlanUpstream ---
+
+func TestCheckPlanUpstream(t *testing.T) {
+	t.Run("upstream field absent returns nil", func(t *testing.T) {
+		doc := makeDoc("plan/v1", "Draft", nil, nil, nil)
+		errs := checkPlanUpstream(doc)
+		if len(errs) != 0 {
+			t.Errorf("expected no errors when upstream absent, got %v", errs)
+		}
+	})
+
+	t.Run("upstream file does not exist returns R6 error", func(t *testing.T) {
+		fields := map[string]FieldValue{
+			"upstream": {Value: "/tmp/nonexistent_shirabe_test_xyz_12345.md", Line: 5},
+		}
+		doc := makeDoc("plan/v1", "Draft", fields, nil, nil)
+		errs := checkPlanUpstream(doc)
+		if len(errs) != 1 {
+			t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+		}
+		if errs[0].Code != "R6" {
+			t.Errorf("code: got %q, want %q", errs[0].Code, "R6")
+		}
+		if errs[0].Line != 5 {
+			t.Errorf("line: got %d, want 5", errs[0].Line)
+		}
+		if !strings.Contains(errs[0].Message, "does not exist on disk") {
+			t.Errorf("message should mention existence, got %q", errs[0].Message)
+		}
+	})
+
+	t.Run("upstream file exists but is not tracked by git returns R6 error", func(t *testing.T) {
+		// Create a temporary file that exists on disk but is not committed to git.
+		f, err := os.CreateTemp("", "shirabe_untracked_*.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(f.Name())
+		f.Close()
+
+		fields := map[string]FieldValue{
+			"upstream": {Value: f.Name(), Line: 3},
+		}
+		doc := makeDoc("plan/v1", "Draft", fields, nil, nil)
+		errs := checkPlanUpstream(doc)
+		if len(errs) != 1 {
+			t.Fatalf("expected 1 error for untracked file, got %d: %v", len(errs), errs)
+		}
+		if errs[0].Code != "R6" {
+			t.Errorf("code: got %q, want %q", errs[0].Code, "R6")
+		}
+		if !strings.Contains(errs[0].Message, "not tracked by git") {
+			t.Errorf("message should mention git tracking, got %q", errs[0].Message)
+		}
+	})
+
+	t.Run("upstream file exists and is tracked by git returns nil", func(t *testing.T) {
+		// Use this test file itself — it exists on disk and is committed to git.
+		// runtime.Caller(0) returns the absolute path of the current source file.
+		_, thisFile, _, ok := runtime.Caller(0)
+		if !ok {
+			t.Fatal("runtime.Caller failed")
+		}
+		fields := map[string]FieldValue{
+			"upstream": {Value: thisFile, Line: 4},
+		}
+		doc := makeDoc("plan/v1", "Draft", fields, nil, nil)
+		errs := checkPlanUpstream(doc)
+		if len(errs) != 0 {
+			t.Errorf("expected no errors for tracked file, got %v", errs)
+		}
+	})
+}
+
+// --- checkVisionPublic ---
+
+func TestCheckVisionPublic(t *testing.T) {
+	t.Run("private visibility returns nil even with prohibited sections", func(t *testing.T) {
+		cfg := Config{Visibility: "private"}
+		sections := []Section{
+			{Name: "Competitive Positioning", Line: 10},
+			{Name: "Resource Implications", Line: 20},
+		}
+		doc := makeDoc("vision/v1", "Draft", nil, sections, nil)
+		errs := checkVisionPublic(doc, cfg)
+		if len(errs) != 0 {
+			t.Errorf("expected no errors for private visibility, got %v", errs)
+		}
+	})
+
+	t.Run("public visibility with prohibited section returns R7 error", func(t *testing.T) {
+		cfg := Config{Visibility: "public"}
+		sections := []Section{
+			{Name: "Thesis", Line: 5},
+			{Name: "Competitive Positioning", Line: 12},
+		}
+		doc := makeDoc("vision/v1", "Draft", nil, sections, nil)
+		errs := checkVisionPublic(doc, cfg)
+		if len(errs) != 1 {
+			t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+		}
+		if errs[0].Code != "R7" {
+			t.Errorf("code: got %q, want %q", errs[0].Code, "R7")
+		}
+		if errs[0].Line != 12 {
+			t.Errorf("line: got %d, want 12", errs[0].Line)
+		}
+		if !strings.Contains(errs[0].Message, "Competitive Positioning") {
+			t.Errorf("message should mention section name, got %q", errs[0].Message)
+		}
+	})
+
+	t.Run("empty visibility fails closed — prohibited section returns R7 error", func(t *testing.T) {
+		cfg := Config{Visibility: ""}
+		sections := []Section{
+			{Name: "Resource Implications", Line: 8},
+		}
+		doc := makeDoc("vision/v1", "Draft", nil, sections, nil)
+		errs := checkVisionPublic(doc, cfg)
+		if len(errs) != 1 {
+			t.Fatalf("expected 1 error for empty visibility, got %d: %v", len(errs), errs)
+		}
+		if errs[0].Code != "R7" {
+			t.Errorf("code: got %q, want %q", errs[0].Code, "R7")
+		}
+	})
+
+	t.Run("public visibility without prohibited sections returns nil", func(t *testing.T) {
+		cfg := Config{Visibility: "public"}
+		sections := []Section{
+			{Name: "Thesis", Line: 5},
+			{Name: "Audience", Line: 10},
+			{Name: "Value Proposition", Line: 15},
+		}
+		doc := makeDoc("vision/v1", "Draft", nil, sections, nil)
+		errs := checkVisionPublic(doc, cfg)
+		if len(errs) != 0 {
+			t.Errorf("expected no errors, got %v", errs)
+		}
+	})
+
+	t.Run("both prohibited sections present returns two R7 errors", func(t *testing.T) {
+		cfg := Config{Visibility: "public"}
+		sections := []Section{
+			{Name: "Competitive Positioning", Line: 10},
+			{Name: "Resource Implications", Line: 20},
+		}
+		doc := makeDoc("vision/v1", "Draft", nil, sections, nil)
+		errs := checkVisionPublic(doc, cfg)
+		if len(errs) != 2 {
+			t.Fatalf("expected 2 errors, got %d: %v", len(errs), errs)
+		}
+		for _, e := range errs {
+			if e.Code != "R7" {
+				t.Errorf("code: got %q, want %q", e.Code, "R7")
+			}
 		}
 	})
 }
