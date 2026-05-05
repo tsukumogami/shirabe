@@ -42,12 +42,10 @@ func validateCmd() *cobra.Command {
 			var customStatuses map[string][]string
 			if customStatusesStr != "" {
 				if len(customStatusesStr) > 64*1024 {
-					fmt.Fprintf(os.Stderr, "error: --custom-statuses value exceeds maximum allowed size (64 KiB)\n")
-					os.Exit(1)
+					return fmt.Errorf("--custom-statuses value exceeds maximum allowed size (64 KiB)")
 				}
 				if err := yaml.Unmarshal([]byte(customStatusesStr), &customStatuses); err != nil {
-					fmt.Fprintf(os.Stderr, "error: --custom-statuses contains invalid YAML: %v\n", err)
-					os.Exit(1)
+					return fmt.Errorf("--custom-statuses contains invalid YAML: %w", err)
 				}
 			}
 
