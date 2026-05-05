@@ -3,6 +3,7 @@ package validate
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -51,7 +52,7 @@ func parseDocBytes(path string, data []byte) (Doc, error) {
 	return doc, nil
 }
 
-var errNoFrontmatter = fmt.Errorf("no frontmatter")
+var errNoFrontmatter = errors.New("no frontmatter")
 
 // splitFrontmatter finds the --- delimiters and returns the YAML bytes,
 // the 1-indexed line number of the line after the opening ---, and the
