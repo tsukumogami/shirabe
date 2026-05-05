@@ -8,7 +8,7 @@ What should shirabe's reusable GitHub Actions validation system look like — wh
 
 ## Context
 
-shirabe defines several document formats (Design docs, PRDs, VISION docs, Roadmaps, Plans, Decision records, Spike reports, Competitive analyses), each with frontmatter schemas and status lifecycles. Skills manage their lifecycle, and the private repo uses internal CI to validate some of these. The PRD explicitly commits to reusable GHA workflows (R5, R6, R6a) but no public reusable workflows exist yet. tsuku has a working example of plan-doc validation (validate-plan.sh + check-plan-docs.yml) that serves as a reference. The user wants a public vision document — not a design doc — that captures what the system should be before anyone starts implementing.
+shirabe defines several document formats (Design docs, PRDs, VISION docs, Roadmaps, Plans, Decision records, Spike reports, Competitive analyses), each with frontmatter schemas and status lifecycles. Skills manage their lifecycle, and the private tools repo uses internal CI to validate some of these. The PRD explicitly commits to reusable GHA workflows (R5, R6, R6a) but no public reusable workflows exist yet. tsuku has a working example of plan-doc validation (validate-plan.sh + check-plan-docs.yml), but these scripts originated in the private tools repo and were copied into tsuku — the old pattern. The new model is reusable GHA workflows where all validation code lives in shirabe and downstream repos reference it via `uses:` — no script copying. The user wants a public vision document — not a design doc — that captures what the system should be before anyone starts implementing.
 
 ## In Scope
 
@@ -43,7 +43,10 @@ shirabe defines several document formats (Design docs, PRDs, VISION docs, Roadma
 5. **What does "reusable GHA workflow" imply for downstream repo setup and version pinning?**
    The PRD describes a thin caller pattern (`uses: tsukumogami/shirabe/.github/workflows/validate.yml@v1`). What does this mean for configuration, secrets handling (for ANTHROPIC_API_KEY), and versioning strategy?
 
-6. **Is there evidence of real demand for this, and what do users do today instead?** (lead-adversarial-demand)
+6. **What does the private tools repo script-copying pattern look like, and what gaps does it expose that reusable GHA workflows would fix?**
+   The existing validation scripts in tsuku came from the private tools repo via copying. Understanding what that pattern required (what scripts exist, how they're invoked, where duplication occurs) makes the "all code lives in shirabe" model concrete by contrast.
+
+7. **Is there evidence of real demand for this, and what do users do today instead?** (lead-adversarial-demand)
    You are a demand-validation researcher. Investigate whether evidence supports pursuing this topic. Report what you found. Cite only what you found in durable artifacts. The verdict belongs to convergence and the user.
 
    ## Visibility
