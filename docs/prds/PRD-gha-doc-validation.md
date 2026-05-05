@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Done
 problem: |
   Repos using shirabe's doc formats have no way to enforce structural correctness
   in CI. Only the Plan format has a validator, and it runs only in shirabe's own
@@ -17,7 +17,7 @@ source_issue: 4
 
 ## Status
 
-Accepted
+Done
 
 ## Problem Statement
 

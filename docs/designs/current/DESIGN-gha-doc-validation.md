@@ -1,5 +1,5 @@
 ---
-status: Planned
+status: Current
 upstream: docs/prds/PRD-gha-doc-validation.md
 problem: |
   shirabe's doc format rules exist only as prose. There is no executable
@@ -27,7 +27,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
