@@ -78,9 +78,9 @@ pin upgrade, without requiring them to pull updated scripts.
 **US4: Repo with existing docs adopting validation**
 
 As a maintainer of a repo with 50+ existing docs that predate the validator, I
-want to enable doc validation without triggering failures on docs that aren't
-being changed in any current PR, so I can adopt incrementally without a forced
-cleanup sprint.
+want to enable doc validation without triggering failures on any existing doc
+until I explicitly opt it in, so I can adopt incrementally and control which
+docs enter validation scope — one at a time if needed.
 
 ## Requirements
 
@@ -135,14 +135,20 @@ Status comparisons are case-sensitive. `accepted` does not match `Accepted`.
 | PRD | status, problem, goals | Status, Problem Statement, Goals, User Stories, Requirements, Acceptance Criteria, Out of Scope |
 | VISION | status, thesis, scope | Status, Thesis, Audience, Value Proposition, Org Fit, Success Criteria, Non-Goals |
 | Roadmap | status, theme, scope | Status, Theme, Features, Sequencing Rationale, Progress, Implementation Issues, Dependency Graph |
-| Plan | schema, status, execution_mode, milestone, issue_count | Status, Scope Summary, Decomposition Strategy, Implementation Issues, Dependency Graph, Implementation Sequence |
+| Plan | status, execution_mode, milestone, issue_count | Status, Scope Summary, Decomposition Strategy, Implementation Issues, Dependency Graph, Implementation Sequence |
 
 The Roadmap `Implementation Issues` and `Dependency Graph` sections are required
 even when empty; their presence is the FC04 check, not their content.
 
+The `schema` field is not listed in the required fields above. For all formats,
+`schema` is the validation opt-in trigger handled by R8 before FC01 runs. A file
+without a `schema` value in the supported range is skipped entirely, so FC01
+never fires for it. For Plan docs, absence of `schema: plan/v1` causes the R8
+gate to skip the file (notice only) rather than producing an FC01 error.
+
 **R6: Plan structural rules carried forward.**
-Plan docs are validated for the rules already in `validate-plan.sh`:
-- `schema` field must equal `plan/v1`
+Plan docs that pass the R8 schema gate (i.e., carry `schema: plan/v1`) are
+validated for the rules already in `validate-plan.sh`:
 - When an `upstream` field is present, the referenced file must exist on disk and
   appear in `git ls-files HEAD` on the PR branch at the time the workflow runs
   (this includes files staged and committed within the PR itself)
@@ -154,11 +160,30 @@ When the workflow runs in a public repository (`github.repository_visibility ==
 `github.repository_visibility` is unset or empty, the check is applied (fail
 closed). This check applies to forks of public repositories.
 
-**R8: Automatic format detection by filename prefix.**
+**R8: Format detection by filename prefix, then schema version gate.**
 The workflow identifies a file's format by its basename prefix: `DESIGN-`,
 `PRD-`, `VISION-`, `ROADMAP-`, `PLAN-`. Prefix matching is on the basename only
 (not the full path), is case-sensitive, and recognizes only the uppercase prefixes
 listed. Files that don't match any prefix are skipped without error or warning.
+
+After prefix detection, the validator reads the file's `schema` frontmatter field
+and checks whether the value is in the supported range for this validator version:
+
+| Format | Supported `schema` value |
+|--------|--------------------------|
+| Design | `design/v1` |
+| PRD | `prd/v1` |
+| VISION | `vision/v1` |
+| Roadmap | `roadmap/v1` |
+| Plan | `plan/v1` |
+
+A file that matches a known prefix but has no `schema` field, or a `schema` value
+not in the table above, is skipped: the validator emits one `::notice` annotation
+identifying the file and exits without error. This is the opt-in mechanism for
+incremental adoption — existing docs without a `schema` field are never validated
+until a team explicitly adds the field. A file with a `schema` value in the
+supported range proceeds to full validation (FC01–FC04 and any format-specific
+checks).
 
 **R9: Configurable status enum overrides.**
 The workflow accepts a `custom-statuses` input (optional YAML map, per-format)
@@ -250,10 +275,12 @@ main branch. The existing `check-plan-docs` required check is removed once
 - [ ] A PR that adds a VISION doc containing `## Competitive Positioning` in a private repo passes CI
 - [ ] A Plan doc with `upstream: docs/designs/DESIGN-foo.md` where that file does not exist on disk fails CI
 - [ ] A Plan doc with `upstream: docs/designs/DESIGN-foo.md` where the file exists on disk but is not tracked by git fails CI
-- [ ] A Plan doc with `schema: plan/v2` fails CI
+- [ ] A Plan doc with `schema: plan/v2` exits 0 with exactly one `::notice` annotation and zero `::error` annotations (unsupported schema version → skipped, not errored)
+- [ ] A Design doc with no `schema` field modified in a PR exits 0 with exactly one `::notice` annotation and zero `::error` annotations
+- [ ] A Design doc with `schema: design/v1` added in a PR is fully validated (FC01–FC04 checks run)
 - [ ] A doc with both an FC01 violation and an FC04 violation produces two annotations before the job exits non-zero (collect-all behavior)
 - [ ] The performance criterion holds: the workflow completes in under 60 seconds for a PR touching 5 doc files, all passing validation, measured on a GitHub-hosted `ubuntu-latest` runner
-- [ ] A repo with 50 existing non-conforming docs experiences zero CI failures on a PR that touches none of them
+- [ ] A repo with 50 existing docs without `schema` fields experiences zero CI failures on a PR that modifies any of them (no schema field → skipped)
 - [ ] The reusable workflow exposes a job named `validate-docs`, verifiable by inspecting the `jobs:` section of `validate-docs.yml`
 - [ ] shirabe's branch protection lists `validate-docs` as a required status check, verifiable via `gh api repos/tsukumogami/shirabe/branches/main/protection`
 - [ ] The workflow is tagged `v1` on initial release as a mutable floating tag (not an immutable tag object), verifiable by checking that `git cat-file -t v1` returns `commit` or `tag` with a non-signed annotation
@@ -262,7 +289,7 @@ main branch. The existing `check-plan-docs` required check is removed once
 
 - **AI-powered semantic validation** — future direction. The static tier validates structure; whether content is semantically complete requires an LLM and is a separate capability. The secret-gating mechanism for this is already proven in shirabe's `run-evals.yml`.
 - **Mermaid diagram validation** — deferred. The existing validator needs significant architectural work before it can ship as a portable component.
-- **Schema versioning definition** — the validation system must accommodate `schema: plan/v1` and be designed so other formats can adopt a versioned schema field. Defining the schema field for non-Plan formats is a follow-on design doc.
+- **Schema version evolution** — the validator's v1 supported schema version list is defined in R8 (one value per format). What a `design/v2` schema would mean, how formats evolve between versions, and how a future validator handles multiple schema versions simultaneously are follow-on design decisions.
 - **Per-format separate workflows** — one `validate-docs.yml` with internal format detection. Callers do not need to know which format a file uses.
 - **Migrating existing scripts in downstream repos** — downstream repos that have copied validation scripts keep them. The reusable workflow serves new adopters; migration is each repo's choice.
 - **Decision records** — the decision skill produces ephemeral wip artifacts, not committed docs. There's nothing to validate in the main branch.
@@ -274,6 +301,7 @@ main branch. The existing `check-plan-docs` required check is removed once
 ## Known Limitations
 
 - **Downstream repos configure blocking themselves.** The reusable workflow can't declare itself as a required status check — that setting lives in each repo's branch protection rules. If the job name changes between major versions, blocking is silently removed without any error.
+- **Opt-in requires touching each doc.** A team that wants to opt in all 50 existing docs at once must open a PR that adds `schema: design/v1` (or the equivalent) to each file. There is no batch opt-in mechanism. Changed-files-only means these schema additions are themselves what triggers first-time validation on each doc.
 - **Status enum override requires listing all wanted values.** Repos with non-canonical status values must pass a complete replacement list via `custom-statuses`, including any canonical values they want to keep. Partial additions aren't supported in v1.
 - **Compute runs in the caller's account.** Runner minutes are billed to the downstream repo's GitHub account, not shirabe's. For public repos, GitHub-hosted runners are free. For private repos, the static validation job is expected to complete well under 60 seconds per run, making per-run cost negligible. No v1 requirement addresses cost management for private downstream repos.
 - **VISION format not yet validated in practice.** No downstream repo has published VISION docs as of this writing. Real-world edge cases may surface after initial adoption.
@@ -282,13 +310,23 @@ main branch. The existing `check-plan-docs` required check is removed once
 
 ## Decisions and Trade-offs
 
+**Schema version as the opt-in gate (not date-based cutoffs)**
+Existing doc validators in the ecosystem use a cutoff date: docs created before a
+certain date are excluded from validation. This is brittle — the date is arbitrary,
+must be maintained, and excludes docs by age rather than by readiness. The
+schema-version gate replaces this mechanism: a doc is validated only when its
+`schema` field is present and in the validator's supported range. Teams opt in per
+document, at their own pace, by adding the field. There are no cutoff dates to
+manage and no exclusion rules to explain.
+
 **Changed-files-only scan (not all-docs scan)**
-The workflow validates only files changed in the current PR. An all-docs scan would
-catch drift in untouched docs but requires cutoff-date machinery and creates a high
-adoption barrier: enabling the workflow against a repo with legacy docs would fail CI
-on every PR until the entire corpus was fixed. Changed-files-only produces accurate
-signal ("this PR introduced a problem") and enables incremental adoption. A future
-`scan_all` opt-in input can add drift detection.
+The workflow validates only files changed in the current PR. Combined with the
+schema version gate, this gives two layers of scope control: the PR diff limits
+which files are even considered, and the schema gate limits which of those files
+are actually validated. An all-docs scan would require teams to opt in every
+existing doc before enabling the workflow; changed-files-only means a team can
+enable the workflow and add `schema` fields file-by-file across ordinary PRs. A
+future `scan_all` opt-in input can add drift detection.
 
 **Single configurable workflow (not per-format)**
 One `validate-docs.yml` with internal format detection by filename prefix. Per-format
