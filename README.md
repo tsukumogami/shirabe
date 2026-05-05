@@ -103,12 +103,56 @@ Claude Code session:
 - [koto](https://github.com/tsukumogami/koto) >= 0.2.1 (for `/work-on`;
   installed automatically if missing)
 
+## Doc Validation
+
+shirabe ships a `validate` CLI and a reusable GitHub Actions workflow so
+downstream repos can validate their doc formats on every PR.
+
+### Reusable workflow
+
+Add this to `.github/workflows/validate-docs.yml` in your repo:
+
+```yaml
+name: Validate doc formats
+on:
+  pull_request:
+    paths: ['docs/**']
+jobs:
+  validate:
+    uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v1
+```
+
+The workflow checks out shirabe, builds the `shirabe` binary, diffs the PR's
+changed files, and runs `shirabe validate` on any recognized doc formats
+(`DESIGN-*.md`, `PRD-*.md`, `VISION-*.md`, `ROADMAP-*.md`, `PLAN-*.md`). Files
+with an unrecognized schema version are skipped with a `::notice` annotation
+rather than a hard failure, so teams can adopt validation incrementally.
+
+To allow custom status values beyond the built-in enum, pass a YAML map:
+
+```yaml
+    uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v1
+    with:
+      custom-statuses: |
+        prd: [Draft, Accepted, In Progress, Done, Delivered]
+```
+
+See `docs/guides/doc-validation.md` for branch protection setup and
+migration notes for repos with existing docs.
+
+### Local install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tsukumogami/shirabe/main/install.sh | bash
+```
+
+Installs `shirabe` to `~/.shirabe/bin/`. Add that directory to `PATH`, then
+run `shirabe validate docs/designs/DESIGN-foo.md`.
+
 ## Roadmap
 
 - **koto integration for remaining skills** -- `/work-on` already uses koto for
   state machine enforcement; the other skills will follow
-- **CI validation workflows** -- reusable GitHub Actions that validate design
-  docs and plans in pull requests
 - **Cross-repo workflow state** -- track multi-repo features through a shared
   workflow state
 
