@@ -320,3 +320,16 @@ func TestCheckFC04(t *testing.T) {
 		}
 	})
 }
+
+// --- IsNotice ---
+
+func TestIsNotice(t *testing.T) {
+	if !IsNotice(ValidationError{Code: "SCHEMA"}) {
+		t.Error("SCHEMA should be a notice")
+	}
+	for _, code := range []string{"FC01", "FC02", "FC03", "FC04", "R6", "R7"} {
+		if IsNotice(ValidationError{Code: code}) {
+			t.Errorf("%s should not be a notice", code)
+		}
+	}
+}
