@@ -345,6 +345,21 @@ type ValidationError struct {
 func validateFile(doc Doc, spec FormatSpec, cfg Config) []ValidationError
 ```
 
+**FC03 body extraction:** `checkFC03` finds the `## Status` section in `doc.Sections`,
+then reads `doc.Body` from the section's line index + 1 until the first non-blank line.
+That line is the comparison value. The comparison is case-insensitive. If no non-blank
+line is found before the next `## ` heading or end of body, FC03 does not fire (no body
+to compare). FC03 fires only when both the frontmatter `status` and a non-blank status
+body are present and they differ.
+
+**`checkPlanUpstream` scope (v1):** This check verifies (1) the `upstream` file exists
+on disk and (2) is tracked by `git ls-files HEAD` in the caller's repo. It does not
+check the upstream document's status (whether the upstream doc is `Accepted` or
+`Planned`). The existing `validate-plan.sh` performs that third check; it is
+intentionally out of scope for v1 — the PRD's R6 specifies only file existence and git
+tracking. If upstream status checking is required in a future revision, it belongs in a
+new check (FC05 or similar) using the same `Doc` parsing infrastructure.
+
 **`Config`** — workflow-level inputs passed to validation:
 
 ```go
@@ -366,11 +381,13 @@ type Config struct {
 **CI path (GHA):**
 
 ```
-PR opens
-  → validate-docs.yml triggers
+workflow_call trigger
+  → if not PR context (no GITHUB_BASE_REF): emit ::notice, exit 0
   → git diff --name-only BASE...HEAD → changed file list
   → actions/checkout (shirabe source) + actions/cache + go build → shirabe binary
-  → shirabe validate --visibility=<vis> --custom-statuses=<yaml> <files>
+  → custom-statuses input (YAML string from workflow_call) → --custom-statuses flag
+  → shirabe validate --visibility=${{ github.repository_visibility }}
+                     --custom-statuses=<yaml-string> <files>
       for each file:
         detect format by basename prefix
         parse frontmatter (yaml.Node) + body headings (bufio.Scanner)
@@ -389,7 +406,9 @@ skill needs to validate a file
   → command -v shirabe
   → not found: offer tsuku install shirabe | curl script
   → found: shirabe validate <file>
-  → same annotation output; skill parses or displays to user
+  → annotation strings written to stdout (e.g. ::error file=...,line=N::message)
+  → skill displays raw output; annotation format is human-readable in a terminal
+  → (--format=human mode for cleaner terminal output is a v2 improvement)
 ```
 
 ## Implementation Approach
@@ -414,31 +433,38 @@ Deliverables:
 - `internal/validate/validate.go` — `validateFile` orchestrator, `Config` type
 - `internal/validate/checks_test.go` — per-check table tests; custom-statuses replacement; FC03 absent-section behavior
 
-### Phase 3: Format-specific checks and CLI entry point
+### Phase 3a: Annotation formatter and CLI entry point
 
-Add Plan and VISION rules; wire the cobra CLI.
+Wire the output layer and CLI before adding format-specific checks.
 
 Deliverables:
-- `internal/validate/checks.go` additions — `checkPlanUpstream` (git ls-files HEAD), `checkVisionPublic` (prohibited sections)
-- `internal/annotation/annotation.go` — `FormatError(err ValidationError)`, `FormatNotice(file, msg string)` → `::error`/`::notice` strings
-- `cmd/shirabe/main.go` — cobra root + `validate` subcommand; `--visibility`, `--custom-statuses` flags; reads files from args, calls `validateFile` per file, writes annotations to stdout, sets exit code
+- `internal/annotation/annotation.go` — `FormatError(err ValidationError)`, `FormatNotice(file, msg string)` → `::error`/`::notice` strings; sanitize all embedded field values (strip `\n` and `\r`) before formatting
+- `cmd/shirabe/main.go` — cobra root + `validate` subcommand; `--visibility`, `--custom-statuses` flags; `--custom-statuses` accepts a raw YAML string parsed by `yaml.v3` into `map[string][]string` with a 64KB size guard before parsing; reads files from args, calls `validateFile` per file, writes annotations to stdout, exit 1 if any errors
+
+### Phase 3b: Format-specific checks
+
+Add Plan and VISION rules on top of the working CLI.
+
+Deliverables:
+- `internal/validate/checks.go` additions — `checkPlanUpstream` (git ls-files HEAD in caller working directory using discrete `exec.Command` args), `checkVisionPublic` (prohibited sections)
 
 ### Phase 4: GHA reusable workflow
 
 Wire the workflow that calls the binary.
 
 Deliverables:
-- `.github/workflows/validate-docs.yml` — `on: workflow_call:` with `custom-statuses` and `docs-path` inputs; checkout + cache + build acquisition block; changed-files detection via `git diff`; `shirabe validate` invocation; job ID `validate-docs`
+- `.github/workflows/validate-docs.yml` — `on: workflow_call:` with a single `custom-statuses` input (optional, YAML string); `permissions: contents: read` declared explicitly; checkout + cache + build acquisition block; changed-files detection via `git diff --name-only`; `shirabe validate --visibility=${{ github.repository_visibility }}` invocation (visibility hardcoded from GHA context, not a caller input); job ID `validate-docs`. Callers scope which files trigger the workflow via the `paths:` filter on their calling workflow — no `docs-path` input is needed.
 
 ### Phase 5: Release pipeline and local distribution
 
 Ship GoReleaser config, release workflow, and install script.
 
 Deliverables:
-- `.goreleaser.yaml` — four platforms (linux/darwin × amd64/arm64), binary format, `checksums.txt`, following niwa pattern
+- `.goreleaser.yaml` — four platforms (linux/darwin × amd64/arm64), binary format, `checksums.txt`, following niwa pattern; install target binary name is `shirabe` (the platform-suffixed GoReleaser artifact is renamed on install, matching niwa's convention)
 - `.github/workflows/release-binaries.yml` — `goreleaser/goreleaser-action --skip=publish` on tag push; `gh release upload` to draft
-- `install.sh` — platform-detect, download binary + checksums, SHA256 verify, install to `~/.shirabe/bin/`, optional PATH setup
-- Update `expected-assets` to 5 in release configuration
+- `install.sh` — platform-detect, download binary + checksums, SHA256 verify, rename to `shirabe`, install to `~/.shirabe/bin/`, optional PATH setup
+- Update `expected-assets` to 5 in `finalize-release.yml` (the same file niwa uses; search for `expected-assets` in the shirabe repo to locate the exact line)
+- Enable tag protection on `tsukumogami/shirabe` before pushing the first `v1` tag: require PR review for any tag move, disallow force-push to the tag
 
 ## Security Considerations
 
@@ -451,29 +477,52 @@ trust model for projects without code signing. Users who require authenticity gu
 should build from source (`go build ./cmd/shirabe`). Adding SLSA provenance attestation
 or sigstore signing is tracked as a v2 improvement.
 
-**Mutable tag references in GHA callers.** Callers who reference the reusable workflow
-as `uses: tsukumogami/shirabe/...@v1` take a mutable tag dependency. This is the
-standard reusable workflow trust model. Callers with stricter requirements can pin to a
-full commit SHA. A compromised or mistakenly force-pushed `v1` tag would affect all
-callers on their next run; shirabe should protect the `v1` tag with branch protection
-rules that require PR review for any tag move.
+**Annotation injection via frontmatter field values.** The CLI embeds frontmatter values
+(status, upstream, section headings) in GHA annotation strings emitted to stdout. A
+doc author who controls a caller's repo could craft a `status:` field containing a
+newline followed by `::error file=...::injected` to inject arbitrary GHA annotation
+commands into the workflow output. This cannot escalate permissions, but it corrupts CI
+output and could mislead code reviewers. The annotation formatter in
+`internal/annotation/annotation.go` must sanitize all embedded field values by stripping
+`\n` and `\r` characters before formatting — not at each call site, but in the formatter
+itself. This is a required implementation constraint for v1.
 
-**`git ls-files HEAD` shellout argument handling.** `checkPlanUpstream` shells out to
-`git ls-files HEAD` to verify that the `upstream` field value is tracked in the caller's
-repo. The implementation must use `exec.Command` with discrete arguments (not shell
-interpolation of the `upstream` field value), so a malformed upstream path cannot inject
-shell commands. Confirm this in code review.
+**`git ls-files HEAD` shellout argument handling and working directory.** `checkPlanUpstream`
+shells out to `git ls-files HEAD` to verify that the `upstream` field value is tracked in
+the caller's repo. The implementation must use `exec.Command` with discrete arguments (not
+shell interpolation of the `upstream` field value), so a malformed upstream path cannot
+inject shell commands. The shellout must run in the caller's repo working directory, not
+in `.shirabe-src` — running it against the wrong directory would cause the check to query
+the shirabe source tree, producing incorrect results. Confirm both constraints in code review.
 
-**Reusable workflow permissions.** The workflow requires only read access to the caller
-repo. It does not request write permissions, does not receive `GITHUB_TOKEN`, and does
-not make network calls beyond GitHub infrastructure (checkout, module cache). The CLI
-binary runs without any GitHub credentials.
+**Reusable workflow permissions.** The workflow must declare `permissions: contents: read`
+explicitly in the workflow YAML — relying on caller defaults is insufficient because
+organization policies and repo settings vary. The workflow does not request write
+permissions, does not pass `GITHUB_TOKEN` to the CLI, and does not make network calls
+beyond GitHub infrastructure (checkout, module cache).
+
+**Mutable tag references.** Callers who reference the reusable workflow as
+`uses: tsukumogami/shirabe/...@v1` take a mutable tag dependency. The internal
+`actions/checkout@v4` and `actions/cache@v4` references are similarly mutable; these are
+GitHub-owned actions with a small compromise surface, and the workspace convention accepts
+mutable tag references for them. All three are documented accepted risks. Callers who need
+a stronger guarantee can pin to a full commit SHA. Protecting the `v1` tag against
+force-push is a concrete Phase 5 checklist item: enable tag protection rules on the
+`tsukumogami/shirabe` repo before the first v1 tag is pushed.
 
 **`custom-statuses` input bounds.** The `--custom-statuses` flag accepts user-supplied
 YAML, parsed by `yaml.v3`. The threat actor with access to this input also controls the
-caller's repo; no cross-tenant exposure exists. The implementation should impose a
-reasonable size limit on the flag value to prevent accidental resource exhaustion from
-a malformed input.
+caller's repo; no cross-tenant exposure exists. The implementation must enforce a concrete
+limit — 64KB maximum total YAML input, or 50 status values per format — to prevent
+accidental resource exhaustion from a malformed input. The limit should be checked after
+flag parsing, before validation begins.
+
+**Error path data exposure.** Under normal execution the CLI reads files and writes
+annotation strings; no content leaves the runner. Under abnormal exit (panic, unexpected
+error), Go's runtime may write a goroutine stack to stderr that includes field values or
+partial `git ls-files` output. GHA captures stderr. This is an edge case in a read-only
+context with no cross-tenant exposure, but callers should be aware that stderr under
+abnormal conditions can reflect doc file contents.
 
 ## Consequences
 
