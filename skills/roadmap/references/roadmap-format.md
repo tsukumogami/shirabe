@@ -38,8 +38,9 @@ be 1 paragraph using YAML literal block scalars (`|`).
 The `upstream` field links the roadmap to the strategic artifact that motivated
 it. When present, it points to a VISION document (the natural parent in the
 traceability chain). Roadmaps that emerge from exploration without a formal
-VISION omit this field. For cross-repo upstream references, see
-`references/cross-repo-references.md`.
+VISION omit this field. For cross-repo upstream references and the
+visibility-direction rules, see
+`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
 
 Frontmatter status must match the Status section in the body -- agent workflows
 parse frontmatter to determine lifecycle state, so divergence causes silent

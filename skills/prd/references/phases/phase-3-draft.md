@@ -34,6 +34,27 @@ path typically points to a Roadmap document when the PRD is part of a
 multi-feature initiative. If `--upstream` is not provided, omit the field
 from frontmatter.
 
+**Validate upstream:** If a path was detected, run these checks in order
+before storing it. These are hard-stops -- do not write a failing value into
+frontmatter:
+
+1. **Is the path under `wip/`?** STOP. wip/ paths are non-durable and would
+   leave the PRD's `upstream:` orphaned after wip-hygiene cleanup. Resolve
+   the canonical location and use that path instead, or OMIT the field.
+2. **Does the path resolve in this repo?** Run `git ls-files <path>`. If
+   non-empty, the upstream is durable -- continue.
+3. **Path is out-of-repo?** Detect this repo's visibility from CLAUDE.md
+   (`## Repo Visibility:`). If public AND the canonical upstream lives in a
+   private repo, STOP and OMIT the `upstream:` field. Public artifacts must
+   not reference private resources. See
+   `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` for the
+   visibility-direction table and the cross-repo `owner/repo:path` syntax for
+   allowed cases (public->public, private->public, private->private).
+
+When omitting the field, optionally describe the source-context in prose in
+the PRD body's Problem Statement section, without naming a private path or
+repo.
+
 ### 3.2 Draft the PRD
 
 Write a complete PRD draft following the `prd` skill structure. Use the Write tool to
@@ -57,8 +78,9 @@ create `docs/prds/PRD-<topic>.md`.
   existed, and why the chosen option won. Include decisions made during this
   drafting phase as well.
 
-Set frontmatter status to "Draft". If an `--upstream` path was detected in
-step 3.1, include `upstream: <path>` in frontmatter. Otherwise omit the field.
+Set frontmatter status to "Draft". If an `--upstream` path was detected AND
+passed validation in step 3.1, include `upstream: <path>` in frontmatter.
+Otherwise omit the field.
 
 ### 3.3 Present the Draft
 

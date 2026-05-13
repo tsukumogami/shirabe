@@ -72,3 +72,28 @@ The directional rule:
   tooling. Verify manually when the referenced artifact may have moved.
 - **Public referencing private** (`tsukumogami/vision:docs/...` in a
   public repo): violates visibility rules. Omit the field instead.
+- **`wip/...` paths as `upstream:` values**: wip/ artifacts are non-durable.
+  They are deleted before merge per the wip-hygiene rule (see
+  [`wip-hygiene.md`](wip-hygiene.md)). An `upstream: wip/...` value points
+  at a file that disappears on cleanup -- the reference orphans the moment
+  the cleanup commit lands. If the only PRD on disk is a wip/ staging copy,
+  the canonical PRD lives elsewhere. Resolve the canonical location and
+  apply the visibility-direction rules above; if the canonical home is a
+  private repo and your repo is public, OMIT the field entirely.
+
+## Where this rule is enforced
+
+The visibility-direction table above is enforced at these explicit
+validation points (not as a passive reference -- agent phase scripts
+hard-stop on violations):
+
+| Skill | Phase step | What it validates |
+|-------|-----------|-------------------|
+| `skills/design` | [Phase 0 step 0.4a](../skills/design/references/phases/phase-0-setup-prd.md) | The `upstream:` value about to be written into the design doc skeleton |
+| `skills/design` | [Phase 6 step 6.4](../skills/design/references/phases/phase-6-final-review.md) | Final hygiene grep on the design doc body for `wip/...` references and a broken `upstream:` value |
+| `skills/plan`   | [Phase 7 step 7.4b](../skills/plan/references/phases/phase-7-creation.md) | Reference hygiene grep on the about-to-commit PLAN doc body and frontmatter |
+| `skills/prd`    | [Phase 3 step 3.1](../skills/prd/references/phases/phase-3-draft.md) | The `--upstream` value before it is stored for inclusion in PRD frontmatter |
+
+When updating either side, update the other: a new validation point belongs
+in this table; a change to the rule statement belongs in the section above
+that the phase scripts route the agent to.

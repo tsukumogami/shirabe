@@ -214,6 +214,20 @@
         "Issue 2 waits_on is empty",
         "No additional edges beyond those from explicit **Dependencies**: lines"
       ]
+    },
+    {
+      "id": 16,
+      "name": "phase-7-rejects-wip-paths-in-plan-body",
+      "prompt": "/plan docs/designs/DESIGN-staging-handoff.md",
+      "expected_output": "Phase 7 step 7.4b runs the reference-hygiene grep against the about-to-commit PLAN doc. If the body contains a path-shaped wip/... reference (e.g., an acceptance criterion that says 'committed to wip/PR-foo.md'), the skill hard-stops with an error pointing at the wip-hygiene rule. The skill does NOT proceed to status transition. Rule-statement prose mentioning wip/ as a concept is acceptable; path-shaped references are not. The skill also validates the upstream: frontmatter value resolves via git ls-files or is a valid owner/repo:path cross-repo reference; wip/... is never acceptable as an upstream value.",
+      "files": [],
+      "expectations": [
+        "Transcript describes Phase 7 step 7.4b running git grep for wip/ in the PLAN doc",
+        "Transcript distinguishes rule-statement prose from path-shaped references",
+        "Transcript hard-stops on a path-shaped wip/ match",
+        "Transcript validates the upstream: frontmatter value before status transition",
+        "Transcript cites ${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md for the visibility-direction rules"
+      ]
     }
   ]
 }

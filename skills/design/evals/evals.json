@@ -12,7 +12,14 @@
       "id": 2,
       "name": "prd-based-design",
       "prompt": "/design docs/prds/PRD-plugin-system.md",
-      "expected_output": "Design skill detects path matches docs/prds/PRD-*.md pattern and enters PRD mode. Phase 0 reads phase-0-setup-prd.md, validates PRD status is Accepted, extracts requirements and constraints from the PRD. Sets upstream field in frontmatter to docs/prds/PRD-plugin-system.md. Design doc scoping derives from PRD content rather than asking the user to describe the problem. Decision Drivers section reflects the PRD's requirements. The rest of the 8-phase workflow proceeds normally.",
+      "expected_output": "Design skill detects path matches docs/prds/PRD-*.md pattern and enters PRD mode. Phase 0 reads phase-0-setup-prd.md, validates PRD status is Accepted, extracts requirements and constraints from the PRD. Step 0.4a validates the upstream path: git ls-files shows the PRD is tracked in this repo, so the relative path is used. Sets upstream field in frontmatter to docs/prds/PRD-plugin-system.md. Design doc scoping derives from PRD content rather than asking the user to describe the problem. Decision Drivers section reflects the PRD's requirements. The rest of the 8-phase workflow proceeds normally.",
+      "files": []
+    },
+    {
+      "id": 9,
+      "name": "wip-staging-upstream-rejected",
+      "prompt": "/design wip/PRD-cross-repo-feature.md",
+      "expected_output": "Design skill detects the path. Phase 0 step 0.4a validates the upstream PRD path. Check 1 fires immediately: the candidate path is under wip/. The skill hard-stops with an error explaining wip/ is non-durable and reads ${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md to surface recovery options. The skill does NOT write upstream: wip/... into the design doc skeleton. If the repo is public and the canonical PRD lives in a private repo, the skill recommends omitting the upstream field; otherwise it asks the user for the canonical owner/repo:path or same-repo path before proceeding to step 0.5.",
       "files": []
     },
     {
