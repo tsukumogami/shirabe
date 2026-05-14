@@ -93,6 +93,24 @@ Check all required sections are present and well-formed:
 - [ ] Security Considerations (content per Phase 5 outcome)
 - [ ] Consequences (positive, negative, mitigations)
 
+**Reference Hygiene Checks:**
+
+Run this grep from the repo root:
+
+```bash
+git grep -nE 'wip/' -- docs/designs/DESIGN-<topic>.md || true
+```
+
+- [ ] No `wip/...` paths appear in the committed frontmatter or prose. The
+  only acceptable matches are quoted statements OF the wip-hygiene rule
+  itself; any path-shaped reference is a hard fail.
+- [ ] `upstream:` value resolves on disk via `git ls-files <path>`, OR is a
+  valid public `owner/repo:path` cross-repo reference, OR is omitted (per
+  Phase 0 step 0.4a). See
+  `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
+- [ ] No references in the design body to staging artifacts that will be
+  deleted by Phase 6.9 cleanup (search for `wip/design_`, `wip/research/`).
+
 **STOP if any check fails.** Fix before proceeding.
 
 ### 6.5 Write Frontmatter
@@ -103,7 +121,7 @@ YAML literal block scalars (`|`):
 ```markdown
 ---
 status: Proposed
-upstream: docs/prds/PRD-<name>.md   # Only if PRD mode (check wip/ summary)
+upstream: docs/prds/PRD-<name>.md   # Only if PRD mode AND step 0.4a resolved to a usable path. OMIT if 0.4a resolved to "omit" (private cross-repo) or if no upstream PRD exists.
 problem: |
   <1 paragraph: what technical problem this solves>
 decision: |

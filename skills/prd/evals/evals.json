@@ -61,13 +61,27 @@
       "id": 9,
       "name": "upstream-propagation",
       "prompt": "/prd feature-flags --upstream docs/roadmaps/ROADMAP-platform.md",
-      "expected_output": "Detects --upstream flag from arguments. Stores the roadmap path. During Phase 3 (draft), includes upstream: docs/roadmaps/ROADMAP-platform.md in the PRD frontmatter. Does not treat --upstream as part of the topic.",
+      "expected_output": "Detects --upstream flag from arguments. Stores the roadmap path. Phase 3 step 3.1 validates the path: git ls-files confirms the roadmap is tracked in this repo and is not under wip/. The validated path is included as upstream: docs/roadmaps/ROADMAP-platform.md in the PRD frontmatter. Does not treat --upstream as part of the topic.",
       "files": [],
       "expectations": [
         "Transcript detects and parses the --upstream flag from $ARGUMENTS",
         "Transcript stores the upstream path (docs/roadmaps/ROADMAP-platform.md) for use in Phase 3",
+        "Transcript describes Phase 3 step 3.1 validating the path is not under wip/ and resolves in this repo",
         "Transcript describes including upstream: in the PRD frontmatter during Phase 3 drafting",
         "Transcript does NOT treat --upstream as part of the topic name"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "upstream-wip-rejected",
+      "prompt": "/prd integration-spec --upstream wip/ROADMAP-staging.md",
+      "expected_output": "Detects --upstream flag and the wip/-prefixed value. Phase 3 step 3.1 validation check 1 fires: the candidate path is under wip/. The skill hard-stops with an error and routes to ${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md. The upstream: field is NOT written into PRD frontmatter; the skill either asks the user for the canonical path or omits the field per the rule.",
+      "files": [],
+      "expectations": [
+        "Transcript detects the wip/ prefix on the --upstream value",
+        "Transcript hard-stops Phase 3 step 3.1 instead of writing upstream: wip/... into frontmatter",
+        "Transcript routes the agent to cross-repo-references.md for the rule and recovery options",
+        "Transcript either omits the upstream field or asks the user for a durable canonical path before proceeding"
       ]
     }
   ]

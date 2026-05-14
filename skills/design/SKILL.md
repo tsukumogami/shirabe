@@ -47,7 +47,10 @@ reading the full document.
 
 **Optional fields:**
 - `upstream: docs/prds/PRD-<name>.md` -- link to source PRD (set by /design Phase 0).
-  For cross-repo upstream references, see `references/cross-repo-references.md`.
+  For cross-repo upstream references and the visibility-direction rules,
+  see `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`. The
+  Phase 0 setup script validates this value (see step 0.4a in
+  `references/phases/phase-0-setup-prd.md`).
 - `spawned_from` -- for child designs created from needs-design issues:
   ```yaml
   spawned_from:

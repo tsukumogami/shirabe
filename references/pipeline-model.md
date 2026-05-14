@@ -134,7 +134,10 @@ JSON result recording which steps ran. See
 `skills/work-on/scripts/run-cascade.sh` for the implementation and
 `docs/designs/current/DESIGN-completion-cascade.md` for the design.
 
-For cross-repo traceability, see `references/cross-repo-references.md`.
+For cross-repo traceability and the visibility-direction rules, see
+[`cross-repo-references.md`](cross-repo-references.md). For the `wip/`
+hygiene rule that prevents non-durable references in committed artifacts,
+see [`wip-hygiene.md`](wip-hygiene.md).
 For the upstream/downstream field convention, see
 `DESIGN-artifact-traceability.md`.
 

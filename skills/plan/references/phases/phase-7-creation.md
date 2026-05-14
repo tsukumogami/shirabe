@@ -313,6 +313,55 @@ Recommend running `/work-on docs/plans/PLAN-<topic>.md` to begin implementation.
 
 These steps run after the mode-specific steps above.
 
+### 7.4b Validate PLAN Doc Reference Hygiene
+
+Before transitioning the source doc's status (which marks the planning step
+as "done" upstream), grep the PLAN artifact for non-durable or
+visibility-violating references. Run from the repo root:
+
+```bash
+# 1. No wip/ paths anywhere in the PLAN body or frontmatter.
+git grep -nE 'wip/' -- 'docs/plans/PLAN-<topic>.md'
+
+# 2. The upstream: frontmatter value resolves to a tracked file in this repo,
+#    OR is a public owner/repo:path cross-repo reference. It must NEVER be a
+#    wip/... path.
+head -20 'docs/plans/PLAN-<topic>.md' | grep -E '^upstream:'
+```
+
+**Match handling:**
+
+- **Any `wip/...` hit in the body or frontmatter is a hard fail.** wip/ paths
+  are non-durable: they are deleted before merge and would leave the PLAN
+  doc's references orphaned the moment cleanup runs. The trigger violation
+  this check exists to catch is acceptance-criteria prose that names a
+  specific `wip/PR-<topic>.md` or `wip/<artifact>.md` path -- replace with
+  a generic phrase that describes the artifact's purpose without naming a
+  non-durable path. Example: instead of `A PR draft is committed to
+  wip/PR-foo.md`, write `A PR draft exists locally (cleaned before merge)`.
+- **Prose mentions of the wip-hygiene rule itself are acceptable.** If a
+  matching line is *describing* the rule (e.g., "wip/ artifacts are tolerated
+  on the branch but must be cleaned before the PR opens"), it is allowed.
+  Path-shaped references (anything that resolves to a file location) are
+  not.
+- **The `upstream:` value must resolve.** If `git ls-files <path>` returns
+  empty for a same-repo value, the upstream is broken -- fix the path. If
+  the upstream is `owner/repo:path`, confirm visibility direction against
+  `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` (public repos
+  must not reference private repos).
+
+**STOP if any check fails.** Fix the PLAN doc and re-run before proceeding to
+status transition.
+
+**Worked example (the failure mode this step prevents).** A planning agent
+authoring a multi-issue decomposition writes an acceptance criterion that
+says "the PR description is committed to `wip/PR-<topic>.md`." On the same
+branch, another acceptance criterion says "clean up any leftover `wip/`
+artifacts before merge." Both criteria get committed into the PLAN doc body.
+The cleanup commit deletes the wip/ file but leaves the PLAN's prose
+reference pointing at it -- the PLAN is now self-contradictory and contains
+a path that resolves to nothing.
+
 ### 7.5 Source Document Status Transition
 
 **For design docs and PRDs** (input_type: design or prd):
@@ -427,6 +476,9 @@ Before completing:
 - [ ] PLAN artifact created at `docs/plans/PLAN-<topic>.md`
 - [ ] Frontmatter includes all required fields (`schema`, `status`, `execution_mode`, `milestone`, `issue_count`)
 - [ ] multi-pr: all issues created, milestone assigned, status is Active
+- [ ] PLAN doc reference hygiene (step 7.4b) passed: no `wip/...` paths in
+  frontmatter or body prose; `upstream:` resolves on disk or is a valid
+  public cross-repo reference
 
 ## Next Phase
 

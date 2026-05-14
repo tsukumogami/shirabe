@@ -31,7 +31,9 @@ source_issue: 123  # optional, GitHub issue number that triggered this PRD
 
 Required fields: `status`, `problem`, `goals`. Optional: `upstream` (path to
 parent artifact when this PRD is part of a larger effort; for cross-repo
-upstream references, see `references/cross-repo-references.md`),
+upstream references and the visibility-direction rules, see
+`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` -- Phase 3
+step 3.1 validates this value),
 `source_issue` (GitHub issue number that triggered this PRD). Each
 field should be 1 paragraph using YAML literal block scalars (`|`). Frontmatter
 status must match the Status section in the body -- agent workflows parse

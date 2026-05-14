@@ -37,7 +37,8 @@ Required fields: `status`, `thesis`, `scope`. Optional: `upstream`.
   project exist within the org)
 - **upstream** -- path to parent VISION when a project-level doc derives from
   an org-level one. Project-level only; omit for org-level. For cross-repo
-  upstream references, see `references/cross-repo-references.md`.
+  upstream references and the visibility-direction rules, see
+  `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
 
 Frontmatter status must match the Status section in the body -- agent workflows
 parse frontmatter to determine lifecycle state, so divergence causes silent
