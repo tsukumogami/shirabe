@@ -18,6 +18,7 @@ builds:
       - -buildvcs=false
     ldflags:
       - -s -w
+      - -X main.version={{.Version}}
     mod_timestamp: "{{ .CommitTimestamp }}"
     no_unique_dist_dir: true
 
