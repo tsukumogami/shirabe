@@ -37,6 +37,11 @@ jobs:
           fi
 
       - name: Checkout shirabe
+        # github.action_ref is set when this workflow is invoked from another
+        # repo (uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@<ref>),
+        # and we want the binary to come from that ref so it matches the contract.
+        # It is empty for self-caller usage (uses: ./.github/workflows/...),
+        # where github.sha (the PR head) is what we want to build from.
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: tsukumogami/shirabe

@@ -9,7 +9,10 @@ on:
   pull_request:
     paths:
       - 'docs/**'
-      - 'internal/validate/**'
+      - 'cmd/shirabe/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
       - '.github/workflows/validate-docs.yml'
       - '.github/workflows/validate-shirabe-docs.yml'
 

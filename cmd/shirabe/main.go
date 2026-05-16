@@ -92,7 +92,7 @@ func validateCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&visibility, "visibility", "", "visibility context (public|private)")
+	cmd.Flags().StringVar(&visibility, "visibility", "", "visibility context; only 'private' bypasses public-repo checks (unset is treated as public)")
 	cmd.Flags().StringVar(&customStatusesStr, "custom-statuses", "", "YAML map of schema version to valid status list")
 	return cmd
 }
