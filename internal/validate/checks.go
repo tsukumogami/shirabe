@@ -2,8 +2,17 @@ package validate
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 )
+
+// prohibitedPublicVisionSections lists section names that vision/v1 docs must not
+// contain in public repos. See design DESIGN-gha-doc-validation.md (R7).
+var prohibitedPublicVisionSections = []string{
+	"Competitive Positioning",
+	"Resource Implications",
+}
 
 // checkSchema returns a SCHEMA ValidationError (to be emitted as ::notice) if
 // doc.Schema is not spec.SchemaVersion. Returns nil if schema matches.
@@ -145,6 +154,73 @@ func checkFC04(doc Doc, spec FormatSpec) []ValidationError {
 				Line:    1,
 				Code:    "FC04",
 				Message: fmt.Sprintf("[FC04] missing required section '## %s'", required),
+			})
+		}
+	}
+	return errs
+}
+
+// checkPlanUpstream (R6) verifies that a Plan doc's upstream field points at a
+// file that exists on disk and is tracked by git. The field is optional; an
+// absent upstream value returns nil. The git tracking check runs `git ls-files
+// --error-unmatch` in the process's current working directory (which in a GHA
+// context is the caller repo's checkout, not the embedded shirabe source tree),
+// so callers must not override the working directory when invoking the check.
+func checkPlanUpstream(doc Doc) []ValidationError {
+	field, ok := doc.Fields["upstream"]
+	if !ok {
+		return nil
+	}
+
+	path := field.Value
+	if _, err := os.Stat(path); err != nil {
+		return []ValidationError{
+			{
+				File:    doc.Path,
+				Line:    field.Line,
+				Code:    "R6",
+				Message: fmt.Sprintf("[R6] upstream %q does not exist on disk", path),
+			},
+		}
+	}
+
+	cmd := exec.Command("git", "ls-files", "--error-unmatch", "--", path)
+	if err := cmd.Run(); err != nil {
+		return []ValidationError{
+			{
+				File:    doc.Path,
+				Line:    field.Line,
+				Code:    "R6",
+				Message: fmt.Sprintf("[R6] upstream %q is not tracked by git", path),
+			},
+		}
+	}
+
+	return nil
+}
+
+// checkVisionPublic (R7) flags VISION docs that surface sections forbidden in
+// public repos. The check is bypassed only when cfg.Visibility is exactly
+// "private"; any other value (including the empty string) fails closed and the
+// check runs.
+func checkVisionPublic(doc Doc, cfg Config) []ValidationError {
+	if cfg.Visibility == "private" {
+		return nil
+	}
+
+	prohibited := make(map[string]bool, len(prohibitedPublicVisionSections))
+	for _, name := range prohibitedPublicVisionSections {
+		prohibited[name] = true
+	}
+
+	var errs []ValidationError
+	for _, sec := range doc.Sections {
+		if prohibited[sec.Name] {
+			errs = append(errs, ValidationError{
+				File:    doc.Path,
+				Line:    sec.Line,
+				Code:    "R7",
+				Message: fmt.Sprintf("[R7] section %q is prohibited in public VISION docs", sec.Name),
 			})
 		}
 	}

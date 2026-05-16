@@ -28,5 +28,14 @@ func ValidateFile(doc Doc, spec FormatSpec, cfg Config) []ValidationError {
 	errs = append(errs, checkFC02(doc, spec, cfg)...)
 	errs = append(errs, checkFC03(doc, spec)...)
 	errs = append(errs, checkFC04(doc, spec)...)
+
+	// 3. Format-specific checks dispatched by spec.Name.
+	switch spec.Name {
+	case "Plan":
+		errs = append(errs, checkPlanUpstream(doc)...)
+	case "VISION":
+		errs = append(errs, checkVisionPublic(doc, cfg)...)
+	}
+
 	return errs
 }
