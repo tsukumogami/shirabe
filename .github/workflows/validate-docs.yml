@@ -36,6 +36,12 @@ jobs:
             exit 0
           fi
 
+      - name: Checkout caller repo
+        # Fetch full history so `git diff <base>...<head>` resolves both endpoints.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
       - name: Checkout shirabe
         # job.workflow_repository and job.workflow_sha resolve to the called
         # workflow's repository and commit SHA. For external callers using
