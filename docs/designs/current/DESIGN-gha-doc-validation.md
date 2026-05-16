@@ -167,15 +167,18 @@ Key assumptions:
 - Single reusable workflow in v1 scope; a second workflow would justify a composite action
 
 **Chosen: Build from source (checkout + go build).** The workflow checks out shirabe
-at `${{ github.action_ref }}`, restores Go caches via `actions/cache`, and builds
-with `go build -o /usr/local/bin/shirabe ./cmd/shirabe`. Version coherence is
-guaranteed by construction. No binary release pipeline required for v1.
+at `${{ job.workflow_sha }}` in `${{ job.workflow_repository }}`, restores Go caches
+via `actions/cache`, and builds with `go build -o /usr/local/bin/shirabe ./cmd/shirabe`.
+The `job.workflow_*` family resolves to the called workflow's repository and commit,
+so external callers pinning `@v1` get the binary at the v1 commit and local
+self-callers get the caller's PR head. Version coherence is guaranteed by
+construction. No binary release pipeline required for v1.
 
 ```yaml
 - uses: actions/checkout@v4
   with:
-    repository: tsukumogami/shirabe
-    ref: ${{ github.action_ref }}
+    repository: ${{ job.workflow_repository }}
+    ref: ${{ job.workflow_sha }}
     path: .shirabe-src
 
 - uses: actions/cache@v4
@@ -528,7 +531,7 @@ abnormal conditions can reflect doc file contents.
 
 ### Positive
 
-- **Version coherence by construction.** Building from source at `github.action_ref` means the workflow and binary always come from the same commit. No mapping, no artifact upload dependency, no mismatch risk.
+- **Version coherence by construction.** Building from source at `job.workflow_sha` in `job.workflow_repository` means the workflow and binary always come from the same commit. No mapping, no artifact upload dependency, no mismatch risk.
 - **Single implementation.** One Go codebase serves CI (built in GHA) and local use (installed via tsuku or curl). Validation behavior is identical in both contexts.
 - **Flat check architecture is readable and debuggable.** The call graph of `validateFile` is fully visible. Stack traces name real functions. Grep for `checkFC01` finds one definition and one call site.
 - **Incremental adoption.** The schema-version gate and changed-files-only scan let teams opt in one doc at a time without a forced cleanup sprint.
