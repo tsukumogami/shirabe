@@ -1,0 +1,18 @@
+name: Validate shirabe docs
+
+# Self-caller: exercises the reusable validate-docs.yml against shirabe's own
+# repo so the PR that ships the workflow has CI signal on its own diff.
+# Downstream repos use `tsukumogami/shirabe/.github/workflows/validate-docs.yml@v1`;
+# this self-caller uses the local relative path because v1 may not exist yet.
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'internal/validate/**'
+      - '.github/workflows/validate-docs.yml'
+      - '.github/workflows/validate-shirabe-docs.yml'
+
+jobs:
+  validate:
+    uses: ./.github/workflows/validate-docs.yml
