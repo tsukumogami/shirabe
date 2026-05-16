@@ -11,7 +11,7 @@ on:
         description: 'Expected asset count (0 = skip verification)'
         required: false
         type: number
-        default: 0
+        default: 5
     secrets:
       token:
         description: 'Token with release edit permission (falls back to GITHUB_TOKEN)'

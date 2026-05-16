@@ -1,0 +1,167 @@
+#!/bin/sh
+# shirabe installer
+# Downloads and installs the latest shirabe release from GitHub.
+#
+# Usage:
+#   curl -fsSL https://raw.githubusercontent.com/tsukumogami/shirabe/main/install.sh | sh
+#
+# Options:
+#   --no-modify-path  Skip adding shirabe to PATH in shell config files
+#
+# Environment variables:
+#   INSTALL_DIR   Override install directory (default: ~/.shirabe/bin)
+#   GITHUB_TOKEN  Use for GitHub API requests to avoid rate limits
+
+main() {
+    set -eu
+
+    MODIFY_PATH=true
+    for arg in "$@"; do
+        case "$arg" in
+            --no-modify-path) MODIFY_PATH=false ;;
+        esac
+    done
+
+    REPO="tsukumogami/shirabe"
+    API_URL="https://api.github.com/repos/${REPO}/releases/latest"
+    INSTALL_DIR="${INSTALL_DIR:-$HOME/.shirabe/bin}"
+    SHIRABE_HOME="${INSTALL_DIR%/bin}"
+    ENV_FILE="$SHIRABE_HOME/env"
+
+    # Detect OS
+    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+    case "$OS" in
+        linux|darwin) ;;
+        *)
+            printf "Unsupported OS: %s\n" "$OS" >&2
+            exit 1
+            ;;
+    esac
+
+    # Detect architecture
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        x86_64|amd64) ARCH="amd64" ;;
+        aarch64|arm64) ARCH="arm64" ;;
+        *)
+            printf "Unsupported architecture: %s\n" "$ARCH" >&2
+            exit 1
+            ;;
+    esac
+
+    printf "Detected platform: %s-%s\n" "$OS" "$ARCH"
+
+    # Get latest release tag
+    printf "Fetching latest release...\n"
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        LATEST=$(curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$API_URL" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+    else
+        LATEST=$(curl -fsSL "$API_URL" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+    fi
+
+    if [ -z "$LATEST" ]; then
+        printf "Failed to determine latest version\n" >&2
+        exit 1
+    fi
+
+    printf "Installing shirabe %s\n" "$LATEST"
+
+    # Download binary and checksums
+    BINARY_NAME="shirabe-${OS}-${ARCH}"
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${LATEST}/${BINARY_NAME}"
+    CHECKSUM_URL="https://github.com/${REPO}/releases/download/${LATEST}/checksums.txt"
+
+    TEMP_DIR=$(mktemp -d)
+    trap 'rm -rf "$TEMP_DIR"' EXIT
+
+    printf "Downloading %s...\n" "$BINARY_NAME"
+    curl -fsSL -o "$TEMP_DIR/shirabe" "$DOWNLOAD_URL"
+    curl -fsSL -o "$TEMP_DIR/checksums.txt" "$CHECKSUM_URL"
+
+    # Verify checksum
+    printf "Verifying checksum...\n"
+    EXPECTED=$(grep "${BINARY_NAME}$" "$TEMP_DIR/checksums.txt" | awk '{print $1}')
+    if [ -z "$EXPECTED" ]; then
+        printf "Error: could not find checksum for %s\n" "$BINARY_NAME" >&2
+        exit 1
+    fi
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        printf "%s  %s/shirabe\n" "$EXPECTED" "$TEMP_DIR" | sha256sum -c - >/dev/null
+    elif command -v shasum >/dev/null 2>&1; then
+        printf "%s  %s/shirabe\n" "$EXPECTED" "$TEMP_DIR" | shasum -a 256 -c - >/dev/null
+    else
+        printf "Warning: could not verify checksum (sha256sum/shasum not found)\n" >&2
+    fi
+
+    # Install
+    mkdir -p "$INSTALL_DIR"
+    chmod +x "$TEMP_DIR/shirabe"
+    mv "$TEMP_DIR/shirabe" "$INSTALL_DIR/shirabe"
+
+    printf "\nshirabe %s installed to %s/shirabe\n" "$LATEST" "$INSTALL_DIR"
+
+    # Create env file with PATH export
+    cat > "$ENV_FILE" << ENVEOF
+# shirabe shell configuration
+export PATH="${INSTALL_DIR}:\$PATH"
+ENVEOF
+
+    # Configure shell if requested
+    if [ "$MODIFY_PATH" = true ]; then
+        SHELL_NAME=$(basename "$SHELL")
+
+        # Helper function to add source line to a config file (idempotent)
+        add_to_config() {
+            local config_file="$1"
+            local source_line=". \"$ENV_FILE\""
+
+            if [ -f "$config_file" ] && grep -qF "$ENV_FILE" "$config_file" 2>/dev/null; then
+                printf "  Already configured: %s\n" "$config_file"
+                return 0
+            fi
+
+            {
+                echo ""
+                echo "# shirabe"
+                echo "$source_line"
+            } >> "$config_file"
+            printf "  Configured: %s\n" "$config_file"
+        }
+
+        case "$SHELL_NAME" in
+            bash)
+                printf "Configuring bash...\n"
+                if [ -f "$HOME/.bashrc" ]; then
+                    add_to_config "$HOME/.bashrc"
+                fi
+                if [ -f "$HOME/.bash_profile" ]; then
+                    add_to_config "$HOME/.bash_profile"
+                elif [ -f "$HOME/.profile" ]; then
+                    add_to_config "$HOME/.profile"
+                else
+                    add_to_config "$HOME/.bash_profile"
+                fi
+                ;;
+            zsh)
+                printf "Configuring zsh...\n"
+                add_to_config "$HOME/.zshenv"
+                ;;
+            *)
+                printf "Unknown shell: %s\n" "$SHELL_NAME"
+                printf "Add this to your shell config:\n\n"
+                printf "  . \"%s\"\n\n" "$ENV_FILE"
+                ;;
+        esac
+
+        if [ "$SHELL_NAME" = "bash" ] || [ "$SHELL_NAME" = "zsh" ]; then
+            printf "\nTo use shirabe now, run:\n"
+            printf "  . \"%s\"\n" "$ENV_FILE"
+        fi
+    else
+        printf "\nTo add shirabe to your PATH, add this to your shell config:\n"
+        printf "  . \"%s\"\n" "$ENV_FILE"
+    fi
+}
+
+main "$@"
