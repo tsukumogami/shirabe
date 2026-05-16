@@ -8,7 +8,7 @@ name: Validate Docs
 #     paths: ['docs/**']
 # jobs:
 #   validate:
-#     uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v1
+#     uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v0.6.0
 #     with:
 #       custom-statuses: |
 #         prd: [Draft, Accepted, In Progress, Done, Delivered]

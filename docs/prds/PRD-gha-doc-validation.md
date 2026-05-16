@@ -90,7 +90,7 @@ docs enter validation scope — one at a time if needed.
 `tsukumogami/shirabe/.github/workflows/validate-docs.yml` exists, declares
 `on: workflow_call:`, and is callable from any downstream repo via:
 ```yaml
-uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v1
+uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v0.6.0
 ```
 The `v1` tag is a mutable floating tag updated on each patch release within the
 major version, following the `actions/checkout@v4` convention.
@@ -193,7 +193,7 @@ canonical values they want to keep.
 
 Example — downstream repo that uses `Delivered` alongside standard PRD statuses:
 ```yaml
-uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v1
+uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v0.6.0
 with:
   custom-statuses: |
     prd: [Draft, Accepted, In Progress, Done, Delivered]
@@ -254,10 +254,11 @@ shirabe` if tsuku is available, otherwise via the curl script). Local validation
 optional: if the user declines or the install fails, the skill continues without it.
 CI remains the authoritative validation checkpoint.
 
-**R14: Stable job name within a major version.**
-The reusable workflow exposes a job named `validate-docs`. This name does not
-change in any v1.x release. Downstream repos that add `validate-docs` to branch
-protection rules will not silently lose blocking protection on patch upgrades.
+**R14: Stable job name within a release line.**
+The reusable workflow exposes a job named `validate-docs`. This name is part of
+the workflow's stable contract within a release line. Downstream repos that add
+`validate-docs` to branch protection rules will not silently lose blocking
+protection on patch upgrades within the same minor.
 
 **R15: Fast execution.**
 The static validation workflow completes in under 60 seconds for a PR touching
@@ -281,7 +282,7 @@ main branch. The existing `check-plan-docs` required check is removed once
       paths: ['docs/**']
   jobs:
     validate:
-      uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v1
+      uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v0.6.0
   ```
 - [ ] A PR that adds a Design doc missing the required `rationale` frontmatter field fails CI with an FC01 annotation at line 1 of the file
 - [ ] A PR that adds a PRD with `status: Shipped` (not in the canonical PRD enum) fails CI with an FC02 annotation on the line containing the `status:` key

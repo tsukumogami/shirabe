@@ -119,7 +119,7 @@ on:
     paths: ['docs/**']
 jobs:
   validate:
-    uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v1
+    uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v0.6.0
 ```
 
 The workflow checks out shirabe, builds the `shirabe` binary, diffs the PR's
@@ -131,7 +131,7 @@ rather than a hard failure, so teams can adopt validation incrementally.
 To allow custom status values beyond the built-in enum, pass a YAML map:
 
 ```yaml
-    uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v1
+    uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v0.6.0
     with:
       custom-statuses: |
         prd: [Draft, Accepted, In Progress, Done, Delivered]

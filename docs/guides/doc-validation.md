@@ -38,11 +38,11 @@ on:
     paths: ['docs/**']
 jobs:
   validate:
-    uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v1
+    uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v0.6.0
 ```
 
 The job is named `validate-docs`. Pin that name in your branch protection
-rules (it won't change in any v1.x release).
+rules (it's part of the workflow's stable contract).
 
 ## Custom status values
 
@@ -50,7 +50,7 @@ The built-in status enums match the canonical shirabe formats. If your team
 uses different values, pass a YAML map keyed by schema version:
 
 ```yaml
-    uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v1
+    uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v0.6.0
     with:
       custom-statuses: |
         prd: [Draft, Accepted, In Progress, Done, Delivered]

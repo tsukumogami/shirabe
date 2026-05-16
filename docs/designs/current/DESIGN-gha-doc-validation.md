@@ -154,12 +154,13 @@ Alternatives rejected:
 ### Decision 4: GHA binary acquisition strategy
 
 The reusable workflow runs in the caller's repo context on ubuntu-latest. It needs
-the `shirabe` binary. The strategy is irreversible within v1 (all downstream callers
-pin `@v1`). Version coherence is a hard requirement.
+the `shirabe` binary. The strategy is irreversible within a minor release line
+(all downstream callers pin to a specific release tag). Version coherence is a
+hard requirement.
 
 This decision went through the full Tier 4 bakeoff. Three of four validators
 survived cross-examination; the download advocate and composite-action advocate both
-conceded build-from-source is correct for v1.
+conceded build-from-source is correct for the initial release line.
 
 Key assumptions:
 - Build time with `actions/cache` (module + build cache) is 10-20s warm, 25-35s cold
@@ -170,9 +171,10 @@ Key assumptions:
 at `${{ job.workflow_sha }}` in `${{ job.workflow_repository }}`, restores Go caches
 via `actions/cache`, and builds with `go build -o /usr/local/bin/shirabe ./cmd/shirabe`.
 The `job.workflow_*` family resolves to the called workflow's repository and commit,
-so external callers pinning `@v1` get the binary at the v1 commit and local
-self-callers get the caller's PR head. Version coherence is guaranteed by
-construction. No binary release pipeline required for v1.
+so external callers pinning a specific release tag (e.g. `@v0.6.0`) get the
+binary at that commit and local self-callers get the caller's PR head. Version
+coherence is guaranteed by construction. No binary release pipeline required
+for the initial release.
 
 ```yaml
 - uses: actions/checkout@v4
@@ -505,7 +507,7 @@ permissions, does not pass `GITHUB_TOKEN` to the CLI, and does not make network 
 beyond GitHub infrastructure (checkout, module cache).
 
 **Mutable tag references.** Callers who reference the reusable workflow as
-`uses: tsukumogami/shirabe/...@v1` take a mutable tag dependency. The internal
+`uses: tsukumogami/shirabe/...@<tag>` take a mutable tag dependency. The internal
 `actions/checkout@v4` and `actions/cache@v4` references are similarly mutable; these are
 GitHub-owned actions with a small compromise surface, and the workspace convention accepts
 mutable tag references for them. All three are documented accepted risks. Callers who need
@@ -540,7 +542,7 @@ abnormal conditions can reflect doc file contents.
 ### Negative
 
 - **`actions/cache` is a hard dependency.** Cold builds (25-35s) leave 25-35s for validation — sufficient for 5 files but less headroom than a warm build. Cache unavailability extends acquisition time.
-- **Acquisition strategy is locked for v1.x.** Downstream repos pin `@v1`; switching from build-from-source to download in a patch release would affect all callers simultaneously.
+- **Acquisition strategy is locked within a minor release line.** Downstream repos pin to a specific release tag; switching from build-from-source to download in a patch release would affect all callers simultaneously.
 - **Plugin binary must be installed separately.** `shirabe` is not bundled with the Claude Code plugin. Users who want local validation must run `tsuku install shirabe` or the curl script.
 - **Adding a format requires editing `validateFile`.** The flat design has one explicit extension point. At 10+ formats, migration to a registry is recommended.
 
