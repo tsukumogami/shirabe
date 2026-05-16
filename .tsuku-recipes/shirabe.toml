@@ -1,0 +1,26 @@
+[metadata]
+name = "shirabe"
+description = "Doc format validator for AI-assisted workflows"
+homepage = "https://github.com/tsukumogami/shirabe"
+version_format = "semver"
+
+[version]
+github_repo = "tsukumogami/shirabe"
+tag_prefix = "v"
+
+[[steps]]
+action = "download"
+url = "https://github.com/tsukumogami/shirabe/releases/download/v{version}/shirabe-{os}-{arch}"
+checksum_url = "https://github.com/tsukumogami/shirabe/releases/download/v{version}/checksums.txt"
+
+[[steps]]
+action = "chmod"
+files = ["shirabe-{os}-{arch}"]
+
+[[steps]]
+action = "install_binaries"
+outputs = [{src = "shirabe-{os}-{arch}", dest = "bin/shirabe"}]
+
+[verify]
+command = "shirabe --help"
+pattern = ""
