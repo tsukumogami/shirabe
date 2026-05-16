@@ -1,0 +1,77 @@
+name: Validate Docs
+
+# Example caller (in a downstream repo's .github/workflows/validate-docs.yml):
+#
+# name: Validate doc formats
+# on:
+#   pull_request:
+#     paths: ['docs/**']
+# jobs:
+#   validate:
+#     uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v1
+#     with:
+#       custom-statuses: |
+#         prd: [Draft, Accepted, In Progress, Done, Delivered]
+
+on:
+  workflow_call:
+    inputs:
+      custom-statuses:
+        description: 'YAML map of schema version to custom status values (optional)'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  validate-docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check PR context
+        # Non-PR triggers (workflow_dispatch, etc.) have no base_ref
+        run: |
+          if [ -z "${{ github.base_ref }}" ]; then
+            echo "::notice::Skipping doc validation: requires a PR context (github.base_ref is empty)"
+            exit 0
+          fi
+
+      - name: Checkout shirabe
+        # github.action_ref is set when this workflow is invoked from another
+        # repo (uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@<ref>),
+        # and we want the binary to come from that ref so it matches the contract.
+        # It is empty for self-caller usage (uses: ./.github/workflows/...),
+        # where github.sha (the PR head) is what we want to build from.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: tsukumogami/shirabe
+          ref: ${{ github.action_ref || github.sha }}
+          path: .shirabe-src
+
+      - name: Cache Go modules
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('.shirabe-src/go.sum') }}
+
+      - name: Build shirabe
+        run: cd .shirabe-src && go build -o /usr/local/bin/shirabe ./cmd/shirabe
+
+      - name: Validate changed docs
+        env:
+          CUSTOM_STATUSES: ${{ inputs.custom-statuses }}
+        run: |
+          FILES=$(git diff --name-only \
+            ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }})
+
+          if [ -z "$FILES" ]; then
+            echo "::notice::No files changed in this PR"
+            exit 0
+          fi
+
+          shirabe validate \
+            --visibility=${{ github.repository_visibility }} \
+            ${CUSTOM_STATUSES:+--custom-statuses="$CUSTOM_STATUSES"} \
+            $FILES
