@@ -1,0 +1,79 @@
+name: Validate tsuku recipe
+
+# Validates .tsuku-recipes/shirabe.toml against the tsuku CLI on every PR
+# that touches the recipe, the shirabe CLI source, or the release pipeline.
+# Three checks: strict TOML validation, binary --version output sanity,
+# and a best-effort end-to-end install via tsuku against the latest release.
+
+on:
+  pull_request:
+    paths:
+      - '.tsuku-recipes/**'
+      - 'cmd/shirabe/**'
+      - '.goreleaser.yaml'
+      - '.github/workflows/validate-tsuku-recipe.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.tsuku-recipes/**'
+      - 'cmd/shirabe/**'
+      - '.goreleaser.yaml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install tsuku
+        run: |
+          curl -fsSL https://get.tsuku.dev/now | bash
+          echo "$HOME/.tsuku/bin" >> "$GITHUB_PATH"
+
+      - name: Strict-validate recipe TOML
+        run: tsuku validate --strict .tsuku-recipes/shirabe.toml
+
+      - name: Build shirabe with injected version
+        run: |
+          go build -ldflags "-X main.version=0.0.0-ci-test" -o /tmp/shirabe ./cmd/shirabe
+          /tmp/shirabe --version
+
+      - name: Verify --version output matches recipe pattern
+        # The recipe declares `command = "shirabe --version"` and
+        # `pattern = "{version}"`. tsuku's verifier extracts a version-shaped
+        # token from anywhere in the line, so any output containing the version
+        # is accepted. This step asserts that contract holds for our binary.
+        run: |
+          OUTPUT=$(/tmp/shirabe --version)
+          echo "Binary output: $OUTPUT"
+          echo "$OUTPUT" | grep -qE '0\.0\.0-ci-test' || {
+            echo "::error::shirabe --version did not contain the injected version"
+            exit 1
+          }
+
+  install-latest:
+    # Full end-to-end install check against the latest released version.
+    # Best-effort while the version-flag change is not yet in a release;
+    # tightens to a required check once a release ships with --version
+    # support and the recipe in the released ref matches today's expectations.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install tsuku
+        run: |
+          curl -fsSL https://get.tsuku.dev/now | bash
+          echo "$HOME/.tsuku/bin" >> "$GITHUB_PATH"
+
+      - name: Install shirabe via tsuku (latest)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: tsuku install tsukumogami/shirabe
+
+      - name: Confirm shirabe runs
+        run: shirabe --version

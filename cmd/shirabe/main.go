@@ -11,6 +11,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// version is set at build time via -ldflags "-X main.version=<value>".
+// Defaults to "dev" for unversioned local builds.
+var version = "dev"
+
 func main() {
 	if err := rootCmd().Execute(); err != nil {
 		os.Exit(1)
@@ -19,9 +23,11 @@ func main() {
 
 func rootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "shirabe",
-		Short: "Workflow skills for AI coding agents",
+		Use:     "shirabe",
+		Short:   "Workflow skills for AI coding agents",
+		Version: version,
 	}
+	root.SetVersionTemplate("shirabe {{.Version}}\n")
 	root.AddCommand(validateCmd())
 	return root
 }
