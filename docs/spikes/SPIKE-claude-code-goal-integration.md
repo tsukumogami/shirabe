@@ -1,8 +1,8 @@
 ---
 status: Complete
 question: |
-  Does Claude Code's new /goal command replace or compete with shirabe's
-  workflow skills, or are they complementary primitives that should compose?
+  How does Claude Code's new /goal command fit with shirabe's workflow
+  skills? Where does it compose, and where is it not a fit?
 timebox: "1 session"
 ---
 
@@ -14,10 +14,9 @@ Complete
 
 ## Question
 
-Claude Code v2.1.139 introduced a `/goal` slash command. Does it replace any
-shirabe workflow skills, compete with shirabe's positioning, or operate at a
-different layer that allows composition? If composition is possible, where are
-the highest-value integration points?
+Claude Code v2.1.139 introduced a `/goal` slash command. At what layer does
+it operate relative to shirabe's workflow skills, and where are the
+highest-value composition opportunities?
 
 ## Context
 
@@ -29,13 +28,12 @@ modes (`--auto`) with their own "keep going" logic.
 In May 2026, Claude Code shipped `/goal`: a built-in slash command that sets a
 natural-language completion condition and loops Claude across turns until a
 model evaluator verifies the condition holds. On its surface, this looks like
-it could overlap with shirabe's autonomous workflow features. We need to know
-whether shirabe's positioning changes, whether any skills are now redundant,
-and where /goal might productively compose into existing workflows.
+it could touch shirabe's autonomous workflow features. The spike maps where
+the two actually meet and where /goal could compose into existing workflows.
 
 The investigation answers three questions:
 1. What exactly is /goal (primitive type, behavior, gating)?
-2. Where does it overlap shirabe's surface?
+2. Where does it meet shirabe's surface?
 3. What are the realistic composition opportunities?
 
 ## Approach
@@ -64,8 +62,9 @@ attempted; that's design work that follows from this recommendation.
 - **Primitive type:** Built-in slash command at the same level as `/loop`,
   `/clear`, `/compact`. Compiled into the Claude Code binary. Not a skill, not
   a plugin, not an MCP tool.
-- **Source visibility:** Closed. The evaluator's system prompt is not exposed
-  in `~/.claude/plugins/`, on the filesystem, or in any user-readable form.
+- **Source visibility:** Internal to Claude Code. The evaluator's system prompt
+  is not part of the public surface — it does not appear under
+  `~/.claude/plugins/` or elsewhere on disk.
 - **Version availability:** Introduced in v2.1.139 (released 2026-05-11). This
   workspace runs v2.1.148, so `/goal` is live now.
 - **Gating:** Requires hooks enabled (`disableAllHooks` and
@@ -96,10 +95,9 @@ clears, control returns to the user.
 | Loop unit | Phases (scope → discover → converge → draft → validate) | Turns |
 | Verifier | Jury reviews, structured frontmatter, CI | Single LLM evaluator |
 | Persistence | wip/ + committed artifacts | Session only |
-| Customization | Open skills, editable | Closed binary feature |
+| Customization | Editable skills | Built-in binary feature |
 
-Zero shirabe skills are made redundant. Nothing /goal does is replicated by
-shirabe. They operate at orthogonal layers:
+The two cover non-overlapping surface area and operate at orthogonal layers:
 
 ```
   shirabe:work-on    │  ← workflow / artifact production
@@ -115,13 +113,13 @@ shirabe. They operate at orthogonal layers:
   Claude Code core   │  ← turn execution, tools, memory
 ```
 
-### Where the surface overlap is illusory
+### Where apparent overlap dissolves on closer look
 
-| Apparent overlap | Why it's not real |
-|------------------|-------------------|
+| Apparent overlap | Closer look |
+|------------------|-------------|
 | `explore --auto` vs `/goal` autonomous loop | Different granularity. `explore --auto` loops over research rounds with documented decisions; `/goal` loops over turns with a one-shot LLM verdict. |
-| `work-on` koto loop vs `/goal` | `work-on` has structured phases (analysis → code → tests → PR → CI); `/goal` is one loop with one verifier. `work-on` could invoke `/goal`; the reverse is meaningless. |
-| `decision` skill vs `/goal` | Decision is jury-based research with adversarial agents producing a YAML artifact. `/goal` is a tiny session-local verifier. No real overlap. |
+| `work-on` koto loop vs `/goal` | `work-on` has structured phases (analysis → code → tests → PR → CI); `/goal` is one loop with one verifier. `work-on` could invoke `/goal`; composition doesn't run the other way. |
+| `decision` skill vs `/goal` | Decision is jury-based research with adversarial agents producing a YAML artifact. `/goal` is a session-local verifier. The two address different problems. |
 
 ### Composition opportunities (deferred to per-opportunity design)
 
@@ -137,7 +135,7 @@ acted on by this spike; each needs its own design doc.
    DESIGN-X.md merged"` provides a clear "done" condition.
 
 3. **Replace `--auto` mode internals with /goal.** Several shirabe skills have
-   homebrew autonomous-mode logic. /goal could supplant the "keep going"
+   their own autonomous-mode logic. /goal could take over the "keep going"
    half while shirabe keeps the "what to do next" half.
 
 4. **Simplify CI-waiting in `release` and `ci` skills.** Currently polled in
@@ -145,8 +143,8 @@ acted on by this spike; each needs its own design doc.
    structured progress reporting.
 
 5. **Documentation framing.** shirabe's README and per-skill docs should
-   acknowledge `/goal` and explain the layering, so new users encountering
-   `/goal` first understand why shirabe still exists.
+   acknowledge `/goal` and locate it on the layer diagram, so users see how
+   the two compose.
 
 ### Where /goal is **not** a fit
 
@@ -161,7 +159,7 @@ acted on by this spike; each needs its own design doc.
 ### Open questions
 
 1. **Configurability of the evaluator.** Whether we can ever supply our own
-   evaluator prompt (vs. the closed Haiku-with-stock-prompt) shapes how
+   evaluator prompt (vs. the default Haiku evaluator) shapes how
    ambitiously shirabe should lean on /goal.
 2. **Nested autonomy cost.** If `work-on` invokes /goal *and* inner phases
    use auto-mode, two layers of "keep going" stack. Cancellation and runaway
@@ -173,7 +171,7 @@ acted on by this spike; each needs its own design doc.
 
 ## Recommendation
 
-**No-go on treating /goal as a shirabe replacement.** shirabe and /goal sit at
+**No-go on framing /goal as a shirabe replacement.** shirabe and /goal sit at
 orthogonal layers: shirabe owns durable artifact-producing workflows, /goal
 owns session-level autonomous looping. Neither subsumes the other.
 
