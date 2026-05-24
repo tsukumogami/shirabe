@@ -164,7 +164,111 @@ infrastructure shirabe is committing to.
 
 ## User Journeys
 
-[To be drafted by journey-author in Phase 3.]
+The brief calls out four journeys that exercise `/charter` and the
+strategic chain from different entry points. Each names the user,
+the trigger, the path through the chain, and the exit shape.
+
+### Journey 1: Skill author, standalone invocation cold
+
+A skill author opens Claude Code in a repo where a strategic
+conversation needs to happen. They invoke `/charter` with a short
+topic string describing the bet they want to pressure-test. The
+skill opens with discovery: it gathers context, asks scoping
+questions, detects whether the long-term thesis is shifting or only
+an operational layer below it. The author confirms the thesis
+holds; the chain skips `/vision`. The repo is public, so the chain
+silently skips `/comp` without surfacing it as a question.
+`/strategy` runs as the load-bearing child — Strategic Context
+drafting, Defensibility Thesis, Building Blocks, Coordination
+Dependencies, Falsifiability — and lands a STRATEGY Draft. Because
+the building blocks have cross-block dependencies the author can't
+sequence by inspection, `/charter` invokes `/roadmap` as the
+closing child to produce a ROADMAP that sequences them. The chain
+halts at the durable artifacts. The author reviews, ratifies, and
+commits.
+
+This is the primary mode. It validates that `/charter` walks an
+author through the full strategic conversation without forcing them
+to remember the chain order, the artifact-decision rules, or the
+visibility gating — the skill enforces all three.
+
+### Journey 2: `/charter` run ending in re-evaluation
+
+A skill author returns to a strategic topic six weeks after the
+original `/charter` run landed an Accepted STRATEGY. New evidence
+has accumulated and the author wants to know whether the bet still
+holds. They invoke `/charter` against the same topic. Discovery
+surfaces the existing STRATEGY as upstream context and asks whether
+the bet warrants revision. The conversation walks through the
+falsifiability claims; none have flipped. The corrective actions
+named in the original STRATEGY are still the right corrective
+actions. The chain does not force a STRATEGY revision. Instead,
+`/charter` writes a Decision Record at
+`docs/decisions/DECISION-strategy-<scope>-re-evaluation.md`
+referencing the existing STRATEGY by path, recording the evidence
+reviewed and the conclusion that the bet still holds, and halts
+there. No STRATEGY revision; no ROADMAP regeneration; the existing
+Accepted STRATEGY remains the live artifact.
+
+This journey validates the discipline-vs-artifact decoupling
+principle empirically. Without it, every `/charter` run is tempted
+into a STRATEGY revision even when nothing changed, and the
+discipline collapses into ad-hoc artifact churn. The Decision
+Record exit is the novel contribution — it lets a strategic
+conversation conclude rigorously without producing a redundant
+artifact.
+
+### Journey 3: Mid-chain abandonment forcing materialization
+
+A skill author starts a `/charter` run on a hard strategic
+question. `/vision` runs and lands evidence in `wip/`; `/strategy`
+enters its discover phase and gathers context. Before the strategy
+draft is complete, the author switches to a different task, closes
+the session, and doesn't return for a week. When they re-open
+Claude Code and tell `/charter` to wrap up the strategic
+conversation as it stands — or when the resume ladder detects the
+partial state on its own — the chain does not abandon the work as
+evidence-only files in `wip/`. Instead, `/charter` forces the
+most-recently-run child to materialize its artifact even if its own
+decision rule said evidence-only was acceptable. The strategic
+conversation ends at a Draft STRATEGY (force-materialized from the
+partial state), with a Status block noting it was
+abandonment-forced rather than full-run. The chain leaves a review
+surface no matter how it ended.
+
+This journey validates the third exit path. It enforces the
+terminal-artifact contract in the case the contract is weakest
+under — interrupted, half-finished, low-information strategic
+work. Without abandonment-forced materialization, the contract
+holds only for runs the author completes, which is exactly the
+wrong shape.
+
+### Journey 4: Reviewer redirecting mid-chain via manual fallback
+
+A reviewer reads a Draft STRATEGY produced by an earlier `/charter`
+run. The bet's framing is close to right but the Building Blocks
+lean toward implementation language that pre-supposes too much
+sequencing. The reviewer decides to tighten the bet directly rather
+than re-running the full chain. They invoke `/strategy` directly
+outside `/charter`, against the existing Draft STRATEGY path, with
+the tightened framing as the input. `/strategy` runs as a
+standalone child the way it always has — phased authoring, jury
+review, finalization — and produces a revised Draft. `/charter`
+does not interfere with the manual re-invocation. When the author
+later resumes `/charter` on the topic and the resume ladder notices
+the STRATEGY has been edited outside the chain, the skill warns
+that any downstream ROADMAP may be stale relative to the revised
+STRATEGY but does not act on the staleness. The author decides
+whether to re-run `/roadmap` or accept the existing ROADMAP as
+still-valid.
+
+This journey validates that manual fallback is first-class
+steady-state capability rather than a workaround. Authors and
+reviewers retain full control over the strategic chain at any
+altitude; `/charter` provides discipline without becoming a
+bottleneck. The parent-skill pattern stays compatible with the
+author already knowing the chain by hand and stepping outside it
+when the situation warrants.
 
 ## Scope Boundary
 
@@ -237,35 +341,87 @@ The scope explicitly excludes:
 These surface for the downstream PRD or design to resolve. None
 block this brief.
 
-[To be finalized in Phase 3 after journey-author returns. Working
-list per Phase 1 scoping:
+1. **`/strategy` SKILL.md verification.** `/charter`'s
+   `--upstream <strategy-path>` flag and the per-child handoff
+   scope-file shape it writes both bind against the `/strategy`
+   skill's actual input contract. The verification step — reading
+   the shipped `/strategy` SKILL.md and confirming the contract
+   matches what `/charter` produces — is a PRD prerequisite. If
+   `/strategy`'s contract has drifted since this brief was authored,
+   the PRD names the reconciliation.
 
-1. `/strategy` SKILL.md verification — the actual implementation
-   must be read before `/charter`'s `--upstream` flag and handoff
-   scope-file shape can be finalized against it.
+2. **`/comp` skill ordering.** `/charter`'s `/comp` invocation
+   contract is sketched in this brief, but the `/comp` child skill
+   itself is parallel work in shirabe core. Two options: (a) ship
+   `/charter` with `/comp` invocation as documented-but-disabled
+   (skipped until the `/comp` skill lands), or (b) sequence
+   `/comp` to ship first so `/charter` ships against a functional
+   `/comp` from day one. The PRD picks one; either choice has
+   downstream consequences for the chain's day-one behavior in
+   private repos.
 
-2. `/comp` skill ordering — does `/charter` ship with the `/comp`
-   invocation as documented-but-disabled (skipped until the `/comp`
-   skill lands), or does `/comp` ship first so `/charter` ships
-   against a functional `/comp`?
-
-3. Engine extraction location — does the discover/converge engine
-   extract into a top-level `references/` directory (the existing
-   shirabe precedent for shared content), or stay inside
+3. **Engine extraction location.** The discover/converge engine
+   `/charter` consumes for Phase 1 discovery is currently inside
+   `skills/explore/references/phases/`. Two options: (a) extract it
+   into a top-level `references/` directory (the existing shirabe
+   precedent for shared content), or (b) keep it inside
    `skills/explore/references/` with `/charter` referencing those
-   paths cross-skill?
+   paths cross-skill. (a) signals shared infrastructure; (b) is the
+   lower-novelty path. The design picks one.
 
-4. Dual-implementation contract — the shared design must commit to a
+4. **Dual-implementation contract.** The shared design doc
+   (`DESIGN-shirabe-progression-authoring.md`, co-authored across
+   the parent-skill pattern's three features) must commit to a
    logical contract that satisfies both `/charter`'s wip/-based
    core-layer implementation AND the eventual amplifier-layer
    implementation that the `/work-on` migration needs. The contract
    is the freeze line; the implementations evolve. Picking the
-   contract is the most novel design challenge.]
+   contract is the most novel design challenge from this brief and
+   should be resolved before any of the three features lock in.
+
+5. **`/charter` auto-handoff from `/explore`.** Should `/charter`
+   be invocable as a Phase-5 handoff target from `/explore` (the
+   crystallize phase routes to `/charter` when the conversation
+   indicates a strategic artifact), or standalone-only at first?
+   The PRD picks the integration timing.
+
+6. **Resume-ladder source of truth.** Does `/charter`'s resume
+   ladder check each child's artifact status independently
+   (multi-source), or use a single `wip/charter_<topic>_state.md`
+   file as the source of truth? The choice affects how robust
+   resume is to manual edits outside `/charter` (Journey 4's case).
 
 ## Downstream Artifacts
 
-[To be finalized in Phase 3.]
+- **`PRD-shirabe-charter-skill.md`** — requirements articulation for
+  the `/charter` SKILL.md, the four delegation contracts, the
+  three exit paths, the resume ladder, and the visibility model.
+  Lives in `docs/prds/`.
+- **`DESIGN-shirabe-progression-authoring.md`** — the shared design
+  doc co-authored across the parent-skill pattern's three features
+  (`/charter`, `/scope`, the `/work-on` migration). Anchors the
+  parent-skill pattern's frozen contracts; the PRD points at the
+  `/charter`-scoped portions. Lives in `docs/designs/current/`.
+- **(Likely) per-feature design supplements** — `/scope` and the
+  `/work-on` migration each consume the shared design and may need
+  per-feature design notes for their specifics. Authored at design
+  time when scope warrants.
 
 ## References
 
-[To be finalized in Phase 3.]
+- Brief format precedent: `docs/briefs/BRIEF-shirabe-strategy-skill.md`.
+- Parent-skill template precedents: `skills/strategy/SKILL.md` and
+  `skills/explore/SKILL.md`.
+- Phase-5 handoff pattern precedent:
+  `skills/explore/references/phases/phase-5-produce-*.md` family.
+- Discover/converge engine source:
+  `skills/explore/references/phases/phase-2-discover.md` and
+  `skills/explore/references/phases/phase-3-converge.md`.
+- Resume-ladder precedent: the Resume Logic block in
+  `skills/strategy/SKILL.md` (status-first ladder).
+- Decision Record format for the re-evaluation exit:
+  `references/decision-record-format.md` (or equivalent — the
+  shirabe decision-record skill's format spec).
+- Cross-repo visibility rules: `references/cross-repo-references.md`.
+- Roadmap upstream: `docs/roadmaps/ROADMAP-strategic-pipeline.md`
+  names the parent-skill pattern as a sequenced initiative.
