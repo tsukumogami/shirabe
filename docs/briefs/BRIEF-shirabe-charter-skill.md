@@ -9,7 +9,7 @@ problem: |
   no codification, no resume contract, and no terminal-artifact
   guarantees. Without a parent skill the three-rule terminal-artifact
   contract and the three exit paths are unenforceable, and the
-  discipline-vs-artifact decoupling the upstream strategy commits to
+  discipline-vs-artifact decoupling the strategic chain depends on
   fails empirically.
 outcome: |
   Skill authors reach for `/charter` the way they reach for
@@ -37,16 +37,19 @@ each `/charter` → child interface.
 
 ## Problem Statement
 
-shirabe today ships every artifact type at the strategic chain's
-altitude — VISION, COMP (Private), STRATEGY, ROADMAP — and each has a
-loadable child skill that authors invoke directly. What's missing is
-the parent layer: a skill that walks an author through the strategic
+shirabe ships VISION, STRATEGY, and ROADMAP at the strategic chain's
+altitude — each as a loadable child skill (`/vision`, `/strategy`,
+`/roadmap`) that authors invoke directly. COMP exists as an artifact
+category by example and via workspace tooling; the `/comp` child
+skill in shirabe core is parallel work. What's missing is the parent
+layer: a skill that walks an author through the strategic
 conversation as a *sequence*, deciding which children to invoke,
 carrying scope between them, and enforcing the contract that the
 conversation always lands at a durable artifact.
 
 In the absence of a parent skill, authors today reach for the chain
-as four separate invocations. This costs them in three ways. They
+as three separate invocations (with a fourth — `/comp` — in parallel
+flight). This costs them in three ways. They
 re-derive the sequencing decisions on every run (when does a vision
 update fire? when is a roadmap warranted?). They carry context
 between children manually, with no resume contract if the session
@@ -54,19 +57,19 @@ breaks. And they have no enforcement that the conversation produces a
 durable terminal artifact — paused or abandoned chains leave evidence
 files in `wip/` with no review surface.
 
-The deeper problem is that the strategic chain has invariants the
-upstream shirabe-evolution strategy commits to but cannot enforce in
-the absence of `/charter`. The terminal-artifact contract has three
-rules: every chain ends at a durable artifact for human review;
-re-evaluation of a healthy upstream is a first-class lightweight
-exit; paused or abandoned chains force-materialize the most-recent
-intermediate. None of these invariants survive a manual chain. The
-discipline-vs-artifact decoupling — the load-bearing thesis that
-strategic work can be *disciplined* without being forced to
-*produce* — depends on a parent skill that enforces the three exits.
-Without it, every strategic conversation is tempted into a STRATEGY
-revision regardless of whether one is warranted, and the discipline
-collapses into ad-hoc artifact creation.
+The deeper problem is that the strategic chain has invariants that
+cannot be enforced in the absence of `/charter`. `/charter`'s design
+commits to a three-rule terminal-artifact contract: every chain ends
+at a durable artifact for human review; re-evaluation of a healthy
+upstream is a first-class lightweight exit; paused or abandoned
+chains force-materialize the most-recent intermediate. None of these
+invariants survive a manual chain. The discipline-vs-artifact
+decoupling — the load-bearing principle that strategic work can be
+*disciplined* without being forced to *produce* — depends on a
+parent skill that enforces the three exits. Without it, every
+strategic conversation is tempted into a STRATEGY revision
+regardless of whether one is warranted, and the discipline collapses
+into ad-hoc artifact creation.
 
 The remaining gap has five parts:
 
@@ -83,8 +86,8 @@ The remaining gap has five parts:
   partial child runs, is new.
 - **No terminal-artifact enforcement.** The three exits — full-run,
   re-evaluation Decision Record, abandonment-forced materialization
-  — exist by intent in the upstream strategy but have no skill that
-  implements them.
+  — exist as architectural intent but have no skill that implements
+  them.
 - **No parent-skill pattern.** `/charter` is the first of three
   parent skills shirabe needs. Without `/charter` as the validation
   point, downstream parent skills (`/scope`, the `/work-on`
@@ -138,8 +141,10 @@ resume contract detects partial child runs (artifacts in `wip/` or
 durable docs/) and offers continue-from-here. Manual re-invocation
 of any child directly outside `/charter` remains a first-class path;
 `/charter` warns but does not act on the staleness of downstream
-artifacts, since the upstream strategy commits to manual fallback as
-steady-state capability rather than a temporary shim.
+artifacts. `/charter`'s design treats manual fallback as steady-state
+capability rather than a temporary shim — the author can always step
+outside the chain without losing the discipline the parent skill
+provides.
 
 In public repos, the chain skips the `/comp` sub-phase silently — the
 skill never asks about competitive analysis in a repo where the
@@ -190,7 +195,7 @@ holds the following inside:
   consumed by `/charter`).
 - Workspace and shirabe CLAUDE.md updates documenting `/charter`'s
   entry triggers and discovery surface.
-- The SE5 per-skill artifact-decision contract as instantiated in
+- The per-skill artifact-decision contract as instantiated in
   `/charter`'s phase prose (`/explore` Phase 5's no-artifact path is
   the precedent).
 - Manual-redirect workflow as a first-class steady-state surface,
@@ -202,22 +207,21 @@ The scope explicitly excludes:
   its own brief; shares the design doc but does not bind `/charter`'s
   scope.
 - **The `/work-on` migration into the parent-skill pattern.**
-  Separate feature; depends on koto amplifier-layer substrate the
-  upstream strategy commits to but does not require for `/charter`'s
-  ship.
+  Separate feature; depends on amplifier-layer workflow-composition
+  substrate that `/charter` does not require for its own ship.
 - **The `/comp` skill body itself.** `/charter`'s contract for
   consuming `/comp` is in scope; authoring the `/comp` SKILL.md is
   the responsibility of the `/comp` feature.
 - **Revisions to the `/strategy` SKILL.md.** `/charter` consumes
   `/strategy` as it ships today; if integration surfaces a need for
   `/strategy` revisions, that's a separate PR.
-- **The koto workflow composition substrate.** The amplifier-layer
-  move is downstream; `/charter` ships against current shirabe
-  patterns (wip/-based intermediates, plain-English phase prose).
-- **The SE9 review-time redirect mechanism.** Manual fallback is
-  first-class per the upstream strategy's falsifiability direction;
-  the automatic-redirect substrate is amplifier-layer work and is
-  not a prerequisite for `/charter`.
+- **The amplifier-layer workflow substrate.** The migration into
+  workflow-composition infrastructure is downstream; `/charter`
+  ships against current shirabe patterns (wip/-based intermediates,
+  plain-English phase prose).
+- **The review-time redirect mechanism.** Manual fallback is
+  first-class by design; the automatic-redirect substrate is
+  amplifier-layer work and is not a prerequisite for `/charter`.
 - **The niwa workspace context surface.** `/charter` uses current
   CLAUDE.md visibility detection; substrate cleanup is unrelated.
 - **Migration of existing strategic-progression artifacts.**
@@ -236,27 +240,27 @@ block this brief.
 [To be finalized in Phase 3 after journey-author returns. Working
 list per Phase 1 scoping:
 
-1. SE3 `/strategy` SKILL.md verification — the actual implementation
+1. `/strategy` SKILL.md verification — the actual implementation
    must be read before `/charter`'s `--upstream` flag and handoff
    scope-file shape can be finalized against it.
 
-2. `/comp` (SE11) ordering — does `/charter` ship with the `/comp`
-   invocation as documented-but-disabled (skipped in both public and
-   private until SE11 lands), or does SE11 ship first so `/charter`
-   ships against a functional `/comp`?
+2. `/comp` skill ordering — does `/charter` ship with the `/comp`
+   invocation as documented-but-disabled (skipped until the `/comp`
+   skill lands), or does `/comp` ship first so `/charter` ships
+   against a functional `/comp`?
 
 3. Engine extraction location — does the discover/converge engine
-   extract into a new `skills/_shared/` directory (new convention),
-   or stay inside `skills/explore/references/` with `/charter`
-   referencing those paths cross-skill?
+   extract into a top-level `references/` directory (the existing
+   shirabe precedent for shared content), or stay inside
+   `skills/explore/references/` with `/charter` referencing those
+   paths cross-skill?
 
 4. Dual-implementation contract — the shared design must commit to a
    logical contract that satisfies both `/charter`'s wip/-based
-   core-layer implementation AND the eventual koto-context-based
-   amplifier-layer implementation that the `/work-on` migration
-   needs. The contract is the freeze line; the implementations
-   evolve. Picking the contract is the most novel design challenge
-   from the exploration.]
+   core-layer implementation AND the eventual amplifier-layer
+   implementation that the `/work-on` migration needs. The contract
+   is the freeze line; the implementations evolve. Picking the
+   contract is the most novel design challenge.]
 
 ## Downstream Artifacts
 
