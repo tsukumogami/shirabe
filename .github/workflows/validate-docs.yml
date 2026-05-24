@@ -72,10 +72,11 @@ jobs:
           CUSTOM_STATUSES: ${{ inputs.custom-statuses }}
         run: |
           FILES=$(git diff --name-only \
-            ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }})
+            ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} \
+            | grep -vE '(^|/)evals/fixtures/' || true)
 
           if [ -z "$FILES" ]; then
-            echo "::notice::No files changed in this PR"
+            echo "::notice::No doc files changed in this PR"
             exit 0
           fi
 
