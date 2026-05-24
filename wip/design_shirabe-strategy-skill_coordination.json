@@ -1,0 +1,49 @@
+{
+  "topic": "shirabe-strategy-skill",
+  "decisions": [
+    {
+      "id": 1,
+      "question": "Format reference structure and per-section content rules for STRATEGY's unique sections",
+      "status": "complete",
+      "complexity": "critical",
+      "report_file": "wip/research/design_shirabe-strategy-skill_decision_1_report.md"
+    },
+    {
+      "id": 2,
+      "question": "Skill phase structure (0-5) and Phase 4 jury prompt text for the three reviewer agents",
+      "status": "complete",
+      "complexity": "standard",
+      "report_file": "wip/research/design_shirabe-strategy-skill_decision_2_report.md"
+    },
+    {
+      "id": 3,
+      "question": "Lifecycle file management: Sunset directory mapping and transition-status.sh behavior contract",
+      "status": "complete",
+      "complexity": "standard",
+      "report_file": "wip/research/design_shirabe-strategy-skill_decision_3_report.md"
+    },
+    {
+      "id": 4,
+      "question": "R7 custom check implementation shape: function name, error code, dispatch point",
+      "status": "complete",
+      "complexity": "standard",
+      "report_file": "wip/research/design_shirabe-strategy-skill_decision_4_report.md"
+    },
+    {
+      "id": 5,
+      "question": "Evals scenarios for skills/strategy/evals/evals.json",
+      "status": "complete",
+      "complexity": "standard",
+      "report_file": "wip/research/design_shirabe-strategy-skill_decision_5_report.md"
+    }
+  ],
+  "cross_validation": "passed",
+  "round": 1,
+  "cross_validation_notes": [
+    "Conflict resolved in-design: D3 introduced checkStrategySunsetReason validate check; D4 only commits to checkStrategyPublic. Resolution: drop the second Go check; Sunset reason recording is enforced by transition-status.sh require-arg + Phase 4 structural reviewer check (D2). Avoids adding a second error code for content better verified at the skill jury layer.",
+    "PRD extension surfaced: D3 added Accepted -> Sunset transition. PRD R4 table only shows Active -> Sunset. Design extends PRD R4 with explicit rationale (bet can be invalidated before downstream consumption). Recorded as a design-level refinement; PRD amendment not required because R4 was non-exhaustive.",
+    "Capitalization: PRD R8 specifies Name: \"Strategy\"; D4 used Name: \"STRATEGY\". Design uses \"Strategy\" per PRD authoritative spec.",
+    "D2 mentions org-scope STRATEGY without upstream VISION; D1's flexible Strategic Context sub-structure supports this. Recorded as a load-bearing assumption.",
+    "D3 adds Accepted -> Sunset; D5 evals don't cover this transition. Added as eval scenario #8."
+  ]
+}
