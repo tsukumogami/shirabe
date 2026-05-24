@@ -95,6 +95,23 @@ var Formats = map[string]FormatSpec{
 			"Implementation Sequence",
 		},
 	},
+	"strategy/v1": {
+		Name:          "Strategy",
+		Prefix:        "STRATEGY-",
+		SchemaVersion: "strategy/v1",
+		RequiredFields: []string{"status", "bet", "scope"},
+		ValidStatuses:  []string{"Draft", "Accepted", "Active", "Sunset"},
+		RequiredSections: []string{
+			"Status",
+			"Strategic Context",
+			"Defensibility Thesis",
+			"Building Blocks",
+			"Coordination Dependencies",
+			"Bet-Specific Falsifiability",
+			"Non-Goals",
+			"Downstream Artifacts",
+		},
+	},
 }
 
 // DetectFormat returns the FormatSpec whose Prefix matches the start of basename.

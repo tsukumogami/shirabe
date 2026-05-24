@@ -30,11 +30,17 @@ func ValidateFile(doc Doc, spec FormatSpec, cfg Config) []ValidationError {
 	errs = append(errs, checkFC04(doc, spec)...)
 
 	// 3. Format-specific checks dispatched by spec.Name.
+	// Casing is intentional per the Formats-map entries — existing names mix
+	// conventions ("VISION" all-caps, "Roadmap" / "Strategy" / "Plan" /
+	// "Design" / "PRD" otherwise). Do not normalize the case here without
+	// updating Formats.
 	switch spec.Name {
 	case "Plan":
 		errs = append(errs, checkPlanUpstream(doc)...)
 	case "VISION":
 		errs = append(errs, checkVisionPublic(doc, cfg)...)
+	case "Strategy":
+		errs = append(errs, checkStrategyPublic(doc, cfg)...)
 	}
 
 	return errs

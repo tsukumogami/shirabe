@@ -483,13 +483,80 @@ func TestCheckVisionPublic(t *testing.T) {
 	})
 }
 
+// --- checkStrategyPublic ---
+
+func TestCheckStrategyPublic(t *testing.T) {
+	t.Run("private visibility returns nil even with prohibited section", func(t *testing.T) {
+		cfg := Config{Visibility: "private"}
+		sections := []Section{
+			{Name: "Competitive Considerations", Line: 10},
+		}
+		doc := makeDoc("strategy/v1", "Draft", nil, sections, nil)
+		errs := checkStrategyPublic(doc, cfg)
+		if len(errs) != 0 {
+			t.Errorf("expected no errors for private visibility, got %v", errs)
+		}
+	})
+
+	t.Run("public visibility with prohibited section returns R8 error", func(t *testing.T) {
+		cfg := Config{Visibility: "public"}
+		sections := []Section{
+			{Name: "Defensibility Thesis", Line: 5},
+			{Name: "Competitive Considerations", Line: 15},
+		}
+		doc := makeDoc("strategy/v1", "Draft", nil, sections, nil)
+		errs := checkStrategyPublic(doc, cfg)
+		if len(errs) != 1 {
+			t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
+		}
+		if errs[0].Code != "R8" {
+			t.Errorf("code: got %q, want %q", errs[0].Code, "R8")
+		}
+		if errs[0].Line != 15 {
+			t.Errorf("line: got %d, want 15", errs[0].Line)
+		}
+		if !strings.Contains(errs[0].Message, "Competitive Considerations") {
+			t.Errorf("message should mention section name, got %q", errs[0].Message)
+		}
+	})
+
+	t.Run("empty visibility fails closed — prohibited section returns R8 error", func(t *testing.T) {
+		cfg := Config{Visibility: ""}
+		sections := []Section{
+			{Name: "Competitive Considerations", Line: 8},
+		}
+		doc := makeDoc("strategy/v1", "Draft", nil, sections, nil)
+		errs := checkStrategyPublic(doc, cfg)
+		if len(errs) != 1 {
+			t.Fatalf("expected 1 error for empty visibility, got %d: %v", len(errs), errs)
+		}
+		if errs[0].Code != "R8" {
+			t.Errorf("code: got %q, want %q", errs[0].Code, "R8")
+		}
+	})
+
+	t.Run("public visibility without prohibited section returns nil", func(t *testing.T) {
+		cfg := Config{Visibility: "public"}
+		sections := []Section{
+			{Name: "Defensibility Thesis", Line: 5},
+			{Name: "Building Blocks", Line: 10},
+			{Name: "Non-Goals", Line: 20},
+		}
+		doc := makeDoc("strategy/v1", "Draft", nil, sections, nil)
+		errs := checkStrategyPublic(doc, cfg)
+		if len(errs) != 0 {
+			t.Errorf("expected no errors, got %v", errs)
+		}
+	})
+}
+
 // --- IsNotice ---
 
 func TestIsNotice(t *testing.T) {
 	if !IsNotice(ValidationError{Code: "SCHEMA"}) {
 		t.Error("SCHEMA should be a notice")
 	}
-	for _, code := range []string{"FC01", "FC02", "FC03", "FC04", "R6", "R7"} {
+	for _, code := range []string{"FC01", "FC02", "FC03", "FC04", "R6", "R7", "R8"} {
 		if IsNotice(ValidationError{Code: code}) {
 			t.Errorf("%s should not be a notice", code)
 		}

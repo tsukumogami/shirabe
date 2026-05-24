@@ -1,6 +1,6 @@
 ---
 schema: plan/v1
-status: Draft
+status: Active
 execution_mode: single-pr
 upstream: docs/designs/DESIGN-shirabe-strategy-skill.md
 milestone: shirabe-strategy-skill
@@ -11,7 +11,7 @@ issue_count: 7
 
 ## Status
 
-Draft
+Active
 
 Single-PR plan derived from
 `docs/designs/DESIGN-shirabe-strategy-skill.md` (Accepted). The
