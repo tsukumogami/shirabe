@@ -22,7 +22,9 @@ outcome: |
 
 ## Status
 
-Draft. Authored ahead of the `/brief` skill landing as a structural
+Draft
+
+Authored ahead of the `/brief` skill landing as a structural
 sample for that skill.
 
 The brief intentionally stops before requirements articulation. The

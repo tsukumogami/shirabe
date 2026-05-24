@@ -22,7 +22,9 @@ outcome: |
 
 ## Status
 
-Draft. The brief intentionally stops before requirements articulation.
+Draft
+
+The brief intentionally stops before requirements articulation.
 The follow-on PRD (`PRD-shirabe-brief-skill.md`) owns the format-spec
 details, the jury rubric, the validate-CLI checklist, and the
 brief-specific artifact-decision prose.
