@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   shirabe ships VISION, ROADMAP, PRD, DESIGN, and PLAN as first-class
   artifact types with format specs, validation, and dedicated skills,
@@ -30,7 +30,7 @@ upstream: docs/briefs/BRIEF-shirabe-strategy-skill.md
 
 ## Status
 
-Draft
+Accepted
 
 This PRD picks up the requirements work scoped by
 `docs/briefs/BRIEF-shirabe-strategy-skill.md`. It owns the

@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 problem: |
   shirabe's PRD-shirabe-strategy-skill commits to introducing
   STRATEGY as a first-class artifact type with its own loadable
@@ -33,17 +33,12 @@ upstream: docs/prds/PRD-shirabe-strategy-skill.md
 
 ## Status
 
-Proposed
+Accepted
 
-This design is being authored ahead of PRD acceptance — PR #94
-carries both the brief and PRD in Draft, with the design stacked
-on top. The intent is to land all three artifacts together so the
-implementing PR has a complete requirements-through-design trace
-on landing. The skill's documented flow (`Phase 0: STOP if PRD is
-not Accepted`) is deliberately deviated from at user direction;
-the design treats the PRD content as the authoritative requirements
-input and will be re-validated against the merged PRD before
-implementation begins.
+Accepted alongside PRD-shirabe-strategy-skill (also Accepted) on PR
+#94, which carries the brief, PRD, and this design as a stacked
+review unit. The next step is `/plan` against this design in
+single-PR mode.
 
 ## Context and Problem Statement
 
