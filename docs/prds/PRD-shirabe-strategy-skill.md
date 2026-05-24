@@ -150,10 +150,19 @@ strategic document.
 file at `skills/strategy/references/strategy-format.md` defines
 `schema: strategy/v1` with the following frontmatter:
 
-- Required fields: `status`, `bet`, `scope`
+- Required fields:
+  - `status` — lifecycle state; string matching one of the valid
+    statuses named in R4.
+  - `bet` — paragraph-length YAML literal block scalar (`|`)
+    articulating the falsifiable hypothesis the strategy commits
+    to. Same value the Defensibility Thesis section elaborates in
+    prose.
+  - `scope` — string enum, one of `project` or `org`, identifying
+    whether the bet operationalizes a project-level VISION or an
+    org-level VISION.
 - Optional fields: `upstream` (path to an upstream VISION, possibly
   cross-repo using the `owner/repo:path` convention defined in
-  `references/cross-repo-references.md`)
+  `references/cross-repo-references.md`).
 
 **R2: Required sections.** STRATEGY documents include the following
 top-level sections, in order:
@@ -183,8 +192,15 @@ VISION-style four-state lifecycle:
 |-------|---------|--------------------|
 | Draft | Under development; may have open questions | Created by `/strategy` |
 | Accepted | Bet locked; structural and altitude jury PASS recorded | Phase 4 jury all-PASS + explicit human approval |
-| Active | Downstream work has started; strategy is being operationalized | First downstream artifact references this STRATEGY's path in its `upstream:` field |
-| Sunset | Bet invalidated, pivoted, or abandoned | Explicit human decision with reason recorded; not automatic on downstream completion |
+| Active | Downstream work has started; strategy is being operationalized | Manual transition via `skills/strategy/scripts/transition-status.sh`, invoked when the first downstream artifact (ROADMAP or DESIGN) referencing this STRATEGY transitions to Active |
+| Sunset | Bet invalidated, pivoted, or abandoned | Manual transition via `skills/strategy/scripts/transition-status.sh` with reason recorded; not automatic on downstream completion |
+
+The transition script follows the per-skill convention established
+by `skills/vision/scripts/transition-status.sh` and equivalents in
+`/prd`, `/roadmap`, and `/design`. STRATEGY does not introduce
+cross-repo graph-watching infrastructure — transitions are operator-
+invoked, consistent with the strategy's core-layer "ships using
+current shirabe patterns" constraint.
 
 **R5: `/strategy` skill structure.** The skill is a plain-English
 SKILL.md at `skills/strategy/SKILL.md` with phase files at
@@ -245,6 +261,16 @@ applies the following objective criteria:
   be exceptional (under 20% of total). Blocks that span 3 or more
   repos are signals that the strategy is two strategies sharing a
   document and warrant decomposition.
+
+The specific count range (5-8), downstream-fanout ratio (1-2 per
+block minimum), and cross-product threshold (under 20%) are the
+default rubric, extrapolated from limited proof-by-example
+evidence available at PRD-authoring time. The rubric is itself
+revisable as jury verdict patterns accumulate; the format reference
+file MAY override these defaults once empirical evidence supports
+tighter or looser bounds. Revisions belong in the format reference
+file (not the PRD), so the rubric tracks the artifact's evolution
+without requiring a PRD amendment.
 
 **R7: Visibility-gated Competitive Considerations section.**
 STRATEGY documents may include a `Competitive Considerations`
@@ -311,6 +337,13 @@ between VISION and ROADMAP) and the trigger heuristic (work that
 operationalizes a piece of an upstream VISION without pivoting the
 long-term thesis).
 
+This PRD scopes the guidance to shirabe's own CLAUDE.md only.
+Downstream adopters consuming the shirabe plugin inherit this
+guidance through the loaded skill content; workspace-level
+CLAUDE.md authoring for organizations running shirabe across
+multiple repos is downstream design territory, not a requirement
+of this PRD.
+
 ### Non-Functional Requirements
 
 **R11: Skill structure consistency.** The `/strategy` skill follows
@@ -366,9 +399,6 @@ documented in shirabe's CLAUDE.md.
 - [ ] `skills/strategy/evals/evals.json` exists with at least four
   scenarios covering the cases named in R13, and `scripts/run-evals.sh
   strategy` reports all assertions passing.
-- [ ] The shirabe release that ships these changes includes release
-  notes calling out the path-filter widening adopters need to apply
-  (per R9).
 
 ## Out of Scope
 
@@ -495,15 +525,46 @@ in one document).
   plausible decomposition?"), not a precondition that designs
   exist yet.
 
-**Rationale.** Empirical evidence from strategic documents authored
-in practice shows 5-8 blocks is the natural range, with each block
-decomposing into 1-3 downstream design docs and most blocks being
-single-product. The rubric makes the altitude reviewer's check
+**Rationale.** The rubric makes the altitude reviewer's check
 testable: a block with no plausible design follow-up is a framing
 statement, not a building block; a block that decomposes into many
 designs is multiple blocks conflated. Scope coherence catches the
 "two strategies sharing a document" failure mode that would
-otherwise hide behind the count check.
+otherwise hide behind the count check. The specific numeric defaults
+(5-8 count, 1-2 designs per block, under-20% cross-product) are
+extrapolated from limited proof-by-example evidence and are
+revisable via the format reference file (see R6.1) as jury verdict
+patterns accumulate — the PRD does not lock them as permanent.
+
+### Decision 4: Standalone /strategy skill, not in-charter authoring
+
+**Decision.** SE3 ships a standalone `/strategy` skill rather than
+an in-`/charter` authoring integration. The upstream brief
+(`docs/briefs/BRIEF-shirabe-strategy-skill.md`) narrowed the
+authoring-path choice to the standalone skill; this PRD records
+the rationale so the choice is auditable downstream.
+
+**Alternatives considered.**
+
+- *In-`/charter` authoring integration.* A `/charter` parent skill
+  delegates to a `/strategy` phase. Defers the standalone-skill
+  cost; rides charter's plumbing. Rejected for this PRD: `/charter`
+  is downstream feature work, and making STRATEGY authoring
+  contingent on `/charter` shipping first introduces an ordering
+  dependency the core layer is designed to avoid.
+- *Both — ship standalone first, extend `/charter` later.*
+  Compatible with the strategic chain's eventual shape (`/charter`
+  delegates to `/strategy` as a child phase). Not adopted in this
+  PRD because the `/charter` integration is downstream design work;
+  this PRD scopes only the standalone-skill phase. Nothing in the
+  standalone design precludes a later `/charter` integration.
+
+**Rationale.** SE3 is a core-layer feature. Core-layer features ship
+using current shirabe patterns (loadable plain-English SKILL.md
+following `/vision` and `/decision` precedent) without depending on
+later-shipping infrastructure. The standalone `/strategy` skill
+satisfies that constraint; the in-`/charter` path would create an
+ordering dependency that contradicts the layering.
 
 ## Downstream Artifacts
 
@@ -515,10 +576,20 @@ Forthcoming work flowing from this PRD:
   literal and any associated test fixtures, the R7-equivalent
   custom-check addition, and the CLAUDE.md guidance text. Picks up
   the Decisions and Trade-offs positions and operationalizes them.
+- **`skills/strategy/scripts/transition-status.sh`** — per-skill
+  lifecycle transition script following the precedent of
+  `skills/vision/scripts/transition-status.sh` and equivalents in
+  `/prd`, `/roadmap`, and `/design`. Handles Draft → Accepted,
+  Accepted → Active, Active → Sunset, and any downgrade transitions
+  the format reference file authorizes.
+- **Release notes** for the shirabe version that ships the
+  Formats-map entry, calling out the path-filter widening adopters
+  may need to apply (per R9). Authored as part of the shirabe
+  release that lands these changes, not as a PR-time check.
 - **Implementation issues** — created from the design via `/plan`,
   covering skill authoring, format-reference authoring,
-  validate-CLI changes, CLAUDE.md update, evals authoring, and the
-  release-notes entry per R9.
+  validate-CLI changes, transition-script authoring, CLAUDE.md
+  update, evals authoring, and the release-notes entry.
 
 ## Related
 
