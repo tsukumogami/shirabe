@@ -14,6 +14,12 @@ var prohibitedPublicVisionSections = []string{
 	"Resource Implications",
 }
 
+// prohibitedPublicStrategySections lists section names that strategy/v1 docs must
+// not contain in public repos. See DESIGN-shirabe-strategy-skill.md (R8).
+var prohibitedPublicStrategySections = []string{
+	"Competitive Considerations",
+}
+
 // checkSchema returns a SCHEMA ValidationError (to be emitted as ::notice) if
 // doc.Schema is not spec.SchemaVersion. Returns nil if schema matches.
 func checkSchema(doc Doc, spec FormatSpec) *ValidationError {
@@ -221,6 +227,34 @@ func checkVisionPublic(doc Doc, cfg Config) []ValidationError {
 				Line:    sec.Line,
 				Code:    "R7",
 				Message: fmt.Sprintf("[R7] section %q is prohibited in public VISION docs", sec.Name),
+			})
+		}
+	}
+	return errs
+}
+
+// checkStrategyPublic (R8) flags STRATEGY docs that surface sections forbidden
+// in public repos. Mirrors checkVisionPublic. The check is bypassed only when
+// cfg.Visibility is exactly "private"; any other value (including the empty
+// string) fails closed and the check runs. See DESIGN-shirabe-strategy-skill.md.
+func checkStrategyPublic(doc Doc, cfg Config) []ValidationError {
+	if cfg.Visibility == "private" {
+		return nil
+	}
+
+	prohibited := make(map[string]bool, len(prohibitedPublicStrategySections))
+	for _, name := range prohibitedPublicStrategySections {
+		prohibited[name] = true
+	}
+
+	var errs []ValidationError
+	for _, sec := range doc.Sections {
+		if prohibited[sec.Name] {
+			errs = append(errs, ValidationError{
+				File:    doc.Path,
+				Line:    sec.Line,
+				Code:    "R8",
+				Message: fmt.Sprintf("[R8] section %q is prohibited in public STRATEGY docs", sec.Name),
 			})
 		}
 	}

@@ -14,6 +14,36 @@ When running /explore or /plan here:
 - Issues represent implementation-level work items
 - Designs are scoped to this repo
 
+## Artifact Types and When to Use Them
+
+shirabe recognizes six artifact types across two altitude bands.
+Reach for the one whose altitude matches your conversation:
+
+- **VISION** (long-term aspiration, years). Captures WHY a project
+  should exist — thesis, audience, value proposition, org fit. Use
+  when defining or revising a project's long-term identity.
+- **STRATEGY** (medium-term defensibility, quarters to a year or
+  two). Operationalizes a piece of an upstream VISION. Captures the
+  falsifiable bet, the Building Blocks decomposition, coordination
+  dependencies, and per-direction invalidation conditions. Use when
+  the work needs medium-term framing without re-justifying the
+  long-term thesis (VISION) and isn't ready for sequenced feature
+  decomposition (ROADMAP).
+- **ROADMAP** (sequenced features). Lists what gets built and in
+  what order, with dependencies between features.
+- **PRD** (requirements). Captures WHAT a feature does and WHY,
+  user-facing.
+- **DESIGN** (architecture). Captures HOW a feature is built — the
+  technical approach, trade-offs, components.
+- **PLAN** (execution). Decomposes a design into atomic
+  implementable issues with a dependency graph.
+
+The pipeline runs VISION → STRATEGY → ROADMAP → PRD → DESIGN →
+PLAN, though authors enter at whichever altitude matches the
+conversation they need to have. STRATEGY is the newest artifact
+type and sits between VISION and ROADMAP; use it when the bet that
+motivates the work is itself the conversation.
+
 ## Conventions
 
 - Recipe names: kebab-case

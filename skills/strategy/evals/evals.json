@@ -1,0 +1,126 @@
+{
+  "skill_name": "strategy",
+  "evals": [
+    {
+      "id": 1,
+      "name": "standalone-creation",
+      "prompt": "/strategy adopting-plugin-x",
+      "expected_output": "Detects no upstream VISION or existing STRATEGY. Validates the topic slug 'adopting-plugin-x' matches [a-z0-9-]+ at Phase 0. Starts Phase 1 (discover) to ground the bet conversationally. Produces a STRATEGY doc with all 8 required sections at docs/strategies/STRATEGY-adopting-plugin-x.md. Phase 4 spawns three reviewer agents in parallel (bet quality, altitude, structural format).",
+      "files": [],
+      "expectations": [
+        "Plan validates the topic slug 'adopting-plugin-x' matches [a-z0-9-]+ at Phase 0",
+        "Plan starts from Phase 0 (setup) or Phase 1 (discover) since no STRATEGY artifact exists",
+        "Plan includes a Phase 1 (discover) scoping step before drafting",
+        "Plan includes Phase 2 (draft) producing Strategic Context, Defensibility Thesis, and Bet-Specific Falsifiability",
+        "Plan includes Phase 3 (structural fill) producing Building Blocks, Coordination Dependencies, Non-Goals, and Downstream Artifacts",
+        "Plan includes Phase 4 (validate) with three parallel reviewer agents (bet quality, altitude, structural format)",
+        "Plan includes Phase 5 (finalize) with explicit human approval before status transition",
+        "Plan mentions reading phase reference files (e.g. references/phases/phase-0-setup.md)",
+        "Plan mentions detecting repo visibility from CLAUDE.md or repo path",
+        "Plan produces the STRATEGY at docs/strategies/STRATEGY-adopting-plugin-x.md"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "upstream-vision-grounding",
+      "prompt": "/strategy docs/visions/VISION-data-layer.md",
+      "expected_output": "Detects the VISION path as upstream input. Canonicalizes the path at Phase 0 and confirms it resolves inside the repo working tree. Reads the VISION content to derive the bet candidate during Phase 1. Carries forward the upstream VISION's essential framing into the STRATEGY's Strategic Context section. Declares the VISION path as the STRATEGY's frontmatter `upstream`.",
+      "files": ["docs/visions/VISION-data-layer.md"],
+      "expectations": [
+        "Plan detects the VISION path argument as upstream input",
+        "Plan canonicalizes the upstream path at Phase 0 and bounds-checks it against the repo working tree",
+        "Plan reads the VISION document content during Phase 1 (discover) to derive the bet candidate",
+        "Plan carries forward upstream VISION framing into the Strategic Context section",
+        "Plan declares the VISION path as the STRATEGY frontmatter upstream field"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "visibility-gating-public",
+      "prompt": "/strategy --auto adopting-plugin-x",
+      "expected_output": "Detects Public visibility from CLAUDE.md. Produces a STRATEGY without a Competitive Considerations section. Acknowledges --auto flag for non-interactive execution mode. Falls back to evidence-based decisions rather than blocking on user input.",
+      "files": [],
+      "expectations": [
+        "Plan detects Public visibility from CLAUDE.md or repo path",
+        "Plan explicitly excludes the Competitive Considerations section from the STRATEGY doc",
+        "Plan mentions reading skills/public-content/SKILL.md for content governance",
+        "Plan acknowledges --auto flag for non-interactive execution mode",
+        "Plan includes all 8 required sections (Status, Strategic Context, Defensibility Thesis, Building Blocks, Coordination Dependencies, Bet-Specific Falsifiability, Non-Goals, Downstream Artifacts)"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "lifecycle-accept-verb",
+      "prompt": "/strategy accept docs/strategies/STRATEGY-adopting-plugin-x.md",
+      "expected_output": "Detects 'accept' as a lifecycle verb rather than starting the creation workflow. Validates Open Questions section is empty or removed before transition. Runs skills/strategy/scripts/transition-status.sh with target Accepted. The file stays in docs/strategies/ (no directory movement for Accepted).",
+      "files": ["docs/strategies/STRATEGY-adopting-plugin-x.md"],
+      "expectations": [
+        "Plan detects 'accept' as a lifecycle verb rather than starting the creation workflow",
+        "Plan validates the Open Questions section is empty or removed before transition",
+        "Plan invokes skills/strategy/scripts/transition-status.sh to perform the transition",
+        "Plan targets transitioning from Draft to Accepted status",
+        "Plan does NOT move the file to a different directory for the Accepted transition"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "lifecycle-sunset-with-reason",
+      "prompt": "/strategy sunset docs/strategies/STRATEGY-old-bet.md \"Upstream VISION pivoted\"",
+      "expected_output": "Detects 'sunset' as a lifecycle verb. Validates the reason argument is non-empty and free of forbidden characters (/, &, \\, newlines, ---). Runs transition-status.sh with target Sunset and the reason. The file is moved to docs/strategies/sunset/ via git mv. The reason is recorded in the body Status section.",
+      "files": ["docs/strategies/STRATEGY-old-bet.md"],
+      "expectations": [
+        "Plan detects 'sunset' as a lifecycle verb rather than starting the creation workflow",
+        "Plan validates the reason argument is non-empty",
+        "Plan mentions the reason argument is sanitized to reject forbidden characters (/, &, \\\\, newlines, ---)",
+        "Plan invokes skills/strategy/scripts/transition-status.sh with target Sunset and a reason argument",
+        "Plan moves the file to docs/strategies/sunset/ via git mv",
+        "Plan records the reason in the body Status section"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "jury-three-reviewers",
+      "prompt": "/strategy plugin-x-migration",
+      "expected_output": "Phase 4 spawns three reviewer agents in parallel via the Agent tool with run_in_background: true. Each reviewer prompt opens with a fixed preamble framing the STRATEGY as data-under-review. Each prompt pins the verdict file path. Each prompt requires a literal **Verdict:** PASS | FAIL marker. The orchestrator aggregates by all-PASS rule.",
+      "files": [],
+      "expectations": [
+        "Plan describes Phase 4 spawning three reviewer agents in parallel",
+        "Plan mentions the Agent tool with run_in_background: true for jury parallelism",
+        "Plan names three distinct reviewer roles (bet quality, altitude, structural format)",
+        "Plan mentions each reviewer prompt opens with a fixed preamble framing STRATEGY content as data-under-review",
+        "Plan mentions each verdict file path is pinned (subagent does not choose its output location)",
+        "Plan mentions verdicts use a structured **Verdict:** PASS | FAIL marker",
+        "Plan aggregates verdicts by an all-PASS rule before proceeding to Phase 5"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "topic-slug-validation",
+      "prompt": "/strategy bad..slug/path",
+      "expected_output": "Phase 0 rejects the topic slug because it does not match [a-z0-9-]+. The skill stops before drafting and reports the constraint to the user. No STRATEGY document is created.",
+      "files": [],
+      "expectations": [
+        "Plan validates the topic slug against the [a-z0-9-]+ constraint at Phase 0",
+        "Plan rejects the input because the slug contains forbidden characters (., /)",
+        "Plan stops before drafting begins",
+        "Plan does NOT create a STRATEGY document",
+        "Plan explains the slug constraint to the user"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "building-blocks-rubric",
+      "prompt": "/strategy adopting-plugin-x",
+      "expected_output": "Phase 3 (structural fill) decomposes the bet into Building Blocks. The plan acknowledges the granularity rubric from strategy-format.md (5-8 blocks typical, 1-2 downstream designs per block minimum, under-20% cross-product blocks) and applies it when sizing the decomposition. The altitude reviewer at Phase 4 checks the rubric against the actual block list.",
+      "files": [],
+      "expectations": [
+        "Plan describes Phase 3 producing the Building Blocks section",
+        "Plan mentions the Building Blocks granularity rubric from strategy-format.md",
+        "Plan acknowledges the 5-8 typical count range for Building Blocks",
+        "Plan acknowledges the downstream-design ratio (1-2 designs per block minimum)",
+        "Plan acknowledges the cross-product threshold (under 20% of total)",
+        "Plan describes the altitude reviewer at Phase 4 applying the rubric"
+      ]
+    }
+  ]
+}
