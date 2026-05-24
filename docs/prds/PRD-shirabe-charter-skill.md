@@ -78,10 +78,14 @@ infrastructure shirabe commits to.
 - An author invokes `/charter` and is walked through the strategic
   chain without remembering the order, the
   artifact-decision heuristics, or the visibility gating.
-- The chain ends at exactly one of three named exit paths (full-run,
-  re-evaluation, abandonment-forced). A fourth shape — explicit
-  `/strategy` Reject — maps to abandonment-forced with the git
-  history as the audit surface.
+- The chain ends at exactly one of three named exit categories
+  (full-run, Decision-Record, abandonment-forced). The
+  Decision-Record exit has two first-class sub-shapes:
+  re-evaluation (existing STRATEGY holds; lightweight conclusion)
+  and rejection (Draft STRATEGY authored and then rejected;
+  conclusion captured as a durable record). Both express the same
+  architectural intent — strategic discipline without a STRATEGY
+  artifact — at the same altitude.
 - The chain is resumable mid-flight across child boundaries. Author
   bails are routed to abandonment-forced; never to silent loss.
 - Manual fallback (author invokes a child directly outside
@@ -144,15 +148,47 @@ What I review at end: the new Decision Record at
 `docs/decisions/DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`,
 referencing the existing STRATEGY by path. The existing
 `docs/strategies/STRATEGY-<topic>.md` remains unchanged (still
-Accepted/Active). State file records `exit: re-evaluation`.
+Accepted/Active). State file records `exit: decision-record` with
+`exit_subshape: re-evaluation`.
 
-### US-3: Mid-chain abandonment-forced materialization
+### US-3a: Strategy rejection via Decision-Record exit
+
+As a **skill author** whose `/charter` run authored a Draft STRATEGY
+that I deliberately rejected at `/strategy`'s finalization gate, I
+want `/charter` to capture the rejection as a durable Decision
+Record (alongside the discard commit that `/strategy` itself wrote),
+so that the strategic conversation lands at an artifact even when
+the conclusion was "no STRATEGY warranted."
+
+Chain shape: `/charter` invokes `/strategy` → `/strategy` runs to
+its Phase 5 finalization → user picks Reject at the
+final-confirmation gate → `/strategy` runs `git rm
+docs/strategies/STRATEGY-<topic>.md`, cleans up `wip/strategy_<topic>_*.md`,
+commits `docs(strategy): discard STRATEGY draft for <topic>` →
+control returns to `/charter` → `/charter` immediately writes
+`docs/decisions/DECISION-strategy-<topic>-rejection-<YYYY-MM-DD>.md`
+referencing the discard commit SHA and the user's stated rationale
+→ Decision-Record exit (rejection sub-shape).
+
+This sub-shape is *not* abandonment (the author exercised explicit
+judgment at a finalization gate; they did not bail mid-flight). It
+shares the Decision-Record exit category with re-evaluation because
+both express the same architectural intent: a strategic conversation
+that lands at a durable record rather than at a STRATEGY artifact.
+
+What I review at end: the new
+`docs/decisions/DECISION-strategy-<topic>-rejection-<YYYY-MM-DD>.md`
+referencing the discard commit. No STRATEGY exists on disk. State
+file records `exit: decision-record` with `exit_subshape: rejection`
+and `discard_commit_sha: <sha>`.
+
+### US-3b: Mid-chain abandonment-forced materialization
 
 As a **skill author** whose `/charter` run broke mid-flight (closed
 the session, switched to a different task, or stale-session
 detection fired on resume), I want `/charter` to force-materialize
 the most-recently-running child's intermediate as a Draft artifact
-with a Status block noting the abandonment-forced origin, so that
+with a Status marker noting the abandonment-forced origin, so that
 the chain always leaves a review surface regardless of how it
 ended.
 
@@ -162,17 +198,16 @@ either (a) author explicitly says "wrap it up" or (b) state file's
 → confirm/cancel prompt → force-materialize the most-recently-running
 child's intermediate → abandonment-forced exit.
 
-The same path covers `/strategy` Phase 5's Reject branch. When the
-author explicitly rejects a Draft STRATEGY at `/strategy`'s
-finalization, `/strategy` deletes the STRATEGY and wip/ files. From
-`/charter`'s point of view this is a successful Reject — recorded as
-abandonment-forced with `partial_phase_reached: rejected` and a
-reference to the discard commit SHA.
+The abandonment-forced exit fires when the author *bails* (closes
+the session, lets the chain go stale, or explicitly says "wrap it
+up"). It is distinct from the rejection sub-shape of the
+Decision-Record exit (US-3a) — that sub-shape fires when the author
+makes an explicit judgment at `/strategy`'s finalization gate.
 
-What I review at end: the force-materialized Draft artifact (Status
-block marks it abandonment-forced); OR, on `/strategy` Reject, the
-git history showing the discard commit. State file records
-`exit: abandonment-forced`.
+What I review at end: the force-materialized Draft artifact with an
+HTML-comment marker noting it was abandonment-forced. State file
+records `exit: abandonment-forced` with `triggering_child:
+<child-name>` and `partial_phase_reached: <phase>`.
 
 ### US-4: Reviewer redirect via manual fallback
 
@@ -304,27 +339,46 @@ SHALL NOT silently substitute a VISION path or embed the STRATEGY
 as a non-upstream reference.
 
 **R8 [/charter-specific].** `/charter` SHALL terminate at exactly
-one of three named exits:
+one of three named exit categories. Every chain MUST land at a
+durable file on disk; git history alone does not satisfy the
+terminal-artifact contract.
 
 - **Full-run.** A Draft STRATEGY landed (and optionally a Draft
   ROADMAP). The chain halts at the durable artifact(s).
-- **Re-evaluation.** The chain confirmed the existing STRATEGY's
-  bet still holds. `/charter` wrote a Decision Record at
-  `docs/decisions/DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`
-  referencing the existing STRATEGY. No STRATEGY revision; no
-  ROADMAP regeneration.
+- **Decision-Record.** `/charter` wrote a durable Decision Record
+  at `docs/decisions/DECISION-strategy-<topic>-<sub-shape>-<YYYY-MM-DD>.md`.
+  This exit has two first-class sub-shapes:
+  - **Re-evaluation.** The chain confirmed the existing STRATEGY's
+    bet still holds. The Decision Record references the existing
+    STRATEGY by path and records the evidence reviewed. No STRATEGY
+    revision; no ROADMAP regeneration. Filename sub-shape:
+    `DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`.
+  - **Rejection.** The chain authored a Draft STRATEGY; the author
+    explicitly rejected it at `/strategy`'s finalization gate
+    (`/strategy` Phase 5 Reject branch). `/strategy` discarded the
+    Draft via `git rm` and a `docs(strategy): discard STRATEGY
+    draft` commit. `/charter` then wrote the Decision Record
+    referencing the discard commit SHA, the user's stated
+    rejection rationale, and the upstream VISION (if `/vision`
+    ran). Filename sub-shape:
+    `DECISION-strategy-<topic>-rejection-<YYYY-MM-DD>.md`.
 - **Abandonment-forced.** The most-recently-running child's
-  intermediate was force-materialized as a Draft artifact with a
-  Status block noting abandonment-forced origin. Subsumes
-  `/strategy` Phase 5 Reject (treated as abandonment-forced with
-  the discard commit SHA recorded in the state file).
+  intermediate was force-materialized as a Draft artifact with an
+  HTML-comment marker noting abandonment-forced origin. Fires when
+  the author bails (session closed and stale, "wrap it up" intent,
+  or stale-session-detection threshold crossed). Does NOT fire on
+  `/strategy` Phase 5 Reject — that is a deliberate finalization
+  judgment, not a bail, and maps to the Decision-Record exit's
+  rejection sub-shape (see above).
 
 **R9 [pattern-level].** `/charter` SHALL fail finalization if the
 state file's `exit:` field is unset or not in
-`{full-run, re-evaluation, abandonment-forced}`. The hard
-finalization check is the contract enforcement mechanism: a
-`/charter` run that completes without recording an exit is a
-violation and MUST be surfaced (not silently absorbed).
+`{full-run, decision-record, abandonment-forced}`. When `exit:` is
+`decision-record`, `exit_subshape:` MUST be set to one of
+`{re-evaluation, rejection}`. The hard finalization check is the
+contract enforcement mechanism: a `/charter` run that completes
+without recording a valid exit is a violation and MUST be surfaced
+(not silently absorbed).
 
 **R10 [pattern-level].** `/charter` SHALL maintain a state file at
 `wip/charter_<topic>_state.md` with the following fields (YAML
@@ -338,7 +392,8 @@ last_updated: <ISO-8601 timestamp>     # set on every write
 planned_chain: [vision?, comp?, strategy, roadmap?]  # which children in scope
 chain_ran: [<sub-list of completed children>]
 chain_skipped: [<sub-list of skipped children with reasons>]
-exit: full-run | re-evaluation | abandonment-forced
+exit: full-run | decision-record | abandonment-forced
+exit_subshape: re-evaluation | rejection   # set ONLY when exit=decision-record
 exit_artifacts:
   - path: <artifact-path>
     status: <Draft | Accepted | Active>
@@ -346,10 +401,11 @@ child_snapshots:                       # per-child status snapshot at last exit
   vision: { path: <…>, status: <…>, last_seen: <ISO-8601> }
   strategy: { path: <…>, status: <…>, last_seen: <ISO-8601> }
   roadmap: { path: <…>, status: <…>, last_seen: <ISO-8601> }
-referenced_strategy: <path>            # set on re-evaluation exit
+referenced_strategy: <path>            # set on decision-record/re-evaluation
+discard_commit_sha: <sha>              # set on decision-record/rejection
+rejection_rationale: <text>            # set on decision-record/rejection
 triggering_child: <child-name>         # set on abandonment-forced
-partial_phase_reached: <phase-name | "rejected">  # set on abandonment-forced
-discard_commit_sha: <sha>              # set when /strategy Reject fired
+partial_phase_reached: <phase-name>    # set on abandonment-forced
 ```
 
 The `planned_chain` field disambiguates multi-child phase pointers
@@ -431,13 +487,25 @@ pass `shirabe validate` on commit. Specifically:
   sections when committed to a public repo (R8 of `shirabe
   validate` catches violations; this is `/strategy`'s constraint
   inherited).
-- Decision Record at
-  `docs/decisions/DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`
+- Decision Records (both sub-shapes) at
+  `docs/decisions/DECISION-strategy-<topic>-<sub-shape>-<YYYY-MM-DD>.md`
   MUST follow the ADR-style body shape (Status, Context, Decision,
   Options Considered, Consequences) with frontmatter (`status`,
   `decision`, `rationale`). The `DECISION-` prefix matches
   shirabe's `<TYPE>-<name>.md` pattern (BRIEF-, DESIGN-, PLAN-,
-  PRD-, ROADMAP-, STRATEGY-, VISION-).
+  PRD-, ROADMAP-, STRATEGY-, VISION-). Per-sub-shape body content
+  requirements:
+  - **Re-evaluation:** Context cites the new evidence reviewed.
+    Decision states "bet still holds; no revision warranted."
+    Options Considered names "revise the STRATEGY" and
+    "force-abandon and rewrite" as rejected alternatives with
+    evidence. References the existing STRATEGY by path.
+  - **Rejection:** Context cites the chain's discovery and the
+    Draft STRATEGY's framing. Decision states "Draft STRATEGY
+    rejected; no STRATEGY warranted" with the author's stated
+    rejection rationale. Options Considered names "accept the
+    Draft" and "revise instead of reject" as rejected
+    alternatives. References the discard commit SHA.
 - Abandonment-forced artifacts MUST be schema-compliant in the
   same shape as a full-run artifact. The abandonment-forced
   metadata MUST live in an HTML-comment marker
@@ -512,24 +580,32 @@ requirement that motivates each check.
   contains `exit: full-run` and `exit_artifacts` lists the
   artifact path(s) and status(es). (R8, R10)
 - [ ] **AC12** After a re-evaluation chain that confirms the bet
-  holds, `docs/decisions/DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`
+  holds,
+  `docs/decisions/DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`
   is written; the existing STRATEGY is unchanged; the state file
-  contains `exit: re-evaluation` and `referenced_strategy:
-  <strategy-path>`. (R8, R10)
-- [ ] **AC13** After `/charter` force-materializes an intermediate,
-  the resulting artifact contains an HTML-comment marker
+  contains `exit: decision-record`,
+  `exit_subshape: re-evaluation`, and `referenced_strategy:
+  <strategy-path>`. (R8, R10, R15)
+- [ ] **AC13** When `/strategy` Phase 5 Reject fires inside a
+  `/charter` chain, `/charter` writes
+  `docs/decisions/DECISION-strategy-<topic>-rejection-<YYYY-MM-DD>.md`
+  immediately after `/strategy`'s discard commit lands; the state
+  file contains `exit: decision-record`,
+  `exit_subshape: rejection`, `discard_commit_sha: <sha>`, and
+  `rejection_rationale: <text>`. The rejection Decision Record
+  references the discard commit SHA in its Context section. (R8,
+  R10, R15)
+- [ ] **AC14** After `/charter` force-materializes an intermediate
+  (author bail or stale-session detection), the resulting artifact
+  contains an HTML-comment marker
   `<!-- charter-status-block: abandonment-forced; ... -->` inside
   its Status section; the state file contains
   `exit: abandonment-forced`,
-  `triggering_child: <child-name>`,
-  and `partial_phase_reached: <phase>`. (R8, R10, R15)
-- [ ] **AC14** When `/strategy` Phase 5 Reject fires inside a
-  `/charter` chain, the state file records
-  `exit: abandonment-forced`,
-  `partial_phase_reached: rejected`, and `discard_commit_sha:
-  <sha>`. No charter-level Decision Record is written. (R8, R10)
+  `triggering_child: <child-name>`, and `partial_phase_reached:
+  <phase>`. `exit_subshape` is unset. (R8, R10, R15)
 - [ ] **AC15** A `/charter` run that completes without recording a
-  valid `exit:` value fails finalization with a clear error. (R9)
+  valid `exit:` value (or with `exit: decision-record` but no
+  `exit_subshape:`) fails finalization with a clear error. (R9)
 
 ### Resume ladder
 
@@ -738,19 +814,14 @@ the area and where the resolution should land.
 
 - **`DECISION-` prefix is established by precedent, not by
   artifact-type validator.** `/charter` v1 writes
-  `DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md` to
+  `DECISION-strategy-<topic>-<sub-shape>-<YYYY-MM-DD>.md` to
   `docs/decisions/` following shirabe's `<TYPE>-<name>.md` pattern
   but does not register a `decision` artifact type in `shirabe
   validate`. A separate feature can later formalize the artifact
-  category if warranted.
-
-- **`/strategy` Reject's audit surface is git history, not a
-  charter-level file.** When `/strategy` Phase 5 Reject fires
-  inside a chain, `/strategy` deletes the STRATEGY draft and its
-  wip/ files. The `docs(strategy): discard STRATEGY draft for
-  <topic>` commit is the durable audit trail. `/charter`'s state
-  file records the discard commit SHA, but no
-  `DECISION-strategy-<topic>-discarded.md` is written in v1.
+  category with full validator rules if warranted. The
+  divergence from the workspace's private-overlay `ADR-*`
+  convention is intentional — shirabe is public and codifies
+  `DECISION-` as its own decision-record convention.
 
 - **CLAUDE.md missing visibility header defaults to Private.**
   Inherited from shipped `/strategy` behavior. A public repo
@@ -841,47 +912,61 @@ the cross-child boundary as the novel piece. The snapshot block in
 the state file is what makes Journey 4's "warn but don't act"
 behavior implementable.
 
-### Decision 5: Reject is abandonment-forced, not a fourth exit
+### Decision 5: Rejection is a sub-shape of the Decision-Record exit
 
-**Decided.** When `/strategy` Phase 5 Reject fires inside a
-`/charter` chain (deleting the STRATEGY draft and wip/ files),
-`/charter` records `exit: abandonment-forced` with
-`partial_phase_reached: rejected` and `discard_commit_sha: <sha>`.
-The discard commit message is the audit surface.
+**Decided.** The Decision-Record exit has two first-class
+sub-shapes: re-evaluation (existing STRATEGY holds; lightweight
+conclusion) and rejection (Draft STRATEGY authored and explicitly
+rejected at `/strategy`'s finalization gate). When `/strategy`
+Phase 5 Reject fires inside a `/charter` chain, `/charter` writes
+`docs/decisions/DECISION-strategy-<topic>-rejection-<YYYY-MM-DD>.md`
+immediately after `/strategy`'s discard commit lands. The state
+file records `exit: decision-record`, `exit_subshape: rejection`,
+`discard_commit_sha: <sha>`, and `rejection_rationale: <text>`.
 
-**Alternatives considered.** (a) Add a fourth exit class
-"discarded" — preserves naming precision but breaks the brief's
-three-exit count. (b) Force `/charter` to write a degenerate ADR
-at `docs/decisions/DECISION-strategy-<topic>-discarded.md` —
-preserves the every-chain-lands-at-a-file promise but doubles the
-ADR write surface for arguably no marginal value.
+**Alternatives considered.** (a) Treat Reject as
+abandonment-forced — the user's explicit judgment at a
+finalization gate is not a bail; conflating them confuses the
+two distinct shapes. (b) Add a fourth exit category "discarded" —
+preserves naming precision but breaks the three-category count.
+(c) Treat Reject as a no-op exit with git history as the audit
+trail — violates the brief's "every chain lands at a durable
+file" commitment literally.
 
-**Reasoning.** The discard commit message already captures the
-rationale (the author chose to reject). The brief's "every chain
-leaves a review surface" spirit is met by `git log` for this
-specific path. The three-exit count is preserved.
+**Reasoning.** Re-evaluation and rejection express the same
+architectural intent: a strategic conversation concluding without
+a STRATEGY artifact. Re-evaluation says "existing strategy holds";
+rejection says "considered strategy and no artifact warranted."
+Both produce a DECISION-record at the same altitude. Naming them
+as sub-shapes of one exit preserves the three-category count
+while honoring the durable-file commitment. The distinction from
+abandonment-forced is sharp: rejection fires on explicit
+finalization judgment; abandonment-forced fires on bail.
 
-### Decision 6: `/charter` writes the re-evaluation Decision Record inline
+### Decision 6: `/charter` writes both Decision-Record sub-shapes inline
 
-**Decided.** `/charter` writes
-`docs/decisions/DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`
-directly, using an ADR-style body (Status, Context, Decision,
+**Decided.** `/charter` writes both re-evaluation and rejection
+Decision Records inline at
+`docs/decisions/DECISION-strategy-<topic>-<sub-shape>-<YYYY-MM-DD>.md`,
+using a shared ADR-style body shape (Status, Context, Decision,
 Options Considered, Consequences) with frontmatter (`status`,
-`decision`, `rationale`). No delegation to a separate
+`decision`, `rationale`). The two sub-shapes share the body
+template; their Context, Decision, and Options-Considered content
+differ per sub-shape per R15. No delegation to a separate
 decision-writing skill.
 
 **Alternatives considered.** (a) Delegate to `/decision` and
-promote its `wip/<prefix>_report.md` to a durable ADR — `/decision`
-itself doesn't durably produce ADRs; the indirection adds complexity
-without reuse benefit for this use case. (b) Author a new sibling
+promote its `wip/<prefix>_report.md` to a durable file — `/decision`
+itself doesn't durably produce decision records; the indirection
+adds complexity without reuse benefit. (b) Author a new sibling
 skill `/decision-record` for shirabe core — out of scope per the
-brief (no new sibling skills).
+brief (no new sibling skills authorized).
 
-**Reasoning.** The re-evaluation use case (review evidence against
-existing bet; either confirm or recommend re-strategizing) is
-simpler than `/decision`'s general decision-question workflow. The
-inline write produces exactly the artifact the brief calls for, in
-a format that matches shirabe's `<TYPE>-<name>.md` precedent.
+**Reasoning.** Both Decision-Record sub-shapes share the same
+altitude and the same artifact shape. A single inline-write code
+path covers both. The format matches shirabe's `<TYPE>-<name>.md`
+precedent and integrates cleanly with the existing
+`docs/decisions/` convention.
 
 ### Decision 7: HTML-comment marker for abandonment-forced status
 
