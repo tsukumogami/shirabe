@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   PRD-shirabe-brief-skill commits to introducing BRIEF as a
   first-class artifact type with its own loadable skill, format
@@ -42,7 +42,7 @@ upstream: docs/prds/PRD-shirabe-brief-skill.md
 
 ## Status
 
-Proposed
+Accepted
 
 Authored against the Accepted PRD-shirabe-brief-skill, which owns the
 artifact-format decisions, the jury rubric, the validate extension, the
@@ -383,7 +383,7 @@ change.
 ```yaml
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   2-4 line summary of the problem the feature solves. Same content the
   Problem Statement section elaborates in prose.
