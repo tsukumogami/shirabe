@@ -197,10 +197,12 @@ the chain always leaves a review surface regardless of how it
 ended.
 
 Chain shape: `/charter` resume ladder detects partial state →
-either (a) author explicitly says "wrap it up" or (b) state file's
-`last_updated` is > 7 days old and author selects "Force-materialize"
-→ confirm/cancel prompt → force-materialize the most-recently-running
-child's intermediate → abandonment-forced exit.
+either (a) author explicitly says "wrap it up" or picks Bail at
+R7.5's chain-proposal prompt, or (b) state file's `last_updated`
+is ≥ 7 days old and author selects "Force-materialize" →
+confirm/cancel prompt → force-materialize the most-recently-running
+child's intermediate per R8's tie-break rule → abandonment-forced
+exit.
 
 The abandonment-forced exit fires when the author *bails* (closes
 the session, lets the chain go stale, or explicitly says "wrap it
@@ -281,15 +283,25 @@ chain. Slugs failing the constraint MUST be rejected at Phase 0;
 either signal is present:
 - No Accepted/Active VISION exists at `docs/visions/VISION-<topic>.md`
   matching the chain's scope, OR
-- The author's Phase 1 discovery surfaces a thesis-shift signal
-  (author-stated; the brief calls this out as "if the long-term
-  thesis is shifting").
+- The author's Phase 1 discovery surfaces a thesis-shift signal.
 
-The thesis-shift signal is `/charter`-internal — `/vision` itself
-has no API to receive "treat this as a revision." `/charter` Phase 1
-elicits the signal conversationally, then invokes `/vision <topic>`;
-`/vision`'s own Resume Logic detects the existing-VISION case if
-one exists.
+The thesis-shift signal is an author-stated condition surfaced
+through Phase 1 discovery. `/charter`'s discovery prompt MUST
+include a question of the form "Is the long-term thesis shifting,
+or is this an operational layer below it?" with at least the
+following author-utterance categories treated as thesis-shift
+signals: (a) the author explicitly says the long-term thesis is
+changing or has changed; (b) the author names a new audience,
+value proposition, or org fit that the existing VISION does not
+cover; (c) the author indicates the existing VISION is no longer
+the right framing. Signal detection is agent judgment; the
+requirement is that the discovery prompt surfaces the question
+explicitly and the agent treats any of these utterance categories
+as a positive signal. The thesis-shift signal is
+`/charter`-internal — `/vision` itself has no API to receive
+"treat this as a revision." `/charter` Phase 1 elicits the signal
+conversationally, then invokes `/vision <topic>`; `/vision`'s own
+Resume Logic detects the existing-VISION case if one exists.
 
 **R5 [/charter-specific].** `/charter` SHALL invoke `/comp` when
 both conditions hold:
@@ -323,14 +335,17 @@ create-new mode.
 **R7 [/charter-specific].** `/charter` SHALL invoke `/roadmap` when
 the just-produced STRATEGY's Building Blocks section contains 3 or
 more blocks AND the STRATEGY's Coordination Dependencies section
-names cross-block dependencies. If only 1-2 Building Blocks or no
-explicit Coordination Dependencies, `/charter` SHALL skip `/roadmap`
-and complete the chain at full-run with STRATEGY only.
+contains at least one non-empty entry that references another
+Building Block by name. If only 1-2 Building Blocks, OR no
+Coordination Dependencies section, OR a Coordination Dependencies
+section with no qualifying entries, `/charter` SHALL skip
+`/roadmap` and complete the chain at full-run with STRATEGY only.
 
 `/charter` SHALL pass `/roadmap` two things together:
 - `--upstream <strategy-path>` flag pointing at the just-produced
   STRATEGY (Phase 3 of `/roadmap` writes this to ROADMAP
-  frontmatter), AND
+  frontmatter). `/roadmap`'s phase code accepts the path verbatim
+  with no basename enforcement; the contract is firm.
 - A pre-populated `wip/roadmap_<topic>_scope.md` file matching the
   schema `/roadmap` Phase 1 expects (Theme Statement, Initial Scope,
   Candidate Features, Dependency Sketch, Sequencing Constraints,
@@ -338,11 +353,29 @@ and complete the chain at full-run with STRATEGY only.
   `/roadmap` to skip its Phase 1 (analogous to `/explore` Phase 5's
   handoff pattern).
 
-If `/roadmap`'s phase code rejects a STRATEGY path as upstream
-(documented as "typically VISION"; pending verification), the
-delegation contract MUST surface the gap explicitly — `/charter`
-SHALL NOT silently substitute a VISION path or embed the STRATEGY
-as a non-upstream reference.
+**R7.5 [/charter-specific].** `/charter` Phase 1 SHALL conclude
+with a **chain-proposal confirmation prompt** that names the
+chain shape derived from discovery and the three exit options the
+author can pick from. Numbered R-decimal (R7.5) mirrors the
+R17a/R17b precedent of non-integer R-numbers in this PRD when
+intermediate insertion is cleaner than renumbering.
+
+The prompt MUST identify itself as the **chain proposal output**
+(the canonical term referenced by AC8 and elsewhere) and MUST
+contain the literal substrings "Proceed", "Adjust", and "Bail"
+(case-insensitive) as the three options. The prompt MUST list,
+in order, the children `/charter` plans to invoke (skipping
+those determined by R4/R5/R7 not to fire). Example shape:
+
+> Based on our conversation, here's the chain I propose: [skip
+> `/vision` because <reason> | run `/vision`], run `/strategy`,
+> [run `/roadmap` because <reason> | skip `/roadmap` because
+> <reason>]. Proceed / Adjust chain / Bail?
+
+"Adjust" routes the author back to Phase 1 discovery for chain-shape
+redirection (e.g., force `/vision` on, opt `/comp` out) before any
+child fires. "Bail" routes per R8's bail-handling rule: routes to
+abandonment-forced if any wip state exists, otherwise clean cancel.
 
 **R8 [/charter-specific].** `/charter` SHALL terminate at exactly
 one of three named exit paths. Every chain MUST land at a durable
@@ -373,23 +406,39 @@ terminal-artifact contract.
   intermediate was force-materialized as a Draft artifact with an
   HTML-comment marker noting abandonment-forced origin. Fires when
   the author bails (session closed and stale, "wrap it up" intent,
-  or stale-session-detection threshold crossed). Does NOT fire on
-  `/strategy` Phase 5 Reject — that is a deliberate finalization
-  judgment, not a bail, and maps to the re-evaluation exit's
-  rejection sub-shape.
+  R7.5's Bail option, or stale-session-detection threshold
+  crossed). Does NOT fire on `/strategy` Phase 5 Reject — that is
+  a deliberate finalization judgment, not a bail, and maps to the
+  re-evaluation exit's rejection sub-shape.
+
+  **Tie-break for "most-recently-running"**: the last entry in the
+  state file's `chain_ran` field, or if `chain_ran` is empty, the
+  first entry in `planned_chain` that has a non-empty wip/
+  intermediate on disk. If neither resolves to a child (no
+  `chain_ran` history, no wip/ intermediate), bail routes to
+  clean-cancel rather than abandonment-forced — there is nothing
+  to force-materialize.
 
 **R9 [pattern-level].** `/charter` SHALL fail finalization if the
 state file's `exit:` field is unset or not in
 `{full-run, re-evaluation, abandonment-forced}`. When `exit:` is
 `re-evaluation`, `decision_record_sub_shape:` MUST be set to one of
-`{re-evaluation, rejection}`. The hard finalization check is the
-contract enforcement mechanism: a `/charter` run that completes
-without recording a valid exit is a violation and MUST be surfaced
-(not silently absorbed).
+`{re-evaluation, rejection}`. Conditional fields (i.e., fields
+whose presence is gated by a specific `exit:` or
+`decision_record_sub_shape:` value, such as `referenced_strategy`,
+`discard_commit_sha`, `rejection_rationale`, `triggering_child`,
+`partial_phase_reached`) MUST be absent from the state file when
+their triggering condition does not hold; they MUST NOT be set to
+null, empty string, or placeholder value. The hard finalization
+check is the contract enforcement mechanism: a `/charter` run that
+completes without recording a valid exit is a violation and MUST
+be surfaced (not silently absorbed).
 
 **R10 [pattern-level].** `/charter` SHALL maintain a state file at
-`wip/charter_<topic>_state.md` with the following fields (YAML
-front-matter style):
+`wip/charter_<topic>_state.md`. The file is **pure YAML** despite
+the `.md` extension (the extension matches shirabe's wip/
+convention for committed intermediates; the body has no markdown).
+The schema is:
 
 ```yaml
 topic: <topic-slug>
@@ -398,16 +447,18 @@ chain_completed: <ISO-8601 timestamp>  # set at finalization
 last_updated: <ISO-8601 timestamp>     # set on every write
 planned_chain: [vision?, comp?, strategy, roadmap?]  # which children in scope
 chain_ran: [<sub-list of completed children>]
-chain_skipped: [<sub-list of skipped children with reasons>]
+chain_skipped:                          # free-text reasons for humans; not parsed
+  - child: <name>
+    reason: <free text>
 exit: full-run | re-evaluation | abandonment-forced
 decision_record_sub_shape: re-evaluation | rejection   # set ONLY when exit=re-evaluation
 exit_artifacts:
   - path: <artifact-path>
     status: <Draft | Accepted | Active>
-child_snapshots:                       # per-child status snapshot at last exit
-  vision: { path: <…>, status: <…>, last_seen: <ISO-8601> }
-  strategy: { path: <…>, status: <…>, last_seen: <ISO-8601> }
-  roadmap: { path: <…>, status: <…>, last_seen: <ISO-8601> }
+child_snapshots:                       # per-child snapshot at last exit
+  vision:   { path: <…>, status: <…>, content_hash: <git-blob-hash> }
+  strategy: { path: <…>, status: <…>, content_hash: <git-blob-hash> }
+  roadmap:  { path: <…>, status: <…>, content_hash: <git-blob-hash> }
 referenced_strategy: <path>            # set on decision-record/re-evaluation
 discard_commit_sha: <sha>              # set on decision-record/rejection
 rejection_rationale: <text>            # set on decision-record/rejection
@@ -417,9 +468,16 @@ partial_phase_reached: <phase-name>    # set on abandonment-forced
 
 The `planned_chain` field disambiguates multi-child phase pointers
 when a resume detects both a Draft VISION and a Draft STRATEGY. The
-`child_snapshots` block enables sibling-edit detection (US-4): a
-resume compares `last_seen` against the child doc's current
-last-updated marker and surfaces staleness when they differ.
+`child_snapshots` block enables sibling-edit detection (US-4):
+each snapshot entry records the child doc's path, its
+frontmatter `status:` value at last `/charter` exit, and the git
+blob hash of the child doc at that time. On resume, `/charter`
+compares both the live `status:` and the live blob hash against
+the snapshot — drift fires when **either** has changed since the
+snapshot was taken. Blob-hash comparison catches the common case
+where a child doc stays at the same status (e.g., Draft → Draft)
+but its body was edited by hand (e.g., a STRATEGY's Building Blocks
+section rewritten between `/charter` runs).
 
 **R11 [pattern-level].** `/charter` SHALL implement a resume ladder
 that extends the multi-source pattern shared across shipped shirabe
@@ -427,11 +485,20 @@ ladders to span sibling child docs. The ladder MUST consult:
 1. `wip/charter_<topic>_state.md` for the phase pointer, planned
    chain, and exit pointer (if any).
 2. Each child doc named in `planned_chain` — for each, read the
-   current frontmatter `status:` and compare to the
-   `child_snapshots` entry to detect out-of-chain edits.
+   current frontmatter `status:` AND compute the current git blob
+   hash, then compare both to the `child_snapshots` entry to
+   detect out-of-chain edits.
 3. Each child's own wip/ artifacts (`wip/strategy_<topic>_discover.md`,
    `wip/vision_<topic>_scope.md`, etc.) for partial-child-run
    detection.
+
+If the state file exists but is malformed (e.g., missing required
+fields for its recorded phase, invalid `exit:` value with no
+`decision_record_sub_shape:`, unparseable YAML), `/charter` MUST
+surface a clear error naming the malformation and offer Discard
+as a recovery path. The ladder MUST NOT silently fall through to
+Phase 0 — a malformed state file is a contract violation surface,
+not a missing state.
 
 When the ladder detects a child doc in `Accepted` or `Active`
 status that would trigger that child's own "offer to revise or
@@ -445,6 +512,7 @@ MUST NOT be hijacked by a child's resume-time prompt.
 Resume-ladder ordering, top to bottom (first match wins):
 
 ```
+state file malformed                                → Error + offer Discard
 state file has exit field set                       → Offer revise/fresh based on exit type
 state file exists, last_updated < 7d                → Resume at recorded phase
 state file exists, last_updated ≥ 7d                → Offer Resume / Force-materialize / Discard
@@ -456,6 +524,13 @@ On branch related to topic                          → Resume at Phase 1
 On main or unrelated branch                         → Start at Phase 0
 ```
 
+STRATEGY is the chain anchor for status-aware re-entry. ROADMAP
+status checks do NOT appear in the ladder; if a Draft ROADMAP
+exists from a prior chain run, the ladder's STRATEGY checks
+control re-entry behavior, and ROADMAP drift surfaces through the
+child-snapshots staleness path of US-4 (the staleness warning
+prompt fires if `child_snapshots.roadmap` shows drift).
+
 The ladder reads `wip/strategy_<topic>_discover.md` (not
 `_scope.md`); `/strategy`'s SKILL.md documents the latter but its
 phase files write the former. This is a known asymmetry `/charter`
@@ -464,10 +539,12 @@ accommodates; correcting `/strategy` is out of scope.
 **R12 [pattern-level].** `/charter` SHALL detect repository
 visibility by reading CLAUDE.md's `## Repo Visibility:` header
 (pattern inherited from `/strategy` and `/explore`). If the header
-is absent, `/charter` MUST default to Private and emit a warning to
-the author. Public repos with a missing header are a known
-limitation — `/charter`'s default-Private behavior would surface
-`/comp` in a repo that should not see it.
+is absent, `/charter` MUST default to Private and emit a warning
+to the author. The warning text follows the shipped `/strategy`
+phrasing: "Default to Private if unknown — restricting is easier
+to undo than oversharing." Public repos with a missing header are
+a known limitation — `/charter`'s default-Private behavior would
+surface `/comp` in a repo that should not see it.
 
 **R13 [pattern-level].** `/charter` SHALL treat invoking any child
 skill directly outside `/charter` (manual fallback) as first-class
@@ -497,22 +574,37 @@ pass `shirabe validate` on commit. Specifically:
 - Decision Records (both sub-shapes) at
   `docs/decisions/DECISION-strategy-<topic>-<sub-shape>-<YYYY-MM-DD>.md`
   MUST follow the ADR-style body shape (Status, Context, Decision,
-  Options Considered, Consequences) with frontmatter (`status`,
-  `decision`, `rationale`). The `DECISION-` prefix matches
-  shirabe's `<TYPE>-<name>.md` pattern (BRIEF-, DESIGN-, PLAN-,
-  PRD-, ROADMAP-, STRATEGY-, VISION-). Per-sub-shape body content
-  requirements:
-  - **Re-evaluation:** Context cites the new evidence reviewed.
-    Decision states "bet still holds; no revision warranted."
-    Options Considered names "revise the STRATEGY" and
-    "force-abandon and rewrite" as rejected alternatives with
-    evidence. References the existing STRATEGY by path.
+  Options Considered, Consequences) with frontmatter. Frontmatter
+  field formats:
+  - `status:` one of `{Draft, Accepted}` (an enum value, not free
+    text);
+  - `decision:` a single short sentence stating the decision
+    conclusion (e.g., "bet still holds; no revision warranted" /
+    "Draft STRATEGY rejected; no STRATEGY warranted");
+  - `rationale:` a 1-3 sentence justification (~250 characters
+    soft cap) referencing the body's Context or Options.
+  The `DECISION-` prefix matches shirabe's `<TYPE>-<name>.md`
+  pattern (BRIEF-, DESIGN-, PLAN-, PRD-, ROADMAP-, STRATEGY-,
+  VISION-). Per-sub-shape body content requirements:
+  - **Re-evaluation:** Context cites the new evidence reviewed
+    (at least one named evidence item — URL, file path, or
+    paraphrased finding). Decision states "bet still holds; no
+    revision warranted." Options Considered names "revise the
+    STRATEGY" and "force-abandon and rewrite" as rejected
+    alternatives with evidence. Consequences describes what
+    remains in effect (the existing STRATEGY stays
+    Accepted/Active; no ROADMAP regeneration) and what triggers
+    the next re-evaluation. References the existing STRATEGY by
+    path.
   - **Rejection:** Context cites the chain's discovery and the
     Draft STRATEGY's framing. Decision states "Draft STRATEGY
     rejected; no STRATEGY warranted" with the author's stated
     rejection rationale. Options Considered names "accept the
     Draft" and "revise instead of reject" as rejected
-    alternatives. References the discard commit SHA.
+    alternatives. Consequences describes the post-rejection
+    state (no STRATEGY on disk; chain discarded; next steps for
+    the strategic question — open it again later, reframe,
+    drop). References the discard commit SHA.
 - Abandonment-forced artifacts MUST be schema-compliant in the
   same shape as a full-run artifact. The abandonment-forced
   metadata MUST live in an HTML-comment marker
@@ -520,10 +612,13 @@ pass `shirabe validate` on commit. Specifically:
   inside the artifact's existing Status section, NOT in a new
   required section that would invalidate the artifact-type schema.
 
-**R16 [/charter-specific].** `/charter` SHALL respect the 7-day
+**R16 [/charter-specific].** `/charter` SHALL respect a 7-day
 stale-session threshold for distinguishing "broke for lunch" from
-"abandoned for a week." The threshold is fixed in v1; a future
-release may make it configurable.
+"abandoned for a week." The boundary fires at `≥` 7 days from
+the state file's `last_updated` timestamp (consistent with AC17
+and R11's resume-ladder ordering; US-3b's narrative uses the
+same boundary). The threshold is fixed in v1; a future release
+may make it configurable.
 
 **R17a [pattern-level].** A parent skill SHALL ship CLAUDE.md
 updates that surface its entry triggers and discovery surface.
@@ -542,147 +637,288 @@ charter-specific; the requirement to ship CLAUDE.md updates
 `skills/<name>/evals/evals.json`. Per the shirabe authoring
 convention, evals MUST be run via `scripts/run-evals.sh <name>`
 before merging. For `/charter`, the eval scenarios MUST cover the
-four user stories (US-1 through US-4); the requirement to ship
-evals is pattern-level, the scenarios chosen are
-charter-specific.
+five user stories defined in this PRD (US-1, US-2, US-3a, US-3b,
+US-4); the requirement to ship evals is pattern-level, the
+scenarios chosen are charter-specific.
 
 ## Acceptance Criteria
 
-Each criterion is binary pass/fail. AC numbering follows the
-requirement that motivates each check.
+Each criterion is binary pass/fail. ACs trace to both the
+requirement that motivates them and the user story they exercise
+(where applicable). Verification entry points are noted per AC:
+`[automated-unit]`, `[automated-eval]`, or `[manual-review]`.
 
 ### Skill loading and slug constraint
 
 - [ ] **AC1** `/charter` loads as a slash command from
   `skills/charter/SKILL.md`. The SKILL.md frontmatter declares
-  `name: charter`. (R1)
+  `name: charter`. `[automated-unit]` (R1)
+- [ ] **AC1b** `skills/charter/SKILL.md` contains sections matching
+  each of the 7 required structural elements named in R1: an Input
+  Modes section, execution-mode flag-parsing, a topic-slug
+  constraint statement, a Workflow Phases diagram, a Resume Logic
+  ladder, a Phase Execution list, and a Reference Files table.
+  Each MUST be present AND non-empty. `[automated-unit]` (R1)
 - [ ] **AC2** Invoking `/charter` with no `$ARGUMENTS` produces a
-  cold-start prompt asking for the topic. (R2)
+  cold-start prompt asking for the topic. `[automated-eval]`
+  (R2, US-1)
 - [ ] **AC3** Invoking `/charter Hello World` (whitespace in slug)
-  is rejected at Phase 0 with a clear error message; the chain does
-  not proceed. (R3)
+  is rejected at Phase 0 with a clear error message; the chain
+  does not proceed. `[automated-eval]` (R3)
+- [ ] **AC3b** `/charter` rejects `$ARGUMENTS` containing uppercase
+  letters (`/charter MyTopic`), underscores (`/charter my_topic`),
+  dots (`/charter my.topic`), or other characters outside
+  `[a-z0-9-]`. Each rejection MUST surface a clear error naming
+  the violated pattern. `[automated-eval]` (R3)
 - [ ] **AC4** Invoking `/charter docs/visions/VISION-foo.md` (path
   as `$ARGUMENTS`) is treated as a freeform topic after slug
-  derivation; not interpreted as an upstream path. (R2)
+  derivation; not interpreted as an upstream path.
+  `[automated-eval]` (R2)
 
 ### Child invocation signals
 
 - [ ] **AC5** When `docs/visions/VISION-<topic>.md` does not exist
   AND the author's Phase 1 discovery does not surface thesis-shift,
-  the chain proposal does not include `/vision`. (R4)
+  the chain proposal does not include `/vision`. The observable:
+  the chain proposal output (R7.5) does NOT contain the literal
+  substring "/vision". `[automated-eval]` (R4, US-1)
 - [ ] **AC6** When the author's Phase 1 discovery surfaces a
-  thesis-shift signal, the chain proposal includes `/vision`. The
-  invocation passes only the topic slug; no API-level "treat as
-  revision" signal is required. (R4)
+  thesis-shift signal (per R4's three utterance categories), the
+  chain proposal includes `/vision`. The observable: the chain
+  proposal output (R7.5) contains the literal substring
+  "/vision". The invocation passes only the topic slug; no
+  API-level "treat as revision" signal is required.
+  `[automated-eval]` (R4)
 - [ ] **AC7** When invoked in a public repo, `/charter`'s Phase 1
-  discovery and chain proposal do not mention `/comp` or
-  competitive analysis, regardless of input text. (R5, R12)
+  discovery and chain proposal output do NOT contain any of the
+  literal substrings: "/comp", "competitive analysis",
+  "competitive framing". This holds regardless of input text
+  (including a topic slug that mentions a competitor's name).
+  `[automated-eval]` (R5, R12)
 - [ ] **AC8** When invoked in a private repo with
-  `skills/comp/SKILL.md` absent, the chain proposal output is
-  identical to a public-repo invocation. (R5)
+  `skills/comp/SKILL.md` absent, the chain proposal output (the
+  R7.5 prompt's content) is byte-identical to a public-repo
+  invocation for the same topic. `[automated-eval]` (R5)
 - [ ] **AC9** When the just-produced STRATEGY has fewer than 3
-  Building Blocks OR no Coordination Dependencies section,
-  `/charter` skips `/roadmap` and exits at full-run with STRATEGY
-  only. (R7)
+  Building Blocks OR no Coordination Dependencies section OR a
+  Coordination Dependencies section with no qualifying entry
+  (per R7), `/charter` skips `/roadmap` and exits at full-run
+  with STRATEGY only. `[automated-eval]` (R7, US-1)
 - [ ] **AC10** When the just-produced STRATEGY has 3+ Building
-  Blocks AND a Coordination Dependencies section, `/charter`
-  invokes `/roadmap` with `--upstream <strategy-path>` AND a
-  pre-populated `wip/roadmap_<topic>_scope.md`. (R7)
+  Blocks AND a Coordination Dependencies section with at least
+  one non-empty entry referencing another Building Block by name,
+  `/charter` invokes `/roadmap` with `--upstream <strategy-path>`
+  AND a pre-populated `wip/roadmap_<topic>_scope.md`.
+  `[automated-eval]` (R7, US-1)
+- [ ] **AC10b** When `/charter` Phase 1 identifies an existing PRD
+  as the chain's framing, `/strategy` is invoked with the PRD
+  path as upstream (per R6's three valid input shapes — freeform
+  topic, VISION path, PRD path). The state-file's `chain_started`
+  context records the PRD path as the chain framing.
+  `[automated-eval]` (R6)
+- [ ] **AC10c** `/charter` never passes a STRATEGY path to
+  `/strategy`. Observable: across all `/charter` runs, the
+  arguments passed to `/strategy` in `chain_ran` records contain
+  no path matching `docs/strategies/STRATEGY-*.md`.
+  `[manual-review]` of code paths (R6).
+
+### Chain-proposal confirmation prompt
+
+- [ ] **AC10d** `/charter` Phase 1 produces a chain-proposal
+  confirmation prompt (the "chain proposal output") at the end of
+  discovery, containing the literal substrings "Proceed",
+  "Adjust", and "Bail" (case-insensitive). The prompt lists the
+  children that will be invoked in chain order.
+  `[automated-eval]` (R7.5, US-1)
+- [ ] **AC10e** Selecting "Adjust" at the chain-proposal prompt
+  routes the chain back to Phase 1 discovery for redirection
+  before any child fires. `[automated-eval]` (R7.5)
+- [ ] **AC10f** Selecting "Bail" at the chain-proposal prompt
+  routes per R8's bail-handling: abandonment-forced if any wip
+  state for this topic exists, clean-cancel otherwise.
+  `[automated-eval]` (R7.5, R8)
 
 ### Exit-path enforcement
 
-- [ ] **AC11** After a chain that completes with a Draft STRATEGY
-  (and optional Draft ROADMAP), `wip/charter_<topic>_state.md`
-  contains `exit: full-run` and `exit_artifacts` lists the
-  artifact path(s) and status(es). (R8, R10)
+- [ ] **AC11a** After a chain that completes with STRATEGY only
+  (no ROADMAP), `wip/charter_<topic>_state.md` contains
+  `exit: full-run` and `exit_artifacts` lists exactly one entry
+  pointing to `docs/strategies/STRATEGY-<topic>.md`.
+  `[automated-eval]` (R8, R10, US-1)
+- [ ] **AC11b** After a chain that completes with STRATEGY AND
+  ROADMAP, `wip/charter_<topic>_state.md` contains
+  `exit: full-run` and `exit_artifacts` lists two entries: the
+  STRATEGY path and the ROADMAP path, each with the correct
+  status. `[automated-eval]` (R8, R10, US-1)
 - [ ] **AC12** After a re-evaluation chain that confirms the bet
   holds,
   `docs/decisions/DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`
   is written; the existing STRATEGY is unchanged; the state file
   contains `exit: re-evaluation`,
-  `decision_record_sub_shape: re-evaluation`, and `referenced_strategy:
-  <strategy-path>`. (R8, R10, R15)
+  `decision_record_sub_shape: re-evaluation`, and
+  `referenced_strategy: <strategy-path>`. The Decision Record's
+  Context section cites at least one named evidence item (URL,
+  file path, or paraphrased finding); the Decision Record's
+  Options Considered section names "revise the STRATEGY" AND
+  "force-abandon and rewrite" as rejected alternatives.
+  `[automated-eval]` (R8, R10, R15, US-2)
+- [ ] **AC12b** US-2 entry-router **Revise** branch: when the
+  author picks "Revise" at the entry router for an existing
+  Accepted STRATEGY, `/charter` invokes `/strategy` with the
+  existing STRATEGY path (`/strategy` enters its
+  resume-from-Accepted offer-to-revise flow), produces a revised
+  Draft STRATEGY, and the chain exits at full-run with the
+  revised artifact recorded in `exit_artifacts`.
+  `[automated-eval]` (R8, US-2)
+- [ ] **AC12c** US-2 entry-router **Bail** branch (and chain-proposal
+  Bail per AC10f): when the author picks "Bail" at the entry
+  router or at the chain-proposal prompt and prior wip state
+  exists for the topic, the chain routes to abandonment-forced;
+  when no wip state exists, clean-cancel fires (no state file
+  written, no terminal artifact, no contract violation).
+  `[automated-eval]` (R8, US-2)
 - [ ] **AC13** When `/strategy` Phase 5 Reject fires inside a
   `/charter` chain, `/charter` writes
   `docs/decisions/DECISION-strategy-<topic>-rejection-<YYYY-MM-DD>.md`
   immediately after `/strategy`'s discard commit lands; the state
   file contains `exit: re-evaluation`,
-  `decision_record_sub_shape: rejection`, `discard_commit_sha: <sha>`, and
-  `rejection_rationale: <text>`. The rejection Decision Record
-  references the discard commit SHA in its Context section. (R8,
-  R10, R15)
+  `decision_record_sub_shape: rejection`,
+  `discard_commit_sha: <sha>`, and `rejection_rationale: <text>`.
+  The rejection Decision Record's Context section references the
+  discard commit SHA; the Options Considered section names
+  "accept the Draft" AND "revise instead of reject" as rejected
+  alternatives. `[automated-eval]` (R8, R10, R15, US-3a)
 - [ ] **AC14** After `/charter` force-materializes an intermediate
-  (author bail or stale-session detection), the resulting artifact
-  contains an HTML-comment marker
+  (author bail per AC12c, or stale-session detection per AC17),
+  the resulting artifact contains an HTML-comment marker
   `<!-- charter-status-block: abandonment-forced; ... -->` inside
   its Status section; the state file contains
-  `exit: abandonment-forced`,
-  `triggering_child: <child-name>`, and `partial_phase_reached:
-  <phase>`. `decision_record_sub_shape` is unset. (R8, R10, R15)
-- [ ] **AC15** A `/charter` run that completes without recording a
-  valid `exit:` value (or with `exit: re-evaluation` but no
-  `decision_record_sub_shape:`) fails finalization with a clear error. (R9)
+  `exit: abandonment-forced`, `triggering_child: <child-name>`
+  (resolved via R8's tie-break), and `partial_phase_reached:
+  <phase>`. `decision_record_sub_shape` is absent (per R9).
+  `[automated-eval]` (R8, R10, R15, US-3b)
+- [ ] **AC14b** When the author bails inside an invoked child
+  (`/vision`, `/comp`, or `/roadmap` — not just `/strategy`),
+  `/charter`'s resume ladder on the next entry routes to
+  abandonment-forced per US-3b semantics; the artifact
+  force-materialized is the child that was running at the time
+  of bail. `[automated-eval]` (R8, US-3b)
+- [ ] **AC15** A `/charter` run that completes without recording
+  a valid `exit:` value (or with `exit: re-evaluation` but no
+  `decision_record_sub_shape:`, or with conditional fields set
+  when their triggering condition does not hold per R9) fails
+  finalization with a clear error.
+  `[automated-eval]` (R9)
 
 ### Resume ladder
 
 - [ ] **AC16** When a partial state file exists and
   `last_updated` is less than 7 days old, `/charter` resumes at
-  the recorded phase without prompting Force-materialize. (R10,
-  R11)
+  the recorded phase without prompting Force-materialize.
+  `[automated-eval]` (R10, R11)
 - [ ] **AC17** When a partial state file exists and
-  `last_updated` is ≥ 7 days old, `/charter` surfaces a
+  `last_updated` is `≥` 7 days old, `/charter` surfaces a
   three-option prompt: Resume / Force-materialize / Discard. The
-  prompt fires on every invocation until the author chooses. (R11,
-  R16)
+  prompt fires on every invocation until the author chooses.
+  Selecting "Force-materialize" triggers the abandonment-forced
+  exit per AC14 (writes the marker, sets state-file fields).
+  `[automated-eval]` (R11, R16, US-3b)
 - [ ] **AC18** When `docs/strategies/STRATEGY-<topic>.md` is
-  Accepted/Active, the entry prompt is "Re-evaluate / Revise /
-  Bail" — NOT "Continue / Start fresh." (R11; US-2 wording is
-  load-bearing)
-- [ ] **AC19** When `child_snapshots.strategy.last_seen` is older
-  than the STRATEGY's current frontmatter timestamp, the
+  Accepted/Active, the entry prompt MUST contain the literal
+  substrings "Re-evaluate", "Revise", and "Bail"
+  (case-insensitive) as the three options offered, AND MUST NOT
+  contain the literal substring "Continue / Start fresh".
+  `[automated-eval]` (R11, US-2 wording is load-bearing)
+- [ ] **AC18b** US-3a/AC13 verification: when `/strategy` Phase 5
+  fires Reject outside a `/charter` chain (the author invokes
+  `/strategy` directly and rejects), `/charter` does NOT
+  retroactively write a rejection Decision Record on a later
+  `/charter` resume — the rejection sub-shape is
+  `/charter`-orchestrated only; manual-fallback rejection leaves
+  only the discard commit as the durable trace (by design).
+  `[automated-eval]` (R13, US-3a)
+- [ ] **AC19** When `child_snapshots.strategy.status` OR
+  `child_snapshots.strategy.content_hash` differ from the live
+  STRATEGY's current `status:` or current git blob hash, the
   resume ladder surfaces a staleness warning with three concrete
   options (re-run downstream, accept downstream as still-valid,
-  proceed without downstream). (R11, R13)
+  proceed without downstream). Drift fires when EITHER differs;
+  the content-hash check covers the case where status stays
+  Draft but body was rewritten. `[automated-eval]` (R10, R11,
+  R13, US-4)
 - [ ] **AC20** When `/charter` invokes a child whose durable doc
-  is already Accepted, `/charter`'s flow is not hijacked by the
-  child's "offer to revise" prompt; `/charter` either pre-empts
-  (writes Decision Record without invoking child) or signals the
-  child to suppress (mechanism is design-team scope; AC verifies
-  observable outcome). (R11)
+  is already Accepted, the next prompt the author sees is one of
+  `/charter`'s prompt vocabulary (e.g., "Re-evaluate / Revise /
+  Bail") — NOT `/strategy`'s "Continue / Start fresh" vocabulary
+  or any other child's status-aware re-entry prompt. The
+  mechanism by which suppression happens is a design-team choice;
+  the observable is the prompt-vocabulary substring match.
+  `[automated-eval]` (R11)
+- [ ] **AC20b** R14 child-internals isolation: during and after a
+  `/charter` chain, `/charter`'s decision logic depends only on
+  (a) child doc frontmatter, (b) the topic slug, and (c) its own
+  state file — never on a child's internal
+  `wip/research/<child>_<topic>_phase<N>_*.md` files or any other
+  child internals. Verified by code-path review against the
+  SKILL.md prose. `[manual-review]` (R14)
+- [ ] **AC20c** Malformed state file on resume: when
+  `wip/charter_<topic>_state.md` is unparseable, missing required
+  fields for its recorded phase, or has an invalid `exit:` /
+  `decision_record_sub_shape:` combination, `/charter` surfaces a
+  clear error and offers Discard as a recovery path; it does NOT
+  silently fall through to Phase 0. `[automated-eval]` (R11)
 
 ### Visibility and manual fallback
 
 - [ ] **AC21** When CLAUDE.md lacks a `## Repo Visibility:` header,
-  `/charter` defaults to Private AND emits a warning naming the
-  missing header. (R12)
+  `/charter` defaults to Private AND emits a warning containing
+  the literal phrasing "Default to Private if unknown" and naming
+  the missing `## Repo Visibility:` header. `[automated-eval]`
+  (R12)
 - [ ] **AC22** An author invoking `/strategy` directly outside
   `/charter` produces no `/charter` interference; `/charter` does
-  not surface a warning, does not block, does not modify state.
-  (R13)
+  not surface a warning, does not block, does not modify state
+  files. `[manual-review]` (R13, US-4)
 - [ ] **AC23** On the next `/charter` resume after a direct child
-  invocation, the staleness detection in AC19 fires. (R13)
+  invocation that edited the child doc, the staleness detection
+  in AC19 fires. `[automated-eval]` (R13, US-4)
 
 ### Schema and validation
 
 - [ ] **AC24** Draft STRATEGY written by `/charter`'s `/strategy`
-  delegation passes `shirabe validate --visibility=<repo-visibility>`.
-  (R15)
-- [ ] **AC25** Re-evaluation Decision Record contains the required
-  ADR-style sections (Status, Context, Decision, Options
-  Considered, Consequences) and frontmatter (`status`,
-  `decision`, `rationale`). (R15)
+  delegation passes `shirabe validate
+  --visibility=<repo-visibility>`. `[automated-unit]` (R15)
+- [ ] **AC25** Both Decision-Record sub-shapes (re-evaluation and
+  rejection) contain the required ADR-style sections (Status,
+  Context, Decision, Options Considered, Consequences) and
+  frontmatter (`status`, `decision`, `rationale` — `status` ∈
+  {Draft, Accepted}, `decision` and `rationale` are non-empty
+  strings). Per-sub-shape body content is verified by AC12 and
+  AC13. `[automated-unit]` (R15)
 - [ ] **AC26** Force-materialized artifact passes the same
   schema validators as a full-run artifact (the abandonment-forced
   HTML-comment marker is inside the existing Status section, not
-  in a new required section). (R15)
+  in a new required section). `[automated-unit]` (R15)
 
-### Pattern-level commitments (for designer to lift)
+### CLAUDE.md surfacing and evals
 
-- [ ] **AC27** Each requirement tagged `[pattern-level]` in this
-  PRD is reflected in `docs/designs/DESIGN-shirabe-progression-authoring.md`'s
-  pattern-level scope (visible to `/scope` and the `/work-on`
-  migration). The check is post-design — it verifies the PRD's
-  tagging was respected by the designer.
+- [ ] **AC26b** Workspace CLAUDE.md and shirabe CLAUDE.md (the
+  files in this PRD's source tree) mention `/charter` and include
+  the trigger phrases listed in R17b. `[automated-unit]` (R17a,
+  R17b)
+- [ ] **AC26c** `skills/charter/evals/evals.json` contains at
+  least one eval scenario tagged for each user story: US-1, US-2,
+  US-3a, US-3b, and US-4. All scenarios pass under
+  `scripts/run-evals.sh charter`. `[automated-eval]` (R18)
+
+### `_discover.md` resume detection
+
+- [ ] **AC26d** When `wip/strategy_<topic>_discover.md` exists
+  (the file actually written by `/strategy` Phase 1) but
+  `wip/strategy_<topic>_scope.md` does not, `/charter`'s resume
+  ladder detects the partial `/strategy` run and resumes into
+  `/strategy`. The ladder MUST NOT incorrectly look for
+  `_scope.md`. `[automated-eval]` (R11)
 
 ## Out of Scope
 
@@ -703,10 +939,13 @@ links to its successor effort where relevant.
   `_discover.md` documentation asymmetry in `/strategy`'s SKILL.md
   Resume Logic is accommodated by `/charter` (reads `_discover.md`);
   a fix to `/strategy`'s docs is a separate follow-up.
-- **Revisions to the `/roadmap` SKILL.md or phases.** If
-  `/roadmap`'s phase code rejects a STRATEGY path as `--upstream`,
-  the gap is documented in this PRD as a delegation-contract
-  caveat; the fix lands in a separate `/roadmap` change.
+- **Revisions to the `/roadmap` SKILL.md or phases.** `/roadmap`'s
+  Phase 3 code accepts a STRATEGY path as `--upstream` verbatim
+  (no basename check); only the format-spec prose at
+  `roadmap-format.md` names VISION as the "natural" upstream.
+  Updating that prose to acknowledge STRATEGY upstream as
+  first-class is a minor follow-up fix to `/roadmap`'s docs and
+  out of scope for `/charter` v1.
 - **The discover/converge engine extraction location.** Whether
   the engine moves from `skills/explore/references/phases/` to a
   top-level `references/` directory is a design-team decision; the
@@ -734,23 +973,20 @@ links to its successor effort where relevant.
 - **Tone rubric, writing-style discipline, and other shirabe
   substrate work.** `/charter` follows the same conventions
   shirabe uses today.
+- **Cross-topic resume in the same session.** The state file is
+  topic-keyed by filename
+  (`wip/charter_<topic>_state.md`), so concurrent or sequential
+  invocations against different topics in the same session do
+  not interfere. v1 does NOT support resume against a different
+  topic mid-chain; the resume ladder is per-topic. Stating this
+  explicitly to forecloses a class of bug reports.
 
 ## Open Questions
 
 Questions deferred to `/design` or to a follow-on PRD. Each names
 the area and where the resolution should land.
 
-1. **`/roadmap`'s `--upstream` STRATEGY-path acceptance.** Pending
-   verification from a targeted follow-up to peer research:
-   does `/roadmap`'s Phase 3 (the phase that consumes `--upstream`)
-   reject a STRATEGY path, accept it as-is, or handle it
-   differently from a VISION path? If rejected, R7's delegation
-   contract requires renegotiation — either `/charter` falls back
-   to VISION upstream (losing the STRATEGY trace) or `/roadmap`
-   gets a minor accommodation (out of scope per the brief).
-   Resolution: design team.
-
-2. **Engine extraction location for the discover/converge engine.**
+1. **Engine extraction location for the discover/converge engine.**
    The engine currently lives in
    `skills/explore/references/phases/`. Whether `/charter` consumes
    it cross-skill (status quo) or whether the engine moves to a
@@ -758,7 +994,7 @@ the area and where the resolution should land.
    infrastructure) is a design-team decision. The PRD specifies
    the engine is referenced, not where it lives.
 
-3. **Dual-implementation contract.** `/charter` ships against
+2. **Dual-implementation contract.** `/charter` ships against
    `wip/`-based intermediates (the current shirabe pattern for all
    non-koto skills); the future `/work-on` migration will live in
    a different workflow substrate. The freeze line between the
@@ -769,7 +1005,7 @@ the area and where the resolution should land.
    the contract bounds the substitution surface but does not pick
    the substrate.
 
-4. **Shared design doc authoring timing.** Whether
+3. **Shared design doc authoring timing.** Whether
    `docs/designs/DESIGN-shirabe-progression-authoring.md` is
    authored alongside this PRD or deferred until at least one
    other parent skill (`/scope` or `/work-on` migration) is in
@@ -777,7 +1013,7 @@ the area and where the resolution should land.
    `[pattern-level]` tags are useful regardless; the question is
    whether the designer lifts them now or later.
 
-5. **Cross-branch state-file behavior under `wip/`.** The state
+4. **Cross-branch state-file behavior under `wip/`.** The state
    file under wip/ is branch-coupled — `/charter` resume requires
    the same feature branch as the original run. If `/charter`'s
    exit-tracking ever needs to cross branches (e.g., merge a
@@ -787,7 +1023,7 @@ the area and where the resolution should land.
    flagged for the designer to consider when the workflow-substrate
    work is bounded.
 
-6. **Competitive-framing signal detection in private repos.** When
+5. **Competitive-framing signal detection in private repos.** When
    `/comp` ships, `/charter`'s recommended-default for offering
    `/comp` depends on detecting "competitive framing signals"
    (competitor name, externally-framed bet, market-share language)
@@ -796,7 +1032,7 @@ the area and where the resolution should land.
    detail (keyword list vs LLM judgment vs structured prompt) is a
    design-team decision when the `/comp` integration goes live.
 
-7. **Team persistence across the parent-skill chain.** The
+6. **Team persistence across the parent-skill chain.** The
    TeamCreate single-team-per-leader constraint prevents
    downstream teams (`/prd`, `/design`, `/plan`) from holding
    upstream teams (`/brief`) alive for interactive query. The
@@ -944,17 +1180,42 @@ file records `exit: re-evaluation`,
 The brief's three-exit list (full-run, re-evaluation,
 abandonment-forced) stands literally.
 
-**Alternatives considered.** (a) Treat Reject as
-abandonment-forced — the user's explicit judgment at a
-finalization gate is not a bail; conflating them confuses the
-two distinct shapes, and on Reject there is no intermediate
-artifact to force-materialize (`/strategy` deleted it).
-(b) Add a fourth exit category "discarded" — preserves naming
-precision but breaks the brief's three-exit count. (c) Treat
-Reject as a no-op exit with git history as the audit trail —
-violates the brief's "every chain lands at a durable file"
-commitment literally; git log entries are not shirabe `<TYPE>-`
-artifacts.
+**Alternatives considered.**
+
+(a) **Treat Reject as abandonment-forced (rejected, considered
+in depth).** The earliest framing in this PRD's drafting was that
+Reject "subsumes" into the abandonment-forced exit, with
+`partial_phase_reached: rejected` and `discard_commit_sha:
+<sha>` recorded in the state file. This framing was rejected on
+review because it was incoherent on two grounds: first, the
+user's explicit judgment at `/strategy`'s Phase 5 finalization
+gate is structurally different from a bail (the user actively
+confirmed "delete this STRATEGY" rather than walking away);
+second, abandonment-forced requires a most-recently-running
+child's intermediate to force-materialize, but on `/strategy`
+Reject the STRATEGY draft AND all `wip/strategy_<topic>_*.md`
+files are deleted by `/strategy` itself — there is no
+intermediate left to materialize. The subsumption framing
+contradicted AC13's "writes a Decision Record" with AC14's "no
+charter-level Decision Record is written" depending on which
+path one read first.
+
+(b) **Add a fourth exit category "discarded".** Preserves naming
+precision (each exit means exactly one thing) but breaks the
+brief's three-exit count literally. The brief commits to three
+exits as the contract; a fourth category would require brief
+revision.
+
+(c) **Treat Reject as a no-op exit with git history as the
+audit trail.** This was attractive for simplicity — the `git rm
+docs/strategies/STRATEGY-<topic>.md` commit message already
+captures the rationale, and `git log` is queryable. It was
+rejected because it violates the brief's "every chain lands at
+a durable file" commitment literally. `git log` entries are not
+shirabe `<TYPE>-` artifacts; downstream readers consume `docs/`
+not `git log -p`. The discipline-vs-artifact decoupling thesis
+requires the rejection conclusion to be a first-class artifact,
+not an audit trail.
 
 **Reasoning.** Re-evaluation and rejection express the same
 architectural intent: a strategic conversation concluding without
@@ -1040,3 +1301,43 @@ mislead readers about what `/charter` actually does.
 **Reasoning.** Truth-on-disk. The resume contract is
 storage-agnostic regardless of framing; the framing should be
 accurate.
+
+## Downstream Artifacts
+
+`/charter`'s PRD is the upstream input for the following work.
+Each downstream artifact owns its own acceptance criteria; the
+linkages below are commitments this PRD makes to the downstream
+artifact's framing.
+
+- **`docs/designs/DESIGN-shirabe-progression-authoring.md`** — the
+  shared design doc co-authored across the parent-skill pattern's
+  three features (`/charter`, `/scope`, the `/work-on` migration).
+  The design should lift every requirement tagged `[pattern-level]`
+  in this PRD into its pattern-level scope so `/scope` and
+  `/work-on` inherit the mechanism. The PRD's requirement-tagging
+  is the baton; verifying the design respects it is the
+  design doc's own acceptance check, not this PRD's. The
+  pattern-level requirements at PRD acceptance time are: R1, R3,
+  R9, R10, R11, R12, R13, R14, R17a, R18 (10 requirements).
+
+- **`skills/charter/SKILL.md`** — the loadable skill itself. AC1
+  through AC1b verify the structural template.
+
+- **`skills/charter/evals/evals.json`** — eval scenarios covering
+  US-1 through US-4 (per R18 and AC26c).
+
+- **Workspace and shirabe CLAUDE.md updates** — surface `/charter`
+  entry triggers (per R17a, R17b, and AC26b).
+
+- **Follow-up minor fix to `skills/strategy/SKILL.md`** —
+  optional: update the Resume Logic ladder to reference
+  `wip/strategy_<topic>_discover.md` (the file actually written)
+  instead of `_scope.md` (referenced but never written). Out of
+  scope for `/charter` v1; flagged here so a future PR closes the
+  asymmetry that `/charter` accommodates.
+
+- **Follow-up minor fix to `skills/roadmap/references/roadmap-format.md`**
+  — optional: update the format-spec prose to acknowledge that
+  `upstream:` accepts STRATEGY paths as first-class (the code
+  already does; only the prose says "typically VISION"). Out of
+  scope for `/charter` v1.
