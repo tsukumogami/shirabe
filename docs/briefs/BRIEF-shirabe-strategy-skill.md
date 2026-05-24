@@ -95,8 +95,12 @@ type with the same lifecycle and cross-repo visibility contract as the
 rest. `shirabe validate` on a STRATEGY file exercises the same
 Formats-map lookup path that any other artifact type uses today; a
 missing required section fails validation; an invalid status fails
-validation. The author gets the same feedback loop shirabe gives them
-for any other artifact type.
+validation. The same check runs in CI on every PR through the
+reusable `validate-docs.yml` workflow shirabe and its adopters
+already consume today, so STRATEGY documents land with the same
+gating other artifact types get — not just locally, but in the
+review surface where the format spec actually defends content
+quality.
 
 Adopters who install shirabe through the marketplace get STRATEGY
 alongside the rest of the taxonomy. The medium-term defensibility
@@ -188,6 +192,15 @@ following inside:
   map in `internal/validate/formats.go`. The CLI's `DetectFormat`
   already handles longest-prefix-match routing on `STRATEGY-`
   filenames.
+- CI validation enablement. Shirabe's self-caller
+  (`validate-shirabe-docs.yml`) path-filters on `docs/**` and so picks
+  up `docs/strategies/STRATEGY-*.md` automatically once the Formats
+  entry lands. Adopter repos that pin the reusable
+  `validate-docs.yml` workflow inherit STRATEGY validation when they
+  bump to a shirabe release including the entry. Adopter workflows
+  that path-filter narrowly (e.g., `docs/visions/**`) need to widen
+  the filter to include `docs/strategies/**` — call this out in the
+  release notes for the version that ships the Formats entry.
 - Visibility-gated optional section for competitive framing,
   following VISION's precedent (omitted in public repos).
 - Light updates to shirabe CLAUDE.md (and downstream-adopter
