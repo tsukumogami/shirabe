@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   shirabe authors have no parent skill that walks them through a
   strategic conversation as a sequenced chain (vision-update → comp
@@ -26,7 +26,7 @@ outcome: |
 
 ## Status
 
-Draft. Authored as the brief input to the downstream PRD and the
+Accepted. Authored as the brief input to the downstream PRD and the
 shared design (`DESIGN-shirabe-progression-authoring.md`, co-authored
 across `/charter`, `/scope`, and the `/work-on` migration).
 
@@ -419,9 +419,4 @@ block this brief.
   `skills/explore/references/phases/phase-3-converge.md`.
 - Resume-ladder precedent: the Resume Logic block in
   `skills/strategy/SKILL.md` (status-first ladder).
-- Decision Record format for the re-evaluation exit:
-  `references/decision-record-format.md` (or equivalent — the
-  shirabe decision-record skill's format spec).
 - Cross-repo visibility rules: `references/cross-repo-references.md`.
-- Roadmap upstream: `docs/roadmaps/ROADMAP-strategic-pipeline.md`
-  names the parent-skill pattern as a sequenced initiative.
