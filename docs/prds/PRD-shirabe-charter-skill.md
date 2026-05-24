@@ -78,14 +78,17 @@ infrastructure shirabe commits to.
 - An author invokes `/charter` and is walked through the strategic
   chain without remembering the order, the
   artifact-decision heuristics, or the visibility gating.
-- The chain ends at exactly one of three named exit categories
-  (full-run, Decision-Record, abandonment-forced). The
-  Decision-Record exit has two first-class sub-shapes:
-  re-evaluation (existing STRATEGY holds; lightweight conclusion)
-  and rejection (Draft STRATEGY authored and then rejected;
-  conclusion captured as a durable record). Both express the same
-  architectural intent — strategic discipline without a STRATEGY
-  artifact — at the same altitude.
+- The chain ends at exactly one of three named exit paths
+  (full-run, re-evaluation, abandonment-forced). The re-evaluation
+  exit produces a durable Decision Record file at
+  `docs/decisions/DECISION-strategy-<topic>-<sub-shape>-<YYYY-MM-DD>.md`
+  with two first-class sub-shapes that share the artifact shape:
+  the re-evaluation sub-shape (existing STRATEGY holds; lightweight
+  conclusion) and the rejection sub-shape (Draft STRATEGY authored
+  and then explicitly rejected; conclusion captured as a durable
+  record). Both express the same architectural intent — strategic
+  discipline without a STRATEGY artifact — and land at a durable
+  file in `docs/decisions/`.
 - The chain is resumable mid-flight across child boundaries. Author
   bails are routed to abandonment-forced; never to silent loss.
 - Manual fallback (author invokes a child directly outside
@@ -148,10 +151,10 @@ What I review at end: the new Decision Record at
 `docs/decisions/DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`,
 referencing the existing STRATEGY by path. The existing
 `docs/strategies/STRATEGY-<topic>.md` remains unchanged (still
-Accepted/Active). State file records `exit: decision-record` with
-`exit_subshape: re-evaluation`.
+Accepted/Active). State file records `exit: re-evaluation` with
+`decision_record_sub_shape: re-evaluation`.
 
-### US-3a: Strategy rejection via Decision-Record exit
+### US-3a: Strategy rejection via re-evaluation exit's rejection sub-shape
 
 As a **skill author** whose `/charter` run authored a Draft STRATEGY
 that I deliberately rejected at `/strategy`'s finalization gate, I
@@ -168,18 +171,19 @@ commits `docs(strategy): discard STRATEGY draft for <topic>` →
 control returns to `/charter` → `/charter` immediately writes
 `docs/decisions/DECISION-strategy-<topic>-rejection-<YYYY-MM-DD>.md`
 referencing the discard commit SHA and the user's stated rationale
-→ Decision-Record exit (rejection sub-shape).
+→ re-evaluation exit, rejection sub-shape.
 
 This sub-shape is *not* abandonment (the author exercised explicit
 judgment at a finalization gate; they did not bail mid-flight). It
-shares the Decision-Record exit category with re-evaluation because
-both express the same architectural intent: a strategic conversation
-that lands at a durable record rather than at a STRATEGY artifact.
+shares the re-evaluation exit with the re-evaluation sub-shape
+because both express the same architectural intent: a strategic
+conversation that lands at a durable record rather than at a
+STRATEGY artifact.
 
 What I review at end: the new
 `docs/decisions/DECISION-strategy-<topic>-rejection-<YYYY-MM-DD>.md`
 referencing the discard commit. No STRATEGY exists on disk. State
-file records `exit: decision-record` with `exit_subshape: rejection`
+file records `exit: re-evaluation` with `decision_record_sub_shape: rejection`
 and `discard_commit_sha: <sha>`.
 
 ### US-3b: Mid-chain abandonment-forced materialization
@@ -201,7 +205,7 @@ child's intermediate → abandonment-forced exit.
 The abandonment-forced exit fires when the author *bails* (closes
 the session, lets the chain go stale, or explicitly says "wrap it
 up"). It is distinct from the rejection sub-shape of the
-Decision-Record exit (US-3a) — that sub-shape fires when the author
+re-evaluation exit (US-3a) — that sub-shape fires when the author
 makes an explicit judgment at `/strategy`'s finalization gate.
 
 What I review at end: the force-materialized Draft artifact with an
@@ -246,11 +250,13 @@ too.
 
 ### Functional Requirements
 
-**R1 [/charter-specific].** `/charter` SHALL load as a Claude Code
-slash command with the SKILL.md template shape used by `/strategy`
-(input modes, execution-mode flag parsing, topic-slug constraint,
-workflow phases diagram, resume logic ladder, phase execution list,
-reference files table). The skill MUST live at `skills/charter/`.
+**R1 [pattern-level].** A parent skill SHALL load as a Claude Code
+slash command following the SKILL.md template shape used by
+shipped shirabe skills (input modes section, execution-mode flag
+parsing, topic-slug constraint, Workflow Phases diagram, Resume
+Logic ladder, Phase Execution list, Reference Files table). The
+template structure is pattern-level; the directory location is
+charter-specific: `/charter` MUST live at `skills/charter/`.
 
 **R2 [/charter-specific].** `/charter` SHALL accept the following
 input modes:
@@ -339,28 +345,29 @@ SHALL NOT silently substitute a VISION path or embed the STRATEGY
 as a non-upstream reference.
 
 **R8 [/charter-specific].** `/charter` SHALL terminate at exactly
-one of three named exit categories. Every chain MUST land at a
-durable file on disk; git history alone does not satisfy the
+one of three named exit paths. Every chain MUST land at a durable
+file on disk; git history alone does not satisfy the
 terminal-artifact contract.
 
 - **Full-run.** A Draft STRATEGY landed (and optionally a Draft
   ROADMAP). The chain halts at the durable artifact(s).
-- **Decision-Record.** `/charter` wrote a durable Decision Record
-  at `docs/decisions/DECISION-strategy-<topic>-<sub-shape>-<YYYY-MM-DD>.md`.
-  This exit has two first-class sub-shapes:
-  - **Re-evaluation.** The chain confirmed the existing STRATEGY's
-    bet still holds. The Decision Record references the existing
-    STRATEGY by path and records the evidence reviewed. No STRATEGY
-    revision; no ROADMAP regeneration. Filename sub-shape:
-    `DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`.
-  - **Rejection.** The chain authored a Draft STRATEGY; the author
-    explicitly rejected it at `/strategy`'s finalization gate
-    (`/strategy` Phase 5 Reject branch). `/strategy` discarded the
-    Draft via `git rm` and a `docs(strategy): discard STRATEGY
-    draft` commit. `/charter` then wrote the Decision Record
-    referencing the discard commit SHA, the user's stated
-    rejection rationale, and the upstream VISION (if `/vision`
-    ran). Filename sub-shape:
+- **Re-evaluation.** `/charter` wrote a durable Decision Record at
+  `docs/decisions/DECISION-strategy-<topic>-<sub-shape>-<YYYY-MM-DD>.md`.
+  The re-evaluation exit has two first-class sub-shapes that share
+  the artifact shape:
+  - **re-evaluation sub-shape.** The chain confirmed the existing
+    STRATEGY's bet still holds. The Decision Record references
+    the existing STRATEGY by path and records the evidence
+    reviewed. No STRATEGY revision; no ROADMAP regeneration.
+    Filename: `DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`.
+  - **rejection sub-shape.** The chain authored a Draft STRATEGY;
+    the author explicitly rejected it at `/strategy`'s
+    finalization gate (`/strategy` Phase 5 Reject branch).
+    `/strategy` discarded the Draft via `git rm` and a
+    `docs(strategy): discard STRATEGY draft` commit. `/charter`
+    then wrote the Decision Record referencing the discard commit
+    SHA, the user's stated rejection rationale, and the upstream
+    VISION (if `/vision` ran). Filename:
     `DECISION-strategy-<topic>-rejection-<YYYY-MM-DD>.md`.
 - **Abandonment-forced.** The most-recently-running child's
   intermediate was force-materialized as a Draft artifact with an
@@ -368,13 +375,13 @@ terminal-artifact contract.
   the author bails (session closed and stale, "wrap it up" intent,
   or stale-session-detection threshold crossed). Does NOT fire on
   `/strategy` Phase 5 Reject — that is a deliberate finalization
-  judgment, not a bail, and maps to the Decision-Record exit's
-  rejection sub-shape (see above).
+  judgment, not a bail, and maps to the re-evaluation exit's
+  rejection sub-shape.
 
 **R9 [pattern-level].** `/charter` SHALL fail finalization if the
 state file's `exit:` field is unset or not in
-`{full-run, decision-record, abandonment-forced}`. When `exit:` is
-`decision-record`, `exit_subshape:` MUST be set to one of
+`{full-run, re-evaluation, abandonment-forced}`. When `exit:` is
+`re-evaluation`, `decision_record_sub_shape:` MUST be set to one of
 `{re-evaluation, rejection}`. The hard finalization check is the
 contract enforcement mechanism: a `/charter` run that completes
 without recording a valid exit is a violation and MUST be surfaced
@@ -392,8 +399,8 @@ last_updated: <ISO-8601 timestamp>     # set on every write
 planned_chain: [vision?, comp?, strategy, roadmap?]  # which children in scope
 chain_ran: [<sub-list of completed children>]
 chain_skipped: [<sub-list of skipped children with reasons>]
-exit: full-run | decision-record | abandonment-forced
-exit_subshape: re-evaluation | rejection   # set ONLY when exit=decision-record
+exit: full-run | re-evaluation | abandonment-forced
+decision_record_sub_shape: re-evaluation | rejection   # set ONLY when exit=re-evaluation
 exit_artifacts:
   - path: <artifact-path>
     status: <Draft | Accepted | Active>
@@ -471,13 +478,13 @@ and surfaces staleness with three concrete options (re-run the
 downstream child, accept downstream as still-valid, proceed without
 the downstream).
 
-**R14 [/charter-specific].** `/charter` SHALL wait for the invoked
-child to complete its own Phase 5 (or equivalent finalization)
-before deciding the next child's invocation. `/charter` reads the
-child doc's frontmatter `status:` value after the child returns;
-`/charter` MUST NOT inspect the child's intermediate
-`wip/research/<child>_<topic>_phase4_*.md` verdict files (those are
-the child's internals).
+**R14 [pattern-level].** A parent skill SHALL wait for the invoked
+child to complete its own finalization phase before deciding the
+next step. The parent reads the child doc's frontmatter `status:`
+value after the child returns. The parent MUST NOT inspect the
+child's intermediate `wip/research/<child>_<topic>_phase<N>_*.md`
+verdict files or any other child internals; the contract surface
+is the child's durable artifact status, full stop.
 
 ### Non-Functional Requirements
 
@@ -518,17 +525,26 @@ stale-session threshold for distinguishing "broke for lunch" from
 "abandoned for a week." The threshold is fixed in v1; a future
 release may make it configurable.
 
-**R17 [/charter-specific].** `/charter` SHALL update workspace and
-shirabe CLAUDE.md documentation to surface `/charter`'s entry
-triggers and discovery surface. The trigger phrases mirror the
-patterns used by shipped skills: "start a strategic conversation
-about X", "open a charter for Y", "I need to think through the bet
-on Z", or direct `/charter <topic>` invocations.
+**R17a [pattern-level].** A parent skill SHALL ship CLAUDE.md
+updates that surface its entry triggers and discovery surface.
+Workspace and shirabe CLAUDE.md documentation MUST mention the
+skill so that authors discover it through the same channels they
+discover shipped child skills.
 
-**R18 [/charter-specific].** `/charter` SHALL ship with skill evals
-at `skills/charter/evals/evals.json` covering the four user
-stories. Per the shirabe authoring convention, evals MUST be run
-via `scripts/run-evals.sh charter` before merging.
+**R17b [/charter-specific].** The CLAUDE.md trigger phrases for
+`/charter` SHALL include: "start a strategic conversation about
+X", "open a charter for Y", "I need to think through the bet on
+Z", or direct `/charter <topic>` invocations. The phrase list is
+charter-specific; the requirement to ship CLAUDE.md updates
+(R17a) is pattern-level.
+
+**R18 [pattern-level].** A parent skill SHALL ship skill evals at
+`skills/<name>/evals/evals.json`. Per the shirabe authoring
+convention, evals MUST be run via `scripts/run-evals.sh <name>`
+before merging. For `/charter`, the eval scenarios MUST cover the
+four user stories (US-1 through US-4); the requirement to ship
+evals is pattern-level, the scenarios chosen are
+charter-specific.
 
 ## Acceptance Criteria
 
@@ -583,15 +599,15 @@ requirement that motivates each check.
   holds,
   `docs/decisions/DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`
   is written; the existing STRATEGY is unchanged; the state file
-  contains `exit: decision-record`,
-  `exit_subshape: re-evaluation`, and `referenced_strategy:
+  contains `exit: re-evaluation`,
+  `decision_record_sub_shape: re-evaluation`, and `referenced_strategy:
   <strategy-path>`. (R8, R10, R15)
 - [ ] **AC13** When `/strategy` Phase 5 Reject fires inside a
   `/charter` chain, `/charter` writes
   `docs/decisions/DECISION-strategy-<topic>-rejection-<YYYY-MM-DD>.md`
   immediately after `/strategy`'s discard commit lands; the state
-  file contains `exit: decision-record`,
-  `exit_subshape: rejection`, `discard_commit_sha: <sha>`, and
+  file contains `exit: re-evaluation`,
+  `decision_record_sub_shape: rejection`, `discard_commit_sha: <sha>`, and
   `rejection_rationale: <text>`. The rejection Decision Record
   references the discard commit SHA in its Context section. (R8,
   R10, R15)
@@ -602,10 +618,10 @@ requirement that motivates each check.
   its Status section; the state file contains
   `exit: abandonment-forced`,
   `triggering_child: <child-name>`, and `partial_phase_reached:
-  <phase>`. `exit_subshape` is unset. (R8, R10, R15)
+  <phase>`. `decision_record_sub_shape` is unset. (R8, R10, R15)
 - [ ] **AC15** A `/charter` run that completes without recording a
-  valid `exit:` value (or with `exit: decision-record` but no
-  `exit_subshape:`) fails finalization with a clear error. (R9)
+  valid `exit:` value (or with `exit: re-evaluation` but no
+  `decision_record_sub_shape:`) fails finalization with a clear error. (R9)
 
 ### Resume ladder
 
@@ -912,38 +928,46 @@ the cross-child boundary as the novel piece. The snapshot block in
 the state file is what makes Journey 4's "warn but don't act"
 behavior implementable.
 
-### Decision 5: Rejection is a sub-shape of the Decision-Record exit
+### Decision 5: Rejection is the rejection sub-shape of the re-evaluation exit
 
-**Decided.** The Decision-Record exit has two first-class
-sub-shapes: re-evaluation (existing STRATEGY holds; lightweight
-conclusion) and rejection (Draft STRATEGY authored and explicitly
+**Decided.** The re-evaluation exit produces a Decision Record
+file and has two first-class sub-shapes: the re-evaluation
+sub-shape (existing STRATEGY holds; lightweight conclusion) and
+the rejection sub-shape (Draft STRATEGY authored and explicitly
 rejected at `/strategy`'s finalization gate). When `/strategy`
 Phase 5 Reject fires inside a `/charter` chain, `/charter` writes
 `docs/decisions/DECISION-strategy-<topic>-rejection-<YYYY-MM-DD>.md`
 immediately after `/strategy`'s discard commit lands. The state
-file records `exit: decision-record`, `exit_subshape: rejection`,
+file records `exit: re-evaluation`,
+`decision_record_sub_shape: rejection`,
 `discard_commit_sha: <sha>`, and `rejection_rationale: <text>`.
+The brief's three-exit list (full-run, re-evaluation,
+abandonment-forced) stands literally.
 
 **Alternatives considered.** (a) Treat Reject as
 abandonment-forced — the user's explicit judgment at a
 finalization gate is not a bail; conflating them confuses the
-two distinct shapes. (b) Add a fourth exit category "discarded" —
-preserves naming precision but breaks the three-category count.
-(c) Treat Reject as a no-op exit with git history as the audit
-trail — violates the brief's "every chain lands at a durable
-file" commitment literally.
+two distinct shapes, and on Reject there is no intermediate
+artifact to force-materialize (`/strategy` deleted it).
+(b) Add a fourth exit category "discarded" — preserves naming
+precision but breaks the brief's three-exit count. (c) Treat
+Reject as a no-op exit with git history as the audit trail —
+violates the brief's "every chain lands at a durable file"
+commitment literally; git log entries are not shirabe `<TYPE>-`
+artifacts.
 
 **Reasoning.** Re-evaluation and rejection express the same
 architectural intent: a strategic conversation concluding without
-a STRATEGY artifact. Re-evaluation says "existing strategy holds";
-rejection says "considered strategy and no artifact warranted."
-Both produce a DECISION-record at the same altitude. Naming them
-as sub-shapes of one exit preserves the three-category count
+a STRATEGY artifact. The re-evaluation sub-shape says "existing
+strategy holds"; the rejection sub-shape says "considered
+strategy and no artifact warranted." Both produce a DECISION-
+record at the same altitude. Naming them as sub-shapes under the
+re-evaluation exit keeps the brief's three-exit list verbatim
 while honoring the durable-file commitment. The distinction from
-abandonment-forced is sharp: rejection fires on explicit
-finalization judgment; abandonment-forced fires on bail.
+abandonment-forced is sharp: the rejection sub-shape fires on
+explicit finalization judgment; abandonment-forced fires on bail.
 
-### Decision 6: `/charter` writes both Decision-Record sub-shapes inline
+### Decision 6: `/charter` writes both re-evaluation sub-shapes inline
 
 **Decided.** `/charter` writes both re-evaluation and rejection
 Decision Records inline at
@@ -962,7 +986,7 @@ adds complexity without reuse benefit. (b) Author a new sibling
 skill `/decision-record` for shirabe core — out of scope per the
 brief (no new sibling skills authorized).
 
-**Reasoning.** Both Decision-Record sub-shapes share the same
+**Reasoning.** Both re-evaluation-exit sub-shapes share the same
 altitude and the same artifact shape. A single inline-write code
 path covers both. The format matches shirabe's `<TYPE>-<name>.md`
 precedent and integrates cleanly with the existing
