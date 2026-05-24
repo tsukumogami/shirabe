@@ -1,5 +1,5 @@
 ---
-status: Planned
+status: Current
 problem: |
   shirabe's PRD-shirabe-strategy-skill commits to introducing
   STRATEGY as a first-class artifact type with its own loadable
@@ -33,7 +33,7 @@ upstream: docs/prds/PRD-shirabe-strategy-skill.md
 
 ## Status
 
-Planned
+Current
 
 Accepted alongside PRD-shirabe-strategy-skill (also Accepted) on PR
 #94, which carries the brief, PRD, and this design as a stacked

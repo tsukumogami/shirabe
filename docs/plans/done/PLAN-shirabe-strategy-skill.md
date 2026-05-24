@@ -1,8 +1,8 @@
 ---
 schema: plan/v1
-status: Active
+status: Done
 execution_mode: single-pr
-upstream: docs/designs/DESIGN-shirabe-strategy-skill.md
+upstream: docs/designs/current/DESIGN-shirabe-strategy-skill.md
 milestone: shirabe-strategy-skill
 issue_count: 7
 ---
@@ -11,12 +11,14 @@ issue_count: 7
 
 ## Status
 
-Active
+Done
 
 Single-PR plan derived from
-`docs/designs/DESIGN-shirabe-strategy-skill.md` (Accepted). The
+`docs/designs/current/DESIGN-shirabe-strategy-skill.md` (Current). The
 seven issue outlines below describe the sub-tasks within the
-implementing PR, ordered by build dependency.
+implementing PR, ordered by build dependency. All seven landed in the
+implementing PR; the PLAN now sits in `docs/plans/done/` as the
+durable record of how the work decomposed.
 
 ## Scope Summary
 
