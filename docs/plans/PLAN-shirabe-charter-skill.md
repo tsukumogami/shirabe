@@ -3,6 +3,7 @@ schema: plan/v1
 status: Draft
 execution_mode: single-pr
 upstream: docs/designs/DESIGN-shirabe-progression-authoring.md
+milestone: ""
 issue_count: 10
 ---
 
@@ -10,7 +11,9 @@ issue_count: 10
 
 ## Status
 
-Draft. The plan was authored 2026-05-24 through 2026-05-25 against the
+Draft
+
+The plan was authored 2026-05-24 through 2026-05-25 against the
 Accepted shared design at `docs/designs/DESIGN-shirabe-progression-authoring.md`
 and the In Progress PRD at `docs/prds/PRD-shirabe-charter-skill.md`. The
 fast-path review (categories A scope-gate, B design-fidelity, C

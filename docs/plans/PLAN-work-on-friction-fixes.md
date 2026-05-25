@@ -10,7 +10,9 @@ issue_count: 8
 
 ## Status
 
-Active — issues created and tracked under the
+Active
+
+Issues created and tracked under the
 [Work-on Friction Fixes](https://github.com/tsukumogami/shirabe/milestone/4)
 milestone (#79 through #86). The PLAN closes when each design (#79,
 #80, #81, #82, #83, #84, #85) reaches Accepted and its downstream

@@ -26,7 +26,9 @@ outcome: |
 
 ## Status
 
-Accepted. Authored as the brief input to the downstream PRD and the
+Accepted
+
+Authored as the brief input to the downstream PRD and the
 shared design (`DESIGN-shirabe-progression-authoring.md`, co-authored
 across `/charter`, `/scope`, and the `/work-on` migration).
 
