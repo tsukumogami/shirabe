@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 upstream: docs/prds/PRD-shirabe-charter-skill.md
 problem: |
   shirabe ships strategic and tactical children (`/vision`,
@@ -48,12 +48,23 @@ rationale: |
 
 ## Status
 
-Proposed. Authored 2026-05-24 against the In Progress PRD
-`docs/prds/PRD-shirabe-charter-skill.md`. The design is **shared**
-across the parent-skill pattern's three features: `/charter` (the
-concrete consumer driving this design), `/scope` (a parallel parent
-sibling, separate PRD), and the future `/work-on` migration from
-its current substrate into the same pattern (separate PRD when
+Accepted. Authored 2026-05-24 through 2026-05-25 against the In
+Progress PRD `docs/prds/PRD-shirabe-charter-skill.md`; accepted
+2026-05-25 after Phase 6 team-lead approval. The design walked all
+seven `/design` skill phases — Phase 0 PRD-mode setup, Phase 1
+decomposition into 8 decisions (6 explicit + 2 implicit), Phase 2
+parallel decision execution (decision-researchers walking
+`/decision` inline per the core-layer's `team_primitive`
+constraint), Phase 3 cross-validation (passed in one round, no
+restarts), Phase 4 architecture synthesis with implicit-decision
+review, Phase 5 mandatory security review (Option 2: document
+considerations, no design changes), Phase 6 architecture-reviewer
+and security-reviewer in parallel (both PASS; SHOULD-FIX and NIT
+findings all applied). The design is **shared** across the
+parent-skill pattern's three features: `/charter` (the concrete
+consumer driving this design), `/scope` (a parallel parent sibling,
+separate PRD), and the future `/work-on` migration from its
+current substrate into the same pattern (separate PRD when
 substrate work is bounded). The design lifts every requirement
 tagged `[pattern-level]` in `/charter`'s PRD (R1, R3, R9, R10, R11,
 R12, R13, R14, R17a, R18) into pattern-level scope; the

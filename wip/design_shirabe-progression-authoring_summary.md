@@ -22,9 +22,9 @@
 
 ## Current Status
 
-**Phase:** 6 — Final review feedback applied; awaiting team-lead approval gate.
+**Phase:** ACCEPTED. All 7 phases complete; status transitioned Proposed → Accepted at team-lead approval 2026-05-25.
 **Last Updated:** 2026-05-25.
 **Decisions:** 6 explicit (Phase 1 decomposition; Phase 2 produced reports D1-D6 in wip/ and wip/research/) + 2 implicit (Phase 4 implicit-decision review: D7 flat references location, D8 prose team-shape declaration with structured metadata as v2 amplifier-layer evolution). Phase 3 cross-validation: passed in one round, no restarts.
 **Security review (Phase 5):** Option 2 — Document considerations. No design changes needed. Drafted Security Considerations section landed in design doc; full report at `wip/research/design_shirabe-progression-authoring_phase5_security.md`. Two visibility properties documented (public-repo pre-merge wip/ visibility; fail-closed Private default). Advisory PRD inconsistency note: team-lead disposition = let it ride.
 **Final review (Phase 6):** Architecture-reviewer PASS with 3 SHOULD-FIX + 3 NIT findings (all applied: section-skeleton per Stage 1 file; team-emitting team-shape worked example for `/design`; canonical-source/ripple-effect note on shared eval baseline; R13 named behavioral commitment; Parent ⇄ git interface; Stage 3 CLAUDE.md location). Security-reviewer PASS with no escalation, 4 NITs (one applied: persistence-inventory wording extended). Strawman check: PASS on all 20 rejected alternatives across 8 decisions. Document structure validation: PASS. Wip-hygiene disposition: Option B (one-sentence inline note in Component 3 clarifying that wip/ refs in this design are contract specifications for the v1 storage substrate, not orphan staging pointers).
-**Next:** team-lead approval gate. On approval: transition status Proposed → Accepted (frontmatter + body), commit. Per SE4 directives: SKIP wip/ cleanup (6.9), SKIP PR creation (6.6).
+**Next:** Downstream `/plan` skill (queued in the tactical chain). The design team persists for `/plan` queries about decision rationale, rejected alternatives, and architectural shape (no team destruction per SE4). Per SE4 directives: wip/ artifacts NOT cleaned at Phase 6 (persist as durable evidence); PR creation held until the full tactical chain completes (brief + PRD + design + plan land as one PR).
