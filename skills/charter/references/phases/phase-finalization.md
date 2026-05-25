@@ -106,6 +106,76 @@ state file (not set to null, empty string, or placeholder):
 check) makes any of these fields' presence a contract violation under
 `exit: full-run`.
 
+### Draft STRATEGY Validation Pass-Through (AC24)
+
+Before declaring full-run success, `/charter` MUST invoke
+`shirabe validate --visibility=<repo-visibility>` as a sub-process
+against the Draft STRATEGY produced by the chain. The pass-through
+is the chain-level enforcement gate that catches visibility-gated
+content `/strategy` did not catch — `/charter` does NOT re-implement
+`shirabe validate`'s checks; it invokes the validator as a sub-process
+and surfaces its result.
+
+Procedure:
+
+1. Read the repository visibility from CLAUDE.md's
+   `## Repo Visibility:` header (the detection lives in
+   `skills/charter/references/phases/phase-1-discovery.md` section
+   1.1; the value defaults to Private per R12 when the header is
+   missing).
+2. **Lowercase the detected value before invoking the validator.**
+   The `## Repo Visibility:` header convention in CLAUDE.md uses
+   Title Case (`Public`, `Private`) per the visibility-detection
+   idiom in
+   `skills/charter/references/phases/phase-1-discovery.md` section
+   1.1; `shirabe validate`'s `--visibility` flag expects lowercase
+   (`public`, `private`). `/charter` lowercases the detected value
+   before passing it to the validator: `Public → public`,
+   `Private → private`. The case-translation seam lives here, not
+   in the detection prose — the detection records the visibility
+   in its source convention; the validator invocation translates
+   to the validator's expected convention.
+3. Invoke `shirabe validate --visibility=<repo-visibility>` as a
+   sub-process against the Draft STRATEGY at
+   `docs/strategies/STRATEGY-<topic>.md`, substituting the
+   lowercased visibility value (`public` or `private`) into the
+   flag.
+4. On the validator's exit code:
+   - **0 (pass)** — proceed to write the Exit 1 state-field
+     assignments and declare full-run success.
+   - **non-zero (fail)** — surface the validator's error message
+     **verbatim** (not absorbed, not paraphrased, not summarized).
+     Block chain finalization until the violation is resolved; do
+     NOT write `exit: full-run` to the state file. The chain
+     remains in progress (the state file's `exit:` field stays
+     UNSET) and the author addresses the violation in the Draft
+     STRATEGY before re-invoking `/charter` to retry finalization.
+
+The pass-through is NOT a re-implementation of `shirabe validate`.
+`/charter` does not duplicate the validator's checks, does not
+parse the Draft STRATEGY structurally, and does not maintain its
+own visibility-rule list. The validator is the single source of
+truth for visibility-gated content rules; `/charter` only invokes
+it at chain-level and respects its verdict.
+
+**Canonical example violation.** A public-repo Draft STRATEGY
+containing a `## Competitive Considerations` section fails the
+validator's R8 check (the visibility-gated-section rule for
+public-visibility STRATEGYs). `shirabe validate
+--visibility=public` returns non-zero with an error message naming
+the offending section; `/charter` surfaces that message verbatim
+and blocks finalization. The author either removes the
+Competitive Considerations section from the public-repo Draft or
+re-declares the repo visibility (in the latter case, the validator
+re-passes on next invocation when invoked with
+`--visibility=private`).
+
+The pass-through fires only for Exit 1 (full-run); re-evaluation
+and abandonment-forced exits produce different artifacts (Decision
+Records and force-materialized partials respectively) that go
+through their own validation paths owned by the artifact-template
+authoring documented in the templates referenced below.
+
 ## Exit 2 — re-evaluation, re-evaluation Sub-Shape (US-2)
 
 ### Trigger
@@ -530,6 +600,33 @@ here.
 
 This file is the single home for the exit-routing decisions; the
 prompt-emitting outlines are the origination sources.
+
+## Exit-Artifact Template References
+
+Each exit produces a durable artifact whose body shape is specified
+by a template under `skills/charter/references/templates/`. The
+orchestration above writes the state-file fields each artifact
+consumes; the templates specify the artifact body content and (for
+the abandonment-forced marker) the placement rules.
+
+- **Re-evaluation Decision Record** — template at
+  `skills/charter/references/templates/decision-record-re-evaluation.md`.
+  Populated when Exit 2 fires with the re-evaluation sub-shape.
+  Filename: `docs/decisions/DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`.
+- **Rejection Decision Record** — template at
+  `skills/charter/references/templates/decision-record-rejection.md`.
+  Populated when Exit 2 fires with the rejection sub-shape.
+  Filename: `docs/decisions/DECISION-strategy-<topic>-rejection-<YYYY-MM-DD>.md`.
+- **Abandonment-forced HTML-comment marker** — snippet plus
+  placement instructions at
+  `skills/charter/references/templates/abandonment-forced-marker.md`.
+  Emitted into the force-materialized artifact's existing Status
+  section when Exit 3 fires; the host artifact type (STRATEGY,
+  VISION, or ROADMAP) is determined by the R8 tie-break above.
+
+Each template names the state-file fields it consumes at runtime
+population (see `<<ISSUE:5>>`'s state schema for the field
+semantics).
 
 ## Security Considerations
 
