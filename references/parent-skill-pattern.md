@@ -39,7 +39,7 @@ coordination primitives).
 
 ## Semantic Invariants
 
-The pattern names six invariants. Each invariant has a one-line semantics
+The pattern names seven invariants. Each invariant has a one-line semantics
 statement and is satisfied by every conforming parent (with one named
 exception — see I-6).
 
@@ -59,6 +59,11 @@ exception — see I-6).
 - **I-6 — Cross-branch resume.** Resume holds across feature branches: a
   parent run started on one branch can be resumed from another branch
   against the same topic.
+- **I-7 — Active Orchestration.** A parent's team-lead MUST NOT transition
+  to passive wait while dispatched teammates are in flight. The team-lead
+  actively polls evidence under a bounded sleep-check-nudge loop until each
+  dispatched task reaches a terminal exit (PASS / FAIL / ESCALATE). See the
+  Team-Lead Operating Discipline section below for the full discipline.
 
 **I-6 is load-bearing as an unsatisfied invariant in v1.** The v1 core-layer
 implementation explicitly does NOT satisfy I-6 — state lives on the feature
@@ -93,6 +98,18 @@ attached to each exit (e.g., `referenced_strategy` on `re-evaluation`,
 `triggering_child` on `abandonment-forced`) are gated by I-5 — present when
 the exit fires, absent otherwise.
 
+The three-exit contract operationalizes the discipline-vs-artifact
+decoupling thesis as its underlying principle: strategic conversation can
+be *disciplined* without being forced to *produce*. Each exit demonstrates
+a specific decoupling property — full-run produces a terminal artifact;
+re-evaluation disciplines without re-producing (the Decision Record is the
+durable record of the disciplined judgment, not a re-authored artifact);
+abandonment-forced ends at a review surface (a schema-compliant partial
+artifact with the abandonment marker) rather than letting a bailed chain
+silently lose. The three exits together preserve the property that every
+disciplined conversation has a durable home, even when production is the
+wrong outcome.
+
 ## Conditional Feeder Invocation Shape
 
 A parent MAY offer a feeder skill (a side-channel child the chain does not
@@ -115,6 +132,19 @@ When any of the three conditions fails, the parent's discovery prompts
 SHALL NOT reference the feeder skill or its content surface (the
 degenerate-silence rule). The author hears about the feeder only when all
 three gates open.
+
+**Parents do not extend children's input surfaces.** When a parent needs
+to pass semantic context to a child the child has no API for, the parent
+SHALL NOT add flags or arguments to the child. Parents pass through
+children's existing input modes and rely on the child's own resume logic
+to detect state. PRD R4's thesis-shift signal is the canonical instance —
+`/charter` elicits the signal conversationally and invokes
+`/vision <topic>` with the topic slug alone; `/vision` then uses its own
+resume logic to detect whether an existing VISION exists at the published
+path and routes accordingly. Extending the child's input surface would
+couple the parent to the child's API and break the moment the child
+refactors its inputs; passing through existing modes keeps the parent
+loosely coupled across child revisions.
 
 ## Named Substitution Surfaces
 
@@ -195,6 +225,19 @@ roster spawn). Structured metadata fits the substrate-driven pattern of v2.
 Migrating prose to structured metadata at v2 boundaries is a known
 operation, not a contract change.
 
+**Reviewer-shaped roles vs variable-cardinality worker role types.** The
+team-shape declaration MUST distinguish two role-cardinality shapes so a
+coordinator knows how to dispatch correctly. **Reviewer-shaped roles**
+iterate over work items themselves: ONE architecture-reviewer reviews ALL
+N work items in one pass; the reviewer is materialized once regardless of
+N. **Variable-cardinality worker role types** spawn one peer per work
+item: `/design`'s `decision-researcher` role type spawns one researcher
+per decision question; `/plan`'s `decomposer` role type spawns one
+decomposer per outline. The team-shape declarator section above lists the
+two cardinality shapes separately so the parent-of-the-parent knows
+whether to materialize a single instance (reviewer) or N instances
+(worker) at team-creation time.
+
 ## Required SKILL.md Structural Elements
 
 Every parent skill's `skills/<name>/SKILL.md` SHALL contain seven
@@ -221,3 +264,159 @@ each element is parent-specific.
 Parents extend the template with parent-specific sections beyond these
 seven (e.g., chain-proposal output prose, conditional-feeder integration
 prose), but the seven structural elements are the pattern-level floor.
+
+The default-option wording at status-aware re-entry prompts is part of
+the contract surface, not a UX detail; each parent specifies it as
+literal-substring requirements in ACs (e.g., the "Re-evaluate / Revise /
+Bail" triad against an Accepted upstream artifact), so the eval surface
+can grep-check the prompt vocabulary and downstream parents inherit the
+discipline.
+
+## Team-Lead Operating Discipline
+
+The pattern names a parent-skill discipline that binds the team-lead of
+any team-emitting parent skill while peer agents are in flight. The
+discipline operationalizes semantic invariant I-7 (Active Orchestration):
+the team-lead actively polls evidence under a bounded loop and drives
+dispatched tasks to terminal exits rather than transitioning to passive
+wait.
+
+### Canonical 5-Step Sleep-Check-Nudge Loop
+
+Every team-lead executing the discipline runs the following loop per
+in-flight dispatched task. The loop is the contract; specific timing
+values per task class are in the table below.
+
+1. **Dispatch** — the team-lead spawns the peer with directly-executable
+   instructions (the artifact to read or produce, the location to write
+   to, and the structured verdict to reply with on completion).
+2. **Sleep** — bounded wait per the task class (see the table). The
+   sleep is not unbounded; it has a fixed window before the next
+   evidence check.
+3. **Filesystem evidence check (priority 1)** — inspect the worktree
+   for terminal-artifact presence, partial-artifact growth, `git log`
+   for new commits since dispatch, and `wip/` artifact growth. Terminal
+   artifact present plus passing validation maps to PASS; partial
+   evidence resets the patience budget; no change decrements the
+   patience budget by one.
+4. **Inbox processing (priority 2)** — read structured PASS / FAIL /
+   PROGRESS verdicts from the team-lead's inbox. Idle pings do NOT
+   count as inbox messages (see the rule below); only verdicts route
+   the loop.
+5. **Nudge (priority 3)** — when neither filesystem evidence nor a
+   structured inbox verdict resolves the task, send a directly-
+   executable nudge to the peer naming the artifact, the location, and
+   the verdict to reply with. Generic nudges ("what's happening?")
+   are forbidden.
+
+### Three Terminal Exit Conditions
+
+Every dispatched task ends at exactly one of three terminal exits. The
+loop does not run indefinitely.
+
+- **PASS** — terminal artifact present and valid, OR structured PASS
+  verdict from the peer with the artifact verified by the team-lead.
+- **FAIL** — FAIL verdict received from the peer, OR artifact
+  validation failure (artifact present but does not pass its own
+  validator).
+- **ESCALATE** — patience budget exhausted (default 5 stagnation
+  cycles per teammate). ESCALATE maps to the parent's
+  `abandonment-forced` exit path with a `triggering_teammate:` field
+  recording which peer's stagnation triggered the escalation.
+
+### Strict Priority Ordering
+
+The three checks in the loop are ordered with strict priority:
+filesystem evidence (priority 1) BEFORE inbox messages (priority 2)
+BEFORE nudges (priority 3). The ordering is not advisory — it is the
+discipline. A team-lead that consults the inbox before checking
+filesystem evidence misses durable terminal-artifact PASS that the
+peer has already produced. A team-lead that nudges before consulting
+the inbox produces noise (the peer may have already replied with a
+verdict the team-lead would have read).
+
+### Task-Class Timing Table
+
+Each task class has a sleep window (how long the team-lead waits
+between evidence checks) and a patience budget (how many stagnation
+cycles before ESCALATE fires). The values are the v1 pattern-level
+defaults; parents MAY tune them per their own runtime profile.
+
+| Task class | Sleep window | Patience budget |
+|---|---|---|
+| Review verdict | 30s | 5 cycles |
+| Decomposition / generation | 60s | 10 cycles |
+| Implementation pass | 120s | 10 cycles |
+| External wait (CI, network) | 60s | unlimited |
+
+Stagnation is the absence of progress evidence in either the
+filesystem or the inbox; progress evidence (a new commit, a partial
+artifact write, a PROGRESS verdict) resets the patience budget
+implicitly to the full task-class allotment.
+
+### Idle-Pings-Are-Not-Inbox-Messages Rule
+
+Idle pings (peer messages indicating the peer is still alive but has
+no verdict) are infrastructure noise; they MUST NOT count as inbox
+messages in step 4 of the loop. Only structured PASS / FAIL /
+PROGRESS verdicts are actionable interface signals. A team-lead that
+treats idle pings as PROGRESS verdicts would mistakenly reset the
+patience budget on every ping, defeating ESCALATE.
+
+The discipline name for the rule: structured verdicts are the
+actionable interface; idle pings are infrastructure-level liveness
+signals the team-lead's inbox processing ignores.
+
+### Nudge Content Rule
+
+Every nudge sent by the team-lead (priority 3) MUST contain
+directly-executable instructions. The nudge SHALL name:
+
+- **What artifact** the peer is being asked to read or produce.
+- **Where** the artifact lives (the canonical path).
+- **What verdict** the peer should reply with on completion
+  (structured PASS / FAIL / PROGRESS).
+
+Generic nudges ("what's happening?", "any update?", "please
+respond") are forbidden. They are noise on the channel and do not
+advance the loop; they consume cycles without producing actionable
+evidence. The discipline replaces generic nudges with concrete
+directly-executable instructions every time.
+
+### `ci_outcome` Semantics
+
+When a task-class run depends on CI (the External wait class above),
+the loop tracks two distinct CI outcomes that are NOT
+interchangeable:
+
+- **`passing`** — CI was always green; the team-lead's evidence
+  check observed only PASS verdicts on CI runs since dispatch. No
+  fix-pushes occurred.
+- **`failing_fixed`** — CI flipped from FAIL to PASS after a fix
+  push. The team-lead observed a failure verdict, the peer (or
+  another agent) pushed a fix, and a subsequent CI run flipped the
+  rollup green.
+
+Distinguishing the two matters because `passing` is the strong
+durable-evidence claim (no flake, no rework) while `failing_fixed`
+records that rework occurred. Downstream consumers (release notes,
+audit trails, retrospectives) treat them differently.
+
+### Binding Notes for `/charter`
+
+`/charter` v1 binds the discipline at two layers:
+
+- **At the parent-itself layer:** the binding is vacuous in v1.
+  `/charter` runs as a single-agent skill (see `/charter`'s SKILL.md
+  Team Shape section); no peers are dispatched at the
+  `/charter`-itself layer, so the loop has zero dispatched tasks to
+  drive.
+- **At the child-skill dispatch layer:** the binding is concrete.
+  Each `/vision`, `/strategy`, and `/roadmap` invocation is a
+  dispatch in the discipline sense: the team-lead (`/charter` as the
+  parent-of-the-child) drives the dispatched child to a terminal
+  exit. The child-skill invocation task class is the implementation
+  pass class above (120s window, 10-cycle patience budget). When
+  ESCALATE fires against a child invocation, the `triggering_child:`
+  field is the same value as `triggering_teammate:` from the
+  pattern-level mapping above.
