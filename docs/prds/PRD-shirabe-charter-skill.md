@@ -1,5 +1,5 @@
 ---
-status: In Progress
+status: Done
 problem: |
   shirabe ships VISION, STRATEGY, and ROADMAP as loadable child skills
   that authors invoke directly, but has no parent skill that walks an
@@ -31,13 +31,13 @@ upstream: docs/briefs/BRIEF-shirabe-charter-skill.md
 
 ## Status
 
-In Progress. Accepted at commit `8c17099`; transitioned to In
+Done. Accepted at commit `8c17099`; transitioned to In
 Progress on 2026-05-24 when design authoring began at
-`docs/designs/DESIGN-shirabe-progression-authoring.md`. The PRD is
+`docs/designs/current/DESIGN-shirabe-progression-authoring.md`. The PRD is
 the requirements input to that downstream design (co-authored
 across `/charter`, `/scope`, and the `/work-on` migration) and to
 `/charter`'s eventual implementation plan. Consumes the Accepted
-brief at `docs/briefs/BRIEF-shirabe-charter-skill.md`.
+brief at `docs/briefs/BRIEF-shirabe-charter-skill.md`. Transitioned to Done on 2026-05-25 after the charter skill implementation landed on session/db61668b (PR #96).
 
 ## Problem Statement
 

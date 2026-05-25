@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   shirabe authors have no parent skill that walks them through a
   strategic conversation as a sequenced chain (vision-update → comp
@@ -26,11 +26,11 @@ outcome: |
 
 ## Status
 
-Accepted
+Done
 
 Authored as the brief input to the downstream PRD and the
 shared design (`DESIGN-shirabe-progression-authoring.md`, co-authored
-across `/charter`, `/scope`, and the `/work-on` migration).
+across `/charter`, `/scope`, and the `/work-on` migration). Transitioned to Done on 2026-05-25 after the charter skill implementation landed on session/db61668b (PR #96).
 
 This brief intentionally stops before requirements articulation. The
 follow-on PRD owns the per-phase prose, the resume ladder, the

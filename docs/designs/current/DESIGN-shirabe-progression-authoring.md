@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Current
 upstream: docs/prds/PRD-shirabe-charter-skill.md
 problem: |
   shirabe ships strategic and tactical children (`/vision`,
@@ -48,7 +48,7 @@ rationale: |
 
 ## Status
 
-Accepted. Authored 2026-05-24 through 2026-05-25 against the In
+Current. Authored 2026-05-24 through 2026-05-25 against the In
 Progress PRD `docs/prds/PRD-shirabe-charter-skill.md`; accepted
 2026-05-25 after Phase 6 team-lead approval. The design walked all
 seven `/design` skill phases — Phase 0 PRD-mode setup, Phase 1
