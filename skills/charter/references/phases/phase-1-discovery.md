@@ -197,9 +197,93 @@ and records the classification for the chain-shape gate to read.
 ---
 
 <!--
-Phase 1 discovery prelude ends here. Child-invocation logic and the
-chain-proposal confirmation prompt extend below this seam, authored
-by the companion outline that owns Phase 1's chain-shape decisions.
-The seam intentionally leaves space for that prose to append in-
-place without restructuring the prelude above.
+Phase 1 discovery prelude ends here. The chain-proposal confirmation
+prompt follows below; per-child invocation logic for the children
+the proposal names is documented in
+`skills/charter/references/phases/phase-2-chain-orchestration.md`.
+The seam is preserved to mark where the prelude ends and the
+chain-proposal output begins.
 -->
+
+## 1.5 Chain-Proposal Confirmation Prompt
+
+Phase 1 concludes with the **chain-proposal confirmation prompt** —
+the user-facing output that names the chain `/charter` derived from
+discovery and asks the author to accept, adjust, or bail before any
+child fires. The prompt is the canonical surface where the chain
+shape becomes a committed plan; nothing downstream runs until the
+author selects one of the three options.
+
+### Prompt Shape
+
+The prompt lists the children `/charter` plans to invoke, in order,
+skipping those whose invocation gates (documented in
+`skills/charter/references/phases/phase-2-chain-orchestration.md`)
+do not hold for this run. The children appear in the order they
+would be invoked, with each entry annotated by either "run" or
+"skip" plus a one-line reason; the entry text is consistent across
+runs so authors recognize the shape across re-invocations.
+
+Three children are eligible to appear by name in the chain-
+proposal output: `/vision`, `/strategy`, and `/roadmap`. The
+prompt lists them in that order, in order to match the chain's
+sequenced execution; entries for skipped children include the
+reason the gate did not hold (e.g., "skip `/vision` because an
+Accepted VISION already exists" or "skip `/roadmap` because the
+STRATEGY's Building Blocks section has fewer than three blocks").
+
+### Example Shape
+
+The prompt's surface phrasing follows this template (the example
+shows a chain where `/vision` is skipped, `/strategy` runs, and
+`/roadmap` is skipped because the STRATEGY shape gate failed):
+
+> *"Based on our conversation, here's the chain I propose: skip
+> `/vision` because an Accepted VISION already exists, run
+> `/strategy`, skip `/roadmap` because the STRATEGY's Building
+> Blocks section has fewer than three blocks. Proceed / Adjust
+> chain / Bail?"*
+
+Variations on this template are produced by different gate
+outcomes: when `/vision` fires the entry reads "run `/vision`"
+without a skip reason; when `/roadmap` fires the entry reads "run
+`/roadmap`"; and so on. The three options at the end of the
+prompt — Proceed, Adjust, Bail — are stable across all variations.
+
+### The Three Options
+
+The chain-proposal prompt offers exactly three options. The
+literal substrings "Proceed", "Adjust", and "Bail" are stable
+across runs; agents and eval scenarios assert against them.
+
+- **Proceed** — the author accepts the proposed chain. `/charter`
+  advances to Phase 2 and the chain orchestration begins firing
+  the children in the proposed order, skipping those marked
+  skip.
+- **Adjust** — the author wants a different chain shape. The
+  prompt routes the author back to Phase 1 discovery for chain-
+  shape redirection BEFORE any child fires. The redirected
+  discovery may force a previously-skipped child on (e.g., "force
+  `/vision` on, even though an Accepted VISION exists"), opt out
+  of a child that would otherwise fire, or reframe the topic
+  entirely. After the redirection, the chain proposal re-fires
+  against the new discovery outputs; the prompt cycle repeats
+  until the author Proceeds or Bails.
+- **Bail** — the author abandons the chain. Routing is owned by
+  the companion outline implementing the exit-path orchestration
+  (the R8 tie-break rule between abandonment-forced and clean-
+  cancel based on whether any wip/ state exists for the topic).
+  The prompt option lives here; the routing behavior lives in
+  the exit-path orchestration phase reference.
+
+### Why the Prompt Is Stable
+
+The three-option prompt is the stable contract between Phase 1
+and Phase 2. Once the author Proceeds, Phase 2's chain
+orchestration runs the children in the proposed order without
+re-asking; once the author Bails, the exit-path orchestration
+records the terminal state without further prompts. Adjusting
+keeps the author in Phase 1 — the chain shape is malleable until
+the author accepts it, but the option set itself is fixed across
+all runs.
+
