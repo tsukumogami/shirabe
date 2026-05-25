@@ -1573,6 +1573,27 @@ frontmatter `status:` + git blob hash into
 the rejection-sub-shape Decision Record immediately,
 referencing the discard commit SHA + rejection rationale.
 
+The Reject verdict is observed via `git log` on the current
+branch — `/scope` searches for the most recent `docs(prd):
+discard PRD draft for <topic>` (or `docs(design): discard
+DESIGN draft for <topic>`) commit; presence of that commit
+between the parent_orchestration write and the child return
+identifies the Reject outcome. This observability mechanism
+is implementation-substrate rather than contract-shape:
+the durable trace per AC30c is the discard commit itself,
+and `git log` is the natural way to detect commits made by
+a sub-process on the current branch. The alternative — a
+structured stdout verdict format the parent reads from the
+child's response — would couple the parent to the child's
+output API in the same direction L13 forbids on the input
+side, AND would diverge from the AC30c manual-fallback
+observability channel (a reviewer running `/prd` directly
+outside `/scope` discards the same way; the discard commit
+is the durable signal in both contexts). `git log`
+preserves R13 manual-fallback parity by reading the same
+durable signal regardless of whether the child ran in-
+chain or out-of-chain.
+
 7.8. **Validator pass-through** — per PRD Decision 10,
 runs `shirabe validate` against each intermediate before
 invoking the next child. Failed validation halts the chain.
