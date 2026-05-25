@@ -1,9 +1,8 @@
 ---
 schema: plan/v1
-status: Proposed
-execution_mode: multi-pr
+status: Draft
+execution_mode: single-pr
 upstream: docs/designs/DESIGN-shirabe-progression-authoring.md
-milestone: "Charter Skill"
 issue_count: 10
 ---
 
@@ -11,21 +10,25 @@ issue_count: 10
 
 ## Status
 
-Proposed. The plan was authored 2026-05-24 through 2026-05-25 against the
+Draft. The plan was authored 2026-05-24 through 2026-05-25 against the
 Accepted shared design at `docs/designs/DESIGN-shirabe-progression-authoring.md`
 and the In Progress PRD at `docs/prds/PRD-shirabe-charter-skill.md`. The
 fast-path review (categories A scope-gate, B design-fidelity, C
 AC-discriminability, D sequencing-integrity) returned PROCEED across all
-four reviewers with no critical findings. The plan stops at this status to
-let a human reviewer confirm the decomposition before GitHub milestone and
-issues are created; once approval lands, the plan transitions to Active and
-the issue tracker is populated against this artifact.
+four reviewers with no critical findings.
 
-The `Proposed` status name is a deviation from the schema's documented `Draft`
-and `Active` lifecycle values. See [Open Questions](#open-questions) for the
-rationale; the deviation is intentional and surfaces a "doc ready, GitHub
-state pending" intermediate state that the documented lifecycle does not
-otherwise express.
+The plan is **single-pr**: `/charter`'s value lands when the full set of
+ten issues ships together (no /charter skill exists until all the
+pattern-level references, the SKILL.md body, the state-file schema, the
+resume ladder, the exit-path orchestration, the exit-artifact authoring,
+the evals, and the CLAUDE.md surfacing are all present). Single-pr is the
+right ship shape: all ten issues' implementation work lands as commits on
+one feature branch resulting in one pull request against shirabe. No
+GitHub issues are created; the outlines below are planning units within
+this PLAN doc, not separate trackable tickets. Issue 10's workspace
+CLAUDE.md fragment is the only touch outside shirabe — a single small
+file in `dot-niwa` — accepted as incidental rather than treated as a
+multi-repo split trigger.
 
 ## Scope Summary
 
@@ -67,36 +70,33 @@ the load-bearing security consideration this design exposes.
 
 ## Implementation Issues
 
-### Milestone: Charter Skill
+Ten issue outlines that decompose `/charter`'s implementation. Single-pr
+mode: these are planning units within this PLAN doc, not GitHub issues to
+be filed. The full per-outline bodies authored during Phase 4 persist in
+`wip/plan_shirabe-charter-skill_issue_<N>_body.md` and serve as the
+detailed implementation reference for whoever lands the work.
 
-GitHub milestone and issues have not yet been created — the plan is at
-`Proposed` status, and milestone / issue creation is gated behind an
-explicit go-ahead from the human reviewer (see Status above). The table
-below uses internal placeholders `<<ISSUE:N>>` that Phase 7's
-`create-issues-batch.sh` substitutes for GitHub issue numbers when the
-plan transitions to `Active`.
-
-| Issue | Dependencies | Complexity |
-|-------|--------------|------------|
-| <<ISSUE:1>>: docs(references): add four parent-skill pattern-level references | None | testable |
-| _Author the four new reference files at top-level `references/`: `parent-skill-pattern.md` (contract surface, six semantic invariants including I-6 acknowledged unsatisfied in v1, three exit paths, conditional feeder shape, substitution surfaces, team-shape declarator), `parent-skill-state-schema.md` (five-field minimum vocabulary plus extension discipline), `parent-skill-resume-ladder-template.md` (universal meta-ladder plus parent-specific body slots), and `parent-skill-child-inspection.md` (R14-widened isolation rule plus per-parent surface table). These are the foundation every subsequent issue cites._ | | |
-| <<ISSUE:2>>: feat(charter): add SKILL.md with input modes, slug constraint, and Phase 0 wiring | <<ISSUE:1>> | testable |
+| Outline | Dependencies | Complexity |
+|---------|--------------|------------|
+| 1. docs(references): add four parent-skill pattern-level references | None | testable |
+| _Author the four new reference files at top-level `references/`: `parent-skill-pattern.md` (contract surface, six semantic invariants including I-6 acknowledged unsatisfied in v1, three exit paths, conditional feeder shape, substitution surfaces, team-shape declarator), `parent-skill-state-schema.md` (five-field minimum vocabulary plus extension discipline), `parent-skill-resume-ladder-template.md` (universal meta-ladder plus parent-specific body slots), and `parent-skill-child-inspection.md` (R14-widened isolation rule plus per-parent surface table). These are the foundation every subsequent outline cites._ | | |
+| 2. feat(charter): add SKILL.md with input modes, slug constraint, and Phase 0 wiring | 1 | testable |
 | _Ship `skills/charter/SKILL.md` with the seven structural elements every parent skill SHALL contain. Wires Phase 0 input parsing: empty arguments triggers a cold-start prompt; freeform topic strings derive a slug that must match the regex `^[a-z0-9-]+$` (rejected at Phase 0 with a clear error). Declares `/charter` as a no-team skill via the prose Team Shape declarator._ | | |
-| <<ISSUE:3>>: feat(charter): add Phase 1 discovery, visibility detection, and manual-fallback rule | <<ISSUE:2>> | testable |
-| _Author the Phase 1 entry-router prelude: read the repo's visibility from CLAUDE.md's `## Repo Visibility:` header (default to Private with the shipped warning text on missing header), document the manual-fallback non-interference rule, and surface the thesis-shift signal question with its three positive-utterance categories. This issue ships the discovery prose without yet making invocation decisions._ | | |
-| <<ISSUE:4>>: feat(charter): add child invocation logic and chain-proposal confirmation prompt | <<ISSUE:3>> | testable |
+| 3. feat(charter): add Phase 1 discovery, visibility detection, and manual-fallback rule | 2 | testable |
+| _Author the Phase 1 entry-router prelude: read the repo's visibility from CLAUDE.md's `## Repo Visibility:` header (default to Private with the shipped warning text on missing header), document the manual-fallback non-interference rule, and surface the thesis-shift signal question with its three positive-utterance categories. This outline ships the discovery prose without yet making invocation decisions._ | | |
+| 4. feat(charter): add child invocation logic and chain-proposal confirmation prompt | 3 | testable |
 | _Implement the four child-invocation decisions (`/vision` on the two-OR signal, `/comp` on the three-AND gate with degenerate-silence, `/strategy` always with three valid upstream shapes, `/roadmap` on the STRATEGY shape gates) and the chain-proposal confirmation prompt with literal Proceed / Adjust / Bail options. The /comp degenerate-silence rule ensures the prompt output is byte-identical between public-repo and private-repo-without-/comp invocations._ | | |
-| <<ISSUE:5>>: feat(charter): add state file schema and hard finalization check | <<ISSUE:1>>, <<ISSUE:2>> | critical |
-| _Specify the full state-file schema at `wip/charter_<topic>_state.md` (pure YAML with a `.md` extension matching shirabe's wip/ convention; eleven fields including the chain-tracking trio, exit field, decision_record_sub_shape, and conditional fields gated by exit type). Author the R9 hard-finalization check that surfaces an error when exit is unset / invalid, when sub-shape is missing for a re-evaluation exit, or when conditional fields are set despite their triggering condition not holding. Critical complexity because the schema is the contract enforcement spine for every other implementation issue._ | | |
-| <<ISSUE:6>>: feat(charter): add resume ladder with drift detection and stale-session handling | <<ISSUE:5>> | critical |
+| 5. feat(charter): add state file schema and hard finalization check | 1, 2 | critical |
+| _Specify the full state-file schema at `wip/charter_<topic>_state.md` (pure YAML with a `.md` extension matching shirabe's wip/ convention; eleven fields including the chain-tracking trio, exit field, decision_record_sub_shape, and conditional fields gated by exit type). Author the R9 hard-finalization check that surfaces an error when exit is unset / invalid, when sub-shape is missing for a re-evaluation exit, or when conditional fields are set despite their triggering condition not holding. Critical complexity because the schema is the contract enforcement spine for every other outline._ | | |
+| 6. feat(charter): add resume ladder with drift detection and stale-session handling | 5 | critical |
 | _Implement the ten-row resume ladder with first-match-wins ordering: malformed state → exit set → fresh resume → stale-session (≥ 7 days) → STRATEGY Accepted/Active → STRATEGY Draft → `_discover.md` partial-run → VISION partial-run → on-topic branch → main fallback. The Accepted-STRATEGY row uses "Re-evaluate / Revise / Bail" vocabulary explicitly rejecting "Continue / Start fresh" wording. Child-snapshot dual-check drift detection fires when either frontmatter status or git blob hash differs from the recorded snapshot._ | | |
-| <<ISSUE:7>>: feat(charter): add three exit paths and tie-break orchestration | <<ISSUE:4>>, <<ISSUE:5>> | critical |
+| 7. feat(charter): add three exit paths and tie-break orchestration | 4, 5 | critical |
 | _Implement the three exit-path orchestration logic: full-run (Draft STRATEGY plus optional ROADMAP), re-evaluation (with re-evaluation and rejection sub-shapes), abandonment-forced (with the most-recently-running tie-break: last `chain_ran` entry → first `planned_chain` entry with a non-empty wip/ intermediate → clean-cancel fallthrough when neither resolves). The Reject (deliberate Phase 5 finalization) versus Bail (mid-chain abandonment) distinction is load-bearing for the discipline-vs-artifact decoupling and must not be conflated._ | | |
-| <<ISSUE:8>>: feat(charter): add exit artifact authoring (Decision Records + abandonment-forced marker + STRATEGY validation pass-through) | <<ISSUE:7>> | testable |
+| 8. feat(charter): add exit artifact authoring (Decision Records + abandonment-forced marker + STRATEGY validation pass-through) | 7 | testable |
 | _Author the exit-artifact templates and authoring rules: Decision Record templates for both re-evaluation and rejection sub-shapes (ADR-style body with named alternatives per sub-shape), the abandonment-forced HTML-comment marker that lives inside the force-materialized artifact's Status section, and the `shirabe validate --visibility=<repo-visibility>` pass-through that gates Draft STRATEGY before declaring chain success._ | | |
-| <<ISSUE:9>>: test(charter): add evals covering user stories and shared baseline | <<ISSUE:2>>, <<ISSUE:3>>, <<ISSUE:4>>, <<ISSUE:5>>, <<ISSUE:6>>, <<ISSUE:7>>, <<ISSUE:8>> | testable |
+| 9. test(charter): add evals covering user stories and shared baseline | 2, 3, 4, 5, 6, 7, 8 | testable |
 | _Ship `skills/charter/evals/evals.json` with the canonical shared eval baseline (slug rejection, malformed state file, child-internals isolation, visibility default) plus five `/charter`-specific scenarios covering the user stories (cold standalone full-run, re-evaluation, rejection sub-shape, abandonment-forced, reviewer redirect via manual fallback). The shared baseline scenarios are clearly delimited so `/scope` and the future `/work-on` migration can copy-and-adapt them when they land._ | | |
-| <<ISSUE:10>>: docs(charter): surface /charter in shirabe and workspace CLAUDE.md | None | simple |
+| 10. docs(charter): surface /charter in shirabe and workspace CLAUDE.md | None | simple |
 | _Update the shirabe repo's CLAUDE.md to mention `/charter` and include the four trigger phrases (start a strategic conversation, open a charter, think through the bet, direct `/charter <topic>` invocation). The workspace-level CLAUDE.md is composed from per-repo fragments — updating the shirabe-side fragment is sufficient for workspace tooling to assemble the composite._ | | |
 
 ## Dependency Graph
@@ -192,48 +192,33 @@ leaf that exercises the full SKILL.md contract.
 
 ## Open Questions
 
-These items are surfaced for human-reviewer attention before the plan
-transitions to `Active`. They are intentional choices, not defects — but
-each represents a deviation from a documented convention or an
-informational finding the fast-path review surfaced.
+These items are surfaced for human-reviewer attention. They are
+intentional choices, not defects — informational findings the fast-path
+review surfaced or known incidental scope items worth naming.
 
-1. **PLAN status `Proposed` is a custom value.** The schema's documented
-   lifecycle is `Draft → Active → Done`. This plan introduces `Proposed`
-   to express a "doc fully authored, GitHub milestone and issues not yet
-   created, awaiting human reviewer go-ahead" intermediate state. The
-   alternative would be to keep the plan at `Draft` and add a
-   frontmatter flag like `awaiting_creation: true`, but that conflates
-   two distinct meanings of `Draft` ("being authored" versus "authored
-   and waiting"). Reviewers may either ratify `Proposed` as a schema
-   addition or direct the plan to use one of the documented values; the
-   plan transitions to `Active` once GitHub milestone and issues are
-   created, regardless of which value lands here.
-
-2. **Milestone name "Charter Skill" deviates from first-heading
-   derivation.** The plan skill's documented milestone-naming rule derives
-   the title from the source document's first `#` heading
-   (`# DESIGN: shirabe-progression-authoring` would produce "Shirabe
-   Progression Authoring"). This plan uses "Charter Skill" because the
-   design is shared across three parent-skill consumers (`/charter`,
-   `/scope`, future `/work-on` migration), and the plan skill's 1:1
-   document-to-milestone invariant requires per-parent milestone naming
-   when one design fans out to multiple plans. The alternative is
-   "Shirabe Progression Authoring (charter)" — same disambiguation,
-   more verbose. Reviewers may either ratify "Charter Skill" or direct a
-   rename before milestone creation lands.
-
-3. **Issue #1 bundles four reference files in one PR (informational note
-   from the Phase 6 scope-gate review).** Issue #1 ships
-   `parent-skill-pattern.md`, `parent-skill-state-schema.md`,
+1. **Outline 1 bundles four reference files in one set of commits
+   (informational note from the Phase 6 scope-gate review).** Outline 1
+   ships `parent-skill-pattern.md`, `parent-skill-state-schema.md`,
    `parent-skill-resume-ladder-template.md`, and
    `parent-skill-child-inspection.md` together with roughly thirty
    acceptance criteria. The reviewer found the bundling defensible at
-   this scale because the four files cross-cite each other and reviewing
-   them as a coherent set is more valuable than reviewing each file's PR
-   in isolation. The alternative — four separate issues — would split
-   the cross-citation surface across multiple PRs. If implementer review
-   fatigue surfaces during Issue #1 work, a clean post-hoc split into
-   four sub-issues is available; until then the bundled shape stands.
+   this scale because the four files cross-cite each other and landing
+   them as a coherent set on the feature branch lets reviewers verify
+   the cross-citations directly. The alternative — four separate
+   commits / discrete review slices — would force the cross-citation
+   surface to be re-read across each slice. If review fatigue surfaces
+   during the outline 1 work, a clean split into four commits is
+   available; until then the bundled shape stands.
+
+2. **Outline 10 touches a single file outside shirabe (incidental
+   cross-repo).** Outline 10 updates `CLAUDE.md` in shirabe AND the
+   workspace-level CLAUDE.md fragment in `dot-niwa`. The
+   workspace-fragment is ~5 lines and follows the same shape as every
+   other shirabe-skill-surfacing fragment in `dot-niwa`. Per the
+   single-pr decision, this incidental cross-repo touch is accepted
+   rather than split into a separate PR; the workspace fragment ships
+   as a small companion change in `dot-niwa` alongside the main
+   shirabe PR.
 
 ## Review Trace
 
