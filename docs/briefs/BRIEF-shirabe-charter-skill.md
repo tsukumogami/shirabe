@@ -112,6 +112,22 @@ optional `/comp` if competitive analysis is warranted, required
 into coordinated multi-block work. The author never has to remember
 the order; the skill enforces it.
 
+```mermaid
+flowchart LR
+    A([/charter topic]) --> P[Phase 1<br/>Discovery]
+    P --> V{vision-update?<br/>thesis-shift signal}
+    V -->|fire| Vy[/vision]
+    V -->|skip| C{comp?<br/>private repo<br/>+ competitive signal}
+    Vy --> C
+    C -->|fire| Cy[/comp]
+    C -->|skip| S[/strategy<br/>ALWAYS]
+    Cy --> S
+    S --> R{roadmap?<br/>multi-block strategy<br/>+ cross-deps}
+    R -->|fire| Ry[/roadmap]
+    R -->|skip| Exit([Exit])
+    Ry --> Exit
+```
+
 The conversation ends at one of three durable exits, each suited to
 the shape the strategic work took:
 
@@ -128,6 +144,14 @@ the shape the strategic work took:
   mid-flight, the most-recently-run skill is forced to materialize
   its artifact even if its decision rule said evidence-only. The
   chain leaves a review surface regardless of how it terminated.
+
+```mermaid
+flowchart TD
+    Run([/charter run reaches /strategy phase]) --> Q{Outcome shape?}
+    Q -->|new or revised<br/>strategic content| FR[Full-run exit<br/><br/>STRATEGY Draft<br/>+ optional ROADMAP]
+    Q -->|existing STRATEGY<br/>still holds| RE[Re-evaluation exit<br/><br/>DECISION-strategy-topic-<br/>re-evaluation-YYYY-MM-DD]
+    Q -->|user bails<br/>mid-chain| AF[Abandonment-forced exit<br/><br/>most-recently-running child<br/>force-materialized as Draft]
+```
 
 A `/charter` run that closes without one of these three has violated
 the terminal-artifact contract; the skill enforces all three
