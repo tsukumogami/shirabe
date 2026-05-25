@@ -1,5 +1,5 @@
 ---
-status: Draft
+status: Accepted
 problem: |
   shirabe ships `/brief`, `/prd`, `/design`, and `/plan` at the
   tactical chain's altitude as four direct-invocation child skills,
@@ -30,7 +30,7 @@ upstream: docs/briefs/BRIEF-shirabe-scope-skill.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
