@@ -1228,3 +1228,697 @@ implementation approach; R19 via inherited I-7 from
 R21, R22, R23) maps to a section in `skills/scope/SKILL.md` or
 its phase references, enumerated in Solution Architecture
 below.
+
+## Solution Architecture
+
+### Overview
+
+The architecture splits into two axes mirroring the PRD's L9
+requirement tagging. **Pattern-doc-edit components** cover the
+11 pattern-level requirements (R1, R3, R9, R10, R11, R12, R13,
+R14, R17a, R18, R19) — they extend the four pattern reference
+files plus one new top-level reference. **/scope-body
+components** cover the 15 `/scope`-specific requirements (R2,
+R4, R5, R6, R7, R7.5, R8, R15, R16, R16.5, R17b, R20, R21,
+R22, R23) — they live in `skills/scope/SKILL.md` and its
+phase references. Two additional **child-side contract
+extensions** ship as `/scope` prerequisites (R23): the
+Phase-N Reject contracts on `/prd` and `/design`.
+
+A reviewer can verify L9 traceability by greping the PRD for
+`[pattern-level]` and counting 11 matches against the
+pattern-doc-edit components, then greping for `[/scope-
+specific]` and counting 15 matches against the /scope-body
+components. The 1:1 mapping is the design's reviewer-
+checkability surface.
+
+### Components
+
+The architecture has **8 components** across three categories.
+Each component lists its constituent edits, the requirements
+it covers, and its dependencies on other components.
+
+#### Component 1 — Pattern-doc edit: parent-skill-pattern.md (pattern-doc edit)
+
+**Edits two pattern-level sections:**
+
+1.1. NEW "Gate Vocabulary" section inserted between the
+existing "Three Exit Paths" (lines 78-111) and "Conditional
+Feeder Invocation Shape" (lines 113-148) sections. Lists all
+four gate shapes with one canonical-example citation per
+shape:
+
+- **EITHER-signal** — `/charter`'s `/vision` invocation
+  (PRD-charter R4) and `/scope`'s `/brief` invocation (PRD-
+  scope R4).
+- **ALWAYS** — `/charter`'s `/strategy` invocation (R6).
+- **shape-dependent** — `/charter`'s `/roadmap` invocation
+  (R7) and `/scope`'s `/design` invocation (R6).
+- **Mandatory-with-auto-skip** — `/scope`'s `/prd` invocation
+  (R5). Semantics: "The child SHALL be invoked unless its
+  durable artifact already exists in the published-Accepted
+  status at the canonical path; in that case the child is
+  recorded in `chain_skipped` and the chain proceeds to the
+  next gate." The auto-skip semantics mirror `/brief`'s
+  resume logic; the parent MUST NOT silently overwrite an
+  Accepted durable artifact.
+
+1.2. L13 amendment. The existing "Parents do not extend
+children's input surfaces" paragraph (currently inside
+the "Conditional Feeder Invocation Shape" section) is
+rewritten to permit a pattern-level suppression signal as
+the sole permitted form of parent-orchestration primitive.
+The new wording:
+
+> Parents do not extend children's input surfaces with
+> parent-specific flags or arguments. A pattern-level
+> suppression signal — defined once in the pattern-doc,
+> read by all parents, and recognized by all children
+> identically — is permitted as a parent-orchestration
+> primitive. The signal mechanism is the parent's state
+> file's `parent_orchestration:` block at the substrate-
+> defined path (`wip/<parent>_<topic>_state.md` under
+> `wip-yaml-md`); children consult it as a pattern-level
+> convention, not as a per-parent API. Extending children's
+> `$ARGUMENTS`, env-var consumption, or flag parsers is
+> forbidden.
+
+**Requirements covered:** R12 (visibility detection inherits
+unchanged from existing pattern-doc text — no edits to that
+sub-section). R13 (manual-fallback non-interference — the
+parent_orchestration: block ephemerality preserves R13:
+absent on standalone invocation, present only during in-
+chain invocation). R14 (child-isolation — explicitly
+preserved by the L13 amendment's framing). R17a (CLAUDE.md
+surfacing — pattern requirement inherited unchanged).
+
+**Dependencies:** none (foundational).
+
+**Estimated size:** ~50-60 added lines for Gate Vocabulary;
+~10 lines for L13 amendment.
+
+#### Component 2 — Pattern-doc edit: parent-skill-state-schema.md (pattern-doc edit)
+
+**Edits four spots:**
+
+2.1. Two new conditional-field bullets in the Field
+Semantics section (lines 39-68 of the existing reference):
+
+- `boundary:` — gated by `exit: re-evaluation`. Valid
+  values: `prd | design`. Discriminates which upstream
+  boundary the re-evaluation Decision Record attaches to.
+  Parents whose chain has multiple settled-upstream
+  boundaries (PRD and DESIGN in `/scope`; only STRATEGY
+  in `/charter`) SHALL set the field when the gating `exit:`
+  fires. Parents with only one boundary may omit the field
+  (it is conditional on multi-boundary chains).
+- `plan_execution_mode:` — gated by `/plan` appearing in
+  `chain_ran`. Valid values: `single-pr | multi-pr`. Records
+  the output-mode selection of a terminal child with two
+  output modes. The field is parent-specific (only `/scope`
+  has a terminal child with this property in v1).
+
+2.2. Chain-tracking paragraph addition (under the existing
+Chain-tracking sub-section):
+
+> Output-mode selection is recorded separately from
+> `chain_ran` / `chain_skipped` because the chain-tracking
+> triad captures chain membership, not output mode. Parents
+> whose terminal child has multiple output modes (e.g.,
+> `/scope`'s `/plan` with `single-pr` and `multi-pr`) add a
+> parent-specific `plan_execution_mode:` field gated by the
+> terminal child appearing in `chain_ran`.
+
+2.3. R9 Part 2 hard-finalization-check addition:
+
+> When the parent has multiple sub-shape discriminators (e.g.,
+> `/scope`'s `boundary:` + `decision_record_sub_shape:`
+> combination gating the four re-evaluation Decision Record
+> combinations), all discriminators MUST be set when the
+> gating `exit:` value fires. UNSET or out-of-enum
+> discriminator values fail R9 Part 2.
+
+2.4. R9 Part 3 hard-finalization-check addition:
+
+> Conditional fields whose triggering condition is a
+> chain-membership property (e.g., `plan_execution_mode:`
+> gated by `/plan` appearing in `chain_ran`) follow the same
+> I-5 absent-when-ungated rule as `exit:`-gated fields. The
+> field MUST be absent when its gating condition does not
+> hold; null, empty string, or placeholder values fail R9
+> Part 3.
+
+**Requirements covered:** R9 (hard-finalization check with
+new sub-shape discriminator + chain-membership-gated field
+semantics). R10 (state file schema gains two new conditional
+fields per the extension discipline).
+
+**Dependencies:** Component 1's Gate Vocabulary section
+(R10's `plan_execution_mode:` field documentation references
+the Mandatory-with-auto-skip gate's chain-skipped semantics).
+
+**Estimated size:** ~30-40 added lines.
+
+#### Component 3 — Pattern-doc edit: parent-skill-resume-ladder-template.md (pattern-doc edit)
+
+**Edits one spot:**
+
+3.1. Single paragraph appended to the Slot 5 spec (under
+"Slot 5 — status-aware re-entry"). The paragraph documents
+the refuse-and-redirect prompt shape:
+
+> Some parents' terminal artifacts have lifecycle states
+> owned by downstream skills (e.g., `/scope`'s PLAN doc has
+> an Active state owned by `/work-on` and a Done state
+> owned by `/release`). The parent's Slot 5 entries for
+> those states SHALL refuse re-entry and emit a redirect
+> prompt naming the downstream-owning skill. The redirect
+> prompt SHALL contain the literal substring
+> `redirect to /<skill-name>` (case-insensitive) and SHALL
+> NOT contain the Re-evaluate / Revise / Bail triad
+> (refuse-and-redirect is not a re-evaluation exit; the
+> downstream skill owns the artifact). When the parent's
+> chain has no downstream-owning skill (e.g., `/charter`'s
+> STRATEGY is Accepted-terminal), the parent's Slot 5
+> entries for the corresponding lifecycle states are
+> vacuous — the slot template accommodates both cases
+> without changing the 9-row meta-ladder count.
+
+**Requirements covered:** R11 (resume ladder body slot 5
+gains documented refuse-and-redirect semantics).
+
+**Dependencies:** none.
+
+**Estimated size:** ~10-12 added lines.
+
+#### Component 4 — New reference: parent-skill-worktree-discipline.md (pattern-doc edit)
+
+A new top-level reference at the pattern-reference root,
+sibling to the four existing `parent-skill-*.md` references.
+The body has the four named sections described in Decision 4:
+Trigger Condition, Three-Option Prompt, Recording "Proceed
+Anyway" Divergence, Integration with Chain-Proposal Prompt.
+A fifth Binding Notes section names per-parent bindings:
+`/scope` v1 (load-bearing), `/charter` (back-edit; binding
+notes added in `/charter`'s SKILL.md reference table),
+`/work-on` (future; binding deferred to the SE8 PR).
+
+The reference's body is parent-agnostic prose. It does NOT
+name parent-specific behaviors inline; per-parent specifics
+live in the Binding Notes section. This separation lets
+future parents add binding-notes rows without re-authoring
+the reference body.
+
+**Requirements covered:** R21 (worktree-staleness trigger
+condition + three-option prompt + state-file divergence
+recording, captured as shared infrastructure). R12
+(visibility detection — the reference cites the existing
+pattern-doc visibility rule unchanged).
+
+**Dependencies:** Component 2's state-schema extension
+discipline (the `worktree_divergences:` list is an example of
+the extension discipline applied at the operational layer).
+
+**Estimated size:** ~80-100 added lines (new file).
+
+#### Component 5 — Skill body: skills/scope/SKILL.md (/scope body)
+
+A new loadable Claude Code slash command following the seven
+pattern-level structural elements R1 names. Each structural
+element's content is `/scope`-specific:
+
+5.1. **Input Modes** section — two input modes per R2:
+empty `$ARGUMENTS` (cold start), and freeform-topic-string
+(`/scope <topic-slug>`). The section explicitly forbids
+paths to durable artifacts as input.
+
+5.2. **Execution-mode flag parsing** — `--auto` /
+`--interactive`, `--max-rounds=N` (default 5 per R16.5,
+overriding `/charter`'s default of 3).
+
+5.3. **Topic-slug constraint** — `^[a-z0-9-]+$` regex cited
+from `references/parent-skill-state-schema.md` per R3.
+
+5.4. **Workflow Phases** diagram — five phases: Phase 0
+(setup + visibility detection + slug validation per R3,
+R12), Phase 1 (discovery + chain proposal per R4, R5, R6,
+R7, R7.5), Phase 2 (child invocation loop with worktree-
+staleness check per R21 + parent_orchestration sentinel
+write per Component 1 + child invocation + structural
+file-existence check per R20 + child-snapshot capture per
+R10), Phase 3 (exit finalization per R8, R9, R15), Phase 4
+(wip cleanup).
+
+5.5. **Resume Logic** ladder — meta-ladder rows 1-4 and
+8-9 cited from the template; slot 5 filled with the 9 rows
+listed in D6; slot 6 filled with the 4 partial-child-run
+detection rows; slot 7 vacuous per D6.
+
+5.6. **Phase Execution** list — one entry per phase, each
+pointing at the corresponding phase reference file under
+`skills/scope/references/phases/`.
+
+5.7. **Reference Files** table — citing the four pattern-
+level references (parent-skill-pattern, -state-schema,
+-resume-ladder-template, -child-inspection) plus the new
+parent-skill-worktree-discipline reference, plus the five
+phase references.
+
+The body extends the seven structural elements with prose
+sections per `/scope`-specific requirement: chain-proposal
+output (R7.5 with the literal Proceed/Adjust/Bail triad),
+three exit paths semantics (R8), state file schema (R10),
+visibility detection (R12), manual-fallback non-interference
+(R13), validator pass-through (PRD Decision 10), Phase-N
+Reject in-chain integration (R23).
+
+**Requirements covered:** R1 (structural template). R2
+(input modes). R3 (slug regex citation). R4, R5, R6, R7,
+R7.5 (delegation gates). R8 (three exits). R10 (state
+schema body slot). R11 (resume ladder body slots). R12
+(visibility detection body slot). R13 (manual fallback
+body slot). R14 (child isolation body slot). R15 (artifact
+schema compliance — Decision Record + abandonment-forced
+HTML-comment marker text spec). R16 (stale-session
+threshold 7d). R16.5 (--max-rounds=5 default). R17a, R17b
+(CLAUDE.md surfacing). R18 (eval suite — pointed at from
+the reference table). R19 (team-lead operating discipline
+binding — single-agent vacuous at parent-itself layer,
+concrete at child-dispatch layer).
+
+**Dependencies:** Components 1-4 (cites all four pattern-
+doc references including the new worktree-discipline one).
+
+**Estimated size:** ~600-800 lines of SKILL.md body.
+
+#### Component 6 — Phase reference: skills/scope/references/phases/phase-1-discovery.md (/scope body)
+
+Phase 1 detailing R4/R5/R6 gate evaluation. Key sections:
+
+6.1. **Discovery prompt structure** — the prompt explicitly
+includes the framing-shift question per R4. The literal
+prompt text is documented verbatim for eval-grep checking.
+
+6.2. **R6 shape-predicate walk** — the structured checklist
+walk per Decision 2. Three predicates evaluated in order
+against the just-produced or existing PRD; per-predicate
+verdict + one-line reason. The reference includes 3-4
+worked examples per predicate (positive and negative cases).
+
+6.3. **Chain-proposal output construction** — assembles
+the per-gate verdicts into the chain-proposal output per
+R7.5. The output contains the literal substrings Proceed,
+Adjust, Bail.
+
+6.4. **Mandatory-with-auto-skip evaluation for /prd** —
+checks for Accepted PRD at canonical path; records `/prd`
+in `chain_skipped` with reason if present.
+
+**Requirements covered:** R4, R5, R6, R7, R7.5.
+
+#### Component 7 — Phase reference: skills/scope/references/phases/phase-2-chain-orchestration.md (/scope body)
+
+Phase 2 detailing the child invocation loop. Key sections:
+
+7.1. **Worktree-staleness check** — fires before each child
+invocation per R21. Executes `git fetch && git status
+--branch --short`; on divergence, surfaces three-option
+prompt and records "proceed anyway" divergences in the
+state file's `worktree_divergences:` list. Cites
+`references/parent-skill-worktree-discipline.md`.
+
+7.2. **parent_orchestration: sentinel write** — writes the
+ephemeral block to `/scope`'s state file naming the child,
+suppression flag, rationale. Cites the L13 amendment.
+
+7.3. **Child invocation** — `/scope` invokes the child via
+the child's existing input modes. R14 child-isolation
+preserved: `/scope` reads only the child's durable
+artifact's frontmatter + git blob hash.
+
+7.4. **Structural file-existence check** — fires after
+child returns per R20. PASS-with-no-artifact maps to STALE
+routed via R8's bail-handling.
+
+7.5. **parent_orchestration: cleanup** — `/scope` removes
+the entire block from the state file immediately after the
+child returns.
+
+7.6. **Child-snapshot capture** — captures the child doc's
+frontmatter `status:` + git blob hash into
+`child_snapshots.<child>` per R10.
+
+7.7. **Phase-N Reject handling** — when `/prd` or
+`/design` returns Reject (per Component 8 + R23), writes
+the rejection-sub-shape Decision Record immediately,
+referencing the discard commit SHA + rejection rationale.
+
+7.8. **Validator pass-through** — per PRD Decision 10,
+runs `shirabe validate` against each intermediate before
+invoking the next child. Failed validation halts the chain.
+
+**Requirements covered:** R7, R14, R20, R21, R22.
+
+#### Component 8 — Child-side contract extension: /prd Phase 4 + /design Phase 6 (child-side)
+
+Two child-side edits ship as `/scope` prerequisites per R23:
+
+8.1. **/prd Phase 4 step 4.5** — 2-option AskUserQuestion
+becomes 3-option (Approved / Reject / Continue-revising).
+The Reject branch asks for a rationale, runs `git rm
+docs/prds/PRD-<topic>.md`, removes `wip/prd_<topic>_*.md`,
+commits `docs(prd): discard PRD draft for <topic>` with
+the rationale in the body. The Reject verdict is observable
+from the discard commit SHA.
+
+8.2. **/design Phase 6 step 6.7** — symmetric edit. The
+3-option gate fires after `/design`'s commit step
+(preserving Draft durability across interruptions). The
+Reject branch runs `git rm
+docs/designs/DESIGN-<topic>.md`, removes
+`wip/design_<topic>_*.md` and `wip/research/design_<topic>_*.md`,
+and commits `docs(design): discard DESIGN draft for <topic>`.
+
+Both extensions function identically in-chain and out-of-
+chain per AC30c. On in-chain Reject, `/scope` writes the
+rejection-sub-shape Decision Record per Component 7.7. On
+out-of-chain Reject, the discard commit alone is the
+durable trace.
+
+**Requirements covered:** R23.
+
+### Key Interfaces
+
+The architecture has three contract interfaces between
+components.
+
+#### Interface I.1: parent_orchestration: state-file sentinel (Component 1 ↔ Component 7)
+
+Component 1's L13 amendment defines the sentinel as a
+pattern-level convention; Component 7.2 / 7.5 writes and
+clears the sentinel around each child invocation. YAML
+block shape:
+
+```yaml
+parent_orchestration:
+  invoking_child: brief | prd | design | plan
+  suppress_status_aware_prompt: true
+  rationale: fresh-chain | revise
+```
+
+The block is conditional on in-flight child invocation; it
+satisfies I-5 by absence whenever the child is not
+currently in flight.
+
+#### Interface I.2: Decision Record path schema (Component 7 ↔ /scope state file)
+
+`/scope` writes Decision Records at:
+
+```
+docs/decisions/DECISION-{prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md
+```
+
+Two boundary positions × two sub-shapes = four
+combinations. All four share the ADR-style body shape per
+R15 with frontmatter (`status: {Draft | Accepted}`,
+`decision:`, `rationale:`). Per-combination body templates
+live at `skills/scope/references/decision-record-{prd|
+design}-{re-evaluation|rejection}.md` (~50-80 lines each).
+
+#### Interface I.3: Structural file-existence verification (Component 7 ↔ child contracts)
+
+After every child invocation returns, `/scope` verifies the
+durable artifact exists at the expected canonical path
+BEFORE accepting the child's reported PASS verdict per
+R20. Expected paths:
+
+- `/brief` → `docs/briefs/BRIEF-<topic>.md`
+- `/prd` → `docs/prds/PRD-<topic>.md`
+- `/design` → `docs/designs/DESIGN-<topic>.md`
+- `/plan` → `docs/plans/PLAN-<topic>.md`
+
+PASS-with-no-artifact maps to STALE; STALE routes via R8's
+bail-handling using the most-recently-running tie-break.
+
+### Data Flow
+
+The chain runs five phases:
+
+1. **Phase 0 — Setup.** `/scope` reads `$ARGUMENTS`,
+   validates the slug, detects visibility from CLAUDE.md,
+   writes the initial state file with `topic`,
+   `chain_started`, `last_updated`, `phase_pointer: phase-0`.
+
+2. **Phase 1 — Discovery + Chain Proposal.** Walks
+   discovery prompts (Component 6), evaluates R4/R5/R6
+   gates against existing durable artifacts on disk,
+   captures initial `child_snapshots:` for each existing
+   artifact, assembles `planned_chain:`, emits the R7.5
+   chain-proposal output. Author confirms Proceed → Phase 2;
+   Adjust → re-enter Phase 1; Bail → R8 bail-handling.
+
+3. **Phase 2 — Child Invocation Loop.** For each child in
+   `planned_chain:` (skipping `chain_skipped`): worktree-
+   staleness check, write sentinel, invoke child, structural
+   file-existence check, clear sentinel, capture child-
+   snapshot, validator pass-through. On Phase-N Reject:
+   route to Component 7.7 + Phase 3. On successful
+   completion of all children: advance to Phase 3 with
+   `exit: full-run`.
+
+4. **Phase 3 — Exit Finalization.** `/scope` sets `exit:`
+   to the appropriate value, sets conditional fields per
+   the exit (boundary, decision_record_sub_shape,
+   plan_execution_mode, triggering_child, etc.) per R8 + R9
+   + R10, writes the terminal artifact (full-run: PLAN
+   already at canonical path; re-evaluation: write
+   Decision Record; abandonment-forced: force-materialize
+   the most-recently-running child's intermediate with the
+   HTML-comment marker per D7). Runs R9 hard-finalization
+   check; refuses finalization if any check fails.
+
+5. **Phase 4 — wip Cleanup.** Removes
+   `wip/scope_<topic>_state.md` and any
+   `wip/scope_<topic>_*` ancillary files. The terminal
+   artifact remains on disk.
+
+### Resume Flow
+
+The resume ladder consults: (1) the state file, (2) each
+child's durable doc frontmatter `status:` + git blob hash
+(per R10/R14), (3) each child's `wip/{child}_<topic>_*`
+partial-run artifacts (Slot 6). First-match-wins ordering
+ensures contract-violation behaviors fire before chain-
+authoring slots. Drift detection fires when EITHER the
+status OR the content-hash differs from snapshot per R10.
+
+### Diagram
+
+```mermaid
+flowchart TD
+    Invoke([/scope topic-slug]) --> P0[Phase 0: Setup]
+    P0 --> P1[Phase 1: Discovery + Chain Proposal]
+    P1 -->|Proceed| P2[Phase 2: Child Invocation Loop]
+    P1 -->|Adjust| P1
+    P1 -->|Bail| Bail[R8 bail-handling]
+    P2 --> WSC{Worktree<br/>stale?}
+    WSC -->|Yes| WSCP[Rebase /<br/>Proceed anyway /<br/>Bail]
+    WSCP --> P2
+    WSC -->|No| Write[Write parent_orchestration]
+    Write --> Child[Invoke child]
+    Child --> FE{Artifact<br/>exists?}
+    FE -->|No| Stale[STALE → R8]
+    Stale --> Bail
+    FE -->|Yes| Clear[Clear parent_orchestration]
+    Clear --> Snap[Capture child snapshot]
+    Snap --> Val{shirabe validate}
+    Val -->|Fail| Bail
+    Val -->|Pass + more children| P2
+    Val -->|Pass + last child| P3[Phase 3: Exit Finalization full-run]
+    Child -->|Phase-N Reject| Rejection[Write rejection Decision Record]
+    Rejection --> P3R[Phase 3: re-evaluation rejection]
+    Bail --> P3B[Phase 3: abandonment-forced]
+    P3 --> P4[Phase 4: wip cleanup]
+    P3R --> P4
+    P3B --> P4
+    P4 --> ExitNode([Exit])
+```
+
+The diagram covers the happy path (full-run), the
+re-evaluation rejection path (via Phase-N Reject), and the
+abandonment-forced path (via worktree-staleness Bail,
+structural-file-existence STALE, or validator failure
+routing through R8 bail-handling).
+
+## Implementation Approach
+
+The implementation lands in four phases sequenced to
+minimize cross-phase dependencies.
+
+### Phase A: Pattern-doc edits and new top-level reference
+
+Ship Components 1, 2, 3, 4 in one PR. These edits stand
+alone — `/scope` consumes them but `/charter` and any
+future parent skills also consume them.
+
+Deliverables:
+- `references/parent-skill-pattern.md` — new Gate Vocabulary
+  section + L13 amendment (Component 1).
+- `references/parent-skill-state-schema.md` — two new
+  conditional-field bullets + Chain-tracking paragraph + R9
+  Part 2 and Part 3 additions (Component 2).
+- `references/parent-skill-resume-ladder-template.md` —
+  single Slot 5 paragraph addition (Component 3).
+- `references/parent-skill-worktree-discipline.md` — new
+  reference file with five sections (Component 4).
+
+### Phase B: Child-side contract extensions
+
+Ship Component 8 (Phase-N Reject contracts on `/prd` and
+`/design`) in two PRs (one per child) BEFORE the `/scope`
+body lands. Each PR adds eval scenarios covering Approve /
+Reject / Continue-revising outcomes; in-chain and out-of-
+chain Reject behaviors are covered separately per AC30c.
+
+Deliverables:
+- `skills/prd/SKILL.md` + the relevant phase reference —
+  3-option gate per 8.1.
+- `skills/design/SKILL.md` + the relevant phase reference —
+  3-option gate per 8.2.
+
+### Phase C: /scope skill body + phase references + evals
+
+Ship Components 5, 6, 7 plus the eval suite in one PR.
+
+Deliverables:
+- `skills/scope/SKILL.md` — Component 5.
+- `skills/scope/references/phases/phase-0-setup.md` through
+  `phase-4-cleanup.md` — Components 6 and 7 plus the other
+  three phase references.
+- `skills/scope/references/decision-record-{prd|design}-
+  {re-evaluation|rejection}.md` — four small body templates
+  for the four Decision Record combinations.
+- `skills/scope/evals/evals.json` — six scenarios covering
+  US-1 through US-6.
+- Workspace + shirabe `CLAUDE.md` edits — `/scope` entry
+  triggers and the "Tactical Chain Entry: /scope" section.
+
+### Phase D: /charter back-edit (optional same-PR or follow-up)
+
+Ship `/charter`'s reference-table additions and the
+`--parent-orchestrated` flag migration to the new
+`parent_orchestration:` sentinel.
+
+Deliverables:
+- `skills/charter/SKILL.md` — reference-table citations for
+  the new worktree-discipline reference and Gate Vocabulary.
+- `skills/charter/references/phases/phase-resume.md` —
+  replaces existing `--parent-orchestrated` flag
+  documentation with a pointer to the pattern-level
+  `parent_orchestration:` sentinel.
+
+### Sequencing rationale
+
+Phase A first because Components 5-7 cite the pattern-doc
+edits. Phase B before Phase C because Component 7.7
+references the child-side discard-commit observability
+that Component 8 ships. Phase C ships as one PR because
+its components are internally coupled. Phase D is optional
+same-PR-or-follow-up.
+
+## Security Considerations
+
+(Placeholder — Phase 5 security review to populate per the
+mandatory security-considerations content. The design
+produces markdown files, slash-command behaviors, and
+documentation; the primary security dimensions to review
+are: command injection risk in shell commands the skill
+emits (`git fetch`, `git rebase`, `git rm`, `git commit`,
+`shirabe validate`), filesystem-write boundaries (the skill
+writes to `docs/decisions/`, `docs/plans/`, and
+`wip/scope_<topic>_*`), state-file race conditions in the
+`parent_orchestration:` sentinel block under concurrent
+chain invocations against different topics, and visibility-
+boundary leaks from the pattern-doc edits into private
+content sources. Phase 5's mandatory review pass produces
+the final Security Considerations content.)
+
+## Consequences
+
+### Positive
+
+- **Pattern contract symmetry preserved across both parent
+  skills.** The three asymmetries the tactical chain
+  exposes all land inside the pattern's existing extension
+  points; no semantic invariant gets re-litigated.
+- **L9 traceability is mechanical.** A reviewer can grep
+  PRD for `[pattern-level]` and verify 11 matches against
+  Components 1-4; grep for `[/scope-specific]` and verify
+  15 matches against Components 5-7. The 1:1 mapping is the
+  design's reviewer-checkability surface.
+- **/charter's `--parent-orchestrated` exception is
+  rationalized.** The L13 amendment formalizes what
+  `/charter` was doing informally; the pattern doc stops
+  carrying an undocumented L13 exception.
+- **Worktree-discipline becomes shared infrastructure.**
+  `/work-on` (SE8) inherits the discipline without
+  re-deriving it.
+- **Eval surface is grep-checkable.** R7.5's chain-proposal
+  output, R8's exit-path enums, R15's Decision Record
+  literals, R7's `plan_execution_mode:` field, and D6's
+  resume-ladder vocabulary contract all contain literal
+  substrings the eval scenarios match.
+
+### Negative
+
+- **Pattern doc grows three new sections plus one
+  amendment.** Reviewers must absorb three new pattern-
+  level structures (Gate Vocabulary, parent_orchestration:
+  sentinel, refuse-and-redirect slot template) in one PR.
+- **Four shirabe children need per-child PRs to adopt the
+  parent_orchestration: sentinel.** Until each child
+  adopts, `/scope` may surface duplicate prompts on Draft
+  re-entry. The worst case is the status quo (the prompt
+  hijacks `/scope`'s flow), not a regression.
+- **Worktree-staleness check adds `git fetch` overhead.**
+  Four `git fetch` calls per full-run chain. On slow
+  networks the latency is noticeable.
+- **R6 shape-predicate walk depends on agent judgment for
+  P1 and P2.** False negatives cost re-work; false
+  positives cost time. The worked-examples discipline
+  mitigates but does not eliminate.
+- **Phase-N Reject contract extensions are substantial
+  work for two child skills.** Each child gains a new gate
+  option plus `git rm` + cleanup + commit logic. Each
+  child's existing evals should run against the new
+  contract before merge.
+- **State file is branch-coupled in v1.** Per PRD Known
+  Limitations, resume across branches is not supported.
+  The constraint bites harder for `/scope` than `/charter`
+  because `/plan`'s `multi-pr` mode creates downstream
+  feature branches.
+
+### Mitigations
+
+- **Pattern-doc edit review burden** — each edit's exact
+  location (file + line range) is named in Component 1-4;
+  D8's "Why NOT" sub-sections surface alternative
+  placements explicitly so reviewers can challenge them.
+- **Per-child sentinel adoption migration** — each PR is
+  small (~5-15 lines per child's Phase 0 logic) and
+  independently mergeable. The worst case before adoption
+  is the status quo.
+- **Worktree-staleness latency** — the trigger is bounded
+  to four times per full-run chain; on slow networks,
+  authors can override via Proceed-anyway.
+- **R6 shape-predicate interpretive drift** — Component 6
+  ships with 3-4 worked examples per predicate; the chain-
+  proposal output includes per-predicate reasons so authors
+  can challenge the verdict before any child fires.
+- **Phase-N Reject contract test surface** — each child's
+  PR adds eval scenarios covering Approve / Reject /
+  Continue-revising; in-chain and out-of-chain Reject
+  behaviors covered separately per AC30c.
+- **Branch-coupled state** — flagged for the amplifier-
+  layer migration's mandate (closing I-6); not addressed
+  in v1.
