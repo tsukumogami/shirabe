@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Done
 problem: |
   shirabe's tactical chain runs roadmap to PRD to design to plan, but
   has no codified artifact between feature sequencing and requirements.
@@ -27,7 +27,7 @@ upstream: docs/briefs/BRIEF-shirabe-brief-skill.md
 
 ## Status
 
-Draft
+Done
 
 This PRD picks up the requirements work scoped by
 `docs/briefs/BRIEF-shirabe-brief-skill.md`. It owns the artifact-format

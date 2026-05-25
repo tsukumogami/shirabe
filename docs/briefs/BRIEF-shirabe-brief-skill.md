@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Done
 problem: |
   shirabe's tactical chain runs roadmap to PRD to design to plan, but
   has no codified artifact between feature sequencing and requirements.
@@ -22,7 +22,7 @@ outcome: |
 
 ## Status
 
-Draft
+Done
 
 The brief intentionally stops before requirements articulation.
 The follow-on PRD (`PRD-shirabe-brief-skill.md`) owns the format-spec
