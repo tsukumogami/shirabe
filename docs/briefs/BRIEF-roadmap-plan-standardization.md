@@ -6,9 +6,10 @@ problem: |
   The issues table has four drifting schemas, the dependency diagram has
   a canonical spec docs apply inconsistently, the roadmap has no native
   path to its own issues table, the single-pr/multi-pr decision is buried
-  and not anchored on usable value (the plan workflow even forces multiple
-  PRs on roadmap input), and validation checks section presence but never
-  table or diagram contents.
+  and not anchored on usable value, the document lifecycle is inconsistent
+  and unenforced (no review gate before issues are created, no clean
+  terminal), and validation checks section presence but never table or
+  diagram contents.
 outcome: |
   Skill authors get standardized, principle-driven roadmap and plan
   workflows: the issues table and dependency diagram are defined once and
@@ -45,7 +46,7 @@ same spec-driven validator. The trouble isn't that the two workflows are
 unrelated. It's that the shared parts were never named as shared, and the
 conventions that should hold them together have drifted.
 
-Five gaps make the drift concrete.
+Six gaps make the drift concrete.
 
 - **The issues table has four schemas in active use.** The plan workflow
   keys its table on issues; the roadmap keys its reserved table on
@@ -75,12 +76,15 @@ Five gaps make the drift concrete.
   loaded reference, never appears on the skill surface, and sits tangled
   with a separate decision about how to slice the work. It also misses the
   thing that should drive the call: whether each PR lands usable value.
-  The plan workflow forces multiple PRs whenever its input is a roadmap,
-  splitting by mechanism rather than by value. And the same blind spot
-  reaches the roadmap, which can sequence features by technical building
-  block and ignore the value each feature delivers. The tangle and the
-  missing value-orientation are the likely causes of authors landing the
-  wrong call.
+  When the input is a roadmap the plan workflow goes multi-pr, which is the
+  right outcome — every roadmap feature should be an increment of
+  observable value — but it reaches that outcome by mechanism (the input
+  is a roadmap) rather than by the walking-skeleton value principle, and
+  nothing confirms the breakdown actually delivers incremental value. The
+  same blind spot lets a roadmap sequence features by technical building
+  block instead of by the value each delivers. The tangle and the missing
+  value-orientation are the likely causes of authors landing the wrong
+  call.
 
 - **Validation checks presence, never contents.** The validator confirms
   that required sections exist, that frontmatter fields are present, and
@@ -89,7 +93,15 @@ Five gaps make the drift concrete.
   malformed table, a table and diagram that disagree, or a dangling
   cross-reference passes validation as long as the headings are there.
 
-Underneath all five is the same root: the workflows are specified as
+- **The lifecycle is inconsistent and unenforced.** The states exist
+  (Draft, Active, Done) but the transitions carry no discipline: a multi-pr
+  plan or roadmap can create GitHub issues with no review gate, there is no
+  clean signal that a completed doc has been verified and can be retired,
+  and nothing in CI holds a doc to the state its mode requires. A plan that
+  should have been ephemeral lingers; a roadmap merges before it is ready;
+  issues get created before anyone approved them.
+
+Underneath all six is the same root: the workflows are specified as
 procedures with local rationale or none, and the few real principles that
 do exist are each trapped in one skill and never generalized. An author
 follows the steps without the reasons, so when a step doesn't fit their
@@ -113,12 +125,16 @@ carries two profiles rather than collapsing into one.
 When the author reaches the single-pr/multi-pr decision, the principle is
 in front of them on the skill surface: every PR should land usable value,
 so default to one PR and split only when a hard constraint forces it or
-when each PR is independently useful. The rule is stated as that default
-with its named escape conditions, separated from the unrelated slicing
-decision it used to be tangled with, and the plan workflow no longer
-forces multiple PRs just because the input is a roadmap. The same
-value-orientation reaches the roadmap author, who sequences features by
-the value each delivers rather than by technical building block. The
+when the work is a walking skeleton whose PRs are each independently
+useful. The rule is stated as that default with its named escape
+conditions, separated from the unrelated slicing decision it used to be
+tangled with. A roadmap is always multi-pr — every roadmap feature is an
+increment of observable value, so a roadmap is a walking skeleton by
+construction — and that outcome is now grounded in the value principle
+rather than reached by mechanism. Where the breakdown is a walking
+skeleton (always for a roadmap, and for a plan whenever its multi-pr
+rationale is incremental value rather than a hard landing constraint), a
+step confirms the breakdown actually delivers incremental value. The
 author lands the right call because the reasoning is visible at the point
 of decision, not buried in a reference they would have to know to load.
 
@@ -131,6 +147,15 @@ cross-reference to an issue that isn't in the table — validation catches
 it, in local checks and in the same review surface where the rest of the
 format spec is already enforced.
 
+The document lifecycle carries discipline too. A multi-pr plan or roadmap
+finishes its draft and stops for the author's approval before any GitHub
+issue is created — creating the issues is the act of approving, the move
+to Active, not a silent side effect. A completed doc rests at Done until
+the author has reviewed the delivered work; verifying it retires the doc
+rather than leaving it to linger. CI holds each doc to the state its mode
+requires, so a doc can't merge in the wrong state and a finished one
+doesn't outlive its purpose.
+
 Behind each of these is the same shift: the workflows derive from a small
 set of stated principles instead of restating procedure. An author who
 hits a case the steps don't cover has the reasons to fall back on, so the
@@ -139,7 +164,7 @@ path.
 
 ## User Journeys
 
-Four journeys exercise the standardization from different entry points.
+Five journeys exercise the standardization from different entry points.
 Each names the user, the trigger, and the outcome shape.
 
 ### Journey 1: Roadmap author populating the issues table
@@ -205,6 +230,22 @@ author's luck in which example they copied.
 This journey validates that defining the formats once, in a shared place
 both workflows consume, ends the per-document reinvention.
 
+### Journey 5: Author moving a doc through its lifecycle
+
+A plan author finishes decomposing a multi-pr plan. Instead of the
+workflow filing GitHub issues immediately, the draft stops for the
+author's review; the author approves, and that approval — the move to
+Active — is what creates the issues. The author would not have wanted
+issues filed before they signed off, and now they aren't. Later, when the
+work the plan tracked is complete, the doc rests at Done until the author
+reviews the delivered result; the author verifies it, and the doc is
+retired rather than left behind. A single-pr plan never reaches that point
+on the main branch at all — it lives only on its own PR and is gone before
+that PR merges.
+
+This journey validates that the lifecycle gates issue creation on approval
+and gives a completed doc a clean, enforced end.
+
 ## Scope Boundary
 
 This brief, and the downstream PRD it points at, cover standardizing the
@@ -233,11 +274,24 @@ The scope holds the following inside:
   diagram, and cross-reference existence.
 - **The decision-surfacing fixes.** Encoding the usable-value principle
   into both the plan and roadmap workflows: lifting the single-pr/multi-pr
-  decision to the skill surface, anchoring it on usable value, decoupling
-  it from the work-slicing decision, and removing the plan workflow's
-  forced-multi-pr behavior on roadmap input so the split follows value
-  rather than mechanism. Plus giving the roadmap a first-class path to its
-  issues table in place of the brittle string surgery in the plan re-entry.
+  decision to the skill surface, anchoring it on usable value, and
+  decoupling it from the work-slicing decision. A roadmap stays
+  multi-pr — every roadmap is a walking skeleton — but that outcome is
+  re-grounded in the value principle rather than reached by mechanism, and
+  a step (always for a roadmap, and for a plan when its multi-pr rationale
+  is incremental value rather than a hard landing constraint) confirms the
+  breakdown delivers incremental value. Plus giving the roadmap a
+  first-class path to its issues table in place of the brittle string
+  surgery in the plan re-entry.
+- **An enforced document lifecycle.** A shared lifecycle for plan and
+  roadmap docs: a multi-pr doc finishes its draft and stops for approval
+  before issues are created, with approval being the move to Active; a
+  completed doc rests at Done until the author verifies the delivered work,
+  and verification retires the doc; and CI enforces the states — a multi-pr
+  doc may only merge in Active, a completed one is expected to be deleted,
+  and a single-pr plan is ephemeral, living only on its PR branch and
+  removed before that PR merges. The exact transitions, the virtual
+  VERIFIED state, and the CI checks are the downstream design's.
 
 The scope explicitly excludes:
 
@@ -278,6 +332,13 @@ These surface for the downstream PRD to resolve. None block this brief.
    profiles, but the exact split between shared and profile-specific
    structure is undecided. The PRD names the shared core and the
    per-profile additions.
+
+4. **How the lifecycle is enforced without overreach.** The lifecycle
+   adds a review gate before issue creation, a verified-then-deleted
+   terminal, and CI checks on document state. How strict the CI
+   enforcement is at first, and how the virtual VERIFIED transition is
+   realized (a transition that deletes versus a separate cleanup step),
+   are calls the PRD and design settle.
 
 ## Downstream Artifacts
 
