@@ -112,6 +112,20 @@ var Formats = map[string]FormatSpec{
 			"Downstream Artifacts",
 		},
 	},
+	"brief/v1": {
+		Name:          "Brief",
+		Prefix:        "BRIEF-",
+		SchemaVersion: "brief/v1",
+		RequiredFields: []string{"status", "problem", "outcome"},
+		ValidStatuses:  []string{"Draft", "Accepted", "Done"},
+		RequiredSections: []string{
+			"Status",
+			"Problem Statement",
+			"User Outcome",
+			"User Journeys",
+			"Scope Boundary",
+		},
+	},
 }
 
 // DetectFormat returns the FormatSpec whose Prefix matches the start of basename.

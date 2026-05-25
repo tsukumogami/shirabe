@@ -35,6 +35,7 @@ When a user isn't sure what to build, use this table to recommend a starting poi
 | "I want to build X but don't know where to start" | `/explore <topic>` | Open-ended; the right artifact type isn't clear yet |
 | "Should I write a PRD or design doc?" | Read the decision table below | Match signals to the situation |
 | "I know what to build, not how" | `/design <topic>` | What-to-build is settled, how-to-build is the question |
+| "I have a feature named but haven't framed its problem and scope yet" | `/brief <topic>` | Frames a feature's problem, outcome, journeys, and scope before requirements; the step between roadmap and PRD |
 | "I know what we need but haven't written it down" | `/prd <topic>` | Requirements need to be captured and agreed on |
 | "I have a design doc, need to break it into issues" | `/plan <design-doc-path>` | Decomposition of an existing artifact |
 | "This is simple, just do it" | `/work-on <issue>` | No artifact needed, go straight to implementation |

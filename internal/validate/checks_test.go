@@ -550,6 +550,97 @@ func TestCheckStrategyPublic(t *testing.T) {
 	})
 }
 
+// --- brief/v1 ---
+
+var briefSpec = Formats["brief/v1"]
+
+func TestDetectFormatBrief(t *testing.T) {
+	spec, ok := DetectFormat("BRIEF-shirabe-foo.md")
+	if !ok {
+		t.Fatal("expected BRIEF- prefix to match a format")
+	}
+	if spec.Name != "Brief" {
+		t.Errorf("name: got %q, want %q", spec.Name, "Brief")
+	}
+	if spec.SchemaVersion != "brief/v1" {
+		t.Errorf("schema: got %q, want %q", spec.SchemaVersion, "brief/v1")
+	}
+}
+
+func TestBriefValidation(t *testing.T) {
+	cfg := Config{Visibility: "public"}
+
+	briefFields := func(status string) map[string]FieldValue {
+		return map[string]FieldValue{
+			"status":  {Value: status, Line: 2},
+			"problem": {Value: "a problem", Line: 3},
+			"outcome": {Value: "an outcome", Line: 4},
+		}
+	}
+	briefSections := func(omit string) []Section {
+		var s []Section
+		for i, name := range briefSpec.RequiredSections {
+			if name == omit {
+				continue
+			}
+			s = append(s, Section{Name: name, Line: i + 1})
+		}
+		return s
+	}
+	briefBody := func(status string) []string {
+		return []string{"## Status", "", status}
+	}
+
+	t.Run("well-formed brief passes through ValidateFile", func(t *testing.T) {
+		doc := makeDoc("brief/v1", "Draft", briefFields("Draft"), briefSections(""), briefBody("Draft"))
+		errs := ValidateFile(doc, briefSpec, cfg)
+		if len(errs) != 0 {
+			t.Errorf("expected no errors for well-formed brief, got %v", errs)
+		}
+	})
+
+	t.Run("missing required section returns FC04 naming it", func(t *testing.T) {
+		doc := makeDoc("brief/v1", "Draft", briefFields("Draft"), briefSections("User Journeys"), briefBody("Draft"))
+		errs := checkFC04(doc, briefSpec)
+		if len(errs) != 1 {
+			t.Fatalf("expected 1 FC04 error, got %d: %v", len(errs), errs)
+		}
+		if errs[0].Code != "FC04" {
+			t.Errorf("code: got %q, want %q", errs[0].Code, "FC04")
+		}
+		if !strings.Contains(errs[0].Message, "User Journeys") {
+			t.Errorf("message should name the missing section, got %q", errs[0].Message)
+		}
+	})
+
+	t.Run("invalid status returns FC02 listing valid statuses", func(t *testing.T) {
+		doc := makeDoc("brief/v1", "Published", briefFields("Published"), briefSections(""), briefBody("Published"))
+		errs := checkFC02(doc, briefSpec, cfg)
+		if len(errs) != 1 {
+			t.Fatalf("expected 1 FC02 error, got %d: %v", len(errs), errs)
+		}
+		if errs[0].Code != "FC02" {
+			t.Errorf("code: got %q, want %q", errs[0].Code, "FC02")
+		}
+		for _, valid := range []string{"Draft", "Accepted", "Done"} {
+			if !strings.Contains(errs[0].Message, valid) {
+				t.Errorf("message should list valid status %q, got %q", valid, errs[0].Message)
+			}
+		}
+	})
+
+	t.Run("no Brief-specific check runs in ValidateFile", func(t *testing.T) {
+		// BRIEF has no visibility-gated section and no custom check, so a section
+		// that would be prohibited for a strategy doc must not trigger any error.
+		sections := append(briefSections(""), Section{Name: "Competitive Considerations", Line: 99})
+		doc := makeDoc("brief/v1", "Draft", briefFields("Draft"), sections, briefBody("Draft"))
+		errs := ValidateFile(doc, briefSpec, cfg)
+		if len(errs) != 0 {
+			t.Errorf("expected no errors (no custom check for Brief), got %v", errs)
+		}
+	})
+}
+
 // --- IsNotice ---
 
 func TestIsNotice(t *testing.T) {

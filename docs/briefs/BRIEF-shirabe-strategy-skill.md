@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Done
 problem: |
   shirabe ships VISION, ROADMAP, PRD, DESIGN, and PLAN as first-class
   artifact types with format specs and validation, but has no artifact
@@ -22,7 +22,9 @@ outcome: |
 
 ## Status
 
-Draft. Authored ahead of the `/brief` skill landing as a structural
+Done
+
+Authored ahead of the `/brief` skill landing as a structural
 sample for that skill.
 
 The brief intentionally stops before requirements articulation. The
