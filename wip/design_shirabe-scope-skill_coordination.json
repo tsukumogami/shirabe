@@ -1,0 +1,83 @@
+{
+  "topic": "shirabe-scope-skill",
+  "decisions": [
+    {
+      "id": 1,
+      "question": "Phase-N Reject contract placement on /prd (Phase 4) and /design (Phase 6) — gate insertion vs replacement, ordering against existing finalization prompts, /design's gate ordering vs the docs/designs/ → docs/designs/current/ directory move",
+      "status": "pending",
+      "complexity": "critical",
+      "prd_source": "Questions Deferred to Design Q1; R23; AC30a/AC30b/AC30c",
+      "report_path": "wip/design_shirabe-scope-skill_decision_1_report.md"
+    },
+    {
+      "id": 2,
+      "question": "R6 shape-predicate evaluation mechanism — how /scope Phase 1 evaluates the three shape predicates (2+ architectural requirements, references new components, Complex classification) against the just-produced or existing PRD: checklist walk during discovery, structured prompt to the agent, or delegation to a sub-decision skill",
+      "status": "pending",
+      "complexity": "standard",
+      "prd_source": "Questions Deferred to Design Q2; R6; AC7/AC7b",
+      "report_path": "wip/design_shirabe-scope-skill_decision_2_report.md"
+    },
+    {
+      "id": 3,
+      "question": "Parent-to-child signaling mechanism — how /scope tells the child to suppress its own status-aware re-entry prompt on Draft re-entry (across /brief, /prd, /design, /plan). Options: environment variable, argument passthrough, state-file sentinel, topic-slug-only with child's own resume logic, or refuse-and-restart pattern",
+      "status": "pending",
+      "complexity": "critical",
+      "prd_source": "Questions Deferred to Design Q3 (PLAN-status-aware signaling generalized to all four children); R11 last paragraph; R14 child-isolation rule",
+      "report_path": "wip/design_shirabe-scope-skill_decision_3_report.md"
+    },
+    {
+      "id": 4,
+      "question": "Worktree-discipline reference content — the detailed prose for references/parent-skill-worktree-discipline.md: rebase mechanics, 'proceed anyway' state-file recording semantics, integration with the chain-proposal prompt vs Phase 2 child invocation",
+      "status": "pending",
+      "complexity": "standard",
+      "prd_source": "Questions Deferred to Design Q4; R21; AC28/AC28b",
+      "report_path": "wip/design_shirabe-scope-skill_decision_4_report.md"
+    },
+    {
+      "id": 5,
+      "question": "Cross-boundary state-snapshot semantics on Decision Record write — when /scope writes a re-evaluation Decision Record, does child_snapshots (the per-child status + content-hash dual-check block) advance to record the Decision Record path or stay frozen on the referenced upstream artifact? Has implications for drift detection on subsequent /scope resumes",
+      "status": "pending",
+      "complexity": "standard",
+      "prd_source": "Questions Deferred to Design Q5; R10 child_snapshots; R11 drift detection",
+      "report_path": "wip/design_shirabe-scope-skill_decision_5_report.md"
+    },
+    {
+      "id": 6,
+      "question": "Resume-ladder body-slot fills (Slots 5/6/7) for /scope — specific row ordering and prompt vocabulary for the parent-specific body slots: status-aware re-entry across PRD-boundary vs DESIGN-boundary vs PLAN-Draft (with AC17b's DESIGN-above-PRD ordering rule), partial-child-run detection ordering across four children, feeder-doc-detected slot (vacuous in v1 — no feeder per Out-of-Scope #7)",
+      "status": "pending",
+      "complexity": "critical",
+      "prd_source": "R11 resume ladder; AC15-AC18b; AC25",
+      "report_path": "wip/design_shirabe-scope-skill_decision_6_report.md"
+    },
+    {
+      "id": 7,
+      "question": "Abandonment-forced HTML-comment marker schema — per-artifact-type prose tailored to each child's existing Status section vs a uniform marker; exact marker shape (the literal HTML-comment text); what metadata the marker carries beyond the abandonment flag (triggering_child? partial_phase_reached? timestamp?)",
+      "status": "pending",
+      "complexity": "standard",
+      "prd_source": "R15 third bullet; AC13/AC23",
+      "report_path": "wip/design_shirabe-scope-skill_decision_7_report.md"
+    },
+    {
+      "id": 8,
+      "question": "Pattern-doc edit surface for the fourth gate type and state-schema extensions — where in references/parent-skill-pattern.md the Mandatory-with-auto-skip entry lands (alongside the existing gate vocabulary or in a new subsection); how boundary: and plan_execution_mode: extend references/parent-skill-state-schema.md while staying I-5-conditional; how references/parent-skill-resume-ladder-template.md gains the refuse-and-redirect meta-ladder rows for PLAN-Active (→ /work-on) and PLAN-Done (→ /release)",
+      "status": "pending",
+      "complexity": "critical",
+      "prd_source": "R1/R3/R9/R10/R11/R12/R13/R14/R17a/R18/R19 all pattern-level; Decisions 1/3/4/6 in PRD; Downstream Artifacts section",
+      "report_path": "wip/design_shirabe-scope-skill_decision_8_report.md"
+    }
+  ],
+  "cross_validation": "pending",
+  "round": 0,
+  "meta": {
+    "scaling_heuristic_applied": true,
+    "decision_count": 8,
+    "scaling_heuristic_band": "8-9 → present split proposal, require confirmation",
+    "decision_to_proceed_as_one_doc": "This is a single coherent feature design; splitting would multiply cross-doc coupling beyond what eight decisions create within one doc. Confirmation requested from team-lead.",
+    "couplings_already_merged": [
+      "Original D1 (/prd Phase-N Reject) + D2 (/design Phase-N Reject) merged into D1 (they share most dimensions; both children grow the same contract surface).",
+      "Original D4 (PLAN-status-aware signaling) + D10 (general child-signal mechanism) merged into D3 (the suppression mechanism generalizes across all four children).",
+      "Original D9 (validator pass-through cadence) dropped — settled by PRD Decision 10 (strict pass-through at each boundary).",
+      "Original D7 (PRD-vs-DESIGN ordering when both exist) folded into D6 (it is a slot-5 row-ordering detail of the resume ladder)."
+    ]
+  }
+}
