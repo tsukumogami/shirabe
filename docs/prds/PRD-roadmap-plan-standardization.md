@@ -159,9 +159,11 @@ call are not surfaced where the call gets made.
    replacing the brittle in-prose string surgery of the plan re-entry.
 
 7. **Install one enforced lifecycle with a single terminal.** Gate issue
-   creation on approval, rest at Active, reach Done, and retire by
-   verified deletion — with two stateless CI checks holding docs to the
-   states CI can observe.
+   creation on approval (unless running under `--auto`, where the gate
+   records and proceeds), rest at Active while the work lands, and retire
+   by verify-then-delete — the work-completing PR marks the doc Done and
+   deletes it atomically, so Done never reaches main — with two stateless
+   CI checks holding docs to the states CI can observe.
 
 ## User Stories
 
@@ -190,9 +192,10 @@ produce a document that conforms by construction.
 **As an author moving a multi-pr doc through its lifecycle**, I want the
 draft to stop for my approval before any GitHub issue is created — with
 approval being the act that creates the issues and moves the doc to
-Active — and I want a completed doc to retire by verified deletion, so
-that issues are never filed before I sign off and a finished doc gets a
-clean end.
+Active — and I want the PR that completes the work to be the one where I
+verify the result and delete the doc, so that issues are never filed
+before I sign off and the finished doc gets a clean end with a forced
+final review.
 
 **As an author of an ephemeral single-pr plan**, I want CI to be red
 while the plan file is present and green once I delete it, so that the
@@ -200,10 +203,10 @@ plan never reaches main and "gone before merge" is enforced without CI
 having to know which commit is the merge.
 
 **As a maintainer running `/roadmap` or `/plan` under `--auto`**, I want
-the value-confirmation step to record its judgment and continue rather
-than deadlock waiting for a human who is not there, while still
-surfacing a failed judgment prominently, so that batch and CI invocations
-keep their non-interactive guarantee.
+the value-confirmation step and the issue-creation approval gate to each
+record their judgment and continue rather than deadlock waiting for a
+human who is not there, while still surfacing those judgments prominently,
+so that batch and CI invocations keep their non-interactive guarantee.
 
 ## Requirements
 
@@ -354,7 +357,10 @@ path that populates its own issues table, keyed on features at the
 roadmap's altitude, without re-driving the plan workflow against the
 document and without depending on in-prose string surgery. The path is
 native to the roadmap, mirroring how the plan workflow populates its own
-table with a script rather than prose edits.
+table with a script rather than prose edits. When this path creates
+GitHub issues, that creation is itself subject to the R14 approval gate
+and its `--auto` record-and-proceed behavior — the scripted path does not
+bypass the gate.
 
 **R14: Enforced lifecycle — issue creation gated on approval.** A
 multi-pr plan or roadmap finishes its draft and stops for the author's
@@ -362,13 +368,25 @@ approval before any GitHub issue is created. Approval is the act that
 creates the issues and moves the doc to Active; issue creation is no
 longer a silent side effect of finishing the draft.
 
-**R15: One terminal — verify-then-delete.** A multi-pr plan or roadmap
-rests at Active while the work lands, reaches Done when the work is
-complete, and is retired by deletion once the author verifies the
-delivered work. This is the single terminal for both plans and roadmaps,
-a deliberate change for roadmaps (which are kept forever today) and a
-unification of the plan's self-contradicting terminal. The stale
-move-to-`docs/plans/done/` archive wording is retired.
+Under `--auto`, the approval gate does not hard-stop. Mirroring the
+value-confirmation guard (R12), it records an `assumed` approval decision
+block per the existing `decision-protocol.md` at `high` review priority
+(surfaced in the terminal summary and the PR body), then proceeds to
+create the issues and move the doc to Active. The interactive stop is the
+default; it applies "unless running under `--auto`."
+
+**R15: One terminal — verify-then-delete, Done is ephemeral.** A multi-pr
+plan or roadmap lives at Active across however many PRs the work takes.
+The single PR that completes the work transitions the doc Active -> Done;
+in that same PR the author verifies the delivered work and deletes the
+doc — the transition, the verification, and the deletion land atomically
+in one PR, which can only merge with the deletion included. Done is the
+transient marker inside that verify-delete PR; it never reaches main. The
+verify-delete PR is the forcing function for the author's final review of
+the delivered work. This is the single terminal for both plans and
+roadmaps — a deliberate change for roadmaps (which are kept forever
+today) and a unification of the plan's self-contradicting terminal — and
+it retires the stale move-to-`docs/plans/done/` archive wording.
 
 **R16: Single-pr plan is ephemeral.** A single-pr plan lives only on its
 own PR branch and is verified and deleted before that PR merges, so it
@@ -378,16 +396,18 @@ never reaches main.
 checks run as a **whole-tree scan on the PR**, alongside (not replacing)
 the existing changed-files doc-validator:
 
-- **Check A — multi-pr may only merge at Active or Done.** The scan reads
-  the frontmatter status of every roadmap and multi-pr plan in the
-  checked-out tree and fails if any is present with a status that is
-  neither `Active` nor `Done`. `Active` is the state a multi-pr doc merges
-  in while the work lands; `Done` is an accepted-at-merge status because a
-  completed doc sits in the tree until its permitted human deletion (R15,
-  R18) — Check A must not fail a Done doc awaiting that deletion. The check
-  bars merging a multi-pr doc still in Draft (issues not yet created, no
-  approval). A whole-tree scan is required because a changed-files diff
-  cannot see a doc the PR does not touch.
+- **Check A — a present multi-pr doc must be Active.** The scan reads the
+  frontmatter status of every roadmap and multi-pr plan in the checked-out
+  tree and fails if any is present with a status other than `Active`. A
+  present Draft fails (issues not yet created, no approval). A present
+  `Done` fails too: Done must coincide with the doc's deletion in the same
+  PR (R15), so a present Done means the author marked the work complete but
+  did not delete the doc — Check A failing on that state is the forcing
+  function that drives the deletion into the verify-delete PR. At merge a
+  multi-pr doc is therefore either present-and-Active (work still landing)
+  or absent (verified and deleted); present-and-Done is never a valid merge
+  state. A whole-tree scan is required because a changed-files diff cannot
+  see a doc the PR does not touch.
 - **Check B — single-pr absent-at-merge.** The scan fails if any PLAN doc
   with `execution_mode: single-pr` exists in the tree, and passes once it
   is deleted — the stateless presence test the brief specifies, with no
@@ -398,13 +418,16 @@ The existing changed-files validators keep running for content and
 frontmatter checks; the lifecycle gate is a separate concern that needs
 whole-tree visibility.
 
-**R18: Verified deletion is permitted, not performed.** CI permits but
-never performs or demands the deletion of a Done multi-pr doc. Check B's
-presence test is scoped to single-pr plans only, so a Done multi-pr doc
-sitting in the tree is valid to CI; the human verifies the delivered work
-and deletes the doc as a separate, manual act that CI permits (a clean
-deletion PR) but never requires. CI enforces a single-pr plan's deletion
-(Check B fails while present) and only permits a multi-pr doc's deletion.
+**R18: Verified deletion is a human act CI never performs but demands
+indirectly.** CI never performs the deletion of a completed multi-pr doc.
+But it does demand the deletion indirectly: once the doc is Done, Check A
+fails while it is present, forcing the author to include the deletion in
+that same PR. This parallels Check B for single-pr plans (fail-while-
+present), making the two doc modes symmetric — a multi-pr doc at Done and
+a single-pr plan are both ephemeral and both CI-forced-absent at merge.
+The verification of the delivered work remains the human's act (CI cannot
+judge it); CI's role is to make the resulting deletion non-optional by
+failing any present non-Active (Done or Draft) multi-pr doc.
 
 ### Non-Functional Requirements
 
@@ -474,20 +497,28 @@ paths, filenames, issue numbers, or pre-announcement features.
 - [ ] A roadmap author populates the roadmap's issues table through a
   scripted, feature-keyed path without re-entering the plan workflow and
   without in-prose string surgery (R13).
-- [ ] A multi-pr plan or roadmap creates no GitHub issue until the author
-  approves; approval creates the issues and moves the doc to Active (R14).
-- [ ] A completed multi-pr plan or roadmap reaches Done and is retired by
-  deletion after the author verifies the work; the stale
+- [ ] In an interactive run, a multi-pr plan or roadmap creates no GitHub
+  issue until the author approves; approval creates the issues and moves the
+  doc to Active (R14).
+- [ ] Under `--auto`, the approval gate records an `assumed` approval
+  decision block (high review priority, in the PR body and terminal summary)
+  and creates the issues and moves the doc to Active without hard-stopping
+  (R14).
+- [ ] A multi-pr plan or roadmap lives at Active while work lands; the
+  work-completing PR transitions it to Done, verifies the work, and deletes
+  the doc atomically in that one PR, so Done never reaches main; the stale
   move-to-`docs/plans/done/` wording is gone (R15).
 - [ ] A single-pr plan exists only on its PR branch and is deleted before
   that PR merges (R16).
-- [ ] CI Check A fails when any roadmap or multi-pr plan in the tree has a
-  status that is neither Active nor Done, evaluated by a whole-tree scan,
-  and passes a Done multi-pr doc awaiting its permitted deletion (R17).
+- [ ] CI Check A fails when any roadmap or multi-pr plan present in the tree
+  has a status other than Active (a present Draft or a present Done fails),
+  evaluated by a whole-tree scan (R17).
 - [ ] CI Check B fails while any `execution_mode: single-pr` PLAN exists in
   the tree and passes once it is deleted (R17).
-- [ ] CI does not fail on, demand, or perform the deletion of a Done
-  multi-pr doc; the verified deletion is a permitted human act (R18).
+- [ ] CI never performs the deletion of a completed multi-pr doc but demands
+  it indirectly: a present Done multi-pr doc fails Check A, forcing the
+  deletion into the same PR, symmetric with single-pr fail-while-present
+  (R18).
 - [ ] The first content-validation pass introduces no new validation
   binary or parallel pipeline: R6 and R7 extend the existing
   `internal/validate/` package and run through the existing CLI and
@@ -542,15 +573,27 @@ around shared, principle-driven conventions. It explicitly excludes:
   draft/PR stage.** Because R12 is record-and-proceed, a failed value
   judgment under `--auto` does not block the run; the author must notice
   the `high`-priority assumed block in the PR body or terminal summary and
-  act on it. The multi-pr approval gate (R14) is a second backstop before
-  issues are created.
+  act on it.
+
+- **An `--auto` run can file GitHub issues without an interactive human
+  approval.** Because R14's approval gate is record-and-proceed under
+  `--auto` (mirroring R12), an auto-run creates the issues and moves the
+  doc to Active after recording an `assumed` approval block rather than
+  waiting for a human. The loud `high`-priority assumed block (PR body +
+  terminal summary) is the mitigation; the value-confirmation guard
+  (R11/R12) and the human's later review of the resulting issues are
+  backstops. This is the deliberate cost of keeping `--auto`
+  non-interactive; an operator who wants a hard human approval runs
+  interactively rather than under `--auto`.
 
 - **The whole-tree scan re-reads unchanged docs on every PR.** Check A and
   Check B scan the full tree rather than the diff, so an unrelated PR can
   fail because of a doc it did not touch (for example, a single-pr plan
-  left on the branch). This is the intended behavior — it is how
-  presence-without-touch becomes observable — but it means a doc's
-  lifecycle state can block a PR that has nothing to do with it.
+  left on the branch, or a multi-pr doc someone marked Done without
+  deleting). This is the intended behavior — it is how presence-without-
+  touch becomes observable and how the Done-must-delete forcing function
+  works — but it means a doc's lifecycle state can block a PR that has
+  nothing to do with it.
 
 ## Decisions and Trade-offs
 
@@ -639,10 +682,16 @@ reference row is plan-only because it models an issue spawning a child
 artifact, which has no feature-level analogue. This is the smallest split
 that preserves the altitude distinction while ending the multi-schema drift.
 
-### Decision 4: Whole-tree scan carries both lifecycle checks; no branch-protection gate
+### Decision 4: Whole-tree scan, Active-only Check A, and an ephemeral Done; no branch-protection gate
 
 **Decision.** Both lifecycle checks run as a whole-tree scan on the PR,
-alongside the existing changed-files validator (R17). A push-to-main /
+alongside the existing changed-files validator (R17). Check A is
+Active-only: a present multi-pr doc must be `Active`, and a present `Done`
+fails. Done is ephemeral — the work-completing PR transitions Active ->
+Done, the author verifies and deletes the doc, and all three land
+atomically in that one PR, so Done never reaches main (R15). This also
+settles how the brief's verify-then-delete / VERIFIED step is realized:
+the verify-delete PR is the forcing function. A push-to-main /
 branch-protection gate is not used in this work.
 
 **Alternatives considered.**
@@ -652,6 +701,14 @@ branch-protection gate is not used in this work.
   (confirmed in the workflow files), and a diff cannot see a single-pr plan
   the PR does not touch. Presence-without-touch is invisible to a diff, so
   the changed-files surface provably cannot enforce "absent at merge."
+- *Accept `Done` at merge — let a completed multi-pr doc linger in the tree
+  until a separate deletion PR.* Rejected: a Done doc that lingers on main
+  loses the forcing function for the author's final review of the delivered
+  work, and it splits the terminal across two PRs (mark-Done, then
+  delete-later) with nothing compelling the second. Making Done ephemeral —
+  verify and delete in the same PR that marks Done — keeps the final-review
+  gate and makes the two doc modes symmetric (a multi-pr Done doc and a
+  single-pr plan are both CI-forced-absent at merge).
 - *Use a push-to-main / branch-protection gate for an at-the-merge-commit
   reading.* Rejected for v1: both checks are stateless presence/status
   tests, so evaluating them on the PR's checked-out tree is equivalent to
@@ -661,39 +718,46 @@ branch-protection gate is not used in this work.
   hardening.
 
 **Rationale.** Only a whole-tree scan observes presence-without-touch,
-which collapses the choice for Check B. The same scan handles Check A's
-status reading. Scoping Check B's presence test to single-pr plans, and
-Check A's status test to multi-pr docs, is what keeps the multi-pr verified
-deletion a human act CI permits but never performs (R18).
+which collapses the surface choice for Check B; the same scan handles
+Check A's status reading. Active-only Check A plus an ephemeral Done makes
+the verify-delete PR a hard forcing function for the final human review and
+makes multi-pr docs and single-pr plans symmetric — both ephemeral, both
+CI-forced-absent at merge (R18). The verification stays a human act CI
+cannot judge; CI makes the resulting deletion non-optional by failing any
+present non-Active multi-pr doc.
 
-### Decision 5: Value-confirmation under `--auto` is record-and-proceed, not require-human
+### Decision 5: Both `--auto` human-judgment gates are record-and-proceed, not require-human
 
-**Decision.** Under `--auto`, the value-confirmation guard records a
-decision block and continues — confirmed on a pass, assumed at `high`
-review priority on a failing or ambiguous unit (R12). It does not
-hard-stop.
+**Decision.** Under `--auto`, both the value-confirmation guard (R12) and
+the issue-creation approval gate (R14) record a decision block and
+continue rather than hard-stop. Each records `confirmed` on a clear pass
+and `assumed` at `high` review priority otherwise — the value guard on a
+failing or ambiguous unit, the approval gate on every auto-run (an
+approval CI cannot give). Both surface in the PR body and terminal summary.
 
 **Alternatives considered.**
 
-- *Require a human even under `--auto` (hard-stop).* Rejected: it would be
-  the only decision point in these skills that breaks `--auto`'s
-  non-interactive contract — a CI or batch invocation would deadlock waiting
-  for a human who, by definition, is not there. The brief's thrust is
-  reducing special cases, not adding one.
-- *Silently pass a failed judgment under `--auto`.* Rejected: the guard must
-  stay loud. Routing a failure to `status="assumed"` with `high` review
-  priority puts it in the PR body and terminal summary so the human sees the
-  mis-decomposition prominently, just not as a blocking prompt.
+- *Require a human even under `--auto` (hard-stop).* Rejected: either gate
+  would then break `--auto`'s non-interactive contract — a CI or batch
+  invocation would deadlock waiting for a human who, by definition, is not
+  there. The brief's thrust is reducing special cases, not adding one, and
+  leaving R14 silent on `--auto` while R12 specified record-and-proceed was
+  an asymmetry worth closing.
+- *Silently pass under `--auto`.* Rejected: both gates must stay loud.
+  Routing to `status="assumed"` with `high` review priority puts the
+  judgment in the PR body and terminal summary so the human sees it
+  prominently, just not as a blocking prompt.
 
-**Rationale.** The value-confirmation is a judgment-call approval gate whose
-consequence is reversible and already backstopped: the lifecycle gates
-issue creation on human approval for multi-pr docs (R14), so a bad
-auto-judgment produces a draft the human still approves, not silent
-irreversible harm. Record-and-proceed is the settled, shared pattern in
-`decision-protocol.md` for reversible judgment points; the trade-off (an
-`--auto` run can reach the PR stage with a mis-decomposed feature set the
-author must notice) is mitigated by the loud assumed block and the approval
-backstop.
+**Rationale.** Both are judgment-call gates whose consequences are
+reversible and backstopped. The trade-off the approval gate carries is
+sharper than the value guard's: under `--auto` it files real GitHub issues
+without an interactive human approval (see Known Limitations). It is still
+the right call — record-and-proceed is the settled, shared pattern in
+`decision-protocol.md` for reversible judgment points, the loud assumed
+block makes the un-approved creation visible, and the value-confirmation
+guard plus the human's later review of the resulting issues are backstops.
+Keeping the two gates symmetric also avoids a special case authors and the
+harness would otherwise have to track.
 
 ## Downstream Artifacts
 
