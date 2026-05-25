@@ -79,8 +79,8 @@ Six gaps make the drift concrete.
   When the input is a roadmap the plan workflow goes multi-pr, which is the
   right outcome — every roadmap feature should be an increment of
   observable value — but it reaches that outcome by mechanism (the input
-  is a roadmap) rather than by the walking-skeleton value principle, and
-  nothing confirms the breakdown actually delivers incremental value. The
+  is a roadmap) rather than by the value principle, and nothing confirms
+  that each feature actually delivers observable incremental value. The
   same blind spot lets a roadmap sequence features by technical building
   block instead of by the value each delivers. The tangle and the missing
   value-orientation are the likely causes of authors landing the wrong
@@ -129,12 +129,11 @@ when the work is a walking skeleton whose PRs are each independently
 useful. The rule is stated as that default with its named escape
 conditions, separated from the unrelated slicing decision it used to be
 tangled with. A roadmap is always multi-pr — every roadmap feature is an
-increment of observable value, so a roadmap is a walking skeleton by
-construction — and that outcome is now grounded in the value principle
-rather than reached by mechanism. Where the breakdown is a walking
-skeleton (always for a roadmap, and for a plan whenever its multi-pr
-rationale is incremental value rather than a hard landing constraint), a
-step confirms the breakdown actually delivers incremental value. The
+increment of observable value, a cohesive deliverable in its own right —
+and that outcome is now grounded in the value principle rather than
+reached by mechanism. A step confirms each unit delivers observable
+incremental value: every feature for a roadmap, and each PR for a plan
+split for incremental value rather than a hard landing constraint. The
 author lands the right call because the reasoning is visible at the point
 of decision, not buried in a reference they would have to know to load.
 
@@ -276,11 +275,12 @@ The scope holds the following inside:
   into both the plan and roadmap workflows: lifting the single-pr/multi-pr
   decision to the skill surface, anchoring it on usable value, and
   decoupling it from the work-slicing decision. A roadmap stays
-  multi-pr — every roadmap is a walking skeleton — but that outcome is
-  re-grounded in the value principle rather than reached by mechanism, and
-  a step (always for a roadmap, and for a plan when its multi-pr rationale
-  is incremental value rather than a hard landing constraint) confirms the
-  breakdown delivers incremental value. Plus giving the roadmap a
+  multi-pr — every roadmap feature delivers observable incremental value
+  as a cohesive deliverable — but that outcome is re-grounded in the value
+  principle rather than reached by mechanism, and a step (always for a
+  roadmap, and for a plan when its multi-pr rationale is incremental value
+  rather than a hard landing constraint) confirms each feature or PR
+  delivers observable incremental value. Plus giving the roadmap a
   first-class path to its issues table in place of the brittle string
   surgery in the plan re-entry.
 - **An enforced document lifecycle.** A shared lifecycle for plan and
