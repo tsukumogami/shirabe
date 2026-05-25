@@ -50,6 +50,26 @@ type and sits between ROADMAP and PRD on the tactical chain; use it
 to frame a feature's problem, outcome, journeys, and scope before
 writing requirements.
 
+## Strategic Chain Entry: /charter
+
+`/charter` is a parent skill that walks an author through the
+strategic chain (VISION → STRATEGY → ROADMAP) as a single
+conversation, holding state across child boundaries and producing
+a STRATEGY as its terminal artifact. Use it when the conversation
+needs strategic framing decided in one sitting rather than reached
+for child-skill at a time.
+
+Reach for `/charter` when an author says any of:
+
+- "start a strategic conversation about X"
+- "open a charter for Y"
+- "I need to think through the bet on Z"
+
+Direct invocation is `/charter <topic-slug>` (the topic slug
+matches the pattern `^[a-z0-9-]+$`). The child skills `/vision`,
+`/strategy`, and `/roadmap` remain directly invocable on their own
+for authors who already know which altitude they want.
+
 ## Conventions
 
 - Recipe names: kebab-case
