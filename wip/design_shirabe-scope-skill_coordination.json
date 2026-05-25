@@ -78,9 +78,10 @@
       "ac_traceability": "All 11 pattern-level R-numbers (R1, R3, R9, R10, R11, R12, R13, R14, R17a, R18, R19) explicitly covered by name; charter back-edit cost bounded to a reference-table citation addition"
     }
   ],
-  "cross_validation": "ready",
+  "cross_validation": "passed",
   "round": 0,
   "all_reports_landed_at": "2026-05-25T21:16Z",
+  "cross_validation_findings": "All 8 decisions cross-validated. One additive merge surfaced: D3's L13 amendment extends D8's parent-skill-pattern.md edit surface (D8 adds new Gate Vocabulary section; D3 adds L13 amendment paragraph in the existing 'Parents do not extend children's input surfaces' prose). Resolved in Decision Outcome as 'Pattern-doc edit (parent-skill-pattern.md) = new Gate Vocabulary section + L13 amendment, both treated as one logical pattern-doc edit unit'. No conflict requiring researcher restart. All 8 assumption sets internally consistent.",
   "meta": {
     "scaling_heuristic_applied": true,
     "decision_count": 8,
