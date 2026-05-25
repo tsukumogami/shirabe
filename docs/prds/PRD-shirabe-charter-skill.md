@@ -1,5 +1,5 @@
 ---
-status: Draft
+status: Accepted
 problem: |
   shirabe ships VISION, STRATEGY, and ROADMAP as loadable child skills
   that authors invoke directly, but has no parent skill that walks an
@@ -31,7 +31,11 @@ upstream: docs/briefs/BRIEF-shirabe-charter-skill.md
 
 ## Status
 
-Draft.
+Accepted. Authored as the requirements input to the downstream
+design (`DESIGN-shirabe-progression-authoring.md`, co-authored
+across `/charter`, `/scope`, and the `/work-on` migration) and to
+`/charter`'s eventual implementation plan. Consumes the Accepted
+brief at `docs/briefs/BRIEF-shirabe-charter-skill.md`.
 
 ## Problem Statement
 
@@ -981,10 +985,11 @@ links to its successor effort where relevant.
   topic mid-chain; the resume ladder is per-topic. Stating this
   explicitly to forecloses a class of bug reports.
 
-## Open Questions
+## Questions Deferred to Design
 
-Questions deferred to `/design` or to a follow-on PRD. Each names
-the area and where the resolution should land.
+The PRD made its decisions; the questions below are legitimate
+design-altitude inputs for the downstream design phase. Each
+names the area and where the resolution should land.
 
 1. **Engine extraction location for the discover/converge engine.**
    The engine currently lives in
