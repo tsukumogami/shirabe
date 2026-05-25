@@ -126,8 +126,8 @@ Phase 0: SETUP --> Phase 1: DISCOVER --> Phase 2: CHAIN --> Phase N: FINALIZE
 
 | Phase | Purpose | Reference |
 |-------|---------|-----------|
-| 0. Setup | Slug validation, visibility detection, state-file creation | `skills/charter/references/phases/phase-0-setup.md` |
-| 1. Discover | Topic-related child-doc discovery, visibility gate, chain proposal | `skills/charter/references/phases/phase-1-discovery.md` |
+| 0. Setup | Slug validation, state-file creation | `skills/charter/references/phases/phase-0-setup.md` |
+| 1. Discover | Repository visibility detection, topic-related child-doc discovery, chain proposal | `skills/charter/references/phases/phase-1-discovery.md` |
 | 2. Chain | Sequenced child-skill invocations (`/vision`, `/strategy`, `/roadmap`) | `skills/charter/references/phases/phase-2-chain-orchestration.md` |
 | N. Finalize | Record exit path, write `exit_artifacts:`, run R9 hard-finalization check | `skills/charter/references/phases/phase-finalization.md` |
 
@@ -158,12 +158,11 @@ state-file path; the rows plug in below this prose.
 
 Execute phases sequentially by reading the corresponding phase file:
 
-0. **Setup** — slug validation, visibility detection, state-file
-   creation.
+0. **Setup** — slug validation, state-file creation.
    - Instructions: `skills/charter/references/phases/phase-0-setup.md`
 
-1. **Discover** — topic-related child-doc discovery, visibility
-   gate, chain-proposal output.
+1. **Discover** — repository visibility detection, topic-related
+   child-doc discovery, chain-proposal output.
    - Instructions: `skills/charter/references/phases/phase-1-discovery.md`
 
 2. **Chain orchestration** — invoke the planned chain

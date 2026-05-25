@@ -1,9 +1,10 @@
 # Phase 0: Setup
 
-Validate the topic slug, detect repository visibility, and create the
-state file. Phase 0 is the entry-point guard rail: it rejects unsafe
-or non-conforming inputs before any other phase runs and records the
-bootstrap context the rest of the workflow assumes.
+Validate the topic slug and create the state file. Phase 0 is the
+entry-point guard rail: it rejects unsafe or non-conforming inputs
+before any other phase runs and records the bootstrap context the
+rest of the workflow assumes. Repository visibility detection is
+deferred to Phase 1, where the visibility gate consumes it.
 
 ## Goal
 
