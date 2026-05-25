@@ -256,8 +256,318 @@ ground-truth examples instead of one.
 
 ## User Journeys
 
-Phase 3 will name the concrete journeys that exercise the feature.
+Five journeys exercise `/scope` from distinct entry points. Each
+names the user, the trigger, the path through the chain, and the
+exit shape.
+
+### Journey 1: Skill author, cold standalone invocation
+
+A skill author opens Claude Code in shirabe with a feature named on
+the roadmap and no durable upstream artifacts yet. They invoke
+`/scope <topic-slug>` with the topic slug as the only argument. The
+skill opens with discovery: it inspects `docs/briefs/`, `docs/prds/`,
+`docs/designs/current/`, and `docs/plans/` for any matching durable
+artifact, finds none, and proposes the full chain
+`/brief → /prd → /design → /plan` with the author's confirmation. The
+chain walks each child in order. `/brief` produces a BRIEF Draft and
+transitions to Accepted after its own Phase 5 approval. `/prd`
+produces a PRD Draft and transitions to Accepted. `/design` produces
+a DESIGN Proposed and transitions to Accepted with the directory
+move into `docs/designs/current/`. `/plan` produces a PLAN — Draft
+in `single-pr` mode, Active in `multi-pr` mode — and the chain halts
+at the durable terminal artifact for human review.
+
+This is the primary mode. It validates that `/scope` walks an author
+through the full tactical conversation without forcing them to
+remember the chain order, the gate semantics, or which child writes
+which artifact path. It also exercises the inheritance promise from
+`/charter`: the pattern's four references transfer verbatim and
+`/scope`'s own SKILL.md fills the body slots with tactical-chain
+specifics.
+
+### Journey 2: Author with PRD already Accepted
+
+A skill author returns to a feature whose PRD has already landed —
+either because the author ran `/prd` directly before deciding to use
+the parent skill, or because an earlier `/scope` run was interrupted
+after `/prd`'s Accepted transition. They invoke `/scope` against the
+topic slug. Discovery inspects the durable artifacts, finds an
+Accepted PRD at `docs/prds/PRD-<topic>.md`, and proposes a chain
+that starts at `/design`. The `/brief` gate auto-skips: the chain's
+mandatory-with-auto-skip semantics see the Accepted PRD as evidence
+that the framing has been settled downstream, and the chain proposal
+records `/brief` in the skipped list rather than the run list. The
+chain walks `/design` then `/plan`, lands the terminal artifact, and
+halts.
+
+This journey exercises the fourth pattern-level gate type
+(Mandatory-with-auto-skip) that `/prd`'s invocation rule motivates.
+It also validates the BRIEF-as-chain-member decision: the chain's
+state file records `/brief` in `chain_skipped` rather than treating
+it as a feeder-doc-detected slot, preserving the symmetry that lets
+every child of the chain be a first-class member with a Phase-N
+finalization verdict.
+
+### Journey 3: Author returns for re-evaluation at the DESIGN boundary
+
+A skill author returns to a topic six weeks after a `/scope` run
+landed an Accepted DESIGN. New evidence has accumulated and the
+author wants to know whether the architecture still holds before
+proceeding to `/plan`. They invoke `/scope` against the topic.
+Discovery surfaces the existing DESIGN at
+`docs/designs/current/DESIGN-<topic>.md` and the absence of a
+downstream PLAN. The chain proposal asks the
+Re-evaluate / Revise / Bail question at the DESIGN boundary. The
+author chooses Re-evaluate; the conversation walks the DESIGN's
+load-bearing claims (Decision Drivers, Considered Options, the
+chosen approach), confirms they still hold, and `/scope` writes
+`DECISION-design-<topic>-re-evaluation-<date>.md` referencing the
+existing DESIGN by path. The chain does not re-author the DESIGN
+and does not proceed to `/plan`. The existing Accepted DESIGN
+remains the live artifact.
+
+This journey validates the second re-evaluation boundary that
+`/charter` doesn't have. It also exercises the chain-level
+discipline-vs-artifact decoupling at the tactical altitude: the
+author asked a settled-architecture question, the chain answered it
+durably with a Decision Record, and no redundant DESIGN revision
+landed.
+
+### Journey 4: Mid-chain abandonment forcing materialization
+
+A skill author starts a `/scope` run on a hard feature. `/brief`
+runs and lands an Accepted BRIEF; `/prd` enters its discover phase
+and gathers context. Before the PRD draft is complete, the author
+switches to a different task, closes the session, and doesn't
+return for a week. When they re-open Claude Code and tell `/scope`
+to wrap up the tactical conversation as it stands — or when the
+resume ladder detects the partial state on its own and asks whether
+to continue, bail, or wrap up — the chain does not abandon the work
+as evidence-only files in `wip/prd_<topic>_*`. Instead, `/scope`
+forces `/prd` (the most-recently-running child) to materialize its
+artifact even if its own decision rule would have left the work as
+evidence. The tactical conversation ends at a Draft PRD
+(force-materialized from the partial state), with a Status block
+noting it was abandonment-forced rather than full-run. The chain
+leaves a review surface no matter how it ended.
+
+This journey validates the third exit path at the tactical altitude.
+It enforces the terminal-artifact contract in the case the contract
+is weakest under: interrupted, half-finished, low-information
+tactical work. Without abandonment-forced materialization, the
+contract holds only for runs the author completes, which is exactly
+the wrong shape.
+
+### Journey 5: Reviewer redirects mid-chain via manual fallback
+
+A reviewer reads a Draft PRD produced by an earlier `/scope` run.
+The requirements framing is close to right but the Acceptance
+Criteria lean toward implementation language that pre-supposes
+design decisions that haven't been made yet. The reviewer decides
+to tighten the PRD directly rather than re-running the full chain.
+They invoke `/prd` directly outside `/scope`, against the existing
+Draft PRD path, with the tightened framing as the input. `/prd`
+runs as a standalone child the way it always has — phased
+authoring, jury review, finalization — and produces a revised Draft
+at the same path. `/scope` does not interfere with the manual
+re-invocation. When the author later resumes `/scope` on the topic
+and the resume ladder notices the PRD has been edited outside the
+chain, the skill warns that any downstream DESIGN may be stale
+relative to the revised PRD but does not act on the staleness. The
+author decides whether to re-run `/design` or accept the existing
+DESIGN as still-valid.
+
+This journey validates that manual fallback is first-class
+steady-state capability rather than a workaround. Authors and
+reviewers retain full control over the tactical chain at any
+altitude; `/scope` provides discipline without becoming a
+bottleneck. The parent-skill pattern's R13 manual-fallback
+non-interference rule stays compatible with the reviewer already
+knowing the chain by hand and stepping outside it when the
+situation warrants.
 
 ## Scope Boundary
 
-Phase 3 will record what this feature holds in and pushes out.
+This brief, and the downstream PRD it points at, cover the `/scope`
+parent skill as a loadable plain-English SKILL.md, plus the pattern-
+level edits the tactical chain's asymmetries motivate.
+
+The scope holds the following inside:
+
+- **The `/scope` SKILL.md** following the existing parent-skill
+  template established by `/charter`: input modes, execution-mode
+  flag parsing, topic-slug constraint, workflow phases diagram,
+  resume logic ladder, phase execution list, reference files table.
+- **The four delegation contracts at the `/scope` → child
+  interfaces** (`/brief`, `/prd`, `/design`, `/plan`), including
+  inputs, outputs, conditionality rules, and review-halt behavior.
+  The gate vocabulary covers Feeder-EITHER signal for `/brief`,
+  Mandatory-with-auto-skip for `/prd`, shape-dependent for
+  `/design`, and ALWAYS-with-terminal-semantics for `/plan`.
+- **The three exit paths** (full-run at PLAN, re-evaluation
+  Decision Record at PRD-boundary or DESIGN-boundary,
+  abandonment-forced materialization) as first-class skill
+  behavior. The two re-evaluation boundaries get distinct Decision
+  Record sub-shapes; both inherit from the pattern's re-evaluation
+  template with PRD- and DESIGN-specific load-bearing-claim walks.
+- **The resume ladder across four child boundaries**, including
+  status-aware re-entry against a PLAN at three statuses
+  (Draft, Active, Done), DESIGN's directory-move lifecycle
+  (`docs/designs/` versus `docs/designs/current/`), and
+  partial-child-run detection for each of the four children's
+  `wip/` artifacts.
+- **The pattern-level edits the tactical chain's asymmetries
+  motivate.** Specifically: the fourth gate type
+  (Mandatory-with-auto-skip) lands in
+  `references/parent-skill-pattern.md` as a new gate vocabulary
+  entry; a new top-level reference
+  `references/parent-skill-worktree-discipline.md` lands as
+  shared infrastructure both `/charter` and `/scope` cite; the
+  L9 PRD pattern-level requirement tagging convention gets
+  reclassified from "untapped learning" to required convention.
+  The downstream PRD enumerates each pattern-level edit as a
+  requirement.
+- **Phase-N Reject finalization contracts on `/prd` and `/design`
+  as `/scope` prerequisites.** Preserving the rejection sub-shape
+  symmetry across both parents forces upstream contract work on
+  the two children that currently lack Phase-5 Reject verdicts.
+  The downstream PRD scopes the contract extensions; the design
+  doc enumerates the implementation. Substantial work but the
+  only path that keeps the pattern's exit-shape inventory uniform
+  across parents.
+- **The shared design doc**, currently named
+  `DESIGN-shirabe-explore-split.md` on the roadmap, renamed to
+  `DESIGN-shirabe-scope-skill.md` for parallelism with the
+  per-parent designs (`DESIGN-shirabe-charter-skill.md`,
+  `DESIGN-shirabe-progression-authoring.md`). The roadmap entry
+  for SE7 gets updated to reflect that the discover/converge
+  engine consumption is via cross-skill pointing into
+  `skills/explore/references/phases/{phase-2-discover,phase-3-converge}.md`
+  rather than engine extraction.
+- **Workspace and shirabe CLAUDE.md updates** documenting
+  `/scope`'s entry triggers and the tactical-chain entry section,
+  mirroring `/charter`'s Strategic Chain Entry section.
+- **Manual-redirect workflow as a first-class steady-state
+  surface**, authored as explicitly as the parent-driven workflow.
+  The R13 manual-fallback non-interference rule applies to all
+  four child boundaries.
+- **An eval suite at `skills/scope/evals/evals.json`** with
+  scenarios covering each gate, each exit path, both resume
+  re-entry surfaces, and the manual-fallback case.
+
+The scope explicitly excludes:
+
+- **The `/work-on` migration into the parent-skill pattern (SE8).**
+  Separate feature; depends on amplifier-layer workflow-composition
+  substrate that `/scope` does not require for its own ship.
+  `/scope` ratifies the pattern for `/work-on`; the migration
+  itself is downstream.
+- **The review-time redirect mechanism (SE9).** Manual fallback is
+  first-class by design; the automatic-redirect substrate is
+  amplifier-layer work and is not a prerequisite for `/scope`.
+- **Pattern-ergonomics tightening (SE12).** Several SE4-
+  retrospective items defer to SE12 explicitly (single-pr
+  value-gated heuristic from L1, `ci_outcome` semantics from L6,
+  reviewer coverage categories from L10, Track B amplifier-layer
+  observations). The cascading decisions this BRIEF cites are the
+  v1-cheap fold opportunities only.
+- **Re-litigating pattern invariants I-1 through I-7 at the
+  abstract level.** The pattern's seven semantic invariants stand
+  as `/charter` ratified them; `/scope` adds gate vocabulary and
+  one new reference but does not edit the invariants.
+- **The amplifier-layer workflow substrate.** The migration into
+  workflow-composition infrastructure is downstream; `/scope`
+  ships against current shirabe patterns (wip/-based intermediates,
+  plain-English phase prose).
+- **The niwa workspace context surface.** `/scope` uses current
+  CLAUDE.md visibility detection; substrate cleanup is unrelated.
+- **Migration of existing tactical-progression artifacts.**
+  `/scope` adds a parent layer without renaming or restructuring
+  the children's artifacts. Existing BRIEF, PRD, DESIGN, PLAN docs
+  continue to validate under their existing schemas.
+- **Authoring `/brief`, `/prd`, `/design`, or `/plan` skill bodies.**
+  `/scope` consumes the four children as they ship today. The only
+  child-side work in scope is the Phase-N Reject contract
+  extensions to `/prd` and `/design` (named above); any other
+  child SKILL.md revisions are separate PRs.
+
+## Open Questions
+
+These surface for the downstream PRD or design to resolve. None
+block this brief.
+
+1. **Enumeration of the cascading pattern-level decisions.** The
+   exploration crystallized six cascading decisions: the fourth
+   gate type, the Phase-N Reject contract extensions, the top-level
+   worktree-discipline reference, BRIEF-as-chain-member, the design
+   doc rename, and the L9 reclassification. This brief sketches
+   them at framing altitude in the Scope Boundary. The PRD
+   enumerates each as a pattern-level requirement under the L9
+   tagging convention. The PRD picks the exact requirement count
+   and the rollout sequencing across PRs.
+
+2. **Decision Record sub-shape inventory.** The chain's
+   re-evaluation exit lands at two boundaries (PRD and DESIGN). The
+   PRD picks whether both boundaries share a single sub-shape
+   (parameterized by which artifact got re-evaluated) or split into
+   two distinct sub-shapes with their own templates. `/charter`'s
+   `re-evaluation` and `rejection` sub-shape inventory is the
+   precedent; the tactical chain's `rejection` sub-shape depends on
+   how the Phase-N Reject contracts shape up on `/prd` and
+   `/design`.
+
+3. **`/plan` output-mode state binding.** `/plan`'s `single-pr`
+   versus `multi-pr` choice needs to land in `/scope`'s state file
+   as a parent-specific field under the pattern's extension
+   discipline. The PRD names the field
+   (`execution_mode: single-pr | multi-pr`), the rule for when
+   `/scope` reads the choice from the chain proposal versus
+   delegates to `/plan`'s own input, and how re-entry against an
+   Active PLAN reads the field.
+
+4. **`--max-rounds=N` default for `/scope`.** `/charter` ships
+   with 3 as the re-evaluation cap. The exploration settled on 5
+   for `/scope` because tactical chains have two re-evaluation
+   boundaries instead of one and requirements churn faster than
+   thesis. The PRD confirms the default and the override surface.
+
+5. **Stale-session threshold for `/scope`.** `/charter` ships with
+   7 days as the resume ladder's stale-session threshold. The
+   tactical chain may complete faster (a PRD + design + plan
+   sequence is days, not weeks) or slower (implementation work
+   interrupts the chain). The PRD picks; the pattern doesn't
+   constrain.
+
+6. **Validator pass-through scope.** The exploration settled on
+   strict pass-through: `/scope` validates each intermediate as
+   the chain crosses boundaries (PRD before invoking `/design`,
+   DESIGN before invoking `/plan`, PLAN before declaring full-run).
+   The PRD names the exact `shirabe validate` invocation surface
+   for each boundary and how a failed validation halts the chain.
+
+7. **Behavior against Active or Done PLAN.** The exploration
+   settled on refuse-and-redirect: `/scope` against PLAN-Active
+   directs the author to `/work-on`; `/scope` against PLAN-Done
+   directs to `/release`. The PRD names the exact redirect
+   prompts and the row in the resume ladder that fires the
+   redirect.
+
+## References
+
+- Brief format precedent: `docs/briefs/BRIEF-shirabe-charter-skill.md`.
+- Parent-skill template precedent: `skills/charter/SKILL.md`.
+- Parent-skill pattern references the `/scope` body cites verbatim:
+  `references/parent-skill-pattern.md`,
+  `references/parent-skill-state-schema.md`,
+  `references/parent-skill-resume-ladder-template.md`,
+  `references/parent-skill-child-inspection.md`.
+- Tactical-chain child precedents: `skills/brief/SKILL.md`,
+  `skills/prd/SKILL.md`, `skills/design/SKILL.md`,
+  `skills/plan/SKILL.md`.
+- Discover/converge engine source consumed via cross-skill pointing:
+  `skills/explore/references/phases/phase-2-discover.md` and
+  `skills/explore/references/phases/phase-3-converge.md`.
+- Shared design doc (planned, renamed from
+  `DESIGN-shirabe-explore-split.md`):
+  `docs/designs/DESIGN-shirabe-scope-skill.md`.
+- Cross-repo visibility rules: `references/cross-repo-references.md`.
