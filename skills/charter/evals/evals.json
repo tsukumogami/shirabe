@@ -1,6 +1,6 @@
 {
   "skill_name": "charter",
-  "description": "Eval baseline for /charter, the first parent skill in the shirabe parent-skill pattern. Scenarios 1-4 (baseline-*) are the canonical shared eval baseline per Design Decision 4 in docs/designs/DESIGN-shirabe-progression-authoring.md; future parent skills (/scope, /work-on) copy-and-adapt these scenarios verbatim into their own evals.json until a future eval-format $ref mechanism mechanically retrofits the baseline. Scenarios 5-9 (us-*) cover /charter-specific PRD User Stories US-1, US-2, US-3a, US-3b, and US-4. Baseline scenarios use the 'baseline-' name prefix and appear first in the evals array; user-story scenarios use the 'us-' name prefix and follow.",
+  "description": "Eval baseline for /charter, the first parent skill in the shirabe parent-skill pattern. Scenarios 1-6 (baseline-*) are the canonical shared eval baseline per Design Decision 4 in docs/designs/DESIGN-shirabe-progression-authoring.md; future parent skills (/scope, /work-on) copy-and-adapt these scenarios verbatim into their own evals.json until a future eval-format $ref mechanism mechanically retrofits the baseline. Scenarios 7-11 (us-*) cover /charter-specific PRD User Stories US-1, US-2, US-3a, US-3b, and US-4. Baseline scenarios use the 'baseline-' name prefix and appear first in the evals array; user-story scenarios use the 'us-' name prefix and follow.",
   "evals": [
     {
       "id": 1,
@@ -59,6 +59,33 @@
     },
     {
       "id": 5,
+      "name": "baseline-team-lead-discipline-loop-ordering",
+      "prompt": "/charter test-topic",
+      "expected_output": "The Team-Lead Operating Discipline section in references/parent-skill-pattern.md (invariant I-7) documents a strict priority ordering for the team-lead's sleep-check-nudge loop: filesystem evidence (priority 1) MUST be checked before inbox processing (priority 2), which MUST be checked before sending a nudge (priority 3). The priority ordering is stated as STRICT, not advisory — a team-lead that consults the inbox before checking filesystem evidence misses durable terminal-artifact PASS that the peer has already produced; a team-lead that nudges before reading the inbox produces noise. /charter SKILL.md cites the discipline by path and by invariant ID I-7 from its Workflow Phases prelude, naming the implementation-pass task class (120s window / 10-cycle patience budget) as the binding for each child invocation.",
+      "files": [],
+      "expectations": [
+        "Plan verifies that references/parent-skill-pattern.md Team-Lead Operating Discipline section documents priority 1 as filesystem evidence (artifact presence, git log for new commits since dispatch, wip/ growth)",
+        "Plan verifies that priority 2 is inbox processing of structured PASS/FAIL/PROGRESS verdicts; idle pings do NOT count as inbox messages and MUST NOT reset the patience budget",
+        "Plan verifies that priority 3 is the nudge, which MUST contain directly-executable instructions (what artifact, where, what verdict to reply with); generic nudges are forbidden",
+        "Plan verifies that the priority ordering is documented as STRICT (not advisory) — filesystem evidence BEFORE inbox messages BEFORE nudges, with the rationale that out-of-order checks lose evidence or produce noise",
+        "Plan verifies that /charter SKILL.md cites the discipline by path (${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) and by invariant ID (I-7), naming the implementation-pass task class (120s window / 10-cycle patience budget) for each child invocation"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "baseline-default-option-wording",
+      "prompt": "/charter test-topic",
+      "expected_output": "An Accepted (or Active) STRATEGY exists at docs/strategies/STRATEGY-test-topic.md. /charter's resume ladder fires row 5 and surfaces the entry-router prompt against the existing upstream. The prompt MUST contain the literal substring \"Re-evaluate / Revise / Bail\" (case-insensitive components allowed). The prompt MUST NOT contain the literal substring \"Continue / Start fresh\" — that vocabulary belongs to /strategy's status-aware re-entry and would hijack /charter's flow. The negative substring assertion is load-bearing: it prevents the PRD US-2 \"Do you want to revise?\" default from destroying the discipline-vs-artifact decoupling thesis the three-exit contract operationalizes. The three options Re-evaluate, Revise, and Bail are co-equal with no leading question; default-option wording is part of /charter's contract surface, not a UX detail.",
+      "files": ["docs/strategies/STRATEGY-test-topic.md"],
+      "expectations": [
+        "Plan ensures the entry-router prompt against an existing Accepted/Active STRATEGY contains the literal substring \"Re-evaluate / Revise / Bail\" (case-insensitive components allowed)",
+        "Plan ensures the entry-router prompt MUST NOT contain the literal substring \"Continue / Start fresh\" — that vocabulary belongs to /strategy and would hijack /charter's flow",
+        "Plan ensures the negative substring assertion is documented as load-bearing — it prevents the \"Do you want to revise?\" default from destroying the discipline-vs-artifact decoupling thesis",
+        "Plan ensures the three options Re-evaluate, Revise, and Bail are presented as co-equal with no leading question; default-option wording is part of the contract surface per the pattern reference's Required SKILL.md Structural Elements section"
+      ]
+    },
+    {
+      "id": 7,
       "name": "us-1-cold-standalone-full-run",
       "prompt": "/charter test-topic",
       "expected_output": "Cold-start invocation against a fresh worktree under public-repo visibility: no wip/charter_test-topic_state.md exists, no docs/strategies/STRATEGY-test-topic.md exists, no upstream artifacts. /charter walks Phase 1 discovery, surfaces the thesis-shift question but decides not to invoke /vision (no positive signal), omits the gated feeder per the public-repo degenerate-silence rule, invokes /strategy per R6, and conditionally invokes /roadmap when the produced STRATEGY's Building Blocks gate passes (3+ blocks AND a non-empty Coordination Dependencies entry). At chain finalization, /charter invokes shirabe validate --visibility=public against the Draft STRATEGY before declaring full-run success. State file: exit: full-run, exit_artifacts lists docs/strategies/STRATEGY-test-topic.md (and docs/roadmaps/ROADMAP-test-topic.md when /roadmap ran).",
@@ -75,7 +102,7 @@
       ]
     },
     {
-      "id": 6,
+      "id": 8,
       "name": "us-2-re-evaluation",
       "prompt": "/charter test-topic",
       "expected_output": "An Accepted STRATEGY exists at docs/strategies/STRATEGY-test-topic.md (no wip/charter_test-topic_state.md). /charter's resume ladder fires row 5 against the Accepted upstream and surfaces an entry prompt containing the literal substrings \"Re-evaluate\", \"Revise\", and \"Bail\" (case-insensitive). The prompt MUST NOT contain the substring \"Continue / Start fresh\" — that vocabulary belongs to /strategy and would hijack /charter's flow. The author selects Re-evaluate; /charter walks the existing STRATEGY's Bet-Specific Falsifiability claims, finds all claims still hold, and writes a Decision Record at docs/decisions/DECISION-strategy-test-topic-re-evaluation-<YYYY-MM-DD>.md citing the existing STRATEGY by path. The child /strategy is NOT invoked. State file: exit: re-evaluation, decision_record_sub_shape: re-evaluation, referenced_strategy: docs/strategies/STRATEGY-test-topic.md.",
@@ -93,7 +120,7 @@
       ]
     },
     {
-      "id": 7,
+      "id": 9,
       "name": "us-3a-rejection-sub-shape",
       "prompt": "/charter test-topic",
       "expected_output": "Cold start. /charter invokes /strategy per R6; /strategy reaches Phase 5 and the author selects Reject as a deliberate finalization judgment (NOT a bail). /strategy runs git rm docs/strategies/STRATEGY-test-topic.md, cleans up wip/strategy_test-topic_*.md, and commits the discard with message docs(strategy): discard STRATEGY draft for test-topic. Control returns to /charter; /charter captures the discard commit SHA via read-only git log (no git writes from /charter). /charter writes a Decision Record at docs/decisions/DECISION-strategy-test-topic-rejection-<YYYY-MM-DD>.md citing the discard commit SHA and the author's rejection rationale. State file: exit: re-evaluation, decision_record_sub_shape: rejection, discard_commit_sha: <sha>, rejection_rationale: <text>.",
@@ -111,7 +138,7 @@
       ]
     },
     {
-      "id": 8,
+      "id": 10,
       "name": "us-3b-abandonment-forced",
       "prompt": "/charter test-topic",
       "expected_output": "wip/charter_test-topic_state.md exists with phase_pointer past Phase 0, exit: UNSET, and last_updated more than 7 days old. /charter's resume ladder fires row 4 (state file stale) and surfaces the three-option prompt Resume / Force-materialize / Discard. The author selects Force-materialize. /charter resolves the most-recently-running child via the R8 tie-break (step 1: last entry in chain_ran; step 2: first planned_chain entry with a non-empty wip/ intermediate; step 3: clean-cancel when neither step resolves) and force-materializes that child's intermediate as a schema-compliant Draft artifact. The Draft contains an HTML-comment marker <!-- charter-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> --> inside the artifact's existing Status section, NOT in a new section that would invalidate the host artifact-type's schema validator. State file: exit: abandonment-forced, triggering_child: <child-name>, partial_phase_reached: <phase-name>.",
@@ -128,7 +155,7 @@
       ]
     },
     {
-      "id": 9,
+      "id": 11,
       "name": "us-4-manual-fallback-reviewer-redirect",
       "prompt": "/charter test-topic",
       "expected_output": "Pre-populated: docs/strategies/STRATEGY-test-topic.md at status Accepted, and wip/charter_test-topic_state.md whose child_snapshots.strategy records path: docs/strategies/STRATEGY-test-topic.md plus status: Accepted plus content_hash matching the STRATEGY's git hash-object value at snapshot time. A reviewer invokes /strategy docs/strategies/STRATEGY-test-topic.md directly outside /charter; /strategy produces a revised Draft, flipping the frontmatter status: from Accepted to Draft and rewriting the body. The live git hash-object now differs from the snapshot's content_hash. /charter does NOT interfere with the manual /strategy invocation: no warning, no state-file write, no block. On the next /charter test-topic invocation, the resume ladder runs drift detection (dual check: status OR content_hash differs from the snapshot) and surfaces the three-option staleness prompt Re-run / Accept / Proceed without.",
