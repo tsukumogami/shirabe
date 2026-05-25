@@ -1,0 +1,126 @@
+{
+  "skill_name": "brief",
+  "evals": [
+    {
+      "id": 1,
+      "name": "standalone-creation",
+      "prompt": "/brief checkout-flow",
+      "expected_output": "Detects no upstream ROADMAP or PRD and no existing BRIEF. Validates the topic slug 'checkout-flow' matches [a-z0-9-]+ at Phase 0. Starts Phase 1 (discover) to ground the feature's problem and outcome conversationally. Produces a BRIEF doc with all five required sections at docs/briefs/BRIEF-checkout-flow.md. Phase 4 spawns two reviewer agents in parallel (content quality, structural format).",
+      "files": [],
+      "expectations": [
+        "Plan validates the topic slug 'checkout-flow' matches [a-z0-9-]+ at Phase 0",
+        "Plan starts from Phase 0 (setup) or Phase 1 (discover) since no BRIEF artifact exists",
+        "Plan includes a Phase 1 (discover) scoping step anchored on the feature's problem/outcome pair before drafting",
+        "Plan includes Phase 2 (draft) producing the Problem Statement and User Outcome sections",
+        "Plan includes Phase 3 (structural fill) producing the User Journeys and Scope Boundary sections",
+        "Plan includes Phase 4 (validate) with exactly two parallel reviewer agents (content quality, structural format)",
+        "Plan does NOT include an altitude reviewer at Phase 4",
+        "Plan includes Phase 5 (finalize) with explicit human approval before status transition",
+        "Plan mentions reading phase reference files (e.g. references/phases/phase-0-setup.md)",
+        "Plan mentions detecting repo visibility from CLAUDE.md or repo path",
+        "Plan produces the BRIEF at docs/briefs/BRIEF-checkout-flow.md"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "upstream-roadmap-grounding",
+      "prompt": "/brief docs/roadmaps/ROADMAP-checkout.md",
+      "expected_output": "Detects the ROADMAP path as upstream input. Canonicalizes the path at Phase 0 and confirms it resolves inside the repo working tree. Reads the ROADMAP content to derive the feature's problem/outcome candidate during Phase 1. Carries forward the upstream framing into the BRIEF's Problem Statement. Declares the ROADMAP path as the BRIEF's frontmatter `upstream`.",
+      "files": ["docs/roadmaps/ROADMAP-checkout.md"],
+      "expectations": [
+        "Plan detects the ROADMAP path argument as upstream input",
+        "Plan canonicalizes the upstream path at Phase 0 and bounds-checks it against the repo working tree",
+        "Plan reads the ROADMAP document content during Phase 1 (discover) to derive the feature's problem and outcome",
+        "Plan carries forward upstream ROADMAP framing into the Problem Statement section",
+        "Plan declares the ROADMAP path as the BRIEF frontmatter upstream field"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "artifact-decision-from-rich-issue",
+      "prompt": "/brief A PRD-ready feature request: the search box should debounce input and the team already wrote a detailed problem and outcome in the issue body.",
+      "expected_output": "Phase 0 surfaces the produce-vs-hand-off artifact decision because the chain is entered partway up — the supplied evidence already implies both the feature's problem and its outcome. The skill weighs whether to produce a durable brief or hand the existing evidence forward to the PRD, rather than writing a brief by reflex. It records the decision (produce or handed-off) before proceeding.",
+      "files": [],
+      "expectations": [
+        "Plan recognizes that the chain is being entered partway up (a rich issue body already implies problem and outcome)",
+        "Plan surfaces the produce-vs-hand-off artifact decision at Phase 0",
+        "Plan weighs whether to produce a durable brief or hand the existing evidence forward to the PRD",
+        "Plan notes that writing a brief by reflex is not the goal",
+        "Plan records the artifact decision (produce or handed-off) before proceeding",
+        "Plan describes the hand-off path exiting the workflow without producing a brief when the framing already exists"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "jury-two-reviewers",
+      "prompt": "/brief checkout-flow",
+      "expected_output": "Phase 4 spawns exactly two reviewer agents in parallel via the Agent tool with run_in_background: true: content quality and structural format. No altitude reviewer. Each reviewer prompt opens with a fixed preamble framing the BRIEF as data-under-review. Each prompt pins the verdict file path. Each prompt requires a literal **Verdict:** PASS | FAIL marker. The orchestrator aggregates by an all-PASS rule before Phase 5.",
+      "files": [],
+      "expectations": [
+        "Plan describes Phase 4 spawning exactly two reviewer agents in parallel",
+        "Plan names the two distinct reviewer roles (content quality, structural format)",
+        "Plan explicitly states there is no altitude reviewer (a brief frames one feature, so there is no altitude band to police)",
+        "Plan mentions the Agent tool with run_in_background: true for jury parallelism",
+        "Plan mentions each reviewer prompt opens with a fixed preamble framing BRIEF content as data-under-review",
+        "Plan mentions each verdict file path is pinned (subagent does not choose its output location)",
+        "Plan mentions verdicts use a structured **Verdict:** PASS | FAIL marker",
+        "Plan aggregates verdicts by an all-PASS rule before proceeding to Phase 5"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "missing-required-section-rejection",
+      "prompt": "/brief checkout-flow",
+      "expected_output": "The structural-format reviewer at Phase 4 (and shirabe validate, FC04) requires all five required sections — Status, Problem Statement, User Outcome, User Journeys, Scope Boundary — present and ordered. A draft missing any required section fails the structural reviewer and FC04, and the verdict names the missing section. The jury does not return all-PASS, so the brief cannot reach Phase 5.",
+      "files": [],
+      "expectations": [
+        "Plan requires all five required sections (Status, Problem Statement, User Outcome, User Journeys, Scope Boundary) present and in order",
+        "Plan notes the structural-format reviewer checks required-section presence at Phase 4",
+        "Plan notes shirabe validate FC04 rejects a brief missing a required section and names the missing section",
+        "Plan describes a missing-section draft failing the jury (not all-PASS) so it cannot reach Phase 5"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "invalid-status-rejection",
+      "prompt": "/brief checkout-flow",
+      "expected_output": "The frontmatter status must be one of Draft, Accepted, Done (FC02). The structural-format reviewer and shirabe validate reject a status value outside that set (for example Published) and the error lists the valid statuses. The body ## Status first non-blank line must be the bare status word matching the frontmatter status (FC03).",
+      "files": [],
+      "expectations": [
+        "Plan requires the frontmatter status to be one of Draft, Accepted, Done (FC02)",
+        "Plan notes shirabe validate FC02 rejects a status value outside the valid set and lists the valid statuses",
+        "Plan notes the body ## Status first non-blank line must be the bare status word matching the frontmatter status (FC03)",
+        "Plan notes prose on the ## Status first line breaks FC03"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "lifecycle-accept-verb",
+      "prompt": "/brief accept docs/briefs/BRIEF-checkout-flow.md",
+      "expected_output": "Detects 'accept' as a lifecycle verb rather than starting the creation workflow. Validates the Open Questions section is empty or removed before transition. Runs skills/brief/scripts/transition-status.sh with target Accepted. The file stays in docs/briefs/ (no directory movement for any brief transition).",
+      "files": ["docs/briefs/BRIEF-checkout-flow.md"],
+      "expectations": [
+        "Plan detects 'accept' as a lifecycle verb rather than starting the creation workflow",
+        "Plan validates the Open Questions section is empty or removed before transition",
+        "Plan invokes skills/brief/scripts/transition-status.sh to perform the transition",
+        "Plan targets transitioning from Draft to Accepted status",
+        "Plan does NOT move the file to a different directory for the Accepted transition",
+        "Plan notes there is no reason argument for the accept transition"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "topic-slug-validation",
+      "prompt": "/brief bad..slug/path",
+      "expected_output": "Phase 0 rejects the topic slug because it does not match [a-z0-9-]+. The skill stops before drafting and reports the constraint to the user. No BRIEF document is created.",
+      "files": [],
+      "expectations": [
+        "Plan validates the topic slug against the [a-z0-9-]+ constraint at Phase 0",
+        "Plan rejects the input because the slug contains forbidden characters (., /)",
+        "Plan stops before drafting begins",
+        "Plan does NOT create a BRIEF document",
+        "Plan explains the slug constraint to the user"
+      ]
+    }
+  ]
+}
