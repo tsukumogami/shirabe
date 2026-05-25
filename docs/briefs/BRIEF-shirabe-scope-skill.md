@@ -237,22 +237,12 @@ way. Authors and reviewers retain full control over the tactical
 chain at any altitude; `/scope` provides discipline without
 becoming a bottleneck.
 
-Downstream, `/scope` shipping validates the parent-skill pattern
-v1 for the tactical chain the same way `/charter` validated it for
-the strategic chain. The pattern's contract surface holds across
-two parents with genuinely different chain shapes: the inheritance
-promise (verbatim use of `parent-skill-pattern.md`,
-`parent-skill-state-schema.md`,
-`parent-skill-resume-ladder-template.md`, and
-`parent-skill-child-inspection.md`) is observed empirically rather
-than asserted; the asymmetries (extra re-evaluation boundary,
-no-Phase-5-Reject-default, multi-output-mode terminal child) all
-land inside the pattern's existing extension points — substitution
-surfaces, body slots, the conditional-feeder MAY clause — without
-forcing pattern-doc rewrites; and the contract is ratified for the
-amplifier-layer parent skill (the `/work-on` migration that
-follows) which can finally inherit from a pattern with two
-ground-truth examples instead of one.
+Downstream, `/scope` shipping ratifies the parent-skill pattern
+v1: the contract surface holds across two parents with genuinely
+different chain shapes, the tactical chain's asymmetries all land
+inside the pattern's existing extension points, and the amplifier-
+layer parent skill that follows finally inherits from a pattern
+with two ground-truth examples instead of one.
 
 ## User Journeys
 
@@ -360,13 +350,11 @@ the wrong shape.
 
 ### Journey 5: Reviewer redirects mid-chain via manual fallback
 
-A reviewer reads a Draft PRD produced by an earlier `/scope` run.
-The requirements framing is close to right but the Acceptance
-Criteria lean toward implementation language that pre-supposes
-design decisions that haven't been made yet. The reviewer decides
-to tighten the PRD directly rather than re-running the full chain.
-They invoke `/prd` directly outside `/scope`, against the existing
-Draft PRD path, with the tightened framing as the input. `/prd`
+A reviewer, reading a Draft PRD produced by an earlier `/scope`
+run whose Acceptance Criteria pre-suppose design decisions that
+haven't been made yet, invokes `/prd` directly outside `/scope`
+against the existing Draft PRD path with the tightened framing as
+the input. `/prd`
 runs as a standalone child the way it always has — phased
 authoring, jury review, finalization — and produces a revised Draft
 at the same path. `/scope` does not interfere with the manual
@@ -496,15 +484,15 @@ The scope explicitly excludes:
 These surface for the downstream PRD or design to resolve. None
 block this brief.
 
-1. **Enumeration of the cascading pattern-level decisions.** The
-   exploration crystallized six cascading decisions: the fourth
-   gate type, the Phase-N Reject contract extensions, the top-level
-   worktree-discipline reference, BRIEF-as-chain-member, the design
-   doc rename, and the L9 reclassification. This brief sketches
-   them at framing altitude in the Scope Boundary. The PRD
-   enumerates each as a pattern-level requirement under the L9
-   tagging convention. The PRD picks the exact requirement count
-   and the rollout sequencing across PRs.
+1. **Pattern-level requirement count and rollout sequencing across
+   PRs.** The exploration crystallized six cascading decisions:
+   the fourth gate type, the Phase-N Reject contract extensions,
+   the top-level worktree-discipline reference,
+   BRIEF-as-chain-member, the design doc rename, and the L9
+   reclassification. This brief sketches them at framing altitude
+   in the Scope Boundary. The PRD enumerates each as a
+   pattern-level requirement under the L9 tagging convention and
+   picks the rollout sequencing across PRs.
 
 2. **Decision Record sub-shape inventory.** The chain's
    re-evaluation exit lands at two boundaries (PRD and DESIGN). The
