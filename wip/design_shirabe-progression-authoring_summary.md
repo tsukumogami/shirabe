@@ -22,7 +22,8 @@
 
 ## Current Status
 
-**Phase:** 4 — Architecture synthesis complete.
+**Phase:** 5 — Security review complete.
 **Last Updated:** 2026-05-25.
 **Decisions:** 6 explicit (Phase 1 decomposition; Phase 2 produced reports D1-D6 in wip/ and wip/research/) + 2 implicit (Phase 4 implicit-decision review: D7 flat references location, D8 prose team-shape declaration with structured metadata as v2 amplifier-layer evolution). Phase 3 cross-validation: passed in one round, no restarts.
-**Next:** Phase 5 — Security review (mandatory). Dispatch security-researcher with the full design draft. Outcome options: design changes (loop back), document security considerations, or self-contained N/A justification.
+**Security review (Phase 5):** Option 2 — Document considerations. No design changes needed. Drafted Security Considerations section landed in design doc; full report at `wip/research/design_shirabe-progression-authoring_phase5_security.md`. Two visibility properties documented (public-repo pre-merge wip/ visibility; fail-closed Private default). Advisory note flagged for the PRD's known-limitation phrasing (PRD lines 1085-1090) — out of scope for this design's run; team-lead's discretion.
+**Next:** Phase 6 — Final review. Dispatch architecture-reviewer + security-reviewer in parallel. Apply feedback. Strawman check on rejected alternatives. Write frontmatter. Commit. Present to team-lead for approval. Per SE4 directives: SKIP wip/ cleanup, SKIP PR creation, status transition Proposed → Accepted on approval.

@@ -1303,7 +1303,65 @@ within the same pattern, not a different pattern.
 
 ## Security Considerations
 
-[Phase 5 will populate this section.]
+The parent-skill pattern adds no network surface, no
+external-artifact ingestion, no secret handling, and no privilege
+escalation. Filesystem activity stays inside the worktree: parent
+skills write to `docs/<type>/` and
+`wip/<parent>_<topic>_state.md`, read child doc frontmatter and
+git blob hashes, and (for the rejection sub-shape) read a discard
+commit SHA from `git log`. All inputs that affect filesystem paths
+are constrained by the topic-slug regex (`^[a-z0-9-]+$`, R3) which
+is hard-rejected at Phase 0; the resume ladder hard-surfaces
+malformed state files (R11) rather than silently falling through.
+The conditional-feeder invocation pattern (Decision 6) gates
+child-skill invocation on a local skill-existence check, not on
+author-controlled paths.
+
+Two visibility properties deserve explicit author-facing
+documentation:
+
+- **Public-repo pre-merge visibility of wip/ state files.** The
+  pattern persists `wip/<parent>_<topic>_state.md` on feature
+  branches as durable evidence. In a public repo, feature-branch
+  contents become public on push. Authors should treat fields the
+  state file carries — particularly the free-text
+  `rejection_rationale` and the `referenced_strategy` path — as
+  durably public from the moment the branch is pushed; squash-merge
+  removes the wip/ files from the main branch's history but does
+  not remove them from the feature branch's pre-merge history. The
+  same property applies to the Decision Record body (which is a
+  durable artifact, never cleaned). Authors should not paste
+  secrets, customer-identifiable context, or unpublished
+  competitive positioning into these fields. This is an inherited
+  property of the public-repo workflow; the design does not worsen
+  it, but the persistence of wip/ artifacts (per the
+  durable-evidence policy) means the surface lives longer than
+  under the workspace's default wip-hygiene rule.
+
+- **Fail-closed visibility default.** Per R12 (ratified verbatim),
+  a missing `## Repo Visibility:` header in CLAUDE.md causes the
+  parent skill to default to Private and emit a warning. This is
+  the conservative direction: a public repo that forgets to
+  declare visibility gets the more-restrictive behavior (a Private
+  treatment that could cause future `/comp` prompts to surface).
+  The compensating mitigation is the warning text ("Default to
+  Private if unknown — restricting is easier to undo than
+  oversharing") which prompts the author to correct the CLAUDE.md
+  before continuing; the chain-proposal output (R7.5) is
+  interactive, so the author confirms intent before any
+  visibility-gated content lands. Repos declaring public visibility
+  explicitly avoid this surface entirely.
+
+Cross-branch resume (invariant I-6) is unimplemented in v1 by
+design. The v1 behavior is fail-closed: a resume on a different
+branch starts a fresh chain rather than inheriting state across
+branches. No data leaks between branches; no privilege escalation
+across branches; the limitation is functional, not
+security-relevant.
+
+No third-party dependencies are added by this design. The shared
+eval baseline (Decision 4) is copy-and-adapted across parents
+rather than ref-imported; the trust boundary is in-repo files.
 
 ## Consequences
 
