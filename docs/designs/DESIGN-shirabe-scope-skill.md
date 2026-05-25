@@ -1849,20 +1849,182 @@ same-PR-or-follow-up.
 
 ## Security Considerations
 
-(Placeholder — Phase 5 security review to populate per the
-mandatory security-considerations content. The design
-produces markdown files, slash-command behaviors, and
-documentation; the primary security dimensions to review
-are: command injection risk in shell commands the skill
-emits (`git fetch`, `git rebase`, `git rm`, `git commit`,
-`shirabe validate`), filesystem-write boundaries (the skill
-writes to `docs/decisions/`, `docs/plans/`, and
-`wip/scope_<topic>_*`), state-file race conditions in the
-`parent_orchestration:` sentinel block under concurrent
-chain invocations against different topics, and visibility-
-boundary leaks from the pattern-doc edits into private
-content sources. Phase 5's mandatory review pass produces
-the final Security Considerations content.)
+The design produces markdown files and slash-command behavior;
+no external code execution beyond standard git commands and
+`shirabe validate`. Phase 5 review verdict: **Concerns Flagged
+— four addressable weaknesses, none blocking.** The five
+sub-sections below capture the documented considerations and
+mitigations.
+
+### Command injection — slug re-validation on resume
+
+The topic-slug regex `^[a-z0-9-]+$` (R3, cited from
+`references/parent-skill-state-schema.md`) admits only
+lowercase ASCII letters, digits, and ASCII hyphen — no shell
+metacharacter can pass. The regex closes path-traversal and
+shell-injection vectors at the single-enforcement-point in
+Phase 0 setup. The resume ladder, however, recovers
+candidate `<topic>` values from on-disk artifact paths
+(Slot 5 file-glob matches against `docs/{briefs,prds,designs/
+current,designs,plans}/<TYPE>-<topic>.md`), and a pre-
+existing artifact with a non-conforming name could feed an
+unvalidated slug into downstream interpolation sites (most
+notably Component 8's `git rm docs/prds/PRD-<topic>.md` in
+the Phase-N Reject branches).
+
+**Mitigation.** Any slug recovered from an on-disk artifact
+path during resume SHALL be re-validated against the
+`^[a-z0-9-]+$` regex BEFORE entering interpolation into
+emitted shell commands. An unparseable slug rejects the
+resume entry, surfaces a diagnostic naming the offending
+path, and routes to R8 bail-handling; the resume MUST NOT
+silently proceed with an unvalidated slug.
+
+### Command injection — git-commit rationale interpolation
+
+The author-supplied rejection rationale (Component 8's
+Reject branch on `/prd` Phase 4 and `/design` Phase 6) is a
+free-form string that becomes the body of the discard
+commit. The string is user-authored and may contain shell
+metacharacters (quotes, backticks, dollar signs); inlining
+it into `git commit -m "<rationale>"` is unsafe.
+
+**Mitigation.** Author-supplied rejection rationale strings
+SHALL be passed to `git commit` via `-F <tmpfile>` or stdin
+(`git commit -F -`), never inlined into a `-m "..."`
+argument. The tmpfile or stdin channel bypasses shell
+interpolation; rationale content containing quotes,
+backticks, or shell metacharacters cannot reach the shell.
+The same discipline applies to any other free-form string
+the skill writes into a commit body (the author-stated
+rationale for "proceed anyway" on worktree-staleness
+divergence per Component 4).
+
+### Filesystem-write boundaries — enumerated write set and state-file enum re-validation
+
+The slug regex closes path-traversal at the slug level; the
+remaining filesystem-write surface is bounded by an
+enumerated set of write targets named across Components
+5/6/7. A future implementor adding a write target outside
+this set would not encounter an enforcement checkpoint.
+
+**Mitigation 1 — closed write-target set.** Implementations
+of Components 5, 6, and 7 SHALL confine filesystem writes
+to the following enumerated set:
+
+- `docs/decisions/DECISION-{prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md`
+- `docs/plans/PLAN-<topic>.md` (produced by `/plan`, not
+  directly by `/scope`, on full-run exit)
+- `docs/{briefs,prds,designs}/{BRIEF,PRD,DESIGN}-<topic>.md`
+  (for force-materialization only, on abandonment-forced
+  exit)
+- `wip/scope_<topic>_*` (state file + ancillary)
+- removals of `wip/{brief,prd,design,plan}_<topic>_*` and
+  `wip/research/{prd,design}_<topic>_*` (Phase-N Reject
+  cleanup + Phase 4 wip cleanup)
+
+Writes outside this enumerated set SHALL fail the Phase 6
+hard-finalization check (R9 extension).
+
+**Mitigation 2 — state-file enum re-validation.** Fields
+read during resume — particularly `triggering_child:`,
+`boundary:`, `decision_record_sub_shape:`, and
+`plan_execution_mode:` — SHALL be validated against their
+declared enums (`brief | prd | design | plan`,
+`prd | design`, `re-evaluation | rejection`,
+`single-pr | multi-pr` respectively) BEFORE being used to
+construct write paths or interpolate into shell commands.
+Out-of-enum values fail the resume ladder and route to R8
+bail-handling. State-file tampering between sessions
+(manual edits while debugging) is a hazard surface the
+schema's authoritativeness alone does not close without
+this read-time check.
+
+### State-file race conditions — stale parent_orchestration: self-healing
+
+The `parent_orchestration:` sentinel block (Interface I.1)
+is written immediately before a child invocation and
+cleared immediately after the child returns. If the parent
+session is interrupted (Ctrl-C, kernel kill, network drop
+to the AI service) between sentinel-write and child-return,
+the sentinel persists in the state file. The next resume
+would read the stale block and treat itself as still
+in-flight, causing a child to suppress its own status-aware
+prompt on a new invocation where suppression is not
+warranted. This is a state-integrity hazard with workflow-
+correctness consequences, not a security issue in the
+classic sense.
+
+**Mitigation.** Phase 0 setup SHALL clear any stale
+`parent_orchestration:` block found at session start as a
+self-healing step. The block's presence after a session
+restart is by definition stale, because the block's
+lifecycle is bounded by a single child-invocation round-trip
+within one session. The Phase 0 cleanup is unconditional;
+it MUST NOT prompt the author or surface a warning (the
+self-heal is the contract).
+
+Concurrent-multi-topic invocations are not a race surface:
+each topic writes to a distinct `wip/scope_<topic>_state.md`
+path (the slug regex ensures path-determinism), so two
+simultaneous `/scope foo` and `/scope bar` invocations do
+not contend on the same file. Same-topic concurrent
+invocations on the same working tree are an explicit no-go
+pattern.
+
+### Visibility-boundary binding and Decision Record content disclosure
+
+`/scope` v1 binds to the public shirabe tactical chain
+exclusively. The pattern-doc edits in Components 1-4 are
+parent-agnostic by design (the L13 amendment text
+references no specific parent; the `parent_orchestration:`
+sentinel mechanism is a pattern-level convention).
+Cross-visibility extension is out of scope.
+
+**Mitigation 1 — visibility binding statement.** Decision
+Records written by `/scope` inherit the visibility of the
+parent topic's repository. v1 binds `/scope` to public-repo
+tactical chains exclusively. If a future PR binds `/scope`
+to a private parent chain, the Decision Record placement
+discipline (canonical `docs/decisions/` path; ADR-style body
+shape per R15) SHALL be re-stated in that PR with explicit
+public-vs-private content-governance review.
+
+**Mitigation 2 — rationale-field public-history
+disclaimer.** Authors invoking the Phase-N Reject branch
+SHALL be advised that the rejection rationale is written
+to the discard commit's body and becomes part of the
+repository's permanent git history. Rationale text SHALL
+NOT include secrets, customer identifiers, or content the
+author intends to keep private. The Phase-N Reject prompt's
+literal text in Component 8 SHALL include the disclaimer
+substring "Rationale will be committed to git history".
+
+### Out-of-scope dimensions (rubric coverage)
+
+- **External artifact handling.** The skill downloads no
+  external artifacts. `git fetch` retrieves git objects
+  from the configured remote; the skill does not extract,
+  execute, or parse external content beyond what git itself
+  handles. No external-artifact-handling concern.
+- **Permission scope.** The skill operates within the
+  existing working-tree filesystem and the existing git
+  remote authentication context. No additional permissions,
+  no sudo, no network access beyond `git fetch`. No
+  permission-escalation surface.
+- **Supply chain or dependency trust.** The skill adds no
+  runtime dependencies. It cites four pattern-reference
+  files (existing in shirabe) and creates one new top-level
+  pattern reference. No new package, no new binary, no new
+  tool fetch. No supply-chain concern.
+- **Data exposure.** The skill reads user-supplied topic
+  slugs, BRIEF/PRD/DESIGN/PLAN document contents, and
+  rejection rationales. All content was authored by the
+  user driving the chain; the skill does not transmit it
+  anywhere beyond the local git working tree and (on push,
+  via downstream workflow) the configured remote. The
+  rationale-field disclaimer above covers the one new
+  data-retention surface.
 
 ## Consequences
 
