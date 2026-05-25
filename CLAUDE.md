@@ -16,7 +16,7 @@ When running /explore or /plan here:
 
 ## Artifact Types and When to Use Them
 
-shirabe recognizes six artifact types across two altitude bands.
+shirabe recognizes seven artifact types across two altitude bands.
 Reach for the one whose altitude matches your conversation:
 
 - **VISION** (long-term aspiration, years). Captures WHY a project
@@ -31,6 +31,11 @@ Reach for the one whose altitude matches your conversation:
   decomposition (ROADMAP).
 - **ROADMAP** (sequenced features). Lists what gets built and in
   what order, with dependencies between features.
+- **BRIEF** (feature framing). Captures a single feature's problem,
+  outcome, user journeys, and scope boundary before requirements
+  exist. Use when a feature is named but its framing hasn't been
+  written down; reach for a PRD once the framing is settled and you
+  need to capture requirements.
 - **PRD** (requirements). Captures WHAT a feature does and WHY,
   user-facing.
 - **DESIGN** (architecture). Captures HOW a feature is built — the
@@ -38,11 +43,12 @@ Reach for the one whose altitude matches your conversation:
 - **PLAN** (execution). Decomposes a design into atomic
   implementable issues with a dependency graph.
 
-The pipeline runs VISION → STRATEGY → ROADMAP → PRD → DESIGN →
-PLAN, though authors enter at whichever altitude matches the
-conversation they need to have. STRATEGY is the newest artifact
-type and sits between VISION and ROADMAP; use it when the bet that
-motivates the work is itself the conversation.
+The pipeline runs VISION → STRATEGY → ROADMAP → BRIEF → PRD →
+DESIGN → PLAN, though authors enter at whichever altitude matches
+the conversation they need to have. BRIEF is the newest artifact
+type and sits between ROADMAP and PRD on the tactical chain; use it
+to frame a feature's problem, outcome, journeys, and scope before
+writing requirements.
 
 ## Conventions
 
