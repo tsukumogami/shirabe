@@ -1,6 +1,62 @@
 ---
 status: Proposed
 upstream: docs/prds/PRD-shirabe-scope-skill.md
+problem: |
+  shirabe ships the tactical-chain children (`/brief`, `/prd`,
+  `/design`, `/plan`) as four loadable child skills but has no
+  parent skill that walks an author through the chain as a
+  sequence, enforces the three-exit contract across BRIEF/PRD/
+  DESIGN/PLAN boundaries, or proves the parent-skill pattern v1
+  against the tactical chain's asymmetries (two settled-upstream
+  boundaries instead of one, no Phase-N Reject finalization on
+  `/prd` or `/design` today, a terminal child with two output
+  modes). Authors sequence the chain by hand; the pattern stays
+  unratified for the parent skills that follow (`/work-on`
+  migration, future tactical parents).
+decision: |
+  `/scope` ships as a single-agent loadable skill at
+  `skills/scope/SKILL.md` plus four pattern-doc edits (across
+  three of the four pattern-reference files), one new top-level
+  reference (`references/parent-skill-worktree-discipline.md`),
+  and two child-side contract extensions (Phase-N Reject
+  finalization gates on `/prd` Phase 4 and `/design` Phase 6).
+  The architecture inherits the parent-skill pattern v1's
+  two-layer contract verbatim from `DESIGN-shirabe-progression-
+  authoring.md` and adds `/scope`-specific bindings inside the
+  v1 substitution surface. The pattern doc grows a new Gate
+  Vocabulary section (adding Mandatory-with-auto-skip as the
+  fourth gate shape), an L13 amendment permitting a uniform
+  pattern-level `parent_orchestration:` state-file sentinel for
+  resume-suppression signaling, two new conditional state-
+  schema fields (`boundary:`, `plan_execution_mode:`), and a
+  single Slot-5 paragraph documenting refuse-and-redirect prompt
+  shape. The three exit paths bind to `/scope`'s tactical shape:
+  full-run at PLAN, re-evaluation Decision Record at PRD- or
+  DESIGN-boundary with two sub-shapes (re-evaluation /
+  rejection), abandonment-forced via uniform single-line HTML-
+  comment marker at the END of the force-materialized
+  artifact's Status section.
+rationale: |
+  The combination preserves pattern contract symmetry across
+  both parent skills — all three tactical-chain asymmetries
+  land inside the pattern's existing extension points without
+  re-litigating any semantic invariant (I-1 through I-7).
+  L9 traceability is mechanical: 11 pattern-level requirements
+  map 1:1 to four pattern-doc-edit components; 15 `/scope`-
+  specific requirements map 1:1 to three `/scope`-body
+  components; R23 maps to the child-side contract extension.
+  The pattern-doc edits are surgical (~90-112 added lines
+  across three of four pattern-reference files; zero edits to
+  `parent-skill-child-inspection.md` per the audit's verbatim
+  call) and bound `/charter`'s back-edit cost to a small
+  reference-table addition. Per-child sentinel adoption is
+  incremental (small per-child PRs until each of `/brief`,
+  `/prd`, `/design`, `/plan` recognizes the new convention;
+  worst case before adoption is the status quo, not a
+  regression). The chosen migration sequence — Phase A pattern-
+  doc edits, Phase B child-side Phase-N Reject contracts,
+  Phase C `/scope` body + evals, Phase D optional `/charter`
+  back-edit — keeps each PR cohesive and reviewable.
 ---
 
 # DESIGN: shirabe-scope-skill
