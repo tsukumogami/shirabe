@@ -16,8 +16,9 @@ Establish the runtime context for the rest of the workflow:
 - Canonicalize any `<path>` argument and reject paths resolving outside the repo
   working tree.
 - Make the brief-specific **artifact decision**: when the chain is entered partway
-  up, decide whether to produce a durable brief or hand the existing evidence
-  forward to the PRD.
+  up, decide where the feature's framing is persisted — as a standalone brief or
+  folded into the downstream PRD/design. The framing is always captured in a durable
+  artifact; the decision is only which artifact holds it.
 - Initialize the `wip/` working directory with placeholder context for resume
   detection.
 
@@ -119,51 +120,58 @@ checks this; Phase 0 just records the value.
 
 ## 0.5 Make the Artifact Decision
 
-Before initializing `wip/`, decide whether a durable brief is the right artifact
-for this invocation. This is the brief-specific decision the chain forces when it
-is entered partway up.
+Before initializing `wip/`, decide where this feature's framing should be
+persisted — as a standalone BRIEF, or folded into the downstream PRD/design. This
+is the brief-specific artifact decision the chain forces when it is entered partway
+up.
 
-The decision matters because briefs can be invoked mid-altitude. The most common
-case: a rich issue body, a detailed feature request, or an existing upstream that
-already implies both the feature's problem and the outcome it should produce. Most
-of a brief's content already exists — just not as a brief. Producing a separate
-document by reflex is ceremony; passing the existing evidence straight to the PRD
-may serve the author better.
+Be clear about what this decision is NOT. It is never "the problem is already
+stated, so no artifact is needed." A rich issue body, a detailed feature request,
+or a chat message is ephemeral — it is not a durable project artifact. The
+feature's problem, outcome, journeys, and scope must be articulated in a persistent
+artifact either way. The decision is only about WHERE that durable framing lives:
+its own BRIEF document, or carried forward into the downstream PRD/design when a
+standalone brief would be too heavy for the feature.
 
 Run the decision as follows:
 
 1. **Assess the available framing.** From the entry mode and any upstream, judge
-   how much of the brief's content already exists in durable form:
+   how much of the framing already exists in durable form:
    - **Cold start / freeform topic with no upstream.** The framing does not exist
-     yet. Produce a durable brief. Proceed normally.
+     yet. Produce a standalone brief. Proceed normally.
    - **Upstream ROADMAP path.** A roadmap names the feature but rarely frames its
-     problem and outcome. The framing gap is real. Produce a durable brief.
+     problem and outcome. The framing gap is real. Produce a standalone brief.
    - **Upstream PRD path, or an input that already reads as a framed feature
-     (problem and outcome both clearly stated).** Most of the brief's content
-     exists. This is the case the decision exists for — continue to step 2.
+     (problem and outcome both stated, but in an issue, a message, or another
+     ephemeral source).** The raw content largely exists; it just isn't persisted
+     as a project artifact yet. Continue to step 2 to decide where to persist it.
 
-2. **Weigh produce-vs-hand-off.** When the framing largely exists, ask whether a
-   durable brief earns its keep:
-   - **Produce a brief** when the framing warrants recording: the feature will be
-     referenced by more than one downstream artifact, the problem/outcome pair is
-     contested or non-obvious enough that writing it down settles it, or a future
-     reader landing cold would benefit from a standalone framing document.
-   - **Hand off to the PRD** when authoring a separate document would be ceremony:
-     the existing evidence (issue body, upstream) already frames the feature
-     clearly, the PRD will be the only downstream consumer, and the framing is not
-     contested. In this case, do not produce a brief. Tell the user the existing
-     evidence is sufficient framing and recommend `/prd <upstream-or-topic>`
-     directly, naming what the PRD should carry forward as its problem and outcome.
+2. **Decide where the durable framing lives.** When the raw framing largely exists
+   in ephemeral form, choose its persistent home:
+   - **Produce a standalone BRIEF** when the framing warrants its own document: the
+     feature will be referenced by more than one downstream artifact, the
+     problem/outcome pair is contested or non-obvious enough that writing it down
+     settles it, or a future reader landing cold would benefit from a standalone
+     framing document.
+   - **Fold the framing into the downstream PRD/design** when a standalone brief
+     would be ceremony: the PRD will be the only downstream consumer and the framing
+     is not contested. This is NOT a license to skip articulation. The four framing
+     concerns — problem, outcome, journeys, scope — must still be captured durably,
+     in the PRD itself rather than left in the ephemeral source. Recommend
+     `/prd <upstream-or-topic>` and name the problem, outcome, journeys, and scope
+     the PRD must carry forward as durable content.
 
-3. **Record the decision.** Write the outcome to the context file (step 0.5
-   below). If the decision is hand-off, the workflow exits here — there is no brief
-   to draft. Surface the recommendation to the user and stop.
+3. **Record the decision.** Write the outcome to the context file (step 0.6
+   below). If the decision is to fold the framing downstream, the workflow exits
+   here — there is no standalone brief to draft — but the hand-off recommendation
+   must instruct the downstream skill to persist the framing, not treat the
+   ephemeral source as sufficient. Surface the recommendation to the user and stop.
 
 This decision is a judgment call, not a gate with a fixed threshold. When the case
-is genuinely ambiguous, default to producing the brief: a short standalone framing
+is genuinely ambiguous, default to producing the standalone brief: a short framing
 artifact is cheap, and a durable record is easier to point a downstream PRD at than
-scattered evidence. The hand-off path exists to avoid ceremony, not to discourage
-briefs.
+scattered evidence. The fold-into-PRD path exists to avoid a redundant second
+document, never to leave the framing unpersisted.
 
 ## 0.6 Initialize wip/
 

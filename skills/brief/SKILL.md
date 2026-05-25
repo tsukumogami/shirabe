@@ -2,10 +2,13 @@
 name: brief
 description: >-
   Structured workflow for creating BRIEF documents — the framing step
-  between a sequenced ROADMAP feature and a PRD's requirements. Use
-  when a feature is named but nobody has yet framed its problem, the
-  outcome a user should experience, the journeys that exercise it, and
-  the scope it holds in and pushes out. Triggers on "frame this
+  between a sequenced ROADMAP feature and a PRD's requirements. Use to
+  capture a feature's problem, intended outcome, user journeys, and
+  scope boundary as durable artifacts before requirements are written —
+  including when an issue or conversation already states the problem,
+  since the skill's job is to persist that framing (into the BRIEF, or
+  a downstream PRD/design when a standalone brief is too heavy), not
+  merely to supply framing that is missing. Triggers on "frame this
   feature", "write a brief for X", "what problem does Y solve before we
   write the PRD", "we need the framing step between the roadmap and the
   PRD", or "BRIEF-<name>". Do NOT use for feature sequencing
@@ -79,9 +82,13 @@ scopes the feature conversationally, drafts the four content sections,
 runs a two-reviewer jury, and finalizes through explicit human
 approval.
 
-The skill produces a BRIEF document. Use `/brief` when a feature is
-named but its framing — the problem, the outcome, the journeys, the
-scope — hasn't been written down yet. Use `/roadmap` if the
+The skill produces a BRIEF document. Use `/brief` to capture a
+feature's framing — its problem, outcome, journeys, and scope — as a
+durable artifact before requirements are written. Reach for it even
+when an issue or a conversation already states the problem: that
+source is ephemeral, and the skill's job is to persist the framing (in
+the BRIEF, or downstream when a standalone brief is too heavy), not
+just to supply framing that's missing. Use `/roadmap` if the
 conversation is about which features ship and in what order. Use
 `/prd` once the framing is settled and what's needed is the
 requirements contract.
