@@ -647,6 +647,88 @@ five user stories defined in this PRD (US-1, US-2, US-3a, US-3b,
 US-4); the requirement to ship evals is pattern-level, the
 scenarios chosen are charter-specific.
 
+**R19 [pattern-level].** A parent skill's orchestration layer
+(team-lead, whether the parent itself for single-agent parents or
+the coordinator inside a team-emitting parent) SHALL implement the
+**team-lead operating discipline**: a sleep-check-nudge loop that
+runs for the duration of any dispatched work. The discipline is
+substrate-agnostic — it survives the amplifier-layer migration
+because filesystem evidence is a strictly stronger source of truth
+than message delivery. The canonical 5-step loop:
+
+1. **Dispatch.** Team-lead sends a structured directive to the
+   teammate, records the dispatch in working memory (teammate,
+   task, dispatch timestamp, expected artifacts, response window).
+2. **Bounded sleep.** Team-lead sleeps for the task-class window
+   (see priority ordering and timing below) before checking for
+   evidence. Sleep is a scheduling primitive — team-lead MAY
+   interleave its own work within the window; it MUST NOT exceed
+   the window without checking.
+3. **Filesystem evidence check (priority 1).** Team-lead inspects
+   the filesystem for terminal artifacts, partial artifacts, new
+   git commits, or growing `wip/` files. Filesystem evidence is
+   durable, cheap, and unambiguous; it precedes inbox processing
+   because message delivery is best-effort.
+4. **Inbox processing (priority 2).** If no filesystem evidence
+   advances the work, team-lead processes structured teammate
+   messages (PASS / FAIL / PROGRESS / BLOCKED verdicts). Idle-status
+   pings are infrastructure noise and SHALL NOT count as inbox
+   messages.
+5. **Nudge (priority 3).** If neither filesystem nor inbox advances
+   the work, team-lead sends a nudge containing **directly-executable
+   instructions**: what artifact to produce, where to write it, what
+   structured verdict to reply with. Nudges SHALL NOT ask open-ended
+   questions ("what's happening?", "are you stuck?").
+
+The loop has exactly **three terminal exit conditions**:
+
+- **PASS.** Terminal artifact present and valid at expected path,
+  OR structured teammate message with `verdict: PASS` (with
+  artifact-existence verification before proceeding).
+- **FAIL.** Structured teammate message with `verdict: FAIL`, OR
+  artifact present but failing validation. Team-lead routes to the
+  parent's recovery flow.
+- **ESCALATE.** Patience budget exhausted (default 5 stagnation
+  cycles per teammate, where stagnation = no progress in either
+  filesystem or inbox). Team-lead surfaces a concrete state dump
+  to the user-proxy with a recommended intervention.
+
+Indefinite passive wait is NOT a valid exit; this is the contract
+the discipline enforces. The patience budget counts stagnation
+cycles, not total cycles — a cycle that surfaces progress evidence
+(even partial) resets the budget implicitly.
+
+**Task-class timing parameters.** Default sleep windows and
+patience budgets vary by task class:
+
+| Task class | Default sleep | Patience budget |
+|---|---|---|
+| Review verdict (reviewer reads a doc, returns PASS/FAIL) | 30s | 5 cycles |
+| Decomposition / generation (decomposer writes an issue body) | 60s | 10 cycles |
+| Implementation pass (peer applies code changes, runs tests) | 120s | 10 cycles |
+| External wait (CI run, network operation) | 60s | unlimited |
+
+External waits poll status surfaces (CI rollup, exit codes) rather
+than nudge; the work is external, team-lead has no leverage to
+nudge it faster.
+
+**`ci_outcome` semantics for CI-driven exits.** When team-lead
+polls CI to completion, the recorded outcome distinguishes
+`passing` (CI was always green) from `failing_fixed` (CI was
+failing, then a fix commit flipped it green). The two are not
+interchangeable; `failing_fixed` records that intervention
+occurred.
+
+R19 is encoded in the design as invariant **I-7 (Active
+Orchestration)** plus reference-implementation content in
+`references/parent-skill-pattern.md`. `/charter` v1 is single-agent
+(no peer dispatch within `/charter` itself), so R19 binds vacuously
+to `/charter`'s own orchestration; its child invocations
+(`/vision`, `/strategy`, `/roadmap`) are dispatches in the
+team-lead-discipline sense and inherit the loop. Future
+team-emitting parents (`/scope`, `/work-on` migration) bind R19
+concretely with their own task-class defaults.
+
 ## Acceptance Criteria
 
 Each criterion is binary pass/fail. ACs trace to both the
@@ -925,6 +1007,52 @@ requirement that motivates them and the user story they exercise
   ladder detects the partial `/strategy` run and resumes into
   `/strategy`. The ladder MUST NOT incorrectly look for
   `_scope.md`. `[automated-eval]` (R11)
+
+### Team-lead operating discipline (R19)
+
+- [ ] **AC27** The team-lead operating discipline (sleep-check-nudge
+  loop) fires immediately after any dispatch — that is, after
+  `/charter` invokes a child skill (`/vision`, `/strategy`,
+  `/roadmap`) or any future team-emitting parent's coordinator
+  dispatches a teammate. Team-lead MUST NOT transition to indefinite
+  passive wait on the inbox. The observable in
+  `references/parent-skill-pattern.md`: a Team-Lead Operating
+  Discipline section names the loop as the default behavior after
+  dispatch. `[automated-unit]` (R19)
+- [ ] **AC28** The discipline loop's evidence-check ordering puts
+  **filesystem before inbox**: each cycle inspects expected
+  artifact paths, git log, and `wip/` file growth as priority 1
+  before processing teammate messages as priority 2. The
+  observable: `references/parent-skill-pattern.md` documents the
+  three-priority ordering with filesystem first; eval scenarios
+  verify the ordering via assertion strings on the priority list.
+  `[automated-eval]` (R19)
+- [ ] **AC29** Nudges sent by team-lead contain
+  **directly-executable instructions** — what artifact to produce
+  or what action to take, where to write it on the filesystem, and
+  what structured verdict to reply with. Nudges MUST NOT consist
+  of open-ended questions ("what's happening?", "are you stuck?").
+  The observable: the nudge template documented in
+  `references/parent-skill-pattern.md` names directly-executable
+  content; AC violation surfaces if the template uses open-ended
+  question phrasing. `[automated-unit]` (R19)
+- [ ] **AC30** The patience budget exhausts at exactly **5
+  stagnation cycles** per teammate for the default review-verdict
+  task class (not before, not after). A cycle counts as
+  "stagnation" only when neither filesystem evidence nor inbox
+  message advances the work; cycles that surface progress evidence
+  (partial artifact, new commit, `wip/` growth, PROGRESS verdict)
+  reset the budget implicitly. The observable:
+  `references/parent-skill-pattern.md` names the 5-cycle default
+  and the stagnation-counting rule; eval scenarios verify the
+  budget boundary. `[automated-eval]` (R19)
+- [ ] **AC31** `ci_outcome` recording for CI-driven exits
+  distinguishes `passing` (CI always green) from `failing_fixed`
+  (CI was failing, then a fix commit flipped it green). The two
+  values MUST NOT be conflated. The observable: when team-lead
+  polls CI to completion after a fix commit lands, the recorded
+  `ci_outcome` is `failing_fixed`, not `passing`. `[manual-review]`
+  of code paths (R19).
 
 ## Out of Scope
 
@@ -1235,6 +1363,19 @@ while honoring the durable-file commitment. The distinction from
 abandonment-forced is sharp: the rejection sub-shape fires on
 explicit finalization judgment; abandonment-forced fires on bail.
 
+The underlying principle behind the three-exit contract is the
+**discipline-vs-artifact decoupling thesis**: strategic
+conversation can be *disciplined* without being forced to
+*produce*. The re-evaluation exit (with its two sub-shapes) is the
+operational proof that a disciplined conversation can conclude at
+a durable Decision Record rather than at a STRATEGY artifact;
+abandonment-forced is the proof that even a chain that bails ends
+at a review surface. Naming this thesis explicitly makes clear
+why the three-exit shape has the structure it does — each exit
+exists to demonstrate a specific decoupling property — and gives
+downstream parent skills (`/scope`, `/work-on`) a principled
+framing when they confront their own exit-shape decisions.
+
 ### Decision 6: `/charter` writes both re-evaluation sub-shapes inline
 
 **Decided.** `/charter` writes both re-evaluation and rejection
@@ -1325,7 +1466,10 @@ artifact's framing.
   is the baton; verifying the design respects it is the
   design doc's own acceptance check, not this PRD's. The
   pattern-level requirements at PRD acceptance time are: R1, R3,
-  R9, R10, R11, R12, R13, R14, R17a, R18 (10 requirements).
+  R9, R10, R11, R12, R13, R14, R17a, R18, R19 (11 requirements).
+  R19 (team-lead operating discipline) is encoded in the design
+  as invariant I-7 and a new Component 6 (Team-Lead Operating
+  Discipline) on the pattern-skill reference.
 
 - **`skills/charter/SKILL.md`** — the loadable skill itself. AC1
   through AC1b verify the structural template.

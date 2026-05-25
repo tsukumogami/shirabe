@@ -67,8 +67,12 @@ separate PRD), and the future `/work-on` migration from its
 current substrate into the same pattern (separate PRD when
 substrate work is bounded). The design lifts every requirement
 tagged `[pattern-level]` in `/charter`'s PRD (R1, R3, R9, R10, R11,
-R12, R13, R14, R17a, R18) into pattern-level scope; the
-`[/charter-specific]` requirements stay in `/charter`'s PRD.
+R12, R13, R14, R17a, R18, plus R19 added during refinement after
+the SE4 retrospective) into pattern-level scope; the
+`[/charter-specific]` requirements stay in `/charter`'s PRD. R19
+(team-lead operating discipline) is encoded as invariant I-7
+(Active Orchestration) plus Component 6 (Team-Lead Operating
+Discipline).
 
 ## Context and Problem Statement
 
@@ -396,6 +400,14 @@ invariant set is:
   condition does not hold (never null / placeholder).
 - **I-6** *Cross-branch resume is a pattern invariant. The v1
   core-layer implementation acknowledges it does NOT satisfy I-6.*
+- **I-7** *Active Orchestration.* A parent's team-lead MUST NOT
+  transition to passive wait while dispatched teammates are in
+  flight; the team-lead operating discipline (Component 6) MUST be
+  in effect for the duration of any chain run. The discipline is
+  the sleep-check-nudge loop spec at pattern level; the v1
+  core-layer satisfies I-7 by encoding the discipline in
+  `references/parent-skill-pattern.md` and citing it from each
+  parent's orchestration phase reference.
 
 **Layer 2 — Reference implementation (substrate-bound).** A concrete
 serialization that every core-layer parent uses verbatim, drawn from
@@ -604,6 +616,20 @@ child-internals isolation, visibility default). The canonical source
 is `/charter`'s eval file (which ships first); `/scope` and
 `/work-on` copy-and-adapt rather than `$ref`-importing. A future
 eval-infrastructure follow-up can introduce `$ref` mechanically.
+
+**R19 (team-lead operating discipline) ratifies verbatim as
+pattern-level.** Added during refinement after the SE4
+retrospective. R19's sleep-check-nudge loop, task-class timing
+parameters, and three-exit (PASS / FAIL / ESCALATE) contract are
+encoded in invariant I-7 (Active Orchestration) and in a new
+Component 6 (Team-Lead Operating Discipline) on the pattern-skill
+reference. R19 is pattern-level because the discipline is
+identical across every team-emitting parent (`/scope`, `/work-on`)
+and binds vacuously to single-agent parents (`/charter`) at the
+parent-itself layer while binding concretely at the child-skill
+dispatch layer. The pattern-level scope at design acceptance time
+expands from ten requirements (R1, R3, R9, R10, R11, R12, R13,
+R14, R17a, R18) to **eleven** with R19 included.
 
 #### Alternatives Considered
 
@@ -999,7 +1025,7 @@ plus reference implementation per Decision 2), so the same design
 can ship a verifiable core-layer implementation today and admit an
 amplifier-layer implementation later without redesign.
 
-The architecture has five components:
+The architecture has six components:
 
 1. **Pattern-level reference files** under top-level `references/`.
 2. **The parent-skill SKILL.md template** each parent SHALL follow.
@@ -1010,6 +1036,11 @@ The architecture has five components:
 5. **The team-shape declarator mechanism** — how a parent declares
    its team shape so a parent-of-the-parent can materialize peers
    upfront.
+6. **The team-lead operating discipline** — how the team-lead runs
+   the team at the orchestration layer (sleep-check-nudge loop,
+   filesystem-evidence-first ordering, three-exit
+   PASS/FAIL/ESCALATE contract). Operational binding of invariant
+   I-7 (Active Orchestration).
 
 The pattern is consumed by three parent skills (`/charter`, `/scope`,
 the future `/work-on` migration). The components below are written
@@ -1024,11 +1055,14 @@ Four new files at the top-level `references/` directory, all
 loadable via `${CLAUDE_PLUGIN_ROOT}/references/<file>.md`:
 
 - **`references/parent-skill-pattern.md`** — the contract surface
-  document. Names the two-layer contract, the six semantic invariants
-  (I-1 through I-6), the three exit paths (full-run, re-evaluation,
-  abandonment-forced), the conditional-feeder integration shape
-  (Decision 6), and the two named substitution surfaces
-  (`storage_substrate`, `team_primitive`).
+  document. Names the two-layer contract, the seven semantic
+  invariants (I-1 through I-7), the three exit paths (full-run,
+  re-evaluation, abandonment-forced), the conditional-feeder
+  integration shape (Decision 6), the two named substitution
+  surfaces (`storage_substrate`, `team_primitive`), and the
+  Team-Lead Operating Discipline (Component 6) with its
+  sleep-check-nudge loop, task-class timing parameters, and
+  three-exit contract (PASS / FAIL / ESCALATE).
 - **`references/parent-skill-state-schema.md`** — the 5-field
   minimum state-file vocabulary plus extension discipline. Names
   required fields (`topic`, `last_updated`, `phase_pointer`, `exit`,
@@ -1083,17 +1117,35 @@ via child-doc fingerprints (R14 widened) on the next parent
 resume and offers a staleness-warning prompt; it does NOT act on
 the staleness unilaterally.
 
+**Default-option wording at status-aware re-entry prompts is part
+of the contract surface, not a UX detail; specify as
+literal-substring requirements in ACs.** Re-entry prompts against
+an existing Accepted/Active child doc carry behavioral weight: a
+"Continue / Start fresh" default biases every chain toward
+revision and destroys the discipline-vs-artifact decoupling.
+Parent skills SHALL specify the option wording (e.g., `/charter`'s
+literal "Re-evaluate / Revise / Bail") as a verifiable contract,
+treated with the same rigor as schema validation, not as a
+cosmetic detail subject to drift.
+
 #### Component 3 — Two-layer contract surface
 
 The pattern's central architectural commitment. The two layers:
 
 **Layer 1 — Semantic invariants (substrate-agnostic).**
-Six invariants every parent SHALL satisfy regardless of substrate.
-I-1 through I-5 (described in Decision 2's Considered Options) are
-satisfied by the v1 core-layer implementation. I-6 (cross-branch
-resume) is named as an invariant but explicitly NOT satisfied by
-the v1 wip/-substrate implementation; satisfying I-6 is part of
-the amplifier-layer's mandate.
+Seven invariants every parent SHALL satisfy regardless of
+substrate. I-1 through I-5 (described in Decision 2's Considered
+Options) are satisfied by the v1 core-layer implementation. I-6
+(cross-branch resume) is named as an invariant but explicitly NOT
+satisfied by the v1 wip/-substrate implementation; satisfying I-6
+is part of the amplifier-layer's mandate. I-7 (Active
+Orchestration) — added in refinement after the SE4 retrospective
+surfaced message-loss failures — codifies the team-lead operating
+discipline (sleep-check-nudge loop, filesystem-evidence-first
+ordering, three-exit PASS/FAIL/ESCALATE contract; see Component
+6). The v1 core-layer satisfies I-7 by encoding the discipline at
+pattern-reference altitude and citing it from each parent's
+orchestration phase.
 
 **Layer 2 — Reference implementation (substrate-bound).** A
 concrete state-file serialization that every core-layer parent uses
@@ -1181,6 +1233,127 @@ issue a TeamCreate call under the v1 core layer. v2 amplifier-layer
 implementations parse a structured form of the same declaration
 (see Decision 8); the semantic content is identical.
 
+A note on role cardinality, surfaced by the SE4 retrospective:
+**reviewer-shaped roles iterate over work items themselves; variable-
+cardinality worker roles spawn one peer per work item.** A fixed
+reviewer role (e.g., the architecture-reviewer, the
+AC-discriminability reviewer in `/plan`'s Phase 6) runs once per
+parent invocation and reviews all N work items in a single pass.
+A variable-cardinality worker role type (e.g., `/design`'s
+`decision-researcher`, `/plan`'s `decomposer`) spawns one peer per
+work item, scaling with N. The team-shape declaration MUST
+distinguish the two — getting reviewer-shaped roles wrong by an
+order of magnitude (spawning one reviewer per work item instead of
+one for the whole parent) is the failure mode this distinction
+forecloses.
+
+#### Component 6 — Team-Lead Operating Discipline
+
+The team-shape declarator (Component 5) says what team exists. This
+component says **how the team-lead runs the team at the
+orchestration layer.** It resolves the message-loss and
+passive-wait failure modes observed during the SE4 retrospective
+(team-pattern-observations #1, #7, and #12) and is the operational
+binding of invariant I-7 (Active Orchestration).
+
+The discipline is a **sleep-check-nudge loop** that runs for the
+duration of any chain run. After dispatching work to a teammate
+(any teammate: a peer in a team-emitting parent, OR a child skill
+invocation from a single-agent parent like `/charter`), team-lead
+enters the loop and exits only on a terminal condition (PASS,
+FAIL, or ESCALATE). Passive indefinite wait is a contract
+violation.
+
+**The canonical 5-step loop:**
+
+1. **Dispatch.** Team-lead sends a structured directive to the
+   teammate and records dispatch metadata in working memory
+   (teammate, task, dispatch timestamp, expected artifacts,
+   response window).
+2. **Bounded sleep.** Team-lead sleeps for the task-class window
+   (table below). Sleep is a scheduling primitive — team-lead
+   MAY interleave its own work within the window; it MUST NOT
+   exceed the window without checking.
+3. **Filesystem evidence check (priority 1).** Inspect expected
+   artifact paths, git log, commit timestamps, and `wip/` file
+   contents. Filesystem evidence is durable (survives message
+   loss), cheap (no network), and unambiguous (file exists or
+   doesn't). Within the filesystem check, the priority is: (a)
+   terminal artifact present at expected path → conclusive
+   evidence to read and proceed; (b) partial artifact, new
+   commits, or `wip/` growth → progress; (c) no change since
+   dispatch → no progress.
+4. **Inbox processing (priority 2).** Process structured teammate
+   messages (PASS / FAIL / PROGRESS / BLOCKED verdicts). **Idle
+   pings do not count as inbox messages** — they are
+   infrastructure noise from the v1 message substrate and SHALL
+   NOT advance the loop's evidence; only structured teammate
+   verdicts count.
+5. **Nudge (priority 3).** If neither filesystem nor inbox
+   advances the work, send a nudge containing **directly-executable
+   instructions**: what artifact to produce, where to write it,
+   what structured verdict to reply with. Generic nudges ("what's
+   happening?", "are you stuck?") are forbidden — they trigger
+   acknowledgement loops without producing work.
+
+**Three terminal exit conditions:**
+
+- **PASS.** Terminal artifact present and valid at expected path,
+  OR structured teammate message with `verdict: PASS` (with
+  artifact-existence verification before proceeding).
+- **FAIL.** Structured teammate message with `verdict: FAIL`, OR
+  artifact present but failing validation. Team-lead routes to the
+  parent's recovery flow.
+- **ESCALATE.** Patience budget exhausted (default 5 stagnation
+  cycles per teammate; "stagnation" = no progress in either
+  filesystem or inbox; progress evidence resets the budget
+  implicitly). Team-lead surfaces a concrete state dump to the
+  user-proxy with a recommended intervention. Escalation maps to
+  the parent's existing `abandonment-forced` exit path with a
+  `triggering_teammate:` field naming the stalled peer.
+
+**Task-class timing parameters.** Default sleep windows and
+patience budgets vary by task class:
+
+| Task class | Default sleep | Patience budget |
+|---|---|---|
+| Review verdict (reviewer reads a doc, returns PASS/FAIL) | 30s | 5 cycles |
+| Decomposition / generation (decomposer writes an issue body) | 60s | 10 cycles |
+| Implementation pass (peer applies code changes, runs tests) | 120s | 10 cycles |
+| External wait (CI run, network operation) | 60s | unlimited |
+
+The patience budget counts stagnation cycles, not total cycles —
+long-running legitimate work surfaces partial filesystem progress
+between cycles and continues silently. External waits poll status
+surfaces (CI rollup, exit codes) rather than nudge; team-lead has
+no leverage to nudge external systems faster, so the discipline
+becomes "poll, don't passive-wait."
+
+**`ci_outcome` semantics for CI-driven exits.** When team-lead
+polls CI to completion, the recorded outcome distinguishes
+`passing` (CI was always green) from `failing_fixed` (CI was
+failing, then a fix commit flipped it green). The two are not
+interchangeable; `failing_fixed` records that intervention
+occurred and is the correct value on flipped-green-after-fix.
+
+**Binding to /charter v1.** `/charter` runs as a single-agent skill
+in v1 (no peer dispatch within `/charter` itself), so the loop
+binds **vacuously** to `/charter`'s own orchestration. The
+discipline binds **concretely** to `/charter`'s child invocations
+(`/vision`, `/strategy`, `/roadmap`) — each child invocation IS a
+dispatch in the team-lead-discipline sense, and `/charter` SHALL
+treat each child as a teammate that may need filesystem evidence
+checking and nudging if it stalls. Per the task-class table,
+child-skill invocations are an implementation pass (120s window,
+10-cycle budget) because each child is itself a parent skill that
+runs multiple phases.
+
+**Binding to future parents.** `/scope` and `/work-on` (post-
+migration) bind R19 concretely with their own task-class defaults.
+`/scope`'s scope-validator teammates use the review-verdict class
+(30s / 5 cycles). `/work-on`'s ci-verifier is the external-wait
+case — poll CI rollup; do not nudge.
+
 ### Key Interfaces
 
 **Parent ⇄ child interface (R14 widened).** A parent reads only
@@ -1195,6 +1368,23 @@ internals.
 The parent's resume ladder consults this surface via the parent-skill
 child-inspection reference. Children's `wip/research/<child>_*.md`,
 CI logs, comment threads, and other internals are off-limits.
+
+**Parents do not extend children's input surfaces.** When a parent
+needs to pass semantic context to a child that the child doesn't
+have an API for (e.g., `/charter`'s thesis-shift signal passed to
+`/vision`), the parent SHALL NOT add new flags or modes to the
+child. Parents pass through children's existing input modes and
+rely on the child's own resume logic to detect state from
+filesystem evidence (existing doc, frontmatter status, wip/
+artifacts). PRD R4's "the thesis-shift signal is
+`/charter`-internal — `/vision` itself has no API to receive 'treat
+this as a revision'" is the canonical instance: `/charter` elicits
+the signal conversationally during its Phase 1, then invokes
+`/vision <topic>` with the topic slug alone; `/vision`'s Resume
+Logic detects the existing-VISION case if one exists and routes
+accordingly. This rule prevents parent skills from accumulating
+child-API extensions and keeps the child's contract surface
+stable.
 
 **Parent ⇄ parent interface (file-handoff, per `team_primitive`'s
 v1 value).** A parent that consumes an upstream parent's artifact

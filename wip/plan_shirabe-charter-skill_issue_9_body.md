@@ -5,7 +5,7 @@ complexity_rationale: Evals are the integration verification surface for `/chart
 
 ## Goal
 
-Ship `skills/charter/evals/evals.json` with nine eval scenarios — four canonical **shared-baseline** scenarios (slug rejection, malformed state file, child-internals isolation, visibility default) clearly delimited for future copy-and-adapt by `/scope` and `/work-on`, plus five `/charter`-specific scenarios covering PRD User Stories US-1, US-2, US-3a, US-3b, and US-4 — all passing under `scripts/run-evals.sh charter` per AC26c.
+Ship `skills/charter/evals/evals.json` with eleven eval scenarios — six canonical **shared-baseline** scenarios (slug rejection, malformed state file, child-internals isolation, visibility default, **team-lead-discipline loop ordering — filesystem-check-before-inbox-check**, **default-option-wording substring requirement**) clearly delimited for future copy-and-adapt by `/scope` and `/work-on`, plus five `/charter`-specific scenarios covering PRD User Stories US-1, US-2, US-3a, US-3b, and US-4 — all passing under `scripts/run-evals.sh charter` per AC26c.
 
 ## Context
 
@@ -30,9 +30,9 @@ shirabe's eval format is JSON-flat: a top-level object with `skill_name` and an 
 
 There is **no `$ref` mechanism in v1** (per Design Decision 4); the shared baseline is delimited by naming convention and ordering, not by JSON reference.
 
-### Scenario set composition (nine scenarios)
+### Scenario set composition (eleven scenarios)
 
-The file contains nine scenarios in two delimited groups. The shared-baseline group MUST come first (lower IDs) and MUST be tagged via the `name` field prefix `baseline-` so future parents can mechanically identify them via simple JSON traversal. The `/charter`-specific group follows with the `us-` prefix per user story.
+The file contains eleven scenarios in two delimited groups. The shared-baseline group MUST come first (lower IDs) and MUST be tagged via the `name` field prefix `baseline-` so future parents can mechanically identify them via simple JSON traversal. The `/charter`-specific group follows with the `us-` prefix per user story.
 
 **Shared-baseline scenarios (canonical source per Design Decision 4)** — must be tagged or grouped at the top of the file with a header comment in the JSON file (e.g., a `_comment` sibling key, or by ordering convention plus the `baseline-` name prefix; this issue MAY choose either delimiter as long as the discipline is mechanical):
 
@@ -44,24 +44,28 @@ The file contains nine scenarios in two delimited groups. The shared-baseline gr
 
 4. **baseline-visibility-default** — when CLAUDE.md is missing the `## Repo Visibility:` header, `/charter` defaults to Private AND emits a warning whose body contains the literal phrase **"Default to Private if unknown"**. Asserts AC21.
 
+5. **baseline-team-lead-discipline-loop-ordering** — the team-lead operating discipline (invariant I-7, per R19) MUST check filesystem evidence **before** processing inbox messages. The scenario asserts the priority ordering documented in `references/parent-skill-pattern.md`'s Team-Lead Operating Discipline section: priority 1 is filesystem evidence (artifact presence, git log, wip/ growth); priority 2 is inbox processing (structured PASS/FAIL/PROGRESS verdicts; idle pings do NOT count); priority 3 is the nudge. The scenario verifies via assertion strings on the priority-list content in the pattern reference (`grep -A` on the section). Asserts AC27, AC28.
+
+6. **baseline-default-option-wording** — default-option wording at status-aware re-entry prompts is a contract surface (per the L8 principle added to design Component 2). The scenario asserts: when `/charter` invokes against a topic with an existing Accepted/Active STRATEGY at `docs/strategies/STRATEGY-<topic>.md`, the entry-router prompt (a) MUST contain the literal substring **"Re-evaluate / Revise / Bail"** (case-insensitive components allowed); (b) MUST NOT contain the literal substring **"Continue / Start fresh"**. The negative substring assertion is load-bearing: it prevents the "Do you want to revise?" default that would destroy the discipline-vs-artifact decoupling thesis. Asserts AC18.
+
 **/charter-specific scenarios (one per PRD User Story per R18)**:
 
-5. **us-1-cold-standalone-full-run** — invoke `/charter test-topic` against a fresh worktree with no `wip/charter_<topic>_state.md`, no `docs/strategies/STRATEGY-<topic>.md`, and no upstream artifacts. Public-repo visibility (per workspace discipline). `/charter` walks Phase 1 discovery, decides not to invoke `/vision` (no thesis-shift signal) and not to invoke `/comp` (public repo per R5 + R12 degenerate-silence rule), invokes `/strategy` per R6, and may invoke `/roadmap` if the produced STRATEGY's Building Blocks gate passes per R7. State file at chain finalization has `exit: full-run`, `exit_artifacts` lists the STRATEGY path (and the ROADMAP path if `/roadmap` ran). Asserts AC2, AC11a, AC11b.
+7. **us-1-cold-standalone-full-run** — invoke `/charter test-topic` against a fresh worktree with no `wip/charter_<topic>_state.md`, no `docs/strategies/STRATEGY-<topic>.md`, and no upstream artifacts. Public-repo visibility (per workspace discipline). `/charter` walks Phase 1 discovery, decides not to invoke `/vision` (no thesis-shift signal) and not to invoke `/comp` (public repo per R5 + R12 degenerate-silence rule), invokes `/strategy` per R6, and may invoke `/roadmap` if the produced STRATEGY's Building Blocks gate passes per R7. State file at chain finalization has `exit: full-run`, `exit_artifacts` lists the STRATEGY path (and the ROADMAP path if `/roadmap` ran). Asserts AC2, AC11a, AC11b.
 
-6. **us-2-re-evaluation** — pre-populate an Accepted STRATEGY at `docs/strategies/STRATEGY-test-topic.md` (no `wip/charter_<topic>_state.md`). Invoke `/charter test-topic`. The entry prompt MUST contain the literal substrings (case-insensitive) **"Re-evaluate"**, **"Revise"**, and **"Bail"**, AND MUST NOT contain the substring **"Continue / Start fresh"**. Author selects "Re-evaluate"; `/charter` walks the upstream STRATEGY's claims, finds all still hold, writes a Decision Record at `docs/decisions/DECISION-strategy-test-topic-re-evaluation-<YYYY-MM-DD>.md` referencing the STRATEGY without re-invoking `/strategy`. Final state file: `exit: re-evaluation`, `decision_record_sub_shape: re-evaluation`, `referenced_strategy: docs/strategies/STRATEGY-test-topic.md`. Asserts AC12, AC18.
+8. **us-2-re-evaluation** — pre-populate an Accepted STRATEGY at `docs/strategies/STRATEGY-test-topic.md` (no `wip/charter_<topic>_state.md`). Invoke `/charter test-topic`. The entry prompt MUST contain the literal substrings (case-insensitive) **"Re-evaluate"**, **"Revise"**, and **"Bail"**, AND MUST NOT contain the substring **"Continue / Start fresh"**. Author selects "Re-evaluate"; `/charter` walks the upstream STRATEGY's claims, finds all still hold, writes a Decision Record at `docs/decisions/DECISION-strategy-test-topic-re-evaluation-<YYYY-MM-DD>.md` referencing the STRATEGY without re-invoking `/strategy`. Final state file: `exit: re-evaluation`, `decision_record_sub_shape: re-evaluation`, `referenced_strategy: docs/strategies/STRATEGY-test-topic.md`. Asserts AC12, AC18.
 
-7. **us-3a-rejection-sub-shape** — start cold (no artifacts). Invoke `/charter test-topic`. `/charter` invokes `/strategy`; `/strategy` reaches Phase 5 and the author selects Reject. `/strategy` discards the Draft STRATEGY via `git rm` + commit (the discard commit is `/strategy`'s responsibility). `/charter` then writes a Decision Record at `docs/decisions/DECISION-strategy-test-topic-rejection-<YYYY-MM-DD>.md` referencing the discard commit SHA. Final state file: `exit: re-evaluation`, `decision_record_sub_shape: rejection`, `discard_commit_sha: <sha>`, `rejection_rationale: <text>`. Asserts AC13.
+9. **us-3a-rejection-sub-shape** — start cold (no artifacts). Invoke `/charter test-topic`. `/charter` invokes `/strategy`; `/strategy` reaches Phase 5 and the author selects Reject. `/strategy` discards the Draft STRATEGY via `git rm` + commit (the discard commit is `/strategy`'s responsibility). `/charter` then writes a Decision Record at `docs/decisions/DECISION-strategy-test-topic-rejection-<YYYY-MM-DD>.md` referencing the discard commit SHA. Final state file: `exit: re-evaluation`, `decision_record_sub_shape: rejection`, `discard_commit_sha: <sha>`, `rejection_rationale: <text>`. Asserts AC13.
 
-8. **us-3b-abandonment-forced** — start cold. `/charter test-topic` proceeds through Phase 1 and creates a partial-state state file with `phase_pointer: 2` and `chain_ran` listing the most-recently-running child but no `exit:` field set. Simulate a 7+ day gap (mock `last_updated` to be `≥ 7d` old). On next `/charter test-topic` resume, the 7-day stale-session detection fires (row 4 of the resume ladder) and surfaces the three-option prompt **Resume / Force-materialize / Discard**. Author selects **Force-materialize**. `/charter` force-materializes the most-recently-running child's intermediate with an HTML-comment marker `<!-- charter-status-block: abandonment-forced; ... -->` inside the artifact's Status section. Final state file: `exit: abandonment-forced`, `triggering_child: <child>`, `partial_phase_reached: <phase>`. Asserts AC14, AC17.
+10. **us-3b-abandonment-forced** — start cold. `/charter test-topic` proceeds through Phase 1 and creates a partial-state state file with `phase_pointer: 2` and `chain_ran` listing the most-recently-running child but no `exit:` field set. Simulate a 7+ day gap (mock `last_updated` to be `≥ 7d` old). On next `/charter test-topic` resume, the 7-day stale-session detection fires (row 4 of the resume ladder) and surfaces the three-option prompt **Resume / Force-materialize / Discard**. Author selects **Force-materialize**. `/charter` force-materializes the most-recently-running child's intermediate with an HTML-comment marker `<!-- charter-status-block: abandonment-forced; ... -->` inside the artifact's Status section. Final state file: `exit: abandonment-forced`, `triggering_child: <child>`, `partial_phase_reached: <phase>`. Asserts AC14, AC17.
 
-9. **us-4-manual-fallback-reviewer-redirect** — pre-populate an Accepted STRATEGY at `docs/strategies/STRATEGY-test-topic.md` AND a `wip/charter_test-topic_state.md` whose `child_snapshots.strategy` records the STRATEGY's path, current frontmatter `status: Accepted`, and a `content_hash` matching the STRATEGY's `git hash-object` at snapshot time. A reviewer then invokes `/strategy docs/strategies/STRATEGY-test-topic.md` directly (outside `/charter`); `/strategy` produces a revised Draft body, changing both the frontmatter `status:` and the body content (thus the live `git hash-object` differs from the snapshot's `content_hash`). On the next `/charter test-topic` invocation, the resume ladder fires drift detection per AC19 (dual check: `status` OR `content_hash` differs) and surfaces the three-option staleness prompt: (1) **Re-run** the downstream child, (2) **Accept** the downstream as still-valid, (3) **Proceed without** the downstream. The eval also asserts that during the manual `/strategy` invocation `/charter` did NOT interfere (no warning, no state-file write, no block) per R13 / AC22 / AC23. Asserts AC19, AC22, AC23.
+11. **us-4-manual-fallback-reviewer-redirect** — pre-populate an Accepted STRATEGY at `docs/strategies/STRATEGY-test-topic.md` AND a `wip/charter_test-topic_state.md` whose `child_snapshots.strategy` records the STRATEGY's path, current frontmatter `status: Accepted`, and a `content_hash` matching the STRATEGY's `git hash-object` at snapshot time. A reviewer then invokes `/strategy docs/strategies/STRATEGY-test-topic.md` directly (outside `/charter`); `/strategy` produces a revised Draft body, changing both the frontmatter `status:` and the body content (thus the live `git hash-object` differs from the snapshot's `content_hash`). On the next `/charter test-topic` invocation, the resume ladder fires drift detection per AC19 (dual check: `status` OR `content_hash` differs) and surfaces the three-option staleness prompt: (1) **Re-run** the downstream child, (2) **Accept** the downstream as still-valid, (3) **Proceed without** the downstream. The eval also asserts that during the manual `/strategy` invocation `/charter` did NOT interfere (no warning, no state-file write, no block) per R13 / AC22 / AC23. Asserts AC19, AC22, AC23.
 
 ### Canonical-source delimiter discipline
 
-The four shared-baseline scenarios MUST be clearly delimited so future parents (`/scope`, `/work-on`) can mechanically identify them for copy-and-adapt. This issue applies BOTH of the following delimiters (defense in depth):
+The six shared-baseline scenarios MUST be clearly delimited so future parents (`/scope`, `/work-on`) can mechanically identify them for copy-and-adapt. This issue applies BOTH of the following delimiters (defense in depth):
 
-- **Name-prefix discipline**: baseline scenarios use the `baseline-` prefix in the `name` field (`baseline-slug-rejection`, `baseline-malformed-state`, `baseline-child-internals-isolation`, `baseline-visibility-default`); `/charter`-specific scenarios use the `us-` prefix.
-- **Ordering discipline**: the four baseline scenarios are placed first in the `evals` array (IDs 1-4), with the five user-story scenarios following (IDs 5-9). A JSON-readable comment header (e.g., a `_baseline_note` key on the first baseline scenario or a `description` key on the top-level object explaining the canonical-source contract) further documents the discipline inline so a future copy-and-adapt author reading the file does not need to refer to this issue's prose.
+- **Name-prefix discipline**: baseline scenarios use the `baseline-` prefix in the `name` field (`baseline-slug-rejection`, `baseline-malformed-state`, `baseline-child-internals-isolation`, `baseline-visibility-default`, `baseline-team-lead-discipline-loop-ordering`, `baseline-default-option-wording`); `/charter`-specific scenarios use the `us-` prefix.
+- **Ordering discipline**: the six baseline scenarios are placed first in the `evals` array (IDs 1-6), with the five user-story scenarios following (IDs 7-11). A JSON-readable comment header (e.g., a `_baseline_note` key on the first baseline scenario or a `description` key on the top-level object explaining the canonical-source contract) further documents the discipline inline so a future copy-and-adapt author reading the file does not need to refer to this issue's prose.
 
 Until shirabe's eval format gains `$ref` mechanism, the canonical-source contract is enforced via reviewer discipline and this delimiter convention.
 
@@ -80,19 +84,21 @@ Scenarios MUST pass under `scripts/run-evals.sh charter` per AC26c. The runner i
 - [ ] `skills/charter/evals/evals.json` exists.
 - [ ] `skills/charter/evals/evals.json` is valid JSON (parseable by `python3 -c "import json; json.load(open(...))"`).
 - [ ] The top-level JSON object contains a `skill_name` field with the value `charter`.
-- [ ] The top-level JSON object contains an `evals` array with **exactly nine** scenario objects.
+- [ ] The top-level JSON object contains an `evals` array with **exactly eleven** scenario objects.
 - [ ] Every scenario object contains the fields: `id` (integer), `name` (string), `prompt` (string), `expected_output` (string), `files` (array; may be empty), and `expectations` (array of strings; non-empty).
 - [ ] Every scenario's `name` is kebab-case and unique within the file.
 - [ ] Every scenario's `id` is a positive integer unique within the file.
 
 ### Shared-baseline scenarios (canonical source per Design Decision 4)
 
-- [ ] The four shared-baseline scenarios appear first in the `evals` array (IDs 1-4 or lower IDs than any `us-` scenario).
+- [ ] The six shared-baseline scenarios appear first in the `evals` array (IDs 1-6 or lower IDs than any `us-` scenario).
 - [ ] Each shared-baseline scenario has a `name` field that starts with the literal prefix `baseline-`.
 - [ ] Scenario `baseline-slug-rejection` exists and its `expectations` array names the regex `^[a-z0-9-]+$` and at least three distinct rejection input examples (e.g., uppercase like `MyTopic`, underscore like `my_topic`, dot like `my.topic`, or whitespace like `Hello World`). Asserts AC3, AC3b.
 - [ ] Scenario `baseline-malformed-state` exists and its `expectations` array names that `/charter` MUST surface a clear error AND offer a **Discard** recovery path, AND MUST NOT silently fall through to Phase 0. Asserts AC20c.
 - [ ] Scenario `baseline-child-internals-isolation` exists and its `expectations` array names that `/charter` MUST NOT read `wip/research/<child>_<topic>_phase<N>_*.md` files OR child internal phase pointers OR any child `wip/` intermediate beyond the rows 7-8 named patterns (`wip/strategy_<topic>_discover.md`, `wip/vision_<topic>_scope.md`). Asserts AC20b (manual-review verified by code-path inspection).
 - [ ] Scenario `baseline-visibility-default` exists and its `expectations` array names the default-Private behavior AND the literal warning phrase **"Default to Private if unknown"**. Asserts AC21.
+- [ ] Scenario `baseline-team-lead-discipline-loop-ordering` exists and its `expectations` array verifies that `references/parent-skill-pattern.md`'s Team-Lead Operating Discipline section documents filesystem-check (priority 1) before inbox-check (priority 2) before nudge (priority 3), and that the three-priority ordering is stated as strict (not advisory). Asserts AC27, AC28.
+- [ ] Scenario `baseline-default-option-wording` exists and its `expectations` array verifies that the entry-router prompt against an existing Accepted/Active STRATEGY contains the literal substrings **"Re-evaluate"**, **"Revise"**, and **"Bail"** (case-insensitive components allowed) AND MUST NOT contain the literal substring **"Continue / Start fresh"**. Asserts AC18.
 - [ ] The file documents the canonical-source contract inline (e.g., via a top-level `description` field, or a comment-style key on the file or on the first baseline scenario) so a future `/scope` or `/work-on` author reading the file understands the copy-and-adapt discipline.
 
 ### /charter-specific scenarios — one per PRD User Story (R18)
@@ -105,7 +111,7 @@ Scenarios MUST pass under `scripts/run-evals.sh charter` per AC26c. The runner i
 
 ### Eval-runner pass requirement (AC26c)
 
-- [ ] All nine scenarios pass under `scripts/run-evals.sh charter`. (The implementer runs this manually per shirabe evals discipline; the runner needs the `/skill-creator` plugin loaded. See `shirabe/CLAUDE.md` Skill Evals section. Validation in this issue verifies file structure; passing the runner is the AC.)
+- [ ] All eleven scenarios pass under `scripts/run-evals.sh charter`. (The implementer runs this manually per shirabe evals discipline; the runner needs the `/skill-creator` plugin loaded. See `shirabe/CLAUDE.md` Skill Evals section. Validation in this issue verifies file structure; passing the runner is the AC.)
 
 ### Public-repo discipline
 
@@ -136,8 +142,8 @@ python3 -c "import json; json.load(open('skills/charter/evals/evals.json'))"
 # Top-level skill_name field
 python3 -c "import json; d=json.load(open('skills/charter/evals/evals.json')); assert d['skill_name']=='charter', f\"skill_name must be 'charter', got {d['skill_name']!r}\""
 
-# Exactly nine scenarios
-python3 -c "import json; d=json.load(open('skills/charter/evals/evals.json')); n=len(d['evals']); assert n==9, f'expected 9 scenarios, got {n}'"
+# Exactly eleven scenarios
+python3 -c "import json; d=json.load(open('skills/charter/evals/evals.json')); n=len(d['evals']); assert n==11, f'expected 11 scenarios, got {n}'"
 
 # Every scenario has required fields
 python3 -c "
@@ -162,13 +168,13 @@ assert len(set(names)) == len(names), 'duplicate scenario names'
 assert len(set(ids)) == len(ids), 'duplicate scenario ids'
 "
 
-# Four baseline scenarios with baseline- prefix, ordered first
+# Six baseline scenarios with baseline- prefix, ordered first
 python3 -c "
 import json
 d = json.load(open('skills/charter/evals/evals.json'))
 names = [s['name'] for s in d['evals']]
 baselines = [n for n in names if n.startswith('baseline-')]
-assert len(baselines) == 4, f'expected 4 baseline scenarios, got {len(baselines)}: {baselines}'
+assert len(baselines) == 6, f'expected 6 baseline scenarios, got {len(baselines)}: {baselines}'
 # Baselines must appear before any us- scenario
 first_us = next((i for i, n in enumerate(names) if n.startswith('us-')), len(names))
 last_baseline = max((i for i, n in enumerate(names) if n.startswith('baseline-')), default=-1)
@@ -196,6 +202,15 @@ grep -qE '(baseline-slug-rejection|slug.rejection)' skills/charter/evals/evals.j
 grep -qE '(baseline-malformed-state|malformed)' skills/charter/evals/evals.json
 grep -qE '(baseline-child-internals-isolation|child.internals|isolation)' skills/charter/evals/evals.json
 grep -qE '(baseline-visibility-default|visibility|Repo Visibility)' skills/charter/evals/evals.json
+grep -qE '(baseline-team-lead-discipline-loop-ordering|team.lead.*discipline|sleep.check.nudge)' skills/charter/evals/evals.json
+grep -qE '(baseline-default-option-wording|default.option.wording)' skills/charter/evals/evals.json
+
+# Team-lead discipline loop ordering assertions
+grep -qE '(filesystem.*before.*inbox|filesystem evidence.*priority 1)' skills/charter/evals/evals.json
+
+# Default-option wording: positive and negative substrings
+grep -qF 'Re-evaluate / Revise / Bail' skills/charter/evals/evals.json
+grep -qF 'Continue / Start fresh' skills/charter/evals/evals.json
 
 # Baseline scenario assertions cover load-bearing contract content
 grep -qF '^[a-z0-9-]+$' skills/charter/evals/evals.json

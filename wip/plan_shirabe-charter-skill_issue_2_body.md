@@ -17,6 +17,8 @@ PRD: `docs/prds/PRD-shirabe-charter-skill.md` (R1 SKILL.md template structure, R
 
 The Resume Logic ladder body content is owned by `<<ISSUE:6>>`; this issue only structures the section heading and references the meta-ladder template from `parent-skill-resume-ladder-template.md`. The chain-proposal prompt prose and child-invocation logic are owned by `<<ISSUE:3>>` and `<<ISSUE:4>>`; this issue only structures the Workflow Phases diagram and Phase Execution list with placeholder phase-reference paths those issues fill.
 
+**Team-Lead Operating Discipline citation.** SKILL.md's orchestrator prelude (the prose introducing Phase 1+ chain orchestration) MUST include a one-line citation of the Team-Lead Operating Discipline section of `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` (invariant I-7 / Component 6 of the design). The citation establishes that `/charter` runs its child invocations (`/vision`, `/strategy`, `/roadmap`) as dispatches under the discipline (each child invocation is a dispatch in the team-lead-discipline sense; the 120s window / 10-cycle budget for implementation-pass task class applies). The citation is a forward reference, not a re-statement of the loop — the canonical content lives in the pattern reference.
+
 ## Acceptance Criteria
 
 ### File presence and frontmatter
@@ -67,6 +69,11 @@ The Resume Logic ladder body content is owned by `<<ISSUE:6>>`; this issue only 
 - [ ] `skills/charter/SKILL.md` contains a Team Shape declaration (matchable by the literal substring "Team Shape" or equivalent prose) declaring `/charter` as a single-agent skill in v1.
 - [ ] The Team Shape declaration states no team is spawned and the parent-of-the-parent invokes `/charter` directly.
 - [ ] The Team Shape declaration is prose (not structured YAML/JSON metadata) per Decision 8's v1 form.
+
+### Team-Lead Operating Discipline citation per R19 / I-7
+
+- [ ] `skills/charter/SKILL.md`'s orchestrator prelude (the prose surrounding the Workflow Phases diagram or the Phase 1+ chain orchestration introduction) contains a citation of the Team-Lead Operating Discipline section of `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`.
+- [ ] The citation names the discipline as the contract for how `/charter` runs its child invocations (a one-line forward reference, not a re-statement of the loop).
 
 ### Downstream deliverables
 
@@ -126,6 +133,9 @@ grep -qiE '(MUST NOT accept paths|not.*upstream|path.*as.*topic|treated as.*free
 
 # Team Shape declaration
 grep -qiE '(Team Shape|single[- ]agent.*skill|no team)' skills/charter/SKILL.md
+
+# Team-Lead Operating Discipline citation (R19 / I-7)
+grep -qE '(Team-Lead Operating Discipline|operating discipline|I-7)' skills/charter/SKILL.md
 
 # Phase 0 setup: state-file path, phase_pointer, exit unset
 grep -qF 'wip/charter_' skills/charter/references/phases/phase-0-setup.md

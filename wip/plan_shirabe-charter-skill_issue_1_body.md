@@ -25,7 +25,23 @@ Four files ship at flat top-level `references/` per Design Decision 7 (existing 
 
 The four files and what each documents:
 
-1. **`references/parent-skill-pattern.md`** — the contract surface document. Names the two-layer contract (semantic invariants vs reference implementation), the six semantic invariants I-1 through I-6, the three exit paths (full-run, re-evaluation, abandonment-forced), the conditional-feeder integration shape (the three-condition gate per Design Decision 6), the two named substitution surfaces (`storage_substrate` v1 value `wip-yaml-md`, `team_primitive` v1 value `single-team-per-leader-no-nested`), the team-shape declarator mechanism (prose declaration v1, structured metadata v2), and the seven SKILL.md structural elements every parent skill SHALL contain.
+1. **`references/parent-skill-pattern.md`** — the contract surface document. Names the two-layer contract (semantic invariants vs reference implementation), the **seven** semantic invariants I-1 through I-7, the three exit paths (full-run, re-evaluation, abandonment-forced), the conditional-feeder integration shape (the three-condition gate per Design Decision 6), the two named substitution surfaces (`storage_substrate` v1 value `wip-yaml-md`, `team_primitive` v1 value `single-team-per-leader-no-nested`), the team-shape declarator mechanism (prose declaration v1, structured metadata v2), the seven SKILL.md structural elements every parent skill SHALL contain, **and a new Team-Lead Operating Discipline section** (added during refinement after the SE4 retrospective). The Team-Lead Operating Discipline section codifies:
+
+   - The **canonical 5-step sleep-check-nudge loop**: dispatch → bounded sleep → filesystem evidence check (priority 1) → inbox processing (priority 2) → nudge with directly-executable instructions (priority 3).
+   - The **three terminal exit conditions**: PASS (terminal artifact present and valid, or structured PASS verdict with artifact verification), FAIL (FAIL verdict or artifact validation failure), ESCALATE (patience budget exhausted; default 5 stagnation cycles per teammate; escalation maps to the parent's `abandonment-forced` exit path with a `triggering_teammate:` field).
+   - The **task-class timing table**: 30s sleep / 5-cycle budget for review verdicts; 60s / 10-cycle for decomposition/generation; 120s / 10-cycle for implementation passes; 60s / unlimited budget for external waits (CI, network).
+   - The **strict priority ordering** within filesystem evidence: terminal artifact present → partial artifact / new commits / wip/ growth → no change since dispatch (decrements patience).
+   - The **idle-pings-are-not-inbox-messages** rule.
+   - The **nudge content rule**: every nudge SHALL contain directly-executable instructions (what artifact, where, what verdict to reply with); generic nudges are forbidden.
+   - The **`ci_outcome` semantics** for CI-driven exits: `passing` (always green) vs `failing_fixed` (flipped green after fix). The two are not interchangeable.
+   - Binding notes: `/charter` v1 binds vacuously at the parent-itself layer (single-agent skill, no peer dispatch) and binds concretely at the child-skill dispatch layer (each child invocation is a dispatch in the discipline sense; 120s window / 10-cycle budget for child-skill invocations).
+
+   The pattern reference also includes:
+
+   - The **reviewer-vs-worker role-cardinality distinction** (in the team-shape declarator's worked-example section): reviewer-shaped roles iterate over work items themselves (one architecture-reviewer reviews all N work items in one pass); variable-cardinality worker role types spawn one peer per work item (`/design`'s `decision-researcher`, `/plan`'s `decomposer`). The team-shape declaration MUST distinguish the two.
+   - The **discipline-vs-artifact decoupling thesis** paragraph (in the Three Exit Paths section): the three-exit contract operationalizes the principle that strategic conversation can be *disciplined* without being forced to *produce*. Each exit demonstrates a specific decoupling property; the re-evaluation exit's two sub-shapes are the operational proof that a disciplined conversation can conclude at a Decision Record; abandonment-forced is the proof that even a bailed chain ends at a review surface.
+   - The **parents-don't-extend-children's-input-surfaces** paragraph (in the conditional-feeder / parent-child invocation contract section): when a parent needs to pass semantic context to a child the child has no API for, the parent SHALL NOT add flags to the child. Parents pass through children's existing input modes and rely on the child's own resume logic to detect state. PRD R4's thesis-shift signal is the canonical instance — `/charter` elicits the signal conversationally and invokes `/vision <topic>` with the topic slug alone.
+   - The **default-option-wording-as-contract-surface** sentence (in the SKILL.md template section, Component 2 of the design): default-option wording at status-aware re-entry prompts is part of the contract surface, not a UX detail; specify as literal-substring requirements in ACs.
 
 2. **`references/parent-skill-state-schema.md`** — 5-field minimum state-file vocabulary plus extension discipline. Names the five required fields (`topic`, `last_updated`, `phase_pointer`, `exit`, `exit_artifacts`), their per-field semantics, the four pattern-level invariants the schema enforces (per-child snapshot dual-check with per-parent fingerprint binding, conditional-field gating (R9 null-prohibition), chain-tracking with MAY-omit for non-chain-shaped parents, status-aware re-entry control), the extension-discipline rules for parent-specific additions, the R9 hard-finalization check specification, and the topic-slug regex `^[a-z0-9-]+$` cited by every parent SKILL.md.
 
@@ -45,8 +61,20 @@ The `wip/...` path references in the design are contract specifications for the 
 - [ ] `references/parent-skill-child-inspection.md` exists.
 - [ ] Each of the four files starts with a `#` top-level markdown heading matching the file's purpose.
 - [ ] `parent-skill-pattern.md` contains a "Two-Layer Contract" section (overview of semantic invariants vs reference implementation).
-- [ ] `parent-skill-pattern.md` documents semantic invariants I-1, I-2, I-3, I-4, I-5, and I-6 by name with one-line semantics each.
+- [ ] `parent-skill-pattern.md` documents semantic invariants I-1, I-2, I-3, I-4, I-5, I-6, and I-7 by name with one-line semantics each.
 - [ ] `parent-skill-pattern.md` documents I-6 as a pattern invariant the v1 core-layer implementation explicitly does NOT satisfy (load-bearing for the amplifier-layer forcing function).
+- [ ] `parent-skill-pattern.md` documents I-7 (Active Orchestration) as the named invariant binding the team-lead operating discipline; semantic: a parent's team-lead MUST NOT transition to passive wait while dispatched teammates are in flight.
+- [ ] `parent-skill-pattern.md` contains a "Team-Lead Operating Discipline" section codifying the 5-step sleep-check-nudge loop (dispatch → sleep → filesystem check → inbox check → nudge).
+- [ ] The Team-Lead Operating Discipline section names the strict three-priority ordering: filesystem evidence (priority 1) before inbox messages (priority 2) before nudges (priority 3).
+- [ ] The Team-Lead Operating Discipline section names the three terminal exit conditions: PASS, FAIL, ESCALATE.
+- [ ] The Team-Lead Operating Discipline section names the patience budget as 5 stagnation cycles for the default review-verdict task class; stagnation = no progress in filesystem OR inbox; progress evidence resets the budget implicitly.
+- [ ] The Team-Lead Operating Discipline section contains a task-class timing table with at least four rows: review verdict (30s / 5 cycles), decomposition/generation (60s / 10 cycles), implementation pass (120s / 10 cycles), external wait (60s / unlimited).
+- [ ] The Team-Lead Operating Discipline section names the nudge-content rule: nudges MUST contain directly-executable instructions (artifact, location, structured verdict); generic nudges ("what's happening?") are forbidden.
+- [ ] The Team-Lead Operating Discipline section names the `ci_outcome` distinction: `passing` (CI always green) vs `failing_fixed` (flipped green after fix).
+- [ ] `parent-skill-pattern.md` contains a paragraph distinguishing reviewer-shaped roles (iterate over work items themselves; one reviewer reviews all N) from variable-cardinality worker role types (spawn one peer per work item).
+- [ ] `parent-skill-pattern.md` contains a paragraph naming the discipline-vs-artifact decoupling thesis as the underlying principle behind the three-exit contract.
+- [ ] `parent-skill-pattern.md` contains a paragraph stating that parents do not extend children's input surfaces; parents pass through children's existing input modes and rely on the child's own resume logic for state detection.
+- [ ] `parent-skill-pattern.md` contains a sentence stating that default-option wording at status-aware re-entry prompts is part of the contract surface, specified as literal-substring requirements in ACs.
 - [ ] `parent-skill-pattern.md` names all three exit paths: full-run, re-evaluation, abandonment-forced — with one-line characterizations (per-parent binding details deferred to each parent's SKILL.md).
 - [ ] `parent-skill-pattern.md` contains a "Conditional Feeder Invocation Shape" section that names the three-condition gate: (1) parent-defined Phase 1 discovery signal fires, (2) the feeder skill exists on disk, (3) parent-defined visibility gate passes.
 - [ ] `parent-skill-pattern.md` names both substitution surfaces: `storage_substrate` (with v1 value `wip-yaml-md`) and `team_primitive` (with v1 value `single-team-per-leader-no-nested`).
@@ -103,6 +131,19 @@ grep -q 'I-3' references/parent-skill-pattern.md
 grep -q 'I-4' references/parent-skill-pattern.md
 grep -q 'I-5' references/parent-skill-pattern.md
 grep -q 'I-6' references/parent-skill-pattern.md
+grep -q 'I-7' references/parent-skill-pattern.md
+grep -q 'Active Orchestration' references/parent-skill-pattern.md
+grep -q 'Team-Lead Operating Discipline' references/parent-skill-pattern.md
+grep -qE '(sleep-check-nudge|sleep.check.nudge)' references/parent-skill-pattern.md
+grep -qE '(filesystem.*before.*inbox|filesystem evidence.*priority 1)' references/parent-skill-pattern.md
+grep -qE '(PASS.*FAIL.*ESCALATE|ESCALATE.*patience)' references/parent-skill-pattern.md
+grep -qE '(patience budget|5 stagnation|5.cycle)' references/parent-skill-pattern.md
+grep -qE '(directly[- ]executable|directly executable)' references/parent-skill-pattern.md
+grep -qE '(ci_outcome|failing_fixed)' references/parent-skill-pattern.md
+grep -qE '(reviewer.shaped|reviewer-shaped|variable-cardinality)' references/parent-skill-pattern.md
+grep -qE '(discipline.vs.artifact|discipline-vs-artifact)' references/parent-skill-pattern.md
+grep -qE '(do not extend|don.t extend).*input surfaces' references/parent-skill-pattern.md
+grep -qE '(default[- ]option wording|default-option wording)' references/parent-skill-pattern.md
 grep -q 'full-run' references/parent-skill-pattern.md
 grep -q 're-evaluation' references/parent-skill-pattern.md
 grep -q 'abandonment-forced' references/parent-skill-pattern.md
