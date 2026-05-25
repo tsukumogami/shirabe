@@ -1063,6 +1063,15 @@ Parents extend the template with parent-specific sections (e.g.,
 `/charter`'s chain-proposal output prose), but the seven elements
 are pattern-level.
 
+**R13 manual-fallback as named behavioral commitment.** A parent
+SKILL.md SHALL NOT detect, warn against, or otherwise interfere
+with manual invocation of any of its children outside the parent.
+Direct invocation is first-class steady-state capability. The
+parent's resume ladder (Component 4) detects out-of-chain edits
+via child-doc fingerprints (R14 widened) on the next parent
+resume and offers a staleness-warning prompt; it does NOT act on
+the staleness unilaterally.
+
 #### Component 3 — Two-layer contract surface
 
 The pattern's central architectural commitment. The two layers:
@@ -1084,7 +1093,11 @@ schema plus parent-specific extensions. The serialization is the
 substitution variable named `storage_substrate`; the v1 value is
 `wip-yaml-md`. Amplifier-layer implementations supply their own
 value (e.g., `koto-context-store`) along with a serialization that
-satisfies the same six invariants.
+satisfies the same six invariants. (Note: `wip/...` path references
+throughout this design are contract specifications for the v1
+`wip-yaml-md` storage substrate, not pointers to staged artifacts;
+they do not violate the wip-hygiene rule, which targets orphan
+staging pointers — see `references/wip-hygiene.md`.)
 
 #### Component 4 — Shared resume-ladder template
 
@@ -1125,6 +1138,37 @@ of variable-cardinality peers is only known after the coordinator
 runs the relevant earlier phase. Amplifier-layer implementations
 MAY support lazy spawning by the coordinator, but the shape
 declaration remains the same.
+
+**Worked examples.** Decision 8's chosen v1 form is prose. Two
+prose-declaration shapes illustrate the spectrum:
+
+- **No-team parent (e.g., `/charter`).** A `/charter` invocation
+  runs as a single-agent skill in the v1 core layer — no team is
+  spawned. The team-shape declaration in SKILL.md reads:
+  *"`/charter` runs as a single-agent skill. No team is spawned;
+  the parent-of-the-parent invokes `/charter` directly."*
+
+- **Team-emitting parent (e.g., `/design` adapted to the
+  parent-skill pattern).** A `/design` invocation requires a
+  coordinator plus three fixed reviewer roles plus a
+  variable-cardinality decision-researcher role type. The prose
+  declaration reads:
+  *"`/design` runs as a team. Fixed roles: `coordinator` (drives
+  the skill end-to-end); `security-researcher` (Phase 5);
+  `architecture-reviewer` (Phase 6); `security-reviewer` (Phase
+  6). Variable-cardinality role type: `decision-researcher`
+  (Phase 2; runtime count N determined by Phase 1 decomposition;
+  upper bound 9 per the skill's scaling-heuristic refusal
+  threshold). The parent-of-the-parent SHALL materialize the
+  coordinator plus three reviewers plus all N decision-researchers
+  at team-creation time, since v1's `team_primitive` does not
+  support lazy spawning."*
+
+The team-emitting form names roles, phase, runtime-count rule, and
+upper bound — exactly what a parent-of-the-parent agent needs to
+issue a TeamCreate call under the v1 core layer. v2 amplifier-layer
+implementations parse a structured form of the same declaration
+(see Decision 8); the semantic content is identical.
 
 ### Key Interfaces
 
@@ -1169,6 +1213,20 @@ all three of:
 The parent's discovery prompts never reference the feeder skill or
 its content surface when conditions 2 or 3 fail (PRD R5's
 degenerate-silence rule, generalized).
+
+**Parent ⇄ git interface.** v1 core-layer parents couple to git in
+three places. (a) Child doc fingerprinting (R14 widened): the
+parent computes a git blob hash of each doc-emitting child's
+durable artifact for drift detection. (b) Rejection sub-shape
+artifact (a `/charter`-specific binding): when `/strategy` Phase 5
+discards a draft, the parent records the discard commit SHA in
+its state file by reading `git log`. (c) Resume-ladder branch
+test (rows 8 and 9): the parent inspects the current branch name
+to determine whether to resume at the parent's Phase 1 or start
+fresh at Phase 0. All three places are read-only against git; no
+parent issues commits on behalf of the user, and branch state is
+the substrate-bound part — invariant I-6 names cross-branch
+state inheritance as the amplifier-layer's mandate.
 
 ### Data Flow
 
@@ -1232,17 +1290,38 @@ authoring; the pattern-level references are written first and
 
 ### Stage 1 — Pattern-level reference files
 
-Author the four new reference files at top-level `references/`:
+Author the four new reference files at top-level `references/`,
+each cites the relevant Considered Options block of this design as
+its "why this shape" rationale plus the PRD requirements it
+implements.
 
-Deliverables:
-- `references/parent-skill-pattern.md`
-- `references/parent-skill-state-schema.md`
-- `references/parent-skill-resume-ladder-template.md`
-- `references/parent-skill-child-inspection.md`
+Deliverables and section skeleton per file:
 
-Each cites the relevant Considered Options block of this design
-as its "why this shape" rationale, plus the PRD requirements
-they implement.
+- **`references/parent-skill-pattern.md`** — contract surface
+  document. Sections: Two-Layer Contract Overview; Semantic
+  Invariants (I-1 through I-6); Three Exit Paths (full-run,
+  re-evaluation, abandonment-forced); Conditional Feeder
+  Invocation Shape (per Decision 6); Named Substitution Surfaces
+  (`storage_substrate`, `team_primitive`); Team-Shape Declarator
+  Mechanism.
+- **`references/parent-skill-state-schema.md`** — 5-field minimum
+  state-file vocabulary plus extension discipline. Sections:
+  Minimum Required Fields (`topic`, `last_updated`,
+  `phase_pointer`, `exit`, `exit_artifacts`); Field Semantics;
+  Pattern-Level Invariants (per-child snapshot dual-check,
+  conditional-field gating, chain-tracking, status-aware re-entry);
+  Extension Discipline (rules for parent-specific additions);
+  R9 Hard-Finalization Check Spec.
+- **`references/parent-skill-resume-ladder-template.md`** — universal
+  meta-ladder plus parent-specific body slots. Sections: Meta-Ladder
+  Entries (1-4 and 8-9); Parent-Specific Body Slots (5-7) and Rules
+  for Filling Them; Malformed State File Handling; Stale-Session
+  Threshold Reference.
+- **`references/parent-skill-child-inspection.md`** — R14 isolation
+  rule plus per-parent surface table. Sections: The Isolation
+  Rule; Per-Parent Surface Table (doc-emitting children;
+  issue/PR children); Drift Detection Semantics; What Counts as
+  "Internals" (negative examples).
 
 ### Stage 2 — `/charter` SKILL.md authoring against the pattern
 
@@ -1261,7 +1340,12 @@ Deliverables:
 - `skills/charter/evals/evals.json` with the shared eval baseline
   (slug rejection, malformed state file, child-internals isolation,
   visibility default) copy-and-adapted plus `/charter`-specific
-  scenarios (US-1 through US-4).
+  scenarios (US-1 through US-4). **Canonical-source note:**
+  `/charter`'s `evals.json` IS the canonical source for the
+  shared baseline; `/scope` and `/work-on` copy-and-adapt from
+  it when they land. Updates to the baseline ripple to all
+  downstream parents' eval files via per-PR manual update until a
+  future eval-format `$ref` mechanism mechanically retrofits.
 
 ### Stage 3 — CLAUDE.md surfacing
 
@@ -1271,8 +1355,16 @@ contribution is the surfacing discipline itself; the
 parent-specific contribution is `/charter`'s trigger-phrase list.
 
 Deliverables:
-- Workspace `CLAUDE.md` and `shirabe/CLAUDE.md` mention
-  `/charter` and include its trigger phrases.
+- `shirabe/CLAUDE.md` (in this repository's root) mentions
+  `/charter` and includes the trigger phrases from PRD R17b.
+- The workspace-level CLAUDE.md fragment that lists shipped
+  shirabe skills is updated to add `/charter` alongside
+  `/strategy`, `/explore`, `/decision`, and the other shipped
+  skills. The workspace's CLAUDE.md is composed from per-repo
+  fragments; each repo updates its own fragment, and the
+  workspace tooling assembles the composite. Future parent-skill
+  authors update both their own repo's CLAUDE.md and any
+  workspace fragment that lists shipped skills.
 
 ### Stage 4 — `/scope` and `/work-on` (out of scope for this design's
 shipping)
@@ -1332,11 +1424,16 @@ documentation:
   same property applies to the Decision Record body (which is a
   durable artifact, never cleaned). Authors should not paste
   secrets, customer-identifiable context, or unpublished
-  competitive positioning into these fields. This is an inherited
-  property of the public-repo workflow; the design does not worsen
-  it, but the persistence of wip/ artifacts (per the
-  durable-evidence policy) means the surface lives longer than
-  under the workspace's default wip-hygiene rule.
+  competitive positioning into these fields. The exposure surface
+  extends beyond `wip/<parent>_<topic>_state.md` itself: any wip/
+  artifact a workflow run produces and the durable-evidence policy
+  retains (e.g., a parent-skill design's own coordination manifest,
+  per-decision research reports, security and review reports) is
+  durably visible on the feature branch under the same conditions.
+  This is an inherited property of the public-repo workflow; the
+  design does not worsen it, but the persistence of wip/ artifacts
+  (per the durable-evidence policy) means the surface lives longer
+  than under the workspace's default wip-hygiene rule.
 
 - **Fail-closed visibility default.** Per R12 (ratified verbatim),
   a missing `## Repo Visibility:` header in CLAUDE.md causes the
