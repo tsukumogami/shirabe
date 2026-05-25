@@ -138,9 +138,13 @@ phase-list shape; downstream phase files plug in here.
 ## Resume Logic
 
 `/charter` maintains state at `wip/charter_<topic>_state.md` (one
-file per topic, keyed by the topic slug). On re-entry, the resume
-ladder consults the state file, the per-child snapshots recorded in
-state, and the current branch context to decide where to re-enter.
+file per topic, keyed by the topic slug). The full state-file
+schema, conditional-field gating discipline, and R9 hard
+finalization check spec are documented in
+`skills/charter/references/phases/phase-state-management.md`. On
+re-entry, the resume ladder consults the state file, the per-child
+snapshots recorded in state, and the current branch context to
+decide where to re-enter.
 
 The ladder shape follows the universal meta-ladder template at
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md`:
@@ -188,4 +192,5 @@ N. **Finalization** — set the `exit:` field to one of `full-run`,
 | `skills/charter/references/phases/phase-0-setup.md` | Phase 0 |
 | `skills/charter/references/phases/phase-1-discovery.md` | Phase 1 |
 | `skills/charter/references/phases/phase-2-chain-orchestration.md` | Phase 2 |
+| `skills/charter/references/phases/phase-state-management.md` | All phases — state-file schema, conditional-field gating, R9 hard finalization check spec |
 | `skills/charter/references/phases/phase-finalization.md` | Phase N |
