@@ -135,6 +135,15 @@ The per-phase bodies are authored by downstream issues in the
 PLAN-shirabe-charter-skill plan. This section is the diagram and
 phase-list shape; downstream phase files plug in here.
 
+Phase 2 chain orchestration runs each child invocation (`/vision`,
+`/strategy`, `/roadmap`) as a dispatch under the Team-Lead Operating
+Discipline documented in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` (invariant
+I-7). The discipline binds the sleep-check-nudge loop, the
+filesystem-evidence-first priority ordering, and the PASS / FAIL /
+ESCALATE terminal exits; the implementation-pass task class (120s
+window / 10-cycle patience budget) applies to each child invocation.
+
 ## Resume Logic
 
 `/charter` maintains state at `wip/charter_<topic>_state.md` (one
