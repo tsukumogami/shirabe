@@ -1121,6 +1121,15 @@ requirement that motivates them and the user story they exercise
   US-5 semantics; the artifact force-materialized is the child
   that was running at the time of bail. `[automated-eval]` (R8,
   US-5)
+- [ ] **AC13c** When the author bails before any child completes
+  (`chain_ran` empty in the state file), `/scope`'s bail-handling
+  resolves the tie-break per R8: if a
+  `wip/{brief|prd|design|plan}_<topic>_*` intermediate exists,
+  force-materialize the first entry in `planned_chain` matching
+  a non-empty wip/ intermediate; if no wip/ intermediate exists
+  for any planned child, bail routes to clean-cancel (no
+  abandonment-forced exit, no Decision Record, no state-file
+  `exit:` set to `abandonment-forced`). `[automated-eval]` (R8)
 - [ ] **AC14** A `/scope` run that completes without recording
   a valid `exit:` value (or with `exit: re-evaluation` but no
   `boundary:` and `decision_record_sub_shape:`, or with
@@ -1139,17 +1148,21 @@ requirement that motivates them and the user story they exercise
   three-option prompt: Resume / Force-materialize / Discard.
   Selecting "Force-materialize" triggers the abandonment-forced
   exit per AC13. `[automated-eval]` (R11, R16, US-5)
+- [ ] **AC16b** `/scope` defaults `--max-rounds=N` to 5 when the
+  flag is not supplied. The flag accepts integer values 1+ via
+  `--max-rounds=<N>`; values outside that range surface a clear
+  error at Phase 0. `[automated-eval]` (R16.5)
 - [ ] **AC17a** When `docs/prds/PRD-<topic>.md` is Accepted, the
-  entry prompt MUST contain the literal substrings
-  "Re-evaluate", "Revise", and "Bail" (case-insensitive) as the
-  three options offered AND MUST identify the boundary as the
-  PRD-boundary, AND MUST NOT contain the literal substring
+  entry prompt MUST contain the literal substring
+  "Re-evaluate / Revise / Bail" (case-insensitive) as the
+  three-option triad offered AND MUST identify the boundary as
+  the PRD-boundary, AND MUST NOT contain the literal substring
   "Continue / Start fresh". `[automated-eval]` (R11, US-3a)
 - [ ] **AC17b** When `docs/designs/current/DESIGN-<topic>.md` is
-  Accepted, the entry prompt MUST contain the literal substrings
-  "Re-evaluate", "Revise", and "Bail" (case-insensitive) as the
-  three options offered AND MUST identify the boundary as the
-  DESIGN-boundary. When both an Accepted PRD AND an Accepted
+  Accepted, the entry prompt MUST contain the literal substring
+  "Re-evaluate / Revise / Bail" (case-insensitive) as the
+  three-option triad offered AND MUST identify the boundary as
+  the DESIGN-boundary. When both an Accepted PRD AND an Accepted
   DESIGN exist for the topic, the resume ladder's ordering puts
   DESIGN above PRD (the DESIGN-boundary fires first).
   `[automated-eval]` (R11, US-3b)
@@ -1167,7 +1180,8 @@ requirement that motivates them and the user story they exercise
   (re-run downstream, accept downstream as still-valid, proceed
   without downstream). Drift fires when EITHER differs.
   `[automated-eval]` (R10, R11, R13, US-6)
-- [ ] **AC18b** The same staleness detection (AC18a) fires for
+- [ ] **AC18b** The same drift detection (EITHER of `status` or
+  `content_hash` differs from snapshot) fires for
   `child_snapshots.brief`, `child_snapshots.design`, and
   `child_snapshots.plan`; drift on any of the four children
   surfaces the three-option prompt. `[automated-eval]` (R10,
@@ -1270,8 +1284,11 @@ requirement that motivates them and the user story they exercise
   returns a PASS verdict, `/scope` verifies the durable artifact
   exists at the expected path BEFORE proceeding. When the
   artifact is absent despite the PASS verdict, `/scope` treats
-  the verdict as STALE and routes via the bail-handling rule
-  (no advance to the next child). `[automated-eval]` (R20)
+  the verdict as STALE and routes via R8's bail-handling rule
+  using the most-recently-running tie-break (the child whose
+  verdict is STALE); if no wip/ intermediate exists for that
+  child, the route resolves to clean-cancel.
+  `[automated-eval]` (R20, R8)
 - [ ] **AC27b** Eval scenarios include at least one scenario
   per child where the child returns PASS but the artifact is
   absent; the scenario verifies `/scope` treats it as STALE and
@@ -1400,6 +1417,9 @@ links to its successor effort where relevant.
 
 ## Questions Deferred to Design
 
+This section serves the role `prd-format.md` reserves for the
+optional "Open Questions" section, but the questions below are
+deliberately design-altitude inputs (not Draft-blocking unknowns).
 The PRD made its decisions; the questions below are legitimate
 design-altitude inputs for the downstream design phase. Each
 names the area and where the resolution should land.
