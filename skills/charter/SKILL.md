@@ -149,14 +149,23 @@ decide where to re-enter.
 The ladder shape follows the universal meta-ladder template at
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md`:
 universal rows 1-4 (malformed → exit set → fresh resume → stale-
-session) and rows 8-9 (on-topic branch → main fallback) are the
-pattern-level meta-ladder; rows 5-7 are parent-specific body slots
+session) and rows 9-10 (on-topic branch → main fallback) are the
+pattern-level meta-ladder; rows 5-8 are parent-specific body slots
 `/charter` fills against its child set (`/vision`, `/strategy`,
-`/roadmap`).
+`/roadmap`). Slot 5 (status-aware re-entry) expands into rows 5-6
+for Accepted/Active vs Draft STRATEGY; slot 6 (partial-child-run)
+expands into rows 7-8 for `/strategy` vs `/vision`; slot 7
+(feeder-doc-detected) is unfilled because `/charter` has no
+feeder-doc case.
 
-The ladder body (with the specific prompt vocabulary for each row)
-is authored by a downstream issue. This section is the heading and
-state-file path; the rows plug in below this prose.
+`/charter`'s stale-session threshold is 7 days: state with
+`last_updated` ≥ 7 days old surfaces the Resume / Force-materialize
+/ Discard prompt; fresher state silently resumes.
+
+The ladder body (rows 1-10 with the prompt vocabulary for each row,
+dual-check drift detection, status-aware re-entry suppression, and
+R14 child-internals isolation discipline) lives in
+`skills/charter/references/phases/phase-resume.md`.
 
 ## Phase Execution
 
@@ -187,10 +196,11 @@ N. **Finalization** — set the `exit:` field to one of `full-run`,
 |------|-------------|
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` | All phases — contract surface, invariants, exit paths, substitution surfaces |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md` | Phase 0 (slug regex), Phase 2 (state writes), Phase N (R9 check) |
-| `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md` | Resume Logic — meta-ladder rows 1-4 and 8-9 |
+| `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md` | Resume Logic — meta-ladder rows 1-4 and 9-10 |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-child-inspection.md` | Phase 2 — child-doc inspection (R14 widened rule, dual-check drift detection) |
 | `skills/charter/references/phases/phase-0-setup.md` | Phase 0 |
 | `skills/charter/references/phases/phase-1-discovery.md` | Phase 1 |
 | `skills/charter/references/phases/phase-2-chain-orchestration.md` | Phase 2 |
 | `skills/charter/references/phases/phase-state-management.md` | All phases — state-file schema, conditional-field gating, R9 hard finalization check spec |
+| `skills/charter/references/phases/phase-resume.md` | All phases — 10-row resume ladder, dual-check drift detection, R14 child-internals isolation |
 | `skills/charter/references/phases/phase-finalization.md` | Phase N |
