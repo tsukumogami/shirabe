@@ -771,9 +771,114 @@ visibility-gate plus silence-rule components. The recognized-shape
 prose costs roughly 150-250 words of shared-design content for
 material reuse benefit.
 
+### Decision 7: Pattern-level reference file location
+
+Implicit decision surfaced during Phase 4 architecture drafting. The
+four new pattern-level reference files Decision 1 named (contract
+surface, state schema, resume-ladder template, child inspection)
+need a concrete on-disk location: flat at `references/` with a
+`parent-skill-` prefix, or grouped in a `references/parent-skill/`
+subdirectory.
+
+#### Chosen: Flat files at `references/` with `parent-skill-` prefix
+
+Ship the four references as flat top-level files:
+
+- `references/parent-skill-pattern.md`
+- `references/parent-skill-state-schema.md`
+- `references/parent-skill-resume-ladder-template.md`
+- `references/parent-skill-child-inspection.md`
+
+Matches the existing shirabe convention — the top-level `references/`
+directory currently holds `cross-repo-references.md`,
+`decision-protocol.md`, `pipeline-model.md`, and `wip-hygiene.md`,
+all flat. Simpler cite paths
+(`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`), easier
+to grep, no new directory convention to establish for one feature.
+
+#### Alternatives Considered
+
+**Subdirectory grouping (`references/parent-skill/<file>.md`).** Group
+the four files in a dedicated subdirectory: `references/parent-skill/
+pattern.md`, `references/parent-skill/state-schema.md`, etc.
+Rejected because (a) it establishes a new directory convention for
+no current need; (b) cite paths get longer with one extra path
+segment; (c) the "more parent-skill refs landing later" argument is
+speculative — if SE7 or SE8 add references that materially expand
+the group, refactoring to a subdirectory is mechanical at that time.
+
+### Decision 8: Team-shape declaration form (prose vs structured metadata)
+
+Implicit decision surfaced during Phase 4 architecture drafting.
+Solution Architecture Component 5 says each parent's SKILL.md
+declares its team shape (fixed roles, variable-cardinality role
+types with upper bounds), but doesn't say whether the declaration
+is prose or structured metadata. The form choice affects how a
+parent-of-the-parent (the agent invoking the skill) consumes the
+declaration to materialize the upfront roster.
+
+#### Chosen: Prose declaration in SKILL.md for v1 core layer; structured metadata as the amplifier-layer evolution
+
+**v1 core layer — prose declaration.** Each parent's SKILL.md
+declares its team shape in free-form prose alongside the existing
+Workflow Phases and Reference Files sections. Example shape (for
+`/charter`):
+
+> ## Team Shape
+>
+> A `/charter` invocation runs as a single-agent skill in the v1
+> core layer — no team. (The team-shape declarator mechanism applies
+> to skills like `/design` that DO spawn teams.)
+
+For team-emitting parents (e.g., `/design` when adapted to the
+parent-skill pattern), the prose enumerates fixed roles and
+variable-cardinality role types with their upper bounds, plus a
+brief responsibility line per role. The parent-of-the-parent reads
+the prose and manually translates it into a TeamCreate call before
+invoking the child skill.
+
+**v2 amplifier layer — structured metadata.** When the amplifier-
+layer substrate ships, parent skills MAY declare their team shape
+as a structured metadata block (YAML or JSON, in SKILL.md
+frontmatter or a fenced section) the substrate parses
+mechanically. The substrate spawns the upfront roster from the
+declaration without human translation.
+
+The two forms serve different layer concerns. Prose fits the
+manual-team-lead-spawn pattern of v1 (a human reads the
+declaration; a parent-of-the-parent agent translates to a roster
+spawn). Structured metadata fits the substrate-driven pattern of
+v2 (a workflow substrate parses the declaration and spawns the
+roster). Prose isn't *worse* than structured for v1; it's the
+right shape for v1's invocation model. Migrating prose to
+structured metadata at v2 boundaries is a known operation, not a
+contract change.
+
+#### Alternatives Considered
+
+**Structured metadata block in v1.** Ship structured metadata
+(YAML in frontmatter or a fenced JSON block) from day one, even
+in the core layer. Rejected for v1 because the core layer's
+invocation model is parent-of-the-parent-spawns-team manually —
+no substrate parses the declaration, so structured metadata adds
+authoring overhead today for value that only materializes when
+the amplifier-layer substrate ships. The plain-English SKILL.md
+discipline shirabe commits to (see shirabe CLAUDE.md's "Authoring
+koto-using Skills" section) prefers prose for human-readable
+contract surfaces and reserves structured forms for cases where a
+substrate consumes them.
+
+**No team-shape declaration at all in SKILL.md.** Leave team shape
+entirely to the parent-of-the-parent agent's judgment;
+SKILL.md doesn't name it. Rejected because the entire reason
+Component 5 exists is to lift team-shape declaration into the
+contract surface — without a declaration in SKILL.md, the parent-
+of-the-parent has nothing to read, and the team-shape declarator
+mechanism collapses to "use ad-hoc judgment per invocation."
+
 ## Decision Outcome
 
-**Chosen: 1·Hybrid extraction + 2·Two-layer with I-6 + 3·Hybrid 5-field + 4·Ratify-with-R14-widened + 5·Named substitution surface + 6·Recognized shape**
+**Chosen: 1·Hybrid extraction + 2·Two-layer with I-6 + 3·Hybrid 5-field + 4·Ratify-with-R14-widened + 5·Named substitution surface + 6·Recognized shape + 7·Flat references + 8·Prose declaration (v1) / structured metadata (v2)**
 
 ### Summary
 
@@ -874,11 +979,327 @@ deferred; cross-branch resume is unimplemented in v1 by design.
 
 ## Solution Architecture
 
-[Phase 4 will populate this section.]
+### Overview
+
+The parent-skill pattern is a contract surface, a set of shared
+pattern-level references, and a discipline that each parent-skill
+SKILL.md follows. The contract is two-layered (semantic invariants
+plus reference implementation per Decision 2), so the same design
+can ship a verifiable core-layer implementation today and admit an
+amplifier-layer implementation later without redesign.
+
+The architecture has five components:
+
+1. **Pattern-level reference files** under top-level `references/`.
+2. **The parent-skill SKILL.md template** each parent SHALL follow.
+3. **The two-layer contract surface** — semantic invariants and the
+   reference state-file implementation.
+4. **The shared resume-ladder template** — universal meta-ladder
+   entries plus parent-specific body slots.
+5. **The team-shape declarator mechanism** — how a parent declares
+   its team shape so a parent-of-the-parent can materialize peers
+   upfront.
+
+The pattern is consumed by three parent skills (`/charter`, `/scope`,
+the future `/work-on` migration). The components below are written
+such that all three skills cite the shared references rather than
+re-implementing them.
+
+### Components
+
+#### Component 1 — Pattern-level reference files
+
+Four new files at the top-level `references/` directory, all
+loadable via `${CLAUDE_PLUGIN_ROOT}/references/<file>.md`:
+
+- **`references/parent-skill-pattern.md`** — the contract surface
+  document. Names the two-layer contract, the six semantic invariants
+  (I-1 through I-6), the three exit paths (full-run, re-evaluation,
+  abandonment-forced), the conditional-feeder integration shape
+  (Decision 6), and the two named substitution surfaces
+  (`storage_substrate`, `team_primitive`).
+- **`references/parent-skill-state-schema.md`** — the 5-field
+  minimum state-file vocabulary plus extension discipline. Names
+  required fields (`topic`, `last_updated`, `phase_pointer`, `exit`,
+  `exit_artifacts`) and the four pattern-level invariants the schema
+  enforces (per-child snapshot dual-check, conditional-field gating,
+  chain-tracking, status-aware re-entry).
+- **`references/parent-skill-resume-ladder-template.md`** — the
+  universal meta-ladder (entries 1-4 and 8-9) plus the
+  parent-specific body slots (entries 5-7) and rules for filling
+  them.
+- **`references/parent-skill-child-inspection.md`** — R14's widened
+  rule plus the per-parent surface table (doc-emitting children →
+  frontmatter status + git blob hash; issue/PR children → state +
+  labels + CI rollup).
+
+These four files are NEW content the design ships; they do not
+re-export fragments from existing skills. The discover/converge
+engine at `skills/explore/references/phases/phase-2-discover.md` and
+`phase-3-converge.md` stays where it is — parent skills that need a
+discovery phase either point cross-skill or ship their own variant,
+matching every shipped shirabe skill.
+
+#### Component 2 — Parent-skill SKILL.md template
+
+Every parent skill's `skills/<name>/SKILL.md` SHALL contain the
+seven structural elements named in PRD R1:
+
+1. **Input Modes** section (parent-specific input shapes).
+2. **Execution-mode flag parsing** (`--auto` / `--interactive`,
+   `--max-rounds=N`).
+3. **Topic-slug constraint** statement citing
+   `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
+   for the regex `^[a-z0-9-]+$`.
+4. **Workflow Phases** diagram (parent-specific phases).
+5. **Resume Logic** ladder — body slots filled per the parent's
+   chain shape and child set; meta-ladder cited from
+   `parent-skill-resume-ladder-template.md`.
+6. **Phase Execution** list (one phase reference per parent phase).
+7. **Reference Files** table including the four pattern-level
+   references.
+
+Parents extend the template with parent-specific sections (e.g.,
+`/charter`'s chain-proposal output prose), but the seven elements
+are pattern-level.
+
+#### Component 3 — Two-layer contract surface
+
+The pattern's central architectural commitment. The two layers:
+
+**Layer 1 — Semantic invariants (substrate-agnostic).**
+Six invariants every parent SHALL satisfy regardless of substrate.
+I-1 through I-5 (described in Decision 2's Considered Options) are
+satisfied by the v1 core-layer implementation. I-6 (cross-branch
+resume) is named as an invariant but explicitly NOT satisfied by
+the v1 wip/-substrate implementation; satisfying I-6 is part of
+the amplifier-layer's mandate.
+
+**Layer 2 — Reference implementation (substrate-bound).** A
+concrete state-file serialization that every core-layer parent uses
+verbatim. The reference implementation is a YAML document with the
+`.md` extension matching shirabe's wip/ convention, at the path
+`wip/<parent>_<topic>_state.md`. Field set: the 5-field minimum
+schema plus parent-specific extensions. The serialization is the
+substitution variable named `storage_substrate`; the v1 value is
+`wip-yaml-md`. Amplifier-layer implementations supply their own
+value (e.g., `koto-context-store`) along with a serialization that
+satisfies the same six invariants.
+
+#### Component 4 — Shared resume-ladder template
+
+Resume ordering is split into a universal meta-ladder and
+parent-specific body slots. Universal entries (1-4 and 8-9) handle
+state-file malformation, exit-already-set, fresh resume,
+stale-session, on-topic-branch, and on-main fallback. Body slots
+(5-7) handle parent-specific behaviors: status-aware re-entry
+prompts (e.g., `/charter`'s "Re-evaluate / Revise / Bail" against
+an Accepted STRATEGY), partial-child-run detection (resume into the
+child's phase ladder), and feeder-doc-detected entry behavior
+(parent-specific Phase 1 entry when a related doc exists).
+
+The split is structural: a reader of any parent's SKILL.md sees
+the same 9-row ladder shape; the differences are in the body
+slots' specific prompt vocabulary, not the meta-flow.
+
+#### Component 5 — Team-shape declarator mechanism
+
+A parent skill's SKILL.md declares its team shape. The declaration
+includes:
+
+- **Fixed roles** — peer names and responsibilities present in every
+  invocation (e.g., `/design`'s `coordinator`, `security-researcher`,
+  `architecture-reviewer`, `security-reviewer`).
+- **Variable-cardinality role types with an upper bound** — peer
+  role *types* whose runtime count is determined by an earlier
+  phase, with an upper bound declared in the SKILL.md (e.g.,
+  `/design`'s `decision-researcher` role type, upper bound 9 per
+  the skill's scaling-heuristic cap).
+
+The shape declaration is **contract**; the **spawn timing** is
+substrate-specific. The v1 core-layer's `team_primitive` value is
+`single-team-per-leader-no-nested`, which requires the
+parent-of-the-parent (the agent invoking the skill) to materialize
+the full roster at team-creation time, even when the runtime count
+of variable-cardinality peers is only known after the coordinator
+runs the relevant earlier phase. Amplifier-layer implementations
+MAY support lazy spawning by the coordinator, but the shape
+declaration remains the same.
+
+### Key Interfaces
+
+**Parent ⇄ child interface (R14 widened).** A parent reads only
+the child's durable externally-visible status surface; never
+internals.
+
+- For doc-emitting children: child doc frontmatter `status:` value
+  plus the doc's git blob hash.
+- For issue/PR children: issue/PR state plus labels plus CI check
+  rollup.
+
+The parent's resume ladder consults this surface via the parent-skill
+child-inspection reference. Children's `wip/research/<child>_*.md`,
+CI logs, comment threads, and other internals are off-limits.
+
+**Parent ⇄ parent interface (file-handoff, per `team_primitive`'s
+v1 value).** A parent that consumes an upstream parent's artifact
+reads it from `docs/<type>/<TYPE>-<topic>.md` (the durable form)
+or, during multi-parent workflows that haven't reached final
+artifacts yet, from the upstream parent's wip/ state file. There
+is no live-team query interface in v1; downstream parents cannot
+ask upstream parents' coordinators for inspection or context.
+
+**Parent ⇄ workspace interface (R12 visibility detection,
+unchanged from PRD).** A parent reads CLAUDE.md's
+`## Repo Visibility:` header to detect Private vs Public.
+Missing-header default is Private with a warning containing the
+literal phrasing "Default to Private if unknown — restricting is
+easier to undo than oversharing."
+
+**Parent ⇄ feeder-skill interface (conditional feeder invocation,
+Decision 6).** A parent MAY offer a feeder skill conditionally when
+all three of:
+
+1. A parent-defined Phase 1 discovery signal fires (agent-judgment;
+   broad-category descriptions in the parent's own SKILL.md).
+2. The feeder skill exists on disk
+   (`skills/<feeder-name>/SKILL.md` is present).
+3. A parent-defined visibility gate passes (R12 mechanism).
+
+The parent's discovery prompts never reference the feeder skill or
+its content surface when conditions 2 or 3 fail (PRD R5's
+degenerate-silence rule, generalized).
+
+### Data Flow
+
+A parent skill invocation flows as follows:
+
+```
+Author: /<parent> <topic-slug>
+   |
+   v
+Phase 0: SKILL.md parses input, validates slug, detects visibility,
+         creates wip/<parent>_<topic>_state.md with phase_pointer=0,
+         exit=UNSET
+   |
+   v
+Phase 1: Discovery (or PRD-mode setup); may detect conditional-feeder
+         signals; presents chain proposal (parent-specific shape).
+         state file updates phase_pointer + planned_chain (if
+         chain-shaped parent).
+   |
+   v
+[per-phase loop for the parent's remaining phases — each writes
+ phase_pointer and any parent-specific fields]
+   |
+   v
+Phase N (finalization):
+  - Set exit to one of the parent's exit enum values
+  - Write exit_artifacts list
+  - Set chain_completed timestamp
+  - R9 hard-finalization check: validate exit is set and valid;
+    if not, fail finalization with a clear error
+   |
+   v
+Resume after interrupt: ladder reads state file + child snapshots
+                        per the per-parent surface binding;
+                        first-match-wins; malformed state file is
+                        a hard surface (not silent fall-through).
+```
+
+The state file is the durable phase pointer; child doc snapshots
+provide drift detection. wip/ artifacts (state file, per-phase
+intermediate files) live in `wip/` per shirabe's existing convention;
+the wip-hygiene rule applies (clean before merge; no orphan
+references from committed final artifacts).
+
+Cross-branch concerns (invariant I-6) DO NOT flow through the v1
+core-layer's data path: state lives on the feature branch where the
+parent run originated, and resume on a different branch starts
+fresh (no cross-branch state inheritance). The amplifier layer
+will supply a state-persistence substrate whose data flow crosses
+branches.
 
 ## Implementation Approach
 
-[Phase 4 will populate this section.]
+The design ships as a documentation-only initiative — four new
+reference files and the parent-skill SKILL.md template content
+that `/charter` (the first concrete consumer) authors against.
+There is no code component. The implementation is staged so
+`/charter` can ship without waiting on `/scope` or `/work-on`
+authoring; the pattern-level references are written first and
+`/charter` cites them.
+
+### Stage 1 — Pattern-level reference files
+
+Author the four new reference files at top-level `references/`:
+
+Deliverables:
+- `references/parent-skill-pattern.md`
+- `references/parent-skill-state-schema.md`
+- `references/parent-skill-resume-ladder-template.md`
+- `references/parent-skill-child-inspection.md`
+
+Each cites the relevant Considered Options block of this design
+as its "why this shape" rationale, plus the PRD requirements
+they implement.
+
+### Stage 2 — `/charter` SKILL.md authoring against the pattern
+
+`/charter` (the first parent-skill consumer) authors its SKILL.md
+against the references from Stage 1. The `/charter` PRD's
+`[/charter-specific]` requirements become `/charter`'s
+parent-specific extensions; the `[pattern-level]` requirements
+resolve via citation to the shared references.
+
+Deliverables:
+- `skills/charter/SKILL.md` with seven structural elements,
+  including the Reference Files table citing the four pattern-level
+  references.
+- `skills/charter/references/phases/*.md` for `/charter`'s
+  parent-specific phase prose.
+- `skills/charter/evals/evals.json` with the shared eval baseline
+  (slug rejection, malformed state file, child-internals isolation,
+  visibility default) copy-and-adapted plus `/charter`-specific
+  scenarios (US-1 through US-4).
+
+### Stage 3 — CLAUDE.md surfacing
+
+Per R17a/R17b, ship CLAUDE.md updates for workspace and shirabe
+that surface `/charter`'s entry triggers. The pattern-level
+contribution is the surfacing discipline itself; the
+parent-specific contribution is `/charter`'s trigger-phrase list.
+
+Deliverables:
+- Workspace `CLAUDE.md` and `shirabe/CLAUDE.md` mention
+  `/charter` and include its trigger phrases.
+
+### Stage 4 — `/scope` and `/work-on` (out of scope for this design's
+shipping)
+
+When `/scope` and `/work-on` are bounded (separate PRDs), their
+authors follow the same pattern:
+
+- Cite the four pattern-level references.
+- Author parent-specific phase prose under
+  `skills/<name>/references/phases/`.
+- Copy-and-adapt the shared eval baseline from `/charter`'s
+  canonical evals; add parent-specific scenarios.
+- Bind the per-parent R14 surface (e.g., `/work-on` binds to
+  issue/PR state + labels + CI check rollup).
+- Update workspace and shirabe CLAUDE.md with their trigger
+  phrases.
+
+Out of scope for this design's shipping; named here as the test of
+whether the pattern actually convenes the three parents.
+
+### Note on amplifier-layer implementation timing
+
+The amplifier-layer implementation (alternative value of
+`storage_substrate` and/or `team_primitive`) is intentionally NOT
+on the critical path for this design's shipping. The two-layer
+contract surface makes the amplifier layer a future substitution
+within the same pattern, not a different pattern.
 
 ## Security Considerations
 
@@ -886,36 +1307,157 @@ deferred; cross-branch resume is unimplemented in v1 by design.
 
 ## Consequences
 
-[Phase 4 / Phase 6 will populate this section.]
+### Positive
+
+- **Pattern reuse across three parents at low marginal cost.** Each
+  parent's SKILL.md cites the four pattern-level references and
+  fills the parent-specific extensions; new parents inherit the
+  contract without re-deriving it.
+- **Verifiable v1 commitments.** PRD R10's full schema and PRD
+  R11's resume ladder map directly into the reference implementation,
+  so `/charter`'s acceptance criteria stay testable today via
+  `shirabe validate` and skill evals.
+- **Amplifier-layer is a substitution, not a redesign.** The
+  two-layer contract names the substitution variables
+  (`storage_substrate`, `team_primitive`) explicitly; when the
+  amplifier-layer substrate is bounded, it slots into the same
+  pattern without changing the contract.
+- **Honest framing of current Claude Code limitations.** The
+  `team_primitive` substitution variable's v1 value
+  (`single-team-per-leader-no-nested`) is documented as an
+  architectural property with three operational consequences, not
+  as a transient bug. Future parent authors plan around the
+  current behavior with full information.
+- **Cross-branch is a forcing function, not an excuse.** Naming
+  cross-branch as invariant I-6 (acknowledged unsatisfied) ties
+  the amplifier layer's mandate to a specific gap; the v1 contract
+  doesn't pretend the gap doesn't exist.
+- **`/work-on` can participate in the pattern.** The R14 widening
+  to "durable externally-visible status surface" with per-parent
+  bindings makes the pattern accommodate non-doc-emitting children
+  without forcing carve-outs.
+
+### Negative
+
+- **Two-layer contract adds indirection.** A reader of any parent's
+  SKILL.md must trace through to the pattern-level references to
+  understand what the contract actually requires; a single-layer
+  contract would be a flatter read.
+- **R14 per-parent binding requires a surface table maintained as
+  parents land.** When `/work-on` ships, the per-parent surface
+  table grows; if a fourth parent with a different child shape
+  ships later, the table grows again.
+- **Inline `/decision` walks in v1 have real quality cost.** The
+  `team_primitive` v1 value blocks `/design`'s intended Phase
+  3-5 validator agents; decisions made in v1 do not benefit from
+  persistent validator memory, parallel alternative-research, or
+  cross-decision validator examination. The compensating mechanism
+  is Phase 3 cross-validation plus Phase 6 architecture/security
+  review, but these don't fully substitute.
+- **Cross-branch resume is unimplemented in v1.** A parent run
+  that needs to resume on a different branch than the originating
+  feature branch fails the resume ladder (state file is not on
+  the new branch). Authors who merge a child's PR and try to
+  resume the parent on main encounter this.
+- **Shared eval baseline drifts when parents copy-and-adapt.** The
+  copy-paste approach for the eval baseline (rather than `$ref`)
+  means each parent's `evals.json` accumulates baseline scenarios
+  by hand; if the baseline changes, each parent's file needs
+  manual update.
+
+### Mitigations
+
+- **Indirection cost is amortized by reuse.** Three parents citing
+  four references is 12 citation pairs; the alternative
+  (no pattern-level references) is 3 × content-of-4-references
+  duplicated. The indirection pays for itself by the second
+  parent.
+- **R14 per-parent table is small and discoverable.**
+  `references/parent-skill-child-inspection.md` is the single
+  point of update; the table has one row per parent. When a
+  parent lands its surface binding gets added during the parent's
+  own PR review.
+- **Quality cost of inline `/decision` is documented honestly.**
+  Decisions 2, 3, and 5 (the three critical-tier decisions in
+  this very design's run) used inline `/decision` walks with the
+  adversarial-reasoning pass adaptation; the design's Open
+  Questions section names the limitation. The amplifier-layer's
+  v1.1 mandate includes lifting this constraint.
+- **Cross-branch resume is named as invariant I-6 the amplifier
+  layer SHALL satisfy.** Authors who hit the limitation today have
+  a documented workaround (stay on the feature branch until the
+  parent run completes; merge afterwards). The amplifier-layer's
+  arrival closes the gap.
+- **Eval baseline drift is bounded by the shared-baseline being
+  small (4 scenarios) and slow-changing.** When a baseline
+  scenario changes, the three parents update with a one-line PR.
+  A future `$ref` mechanism in the eval format mechanically
+  retrofits.
 
 ## Open Questions
 
-The following are explicit limitations and forward-looking notes
-the design exposes. They are not deferred from this document; they
-are architectural properties the reader should know about.
+This section pairs the two named substitution surfaces under a
+single header per Decision 5's recommendation. Both are
+architectural properties of the v1 core-layer implementation that
+the amplifier layer is the expected resolution surface for. They
+are NOT deferred questions awaiting user input; they are documented
+limitations a reader of this design SHALL understand.
 
-- **Nested-team support for `/decision` sub-skill invocation.**
-  The Claude Code TeamCreate primitive enforces
-  single-team-per-leader, which blocks the `/design` skill's
-  intended Phase 2 model (each decision-researcher spawns its own
-  `/decision` validator sub-team). The current core-layer
-  workaround is to walk `/decision`'s phases inline inside each
-  decision-researcher's own context — this means no persistent
-  validator agents, no parallel alternative-research, and no
-  cross-decision validator memory. This is an architectural
-  property of the core layer, not a transient bug. The
-  amplifier-layer workflow substrate is the expected resolution
-  surface; this design exposes the limitation rather than
-  papering over it.
+### Core-layer-to-amplifier-layer substitution surfaces
 
-- **Team persistence across the parent-skill chain.** A direct
-  consequence of the same TeamCreate constraint: a downstream
-  parent skill cannot query an upstream parent's team because
-  the upstream team must be destroyed before the downstream
-  leader can create its own. The current contract is
-  file-handoff (each parent's artifacts live in docs/ and wip/;
-  the downstream parent reads them). This is acceptable for the
-  pattern-level shared design but limits the inspection depth a
-  downstream team can achieve. The amplifier-layer substrate
-  is the expected resolution surface.
+The design names two substitution variables whose v1 values are
+core-layer-bound and whose alternate values are the amplifier
+layer's mandate.
+
+**`storage_substrate` (Decision 2).** v1 value: `wip-yaml-md` —
+state lives in `wip/<parent>_<topic>_state.md` as a YAML document
+with the `.md` extension. The v1 value DOES NOT satisfy semantic
+invariant I-6 (cross-branch resume); a parent run that needs to
+resume on a different branch than the originating feature branch
+fails the resume ladder. Alternate values (e.g.,
+`koto-context-store`, a session-scoped store, a multi-leader
+coordination primitive) become available with the amplifier-layer
+substrate. The amplifier-layer implementation SHALL satisfy I-6.
+
+**`team_primitive` (Decision 5).** v1 value:
+`single-team-per-leader-no-nested` — a single team per leader, no
+nested team creation, no sub-agent spawning sub-agents. The v1
+value implies three operational consequences:
+
+1. **Inline-decision walks.** A `/design`-style parent that
+   decomposes a problem into N decision questions cannot spawn N
+   persistent validator sub-teams; each decision-researcher walks
+   `/decision` inline (Phases 0/1/2/6 plus an inline
+   adversarial-reasoning pass for critical-tier decisions). No
+   parallel alternative-research, no persistent validator memory.
+2. **File-handoff between parents.** Downstream parents read
+   upstream parents' artifacts from `docs/<type>/<TYPE>-<topic>.md`
+   and from `wip/<upstream>_<topic>_state.md` rather than querying
+   live upstream teams.
+3. **Upfront upper-bound team roster.** A parent that needs
+   variable-cardinality peers declares the upper bound at
+   team-creation time; the parent-of-the-parent materializes the
+   full roster, and the coordinator dispatches a subset at runtime.
+
+The amplifier-layer implementation MAY support nested teams,
+sub-agent spawning, and live-team queries; the team-shape
+declarator mechanism (Solution Architecture, Component 5) provides
+the contract surface that survives either substrate.
+
+### What this design intentionally does not specify
+
+- The precise amplifier-layer substrate (its API, its primitives,
+  its on-disk shape). The pattern's contract holds across
+  plausible substrates; picking one is out of scope until the
+  substrate work is bounded.
+- The shipping order of the second and third parent skills
+  (`/scope`, `/work-on`). Each has its own PRD and design
+  obligations; this design only commits to a pattern they
+  inherit.
+- The eval-format `$ref` mechanism. Out of scope for v1; deferred
+  to a future eval-infrastructure follow-up.
+- Concrete tooling that enforces the pattern at validation time
+  beyond the existing `shirabe validate` + per-skill evals. A
+  future `shirabe validate` extension could check pattern-level
+  state-file conformance; out of scope for v1.
 

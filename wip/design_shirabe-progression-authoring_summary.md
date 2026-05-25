@@ -22,6 +22,7 @@
 
 ## Current Status
 
-**Phase:** 0 — Setup (PRD mode) complete.
-**Last Updated:** 2026-05-24.
-**Next:** Phase 1 — Decision Decomposition. Present decomposition to team-lead before spawning decision-researchers.
+**Phase:** 4 — Architecture synthesis complete.
+**Last Updated:** 2026-05-25.
+**Decisions:** 6 explicit (Phase 1 decomposition; Phase 2 produced reports D1-D6 in wip/ and wip/research/) + 2 implicit (Phase 4 implicit-decision review: D7 flat references location, D8 prose team-shape declaration with structured metadata as v2 amplifier-layer evolution). Phase 3 cross-validation: passed in one round, no restarts.
+**Next:** Phase 5 — Security review (mandatory). Dispatch security-researcher with the full design draft. Outcome options: design changes (loop back), document security considerations, or self-contained N/A justification.
