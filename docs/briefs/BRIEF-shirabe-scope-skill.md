@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   shirabe ships `/brief`, `/prd`, `/design`, and `/plan` at the tactical
   chain's altitude as direct-invocation child skills, but no parent
@@ -26,7 +26,7 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -478,67 +478,6 @@ The scope explicitly excludes:
   child-side work in scope is the Phase-N Reject contract
   extensions to `/prd` and `/design` (named above); any other
   child SKILL.md revisions are separate PRs.
-
-## Open Questions
-
-These surface for the downstream PRD or design to resolve. None
-block this brief.
-
-1. **Pattern-level requirement count and rollout sequencing across
-   PRs.** The exploration crystallized six cascading decisions:
-   the fourth gate type, the Phase-N Reject contract extensions,
-   the top-level worktree-discipline reference,
-   BRIEF-as-chain-member, the design doc rename, and the L9
-   reclassification. This brief sketches them at framing altitude
-   in the Scope Boundary. The PRD enumerates each as a
-   pattern-level requirement under the L9 tagging convention and
-   picks the rollout sequencing across PRs.
-
-2. **Decision Record sub-shape inventory.** The chain's
-   re-evaluation exit lands at two boundaries (PRD and DESIGN). The
-   PRD picks whether both boundaries share a single sub-shape
-   (parameterized by which artifact got re-evaluated) or split into
-   two distinct sub-shapes with their own templates. `/charter`'s
-   `re-evaluation` and `rejection` sub-shape inventory is the
-   precedent; the tactical chain's `rejection` sub-shape depends on
-   how the Phase-N Reject contracts shape up on `/prd` and
-   `/design`.
-
-3. **`/plan` output-mode state binding.** `/plan`'s `single-pr`
-   versus `multi-pr` choice needs to land in `/scope`'s state file
-   as a parent-specific field under the pattern's extension
-   discipline. The PRD names the field
-   (`execution_mode: single-pr | multi-pr`), the rule for when
-   `/scope` reads the choice from the chain proposal versus
-   delegates to `/plan`'s own input, and how re-entry against an
-   Active PLAN reads the field.
-
-4. **`--max-rounds=N` default for `/scope`.** `/charter` ships
-   with 3 as the re-evaluation cap. The exploration settled on 5
-   for `/scope` because tactical chains have two re-evaluation
-   boundaries instead of one and requirements churn faster than
-   thesis. The PRD confirms the default and the override surface.
-
-5. **Stale-session threshold for `/scope`.** `/charter` ships with
-   7 days as the resume ladder's stale-session threshold. The
-   tactical chain may complete faster (a PRD + design + plan
-   sequence is days, not weeks) or slower (implementation work
-   interrupts the chain). The PRD picks; the pattern doesn't
-   constrain.
-
-6. **Validator pass-through scope.** The exploration settled on
-   strict pass-through: `/scope` validates each intermediate as
-   the chain crosses boundaries (PRD before invoking `/design`,
-   DESIGN before invoking `/plan`, PLAN before declaring full-run).
-   The PRD names the exact `shirabe validate` invocation surface
-   for each boundary and how a failed validation halts the chain.
-
-7. **Behavior against Active or Done PLAN.** The exploration
-   settled on refuse-and-redirect: `/scope` against PLAN-Active
-   directs the author to `/work-on`; `/scope` against PLAN-Done
-   directs to `/release`. The PRD names the exact redirect
-   prompts and the row in the resume ladder that fires the
-   redirect.
 
 ## References
 
