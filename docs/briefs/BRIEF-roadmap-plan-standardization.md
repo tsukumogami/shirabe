@@ -48,17 +48,19 @@ conventions that should hold them together have drifted.
 
 Six gaps make the drift concrete.
 
-- **The issues table has four schemas in active use.** The plan workflow
-  keys its table on issues; the roadmap keys its reserved table on
-  features; a later phase introduced a third column set; a committed doc
-  uses a fourth. One section name hides at least two altitudes. An author
-  writing either doc has no single format to copy, so each new table
-  perpetuates whichever variant the author happened to see first.
+- **The issues table has several incompatible schemas in active use.** The
+  plan workflow keys its table on issues (and still accepts a legacy column
+  set); the roadmap keys its reserved table on features; and a committed
+  roadmap diverges from even that. One section name spans two altitudes —
+  feature-level and issue-level — and an author writing either doc has no
+  single format to copy, so each new table perpetuates whichever variant the
+  author happened to see first. (Progress-tracking tables some docs also
+  carry are a separate concern, not part of this issues-table work.)
 
 - **The dependency diagram has a canonical spec docs ignore.** A solid
   diagram spec already exists in one reference, but committed docs use
-  partial style sets, ad-hoc colors, inline-break labels, and three
-  differently worded legends. The spec is correct and unenforced, so it
+  partial style sets, ad-hoc colors, inline-break labels, and differently
+  worded legends. The spec is correct and unenforced, so it
   documents an ideal nobody is held to.
 
 - **The roadmap has no native path to its issues table.** The roadmap
@@ -93,13 +95,19 @@ Six gaps make the drift concrete.
   malformed table, a table and diagram that disagree, or a dangling
   cross-reference passes validation as long as the headings are there.
 
-- **The lifecycle is inconsistent and unenforced.** The states exist
-  (Draft, Active, Done) but the transitions carry no discipline: a multi-pr
-  plan or roadmap can create GitHub issues with no review gate, there is no
-  clean signal that a completed doc has been verified and can be retired,
-  and nothing in CI holds a doc to the state its mode requires. A plan that
-  should have been ephemeral lingers; a roadmap merges before it is ready;
-  issues get created before anyone approved them.
+- **The lifecycle is inconsistent, contradictory, and unenforced.** The
+  states exist (Draft, Active, Done), but the terminal is three-way
+  contradictory today: the live `/work-on` cascade deletes a completed plan
+  (`git rm`), the plan reference doc still says move it to a `done/` archive,
+  and a completed roadmap is kept forever as a permanent record. Plans and
+  roadmaps terminate in opposite ways, and the plan's own terminal disagrees
+  with itself. The transitions carry little discipline beyond a client-side
+  transition script: a multi-pr plan or roadmap creates GitHub issues with no
+  review gate (the cascade can even auto-complete a roadmap with no human
+  sign-off), and nothing in CI holds a doc to the state its mode requires — a
+  single-pr plan that should be ephemeral can reach main, a multi-pr doc can
+  merge before it is ready, and issues get created before anyone approved
+  them.
 
 Underneath all six is the same root: the workflows are specified as
 procedures with local rationale or none, and the few real principles that
@@ -117,7 +125,7 @@ A skill author writing a roadmap or a plan works from one set of shared
 conventions instead of reconstructing them per document. There is one
 canonical issues-table format and one canonical dependency-diagram
 format, each defined in a single place and consumed by both workflows, so
-the author copies a known-good shape rather than picking among four. The
+the author copies a known-good shape rather than picking among several. The
 altitude distinction that matters — a roadmap keys its table on features,
 a plan keys its table on issues — survives, because the shared format
 carries two profiles rather than collapsing into one.
@@ -125,17 +133,21 @@ carries two profiles rather than collapsing into one.
 When the author reaches the single-pr/multi-pr decision, the principle is
 in front of them on the skill surface: every PR should land usable value,
 so default to one PR and split only when a hard constraint forces it or
-when the work is a walking skeleton whose PRs are each independently
-useful. The rule is stated as that default with its named escape
-conditions, separated from the unrelated slicing decision it used to be
-tangled with. A roadmap is always multi-pr — every roadmap feature is an
-increment of observable value, a cohesive deliverable in its own right —
-and that outcome is now grounded in the value principle rather than
-reached by mechanism. A step confirms each unit delivers observable
-incremental value: every feature for a roadmap, and each PR for a plan
-split for incremental value rather than a hard landing constraint. The
-author lands the right call because the reasoning is visible at the point
-of decision, not buried in a reference they would have to know to load.
+when the work delivers value incrementally, each PR independently useful (a
+walking skeleton is one such split). The rule is stated as that default
+with its named escape conditions, separated from the unrelated slicing
+decision it used to be tangled with. A roadmap is multi-pr because each of
+its features should be an increment of observable value — a cohesive
+deliverable in its own right — so the outcome is grounded in the value
+principle, not reached by mechanism. A confirmation step tests that: it
+checks each unit delivers observable incremental value — every feature for
+a roadmap, and each PR for a plan whose split delivers incremental value
+(whether or not a hard constraint also forces the split). It is a guard
+that can fail: a roadmap feature that isn't a standalone increment signals
+the roadmap is mis-decomposed and should be re-scoped or merged with a
+neighbor, not waved through. The author lands the right call because the
+reasoning is visible at the point of decision, not buried in a reference
+they would have to know to load.
 
 A roadmap author who wants their issues table populated gets there
 through a first-class path built for the roadmap, not by re-driving the
@@ -146,14 +158,23 @@ cross-reference to an issue that isn't in the table — validation catches
 it, in local checks and in the same review surface where the rest of the
 format spec is already enforced.
 
-The document lifecycle carries discipline too. A multi-pr plan or roadmap
-finishes its draft and stops for the author's approval before any GitHub
-issue is created — creating the issues is the act of approving, the move
-to Active, not a silent side effect. A completed doc rests at Done until
-the author has reviewed the delivered work; verifying it retires the doc
-rather than leaving it to linger. CI holds each doc to the state its mode
-requires, so a doc can't merge in the wrong state and a finished one
-doesn't outlive its purpose.
+The document lifecycle carries discipline and one consistent terminal. A
+multi-pr plan or roadmap finishes its draft and stops for the author's
+approval before any GitHub issue is created — creating the issues is the
+act of approving, the move to Active, not a silent side effect. The doc
+rests at Active while the work lands, reaches Done when the work is
+complete, and is retired by deletion once the author verifies the delivered
+work — the same verify-then-delete end for both plans and roadmaps. That
+replaces today's split, where a completed plan is already deleted by the
+cascade but a completed roadmap is kept forever; unifying on deletion is a
+deliberate change for roadmaps. A single-pr plan is different: it is
+ephemeral, lives only on its own PR branch, and is verified and deleted
+before that PR merges, so it never reaches main. CI holds docs to the
+states it can see: a multi-pr doc may only merge in Active, and a single-pr
+plan must be absent at merge — CI fails while one is present and passes once
+it is deleted, which makes "gone before merge" enforceable without CI having
+to know which commit is the merge. The verified-deletion of a multi-pr doc
+stays a human act CI permits rather than performs.
 
 Behind each of these is the same shift: the workflows derive from a small
 set of stated principles instead of restating procedure. An author who
@@ -218,8 +239,8 @@ ones do.
 
 An author starting a new roadmap or plan needs an issues table and a
 dependency diagram. Rather than searching prior docs and copying whichever
-variant they find — and propagating one of four schemas or one of three
-legends — they reach for the single shared reference that defines the
+variant they find — and propagating one of several schemas or a divergent
+legend — they reach for the single shared reference that defines the
 table format and the diagram convention once. They consume the canonical
 shape, parameterized to their document's altitude, and produce a table and
 diagram that match every other doc built from the same reference. The
@@ -251,8 +272,10 @@ This brief, and the downstream PRD it points at, cover standardizing the
 roadmap and plan workflows around shared, principle-driven conventions.
 The scope holds the following inside:
 
-- **A reusable principle set** the roadmap and plan workflows (and their
-  siblings) derive from rather than restate — a small, named set covering
+- **A reusable principle set** the roadmap and plan workflows derive from
+  rather than restate — authored to be reusable by sibling doc types later,
+  though this work wires only the roadmap and plan workflows to it — a small,
+  named set covering
   the lowest-ceremony default, decisions needing a durable home, one
   canonical format per concern, strictness tracking blast radius, formats
   defined once, and usable value as the unit of work (every PR and every
@@ -274,24 +297,33 @@ The scope holds the following inside:
 - **The decision-surfacing fixes.** Encoding the usable-value principle
   into both the plan and roadmap workflows: lifting the single-pr/multi-pr
   decision to the skill surface, anchoring it on usable value, and
-  decoupling it from the work-slicing decision. A roadmap stays
-  multi-pr — every roadmap feature delivers observable incremental value
-  as a cohesive deliverable — but that outcome is re-grounded in the value
-  principle rather than reached by mechanism, and a step (always for a
-  roadmap, and for a plan when its multi-pr rationale is incremental value
-  rather than a hard landing constraint) confirms each feature or PR
-  delivers observable incremental value. Plus giving the roadmap a
-  first-class path to its issues table in place of the brittle string
-  surgery in the plan re-entry.
-- **An enforced document lifecycle.** A shared lifecycle for plan and
-  roadmap docs: a multi-pr doc finishes its draft and stops for approval
-  before issues are created, with approval being the move to Active; a
-  completed doc rests at Done until the author verifies the delivered work,
-  and verification retires the doc; and CI enforces the states — a multi-pr
-  doc may only merge in Active, a completed one is expected to be deleted,
-  and a single-pr plan is ephemeral, living only on its PR branch and
-  removed before that PR merges. The exact transitions, the virtual
-  VERIFIED state, and the CI checks are the downstream design's.
+  decoupling it from the work-slicing decision. A roadmap stays multi-pr
+  because each feature should deliver observable incremental value as a
+  cohesive deliverable — re-grounded in the value principle rather than
+  reached by mechanism — and a confirmation step (always for a roadmap, and
+  for a plan whose split delivers incremental value, whether or not a hard
+  constraint also forces it) checks that each feature or PR actually does. It
+  can fail: a feature that isn't a standalone increment flags a mis-decomposed
+  roadmap to re-scope rather than waving it through. Plus giving the roadmap a
+  first-class path to its issues table in place of the brittle string surgery
+  in the plan re-entry.
+- **An enforced document lifecycle with one terminal.** A shared lifecycle
+  for plan and roadmap docs: a multi-pr doc finishes its draft and stops for
+  approval before issues are created (approval is the move to Active); it
+  reaches Done when the work is complete; and the author's verification
+  retires it by deletion. This unifies today's split terminal — a completed
+  plan is already deleted by the work-on cascade, a completed roadmap is kept
+  forever, and the plan reference doc still says move-to-`done/`; the
+  standardization makes verify-then-delete the single terminal for both (a
+  deliberate change for roadmaps) and retires the stale move-to-archive
+  wording. A single-pr plan is ephemeral — it lives only on its PR branch and
+  is deleted before that PR merges. CI enforces the states it can observe: a
+  multi-pr doc may only merge in Active, and a single-pr plan must be absent
+  at merge (CI fails while it is present, passes once it is deleted). The
+  verified-deletion of a multi-pr doc is a human act CI permits, not one it
+  performs. The precise transitions, how the virtual VERIFIED step is
+  realized, and the enforcement surface for the CI checks are the downstream
+  design's.
 
 The scope explicitly excludes:
 
@@ -333,12 +365,13 @@ These surface for the downstream PRD to resolve. None block this brief.
    structure is undecided. The PRD names the shared core and the
    per-profile additions.
 
-4. **How the lifecycle is enforced without overreach.** The lifecycle
-   adds a review gate before issue creation, a verified-then-deleted
-   terminal, and CI checks on document state. How strict the CI
-   enforcement is at first, and how the virtual VERIFIED transition is
-   realized (a transition that deletes versus a separate cleanup step),
-   are calls the PRD and design settle.
+4. **The enforcement surface for the lifecycle checks.** Scope commits the
+   two CI checks observable on a stateless per-PR pass: a multi-pr doc may
+   only merge in Active, and a single-pr plan must be absent at merge. What
+   stays open is the surface that carries them — the existing PR
+   doc-validator, a whole-tree scan, or a push-to-main / branch-protection
+   gate — and how the virtual VERIFIED step (the human verify-then-delete) is
+   realized. The PRD and design settle these.
 
 ## Downstream Artifacts
 
