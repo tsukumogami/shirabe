@@ -645,70 +645,108 @@ into the Draft and may want preserved for re-authoring.
 
 ### Decision 4: Worktree-discipline reference content
 
-PRD R21 specifies the trigger condition (worktree-staleness
-check fires before each Phase 2 child invocation) and the
-three-option prompt (rebase / proceed anyway / bail). PRD
-Decision 4 specifies the location (`references/parent-skill-
-worktree-discipline.md` at the top-level reference root, not
-parent-specific). The question deferred to design is the
-detailed prose: rebase mechanics, the "proceed anyway" state-
-file recording semantics, and how the check integrates with the
-chain-proposal prompt.
+PRD R21 specifies the discipline: attempt a rebase before each
+Phase 2 child invocation, then escalate based on whether upstream
+changes invalidate the chain's intent — NOT based on whether the
+rebase was mechanically clean. PRD Decision 4 specifies the
+location (`references/parent-skill-worktree-discipline.md` at the
+top-level reference root, not parent-specific). The question
+deferred to design is the detailed prose: rebase mechanics, the
+impact-classification taxonomy, the recording semantics, and how
+the check integrates with the chain-proposal prompt.
 
-#### Chosen: Substrate-Agnostic Top-Level Reference with Four Named Sections
+#### Chosen: Contextual-Impact Escalation, Not Mechanical-Conflict Escalation
 
-The reference body is parent-agnostic prose with the following
-four sections:
+The reference body is parent-agnostic prose. The core insight is
+that mechanical-conflict status (clean vs conflicted) is a poor
+escalation signal: a clean rebase can land a contract change that
+silently invalidates the chain's artifacts; a conflict can be in a
+file the chain doesn't care about. The correct signal is whether
+upstream changes touch something the chain depends on — which
+requires reading the diff and cross-referencing the chain's
+authored artifacts. Sub-agents can do this; the team lead and the
+author are bothered only when the analysis finds intent-changing
+impact.
+
+The reference has six sections:
 
 1. **Trigger Condition.** Defines "before each Phase 2 child
-   invocation" precisely: after `/scope` Phase 1 emits its
-   chain-proposal output and the author confirms (R7.5), AND
-   before each child invocation in `planned_chain`. The check
-   fires four times per full-run chain (once before each of
-   `/brief`, `/prd`, `/design`, `/plan`), not once per parent
-   invocation. The trigger is bounded by the chain step count,
-   not by wallclock time.
-2. **Three-Option Prompt.** "Rebase / Proceed anyway / Bail"
-   surfaced when `git fetch && git status --branch --short`
-   shows the upstream has new commits on the tracking branch.
-   Rebase re-fetches and rebases the feature branch (the
-   parent skill emits the `git fetch && git rebase` commands
-   and waits for the author's manual approval before running
-   them — never auto-rebases). Proceed anyway accepts the
-   risk and continues to child invocation; the state file
-   records the divergence per the Recording Section below.
-   Bail routes per the parent's own bail-handling rule (for
-   `/scope`, R8).
-3. **Recording "Proceed Anyway" Divergence.** When the author
-   selects Proceed anyway, the parent's state file gains a new
-   conditional entry under
-   `worktree_divergences:` (a list, since one chain can have
-   up to four divergence events) with `{phase: <child-name>,
-   upstream_ahead_by: <count>, accepted_at: <ISO-8601>}`. The
-   list is conditional (absent when no divergence accepted)
-   per I-5; the field tail is appended to as additional
-   divergences occur.
-4. **Integration with Chain-Proposal Prompt.** The check is
-   AFTER chain-proposal confirmation, not before — the
-   confirmation prompt itself is short and well-bounded
-   (R7.5), running `git fetch` before it would add latency
-   without proportionate value (the author hasn't decided to
-   proceed yet). The integration prose addresses the order
-   explicitly so future parents follow the same convention.
+   invocation" precisely: after Phase 1 emits its chain-proposal
+   output and the author confirms (R7.5), AND before each child
+   invocation in `planned_chain`. The attempt fires up to four
+   times per full-run chain for `/scope`, bounded by chain step
+   count.
+2. **Step 1: Rebase.** The parent SHALL execute the equivalent of
+   `git fetch && git rebase origin/<tracking-branch>`. Clean
+   rebases proceed to step 2 directly. Conflicted rebases are
+   handled by the parent's conflict-resolution sub-agent using
+   artifact context (BRIEF/PRD/DESIGN citations often make the
+   correct resolution obvious); only conflicts that cannot be
+   resolved from artifact context proceed to step 2's analysis
+   with the unresolved conflict as part of the diff to classify.
+3. **Step 2: Contextual Impact Analysis.** After the rebase
+   (clean or with resolved conflicts), the parent reads the
+   upstream commits that landed and cross-references them against
+   the chain's authored artifacts (BRIEF, PRD, DESIGN, PLAN as
+   they exist at this point) AND against the inputs the next
+   child invocation will consume. The parent classifies impact at
+   one of three levels:
+   - **None**: no path, symbol, or contract the chain depends on
+     was touched.
+   - **Informational**: chain-referenced content was touched, but
+     non-substantively (typo, comment, formatting).
+   - **Intent-changing**: a contract, interface, or fact the
+     chain has committed to was altered.
+4. **Step 3: Escalate Based on Impact.** None or Informational
+   impact: record in `worktree_rebases:` and proceed silently to
+   child invocation. Intent-changing impact: route to the team
+   lead with full evidence (which artifact, which referenced
+   contract, what changed). The team lead decides whether the
+   original session intent still holds. If yes, the team lead may
+   resolve in-place (update citations, adjust artifact content,
+   then proceed). If the intent has genuinely changed, the team
+   lead escalates to the author with the three-option prompt:
+   **re-author affected artifacts** / **proceed against original
+   intent** / **bail per R8**.
+5. **Recording.** Two state-file lists, both conditional per
+   I-5: `worktree_rebases:` (informational; entries record
+   `{phase, upstream_commits, impact, rebased_at}`, appended
+   after every rebase that brought new upstream commits in,
+   regardless of classification, except when the chain bailed;
+   allowed `impact` values are `none | informational |
+   intent-changing-resolved-in-place`, where the third value is
+   recorded when the team lead resolves an intent-changing
+   impact in-place per Step 3 without escalating to the author)
+   and `worktree_divergences:` (decision audit; appended only
+   when an Intent-changing event escalated to the author and
+   the author chose "proceed against original intent"; entries
+   record
+   `{phase, affected_contracts, upstream_commits, accepted_at}`).
+6. **Integration with Chain-Proposal Prompt.** The attempt is
+   AFTER chain-proposal confirmation, not before. The
+   chain-proposal prompt makes no network calls; running `git
+   fetch` before the author confirms the chain would pay network
+   cost on every Phase 1 termination.
 
-A fifth "Binding Notes" section names per-parent bindings:
-`/scope` v1 (load-bearing — 4 children, longest chain in
-shirabe); `/charter` (back-edit; 3 children, also load-
-bearing); `/work-on` (future; binding deferred to amplifier-
-layer parent).
+A seventh "Binding Notes" section names per-parent bindings:
+`/scope` v1 (load-bearing — 4 children, longest chain in shirabe);
+`/charter` (back-edit; 3 children, also load-bearing); `/work-on`
+(future; binding deferred to amplifier-layer parent). The Binding
+Notes table also carries an "Analyzer actor" column capturing the
+`team_primitive` substrate-substitution surface — in v1's
+single-team-per-leader-no-nested substrate (solo mode) the parent
+does its own impact analysis; in an amplifier-layer substrate the
+analysis can be delegated to a worktree-sync-analyzer sub-agent.
 
-This is recommended because the reference's parent-agnostic
-core lets future parents (the future `/work-on` migration, any
-amplifier-layer parents) inherit the discipline without re-
-deriving it — the load-bearing concern Decision 4 in the PRD
-calls out. The Binding Notes section keeps `/charter`'s back-
-edit cost bounded (a single reference-table addition plus a
-citation in `/charter`'s phase-2 doc).
+The escalation contract (intent-change escalates; mechanical
+status does not) is the key design choice. It means every actor
+in the chain operates at the altitude appropriate to its
+capability: sub-agents handle rebases and conflict resolution,
+the team lead handles judgment about whether intent has changed,
+and the author is brought in only when the chain's original
+direction is in question. This eliminates the "every staleness
+check bothers somebody" failure mode the manual-gate default
+would have produced.
 
 #### Alternatives Considered
 
@@ -1158,8 +1196,8 @@ under the `.md` extension. Its schema extends the pattern's
 status + content-hash dual-check block), and the ephemeral
 `parent_orchestration` block (present only during child
 invocation; cleared on return). `worktree_divergences` is a
-conditional list capturing each Proceed-anyway divergence
-accepted during Phase 2.
+conditional list capturing each Proceed-against-original-intent
+divergence accepted during Phase 2.
 
 The resume ladder follows the universal meta-ladder template
 with Slot 5 spanning 9 rows in most-downstream-first first-
@@ -1471,10 +1509,11 @@ gains documented refuse-and-redirect semantics).
 
 A new top-level reference at the pattern-reference root,
 sibling to the four existing `parent-skill-*.md` references.
-The body has the four named sections described in Decision 4:
-Trigger Condition, Three-Option Prompt, Recording "Proceed
-Anyway" Divergence, Integration with Chain-Proposal Prompt.
-A fifth Binding Notes section names per-parent bindings:
+The body has six named sections described in Decision 4:
+Trigger Condition; Step 1 — Rebase; Step 2 — Contextual
+Impact Analysis; Step 3 — Escalate Based on Impact;
+Recording; Integration with Chain-Proposal Prompt. A
+seventh Binding Notes section names per-parent bindings:
 `/scope` v1 (load-bearing), `/charter` (back-edit; binding
 notes added in `/charter`'s SKILL.md reference table),
 `/work-on` (future; binding deferred to the the `/work-on` migration PR).
@@ -1597,11 +1636,22 @@ in `chain_skipped` with reason if present.
 Phase 2 detailing the child invocation loop. Key sections:
 
 7.1. **Worktree-staleness check** — fires before each child
-invocation per R21. Executes `git fetch && git status
---branch --short`; on divergence, surfaces three-option
-prompt and records "proceed anyway" divergences in the
-state file's `worktree_divergences:` list. Cites
-`references/parent-skill-worktree-discipline.md`.
+invocation per R21. Runs the three-step flow from
+`references/parent-skill-worktree-discipline.md`: (1) the
+conflict-resolution sub-agent rebases against the tracking
+branch, resolving conflicts from artifact context where
+possible; (2) upstream commits are classified at one of
+three impact levels (None / Informational / Intent-changing)
+against the chain's authored artifacts and the next child's
+inputs; (3) None and Informational silently record into
+`worktree_rebases:` and proceed, while Intent-changing halts
+and routes to the team lead with evidence. The team lead
+either resolves in-place (updating an affected citation,
+recorded as `intent-changing-resolved-in-place`) or escalates
+to the author with the three-option prompt (Re-author
+affected artifacts / Proceed against original intent / Bail).
+Divergences are recorded in `worktree_divergences:` only
+when the author selects "Proceed against original intent."
 
 7.2. **parent_orchestration: sentinel write** — writes the
 ephemeral block to `/scope`'s state file naming the child,
@@ -1798,10 +1848,15 @@ flowchart TD
     P1 -->|Proceed| P2[Phase 2: Child Invocation Loop]
     P1 -->|Adjust| P1
     P1 -->|Bail| Bail[R8 bail-handling]
-    P2 --> WSC{Worktree<br/>stale?}
-    WSC -->|Yes| WSCP[Rebase /<br/>Proceed anyway /<br/>Bail]
-    WSCP --> P2
-    WSC -->|No| Write[Write parent_orchestration]
+    P2 --> Rebase[Rebase<br/>sub-agent resolves<br/>from artifact context]
+    Rebase --> Impact{Impact<br/>classification}
+    Impact -->|None / Informational| Write[Write parent_orchestration]
+    Impact -->|Intent-changing| TL{Team-lead gate}
+    TL -->|Resolve in-place| Write
+    TL -->|Escalate to author| AuthorPrompt[Three-option prompt:<br/>Re-author affected artifacts /<br/>Proceed against original intent /<br/>Bail]
+    AuthorPrompt -->|Re-author| P2
+    AuthorPrompt -->|Proceed against original intent| Write
+    AuthorPrompt -->|Bail| Bail
     Write --> Child[Invoke child]
     Child --> FE{Artifact<br/>exists?}
     FE -->|No| Stale[STALE → R8]
@@ -1823,9 +1878,15 @@ flowchart TD
 
 The diagram covers the happy path (full-run), the
 re-evaluation rejection path (via Phase-N Reject), and the
-abandonment-forced path (via worktree-staleness Bail,
-structural-file-existence STALE, or validator failure
-routing through R8 bail-handling).
+abandonment-forced path. Bail is reached via three routes:
+the author selecting Bail in response to a team-lead
+escalation prompt on intent-changing upstream divergence;
+structural-file-existence STALE; or validator failure
+routing through R8 bail-handling. Worktree rebase itself
+contributes no direct Bail edge — None/Informational impact
+silently proceeds, and Intent-changing impact routes
+through the team-lead gate before any Bail decision can
+reach the author.
 
 ## Implementation Approach
 
@@ -1847,7 +1908,8 @@ Deliverables:
 - `references/parent-skill-resume-ladder-template.md` —
   single Slot 5 paragraph addition (Component 3).
 - `references/parent-skill-worktree-discipline.md` — new
-  reference file with five sections (Component 4).
+  reference file with six body sections plus a Binding
+  Notes section (Component 4).
 
 ### Phase B: Child-side contract extensions
 
@@ -1953,8 +2015,8 @@ interpolation; rationale content containing quotes,
 backticks, or shell metacharacters cannot reach the shell.
 The same discipline applies to any other free-form string
 the skill writes into a commit body (the author-stated
-rationale for "proceed anyway" on worktree-staleness
-divergence per Component 4).
+rationale for "Proceed against original intent" on
+worktree-staleness divergence per Component 4).
 
 ### Filesystem-write boundaries — enumerated write set and state-file enum re-validation
 
@@ -2149,7 +2211,7 @@ substring "Rationale will be committed to git history".
   is the status quo.
 - **Worktree-staleness latency** — the trigger is bounded
   to four times per full-run chain; on slow networks,
-  authors can override via Proceed-anyway.
+  authors can override via Proceed against original intent.
 - **R6 shape-predicate interpretive drift** — Component 6
   ships with 3-4 worked examples per predicate; the chain-
   proposal output includes per-predicate reasons so authors

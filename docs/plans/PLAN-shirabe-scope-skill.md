@@ -32,7 +32,7 @@ Walking-skeleton was considered and rejected: the design is documentation + conf
 | Issue | Dependencies | Complexity |
 |-------|--------------|------------|
 | [#98: docs(refs): add parent-skill-worktree-discipline reference](https://github.com/tsukumogami/shirabe/issues/98) | None | simple |
-| _New top-level pattern reference at `references/parent-skill-worktree-discipline.md` with five named sections (Trigger Condition / Three-Option Prompt / Recording "Proceed Anyway" Divergence / Integration with Chain-Proposal Prompt / Binding Notes). Parent-agnostic prose — per-parent specifics live in Binding Notes so future parents inherit the discipline without re-deriving it._ | | |
+| _New top-level pattern reference at `references/parent-skill-worktree-discipline.md` codifying how a parent skill handles upstream change across a multi-child chain. Six body sections (Trigger Condition / Rebase phase / Impact-analysis phase / Escalation phase / Recording / Binding Notes) encode the contract: escalation is driven by contextual impact (does the change invalidate intent?), not mechanical conflict status. Sub-agents handle rebase + impact classification (None / Informational / Intent-changing); team lead arbitrates intent-changing impacts; the author is bothered only when intent has genuinely shifted. Parent-agnostic prose — per-parent specifics live in Binding Notes so future parents inherit the discipline without re-deriving it._ | | |
 | [#99: docs(charter): cite worktree-discipline reference in /charter](https://github.com/tsukumogami/shirabe/issues/99) | [#98](https://github.com/tsukumogami/shirabe/issues/98) | simple |
 | _Single-row addition to `/charter`'s Reference Files table citing the new top-level reference. Scoped tightly to the back-edit per the design's Phase D; does NOT include the `--parent-orchestrated` → `parent_orchestration:` sentinel migration (separate concern, deferred to a follow-on PR per-child)._ | | |
 | [#100: feat(prd): ship Phase 4 step 4.5 3-option Reject contract](https://github.com/tsukumogami/shirabe/issues/100) | None | testable |
@@ -102,8 +102,9 @@ graph TD
     classDef tracksDesign fill:#FFE0B2,stroke:#F57C00,color:#000
     classDef tracksPlan fill:#FFE0B2,stroke:#F57C00,color:#000
 
-    class I98,I100,I102,I104,I106 ready
-    class I99,I101,I103,I105,I107,I108,I109,I110 blocked
+    class I98,I99 done
+    class I100,I102,I104,I106 ready
+    class I101,I103,I105,I107,I108,I109,I110 blocked
 ```
 
 **Legend**: Green = done, Blue = ready, Yellow = blocked, Purple = needs-design, Orange = tracks-design/tracks-plan
@@ -120,17 +121,17 @@ Estimated sequential wall time: ~5-7 hours. With parallel execution of independe
 
 ### Parallelization Tiers
 
-**Tier 0 — Immediate start (5 issues, fully parallel)**
+**Tier 0 — Immediate start (4 issues, fully parallel; #98 done in PR-1)**
 
-- #98 — new `references/parent-skill-worktree-discipline.md`
+- ~~#98~~ done — new `references/parent-skill-worktree-discipline.md`
 - #100 — `/prd` Phase 4 Reject contract
 - #102 — `/design` Phase 6 Reject contract
 - #104 — Gate Vocabulary + L13 amendment in `parent-skill-pattern.md`
 - #106 — refuse-and-redirect Slot 5 paragraph in `parent-skill-resume-ladder-template.md`
 
-**Tier 1 — After Tier 0 (4 issues, parallel within tier)**
+**Tier 1 — After Tier 0 (3 issues remaining; #99 done in PR-1)**
 
-- #99 after #98 — `/charter` cite back-edit
+- ~~#99 after #98~~ done — `/charter` cite back-edit
 - #101 after #100 — `/prd` Reject eval scenario
 - #103 after #102 — `/design` Reject eval scenario
 - #105 after #104 — `parent-skill-state-schema.md` extension
@@ -162,9 +163,8 @@ The 13 issues aggregate into 4 PRs with the following merge order:
 
 ### Recommended Starting Issues
 
-Begin with the five Tier 0 issues (marked `ready` in the dependency graph) that have no dependencies and unblock the most downstream work:
+PR-1 is complete (#98 + #99 done). Continue with the four remaining Tier 0 issues (marked `ready` in the dependency graph):
 
-- [#98](https://github.com/tsukumogami/shirabe/issues/98): unblocks #99 and the entire `/scope` body cluster
 - [#104](https://github.com/tsukumogami/shirabe/issues/104): unblocks #105 and the entire `/scope` body cluster
 - [#100](https://github.com/tsukumogami/shirabe/issues/100) and [#102](https://github.com/tsukumogami/shirabe/issues/102): unblock #108 (phase references' git-log observability) and their respective eval scenarios
-- [#106](https://github.com/tsukumogami/shirabe/issues/106): unblocks the `/scope` SKILL.md body via citation
+- [#106](https://github.com/tsukumogami/shirabe/issues/106): refuse-and-redirect Slot 5 paragraph (smallest remaining; quick land)

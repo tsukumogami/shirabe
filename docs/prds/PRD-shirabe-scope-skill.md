@@ -884,16 +884,53 @@ as-priority-1 ordering at the chain-orchestration altitude: when
 two diverging is a contract violation surface, not a benign
 condition.
 
-**R21 [/scope-specific].** `/scope` SHALL run a worktree-staleness
-check before each Phase 2 child invocation (fold of observation
-#11). Before invoking `/brief`, `/prd`, `/design`, or `/plan`,
-`/scope` MUST execute the equivalent of `git fetch && git
-status --branch --short` against the worktree's tracking branch.
-If the worktree's upstream has new commits on the target branch,
-`/scope` MUST halt and surface the staleness to the author with
-three options: rebase (re-fetch and rebase the feature branch),
-proceed anyway (accept the risk; record the divergence in the
-state file), or bail (route per R8's bail-handling).
+**R21 [/scope-specific].** `/scope` SHALL keep its worktree in sync
+with upstream across the chain and SHALL escalate based on whether
+upstream changes invalidate the chain's intent, NOT on whether the
+rebase was clean (fold of observation #11). Before invoking
+`/brief`, `/prd`, `/design`, or `/plan`, `/scope` MUST:
+
+1. **Attempt rebase.** Execute the equivalent of `git fetch && git
+   rebase origin/<tracking-branch>`. Both clean rebases and
+   conflicted rebases proceed to step 2 (mechanical conflict
+   resolution is sub-agent work using artifact context; conflicts
+   that cannot be resolved from artifact context escalate via the
+   same impact-classification step below, not as a separate path).
+
+2. **Analyze contextual impact.** Read the upstream commits that
+   landed in step 1 and cross-reference them against the chain's
+   authored artifacts (BRIEF, PRD, DESIGN, PLAN as they exist at
+   this point in the chain) AND against the inputs the next child
+   invocation will consume. Classify the impact:
+   - **None**: upstream changes touch no path, symbol, or contract
+     the chain depends on.
+   - **Informational**: upstream changes touch something the chain
+     references, but the change is non-substantive (typo, comment,
+     formatting).
+   - **Intent-changing**: upstream changes alter a contract,
+     interface, or fact the chain has committed to (e.g., a child
+     skill's input format changed; a referenced file was renamed
+     or removed; a doc the BRIEF cites was rewritten).
+
+3. **Escalate based on impact.**
+   - **None or Informational**: record the rebase in
+     `worktree_rebases:` and proceed to child invocation. The team
+     lead and author are not prompted.
+   - **Intent-changing**: route to the team lead with full
+     evidence (which artifact, which referenced contract,
+     specifically what changed). The team lead decides whether the
+     original session intent still holds; if it does, the team
+     lead may resolve in-place (e.g., update a citation in the
+     chain's authored artifact, then proceed). If the intent has
+     genuinely changed, the team lead MUST escalate to the author
+     with the three-option prompt: re-author affected artifacts
+     against the new contract / proceed against the original intent
+     (recording the divergence) / bail per R8.
+
+The author is bothered ONLY when the session's original intent has
+changed. Mechanical conflicts, cosmetic upstream changes, and
+contract changes the team lead can resolve from artifact context
+never reach the author.
 
 The check trigger fires "before each Phase 2 child invocation"
 (not on every `/scope` invocation, not after each child completes)
@@ -1295,21 +1332,29 @@ requirement that motivates them and the user story they exercise
   routes to bail-handling rather than the happy path.
   `[automated-eval]` (R20)
 - [ ] **AC28** Before each Phase 2 child invocation, `/scope`
-  executes a worktree-staleness check (equivalent to `git fetch
-  && git status --branch --short`). When the worktree's
-  upstream has new commits on the target branch, `/scope` halts
-  and surfaces a three-option prompt: rebase, proceed anyway, or
-  bail. The observable: the SKILL.md / phase-2 reference
-  documents the trigger condition; an eval scenario verifies the
-  halt fires when upstream divergence is simulated.
-  `[automated-eval]` (R21)
+  attempts a rebase, then analyzes the contextual impact of any
+  upstream commits that landed. The observable: an eval scenario
+  with upstream changes that touch a chain-referenced contract
+  verifies `/scope` halts and routes to the team lead with
+  evidence; a second scenario with upstream changes orthogonal to
+  the chain verifies `/scope` proceeds silently without prompting
+  either the team lead or the author; a third scenario with a
+  rebase conflict in a chain-orthogonal file verifies the conflict
+  is resolved from artifact context (or by the parent's
+  conflict-resolution sub-agent) without escalation. `[automated-eval]`
+  (R21)
 - [ ] **AC28b** `references/parent-skill-worktree-discipline.md`
   exists at the top-level reference root and documents the
   trigger condition (before each Phase 2 child invocation), the
-  three-option prompt, and the state-file recording of "proceed
-  anyway" divergence. The reference is cited from `/scope`'s
-  Phase 2 chain-orchestration reference file. `[automated-unit]`
-  (R21)
+  rebase-then-analyze flow, the three-level impact classification
+  (none / informational / intent-changing), the escalation
+  contract (none/informational → proceed silently; intent-changing
+  → team lead, then author only if intent genuinely changed), and
+  the three-option author-facing prompt (re-author affected
+  artifacts / proceed against original intent / bail) that surfaces
+  only on team-lead escalation. The reference is cited from
+  `/scope`'s Phase 2 chain-orchestration reference file.
+  `[automated-unit]` (R21)
 - [ ] **AC29a** The motivating
   `docs/plans/PLAN-shirabe-scope-skill.md` produced as part of
   /scope's ship uses `<<ISSUE:N>>` placeholder syntax verbatim
