@@ -40,9 +40,10 @@ The flow runs once per child invocation in the chain. For a parent
 with four children in its longest chain, it fires up to four times;
 for three children, up to three. Bounded by chain step count, not
 wallclock time — a long-running child does not retrigger the flow on
-its own.
+its own. The flow fires after chain-proposal confirmation, not
+before, for reasons documented in DESIGN Decision 4.
 
-## Step 1 — Rebase
+## Rebase phase
 
 Execute the equivalent of:
 
@@ -64,10 +65,7 @@ with the resolution noted. Conflicts that cannot be resolved from
 artifact context proceed to Step 2 anyway, carrying the unresolved
 conflict as part of the diff the analysis will classify.
 
-The point: mechanical conflict status is never the escalation
-signal. Conflicts are sub-agent work, not author work.
-
-## Step 2 — Contextual Impact Analysis
+## Impact-analysis phase
 
 Read the upstream commits that landed in Step 1 and cross-reference
 them against:
@@ -101,7 +99,7 @@ purely syntactic check — it requires judgment about whether a
 referenced change is substantive enough to alter what the chain is
 doing.
 
-## Step 3 — Escalate Based on Impact
+## Escalation phase
 
 **None or Informational**: record the rebase in `worktree_rebases:`
 (see Recording) and proceed to child invocation. The team lead is
@@ -128,13 +126,9 @@ holds against the new upstream reality:
     `worktree_divergences:`.
   - **Bail** per the parent's own bail-handling rule.
 
-The author is brought into the loop only at the last branch — and
-only when the team lead has concluded that intent has changed.
-Mechanical conflicts, cosmetic upstream changes, and contract
-changes the team lead can resolve from artifact context never reach
-the author.
-
 ## Recording
+
+Per I-5 (see [`parent-skill-state-schema.md`](parent-skill-state-schema.md)), these fields MUST be absent when no rebases or divergences have occurred — never null, empty list, or placeholder.
 
 Two conditional state-file lists, both extensions over the 5-field
 minimum schema (see [`parent-skill-state-schema.md`](parent-skill-state-schema.md)).
@@ -171,15 +165,6 @@ step can surface upstream-interaction history in the terminal
 artifact, and so future reviewers can audit how the chain handled
 upstream change.
 
-## Integration with Chain-Proposal Prompt
-
-The flow fires **after** chain-proposal confirmation, not before.
-The chain-proposal prompt itself makes no network calls; running
-`git fetch` before the author confirms would pay network latency on
-every Phase 1 termination, including the ones the author rejects or
-revises. The current order pays the cost only when the chain is
-going to run.
-
 ## Binding Notes
 
 The body above is parent-agnostic. Per-parent bindings live here.
@@ -200,8 +185,3 @@ layer substrate where the parent can dispatch sub-agents, the
 analysis can be delegated to a worktree-sync-analyzer sub-agent that
 reports back to the parent. The discipline is identical across
 substrates; only the actor changes.
-
-The "Bail target" column intentionally names the per-parent SKILL.md
-rather than reproducing the bail logic here. Naming a specific
-parent's bail rule (such as `/scope` R8) inline would couple the
-body to one parent's vocabulary.
