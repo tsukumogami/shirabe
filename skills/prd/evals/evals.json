@@ -120,6 +120,23 @@
         "Transcript does NOT describe invoking the brief transition script",
         "Transcript proceeds directly from Phase 0 branch setup to Phase 1 scoping"
       ]
+    },
+    {
+      "id": 14,
+      "name": "phase-4-reject-discards-draft",
+      "prompt": "/prd --auto deprecated-feature-flag --reject \"This feature was superseded by the new feature-flags platform; the PRD draft is no longer needed.\"",
+      "expected_output": "Phase 4 step 4.5 presents a 3-option AskUserQuestion with Approve / Request changes / Reject options. The prompt copy includes the verbatim disclaimer substring 'Rationale will be committed to git history' so the author is advised before typing. Selecting Reject is a terminal verdict: the skill asks for a second confirmation, captures a rationale paragraph, writes the rationale to a tmpfile, runs `git rm docs/prds/PRD-deprecated-feature-flag.md`, removes `wip/prd_deprecated-feature-flag_*.md` and `wip/research/prd_deprecated-feature-flag_phase{2,4}_*.md`, and commits via `git commit -F <tmpfile>` (or stdin via `git commit -F -`) with the subject `docs(prd): discard PRD draft for deprecated-feature-flag`. The rationale is NEVER inlined into `git commit -m \"...\"`. The discard commit on the current branch is the durable observable signal of rejection per AC30c — `/scope`'s Component 7.7 git-log detector reads the same commit subject when invoked in-chain, and an out-of-chain author re-reads the same commit body for the rationale. The skill then exits the workflow without running step 4.7 Approve-path cleanup.",
+      "files": [],
+      "expectations": [
+        "Transcript describes Phase 4 step 4.5 presenting an AskUserQuestion with three options whose labels include the literal substring 'Reject' alongside 'Approve' and 'Request changes'",
+        "Transcript notes the public-history disclaimer text 'Rationale will be committed to git history' appears verbatim in the step 4.5 prompt copy",
+        "Transcript describes prompting the author for a rationale paragraph after the second-confirmation step and before any destructive action runs",
+        "Transcript describes persisting the rationale via `git commit -F <tmpfile>` or `git commit -F -` (stdin) and explicitly NOT via `git commit -m \"<rationale>\"` — the rationale never transits a shell-argument channel",
+        "Transcript describes running `git rm docs/prds/PRD-deprecated-feature-flag.md` to remove the durable PRD artifact during the Reject branch",
+        "Transcript describes removing `wip/prd_deprecated-feature-flag_*.md` and `wip/research/prd_deprecated-feature-flag_phase{2,4}_*.md` working artifacts inline in the Reject branch (not deferred to step 4.7)",
+        "Transcript describes the discard commit landing on the current branch with subject `docs(prd): discard PRD draft for deprecated-feature-flag` so a `git log` search by `/scope`'s Component 7.7 (in-chain) or an out-of-chain author (out-of-chain) finds it — AC30c symmetric observable",
+        "Transcript describes the Reject branch exiting the workflow without running step 4.7 cleanup (which is reserved for the Approve path)"
+      ]
     }
   ]
 }
