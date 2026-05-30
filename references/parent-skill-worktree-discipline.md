@@ -113,6 +113,9 @@ shrinks within a single chain instance.
 
 The list is a Layer-2 extension over the 5-field minimum schema
 (see [`parent-skill-state-schema.md`](parent-skill-state-schema.md)).
+It exists so the parent's finalization step can surface divergence
+history in the terminal artifact, and so future reviewers can audit
+how the chain interacted with upstream change.
 
 ## Integration with Chain-Proposal Prompt
 
