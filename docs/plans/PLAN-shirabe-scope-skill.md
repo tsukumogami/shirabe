@@ -23,7 +23,7 @@ Active
 
 Walking-skeleton was considered and rejected: the design is documentation + configuration (pattern-doc edits, new SKILL.md body, eval scenarios) with internally-coupled but externally-bounded components. A walking-skeleton skeleton issue ("minimal e2e flow with stubs") would invert the real dependency chain — the pattern-doc edits (Components 1-4) MUST exist before any `/scope` body can cite them, and the child-side Phase-N Reject contracts (Component 8) MUST exist before `/scope` Phase 2 can observe their `git log` discard-commit signal. The Phase 6 reviewer validated the horizontal choice.
 
-**Multi-pr execution mode.** SE7 delivers incremental value across multiple shippable units: PR-1 ships the new worktree-discipline reference so `/charter` benefits immediately; PR-2 and PR-3 ship `/prd` and `/design` Phase-N Reject contracts so direct-invocation authors get a Reject verdict before `/scope` lands; PR-4 ships `/scope` as the integrated parent skill. Cross-PR dependencies are explicit: PR-4 cites the discard-commit observability surface that PR-2 and PR-3 ship.
+**Multi-pr execution mode.** this work delivers incremental value across multiple shippable units: PR-1 ships the new worktree-discipline reference so `/charter` benefits immediately; PR-2 and PR-3 ship `/prd` and `/design` Phase-N Reject contracts so direct-invocation authors get a Reject verdict before `/scope` lands; PR-4 ships `/scope` as the integrated parent skill. Cross-PR dependencies are explicit: PR-4 cites the discard-commit observability surface that PR-2 and PR-3 ship.
 
 ## Implementation Issues
 
@@ -158,7 +158,7 @@ The 13 issues aggregate into 4 PRs with the following merge order:
 
 ### Downstream Follow-on (out of scope for this plan)
 
-**PR-5** (vision repo): a separate downstream PR in the `tsukumogami/vision` repo updates the strategic roadmap to mark SE7 as Done. Out of scope for this `/plan` because it lives in a different repository; tracked separately per the team-lead's decomposition plan.
+**PR-5** (vision repo): a separate downstream PR in the `tsukumogami/vision` repo updates the strategic roadmap to mark this work as Done. Out of scope for this `/plan` because it lives in a different repository; tracked separately per the team-lead's decomposition plan.
 
 ### Recommended Starting Issues
 

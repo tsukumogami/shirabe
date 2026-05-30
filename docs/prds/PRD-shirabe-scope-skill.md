@@ -86,8 +86,8 @@ analog:
   rejection sub-shape silently disappears in `/scope` (asymmetry
   inside the pattern contract that has nothing to do with the
   strategic/tactical distinction), or `/prd` and `/design` grow
-  Phase-N Reject contracts as `/scope` prerequisites. SE7 takes the
-  latter path to preserve symmetry.
+  Phase-N Reject contracts as `/scope` prerequisites. This work takes
+  the latter path to preserve symmetry.
 - **A terminal child with two output modes.** `/plan`'s `single-pr`
   mode produces a self-contained PLAN doc; its `multi-pr` mode
   produces a PLAN doc plus a GitHub milestone with issues. The
@@ -857,8 +857,8 @@ team-lead-discipline sense and inherit the loop.
 
 ### Fold-driven Requirements (new in `/scope` v1)
 
-The four fold-driven requirements below close gaps the SE4
-retrospective identified as Track A inside-pattern items. Each
+The four fold-driven requirements below close gaps the
+`/charter` retrospective identified as Track A inside-pattern items. Each
 captures a discipline `/scope` v1 ships by authoring (small per-
 PR cost; load-bearing for the pattern's reviewer-checkability
 contract).
@@ -911,7 +911,7 @@ future tactical parents) inherit the same trigger condition.
 **R22 [/scope-specific].** `/scope` SHALL respect `/plan`'s
 `<<ISSUE:N>>` placeholder convention in two ways (fold of L11):
 1. The motivating `docs/plans/PLAN-shirabe-scope-skill.md`
-   produced as part of SE7's ship MUST use the `<<ISSUE:N>>`
+   produced as part of `/scope`'s ship MUST use the `<<ISSUE:N>>`
    placeholder syntax verbatim with explanatory prose mirroring
    `/plan` SKILL.md's "Placeholder Conventions" section, so the
    PLAN doc dog-foods the convention.
@@ -1312,7 +1312,7 @@ requirement that motivates them and the user story they exercise
   (R21)
 - [ ] **AC29a** The motivating
   `docs/plans/PLAN-shirabe-scope-skill.md` produced as part of
-  SE7's ship uses `<<ISSUE:N>>` placeholder syntax verbatim
+  /scope's ship uses `<<ISSUE:N>>` placeholder syntax verbatim
   with explanatory prose mirroring `/plan` SKILL.md's
   "Placeholder Conventions" section. `[automated-unit]` (R22)
 - [ ] **AC29b** When `/scope` re-enters mid-chain against an
@@ -1348,15 +1348,15 @@ The following are deliberately excluded from `/scope` v1. Each
 links to its successor effort where relevant.
 
 - **The `/work-on` migration into the parent-skill pattern
-  (SE8).** Separate feature; depends on amplifier-layer
+  (future work).** Separate feature; depends on amplifier-layer
   workflow-composition substrate that `/scope` does not require
   for its own ship. `/scope` ratifies the pattern for `/work-on`;
   the migration itself is downstream.
-- **The review-time redirect mechanism (SE9).** Manual fallback
+- **The review-time redirect mechanism (future work).** Manual fallback
   is first-class by design; the automatic-redirect substrate is
   amplifier-layer work and is not a prerequisite for `/scope`.
-- **Pattern-ergonomics tightening (SE12).** Several SE4-
-  retrospective items defer to SE12 explicitly (single-pr
+- **Pattern-ergonomics tightening (future work).** Several the /charter precedent-
+  retrospective items defer to follow-up work explicitly (single-pr
   value-gated heuristic from L1, `ci_outcome` semantics from L6,
   reviewer coverage categories from L10, Track B amplifier-layer
   observations). The cascading folds this PRD enumerates (R20-
@@ -1522,13 +1522,13 @@ existed, and the reasoning.
 
 ### Decision 1: Extend pattern contract surface to preserve full symmetry with `/charter`
 
-**Decided.** SE7's scope includes pattern-doc edits and upstream
+**Decided.** /scope's scope includes pattern-doc edits and upstream
 contract extensions to `/prd` and `/design`. The pattern's gate
 vocabulary grows from three (EITHER-signal, ALWAYS,
 shape-dependent) to four by adding Mandatory-with-auto-skip; the
 re-evaluation exit's rejection sub-shape is preserved in `/scope`
 by adding Phase-N Reject contracts to `/prd` and `/design` as
-SE7 prerequisites; a new top-level reference
+/scope prerequisites; a new top-level reference
 `references/parent-skill-worktree-discipline.md` lands as shared
 infrastructure both `/charter` and `/scope` cite.
 
@@ -1542,13 +1542,13 @@ sub-shape would silently disappear inside the pattern contract
 (asymmetry that has nothing to do with the strategic/tactical
 distinction); the `/prd` gate framing would force a contrived
 signal that doesn't match `/prd`'s actual resume semantics; the
-worktree runbook would create a known re-home in SE12.
+worktree runbook would create a known re-home in follow-up work.
 
 **Reasoning.** Full contract symmetry across both parent skills
 is load-bearing for the parent-skill pattern v1; asymmetries
-left unaddressed in `/scope` v1 would compound across SE8
-(`/work-on`), SE9 (review-time redirect), and SE12 (pattern
-ergonomics). The "stay narrow" velocity gain is one-time; the
+left unaddressed in `/scope` v1 would compound across the `/work-on`
+migration, the review-time redirect, and follow-up pattern
+ergonomics. The "stay narrow" velocity gain is one-time; the
 contract symmetry pays off across every downstream parent.
 
 ### Decision 2: BRIEF is treated as a chain member, not a feeder
@@ -1620,7 +1620,7 @@ addition in a small back-edit PR.
 
 **Alternatives considered.** Place at
 `skills/scope/references/operational-runbook.md`. Ships faster
-but creates known re-home work in SE12. The exploration's
+but creates known re-home work in follow-up work. The exploration's
 learning-fold-opportunities Lead recommended the parent-specific
 location for velocity reasons; the exploration's decisions doc
 overrode this to the top-level location.
@@ -1629,8 +1629,8 @@ overrode this to the top-level location.
 parent skill, not just `/scope`. Top-level placement lets future
 parents (`/work-on` migration, future tactical parents) inherit
 the same trigger condition without re-deriving it. Deferring to
-SE12 leaves a known-good fold sitting outside the pattern's
-contract surface; SE7 is the right time to land it because the
+follow-up work leaves a known-good fold sitting outside the pattern's
+contract surface; now is the right time to land it because the
 tactical chain bites this gap harder than the strategic chain
 (4-child runs span longer than 3-child runs).
 
@@ -1652,7 +1652,7 @@ cover all of them.
 **Reasoning.** The L9 fold is the only mechanical way for
 reviewers to verify that pattern-doc edits cover all pattern-
 level requirements. Without it, pattern-doc edits become opaque
-to grep-based review. The SE4 retrospective framed L9 as
+to grep-based review. The /charter retrospective framed L9 as
 "untapped learning"; this PRD reclassifies it as "established
 convention `/scope` MUST follow" because the pattern itself
 requires it.
@@ -1774,7 +1774,7 @@ artifact's framing.
   doc for `/scope` (renamed from `DESIGN-shirabe-explore-split.md`
   per Decision 1 in the upstream BRIEF and roadmap update). The
   design should lift every requirement tagged `[pattern-level]`
-  in this PRD into its pattern-level scope so `/work-on` (SE8)
+  in this PRD into its pattern-level scope so `/work-on` (future work)
   and future parents inherit the mechanism. The PRD's
   requirement-tagging is the baton; verifying the design respects
   it is the design doc's own acceptance check, not this PRD's.
@@ -1812,7 +1812,7 @@ artifact's framing.
   gains a "Tactical Chain Entry: /scope" section paralleling
   the existing "Strategic Chain Entry: /charter" section.
 
-- **Roadmap update** — the SE7 roadmap entry gets updated to
+- **Roadmap update** — the relevant upstream roadmap entry gets updated to
   reflect that the discover/converge engine consumption is via
   cross-skill pointing into
   `skills/explore/references/phases/{phase-2-discover,phase-3-converge}.md`

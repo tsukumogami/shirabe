@@ -95,7 +95,7 @@ pattern contract:
   `/scope` (an asymmetry inside the pattern contract that has
   nothing to do with the strategic/tactical distinction), or
   `/prd` and `/design` grow Phase-N Reject contracts as `/scope`
-  prerequisites. SE7 takes the latter path; this design enumerates
+  prerequisites. this work takes the latter path; this design enumerates
   the contract extensions to both children.
 - **A terminal child with two output modes.** `/plan`'s `single-
   pr` mode produces a self-contained PLAN doc; `multi-pr` mode
@@ -187,7 +187,7 @@ least.
    (`/charter`). `/scope` shipping is what ratifies the pattern
    for the next two parents (`/work-on` migration, future
    tactical parents). Any asymmetry left unaddressed in `/scope`
-   compounds across SE8/SE9/SE12. Per PRD Decision 1, the design
+   compounds across the `/work-on` migration/the review-time redirect/follow-up work. Per PRD Decision 1, the design
    chooses full symmetry over narrow shipping: the rejection
    sub-shape, the Mandatory-with-auto-skip gate, the worktree-
    discipline reference all land at the pattern level.
@@ -548,7 +548,7 @@ sentinel is absent (standalone invocation), the child's normal
 resume ladder fires unmodified.
 
 The L13 rule in `references/parent-skill-pattern.md` is amended
-in SE7. The new wording (replacing the existing "Parents do
+in this work. The new wording (replacing the existing "Parents do
 not extend children's input surfaces" prose):
 
 > Parents do not extend children's input surfaces with
@@ -703,7 +703,7 @@ bearing); `/work-on` (future; binding deferred to amplifier-
 layer parent).
 
 This is recommended because the reference's parent-agnostic
-core lets future parents (the SE8 `/work-on` migration, any
+core lets future parents (the future `/work-on` migration, any
 amplifier-layer parents) inherit the discipline without re-
 deriving it — the load-bearing concern Decision 4 in the PRD
 calls out. The Binding Notes section keeps `/charter`'s back-
@@ -716,7 +716,7 @@ citation in `/charter`'s phase-2 doc).
 runbook.md`.** Rejected per PRD Decision 4 — the worktree
 discipline isn't `/scope`-specific (`/charter` also benefits),
 so parent-specific placement creates known re-home work in
-SE12. The exploration's learning-fold-opportunities Lead
+follow-up work. The exploration's learning-fold-opportunities Lead
 recommended parent-specific for velocity; the exploration's
 decisions doc overrode this for the same reason captured
 above.
@@ -1477,7 +1477,7 @@ Anyway" Divergence, Integration with Chain-Proposal Prompt.
 A fifth Binding Notes section names per-parent bindings:
 `/scope` v1 (load-bearing), `/charter` (back-edit; binding
 notes added in `/charter`'s SKILL.md reference table),
-`/work-on` (future; binding deferred to the SE8 PR).
+`/work-on` (future; binding deferred to the the `/work-on` migration PR).
 
 The reference's body is parent-agnostic prose. It does NOT
 name parent-specific behaviors inline; per-parent specifics
@@ -2100,7 +2100,7 @@ substring "Rationale will be committed to git history".
   `/charter` was doing informally; the pattern doc stops
   carrying an undocumented L13 exception.
 - **Worktree-discipline becomes shared infrastructure.**
-  `/work-on` (SE8) inherits the discipline without
+  `/work-on` (future work) inherits the discipline without
   re-deriving it.
 - **Eval surface is grep-checkable.** R7.5's chain-proposal
   output, R8's exit-path enums, R15's Decision Record

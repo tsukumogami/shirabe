@@ -427,9 +427,10 @@ The scope holds the following inside:
   `DESIGN-shirabe-explore-split.md` on the roadmap, renamed to
   `DESIGN-shirabe-scope-skill.md` for parallelism with the
   per-parent designs (`DESIGN-shirabe-charter-skill.md`,
-  `DESIGN-shirabe-progression-authoring.md`). The roadmap entry
-  for SE7 gets updated to reflect that the discover/converge
-  engine consumption is via cross-skill pointing into
+  `DESIGN-shirabe-progression-authoring.md`). The relevant
+  upstream roadmap entry gets updated to reflect that the
+  discover/converge engine consumption is via cross-skill
+  pointing into
   `skills/explore/references/phases/{phase-2-discover,phase-3-converge}.md`
   rather than engine extraction.
 - **Workspace and shirabe CLAUDE.md updates** documenting
@@ -445,16 +446,16 @@ The scope holds the following inside:
 
 The scope explicitly excludes:
 
-- **The `/work-on` migration into the parent-skill pattern (SE8).**
+- **The `/work-on` migration into the parent-skill pattern.**
   Separate feature; depends on amplifier-layer workflow-composition
   substrate that `/scope` does not require for its own ship.
   `/scope` ratifies the pattern for `/work-on`; the migration
   itself is downstream.
-- **The review-time redirect mechanism (SE9).** Manual fallback is
+- **The review-time redirect mechanism.** Manual fallback is
   first-class by design; the automatic-redirect substrate is
   amplifier-layer work and is not a prerequisite for `/scope`.
-- **Pattern-ergonomics tightening (SE12).** Several SE4-
-  retrospective items defer to SE12 explicitly (single-pr
+- **Pattern-ergonomics tightening.** Several `/charter`-
+  retrospective items defer to follow-up work explicitly (single-pr
   value-gated heuristic from L1, `ci_outcome` semantics from L6,
   reviewer coverage categories from L10, Track B amplifier-layer
   observations). The cascading decisions this BRIEF cites are the
