@@ -710,11 +710,17 @@ The reference has six sections:
    intent** / **bail per R8**.
 5. **Recording.** Two state-file lists, both conditional per
    I-5: `worktree_rebases:` (informational; entries record
-   `{phase, upstream_commits, impact_classification, rebased_at}`
-   for None / Informational events) and `worktree_divergences:`
-   (decision audit; appended only when an Intent-changing event
-   escalated to the author and the author chose "proceed against
-   original intent"; entries record
+   `{phase, upstream_commits, impact, rebased_at}`, appended
+   after every rebase that brought new upstream commits in,
+   regardless of classification, except when the chain bailed;
+   allowed `impact` values are `none | informational |
+   intent-changing-resolved-in-place`, where the third value is
+   recorded when the team lead resolves an intent-changing
+   impact in-place per Step 3 without escalating to the author)
+   and `worktree_divergences:` (decision audit; appended only
+   when an Intent-changing event escalated to the author and
+   the author chose "proceed against original intent"; entries
+   record
    `{phase, affected_contracts, upstream_commits, accepted_at}`).
 6. **Integration with Chain-Proposal Prompt.** The attempt is
    AFTER chain-proposal confirmation, not before. The
@@ -725,7 +731,12 @@ The reference has six sections:
 A seventh "Binding Notes" section names per-parent bindings:
 `/scope` v1 (load-bearing — 4 children, longest chain in shirabe);
 `/charter` (back-edit; 3 children, also load-bearing); `/work-on`
-(future; binding deferred to amplifier-layer parent).
+(future; binding deferred to amplifier-layer parent). The Binding
+Notes table also carries an "Analyzer actor" column capturing the
+`team_primitive` substrate-substitution surface — in v1's
+single-team-per-leader-no-nested substrate (solo mode) the parent
+does its own impact analysis; in an amplifier-layer substrate the
+analysis can be delegated to a worktree-sync-analyzer sub-agent.
 
 The escalation contract (intent-change escalates; mechanical
 status does not) is the key design choice. It means every actor
