@@ -111,11 +111,8 @@ appended to as additional divergence events occur — one entry per
 "Proceed anyway" selection, in chronological order. The list never
 shrinks within a single chain instance.
 
-The list is a Layer-2 extension over the 5-field minimum schema; it
-exists for two consumers: the parent's finalization step (which can
-mention divergence acceptance in the exit-artifact's body or
-companion Decision Record), and a future reviewer auditing how a
-chain interacted with upstream change.
+The list is a Layer-2 extension over the 5-field minimum schema
+(see [`parent-skill-state-schema.md`](parent-skill-state-schema.md)).
 
 ## Integration with Chain-Proposal Prompt
 
@@ -130,20 +127,9 @@ boundary:
    the parent run `git fetch && git status --branch --short` against
    the tracking branch.
 
-The order is load-bearing. Running `git fetch` before the author has
-decided whether to proceed adds network latency to a prompt that is
-otherwise short and well-bounded (the chain-proposal prompt itself
-makes no network calls). Reversing the order would pay that latency
-on every Phase 1 termination, even the ones the author rejects or
-revises. The current order pays the cost only when the chain is going
-to run.
-
-Future parents follow the same convention: chain-proposal first,
-staleness check second. The integration is symmetric across the
-chain — the same ordering applies to each subsequent child invocation
-within Phase 2 (the chain-proposal confirmation in step 1 establishes
-the chain once; the per-child staleness check rides on each child
-boundary inside that confirmed chain).
+The order is load-bearing: `git fetch` adds network latency the
+chain-proposal prompt itself does not pay. The current order pays
+the cost only when the chain is going to run.
 
 ## Binding Notes
 
