@@ -32,7 +32,7 @@ Walking-skeleton was considered and rejected: the design is documentation + conf
 | Issue | Dependencies | Complexity |
 |-------|--------------|------------|
 | [#98: docs(refs): add parent-skill-worktree-discipline reference](https://github.com/tsukumogami/shirabe/issues/98) | None | simple |
-| _New top-level pattern reference at `references/parent-skill-worktree-discipline.md` with five named sections (Trigger Condition / Three-Option Prompt / Recording "Proceed Anyway" Divergence / Integration with Chain-Proposal Prompt / Binding Notes). Parent-agnostic prose — per-parent specifics live in Binding Notes so future parents inherit the discipline without re-deriving it._ | | |
+| _New top-level pattern reference at `references/parent-skill-worktree-discipline.md` codifying how a parent skill handles upstream change across a multi-child chain. Six body sections (Trigger Condition / Rebase phase / Impact-analysis phase / Escalation phase / Recording / Binding Notes) encode the contract: escalation is driven by contextual impact (does the change invalidate intent?), not mechanical conflict status. Sub-agents handle rebase + impact classification (None / Informational / Intent-changing); team lead arbitrates intent-changing impacts; the author is bothered only when intent has genuinely shifted. Parent-agnostic prose — per-parent specifics live in Binding Notes so future parents inherit the discipline without re-deriving it._ | | |
 | [#99: docs(charter): cite worktree-discipline reference in /charter](https://github.com/tsukumogami/shirabe/issues/99) | [#98](https://github.com/tsukumogami/shirabe/issues/98) | simple |
 | _Single-row addition to `/charter`'s Reference Files table citing the new top-level reference. Scoped tightly to the back-edit per the design's Phase D; does NOT include the `--parent-orchestrated` → `parent_orchestration:` sentinel migration (separate concern, deferred to a follow-on PR per-child)._ | | |
 | [#100: feat(prd): ship Phase 4 step 4.5 3-option Reject contract](https://github.com/tsukumogami/shirabe/issues/100) | None | testable |
@@ -102,8 +102,9 @@ graph TD
     classDef tracksDesign fill:#FFE0B2,stroke:#F57C00,color:#000
     classDef tracksPlan fill:#FFE0B2,stroke:#F57C00,color:#000
 
-    class I98,I100,I102,I104,I106 ready
-    class I99,I101,I103,I105,I107,I108,I109,I110 blocked
+    class I98,I99 done
+    class I100,I102,I104,I106 ready
+    class I101,I103,I105,I107,I108,I109,I110 blocked
 ```
 
 **Legend**: Green = done, Blue = ready, Yellow = blocked, Purple = needs-design, Orange = tracks-design/tracks-plan
