@@ -52,23 +52,24 @@ git fetch
 git rebase origin/<tracking-branch>
 ```
 
-**Clean rebase**: proceed directly to Step 2 with the list of
-upstream commits that landed.
+**Clean rebase**: proceed directly to the impact-analysis phase
+with the list of upstream commits that landed.
 
 **Conflicted rebase**: the parent's conflict-resolution sub-agent (or
 the parent itself in solo mode) attempts to resolve the conflict
 from artifact context. BRIEF, PRD, and DESIGN citations frequently
 make the correct resolution obvious — if the chain's artifact says
 "the input format is X" and upstream changes the format to Y, the
-resolution is to align with Y. Resolved conflicts proceed to Step 2
-with the resolution noted. Conflicts that cannot be resolved from
-artifact context proceed to Step 2 anyway, carrying the unresolved
-conflict as part of the diff the analysis will classify.
+resolution is to align with Y. Resolved conflicts proceed to the
+impact-analysis phase with the resolution noted. Conflicts that
+cannot be resolved from artifact context proceed to the
+impact-analysis phase anyway, carrying the unresolved conflict as
+part of the diff the analysis will classify.
 
 ## Impact-analysis phase
 
-Read the upstream commits that landed in Step 1 and cross-reference
-them against:
+Read the upstream commits that landed in the rebase phase and
+cross-reference them against:
 
 - The chain's authored artifacts at this point (BRIEF, PRD, DESIGN,
   PLAN as they exist).
