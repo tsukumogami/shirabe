@@ -587,6 +587,15 @@ frontmatter parser, the format registry, and the annotation emitter
 live in `shirabe-validate`. This boundary is the same one SR4 will
 publish; SR1 just doesn't push the library crate to crates.io.
 
+**Error types.** `shirabe-validate` exports two error types:
+`ValidationError` (the rule-failure struct with `file`, `line`,
+`code`, `message` fields — directly mirrors the Go type) and
+`ParseError` (the parser's error type, wrapping IO and YAML parse
+failures). Both derive `Debug + Clone + PartialEq`. The crate
+does not use `thiserror` or `anyhow` — the error surface is small
+and explicit enough that a hand-written `impl std::error::Error`
+on a plain enum is the simpler shape.
+
 ### Data flow
 
 The Rust runtime mirrors the Go runtime so each control-flow step in
@@ -865,9 +874,13 @@ Delete `cmd/`, `internal/`, `go.mod`, `go.sum` in the same commit.
 
 ### Sequencing inside the PR
 
-Phases 1–4 produce a working Rust binary that's hidden behind a feature
-flag (`cargo --features rust-bin` or similar) running alongside the Go
-binary in CI; Phase 5 deletes the Go side and flips the
+Phases 1–4 add a Rust crate that builds in CI alongside the Go
+binary; both binaries run on every PR, with the Rust side asserted
+green by `cargo test --workspace` and the Go side asserted green
+by the existing `go test ./...`. There is no cargo feature flag;
+the two languages just coexist as distinct build targets during
+the rewrite PR's intermediate commits. Phase 5 deletes the Go
+side and flips the
 `.github/workflows/validate-docs.yml` build step. This sequencing
 keeps every phase's CI green and isolates the Go-removal to one commit
 for easy review.
@@ -938,6 +951,14 @@ A future security advisory against saphyr would require a patch
 bump on shirabe's side; downstream adopters who pin a specific
 shirabe tag get the dependency pin transitively. The supply-chain
 trust horizon is bounded by shirabe's release cadence.
+
+**Build-script hygiene.** Cargo dependencies can ship `build.rs`
+files that execute arbitrary code during `cargo build`. saphyr
+is pure Rust with no documented build script; clap's build path
+is well-vetted. The Phase 1 implementation step runs `cargo deny
+check bans` (or equivalent) once over the saphyr + clap
+dependency tree to surface any unexpected build-script
+dependencies before they reach CI.
 
 ### Data exposure via FC03's `## Status` body echo
 
