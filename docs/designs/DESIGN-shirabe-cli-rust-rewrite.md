@@ -29,10 +29,11 @@ rationale: |
   the field→line map shirabe needs falls out of the parse tree directly
   rather than requiring a hand-rolled second pass. clap with derive macros
   maps the cobra subcommand tree mechanically with no behavior change. The
-  golden-output fixture is the operational shape of strategy Block 4
-  (output-contract-preservation discipline): rather than aspirationally
-  preserving the GHA annotation byte format, every PR runs both binaries
-  against the workspace's real artifact corpus and diffs the output.
+  two-layer parity mechanism operationalizes the output-contract-preservation
+  discipline: every PR in this repo runs both binaries against the shirabe
+  corpus plus synthetic edge cases (Layer 1), and downstream callers consume
+  a reusable parity-check workflow to enforce the same byte equality against
+  their own corpora (Layer 2).
 ---
 
 # DESIGN: shirabe CLI Rust rewrite
