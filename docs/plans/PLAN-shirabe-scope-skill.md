@@ -121,17 +121,17 @@ Estimated sequential wall time: ~5-7 hours. With parallel execution of independe
 
 ### Parallelization Tiers
 
-**Tier 0 — Immediate start (5 issues, fully parallel)**
+**Tier 0 — Immediate start (4 issues, fully parallel; #98 done in PR-1)**
 
-- #98 — new `references/parent-skill-worktree-discipline.md`
+- ~~#98~~ done — new `references/parent-skill-worktree-discipline.md`
 - #100 — `/prd` Phase 4 Reject contract
 - #102 — `/design` Phase 6 Reject contract
 - #104 — Gate Vocabulary + L13 amendment in `parent-skill-pattern.md`
 - #106 — refuse-and-redirect Slot 5 paragraph in `parent-skill-resume-ladder-template.md`
 
-**Tier 1 — After Tier 0 (4 issues, parallel within tier)**
+**Tier 1 — After Tier 0 (3 issues remaining; #99 done in PR-1)**
 
-- #99 after #98 — `/charter` cite back-edit
+- ~~#99 after #98~~ done — `/charter` cite back-edit
 - #101 after #100 — `/prd` Reject eval scenario
 - #103 after #102 — `/design` Reject eval scenario
 - #105 after #104 — `parent-skill-state-schema.md` extension
@@ -163,9 +163,8 @@ The 13 issues aggregate into 4 PRs with the following merge order:
 
 ### Recommended Starting Issues
 
-Begin with the five Tier 0 issues (marked `ready` in the dependency graph) that have no dependencies and unblock the most downstream work:
+PR-1 is complete (#98 + #99 done). Continue with the four remaining Tier 0 issues (marked `ready` in the dependency graph):
 
-- [#98](https://github.com/tsukumogami/shirabe/issues/98): unblocks #99 and the entire `/scope` body cluster
 - [#104](https://github.com/tsukumogami/shirabe/issues/104): unblocks #105 and the entire `/scope` body cluster
 - [#100](https://github.com/tsukumogami/shirabe/issues/100) and [#102](https://github.com/tsukumogami/shirabe/issues/102): unblock #108 (phase references' git-log observability) and their respective eval scenarios
-- [#106](https://github.com/tsukumogami/shirabe/issues/106): unblocks the `/scope` SKILL.md body via citation
+- [#106](https://github.com/tsukumogami/shirabe/issues/106): refuse-and-redirect Slot 5 paragraph (smallest remaining; quick land)
