@@ -1,0 +1,68 @@
+{
+  "topic": "shirabe-cli-rust-rewrite",
+  "decisions": [
+    {
+      "id": 1,
+      "question": "Which Rust YAML library provides per-key line/column markers on the parsed mapping so FC02/FC03/R6 annotations can point at the offending frontmatter field?",
+      "status": "pending",
+      "complexity": "critical",
+      "candidates": ["saphyr", "serde_yaml + hand-rolled second-pass scanner", "yaml-rust2", "unsafe-libyaml"],
+      "preliminary_pick": "saphyr",
+      "status": "evaluated; pending pragmatic-reviewer YAGNI check",
+      "evaluation": "saphyr-rs/saphyr v0.0.6 (Jun 2025) is active; project's own README positions saphyr as the successor to yaml-rust2 (yaml-rust2 in basic-maintenance mode). MarkedYamlOwned + Span on every node provides per-key line numbers natively; no hand-rolled scan. Backstop documented: saphyr-parser SpannedEventReceiver if MarkedYaml API differs from sketch at impl time. Sources: github.com/saphyr-rs/saphyr, docs.rs/saphyr, docs.rs/saphyr-parser, github.com/Ethiraric/yaml-rust2 README.",
+      "notes": "Strategy names this as 80% of the rewrite's technical risk. Treated as critical because parser choice is irreversible without rewriting parse_yaml_fields and because subtle line-number bugs would only surface on real-corpus parity testing."
+    },
+    {
+      "id": 2,
+      "question": "How does the cobra subcommand tree translate to clap (derive vs. builder, version-template handling, future-subcommand compatibility with SR2/SR3/SR5)?",
+      "status": "pending",
+      "complexity": "standard",
+      "candidates": ["clap v4 derive", "clap v4 builder", "hand-rolled parser"],
+      "preliminary_pick": "clap v4 derive",
+      "status": "evaluated; pick locked",
+      "evaluation": "Mechanical cobra→clap mapping. Derive macros are the Rust-conventional shape for nested subcommand CLIs of this size. clap v4 is stable, widely adopted, and supports custom version templates matching the existing `shirabe {{.Version}}\\n` format via builder attributes. Builder API rejected as more imperative without benefit; hand-rolled parser rejected because shirabe already takes one external dep for YAML (saphyr).",
+      "notes": "Strategy explicitly classifies this as mechanical. Standard tier; the question exists to lock the idiom so SR2/SR3/SR5 inherit it."
+    },
+    {
+      "id": 3,
+      "question": "What test mechanism enforces byte-for-byte output preservation against the Go binary's behavior on every committed artifact in the workspace?",
+      "status": "pending",
+      "complexity": "critical",
+      "candidates": ["golden-output fixture vs captured Go binary", "property-based testing against synthesized artifacts", "eval-suite-only parity", "insta-style snapshot testing"],
+      "preliminary_pick": "golden-output fixture (corpus/ + expected/ + parity_test.rs)",
+      "status": "evaluated; pick locked",
+      "evaluation": "Roadmap explicitly names the corpus scope as 'every existing committed artifact in workspace repos that consume validate-docs.yml' — that's tsukumogami/shirabe, vision, koto, tsuku. Fixture lives in the Rust repo at tests/fixtures/golden/ with corpus/, expected/, capture_go_baseline.sh. Property-based, eval-only, and insta-snapshot alternatives rejected per Considered Options in design doc. The captured Go baseline pins to v0.6.1 (most recent tagged release) for reproducibility.",
+      "notes": "Critical because this is the operational shape of strategy Block 4 (output-contract-preservation discipline). The scope of 'real artifacts' and the choice of where the test lives (Rust repo vs. each adopter's CI) are load-bearing."
+    },
+    {
+      "id": 4,
+      "question": "Single binary crate vs. Cargo workspace anticipating SR4's library crate boundary?",
+      "status": "pending",
+      "complexity": "standard",
+      "candidates": ["single binary crate", "single binary crate with pub mod validate", "Cargo workspace with shirabe-validate + shirabe", "Cargo workspace with three crates"],
+      "preliminary_pick": "Cargo workspace with two crates",
+      "status": "evaluated; pending pragmatic-reviewer YAGNI check",
+      "evaluation": "Workspace with crates/shirabe-validate (library) + crates/shirabe (binary). Library crate is internal-shaped (public for distribution but unstable API across versions per strategy Decision 1) until SR4 commits to a downstream consumer. Three-crate layout rejected as speculative. Single-binary-now-restructure-during-SR4 rejected because SR4 then negotiates import-path churn at the same time as library API contract — workspace from day one separates those questions cheaply.",
+      "notes": "Standard tier; the trade-off is one-time complexity now vs. SR4-time import-path churn later. Strategy and roadmap both recommend workspace from day one."
+    },
+    {
+      "id": 5,
+      "question": "Does the Block 6 shirabe metrics subcommand ship inside SR1's PR or as a follow-on?",
+      "status": "pending",
+      "complexity": "standard",
+      "candidates": ["inside SR1 PR", "follow-on PR (SR5-tracked)"],
+      "preliminary_pick": "follow-on PR",
+      "status": "evaluated; pick locked",
+      "evaluation": "Confirms roadmap default. SR1's PR has the load-bearing golden-output preservation fixture as its review focus; metrics subcommand has no validation contract to preserve and would split that attention. SR5 (the roadmap feature for metrics) already exists as a separate planning issue.",
+      "notes": "Strategy and roadmap both default to follow-on. The design confirms the default; the question is whether SR1's review attention should split."
+    }
+  ],
+  "cross_validation": "passed",
+  "cross_validation_findings": [
+    "A3.1 corrected: validate-docs.yml is consumed by tsukumogami/shirabe (self) and tsukumogami/vision (private), not four repos. Verified by grep against workspace .github/workflows/. Design doc and Decision 3 description updated to reflect the actual two-repo scope; strategy Block 4's framing 'every committed artifact in workspace repos that consume validate-docs.yml' matches the corrected scope exactly.",
+    "A1.1 (YAML 1.1 compat) ↔ saphyr YAML 1.2 — verified compatible for shirabe's scalar key-value usage (1.2 is a superset of 1.1 for this subset). Noted but no design change required.",
+    "All other cross-decision assumptions verified compatible. No conflicts requiring restart."
+  ],
+  "round": 0,
+  "scaling_verdict": "5 decisions (within 1-5 band); proceed normally"
+}
