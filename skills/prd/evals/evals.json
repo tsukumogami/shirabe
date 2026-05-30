@@ -83,6 +83,43 @@
         "Transcript routes the agent to cross-repo-references.md for the rule and recovery options",
         "Transcript either omits the upstream field or asks the user for a durable canonical path before proceeding"
       ]
+    },
+    {
+      "id": 11,
+      "name": "brief-input-transitions-draft-to-accepted",
+      "prompt": "/prd --auto docs/briefs/BRIEF-search-indexing.md",
+      "expected_output": "Detects Input Mode 2 (BRIEF path). Phase 0 setup transitions the brief from Draft to Accepted by invoking ${CLAUDE_PLUGIN_ROOT}/skills/brief/scripts/transition-status.sh on the brief path with target Accepted. Both frontmatter status: and the body ## Status line are updated atomically so the FC03 cross-check stays consistent. The brief path is also stored for use as the PRD's upstream in Phase 3.",
+      "files": [],
+      "expectations": [
+        "Transcript detects the input as a BRIEF path (Input Mode 2)",
+        "Transcript describes running the brief transition-status.sh script with target Accepted in Phase 0",
+        "Transcript notes that both frontmatter and body status fields are updated atomically",
+        "Transcript describes propagating the brief path forward as the PRD's upstream"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "brief-input-already-accepted-no-op",
+      "prompt": "/prd --auto docs/briefs/BRIEF-already-accepted.md",
+      "expected_output": "Detects Input Mode 2 (BRIEF path). Phase 0 setup invokes transition-status.sh with target Accepted; the script detects the brief is already at Accepted and exits successfully without modifying the file. The /prd workflow proceeds to Phase 1 without error. The transition is also a no-op when the brief is at Done (terminal status), where the script refuses the transition and surfaces the error rather than corrupting the brief.",
+      "files": [],
+      "expectations": [
+        "Transcript notes that the transition is idempotent when the brief is already Accepted",
+        "Transcript describes not modifying the brief file when no transition is needed",
+        "Transcript proceeds past Phase 0 to Phase 1 without erroring on the no-op"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "topic-input-skips-brief-transition",
+      "prompt": "/prd --auto checkout-redesign",
+      "expected_output": "Detects Input Mode 3 (anything-else / topic). Phase 0 setup does NOT invoke the brief transition-status.sh script because there is no BRIEF path to transition. The workflow proceeds straight from branch setup into Phase 1 scoping. The brief transition is only performed when the input is a BRIEF path.",
+      "files": [],
+      "expectations": [
+        "Transcript detects the input as a topic (Input Mode 3), not a BRIEF path",
+        "Transcript does NOT describe invoking the brief transition script",
+        "Transcript proceeds directly from Phase 0 branch setup to Phase 1 scoping"
+      ]
     }
   ]
 }

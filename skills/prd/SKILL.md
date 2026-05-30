@@ -56,7 +56,13 @@ Use an explore workflow when you don't know what artifact type you need yet.
 
 From `$ARGUMENTS`:
 1. **Empty** -- ask the user what feature or capability they want to specify
-2. **Anything else** -- use as the starting topic for Phase 1 scoping
+2. **Path to BRIEF document** (matches `docs/briefs/BRIEF-*.md`) -- brief
+   input mode. The brief is treated as the upstream framing and its path is
+   stored for Phase 0 (setup) and Phase 3 (draft). When the brief's status
+   is `Draft`, Phase 0 transitions it to `Accepted` so the chain handoff
+   matches /design (which bumps PRD `Accepted -> In Progress`) and /plan
+   (which bumps DESIGN `Accepted -> Planned`). See "Execution" below.
+3. **Anything else** -- use as the starting topic for Phase 1 scoping
 
 ### Context Resolution
 
@@ -70,6 +76,8 @@ follow `references/decision-protocol.md` at all decision points. Create
 path is stored and written to frontmatter during Phase 3 (draft). Typically
 points to a Roadmap document when the PRD is part of a multi-feature
 initiative. When not provided, the upstream field is omitted from frontmatter.
+When the positional argument is itself a BRIEF path (Input Mode 2), that
+path is used as the upstream and `--upstream` is not required.
 
 Detect visibility (Private/Public) from CLAUDE.md or repo path. Infer from
 `private/` or `public/` in path if not explicit. Default to Private if unknown -- restricting is easier to undo than oversharing.
@@ -88,7 +96,7 @@ Phase 0: SETUP --> Phase 1: SCOPE --> Phase 2: DISCOVER --> Phase 3: DRAFT --> P
 
 | Phase | Purpose | Artifact |
 |-------|---------|----------|
-| 0. Setup | Create feature branch | On `docs/<topic>` branch |
+| 0. Setup | Create feature branch; in brief input mode, transition upstream brief Draft -> Accepted | On `docs/<topic>` branch; upstream brief at Accepted |
 | 1. Scope | Conversational scoping with coverage tracking | Problem statement + research leads |
 | 2. Discover | Parallel specialist agents investigate leads | Research findings in wip/ |
 | 3. Draft | Produce PRD draft, surface open questions | Complete PRD draft |
@@ -116,10 +124,29 @@ On main or unrelated branch                        -> Start at Phase 0
 
 Execute phases sequentially by reading the corresponding phase file:
 
-0. **Setup**: Ensure work happens on a feature branch
+0. **Setup**: Ensure work happens on a feature branch and, in brief input
+   mode, transition the upstream brief.
    - If already on a branch that matches the topic, skip branch creation
    - If on `main` or an unrelated branch, create `docs/<topic>` (kebab-case) -- keeps drafts off main so abandoned PRDs don't need cleanup
    - If unsure whether the current branch is related, ask the user
+   - **Upstream brief transition (brief input mode only):** if the input
+     was a BRIEF path (Input Mode 2) and the brief's status is `Draft`,
+     transition it `Draft -> Accepted` so the chain handoff is symmetric
+     with /design (PRD `Accepted -> In Progress`) and /plan (DESIGN
+     `Accepted -> Planned`). Skip when the brief is already `Accepted` or
+     `Done`, and skip entirely when /prd was invoked without a brief input
+     (empty or topic). Update both the brief frontmatter `status:` and the
+     body `## Status` line atomically so the FC03 cross-check stays
+     consistent. Use the existing brief transition script:
+
+     ```bash
+     ${CLAUDE_PLUGIN_ROOT}/skills/brief/scripts/transition-status.sh <brief-path> Accepted
+     ```
+
+     The script is a no-op when the brief is already `Accepted`, exits with
+     a clear error if asked to transition from `Done`, and updates both
+     frontmatter and body in one operation. Commit:
+     `docs(brief): mark <brief-name> accepted`
 
 1. **Scope**: Conversational scoping with coverage tracking
    - Instructions: `references/phases/phase-1-scope.md`
