@@ -1,6 +1,5 @@
 ---
 status: Proposed
-upstream: tsukumogami/vision:docs/roadmaps/ROADMAP-shirabe-rust-consolidation.md
 problem: |
   shirabe's deterministic surface (`shirabe validate` CLI, the line-number-aware
   YAML frontmatter parser, the seven validation rules, the GHA annotation
@@ -17,10 +16,11 @@ decision: |
   one (a `shirabe-validate` library crate carrying the validate logic and a
   thin `shirabe` binary crate carrying the clap CLI), using saphyr for
   line-number-aware YAML parsing, clap for the cobra-equivalent CLI surface,
-  and a golden-output test fixture that runs the captured Go binary and the
-  new Rust binary against every committed VISION/ROADMAP/STRATEGY/PRD/DESIGN/PLAN
-  artifact in the four workspace repos that consume validate-docs.yml and
-  asserts byte-for-byte equality on stdout/stderr/exit-code.
+  and a two-layer parity test mechanism — a golden-output fixture in this
+  repo that runs both binaries against shirabe's own committed artifacts
+  plus a synthetic edge-case corpus, plus a reusable `parity-check.yml`
+  workflow that downstream callers can include from their own CI to run
+  the same parity assertion against their own artifact corpora.
 rationale: |
   The workspace-from-day-one crate layout costs almost nothing now (one
   Cargo.toml split) and prevents an SR4-driven repository restructuring of
@@ -40,27 +40,6 @@ rationale: |
 ## Status
 
 Proposed
-
-## Upstream Design Reference
-
-This design implements **SR1** of
-[ROADMAP-shirabe-rust-consolidation](https://github.com/tsukumogami/vision/blob/main/docs/roadmaps/ROADMAP-shirabe-rust-consolidation.md).
-The parent strategy is
-[STRATEGY-shirabe-rust-consolidation](https://github.com/tsukumogami/vision/blob/main/docs/strategies/STRATEGY-shirabe-rust-consolidation.md)
-(Building Block 1). The planning issue is
-[tsukumogami/vision#506](https://github.com/tsukumogami/vision/issues/506).
-
-The upstream artifacts already resolved:
-
-- **Decision to rewrite in Rust** — locked by the strategy's Defensibility Thesis.
-  This design picks *how*, not *whether*.
-- **Block 4 acceptance discipline** — folded into this design's acceptance
-  criteria per the roadmap's framing of SR1.
-- **Block 6 metrics subcommand timing** — defaults to a follow-on PR; this
-  design confirms.
-
-This design does not duplicate strategic justification; it locks the four
-technical decisions the strategy named as substantive.
 
 ## Context and Problem Statement
 
@@ -257,43 +236,73 @@ preservation against the Go binary's behavior on every committed artifact
 in the workspace?
 
 **Key assumptions.**
-- The workspace repos that consume `validate-docs.yml` today are
-  `tsukumogami/shirabe` itself (self-validating via
-  `validate-shirabe-docs.yml`) and `tsukumogami/vision` (private,
-  validated via its own `.github/workflows/validate-docs.yml`).
-  Verified by `grep -l validate-docs.yml */.github/workflows/*` across
-  the workspace; `koto`, `tsuku`, `niwa`, and `tools` do not pin the
-  workflow today. The fixture's coverage of "real artifacts" is
-  scoped to the documents under `docs/` in these two repos with a
-  recognizable shirabe format prefix (DESIGN-, PRD-, VISION-,
-  ROADMAP-, PLAN-, STRATEGY-). The strategy's Block 4 framing
-  ("every committed artifact in workspace repos consuming
-  `validate-docs.yml`") binds the scope to these two repos, not the
-  full workspace; the corpus tracks the strategy's framing exactly.
+- The shirabe repo's preservation contract is bounded by what the
+  shirabe repo itself can verify in its own public CI. Today the
+  reusable `validate-docs.yml` workflow has two known internal
+  callers — shirabe itself (via `validate-shirabe-docs.yml`) and one
+  organization-internal companion repo whose preservation tests run
+  in that repo's own CI, not in shirabe's. Other workspace repos
+  (`koto`, `tsuku`, `niwa`) do not pin the workflow today.
+- The shirabe repo's fixture is what external adopters (and future
+  internal callers) see as the preservation contract; it must
+  exercise the full validation surface (all five formats, all seven
+  rules, edge cases on each).
 - A captured Go binary at a frozen version (`v0.6.1`, the most recent
-  tagged release) is the immutable reference; once captured, the fixture
-  asserts against it rather than rebuilding Go each run.
+  tagged release) is the immutable reference; once captured, the
+  fixture asserts against it rather than rebuilding Go each run.
 
-**Chosen: golden-output fixture committed to the Rust repo, asserted in
-CI.**
+**Chosen: two-layer fixture mechanism — a public-corpus parity fixture
+committed to the shirabe repo, plus a reusable `parity-check.yml`
+workflow downstream repos can call against their own corpora.**
 
-The fixture lives at `tests/fixtures/golden/` and contains:
+Layer 1 — public-corpus fixture in the shirabe repo at
+`tests/fixtures/golden/`:
 
-1. `corpus/` — a snapshot of every committed artifact (frontmatter +
-   body, no other content) from the two workspace repos that consume
-   `validate-docs.yml` today, with their original paths preserved as
-   a relative subtree (`corpus/shirabe/...`, `corpus/vision/...`).
-2. `expected/` — for each corpus file, the captured stdout, stderr, and
-   exit code produced by `shirabe-go-v0.6.1 validate <path>` running
-   against the corpus file. The capture is regenerated by a one-shot
-   script (`tests/fixtures/capture_go_baseline.sh`) committed alongside
-   the fixture so the baseline is reproducible.
+1. `corpus/` — every committed artifact under `docs/` in the shirabe
+   repo itself with a recognizable shirabe format prefix (DESIGN-,
+   PRD-, VISION-, ROADMAP-, PLAN-, STRATEGY-), plus a `synthetic/`
+   subdirectory of crafted edge-case inputs (multi-line block scalars,
+   `\n`-bearing field values for sanitize-path coverage, unrecognized
+   formats, missing-frontmatter files, mismatched `## Status` body,
+   each of FC01–FC04 failure paths, R6 success and failure paths,
+   R7 success and failure paths).
+2. `expected/` — for each corpus file, the captured stdout, stderr,
+   and exit code produced by `shirabe-go-v0.6.1 validate <path>`.
+   The capture is regenerated by `tests/fixtures/capture_go_baseline.sh`
+   (committed alongside) so the baseline is reproducible.
 3. `parity_test.rs` — a `#[test]` per corpus file that runs the Rust
    binary, captures its three outputs, and asserts equality. Any
    divergence fails the test with a side-by-side diff.
 
-The fixture is the operational implementation of strategy Block 4. Every
-PR in the Rust rewrite must pass it; merging is gated on parity.
+Layer 2 — reusable workflow at
+`.github/workflows/parity-check.yml` that downstream repos can
+include from their own CI to run the same byte-for-byte test against
+their own committed corpora:
+
+```yaml
+# Example caller (downstream repo)
+jobs:
+  shirabe-parity:
+    uses: tsukumogami/shirabe/.github/workflows/parity-check.yml@v0.7.0
+    with:
+      go-baseline-version: v0.6.1
+      corpus-glob: "docs/**/*.md"
+```
+
+The workflow checks out the caller's repo, downloads the captured
+Go baseline binary plus the Rust release binary for the requested
+shirabe version, runs both against the matched files, and diffs
+output. Layer 2 exists because shirabe's "preservation contract"
+extends conceptually to every caller of `validate-docs.yml`, but
+the shirabe repo cannot embed those callers' artifacts directly.
+Giving them a reusable parity workflow lets each caller assert the
+preservation contract against their own corpus on their own CI
+without leaking content into shirabe.
+
+The fixture is the operational implementation of strategy Block 4.
+Every PR in the Rust rewrite must pass Layer 1; Layer 2 is the
+mechanism by which the contract extends to internal and external
+adopters.
 
 **Considered and rejected.**
 
@@ -509,12 +518,17 @@ The rewrite ships as one PR that:
    surface exactly (one `validate` subcommand, `--visibility`,
    `--custom-statuses`, `--version` with the same template).
 4. Commits the golden-output fixture under `tests/fixtures/golden/`
-   covering every relevant artifact across the two workspace repos
-   that consume `validate-docs.yml` today (shirabe + vision).
-5. Replaces the Go release/install pipeline targets with Rust ones,
+   covering every shirabe-side committed artifact plus a synthetic
+   edge-case corpus exercising all seven validation rules.
+5. Adds `.github/workflows/parity-check.yml` as a reusable workflow
+   downstream callers can include from their own CI to run the same
+   parity assertion against their own corpora at a pinned shirabe
+   tag. This is how the preservation contract reaches callers whose
+   artifacts shirabe cannot embed directly.
+6. Replaces the Go release/install pipeline targets with Rust ones,
    preserving asset naming (`shirabe-<os>-<arch>`) and the install.sh
    URL/path contract.
-6. Removes the Go source tree (`cmd/`, `internal/`, `go.mod`, `go.sum`)
+7. Removes the Go source tree (`cmd/`, `internal/`, `go.mod`, `go.sum`)
    atomically with the Rust addition. There is no Go-Rust coexistence
    window. The release tag flips from a Go binary to a Rust binary in
    one cut.
@@ -824,16 +838,30 @@ guard in main.go). Implement the exit-code contract (1 on any error
 annotation; 0 otherwise; skip-on-unrecognized-format matching Go's
 `continue` behavior).
 
-**Phase 5 — Golden-output fixture and release plumbing.**
-Run `tests/fixtures/capture_go_baseline.sh` to capture stdout/stderr/
-exit for every corpus file against the captured Go binary
-(`shirabe-go-v0.6.1`, built from this PR's parent commit). Commit
-`corpus/` and `expected/` to the repo. Write `parity_test.rs`. Verify
-every parity test passes. Update `.github/workflows/release-
-binaries.yml` to use cargo. Verify `cargo build --release` produces
-binaries that pass parity and that the release workflow produces
-matching asset names. Delete `cmd/`, `internal/`, `go.mod`, `go.sum`
-in the same commit.
+**Phase 5 — Golden-output fixture, reusable parity workflow, and
+release plumbing.**
+Curate `tests/fixtures/golden/corpus/`: include shirabe's own
+committed artifacts under `docs/` (DESIGN-, PRD-, etc.) and build
+out `synthetic/` with the edge cases enumerated in Decision 3
+(sanitize coverage, FC01–FC04 failure paths, R6 and R7 paths,
+multi-line scalars, missing-frontmatter, unrecognized format,
+mismatched body status). Run `tests/fixtures/capture_go_baseline.sh`
+to populate `expected/` against `shirabe-go-v0.6.1`. Commit
+`corpus/` and `expected/` to the repo. Write `parity_test.rs`.
+Verify every parity test passes.
+
+Add `.github/workflows/parity-check.yml` as a reusable workflow
+(`on: workflow_call:`) with inputs for `go-baseline-version` and
+`corpus-glob`. The workflow downloads the matching Go and Rust
+binaries from shirabe's GitHub releases, runs both against the
+caller's matched files, and asserts byte equality on stdout,
+stderr, and exit code per file. The workflow is documented in
+the design doc and ships as part of SR1's deliverable.
+
+Update `.github/workflows/release-binaries.yml` to use cargo.
+Verify `cargo build --release` produces binaries that pass parity
+and that the release workflow produces matching asset names.
+Delete `cmd/`, `internal/`, `go.mod`, `go.sum` in the same commit.
 
 ### Sequencing inside the PR
 
