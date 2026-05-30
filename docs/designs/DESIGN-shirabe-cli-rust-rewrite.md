@@ -422,6 +422,81 @@ attention against a feature that has no validation contract to preserve.
   output format for CI parsing) that deserve their own PR-level
   discussion.
 
+### Decision 6: Rust toolchain channel and pinning
+
+**Question.** Which Rust toolchain does the project pin to, and how?
+
+**Key assumptions.**
+- Reproducible builds matter (the binary ships to multiple targets via
+  the release workflow; toolchain drift between local and CI causes
+  failure modes that are expensive to diagnose).
+- The project does not need nightly features (no const generics
+  beyond stable, no async at all, no specialization).
+- `rust-toolchain.toml` is the conventional shape, supported by
+  `rustup` and `cargo` natively.
+
+**Chosen: pin to a specific stable version via `rust-toolchain.toml`.**
+
+A `rust-toolchain.toml` at the repo root pins the channel to a
+specific stable version (e.g., `1.81.0` or whatever stable is current
+at implementation time; the implementer picks). The file also pins
+the components needed (`rustfmt`, `clippy`) and the target triples
+the release workflow needs. CI installs the same toolchain via
+`actions/setup-rust` or `dtolnay/rust-toolchain` reading the file.
+
+**Considered and rejected.**
+
+- *Pin to the `stable` channel (no version pin).* CI picks up
+  whatever stable was current at run time. **Rejected** because the
+  parity fixture's `expected/` outputs depend on a deterministic
+  build: a toolchain upgrade between captures and run would
+  potentially shift a `Debug` representation or a `format!` rounding
+  in a way the parity test catches as a regression. Pinning
+  decouples the rewrite's stability from upstream Rust releases.
+- *Pin to nightly.* No feature need it. **Rejected** for the same
+  reproducibility reason plus the additional churn of nightly's
+  faster cadence and occasional breakage.
+
+### Decision 7: Captured Go baseline version pinning
+
+**Question.** Which Go binary version is captured as the parity
+fixture's `expected/` baseline?
+
+**Key assumptions.**
+- The Go binary's behavior is deterministic on a given version
+  (`v0.6.1` produces identical output for identical input).
+- The current `main` branch may have un-tagged commits between
+  `v0.6.1` and the rewrite-merge point that change behavior; the
+  rewrite must preserve the *released* contract, not the
+  in-progress-on-`main` contract.
+
+**Chosen: pin the baseline to `shirabe-go-v0.6.1` (the most recent
+tagged release).**
+
+The `tests/fixtures/capture_go_baseline.sh` script downloads (or
+builds locally from the `v0.6.1` git tag) the captured Go binary,
+runs it against `corpus/`, and writes the stdout/stderr/exit triple
+to `expected/`. The committed `expected/` is the v0.6.1 output. If
+v0.6.x ships a bugfix the team explicitly wants to mirror in the
+Rust port (e.g., a sanitization improvement), the capture is
+re-run against v0.6.x and `expected/` is updated as a separate PR
+before the rewrite lands.
+
+**Considered and rejected.**
+
+- *Pin baseline to `main` HEAD at rewrite-PR-open time.* Tracks
+  the most recent Go behavior. **Rejected** because un-tagged
+  changes on `main` between releases are not part of the public
+  contract external adopters consume; the external pin point is
+  the tagged release. Capturing `main` would conflate
+  in-development Go changes with the contract the rewrite must
+  preserve.
+- *Pin baseline to multiple Go versions and assert parity against
+  all of them.* Maximally robust. **Rejected** as overkill —
+  v0.6.x is the current release line, and the strategy's framing
+  explicitly says the rewrite ships against the current contract,
+  not a historical-version sweep.
+
 ## Decision Outcome
 
 The rewrite ships as one PR that:
@@ -809,7 +884,7 @@ just take longer to parse). The `--custom-statuses` flag carries a
 64 KiB cap (matching the Go implementation); saphyr's parse of that
 input is bounded by the cap.
 
-YAML aliases, anchors, and explicit !!tag directives are not
+YAML aliases, anchors, and explicit `!!tag` directives are not
 exploited by any check in shirabe today; the validator reads scalar
 key/value pairs at the top level of the mapping and treats nested
 structures as opaque. saphyr's behavior on alias expansion is the
@@ -818,6 +893,55 @@ structure. (The strategy already named YAML parser choice as the
 single non-trivial portability risk; the security framing here is
 deliberately narrow because the parser's risk profile is correctness,
 not exploitation.)
+
+### Supply-chain posture for saphyr's 0.0.x version line
+
+saphyr is published at v0.0.6 (June 2025) and the project's own
+README notes the pre-1.0 API may shift. The design pins saphyr to a
+specific patch version in `Cargo.toml` and commits `Cargo.lock`
+(standard Rust binary-crate practice) so CI builds are
+deterministic across runs. The documented fallback (drop to
+`saphyr-parser`'s `SpannedEventReceiver` if the higher-level API
+drifts cosmetically) is also a supply-chain hedge: `saphyr-parser`
+is the lower-level crate the higher-level API itself uses, and its
+event-receiver surface is the more stable of the two.
+
+A future security advisory against saphyr would require a patch
+bump on shirabe's side; downstream adopters who pin a specific
+shirabe tag get the dependency pin transitively. The supply-chain
+trust horizon is bounded by shirabe's release cadence.
+
+### Data exposure via FC03's `## Status` body echo
+
+FC03's error message echoes the first non-blank line after `## Status`
+back into the GHA annotation when the body line does not match
+frontmatter `status`. If a PR author writes sensitive content as
+their `## Status` body, that content appears in the workflow log
+(after sanitization removes `\n` and `\r`). The validator inherits
+this behavior from the Go implementation unchanged.
+
+The exposure pre-exists the validator: any content a PR author
+puts in a publicly-visible markdown file is already public the
+moment the PR opens. The validator is not the disclosure surface.
+A future maintainer evaluating whether to expand error messages to
+include more body context should know the constraint is
+intentional: the validator quotes only the minimum body content
+needed to make the error actionable.
+
+### Panic surface
+
+Rust panics (from saphyr parse errors, indexing, or any
+unrecoverable parser state) write to stderr by default. GHA's
+annotation parser reads stdout only, so panic messages cannot
+inject annotations even if they include attacker-controlled YAML
+content. The parity fixture catches divergence between Go's
+recover-and-emit-error path and Rust's panic-or-emit-error path:
+any input that causes the Go binary to emit an error annotation
+but causes the Rust binary to panic would surface as a parity
+test failure on the corpus. A real panic-on-malicious-input would
+itself be a parser bug worth fixing in saphyr; the fixture
+catches the regression without requiring a separate guard rail
+in shirabe.
 
 ### Git subprocess invocation (R6)
 

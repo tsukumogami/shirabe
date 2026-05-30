@@ -44,9 +44,19 @@ the timing question for Block 6:
 5. **Block 6 metrics subcommand** — follow-on PR (matches roadmap
    default).
 
+## Security Review (Phase 5)
+
+**Outcome:** Option 2 — Document considerations.
+**Summary:** Design's posture is preservation; the Go binary's
+sanitization, subprocess invocation pattern, and minimal data
+exposure all carry over. Three refinements added to Security
+Considerations: supply-chain note on saphyr 0.0.x pinning, explicit
+documentation of FC03's body-echo behavior, and explicit panic-to-
+stderr framing. No design changes required.
+
 ## Current Status
 
-**Phase:** 0 — Setup (Freeform) — complete
+**Phase:** 5 — Security — complete; moving to Phase 6 (Final Review)
 **Last Updated:** 2026-05-30
 
 ## Phase 1 Plan
