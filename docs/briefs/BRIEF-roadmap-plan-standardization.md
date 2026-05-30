@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   The roadmap and plan workflows are procedure-rich but principle-poor.
   The issues table has four drifting schemas, the dependency diagram has
@@ -23,7 +23,7 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
 This brief stops before requirements articulation. The follow-on PRD
 (`PRD-roadmap-plan-standardization.md`) owns the requirements, and the
