@@ -1,13 +1,22 @@
 # Parent-Skill Worktree Discipline
 
-The rule every parent skill follows for keeping its worktree in sync
-with upstream across a multi-child chain: before each Phase 2 child
-invocation, the parent SHALL attempt `git fetch && git rebase
-origin/<tracking-branch>` silently. Clean rebases proceed without
-prompting; conflicts route to the team lead. The author is bothered
-only when the team lead escalates an unresolved conflict. Per-parent
-bindings live in the Binding Notes section at the end; everything
-above that section is substrate-agnostic.
+The rule every parent skill follows when upstream advances mid-chain:
+**escalate based on whether upstream changes invalidate the chain's
+intent, not on whether the rebase was mechanically clean.** A clean
+rebase can silently land a contract change that breaks the chain's
+references; a mechanical conflict can be in a file the chain doesn't
+care about. The discipline below replaces mechanical-conflict
+signals with contextual-impact signals at every step.
+
+Before each Phase 2 child invocation, the parent runs a three-step
+flow: rebase, analyze impact, escalate by impact level. Every actor
+in the chain operates at its appropriate altitude — sub-agents
+handle git mechanics and conflict resolution, the team lead handles
+judgment calls about intent, and the author is brought in only when
+the original session direction is in question.
+
+Per-parent bindings live in the Binding Notes section at the end;
+everything above that section is substrate-agnostic.
 
 Companion references:
 
@@ -20,131 +29,177 @@ Companion references:
 
 ## Trigger Condition
 
-The rebase attempt fires **before each Phase 2 child invocation** —
-never once per parent invocation. Precisely:
+The flow fires **before each Phase 2 child invocation** — never once
+per parent invocation. Precisely:
 
 1. After the parent's Phase 1 emits its chain-proposal output and the
    author confirms the proposed chain.
 2. Before each child invocation in the confirmed `planned_chain`.
 
-The attempt runs once per child invocation in the chain. For a parent
-with four children in its longest chain, it fires up to four times
-across a single full-run; for three children, up to three times.
-Bounded by chain step count, not wallclock time.
+The flow runs once per child invocation in the chain. For a parent
+with four children in its longest chain, it fires up to four times;
+for three children, up to three. Bounded by chain step count, not
+wallclock time — a long-running child does not retrigger the flow on
+its own.
 
-## Default: Silent Rebase
+## Step 1 — Rebase
 
-Before each child invocation, the parent SHALL execute the equivalent
-of:
+Execute the equivalent of:
 
 ```
 git fetch
 git rebase origin/<tracking-branch>
 ```
 
-The parent owns the branch during the chain — there is no parallel-
-author work to disrupt — so silent rebase is safe by default.
+**Clean rebase**: proceed directly to Step 2 with the list of
+upstream commits that landed.
 
-**Clean rebase** (no conflicts): the parent records an informational
-entry in `worktree_rebases:` (see Recording below) naming the
-upstream commits that landed and proceeds directly to child
-invocation. The author is not prompted; the team lead is not
-prompted.
+**Conflicted rebase**: the parent's conflict-resolution sub-agent (or
+the parent itself in solo mode) attempts to resolve the conflict
+from artifact context. BRIEF, PRD, and DESIGN citations frequently
+make the correct resolution obvious — if the chain's artifact says
+"the input format is X" and upstream changes the format to Y, the
+resolution is to align with Y. Resolved conflicts proceed to Step 2
+with the resolution noted. Conflicts that cannot be resolved from
+artifact context proceed to Step 2 anyway, carrying the unresolved
+conflict as part of the diff the analysis will classify.
 
-**No-op rebase** (upstream had not advanced): the parent proceeds
-directly to child invocation. No recording, no prompt — the routine
-case.
+The point: mechanical conflict status is never the escalation
+signal. Conflicts are sub-agent work, not author work.
 
-## Conflict Fallback: Route to Team Lead
+## Step 2 — Contextual Impact Analysis
 
-When the rebase produces conflicts, the parent SHALL halt the chain
-at the pre-invocation point and route the conflict to the team lead
-with full context:
+Read the upstream commits that landed in Step 1 and cross-reference
+them against:
 
-- Which files conflict
-- The upstream commits involved (SHAs + subjects)
-- The conflicted hunks
+- The chain's authored artifacts at this point (BRIEF, PRD, DESIGN,
+  PLAN as they exist).
+- The inputs the next child invocation will consume.
 
-The team lead applies its standard discipline:
+Classify the impact at one of three levels:
 
-1. Resolve from artifact context — if the BRIEF, PRD, or DESIGN cites
-   the conflicted file and the right resolution is obvious from that
-   citation, resolve and continue.
-2. Delegate investigation — spawn a research agent to read the
-   conflicting upstream commits and report whether they change a
-   contract the chain depends on.
-3. Invoke `/shirabe:decision` — for genuine judgment calls where
-   neither artifact context nor code investigation settles the
-   question.
-4. Escalate to the author — for genuine ambiguity, the team lead
-   surfaces a three-option prompt: **Resolve and continue** (the
-   author manually resolves, the parent re-runs the rebase, then
-   proceeds to child invocation), **Proceed anyway against the
-   unrebased base** (the parent abandons the rebase, records the
-   divergence per Recording below, and continues to child invocation
-   on the original base), or **Bail** (terminate the chain per the
-   parent's own bail-handling rule).
+- **None** — upstream changes touch no path, symbol, or contract the
+  chain depends on. Examples: a recipe added to a different package;
+  a doc reformatted in a subsystem the chain doesn't reference; a
+  test added that the chain doesn't run.
 
-The author is brought into the loop only at step 4 — and only when
-the team lead cannot decide. Cosmetic upstream PRs, orthogonal
-changes, or conflicts the artifact context resolves never reach the
-author.
+- **Informational** — chain-referenced content was touched, but
+  non-substantively. Examples: a typo fix in a doc the BRIEF cites;
+  a comment added to a function the DESIGN names; a whitespace
+  change in a config file the PLAN references.
+
+- **Intent-changing** — a contract, interface, or fact the chain has
+  committed to was altered. Examples: a child skill's input format
+  changed (BRIEF/PRD cited the old format); a referenced file was
+  renamed or removed; a doc the BRIEF cites was rewritten such that
+  the citation no longer supports the BRIEF's claim; a recipe the
+  PLAN expects to ship was withdrawn.
+
+The classification is what an analyzer agent would produce after
+reading the upstream commits and the chain's artifacts. It is not a
+purely syntactic check — it requires judgment about whether a
+referenced change is substantive enough to alter what the chain is
+doing.
+
+## Step 3 — Escalate Based on Impact
+
+**None or Informational**: record the rebase in `worktree_rebases:`
+(see Recording) and proceed to child invocation. The team lead is
+not prompted; the author is not prompted.
+
+**Intent-changing**: halt and route to the team lead with full
+evidence — which authored artifact, which referenced contract, what
+specifically changed, and the analyzer's classification reasoning.
+The team lead decides whether the original session intent still
+holds against the new upstream reality:
+
+- If yes — the chain is still doing the right thing, but a citation
+  or a small claim in an artifact needs adjusting — the team lead
+  resolves in-place. Update the affected citation or claim, then
+  proceed to child invocation. Record in `worktree_rebases:` with
+  classification `intent-changing-resolved-in-place`.
+- If no — the intent has genuinely shifted — the team lead escalates
+  to the author with a three-option prompt:
+  - **Re-author affected artifacts** against the new contract, then
+    continue the chain.
+  - **Proceed against original intent**: keep the chain pointed at
+    the prior contract, accept that the eventual PR will need to
+    address the divergence at review time. Recorded in
+    `worktree_divergences:`.
+  - **Bail** per the parent's own bail-handling rule.
+
+The author is brought into the loop only at the last branch — and
+only when the team lead has concluded that intent has changed.
+Mechanical conflicts, cosmetic upstream changes, and contract
+changes the team lead can resolve from artifact context never reach
+the author.
 
 ## Recording
 
 Two conditional state-file lists, both extensions over the 5-field
 minimum schema (see [`parent-skill-state-schema.md`](parent-skill-state-schema.md)).
 
-**`worktree_rebases:`** — informational. Appended on every clean
-rebase that brought new upstream commits in. Absent if no rebase ever
-brought commits in.
+**`worktree_rebases:`** — appended after every rebase that brought
+new upstream commits in (regardless of classification, except when
+the chain bailed). Informational. Entries:
 
 ```yaml
 worktree_rebases:
   - phase: <next-child-name>
     upstream_commits: [<sha>, <sha>, ...]
+    impact: none | informational | intent-changing-resolved-in-place
     rebased_at: <ISO-8601 timestamp>
+    notes: <optional — e.g., which citation was updated for in-place resolution>
 ```
 
 **`worktree_divergences:`** — decision audit. Appended only when the
-conflict-fallback escalated to the author and the author chose
-"Proceed anyway against the unrebased base." Absent in the common
-case (no conflict, or conflict resolved without escalation).
+team lead escalated an intent-changing event to the author and the
+author chose "proceed against original intent." Absent in the common
+case. Entries:
 
 ```yaml
 worktree_divergences:
   - phase: <next-child-name>
-    conflict_summary: <files + nature>
+    affected_contracts: [<artifact + cite>, ...]
     upstream_commits: [<sha>, <sha>, ...]
     accepted_at: <ISO-8601 timestamp>
 ```
 
 Both lists are appended in chronological order and never shrink
-within a chain instance. They exist so the parent's finalization step
-can surface upstream-interaction history in the terminal artifact,
-and so future reviewers can audit how the chain handled upstream
-change.
+within a chain instance. They exist so the parent's finalization
+step can surface upstream-interaction history in the terminal
+artifact, and so future reviewers can audit how the chain handled
+upstream change.
 
 ## Integration with Chain-Proposal Prompt
 
-The rebase attempt fires **after** chain-proposal confirmation, not
-before. The chain-proposal prompt itself makes no network calls;
-running `git fetch` before the author confirms would pay network
-latency on every Phase 1 termination, including the ones the author
-rejects or revises. The current order pays the cost only when the
-chain is going to run.
+The flow fires **after** chain-proposal confirmation, not before.
+The chain-proposal prompt itself makes no network calls; running
+`git fetch` before the author confirms would pay network latency on
+every Phase 1 termination, including the ones the author rejects or
+revises. The current order pays the cost only when the chain is
+going to run.
 
 ## Binding Notes
 
-The body above is parent-agnostic. Per-parent bindings live here. New
-parents inherit the discipline by adding a binding-notes row rather
-than re-authoring the body.
+The body above is parent-agnostic. Per-parent bindings live here.
+New parents inherit the discipline by adding a binding-notes row
+rather than re-authoring the body.
 
-| Parent | Status | Chain length | Bail target |
-|--------|--------|--------------|-------------|
-| `/scope` v1 | load-bearing | 4 children (longest chain in shirabe) | the parent's own bail-handling rule in `skills/scope/SKILL.md` |
-| `/charter` | load-bearing (back-edit) | 3 children | the parent's own bail-handling rule in `skills/charter/SKILL.md` |
-| `/work-on` | future | TBD | binding deferred to the amplifier-layer parent migration |
+| Parent | Status | Chain length | Bail target | Analyzer actor |
+|--------|--------|--------------|-------------|----------------|
+| `/scope` v1 | load-bearing | 4 children (longest chain in shirabe) | the parent's own bail-handling rule in `skills/scope/SKILL.md` | parent itself (solo mode); team-lead-spawned sub-agent (amplifier mode) |
+| `/charter` | load-bearing (back-edit) | 3 children | the parent's own bail-handling rule in `skills/charter/SKILL.md` | parent itself (solo); team-lead-spawned sub-agent (amplifier) |
+| `/work-on` | future | TBD | binding deferred to the amplifier-layer parent migration | binding deferred |
+
+The "Analyzer actor" column reflects the team-primitive substitution
+surface (see `parent-skill-pattern.md`). In v1's
+`single-team-per-leader-no-nested` substrate, the parent skill is
+single-agent and does the impact analysis itself. In an amplifier-
+layer substrate where the parent can dispatch sub-agents, the
+analysis can be delegated to a worktree-sync-analyzer sub-agent that
+reports back to the parent. The discipline is identical across
+substrates; only the actor changes.
 
 The "Bail target" column intentionally names the per-parent SKILL.md
 rather than reproducing the bail logic here. Naming a specific

@@ -885,22 +885,52 @@ two diverging is a contract violation surface, not a benign
 condition.
 
 **R21 [/scope-specific].** `/scope` SHALL keep its worktree in sync
-with upstream across the chain by attempting a silent rebase
-before each Phase 2 child invocation (fold of observation #11).
-Before invoking `/brief`, `/prd`, `/design`, or `/plan`, `/scope`
-MUST execute the equivalent of `git fetch && git rebase
-origin/<tracking-branch>` against the worktree. When the rebase
-succeeds cleanly (no conflicts), `/scope` MUST record an
-informational entry naming the upstream commits that landed and
-proceed directly to child invocation — the author is not prompted,
-the chain continues. When the rebase produces conflicts, `/scope`
-MUST halt and route the decision to the team lead with full
-conflict context (which files conflict, the upstream commits
-involved); the team lead applies the Q2c discipline (resolve from
-artifact context / delegate investigation / invoke `/shirabe:decision` /
-escalate to author). Only when the team lead escalates does the
-three-option prompt (resolve-and-continue / proceed-anyway-against-
-unrebased-base / bail-per-R8) surface to the author.
+with upstream across the chain and SHALL escalate based on whether
+upstream changes invalidate the chain's intent, NOT on whether the
+rebase was clean (fold of observation #11). Before invoking
+`/brief`, `/prd`, `/design`, or `/plan`, `/scope` MUST:
+
+1. **Attempt rebase.** Execute the equivalent of `git fetch && git
+   rebase origin/<tracking-branch>`. Both clean rebases and
+   conflicted rebases proceed to step 2 (mechanical conflict
+   resolution is sub-agent work using artifact context; conflicts
+   that cannot be resolved from artifact context escalate via the
+   same impact-classification step below, not as a separate path).
+
+2. **Analyze contextual impact.** Read the upstream commits that
+   landed in step 1 and cross-reference them against the chain's
+   authored artifacts (BRIEF, PRD, DESIGN, PLAN as they exist at
+   this point in the chain) AND against the inputs the next child
+   invocation will consume. Classify the impact:
+   - **None**: upstream changes touch no path, symbol, or contract
+     the chain depends on.
+   - **Informational**: upstream changes touch something the chain
+     references, but the change is non-substantive (typo, comment,
+     formatting).
+   - **Intent-changing**: upstream changes alter a contract,
+     interface, or fact the chain has committed to (e.g., a child
+     skill's input format changed; a referenced file was renamed
+     or removed; a doc the BRIEF cites was rewritten).
+
+3. **Escalate based on impact.**
+   - **None or Informational**: record the rebase in
+     `worktree_rebases:` and proceed to child invocation. The team
+     lead and author are not prompted.
+   - **Intent-changing**: route to the team lead with full
+     evidence (which artifact, which referenced contract,
+     specifically what changed). The team lead decides whether the
+     original session intent still holds; if it does, the team
+     lead may resolve in-place (e.g., update a citation in the
+     chain's authored artifact, then proceed). If the intent has
+     genuinely changed, the team lead MUST escalate to the author
+     with the three-option prompt: re-author affected artifacts
+     against the new contract / proceed against the original intent
+     (recording the divergence) / bail per R8.
+
+The author is bothered ONLY when the session's original intent has
+changed. Mechanical conflicts, cosmetic upstream changes, and
+contract changes the team lead can resolve from artifact context
+never reach the author.
 
 The check trigger fires "before each Phase 2 child invocation"
 (not on every `/scope` invocation, not after each child completes)
@@ -1302,26 +1332,28 @@ requirement that motivates them and the user story they exercise
   routes to bail-handling rather than the happy path.
   `[automated-eval]` (R20)
 - [ ] **AC28** Before each Phase 2 child invocation, `/scope`
-  attempts a silent rebase (equivalent to `git fetch && git
-  rebase origin/<tracking-branch>`). On clean rebase, `/scope`
-  records an informational state-file entry naming the upstream
-  commits that landed and proceeds directly to child invocation
-  (no author prompt, no team-lead prompt). On rebase conflict,
-  `/scope` halts and routes the conflict to the team lead with
-  full context. The observable: the SKILL.md / phase-2 reference
-  documents the default (silent rebase) and the conflict-fallback;
-  an eval scenario verifies clean rebase proceeds silently and a
-  second scenario verifies conflict halts and surfaces to team
-  lead. `[automated-eval]` (R21)
+  attempts a rebase, then analyzes the contextual impact of any
+  upstream commits that landed. The observable: an eval scenario
+  with upstream changes that touch a chain-referenced contract
+  verifies `/scope` halts and routes to the team lead with
+  evidence; a second scenario with upstream changes orthogonal to
+  the chain verifies `/scope` proceeds silently without prompting
+  either the team lead or the author; a third scenario with a
+  rebase conflict in a chain-orthogonal file verifies the conflict
+  is resolved from artifact context (or by the parent's
+  conflict-resolution sub-agent) without escalation. `[automated-eval]`
+  (R21)
 - [ ] **AC28b** `references/parent-skill-worktree-discipline.md`
   exists at the top-level reference root and documents the
-  default behavior (attempt silent rebase before each Phase 2
-  child invocation), the informational recording of clean-rebase
-  events, the conflict-fallback routing to the team lead, and the
-  three-option escalation prompt (resolve-and-continue / proceed-
-  anyway-against-unrebased-base / bail) that surfaces only when
-  the team lead escalates to the author. The reference is cited
-  from `/scope`'s Phase 2 chain-orchestration reference file.
+  trigger condition (before each Phase 2 child invocation), the
+  rebase-then-analyze flow, the three-level impact classification
+  (none / informational / intent-changing), the escalation
+  contract (none/informational → proceed silently; intent-changing
+  → team lead, then author only if intent genuinely changed), and
+  the three-option author-facing prompt (re-author affected
+  artifacts / proceed against original intent / bail) that surfaces
+  only on team-lead escalation. The reference is cited from
+  `/scope`'s Phase 2 chain-orchestration reference file.
   `[automated-unit]` (R21)
 - [ ] **AC29a** The motivating
   `docs/plans/PLAN-shirabe-scope-skill.md` produced as part of

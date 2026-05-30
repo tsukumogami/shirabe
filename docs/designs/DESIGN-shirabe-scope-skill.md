@@ -645,86 +645,97 @@ into the Draft and may want preserved for re-authoring.
 
 ### Decision 4: Worktree-discipline reference content
 
-PRD R21 specifies the discipline (silent rebase before each
-Phase 2 child invocation; conflict-fallback to the team lead;
-three-option prompt only escalates to the author). PRD Decision 4
-specifies the location (`references/parent-skill-worktree-
-discipline.md` at the top-level reference root, not parent-
-specific). The question deferred to design is the detailed prose:
-rebase mechanics, the recording semantics for both clean-rebase
-and conflict-resolution cases, and how the check integrates with
-the chain-proposal prompt.
+PRD R21 specifies the discipline: attempt a rebase before each
+Phase 2 child invocation, then escalate based on whether upstream
+changes invalidate the chain's intent — NOT based on whether the
+rebase was mechanically clean. PRD Decision 4 specifies the
+location (`references/parent-skill-worktree-discipline.md` at the
+top-level reference root, not parent-specific). The question
+deferred to design is the detailed prose: rebase mechanics, the
+impact-classification taxonomy, the recording semantics, and how
+the check integrates with the chain-proposal prompt.
 
-#### Chosen: Substrate-Agnostic Top-Level Reference, Rebase-By-Default
+#### Chosen: Contextual-Impact Escalation, Not Mechanical-Conflict Escalation
 
-The reference body is parent-agnostic prose with the following
-five sections:
+The reference body is parent-agnostic prose. The core insight is
+that mechanical-conflict status (clean vs conflicted) is a poor
+escalation signal: a clean rebase can land a contract change that
+silently invalidates the chain's artifacts; a conflict can be in a
+file the chain doesn't care about. The correct signal is whether
+upstream changes touch something the chain depends on — which
+requires reading the diff and cross-referencing the chain's
+authored artifacts. Sub-agents can do this; the team lead and the
+author are bothered only when the analysis finds intent-changing
+impact.
+
+The reference has six sections:
 
 1. **Trigger Condition.** Defines "before each Phase 2 child
    invocation" precisely: after Phase 1 emits its chain-proposal
    output and the author confirms (R7.5), AND before each child
-   invocation in `planned_chain`. The rebase attempt fires up to
-   four times per full-run chain for `/scope` (once before each
-   of `/brief`, `/prd`, `/design`, `/plan`), not once per parent
-   invocation. The trigger is bounded by chain step count, not by
-   wallclock time.
-2. **Default: Silent Rebase.** Before each child invocation, the
-   parent SHALL execute the equivalent of `git fetch && git
-   rebase origin/<tracking-branch>` against the worktree. When
-   the rebase succeeds cleanly (no conflicts), the parent records
-   an informational state-file entry naming the upstream commits
-   that landed and proceeds directly to child invocation. The
-   author is not prompted; the team lead is not prompted. The
-   parent owns the branch during the chain, so there is no
-   parallel-author work to be careful around — silent rebase is
-   safe by default. The recording exists so the team lead and any
-   future reviewer have visibility into what changed mid-chain.
-3. **Conflict Fallback: Route to Team Lead.** When the rebase
-   produces conflicts, the parent SHALL halt the chain at the
-   pre-invocation point and route the conflict to the team lead
-   with full context (which files conflict, the upstream commits
-   involved, the conflicted hunks). The team lead applies the Q2c
-   discipline: resolve from artifact context (BRIEF/PRD/DESIGN
-   citations make the resolution obvious) / delegate
-   investigation / invoke `/shirabe:decision` / escalate to the
-   author. Only when the team lead escalates does the three-
-   option prompt (resolve-and-continue / proceed-anyway-against-
-   unrebased-base / bail-per-R8) surface to the author. The
-   author is bothered only for genuine ambiguity, not for routine
-   drift.
-4. **Recording (Two Kinds).** Two state-file lists, both
-   conditional per I-5:
-   - `worktree_rebases:` — appended whenever a clean rebase
-     succeeds; entries have `{phase: <next-child-name>,
-     upstream_commits: [<sha>, …], rebased_at: <ISO-8601>}`.
-     Informational only.
-   - `worktree_divergences:` — appended only when a conflict was
-     surfaced and the resolution chose "proceed anyway against
-     the unrebased base" (rare); entries have `{phase, conflict_summary,
-     upstream_commits, accepted_at}`. The list exists so the
-     parent's finalization step can surface divergence history in
-     the terminal artifact, and so future reviewers can audit how
-     the chain interacted with an upstream conflict.
-5. **Integration with Chain-Proposal Prompt.** The check is AFTER
-   chain-proposal confirmation, not before. Running `git fetch`
-   before the author confirms the chain pays network cost on every
-   Phase 1 termination, including the ones the author rejects or
-   revises. The current order pays the cost only when the chain
-   is going to run.
+   invocation in `planned_chain`. The attempt fires up to four
+   times per full-run chain for `/scope`, bounded by chain step
+   count.
+2. **Step 1: Rebase.** The parent SHALL execute the equivalent of
+   `git fetch && git rebase origin/<tracking-branch>`. Clean
+   rebases proceed to step 2 directly. Conflicted rebases are
+   handled by the parent's conflict-resolution sub-agent using
+   artifact context (BRIEF/PRD/DESIGN citations often make the
+   correct resolution obvious); only conflicts that cannot be
+   resolved from artifact context proceed to step 2's analysis
+   with the unresolved conflict as part of the diff to classify.
+3. **Step 2: Contextual Impact Analysis.** After the rebase
+   (clean or with resolved conflicts), the parent reads the
+   upstream commits that landed and cross-references them against
+   the chain's authored artifacts (BRIEF, PRD, DESIGN, PLAN as
+   they exist at this point) AND against the inputs the next
+   child invocation will consume. The parent classifies impact at
+   one of three levels:
+   - **None**: no path, symbol, or contract the chain depends on
+     was touched.
+   - **Informational**: chain-referenced content was touched, but
+     non-substantively (typo, comment, formatting).
+   - **Intent-changing**: a contract, interface, or fact the
+     chain has committed to was altered.
+4. **Step 3: Escalate Based on Impact.** None or Informational
+   impact: record in `worktree_rebases:` and proceed silently to
+   child invocation. Intent-changing impact: route to the team
+   lead with full evidence (which artifact, which referenced
+   contract, what changed). The team lead decides whether the
+   original session intent still holds. If yes, the team lead may
+   resolve in-place (update citations, adjust artifact content,
+   then proceed). If the intent has genuinely changed, the team
+   lead escalates to the author with the three-option prompt:
+   **re-author affected artifacts** / **proceed against original
+   intent** / **bail per R8**.
+5. **Recording.** Two state-file lists, both conditional per
+   I-5: `worktree_rebases:` (informational; entries record
+   `{phase, upstream_commits, impact_classification, rebased_at}`
+   for None / Informational events) and `worktree_divergences:`
+   (decision audit; appended only when an Intent-changing event
+   escalated to the author and the author chose "proceed against
+   original intent"; entries record
+   `{phase, affected_contracts, upstream_commits, accepted_at}`).
+6. **Integration with Chain-Proposal Prompt.** The attempt is
+   AFTER chain-proposal confirmation, not before. The
+   chain-proposal prompt makes no network calls; running `git
+   fetch` before the author confirms the chain would pay network
+   cost on every Phase 1 termination.
 
-A sixth "Binding Notes" section names per-parent bindings: `/scope`
-v1 (load-bearing — 4 children, longest chain in shirabe); `/charter`
-(back-edit; 3 children, also load-bearing); `/work-on` (future;
-binding deferred to amplifier-layer parent).
+A seventh "Binding Notes" section names per-parent bindings:
+`/scope` v1 (load-bearing — 4 children, longest chain in shirabe);
+`/charter` (back-edit; 3 children, also load-bearing); `/work-on`
+(future; binding deferred to amplifier-layer parent).
 
-This is recommended because rebase-by-default eliminates the noisy
-manual-gate at every child boundary that the original design called
-for. The parent owns the branch — there is no parallel author work
-to disrupt — so silent rebase is the right default. The author is
-brought into the loop only when something actually requires their
-judgment (a conflict the team lead can't resolve). The reference's
-parent-agnostic core lets future parents inherit the discipline
-without re-deriving it.
+The escalation contract (intent-change escalates; mechanical
+status does not) is the key design choice. It means every actor
+in the chain operates at the altitude appropriate to its
+capability: sub-agents handle rebases and conflict resolution,
+the team lead handles judgment about whether intent has changed,
+and the author is brought in only when the chain's original
+direction is in question. This eliminates the "every staleness
+check bothers somebody" failure mode the manual-gate default
+would have produced.
 
 #### Alternatives Considered
 
