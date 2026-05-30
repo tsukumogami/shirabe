@@ -884,16 +884,23 @@ as-priority-1 ordering at the chain-orchestration altitude: when
 two diverging is a contract violation surface, not a benign
 condition.
 
-**R21 [/scope-specific].** `/scope` SHALL run a worktree-staleness
-check before each Phase 2 child invocation (fold of observation
-#11). Before invoking `/brief`, `/prd`, `/design`, or `/plan`,
-`/scope` MUST execute the equivalent of `git fetch && git
-status --branch --short` against the worktree's tracking branch.
-If the worktree's upstream has new commits on the target branch,
-`/scope` MUST halt and surface the staleness to the author with
-three options: rebase (re-fetch and rebase the feature branch),
-proceed anyway (accept the risk; record the divergence in the
-state file), or bail (route per R8's bail-handling).
+**R21 [/scope-specific].** `/scope` SHALL keep its worktree in sync
+with upstream across the chain by attempting a silent rebase
+before each Phase 2 child invocation (fold of observation #11).
+Before invoking `/brief`, `/prd`, `/design`, or `/plan`, `/scope`
+MUST execute the equivalent of `git fetch && git rebase
+origin/<tracking-branch>` against the worktree. When the rebase
+succeeds cleanly (no conflicts), `/scope` MUST record an
+informational entry naming the upstream commits that landed and
+proceed directly to child invocation — the author is not prompted,
+the chain continues. When the rebase produces conflicts, `/scope`
+MUST halt and route the decision to the team lead with full
+conflict context (which files conflict, the upstream commits
+involved); the team lead applies the Q2c discipline (resolve from
+artifact context / delegate investigation / invoke `/shirabe:decision` /
+escalate to author). Only when the team lead escalates does the
+three-option prompt (resolve-and-continue / proceed-anyway-against-
+unrebased-base / bail-per-R8) surface to the author.
 
 The check trigger fires "before each Phase 2 child invocation"
 (not on every `/scope` invocation, not after each child completes)
@@ -1295,21 +1302,27 @@ requirement that motivates them and the user story they exercise
   routes to bail-handling rather than the happy path.
   `[automated-eval]` (R20)
 - [ ] **AC28** Before each Phase 2 child invocation, `/scope`
-  executes a worktree-staleness check (equivalent to `git fetch
-  && git status --branch --short`). When the worktree's
-  upstream has new commits on the target branch, `/scope` halts
-  and surfaces a three-option prompt: rebase, proceed anyway, or
-  bail. The observable: the SKILL.md / phase-2 reference
-  documents the trigger condition; an eval scenario verifies the
-  halt fires when upstream divergence is simulated.
-  `[automated-eval]` (R21)
+  attempts a silent rebase (equivalent to `git fetch && git
+  rebase origin/<tracking-branch>`). On clean rebase, `/scope`
+  records an informational state-file entry naming the upstream
+  commits that landed and proceeds directly to child invocation
+  (no author prompt, no team-lead prompt). On rebase conflict,
+  `/scope` halts and routes the conflict to the team lead with
+  full context. The observable: the SKILL.md / phase-2 reference
+  documents the default (silent rebase) and the conflict-fallback;
+  an eval scenario verifies clean rebase proceeds silently and a
+  second scenario verifies conflict halts and surfaces to team
+  lead. `[automated-eval]` (R21)
 - [ ] **AC28b** `references/parent-skill-worktree-discipline.md`
   exists at the top-level reference root and documents the
-  trigger condition (before each Phase 2 child invocation), the
-  three-option prompt, and the state-file recording of "proceed
-  anyway" divergence. The reference is cited from `/scope`'s
-  Phase 2 chain-orchestration reference file. `[automated-unit]`
-  (R21)
+  default behavior (attempt silent rebase before each Phase 2
+  child invocation), the informational recording of clean-rebase
+  events, the conflict-fallback routing to the team lead, and the
+  three-option escalation prompt (resolve-and-continue / proceed-
+  anyway-against-unrebased-base / bail) that surfaces only when
+  the team lead escalates to the author. The reference is cited
+  from `/scope`'s Phase 2 chain-orchestration reference file.
+  `[automated-unit]` (R21)
 - [ ] **AC29a** The motivating
   `docs/plans/PLAN-shirabe-scope-skill.md` produced as part of
   /scope's ship uses `<<ISSUE:N>>` placeholder syntax verbatim

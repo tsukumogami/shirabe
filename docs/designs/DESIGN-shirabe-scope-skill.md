@@ -645,70 +645,86 @@ into the Draft and may want preserved for re-authoring.
 
 ### Decision 4: Worktree-discipline reference content
 
-PRD R21 specifies the trigger condition (worktree-staleness
-check fires before each Phase 2 child invocation) and the
-three-option prompt (rebase / proceed anyway / bail). PRD
-Decision 4 specifies the location (`references/parent-skill-
-worktree-discipline.md` at the top-level reference root, not
-parent-specific). The question deferred to design is the
-detailed prose: rebase mechanics, the "proceed anyway" state-
-file recording semantics, and how the check integrates with the
-chain-proposal prompt.
+PRD R21 specifies the discipline (silent rebase before each
+Phase 2 child invocation; conflict-fallback to the team lead;
+three-option prompt only escalates to the author). PRD Decision 4
+specifies the location (`references/parent-skill-worktree-
+discipline.md` at the top-level reference root, not parent-
+specific). The question deferred to design is the detailed prose:
+rebase mechanics, the recording semantics for both clean-rebase
+and conflict-resolution cases, and how the check integrates with
+the chain-proposal prompt.
 
-#### Chosen: Substrate-Agnostic Top-Level Reference with Four Named Sections
+#### Chosen: Substrate-Agnostic Top-Level Reference, Rebase-By-Default
 
 The reference body is parent-agnostic prose with the following
-four sections:
+five sections:
 
 1. **Trigger Condition.** Defines "before each Phase 2 child
-   invocation" precisely: after `/scope` Phase 1 emits its
-   chain-proposal output and the author confirms (R7.5), AND
-   before each child invocation in `planned_chain`. The check
-   fires four times per full-run chain (once before each of
-   `/brief`, `/prd`, `/design`, `/plan`), not once per parent
-   invocation. The trigger is bounded by the chain step count,
-   not by wallclock time.
-2. **Three-Option Prompt.** "Rebase / Proceed anyway / Bail"
-   surfaced when `git fetch && git status --branch --short`
-   shows the upstream has new commits on the tracking branch.
-   Rebase re-fetches and rebases the feature branch (the
-   parent skill emits the `git fetch && git rebase` commands
-   and waits for the author's manual approval before running
-   them — never auto-rebases). Proceed anyway accepts the
-   risk and continues to child invocation; the state file
-   records the divergence per the Recording Section below.
-   Bail routes per the parent's own bail-handling rule (for
-   `/scope`, R8).
-3. **Recording "Proceed Anyway" Divergence.** When the author
-   selects Proceed anyway, the parent's state file gains a new
-   conditional entry under
-   `worktree_divergences:` (a list, since one chain can have
-   up to four divergence events) with `{phase: <child-name>,
-   upstream_ahead_by: <count>, accepted_at: <ISO-8601>}`. The
-   list is conditional (absent when no divergence accepted)
-   per I-5; the field tail is appended to as additional
-   divergences occur.
-4. **Integration with Chain-Proposal Prompt.** The check is
-   AFTER chain-proposal confirmation, not before — the
-   confirmation prompt itself is short and well-bounded
-   (R7.5), running `git fetch` before it would add latency
-   without proportionate value (the author hasn't decided to
-   proceed yet). The integration prose addresses the order
-   explicitly so future parents follow the same convention.
+   invocation" precisely: after Phase 1 emits its chain-proposal
+   output and the author confirms (R7.5), AND before each child
+   invocation in `planned_chain`. The rebase attempt fires up to
+   four times per full-run chain for `/scope` (once before each
+   of `/brief`, `/prd`, `/design`, `/plan`), not once per parent
+   invocation. The trigger is bounded by chain step count, not by
+   wallclock time.
+2. **Default: Silent Rebase.** Before each child invocation, the
+   parent SHALL execute the equivalent of `git fetch && git
+   rebase origin/<tracking-branch>` against the worktree. When
+   the rebase succeeds cleanly (no conflicts), the parent records
+   an informational state-file entry naming the upstream commits
+   that landed and proceeds directly to child invocation. The
+   author is not prompted; the team lead is not prompted. The
+   parent owns the branch during the chain, so there is no
+   parallel-author work to be careful around — silent rebase is
+   safe by default. The recording exists so the team lead and any
+   future reviewer have visibility into what changed mid-chain.
+3. **Conflict Fallback: Route to Team Lead.** When the rebase
+   produces conflicts, the parent SHALL halt the chain at the
+   pre-invocation point and route the conflict to the team lead
+   with full context (which files conflict, the upstream commits
+   involved, the conflicted hunks). The team lead applies the Q2c
+   discipline: resolve from artifact context (BRIEF/PRD/DESIGN
+   citations make the resolution obvious) / delegate
+   investigation / invoke `/shirabe:decision` / escalate to the
+   author. Only when the team lead escalates does the three-
+   option prompt (resolve-and-continue / proceed-anyway-against-
+   unrebased-base / bail-per-R8) surface to the author. The
+   author is bothered only for genuine ambiguity, not for routine
+   drift.
+4. **Recording (Two Kinds).** Two state-file lists, both
+   conditional per I-5:
+   - `worktree_rebases:` — appended whenever a clean rebase
+     succeeds; entries have `{phase: <next-child-name>,
+     upstream_commits: [<sha>, …], rebased_at: <ISO-8601>}`.
+     Informational only.
+   - `worktree_divergences:` — appended only when a conflict was
+     surfaced and the resolution chose "proceed anyway against
+     the unrebased base" (rare); entries have `{phase, conflict_summary,
+     upstream_commits, accepted_at}`. The list exists so the
+     parent's finalization step can surface divergence history in
+     the terminal artifact, and so future reviewers can audit how
+     the chain interacted with an upstream conflict.
+5. **Integration with Chain-Proposal Prompt.** The check is AFTER
+   chain-proposal confirmation, not before. Running `git fetch`
+   before the author confirms the chain pays network cost on every
+   Phase 1 termination, including the ones the author rejects or
+   revises. The current order pays the cost only when the chain
+   is going to run.
 
-A fifth "Binding Notes" section names per-parent bindings:
-`/scope` v1 (load-bearing — 4 children, longest chain in
-shirabe); `/charter` (back-edit; 3 children, also load-
-bearing); `/work-on` (future; binding deferred to amplifier-
-layer parent).
+A sixth "Binding Notes" section names per-parent bindings: `/scope`
+v1 (load-bearing — 4 children, longest chain in shirabe); `/charter`
+(back-edit; 3 children, also load-bearing); `/work-on` (future;
+binding deferred to amplifier-layer parent).
 
-This is recommended because the reference's parent-agnostic
-core lets future parents (the future `/work-on` migration, any
-amplifier-layer parents) inherit the discipline without re-
-deriving it — the load-bearing concern Decision 4 in the PRD
-calls out. The Binding Notes section keeps `/charter`'s back-
-edit cost bounded (a single reference-table addition plus a
-citation in `/charter`'s phase-2 doc).
+This is recommended because rebase-by-default eliminates the noisy
+manual-gate at every child boundary that the original design called
+for. The parent owns the branch — there is no parallel author work
+to disrupt — so silent rebase is the right default. The author is
+brought into the loop only when something actually requires their
+judgment (a conflict the team lead can't resolve). The reference's
+parent-agnostic core lets future parents inherit the discipline
+without re-deriving it.
 
 #### Alternatives Considered
 
