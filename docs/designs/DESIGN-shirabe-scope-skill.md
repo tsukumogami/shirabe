@@ -1185,8 +1185,8 @@ under the `.md` extension. Its schema extends the pattern's
 status + content-hash dual-check block), and the ephemeral
 `parent_orchestration` block (present only during child
 invocation; cleared on return). `worktree_divergences` is a
-conditional list capturing each Proceed-anyway divergence
-accepted during Phase 2.
+conditional list capturing each Proceed-against-original-intent
+divergence accepted during Phase 2.
 
 The resume ladder follows the universal meta-ladder template
 with Slot 5 spanning 9 rows in most-downstream-first first-
@@ -1498,10 +1498,11 @@ gains documented refuse-and-redirect semantics).
 
 A new top-level reference at the pattern-reference root,
 sibling to the four existing `parent-skill-*.md` references.
-The body has the four named sections described in Decision 4:
-Trigger Condition, Three-Option Prompt, Recording "Proceed
-Anyway" Divergence, Integration with Chain-Proposal Prompt.
-A fifth Binding Notes section names per-parent bindings:
+The body has six named sections described in Decision 4:
+Trigger Condition; Step 1 — Rebase; Step 2 — Contextual
+Impact Analysis; Step 3 — Escalate Based on Impact;
+Recording; Integration with Chain-Proposal Prompt. A
+seventh Binding Notes section names per-parent bindings:
 `/scope` v1 (load-bearing), `/charter` (back-edit; binding
 notes added in `/charter`'s SKILL.md reference table),
 `/work-on` (future; binding deferred to the the `/work-on` migration PR).
@@ -1624,11 +1625,22 @@ in `chain_skipped` with reason if present.
 Phase 2 detailing the child invocation loop. Key sections:
 
 7.1. **Worktree-staleness check** — fires before each child
-invocation per R21. Executes `git fetch && git status
---branch --short`; on divergence, surfaces three-option
-prompt and records "proceed anyway" divergences in the
-state file's `worktree_divergences:` list. Cites
-`references/parent-skill-worktree-discipline.md`.
+invocation per R21. Runs the three-step flow from
+`references/parent-skill-worktree-discipline.md`: (1) the
+conflict-resolution sub-agent rebases against the tracking
+branch, resolving conflicts from artifact context where
+possible; (2) upstream commits are classified at one of
+three impact levels (None / Informational / Intent-changing)
+against the chain's authored artifacts and the next child's
+inputs; (3) None and Informational silently record into
+`worktree_rebases:` and proceed, while Intent-changing halts
+and routes to the team lead with evidence. The team lead
+either resolves in-place (updating an affected citation,
+recorded as `intent-changing-resolved-in-place`) or escalates
+to the author with the three-option prompt (Re-author
+affected artifacts / Proceed against original intent / Bail).
+Divergences are recorded in `worktree_divergences:` only
+when the author selects "Proceed against original intent."
 
 7.2. **parent_orchestration: sentinel write** — writes the
 ephemeral block to `/scope`'s state file naming the child,
@@ -1825,10 +1837,15 @@ flowchart TD
     P1 -->|Proceed| P2[Phase 2: Child Invocation Loop]
     P1 -->|Adjust| P1
     P1 -->|Bail| Bail[R8 bail-handling]
-    P2 --> WSC{Worktree<br/>stale?}
-    WSC -->|Yes| WSCP[Rebase /<br/>Proceed anyway /<br/>Bail]
-    WSCP --> P2
-    WSC -->|No| Write[Write parent_orchestration]
+    P2 --> Rebase[Rebase<br/>sub-agent resolves<br/>from artifact context]
+    Rebase --> Impact{Impact<br/>classification}
+    Impact -->|None / Informational| Write[Write parent_orchestration]
+    Impact -->|Intent-changing| TL{Team-lead gate}
+    TL -->|Resolve in-place| Write
+    TL -->|Escalate to author| AuthorPrompt[Three-option prompt:<br/>Re-author affected artifacts /<br/>Proceed against original intent /<br/>Bail]
+    AuthorPrompt -->|Re-author| P2
+    AuthorPrompt -->|Proceed against original intent| Write
+    AuthorPrompt -->|Bail| Bail
     Write --> Child[Invoke child]
     Child --> FE{Artifact<br/>exists?}
     FE -->|No| Stale[STALE → R8]
@@ -1850,9 +1867,15 @@ flowchart TD
 
 The diagram covers the happy path (full-run), the
 re-evaluation rejection path (via Phase-N Reject), and the
-abandonment-forced path (via worktree-staleness Bail,
-structural-file-existence STALE, or validator failure
-routing through R8 bail-handling).
+abandonment-forced path. Bail is reached via three routes:
+the author selecting Bail in response to a team-lead
+escalation prompt on intent-changing upstream divergence;
+structural-file-existence STALE; or validator failure
+routing through R8 bail-handling. Worktree rebase itself
+contributes no direct Bail edge — None/Informational impact
+silently proceeds, and Intent-changing impact routes
+through the team-lead gate before any Bail decision can
+reach the author.
 
 ## Implementation Approach
 
@@ -1874,7 +1897,8 @@ Deliverables:
 - `references/parent-skill-resume-ladder-template.md` —
   single Slot 5 paragraph addition (Component 3).
 - `references/parent-skill-worktree-discipline.md` — new
-  reference file with five sections (Component 4).
+  reference file with six body sections plus a Binding
+  Notes section (Component 4).
 
 ### Phase B: Child-side contract extensions
 
@@ -1980,8 +2004,8 @@ interpolation; rationale content containing quotes,
 backticks, or shell metacharacters cannot reach the shell.
 The same discipline applies to any other free-form string
 the skill writes into a commit body (the author-stated
-rationale for "proceed anyway" on worktree-staleness
-divergence per Component 4).
+rationale for "Proceed against original intent" on
+worktree-staleness divergence per Component 4).
 
 ### Filesystem-write boundaries — enumerated write set and state-file enum re-validation
 
@@ -2176,7 +2200,7 @@ substring "Rationale will be committed to git history".
   is the status quo.
 - **Worktree-staleness latency** — the trigger is bounded
   to four times per full-run chain; on slow networks,
-  authors can override via Proceed-anyway.
+  authors can override via Proceed against original intent.
 - **R6 shape-predicate interpretive drift** — Component 6
   ships with 3-4 worked examples per predicate; the chain-
   proposal output includes per-predicate reasons so authors
