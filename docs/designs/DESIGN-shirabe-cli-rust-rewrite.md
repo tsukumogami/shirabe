@@ -371,6 +371,49 @@ Every PR in the Rust rewrite must pass Layer 1; Layer 2 is the
 mechanism by which the byte-for-byte contract extends to callers
 shirabe doesn't directly control.
 
+**Known out-of-contract divergences.** The byte-for-byte contract
+holds exactly on the GHA-annotation stdout surface for files that
+exist and are readable — the surface callers actually consume, and
+the surface the corpus exercises. Three runtime/build outputs were
+verified to differ between the Go and Rust binaries during the O4
+CLI port and are accepted as deliberate, bounded exceptions because
+none is reachable by the parity corpus:
+
+1. *IO read-failure annotation (stdout).* On an unreadable or
+   missing file, Go emits `could not read file:` followed by the
+   `os.PathError` string (e.g. `read <path>: open <path>: no such
+   file or directory`); Rust emits `could not read file:` followed
+   by the `std::io::Error` Display (e.g. `No such file or directory
+   (os error 2)`). The shared prefix is byte-identical and the CLI
+   trims Rust's intermediate `io error:` wrapper, but the OS-level
+   error string is not made byte-identical — matching it would
+   require fragile hardcoding of platform error text. This path is
+   not in the corpus: a missing or unreadable file can't be
+   committed as a deterministic fixture, and parity asserts on files
+   that exist and are readable, so the path is unexercised by Layer 1
+   and Layer 2.
+2. *`--custom-statuses` invalid-YAML error (stderr only).* Go (cobra)
+   wraps the failure with an `Error:` prefix, a usage block, and a
+   `yaml.v3`-specific message tail; Rust emits the shared prefix
+   `--custom-statuses contains invalid YAML: ` plus a saphyr-specific
+   tail with no cobra wrapper. This is stderr, not the GHA annotation
+   contract (GHA parses stdout), and is out of corpus.
+3. *`--version` unversioned local default.* An unversioned local
+   build prints `shirabe 0.0.0` on the Rust side (from
+   `CARGO_PKG_VERSION` via `SHIRABE_VERSION`, per Decision 2) versus
+   `shirabe dev` on the Go side. Release and CI builds inject the
+   real version (`SHIRABE_VERSION` / `-ldflags`), so the published
+   binaries converge; only unversioned local builds differ, and the
+   default value isn't in the corpus.
+
+The contract these exceptions bound is precise: byte-for-byte on the
+GHA annotation stdout for the corpus. The three above are
+respectively an unreproducible OS string on an unexercised path, a
+stderr message outside the annotation contract, and a build-time
+value that converges in release. The tsuku recipe and the
+release/install pipeline consume the injected `--version`, not the
+local default, so the recipe contract is unaffected.
+
 **Why two layers instead of one fixture directory.** A single fixture
 in this repo covering every committed artifact across every caller
 would require embedding callers' corpora into shirabe — which doesn't
