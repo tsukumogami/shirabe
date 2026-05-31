@@ -160,8 +160,10 @@ checks:
    prescribed order: Status, Market Overview, Competitors, Comparative
    Matrix, Opportunities, Implications, References.
 2. Frontmatter fields (`schema`, `status`, `problem`, `scope`) are
-   present; `status` is one of `Draft | Accepted | Done`; `scope` is one
-   of `market | tool`.
+   present; `status` is one of `Draft | Accepted | Done`. `scope` is a
+   free-text description of the market slice under survey, not a
+   single-word category; the market-vs-tool framing is a Phase 1 scoping
+   decision, not a structural discriminator the validator enforces.
 3. The body Status section's first non-blank line matches the
    frontmatter `status` exactly (the bare status word on its own line, as
    the FC03 check requires).
