@@ -224,9 +224,7 @@ fn parse_yaml_fields(
         fields.insert(
             key.to_string(),
             FieldValue {
-                value: value
-                    .trim_end_matches('\n')
-                    .to_string(),
+                value: value.trim_end_matches('\n').to_string(),
                 line: absolute_line,
             },
         );
@@ -323,7 +321,9 @@ impl<'a> Iterator for SplitLines<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             Self::Empty => None,
-            Self::Lines(it) => it.next().map(|line| line.strip_suffix('\r').unwrap_or(line)),
+            Self::Lines(it) => it
+                .next()
+                .map(|line| line.strip_suffix('\r').unwrap_or(line)),
         }
     }
 }
@@ -336,7 +336,8 @@ mod tests {
 
     #[test]
     fn parse_doc_bytes_full_doc_with_schema_and_status() {
-        let input = "---\nschema: design/v1\nstatus: Proposed\n---\n\n# Title\n\n## Status\n\nProposed\n";
+        let input =
+            "---\nschema: design/v1\nstatus: Proposed\n---\n\n# Title\n\n## Status\n\nProposed\n";
         let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
         assert_eq!(doc.schema, "design/v1");
         assert_eq!(doc.status, "Proposed");
@@ -350,7 +351,11 @@ mod tests {
     fn parse_doc_bytes_no_frontmatter() {
         let input = "# Title\n\n## Status\n\nProposed\n";
         let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
-        assert!(doc.fields.is_empty(), "expected no fields, got {:?}", doc.fields);
+        assert!(
+            doc.fields.is_empty(),
+            "expected no fields, got {:?}",
+            doc.fields
+        );
         let names: Vec<&str> = doc.sections.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, vec!["Status"]);
     }
@@ -397,7 +402,8 @@ mod tests {
 
     #[test]
     fn parse_doc_bytes_heading_detection_only_hash_hash_prefix() {
-        let input = "---\nstatus: Active\n---\n\n### Not a section\n## Is a section\n#### Also not\n";
+        let input =
+            "---\nstatus: Active\n---\n\n### Not a section\n## Is a section\n#### Also not\n";
         let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
         assert_eq!(doc.status, "Active");
         let names: Vec<&str> = doc.sections.iter().map(|s| s.name.as_str()).collect();
@@ -418,8 +424,7 @@ mod tests {
     #[test]
     fn split_frontmatter_line_numbers() {
         let input = "---\nschema: design/v1\nstatus: Proposed\n---\nbody\n";
-        let (_, fm_start, body_start) =
-            split_frontmatter(input.as_bytes()).expect("split ok");
+        let (_, fm_start, body_start) = split_frontmatter(input.as_bytes()).expect("split ok");
         assert_eq!(fm_start, 2);
         assert_eq!(body_start, 5);
     }
@@ -445,10 +450,7 @@ mod tests {
         // extraction MUST coerce the typed scalar to its string form.
         let input = "---\nschema: plan/v1\nstatus: Active\nissue_count: 42\n---\n\n## Status\n";
         let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
-        let fv = doc
-            .fields
-            .get("issue_count")
-            .expect("issue_count missing");
+        let fv = doc.fields.get("issue_count").expect("issue_count missing");
         assert_eq!(fv.value, "42", "typed integer must coerce to string");
         assert_eq!(fv.line, 4, "issue_count is on line 4");
     }
