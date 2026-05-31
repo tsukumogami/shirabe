@@ -623,19 +623,22 @@ the release workflow needs. CI installs the same toolchain via
   reproducibility reason plus the additional churn of nightly's
   faster cadence and occasional breakage.
 
-**Deviation: no `build.rs` runtime toolchain check.** This design
-(and the PLAN's O4 outline) originally prescribed a `build.rs`
-runtime check that the active toolchain matches `rust-toolchain.toml`.
-That check was implemented and then removed; `build.rs` now does
-version injection only. The `rust-toolchain.toml` pin
-(`channel = "1.95.0"`, components `rustfmt` + `clippy`) is the actual
-enforcement — `rustup` honors it automatically and CI installs via
-`dtolnay/rust-toolchain` reading that file — so a runtime
-`rustc`-equality check duplicated the pin and added contributor
-friction (a deliberate local override would hard-warn on every
-build). It was dropped as redundant, not load-bearing: the
-Decision 2 version-injection mechanism is intact, and no CI step or
-tsuku recipe depends on the removed check.
+**Implementation note: the `build.rs` toolchain check is warn-only.**
+The design (and the PLAN's O4 outline) prescribed a `build.rs` runtime
+check that the active toolchain matches `rust-toolchain.toml`. It is
+implemented — `build.rs` does two jobs, version injection (Decision 2)
+and `verify_toolchain()` — but as a **warn-only** check: on a mismatch
+between the active `rustc` and the pinned `channel = "1.95.0"`, it
+emits a `cargo:warning` and never aborts the build. The pin itself
+stays the actual enforcement: `rustup` honors `rust-toolchain.toml`
+automatically and CI installs the pinned toolchain via
+`dtolnay/rust-toolchain` reading that file. The check exists to
+surface drift (a deliberately overridden local toolchain) before it
+could shift a `Debug`/`format!` byte the parity fixture depends on,
+not to gate the build — softening any hard-fail reading to warn-only
+keeps that drift signal without adding contributor friction. So the
+prescribed check is present, in its warn-only variant, beyond the
+strict pin.
 
 ### Decision 7: Captured Go baseline version pinning
 
