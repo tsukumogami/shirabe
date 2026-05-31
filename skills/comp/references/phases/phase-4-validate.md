@@ -89,9 +89,91 @@ Read all three verdict files. Then:
 
 ## Reviewer Rubrics
 
-<!-- The three reviewer rubrics (competitive-framing, content-quality,
-structural-format), with their per-rubric checks and the Verdict-line
-semantics, are filled in here. See the Phase 4 rubric content. -->
+### Competitive-framing reviewer rubric
+
+Checks the analysis reads as frank competitive observation rather than
+marketing copy. Three checks:
+
+1. **Per-competitor entries are strengths-and-weaknesses balanced.**
+   Each H3 subsection under Competitors must name at least one genuine
+   strength of the competitor AND at least one concrete weakness or
+   limitation. A subsection that lists only strengths reads as
+   endorsement; a subsection that lists only weaknesses reads as a hit
+   piece. Both fail the rubric. Specific failure signals: present-tense
+   claims of "industry-leading", "best-in-class", "superior",
+   "unmatched" without supporting evidence; absence of any limitation,
+   gap, or trade-off statement.
+2. **Opportunities name concrete gaps, not aspirations.** Each
+   Opportunity entry must name a specific gap the analysis surfaced (a
+   feature missing across competitors, a workflow none address, a price
+   point unfilled). Failure signal: phrasing like "we could build a
+   better X", "the market needs Y", "users want Z" without naming WHICH
+   competitor lacks the capability or WHAT specific gap is unfilled.
+   Aspirational without grounding fails.
+3. **Implications connect findings to specific choices.** Each
+   Implication must name a product or technical choice the analysis
+   informs — a feature to build, a feature to skip, a positioning shift,
+   a technical constraint. Failure signal: restating an Opportunity in
+   different prose; ending with "we should think about X" rather than
+   "the analysis suggests we should/should-not do Y because of finding
+   Z".
+
+Verdict: PASS if all three checks pass for all per-competitor entries,
+all Opportunities, and all Implications. FAIL otherwise, with the
+specific entry/check pair listed.
+
+### Content-quality reviewer rubric
+
+Checks the analysis content is dimensionally rigorous and externally
+sourced. Three checks:
+
+1. **Market Overview names competitive dimensions explicitly.** The
+   Market Overview must enumerate the dimensions along which competitors
+   are compared — e.g., "pricing model", "deployment model", "target
+   user", "feature breadth", "integration surface". Failure signal:
+   prose that describes the market without naming what axes the analysis
+   uses to compare. Without named dimensions, the Comparative Matrix's
+   column choice is unanchored.
+2. **Comparative Matrix applies the named dimensions consistently across
+   competitors.** Every competitor row must have a value for every
+   named-dimension column. "N/A" is acceptable if the dimension
+   genuinely doesn't apply; "TBD" is a failure signal. Adding columns
+   mid-table that only apply to some competitors is a failure signal —
+   those columns belong in per-competitor entries, not the matrix.
+3. **References cite external, accessible, and dated sources.** Every
+   entry in the References section must be an external URL (no private
+   workspace paths, no internal-only links). Each reference should
+   include a date or version where the cited content is
+   version-dependent (release notes, pricing page, documentation).
+   Failure signal: bare URLs without context; references to private
+   artifacts; references to URLs that require authentication to load.
+
+Verdict: PASS if all three checks pass. FAIL otherwise, with the failing
+checks named.
+
+### Structural-format reviewer rubric
+
+Checks the document conforms to the comp/v1 format spec. Six mechanical
+checks:
+
+1. All required sections from `comp-format.md` are present and in the
+   prescribed order: Status, Market Overview, Competitors, Comparative
+   Matrix, Opportunities, Implications, References.
+2. Frontmatter fields (`schema`, `status`, `problem`, `scope`) are
+   present; `status` is one of `Draft | Accepted | Done`; `scope` is one
+   of `market | tool`.
+3. The body Status section's first non-blank line matches the
+   frontmatter `status` exactly (the bare status word on its own line, as
+   the FC03 check requires).
+4. Per-competitor entries under the Competitors section use H3
+   subheadings (`###`). The Competitors section itself is H2.
+5. The Comparative Matrix is a Markdown table with a header row and at
+   least one data row.
+6. If status is `Accepted`, the Open Questions optional section is empty
+   or removed (Draft-only).
+
+Verdict: PASS if all six mechanical checks pass. FAIL otherwise, with the
+specific check number and the offending location named.
 
 ## Output
 
