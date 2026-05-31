@@ -1,7 +1,8 @@
 ---
 schema: plan/v1
-status: Draft
-execution_mode: single-pr
+status: Active
+execution_mode: multi-pr
+milestone: 7
 issue_count: 5
 upstream: docs/designs/DESIGN-shirabe-cli-rust-rewrite.md
 ---
@@ -10,7 +11,7 @@ upstream: docs/designs/DESIGN-shirabe-cli-rust-rewrite.md
 
 ## Status
 
-Draft
+Active
 
 This plan decomposes the rewrite into five outline-shaped work units corresponding
 to the five sequencing phases in the upstream design's Implementation Approach.
@@ -18,10 +19,11 @@ All five outlines ship in **one cohesive replacement PR** per the design's commi
 ("There is no cargo feature flag. The two languages coexist as distinct build
 targets during outlines 1–4; outline 5 is the cut.").
 
-Single-pr mode applies because the design explicitly forbids a multi-PR rollout
-(no Go-Rust feature-flag coexistence window). No GitHub milestone or issues
-are created; the outlines below carve the work and the PR commit boundaries
-inside the eventual implementation PR.
+Multi-pr mode here means issue-tracked, not separately-merged: each outline is
+filed as a GitHub issue under milestone "Shirabe CLI Rust Rewrite" (#7) for
+sub-task tracking, but all five close together when the one cohesive
+replacement PR merges. The issues exist so progress is visible and reviewable
+at the outline granularity, not to force five separate merges.
 
 ## Scope Summary
 
@@ -199,6 +201,23 @@ source tree.
 - [ ] `validate-docs.yml` build step uses `cargo build --release --bin shirabe`.
 
 **Dependencies:** Outline 4.
+
+## Implementation Issues
+
+### Milestone: [Shirabe CLI Rust Rewrite](https://github.com/tsukumogami/shirabe/milestone/7)
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#129: [O1] Cargo workspace skeleton](https://github.com/tsukumogami/shirabe/issues/129) | None | simple |
+| _Establish the Rust build surface (Cargo workspace with `shirabe-validate` library + `shirabe` binary crates, `rust-toolchain.toml`, CI step) alongside the existing Go build._ | | |
+| [#130: [O2] Frontmatter parser and Doc/FormatSpec types](https://github.com/tsukumogami/shirabe/issues/130) | [#129](https://github.com/tsukumogami/shirabe/issues/129) | testable |
+| _Port the YAML frontmatter parser with per-key line-number support via `saphyr`'s `MarkedYamlOwned`, plus the Doc/FormatSpec types and format-detection logic._ | | |
+| [#131: [O3] Validation checks and annotation emitter](https://github.com/tsukumogami/shirabe/issues/131) | [#130](https://github.com/tsukumogami/shirabe/issues/130) | critical |
+| _Port the seven validation rules (SCHEMA, FC01–FC04, R6, R7) and the byte-precise GHA annotation emitter — the core public contract of `shirabe validate`._ | | |
+| [#132: [O4] Binary crate and CLI surface](https://github.com/tsukumogami/shirabe/issues/132) | [#131](https://github.com/tsukumogami/shirabe/issues/131) | testable |
+| _Wire the clap CLI binary, `--version` template, `--custom-statuses` 64 KiB cap, and the exit-code contract. Builds as `shirabe-rs` until O5._ | | |
+| [#133: [O5] Golden-output fixture, reusable parity workflow, and release pipeline cut](https://github.com/tsukumogami/shirabe/issues/133) | [#132](https://github.com/tsukumogami/shirabe/issues/132) | critical |
+| _Lock the byte-for-byte preservation contract via the two-layer parity mechanism, swap the release pipeline to Cargo, rename `shirabe-rs` → `shirabe`, and atomically delete the Go source tree._ | | |
 
 ## Dependency Graph
 
