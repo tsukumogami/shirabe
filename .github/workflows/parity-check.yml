@@ -1,0 +1,148 @@
+name: Parity Check
+
+# Reusable byte-for-byte parity check between the Go and Rust `shirabe`
+# binaries (DESIGN-shirabe-cli-rust-rewrite.md, Decision 3 "Layer 2").
+#
+# A downstream repo includes this from its own CI to assert that the Rust
+# `shirabe validate` reproduces the Go binary's stdout, stderr, and exit
+# code byte-for-byte on the caller's own committed doc corpus. It is the
+# portable half of the preservation contract: shirabe cannot embed every
+# caller's artifacts, so each caller runs the same assertion against its
+# own files at a pinned shirabe tag.
+#
+# Example caller (in a downstream repo's .github/workflows/):
+#
+#   jobs:
+#     shirabe-parity:
+#       uses: tsukumogami/shirabe/.github/workflows/parity-check.yml@v0.7.0
+#       with:
+#         corpus-glob: "docs/**/*.md"
+#
+# Inputs:
+#
+#   | Input                | Required | Default        | Description |
+#   |----------------------|----------|----------------|-------------|
+#   | corpus-glob          | yes      | -              | Glob (git ls-files pathspec) of caller files to test. Files whose basename has no shirabe format prefix (DESIGN-/PRD-/PLAN-/ROADMAP-/VISION-/STRATEGY-/BRIEF-) are silently skipped, mirroring the CLI's detect-format skip. |
+#   | go-baseline-ref      | no       | 20fb8ed        | Git ref (SHA/tag/branch) of the shirabe Go tree to BUILD the baseline binary from. The workflow checks it out and runs `go build` rather than downloading a release: no published tag carries the post-#134 contract (Decision 7), and a pinned SHA is an immutable baseline. |
+#   | rust-ref             | no       | <called ref>   | Git ref of shirabe to BUILD the Rust binary from. Defaults to the ref this workflow was called at (github.job_workflow_sha), so a caller pinning `@v0.7.0` tests the v0.7.0 Rust binary. Built from source for the same reason as the Go side (a release may not exist yet). |
+#
+# Failure modes:
+#   - Any per-file byte mismatch on stdout, stderr, or exit code: the
+#     workflow prints a side-by-side diff (same shape as Layer 1's
+#     parity.rs) and exits non-zero. Treat as a required check.
+#   - go-baseline-ref unbuildable (Go tree deleted at that ref, missing
+#     cmd/shirabe): build step fails loudly; pin a ref whose Go tree exists.
+#   - No matched files after the format-prefix filter: the workflow logs a
+#     notice and passes (nothing to assert), matching the CLI's no-op on an
+#     empty file list.
+
+on:
+  workflow_call:
+    inputs:
+      corpus-glob:
+        description: "Glob of caller files to parity-test (git ls-files pathspec)."
+        required: true
+        type: string
+      go-baseline-ref:
+        description: "Git ref of the shirabe Go tree to build the baseline from (default: pinned baseline commit)."
+        required: false
+        type: string
+        default: "20fb8ed"
+      rust-ref:
+        description: "Git ref of shirabe to build the Rust binary from (default: the called workflow ref)."
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  parity-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          path: caller
+
+      - name: Checkout shirabe (Go baseline ref)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: tsukumogami/shirabe
+          ref: ${{ inputs.go-baseline-ref }}
+          path: shirabe-go
+
+      - name: Checkout shirabe (Rust ref)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: tsukumogami/shirabe
+          # github.job_workflow_sha is the commit SHA of THIS reusable workflow
+          # as referenced by the caller's `uses: ...@<ref>`, so a caller pinning
+          # `@<tag>` builds the Rust binary at <tag>. Overridable via rust-ref.
+          ref: ${{ inputs.rust-ref != '' && inputs.rust-ref || github.job_workflow_sha }}
+          path: shirabe-rust
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5  # v6.2.0
+        with:
+          go-version-file: shirabe-go/go.mod
+          cache-dependency-path: shirabe-go/go.sum
+
+      - name: Install Rust toolchain
+        # Reads rust-toolchain.toml at the Rust checkout root and installs the pin.
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Build Go baseline binary
+        run: |
+          cd shirabe-go
+          go build -o "${RUNNER_TEMP}/shirabe-go" ./cmd/shirabe
+
+      - name: Build Rust binary
+        run: |
+          cd shirabe-rust
+          cargo build --release --bin shirabe
+          cp target/release/shirabe "${RUNNER_TEMP}/shirabe-rust"
+
+      - name: Run parity check
+        env:
+          CORPUS_GLOB: ${{ inputs.corpus-glob }}
+        run: |
+          set -uo pipefail
+          GO_BIN="${RUNNER_TEMP}/shirabe-go"
+          RS_BIN="${RUNNER_TEMP}/shirabe-rust"
+          cd caller
+
+          # Resolve the caller's matched files via git (pathspec), then keep
+          # only those whose basename carries a shirabe format prefix -- the
+          # CLI skips the rest, so they have no annotation contract to compare.
+          mapfile -t files < <(git ls-files -- ${CORPUS_GLOB} \
+            | grep -E '(^|/)(DESIGN|PRD|PLAN|ROADMAP|VISION|STRATEGY|BRIEF)-[^/]*$' || true)
+
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::notice::parity-check: no format-prefixed files matched '${CORPUS_GLOB}'; nothing to assert"
+            exit 0
+          fi
+
+          fail=0
+          for f in "${files[@]}"; do
+            go_out="$("${GO_BIN}" validate "${f}" 2>/tmp/go.err)"; go_code=$?
+            rs_out="$("${RS_BIN}" validate "${f}" 2>/tmp/rs.err)"; rs_code=$?
+
+            if [ "${go_out}" != "${rs_out}" ] || \
+               [ "$(cat /tmp/go.err)" != "$(cat /tmp/rs.err)" ] || \
+               [ "${go_code}" != "${rs_code}" ]; then
+              fail=1
+              echo "::error file=${f}::parity mismatch (Go vs Rust shirabe validate)"
+              echo "----- ${f}: stdout (Go | Rust) -----"
+              diff <(printf '%s' "${go_out}") <(printf '%s' "${rs_out}") || true
+              echo "----- ${f}: stderr (Go | Rust) -----"
+              diff /tmp/go.err /tmp/rs.err || true
+              echo "----- ${f}: exit code: Go=${go_code} Rust=${rs_code} -----"
+            fi
+          done
+
+          if [ "${fail}" -ne 0 ]; then
+            echo "::error::parity-check: Go/Rust shirabe output diverged on one or more files"
+            exit 1
+          fi
+          echo "parity-check: all ${#files[@]} matched files byte-identical (stdout + stderr + exit)"
