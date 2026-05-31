@@ -1,0 +1,202 @@
+{
+  "skill_name": "scope",
+  "description": "Eval suite for /scope, the second parent skill in the shirabe parent-skill pattern and the first to bind the tactical chain (BRIEF -> PRD -> DESIGN -> PLAN). Scenarios 1-6 (baseline-*) are the canonical shared eval baseline per Design Decision 4 in docs/designs/DESIGN-shirabe-progression-authoring.md, copied and adapted verbatim from /charter's evals.json (prompts read /scope; paths read BRIEF/PRD/DESIGN/PLAN; the abandonment marker reads scope-status-block: rather than charter-status-block:). Scenarios 7-13 (us-*) cover /scope-specific PRD User Stories US-1 through US-6 per AC24b, with US-3 split into US-3a (PRD-boundary re-evaluation) and US-3b (DESIGN-boundary re-evaluation) to honor /scope's two settled-upstream boundaries. Baseline scenarios use the 'baseline-' name prefix and appear first; user-story scenarios use the 'us-' name prefix and follow.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "baseline-slug-rejection",
+      "prompt": "/scope MyTopic",
+      "expected_output": "Phase 0 validates the topic slug 'MyTopic' against the pattern-level regex ^[a-z0-9-]+$ and rejects it because of the uppercase letters, surfacing a clear error message that names the violated pattern. No state file is created. Other invocations such as /scope my_topic (underscore), /scope my.topic (dot), and /scope \"Hello World\" (whitespace and uppercase) are rejected the same way. Phase 0 validates $ARGUMENTS as provided byte-for-byte against the regex; there is no normalization, no derivation, and no \"best effort\" massaging.",
+      "files": [],
+      "expectations": [
+        "Plan validates the topic slug 'MyTopic' against the regex ^[a-z0-9-]+$ at Phase 0 and rejects it with a clear error naming the violated pattern",
+        "Plan rejects /scope my_topic at Phase 0 for the underscore violation, /scope my.topic for the dot violation, and /scope \"Hello World\" for the whitespace and uppercase violation",
+        "Plan applies validation byte-for-byte against $ARGUMENTS with no normalization, no derivation, no auto-substitution into a conforming slug",
+        "Plan does NOT create wip/scope_<topic>_state.md on rejection; Phase 0 stops at the regex check",
+        "Plan names the violation category in the rejection error message (uppercase, underscore, dot, whitespace) so the author knows what to fix before re-invoking /scope"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "baseline-malformed-state",
+      "prompt": "/scope test-topic",
+      "expected_output": "wip/scope_test-topic_state.md exists but is malformed (unparseable YAML, missing required field for the recorded phase_pointer, or invalid exit / decision_record_sub_shape / boundary combination). The resume ladder fires row 1, surfaces a hard error naming the specific malformation, and offers Discard as the recovery path. /scope MUST NOT silently fall through to Phase 0 (row 9); malformed state is a contract violation surface, not a missing-state surface.",
+      "files": ["wip/scope_test-topic_state.md"],
+      "expectations": [
+        "Plan detects the malformed state file at row 1 of the resume ladder and surfaces a hard error naming the specific malformation (e.g., unparseable YAML, missing required field, invalid exit / boundary / decision_record_sub_shape combo)",
+        "Plan offers Discard as the recovery path on row 1; the author confirms before the state file is removed",
+        "Plan does NOT silently fall through to row 9 (Phase 0 start fresh) when the state file is malformed; row 1 is terminal",
+        "Plan does not absorb or paraphrase the malformation; the error message names what is wrong so the author can decide between repair-by-hand or Discard"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "baseline-child-internals-isolation",
+      "prompt": "/scope test-topic",
+      "expected_output": "On resume against an existing chain state, /scope reads only the three permitted sources: child doc frontmatter status: at the published path, the child doc git blob hash (via read-only git hash-object), and /scope's own state file. /scope does NOT read child internal phase pointers, does NOT read wip/research/<child>_<topic>_phase<N>_*.md files, does NOT read any child wip/ intermediate beyond the named partial-run-detection patterns wip/brief_<topic>_*, wip/prd_<topic>_*, wip/design_<topic>_*, wip/plan_<topic>_* (Slot 6 of the resume ladder). Manual-review verified by code-path inspection per AC20b.",
+      "files": [],
+      "expectations": [
+        "Plan reads child doc frontmatter status: from the published path (docs/briefs/BRIEF-<topic>.md, docs/prds/PRD-<topic>.md, docs/designs/DESIGN-<topic>.md, docs/designs/current/DESIGN-<topic>.md, docs/plans/PLAN-<topic>.md) only — never from child internal state",
+        "Plan computes child doc git blob hash via read-only git hash-object against the published path — without git hash-object -w and without writes to the child doc or to git history",
+        "Plan does NOT read wip/research/<child>_<topic>_phase<N>_*.md files, child internal phase pointers, or any child wip/ intermediate beyond the Slot 6 named patterns (wip/{brief,prd,design,plan}_<topic>_*)",
+        "Plan reads /scope's own state file at wip/scope_<topic>_state.md but no other child-private state, log files, comment threads, or CI output",
+        "Plan binds child internals isolation to the R14-widened rule documented in references/parent-skill-child-inspection.md (citation in code-path inspection)"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "baseline-visibility-default",
+      "prompt": "/scope test-topic",
+      "expected_output": "CLAUDE.md is missing the ## Repo Visibility: header. Phase 0 visibility detection defaults to Private and emits a warning whose body contains the literal phrase \"Default to Private if unknown\". The warning prose names the missing ## Repo Visibility: header explicitly so the author knows what file to edit and what content to add. The default-Private behavior is conservative: a public repo that forgets to declare visibility gets the more-restrictive treatment.",
+      "files": [],
+      "expectations": [
+        "Plan reads CLAUDE.md (or CLAUDE.local.md when present) and looks for a line matching ## Repo Visibility: (Public|Private)",
+        "Plan defaults to Private when the ## Repo Visibility: header is absent or its value is not Public or Private",
+        "Plan emits a warning whose body contains the literal phrase \"Default to Private if unknown\"",
+        "Plan names the missing ## Repo Visibility: header explicitly in the warning so the author knows what to add to CLAUDE.md",
+        "Plan records the resolved visibility for the rest of the /scope run; the conservative default is documented per R12"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "baseline-team-lead-discipline-loop-ordering",
+      "prompt": "/scope test-topic",
+      "expected_output": "The Team-Lead Operating Discipline section in references/parent-skill-pattern.md (invariant I-7) documents a strict priority ordering for the team-lead's sleep-check-nudge loop: filesystem evidence (priority 1) MUST be checked before inbox processing (priority 2), which MUST be checked before sending a nudge (priority 3). The priority ordering is stated as STRICT, not advisory — a team-lead that consults the inbox before checking filesystem evidence misses durable terminal-artifact PASS that the peer has already produced; a team-lead that nudges before reading the inbox produces noise. /scope SKILL.md cites the discipline by path and by invariant ID I-7 from its Workflow Phases prelude, naming the implementation-pass task class (120s window / 10-cycle patience budget) as the binding for each child invocation (/brief, /prd, /design, /plan).",
+      "files": [],
+      "expectations": [
+        "Plan verifies that references/parent-skill-pattern.md Team-Lead Operating Discipline section documents priority 1 as filesystem evidence (artifact presence, git log for new commits since dispatch, wip/ growth)",
+        "Plan verifies that priority 2 is inbox processing of structured PASS/FAIL/PROGRESS verdicts; idle pings do NOT count as inbox messages and MUST NOT reset the patience budget",
+        "Plan verifies that priority 3 is the nudge, which MUST contain directly-executable instructions (what artifact, where, what verdict to reply with); generic nudges are forbidden",
+        "Plan verifies that the priority ordering is documented as STRICT (not advisory) — filesystem evidence BEFORE inbox messages BEFORE nudges, with the rationale that out-of-order checks lose evidence or produce noise",
+        "Plan verifies that /scope SKILL.md cites the discipline by path (${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) and by invariant ID (I-7), naming the implementation-pass task class (120s window / 10-cycle patience budget) for each child invocation"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "baseline-default-option-wording",
+      "prompt": "/scope test-topic",
+      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md. /scope's resume ladder fires Slot 5 row 5.6 (PRD-Accepted) and surfaces the entry-router prompt against the existing upstream. The prompt MUST contain the literal substring \"Re-evaluate / Revise / Bail\" (case-insensitive components allowed). The prompt MUST NOT contain the literal substring \"Continue / Start fresh\" — that vocabulary belongs to /prd's status-aware re-entry and would hijack /scope's flow. The three options Re-evaluate, Revise, and Bail are co-equal with no leading question; default-option wording is part of /scope's contract surface, not a UX detail. The same contract holds at row 5.4 (DESIGN-Accepted boundary) substituting DESIGN-boundary identification for PRD-boundary.",
+      "files": ["docs/prds/PRD-test-topic.md"],
+      "expectations": [
+        "Plan ensures the entry-router prompt against an existing Accepted PRD contains the literal substring \"Re-evaluate / Revise / Bail\" (case-insensitive components allowed)",
+        "Plan ensures the entry-router prompt MUST NOT contain the literal substring \"Continue / Start fresh\" — that vocabulary belongs to /prd and would hijack /scope's flow",
+        "Plan ensures the three options Re-evaluate, Revise, and Bail are presented as co-equal with no leading question; default-option wording is part of the contract surface per the pattern reference's Required SKILL.md Structural Elements section",
+        "Plan ensures the same contract holds at Slot 5 row 5.4 (DESIGN-Accepted boundary): the triad is identical; the boundary identification differs (DESIGN-boundary vs PRD-boundary)"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "us-1-cold-standalone-full-run",
+      "prompt": "/scope test-topic",
+      "expected_output": "Cold-start invocation against a fresh worktree under public-repo visibility: no wip/scope_test-topic_state.md exists, no upstream BRIEF/PRD/DESIGN/PLAN exists at the canonical paths. /scope walks Phase 1 discovery surfacing the framing-shift question, evaluates the four child gates (R4 EITHER-signal for /brief, R5 Mandatory-with-auto-skip for /prd, R7 shape-dependent for /design via R6 predicates P1+P2+P3, ALWAYS for /plan), emits the chain-proposal output containing the literal Proceed / Adjust / Bail substrings. The author selects Proceed; Phase 2 invokes /brief -> /prd -> /design -> /plan in sequence; each invocation writes parent_orchestration: sentinel immediately before, clears it immediately after; shirabe validate --visibility=public runs against each intermediate. The terminal PLAN lives at docs/plans/PLAN-test-topic.md (status Draft when plan_execution_mode: single-pr; status Active when plan_execution_mode: multi-pr). State file: exit: full-run, exit_artifacts lists docs/plans/PLAN-test-topic.md, plan_execution_mode set, chain_started + chain_completed timestamps populated.",
+      "files": [],
+      "expectations": [
+        "Plan starts from Phase 0 (fresh worktree; no state file, no upstream artifacts) and validates the test-topic slug against ^[a-z0-9-]+$",
+        "Plan walks Phase 1 discovery, surfaces the framing-shift question, and evaluates the four child gates per the Gate Vocabulary (EITHER-signal for /brief, Mandatory-with-auto-skip for /prd, shape-dependent for /design, ALWAYS for /plan)",
+        "Plan emits the chain-proposal output containing the literal substrings Proceed, Adjust, and Bail; the author selects Proceed and Phase 2 begins",
+        "Plan invokes /brief, /prd, /design, /plan in order via each child's existing input mode (topic-slug argument), writing parent_orchestration: sentinel immediately before each invocation and clearing it immediately after",
+        "Plan runs shirabe validate --visibility=public against each intermediate after the structural file-existence check passes; failed validation halts the chain and routes to R8 bail-handling",
+        "Plan writes the terminal PLAN at docs/plans/PLAN-test-topic.md (Draft for single-pr; Active for multi-pr alongside a GitHub milestone)",
+        "Plan writes state file with exit: full-run; exit_artifacts contains the PLAN path with its status; plan_execution_mode is set per the selection; conditional fields boundary, decision_record_sub_shape, discard_commit_sha, rejection_rationale, triggering_child, partial_phase_reached are ABSENT per R9 conditional-field gating"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "us-2-prd-auto-skip",
+      "prompt": "/scope test-topic",
+      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists. /scope's Phase 1 evaluates R5 (Mandatory-with-auto-skip for /prd) and records /prd in chain_skipped with reason 'accepted-prd-at-canonical-path'. The chain proceeds to the next gate. /scope MUST NOT silently overwrite the Accepted PRD. The remaining chain invokes /design (per R7 shape-dependent if R6 predicates fire; chain_skipped otherwise) and /plan (ALWAYS). State file: chain_skipped contains an entry { name: prd, reason: accepted-prd-at-canonical-path }; planned_chain contains the children whose gates fired (not /prd). When PLAN reaches Active status under /work-on, a subsequent /scope test-topic invocation fires Slot 5 row 5.1 (PLAN-Active) and surfaces a refuse-and-redirect prompt containing the literal substring 'redirect to /work-on' (case-insensitive); the Re-evaluate / Revise / Bail triad MUST NOT appear at that row.",
+      "files": ["docs/prds/PRD-test-topic.md"],
+      "expectations": [
+        "Plan detects the Accepted PRD at docs/prds/PRD-test-topic.md and records /prd in chain_skipped: with reason 'accepted-prd-at-canonical-path' per the Mandatory-with-auto-skip gate semantics",
+        "Plan MUST NOT silently overwrite the Accepted PRD; the auto-skip protects settled-upstream artifacts from being clobbered",
+        "Plan's planned_chain: contains the children whose gates fired (not /prd); chain_skipped: holds the /prd entry with its reason",
+        "Plan ensures a later invocation against PLAN-Active fires Slot 5 row 5.1 and surfaces a prompt containing 'redirect to /work-on' (case-insensitive)",
+        "Plan ensures a later invocation against PLAN-Done fires Slot 5 row 5.2 and surfaces a prompt containing 'redirect to /release' (case-insensitive)",
+        "Plan ensures neither PLAN-Active nor PLAN-Done rows contain the 'Re-evaluate / Revise / Bail' triad — refuse-and-redirect is not a re-evaluation exit per AC17c"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "us-3a-prd-boundary-re-evaluation",
+      "prompt": "/scope test-topic",
+      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists at docs/designs/current/DESIGN-test-topic.md. /scope's resume ladder fires Slot 5 row 5.6 (PRD-Accepted) and surfaces an entry prompt containing the literal substrings 'Re-evaluate', 'Revise', and 'Bail' (case-insensitive) identifying the boundary as PRD-boundary. The prompt MUST NOT contain 'Continue / Start fresh'. The author selects Re-evaluate; /scope walks the existing PRD's acceptance criteria, finds them still warranted, and writes a re-evaluation Decision Record at docs/decisions/DECISION-prd-test-topic-re-evaluation-<YYYY-MM-DD>.md referencing the existing PRD by path (referenced_artifact:). The child /prd is NOT invoked; /scope authors the Decision Record directly using the template at skills/scope/references/decision-record-prd-re-evaluation.md. State file: exit: re-evaluation, boundary: prd, decision_record_sub_shape: re-evaluation, referenced_artifact: docs/prds/PRD-test-topic.md.",
+      "files": ["docs/prds/PRD-test-topic.md"],
+      "expectations": [
+        "Plan detects the Accepted PRD and fires resume-ladder Slot 5 row 5.6 with the prompt offering Re-evaluate / Revise / Bail (case-insensitive substrings present) identifying the PRD-boundary",
+        "Plan ensures the row 5.6 prompt does NOT contain 'Continue / Start fresh' — that is /prd's status-aware re-entry vocabulary, not /scope's",
+        "Plan walks the existing PRD's acceptance criteria when Re-evaluate is selected and concludes whether they still hold",
+        "Plan writes the re-evaluation Decision Record at docs/decisions/DECISION-prd-test-topic-re-evaluation-<YYYY-MM-DD>.md using the template at skills/scope/references/decision-record-prd-re-evaluation.md, with the five ADR-style sections Status, Context, Decision, Options Considered, Consequences",
+        "Plan ensures the Decision Record's Options Considered section names 'revise the PRD' and 'force-abandon the chain' as rejected alternatives",
+        "Plan ensures the Decision Record's Consequences references the existing PRD at its referenced_artifact: path (per Decision 5's frozen-snapshot semantics), NOT the Decision Record's own path",
+        "Plan does NOT invoke /prd on the Re-evaluate path; /scope authors the Decision Record directly",
+        "Plan writes state file with exit: re-evaluation, boundary: prd, decision_record_sub_shape: re-evaluation, referenced_artifact: docs/prds/PRD-test-topic.md; conditional fields discard_commit_sha, rejection_rationale, triggering_child, partial_phase_reached are ABSENT"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "us-3b-design-boundary-re-evaluation",
+      "prompt": "/scope test-topic",
+      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md AND an Accepted DESIGN exists at docs/designs/current/DESIGN-test-topic.md. /scope's resume ladder fires Slot 5 row 5.4 (DESIGN-Accepted) BEFORE row 5.6 (PRD-Accepted) per the most-downstream-first ordering (AC17b). The prompt offered identifies the boundary as DESIGN-boundary and contains 'Re-evaluate / Revise / Bail'; it does NOT contain 'Continue / Start fresh'. The author selects Re-evaluate; /scope writes a Decision Record at docs/decisions/DECISION-design-test-topic-re-evaluation-<YYYY-MM-DD>.md using the template at skills/scope/references/decision-record-design-re-evaluation.md. State file: exit: re-evaluation, boundary: design, decision_record_sub_shape: re-evaluation, referenced_artifact: docs/designs/current/DESIGN-test-topic.md. The PLAN authored against this DESIGN remains untouched.",
+      "files": ["docs/prds/PRD-test-topic.md", "docs/designs/current/DESIGN-test-topic.md"],
+      "expectations": [
+        "Plan detects both Accepted artifacts and fires Slot 5 row 5.4 (DESIGN-Accepted) BEFORE row 5.6 (PRD-Accepted) per the most-downstream-first first-match-wins ordering (AC17b)",
+        "Plan's row 5.4 prompt identifies the boundary as DESIGN-boundary and contains the literal substring 'Re-evaluate / Revise / Bail' (case-insensitive)",
+        "Plan's row 5.4 prompt MUST NOT contain 'Continue / Start fresh'",
+        "Plan writes the DESIGN-boundary Decision Record at docs/decisions/DECISION-design-test-topic-re-evaluation-<YYYY-MM-DD>.md using the template at skills/scope/references/decision-record-design-re-evaluation.md; the Consequences references the existing DESIGN at docs/designs/current/DESIGN-test-topic.md per the Planned-to-Current lifecycle move",
+        "Plan triggers NO PLAN regeneration on the DESIGN-boundary re-evaluation; the PLAN authored against this DESIGN continues to apply",
+        "Plan writes state file with exit: re-evaluation, boundary: design, decision_record_sub_shape: re-evaluation, referenced_artifact pointing to the Current-lifecycle DESIGN path"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "us-4-prd-rejection-sub-shape",
+      "prompt": "/scope test-topic",
+      "expected_output": "Cold start. /scope invokes /prd per R5; /prd reaches Phase 4 and the author selects Reject as a deliberate finalization judgment (NOT a bail). /prd runs git rm docs/prds/PRD-test-topic.md, cleans up wip/prd_test-topic_*, and commits the discard with message docs(prd): discard PRD draft for test-topic. Control returns to /scope; /scope captures the discard commit SHA via read-only git log (no git writes from /scope). /scope writes a Decision Record at docs/decisions/DECISION-prd-test-topic-rejection-<YYYY-MM-DD>.md citing the discard commit SHA and the author's rejection rationale (passed through stdin/git commit -F, not interpolated into git commit -m). State file: exit: re-evaluation, boundary: prd, decision_record_sub_shape: rejection, discard_commit_sha: <sha>, rejection_rationale: <text>. /design and /plan auto-skipped per the rejection-sub-shape termination rule (chain_skipped records both with reason 'PRD-boundary rejection'). When a subsequent /scope test-topic invocation finds the discard commit but the rejection was out-of-chain (Phase-N Reject fired outside /scope), NO retroactive Decision Record is written per AC30c — the discard commit alone is the durable trace.",
+      "files": [],
+      "expectations": [
+        "Plan invokes /prd per R5 and the chain reaches /prd's Phase 4 finalization phase",
+        "Plan recognizes /prd Phase 4 Reject as /prd's deliberate finalization judgment routed into the rejection sub-shape — NOT routed as a bail (which would produce abandonment-forced)",
+        "Plan respects that /prd runs git rm docs/prds/PRD-test-topic.md, cleans wip/prd_test-topic_*, and commits the discard; /scope issues NO git writes during the rejection orchestration",
+        "Plan captures the discard commit SHA via read-only git log after /prd returns control to /scope",
+        "Plan writes the rejection Decision Record at docs/decisions/DECISION-prd-test-topic-rejection-<YYYY-MM-DD>.md using the template at skills/scope/references/decision-record-prd-rejection.md with the five ADR-style sections",
+        "Plan ensures the Context section references the discard commit SHA inline so a future reader can navigate to the git history",
+        "Plan ensures author-supplied rejection_rationale is passed to git commit via -F or stdin (never interpolated into git commit -m \"...\") per the security discipline",
+        "Plan writes state file with exit: re-evaluation, boundary: prd, decision_record_sub_shape: rejection, discard_commit_sha, rejection_rationale; chain_skipped records /design and /plan with reason 'PRD-boundary rejection'",
+        "Plan ensures AC30c: when the discard commit is observed but the rejection fired OUT-OF-CHAIN (no parent_orchestration: sentinel was present), NO retroactive Decision Record is written; the discard commit alone is the durable trace"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "us-5-mid-chain-abandonment-forced",
+      "prompt": "/scope test-topic",
+      "expected_output": "wip/scope_test-topic_state.md exists with phase_pointer past Phase 0, exit: UNSET, and last_updated more than 7 days old. /scope's resume ladder fires row 4 (state file stale) and surfaces the three-option prompt Resume / Force-materialize / Discard. The author selects Force-materialize. /scope resolves the most-recently-running child via R8's tie-break (the child whose Phase 2 invocation began most recently per the state-file's chain_ran timestamps; tie-break on identical timestamps goes to the later child in planned_chain). /scope force-materializes that child's intermediate as a schema-compliant Draft artifact at the canonical path (docs/{briefs|prds|designs|plans}/<TYPE>-test-topic.md). The Draft contains a single-line HTML-comment marker <!-- scope-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> --> at the END of the artifact's existing Status section (not in a new section that would invalidate the host artifact-type's schema validator). The marker uniformly applies to all four artifact types (BRIEF/PRD/DESIGN/PLAN). State file: exit: abandonment-forced, triggering_child: <child-name>, partial_phase_reached: <phase-name>.",
+      "files": ["wip/scope_test-topic_state.md"],
+      "expectations": [
+        "Plan detects last_updated >= 7 days old at row 4 of the resume ladder and surfaces the three-option prompt Resume / Force-materialize / Discard",
+        "Plan routes Force-materialize into the abandonment-forced exit and resolves the triggering child via R8's most-recently-running tie-break (state-file timestamps; secondary order by planned_chain position)",
+        "Plan emits the HTML-comment marker <!-- scope-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> --> at the END of the force-materialized artifact's existing Status section, NOT in a new required section",
+        "Plan ensures the marker uses the literal substring 'scope-status-block: abandonment-forced' as the grep-checkable prefix (not 'charter-status-block:' — the uniform marker text is parent-specific to /scope)",
+        "Plan ensures the marker uses hyphenated field names (triggering-child, partial-phase-reached, chain-started) per the marker convention; this differs from the underscored YAML state-schema field names (triggering_child, partial_phase_reached, chain_started) by design",
+        "Plan keeps the host artifact type's schema validator passing by using HTML-comment syntax (the marker is invisible to schema validation; greppable for tools and human readers)",
+        "Plan writes state file with exit: abandonment-forced, triggering_child set to the resolved child name, partial_phase_reached set to the phase pointer the triggering child had reached, chain_completed set to the abandonment timestamp",
+        "Plan keeps boundary and decision_record_sub_shape ABSENT from the state file per R9 conditional-field gating; abandonment-forced exits do not carry Decision Record discriminators",
+        "Plan accepts BRIEF, PRD, DESIGN, or PLAN as the host artifact type for the force-materialized Draft per R8's tie-break resolution; the marker is uniform across all four"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "us-6-manual-fallback-reviewer-redirect",
+      "prompt": "/scope test-topic",
+      "expected_output": "Pre-populated: docs/prds/PRD-test-topic.md at status Accepted, and wip/scope_test-topic_state.md whose child_snapshots.prd records path: docs/prds/PRD-test-topic.md plus status: Accepted plus content_hash matching the PRD's git hash-object value at snapshot time. A reviewer invokes /prd docs/prds/PRD-test-topic.md directly outside /scope; /prd produces a revised Draft, flipping the frontmatter status: from Accepted to Draft and rewriting the body. The live git hash-object now differs from the snapshot's content_hash. /scope does NOT interfere with the manual /prd invocation: no warning, no state-file write, no block. On the next /scope test-topic invocation, the resume ladder runs drift detection (dual check: status OR content_hash differs from the snapshot) and surfaces the three-option staleness prompt Re-run / Accept / Proceed-without.",
+      "files": ["docs/prds/PRD-test-topic.md", "wip/scope_test-topic_state.md"],
+      "expectations": [
+        "Plan respects R13 manual-fallback non-interference: when the reviewer invokes /prd directly outside /scope, /scope emits no warning, performs no state-file write against the manual invocation, and does NOT block direct child invocation",
+        "Plan reads the child doc's frontmatter status: and computes the child doc's git hash-object (read-only) at the published path on resume, then compares both against the recorded child_snapshots.prd entry (path + status + content_hash)",
+        "Plan fires drift detection when EITHER the live status differs from the snapshot status OR the live content_hash (blob hash) differs from the snapshot content_hash — both directions of the dual check are load-bearing per AC18a/AC18b",
+        "Plan surfaces the three-option staleness prompt naming Re-run (re-invoke the affected child), Accept (record acknowledgment and proceed), and Proceed-without (skip the affected child for this chain)",
+        "Plan reads only the durable externally-visible status surface (frontmatter status: + git blob hash) per the R14-widened rule; the plan does NOT read child internals, wip/research/<child>_*.md, or any other child-private state to detect drift",
+        "Plan does NOT act on drift unilaterally; the staleness prompt surfaces /scope's three options and the author chooses the path"
+      ]
+    }
+  ]
+}

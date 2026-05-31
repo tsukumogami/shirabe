@@ -122,6 +122,20 @@ Slot-filling rules:
   the child to suppress its own status-aware re-entry) is named in the
   parent's SKILL.md.
 
+Some parents' terminal artifacts have lifecycle states owned by
+downstream skills (e.g., `/scope`'s PLAN doc has an Active state owned
+by `/work-on` and a Done state owned by `/release`). The parent's Slot
+5 entries for those states SHALL refuse re-entry and emit a redirect
+prompt naming the downstream-owning skill. The redirect prompt SHALL
+contain the literal substring `redirect to /<skill-name>` (case-
+insensitive) and SHALL NOT contain the Re-evaluate / Revise / Bail
+triad (refuse-and-redirect is not a re-evaluation exit; the
+downstream skill owns the artifact). When the parent's chain has no
+downstream-owning skill (e.g., `/charter`'s STRATEGY is Accepted-
+terminal), the parent's Slot 5 entries for the corresponding
+lifecycle states are vacuous — the slot template accommodates both
+cases without changing the 9-row meta-ladder count.
+
 ### Slot 6 — partial-child-run
 
 Triggers when the resume ladder detects a child's own wip/ artifact (or

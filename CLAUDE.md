@@ -70,6 +70,26 @@ matches the pattern `^[a-z0-9-]+$`). The child skills `/vision`,
 `/strategy`, and `/roadmap` remain directly invocable on their own
 for authors who already know which altitude they want.
 
+## Tactical Chain Entry: /scope
+
+`/scope` is a parent skill that walks an author through the
+tactical chain (BRIEF → PRD → DESIGN → PLAN) as a single
+conversation, holding state across child boundaries and producing
+a PLAN as its terminal artifact. Use it when the conversation
+needs feature scope decided in one sitting rather than reached
+for child-skill at a time.
+
+Reach for `/scope` when an author says any of:
+
+- "specify a feature called X"
+- "scope feature Y"
+- "walk me through specifying Z"
+
+Direct invocation is `/scope <topic-slug>` (the topic slug
+matches the pattern `^[a-z0-9-]+$`). The child skills `/brief`,
+`/prd`, `/design`, and `/plan` remain directly invocable on their
+own for authors who already know which altitude they want.
+
 ## Conventions
 
 - Recipe names: kebab-case
