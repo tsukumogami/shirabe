@@ -154,9 +154,25 @@ Display the design summary:
 **Rationale:** <frontmatter rationale field>
 ```
 
-Ask user for approval using AskUserQuestion:
-- **Approved**: The design is ready
-- **Needs iteration**: Specify what needs to change
+Ask user for the verdict using AskUserQuestion. The prompt copy MUST advise
+the author that any rejection rationale becomes part of the repository's
+permanent git history, so private content must not be included:
+
+> Rationale will be committed to git history. Do not include secrets,
+> customer identifiers, or content you intend to keep private.
+
+Options:
+
+- **Approved**: The design is ready; proceed to acceptance and routing.
+- **Reject**: Terminal verdict. The Draft DESIGN is discarded via `git rm`
+  and a discard commit lands on the current branch. No DESIGN ships. The
+  discard commit is the durable observable signal of rejection in both
+  in-chain (`/scope` reads it from `git log`) and out-of-chain (author
+  re-reads the same commit) contexts per AC30c.
+- **Continue-revising**: The design needs more work. Specify what needs to
+  change; the workflow loops back to the relevant phase and re-runs Phase 6
+  when changes are complete. (This is the existing "Needs iteration"
+  behavior, renamed.)
 
 ### 6.8 Handle Approval
 
@@ -186,10 +202,81 @@ After approval and routing, remove temporary artifacts:
 
 Commit: `chore: clean up wip/ artifacts for <topic>`
 
-**If needs iteration:**
+**If continue-revising:**
 - Discuss what needs changes with user
 - Return to the relevant phase
 - Re-run Phase 6 when changes are complete
+
+**If reject:**
+
+The Reject branch is a terminal verdict. It discards the Draft DESIGN and
+exits the phase. The Reject branch fires AFTER step 6.6 (Commit and PR) has
+already committed the Draft to the branch — the commit-then-approve ordering
+is load-bearing because it preserves Draft durability across session
+interruptions. Reject pays the `git rm` cost in exchange for that durability
+guarantee. Do not reorder 6.6 and 6.7.
+
+Run the following ordered actions; do not skip steps.
+
+1. **Capture the rationale.** Prompt the author for a one-sentence rationale
+   explaining why the DESIGN is being discarded. Restate the public-history
+   disclaimer ("Rationale will be committed to git history") in the prompt
+   so the author has a second opportunity to redact private content.
+
+2. **Write the rationale to a tmpfile.** Author-supplied rationale strings
+   are free-form and may contain shell metacharacters (quotes, backticks,
+   dollar signs). Persist the rationale to a temporary file rather than
+   passing it through any shell argument:
+
+   ```bash
+   RATIONALE_FILE=$(mktemp)
+   cat > "$RATIONALE_FILE" <<EOF
+   docs(design): discard DESIGN draft for <topic>
+
+   <rationale captured at step 1>
+   EOF
+   ```
+
+   The first line is the conventional-commit subject (the literal substring
+   `/scope`'s Component 7.7 git-log search reads); a blank line separates
+   the subject from the rationale body.
+
+3. **Remove the durable DESIGN artifact.**
+
+   ```bash
+   git rm docs/designs/DESIGN-<topic>.md
+   ```
+
+4. **Remove the wip working artifacts** for this invocation. `/design`
+   writes intermediate artifacts to BOTH the top-level `wip/design_<topic>_*`
+   set AND the per-phase research set under `wip/research/design_<topic>_*`,
+   so the Reject branch must clean both:
+
+   ```bash
+   rm -f wip/design_<topic>_*.md
+   rm -f wip/research/design_<topic>_*.md
+   ```
+
+5. **Commit the discard via `git commit -F`** (file path), never `-m`:
+
+   ```bash
+   git commit -F "$RATIONALE_FILE"
+   rm -f "$RATIONALE_FILE"
+   ```
+
+   Equivalent stdin form (`git commit -F -` reading from a here-document)
+   is acceptable when scripting inline; the invariant is that the rationale
+   never transits a `-m "..."` shell argument. The discard commit lands on
+   the current branch and is the durable observable signal of rejection per
+   AC30c.
+
+6. **Exit the phase.** Do not flip status from Proposed to Accepted; do not
+   run the Approved-path complexity assessment or routing; do not run step
+   6.9 (the Reject branch handled its own wip cleanup inline in step 4).
+   No DESIGN ships; the discard commit is the only artifact. The gate
+   behaves identically in-chain and out-of-chain — `/design`'s
+   responsibility stops at the discard commit. (Any `/scope`-side handling
+   is the parent skill's concern, not this phase's.)
 
 ## Quality Checklist
 
