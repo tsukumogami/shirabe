@@ -9,6 +9,11 @@ pub struct FormatSpec {
     pub required_fields: Vec<String>,
     pub valid_statuses: Vec<String>,
     pub required_sections: Vec<String>,
+    /// Ordered list of required column headers for the doc's Implementation
+    /// Issues table, per the canonical issues-table profile. Empty for
+    /// formats without an issues table. FC05 checks the doc's table header
+    /// against this list.
+    pub issues_table_columns: Vec<String>,
 }
 
 fn s(values: &[&str]) -> Vec<String> {
@@ -38,6 +43,7 @@ pub fn formats() -> Vec<FormatSpec> {
                 "Security Considerations",
                 "Consequences",
             ]),
+            issues_table_columns: vec![],
         },
         FormatSpec {
             name: "PRD".to_string(),
@@ -54,6 +60,7 @@ pub fn formats() -> Vec<FormatSpec> {
                 "Acceptance Criteria",
                 "Out of Scope",
             ]),
+            issues_table_columns: vec![],
         },
         FormatSpec {
             name: "VISION".to_string(),
@@ -70,6 +77,7 @@ pub fn formats() -> Vec<FormatSpec> {
                 "Success Criteria",
                 "Non-Goals",
             ]),
+            issues_table_columns: vec![],
         },
         FormatSpec {
             name: "Roadmap".to_string(),
@@ -86,6 +94,7 @@ pub fn formats() -> Vec<FormatSpec> {
                 "Implementation Issues",
                 "Dependency Graph",
             ]),
+            issues_table_columns: s(&["Feature", "Issues", "Dependencies", "Status"]),
         },
         FormatSpec {
             name: "Plan".to_string(),
@@ -101,6 +110,7 @@ pub fn formats() -> Vec<FormatSpec> {
                 "Dependency Graph",
                 "Implementation Sequence",
             ]),
+            issues_table_columns: s(&["Issue", "Dependencies", "Complexity"]),
         },
         FormatSpec {
             name: "Strategy".to_string(),
@@ -118,6 +128,7 @@ pub fn formats() -> Vec<FormatSpec> {
                 "Non-Goals",
                 "Downstream Artifacts",
             ]),
+            issues_table_columns: vec![],
         },
         FormatSpec {
             name: "Brief".to_string(),
@@ -132,6 +143,7 @@ pub fn formats() -> Vec<FormatSpec> {
                 "User Journeys",
                 "Scope Boundary",
             ]),
+            issues_table_columns: vec![],
         },
     ]
 }
