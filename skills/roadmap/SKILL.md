@@ -62,7 +62,13 @@ From `$ARGUMENTS`:
    roadmap for
 2. **Path to existing ROADMAP** with lifecycle verb (`activate`, `done`) --
    execute the lifecycle transition via `scripts/transition-status.sh`
-3. **Anything else** -- use as the starting topic for Phase 1 scoping
+3. **`populate <path>`** -- populate the roadmap's reserved Implementation
+   Issues and Dependency Graph sections by invoking the
+   `shirabe roadmap populate` subcommand on the shirabe CLI. Native to the
+   roadmap; replaces the plan re-entry path that rewrote these sections by
+   prose substitution. See [Populating the Issues Table](#populating-the-issues-table)
+   below.
+4. **Anything else** -- use as the starting topic for Phase 1 scoping
 
 ### Standalone Entry and Handoff Detection
 
@@ -223,6 +229,81 @@ Both delegate to `scripts/transition-status.sh`.
 
 ---
 
+## Populating the Issues Table
+
+The roadmap's reserved Implementation Issues and Dependency Graph sections
+are populated by the `shirabe roadmap populate` subcommand on the
+`shirabe` CLI. This is a roadmap-native path: the subcommand reads the
+Features section using the shared `shirabe-validate` parser, builds a
+per-feature manifest, creates one GitHub issue per feature (one
+`gh issue create` invocation per feature, discrete args), then renders the
+canonical feature-keyed table and dependency diagram and writes both into
+the reserved sections by **structural section replacement** (the body
+between each section's heading and the next `##` heading is replaced; the
+heading itself is preserved).
+
+The roadmap profile shape (`Feature | Issues | Dependencies | Status`) and
+the dependency-diagram convention come from
+`${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` and
+`${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md`.
+
+### Invocation
+
+```
+/roadmap populate <path>
+```
+
+Or, equivalently, invoking the CLI directly from the project root:
+
+```bash
+shirabe roadmap populate <roadmap-path> \
+    --milestone "<Milestone Name>" \
+    --milestone-description "Roadmap: <roadmap-path>" \
+    --output-map "<mapping-output-path>"
+```
+
+Options:
+- `--milestone <name>` -- milestone for the created issues
+- `--milestone-description <desc>` -- milestone description
+- `--mapping <file>` -- pre-existing id->github_number mapping (re-render only)
+- `--output-map <file>` -- write the final id->github_number mapping
+- `--repo <owner/repo>` -- override the repo used when rendering issue links
+- `--dry-run` -- skip `gh` invocations; synthesize a deterministic mapping
+- `-h, --help` -- print help
+
+### R14 approval gate (lives in this caller, not in the subcommand)
+
+Issue creation is the gated step (R14 in the requirements). The gate lives
+in this skill phase, NOT in the subcommand. The subcommand is a primitive
+that creates issues when invoked.
+
+**Interactive runs.** Before invoking the subcommand without `--dry-run`,
+present a summary of the features that will be turned into issues (count,
+names, the planned milestone). Stop for the author's approval. On
+approval, invoke the subcommand. On rejection, abort without calling it.
+
+**`--auto` runs.** Record an `assumed` approval decision block per
+`${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` at high review
+priority (the block surfaces in the terminal summary and the PR body),
+then invoke the subcommand. The non-interactive guarantee is preserved.
+
+A separate `--dry-run` invocation is available for the skill to inspect
+what the subcommand will write before the gate is reached; under
+`--dry-run` no GitHub API calls are made.
+
+### Security guarantees
+
+- Manifest values (feature names, titles) are passed to `gh` as discrete
+  `Command::arg(...)` arguments by Rust's `std::process::Command`. No
+  shell is invoked, so content with shell metacharacters cannot inject a
+  command -- the title round-trips verbatim into the issue and the
+  rendered table.
+- Section-replacement writes are atomic: render into a temp file inside
+  the roadmap's parent directory, then `std::fs::rename` over the
+  original. A failed run leaves the roadmap unchanged byte-for-byte.
+
+---
+
 ## Reference Files
 
 | File | When to load |
@@ -232,3 +313,6 @@ Both delegate to `scripts/transition-status.sh`.
 | `references/phases/phase-2-discover.md` | Phase 2 |
 | `references/phases/phase-3-draft.md` | Phase 3 |
 | `references/phases/phase-4-validate.md` | Phase 4 |
+| `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` | Populating reserved sections |
+| `${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md` | Populating reserved sections |
+| `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` | R14 approval gate under `--auto` |

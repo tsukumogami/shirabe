@@ -10,6 +10,7 @@
 pub mod annotation;
 pub mod checks;
 pub mod doc;
+pub mod features;
 pub mod formats;
 pub mod frontmatter;
 pub mod table;
@@ -20,6 +21,7 @@ pub mod validate;
 // internal-shaped and unstable; see the crate-level doc comment above.
 pub use annotation::{format_error, format_notice};
 pub use doc::{Config, Doc, FieldValue, Section, ValidationError};
+pub use features::{extract_needs_label, parse_features, strip_label_decoration, Feature};
 pub use formats::{detect_format, formats, FormatSpec};
 pub use frontmatter::{parse_doc, ParseError};
 pub use table::{parse_issues_table, Row, RowKind, Table};

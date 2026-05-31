@@ -108,17 +108,15 @@
     },
     {
       "id": 8,
-      "name": "roadmap-enrichment",
+      "name": "roadmap-redirect-to-native-populate",
       "prompt": "/plan docs/roadmaps/ROADMAP-q3-platform.md",
-      "expected_output": "Detects input_type as roadmap, validates status is Active. Uses feature-by-feature decomposition. Each roadmap feature becomes one planning issue with a needs_label. Phase 7 writes the Implementation Issues table and Dependency Graph directly into the roadmap's reserved sections. No separate PLAN doc is created. The roadmap stays Active.",
+      "expected_output": "Detects input_type as roadmap and redirects the author to the roadmap-native populate path (/roadmap populate, which invokes the `shirabe roadmap populate` subcommand). The Implementation Issues table and Dependency Graph are written by structural section replacement; the plan workflow does not rewrite the roadmap document itself.",
       "files": [],
       "expectations": [
         "Transcript detects input_type as roadmap from the ROADMAP-*.md path pattern",
         "Transcript validates that roadmap status is Active",
-        "Transcript uses feature-by-feature decomposition strategy (not walking skeleton or horizontal)",
-        "Transcript describes writing Implementation Issues table into the roadmap file directly",
-        "Transcript describes writing Dependency Graph into the roadmap file directly",
-        "Transcript does NOT create a separate docs/plans/PLAN-*.md file for roadmap input",
+        "Transcript points the author at /roadmap populate (or the shirabe roadmap populate subcommand) for populating the reserved Implementation Issues and Dependency Graph sections",
+        "Transcript does NOT rewrite the roadmap document by prose substitution from the plan workflow",
         "Transcript states roadmap status remains Active (no status transition)"
       ]
     },
