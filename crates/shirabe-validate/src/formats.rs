@@ -14,6 +14,11 @@ pub struct FormatSpec {
     /// formats without an issues table. FC05 checks the doc's table header
     /// against this list.
     pub issues_table_columns: Vec<String>,
+    /// Marks a format whose docs may only be validated under private
+    /// visibility. `check_private_only` (R9) rejects such docs when
+    /// visibility is not exactly `"private"`, failing closed on the
+    /// empty-visibility default.
+    pub private: bool,
 }
 
 fn s(values: &[&str]) -> Vec<String> {
@@ -26,6 +31,24 @@ fn s(values: &[&str]) -> Vec<String> {
 /// performs longest-prefix matching, not iteration-order matching.
 pub fn formats() -> Vec<FormatSpec> {
     vec![
+        FormatSpec {
+            name: "Comp".to_string(),
+            prefix: "COMP-".to_string(),
+            schema_version: "comp/v1".to_string(),
+            required_fields: s(&["status", "problem", "scope"]),
+            valid_statuses: s(&["Draft", "Accepted", "Done"]),
+            required_sections: s(&[
+                "Status",
+                "Market Overview",
+                "Competitors",
+                "Comparative Matrix",
+                "Opportunities",
+                "Implications",
+                "References",
+            ]),
+            issues_table_columns: vec![],
+            private: true,
+        },
         FormatSpec {
             name: "Design".to_string(),
             prefix: "DESIGN-".to_string(),
@@ -44,6 +67,7 @@ pub fn formats() -> Vec<FormatSpec> {
                 "Consequences",
             ]),
             issues_table_columns: vec![],
+            private: false,
         },
         FormatSpec {
             name: "PRD".to_string(),
@@ -61,6 +85,7 @@ pub fn formats() -> Vec<FormatSpec> {
                 "Out of Scope",
             ]),
             issues_table_columns: vec![],
+            private: false,
         },
         FormatSpec {
             name: "VISION".to_string(),
@@ -78,6 +103,7 @@ pub fn formats() -> Vec<FormatSpec> {
                 "Non-Goals",
             ]),
             issues_table_columns: vec![],
+            private: false,
         },
         FormatSpec {
             name: "Roadmap".to_string(),
@@ -95,6 +121,7 @@ pub fn formats() -> Vec<FormatSpec> {
                 "Dependency Graph",
             ]),
             issues_table_columns: s(&["Feature", "Issues", "Dependencies", "Status"]),
+            private: false,
         },
         FormatSpec {
             name: "Plan".to_string(),
@@ -111,6 +138,7 @@ pub fn formats() -> Vec<FormatSpec> {
                 "Implementation Sequence",
             ]),
             issues_table_columns: s(&["Issue", "Dependencies", "Complexity"]),
+            private: false,
         },
         FormatSpec {
             name: "Strategy".to_string(),
@@ -129,6 +157,7 @@ pub fn formats() -> Vec<FormatSpec> {
                 "Downstream Artifacts",
             ]),
             issues_table_columns: vec![],
+            private: false,
         },
         FormatSpec {
             name: "Brief".to_string(),
@@ -144,6 +173,7 @@ pub fn formats() -> Vec<FormatSpec> {
                 "Scope Boundary",
             ]),
             issues_table_columns: vec![],
+            private: false,
         },
     ]
 }
@@ -193,7 +223,15 @@ mod tests {
     }
 
     #[test]
-    fn detect_format_returns_seven_formats() {
-        assert_eq!(formats().len(), 7);
+    fn detect_format_matches_comp_prefix() {
+        let spec = detect_format("COMP-acme.md").expect("COMP- should match a format");
+        assert_eq!(spec.schema_version, "comp/v1");
+        assert_eq!(spec.name, "Comp");
+        assert!(spec.private, "comp/v1 must be private");
+    }
+
+    #[test]
+    fn detect_format_returns_eight_formats() {
+        assert_eq!(formats().len(), 8);
     }
 }

@@ -408,6 +408,33 @@ pub fn check_strategy_public(doc: &Doc, cfg: &Config) -> Vec<ValidationError> {
     errs
 }
 
+/// (R9) Rejects whole documents whose [`FormatSpec`] is marked `private` when
+/// `cfg.visibility` is not exactly `"private"`. The gate fails closed: any
+/// other value, including the empty string, runs the check. `validate_file`
+/// dispatches this immediately after the schema gate and returns early on any
+/// R9 result, so private-only docs never reach FC01-FC04 under a non-private
+/// run.
+pub fn check_private_only(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<ValidationError> {
+    if !spec.private || cfg.visibility == "private" {
+        return Vec::new();
+    }
+
+    let got = if cfg.visibility.is_empty() {
+        "unset"
+    } else {
+        cfg.visibility.as_str()
+    };
+    vec![ValidationError {
+        file: doc.path.clone(),
+        line: 0,
+        code: "R9".to_string(),
+        message: format!(
+            "[R9] {} docs are private-only; visibility={} (expected private)",
+            spec.name, got
+        ),
+    }]
+}
+
 /// Reports whether `columns` equals `want` element-for-element. Mirrors the
 /// Go `stringSlicesEqual` helper for comparing a parsed header against a
 /// `&[&str]` literal.
@@ -1089,5 +1116,59 @@ mod tests {
             "FC06 should be a no-op for design/v1, got {:?}",
             errs
         );
+    }
+
+    // --- check_private_only (R9) ---
+
+    fn cfg_vis(visibility: &str) -> Config {
+        Config {
+            custom_statuses: HashMap::new(),
+            visibility: visibility.to_string(),
+        }
+    }
+
+    #[test]
+    fn check_private_only_private_visibility_returns_empty() {
+        let doc = make_doc("comp/v1", "Draft", HashMap::new(), vec![], vec![]);
+        let errs = check_private_only(&doc, &spec_for("comp/v1"), &cfg_vis("private"));
+        assert_eq!(errs.len(), 0, "expected no errors under private, got {:?}", errs);
+    }
+
+    #[test]
+    fn check_private_only_public_visibility_returns_r9() {
+        let doc = make_doc("comp/v1", "Draft", HashMap::new(), vec![], vec![]);
+        let errs = check_private_only(&doc, &spec_for("comp/v1"), &cfg_vis("public"));
+        assert_eq!(errs.len(), 1, "expected one R9 error, got {:?}", errs);
+        assert_eq!(errs[0].code, "R9");
+    }
+
+    // Empty visibility is the dangerous default; the check must fail closed so
+    // a caller that forgets to set visibility cannot leak a private-only doc.
+    #[test]
+    fn check_private_only_empty_visibility_fails_closed_r9() {
+        let doc = make_doc("comp/v1", "Draft", HashMap::new(), vec![], vec![]);
+        let errs = check_private_only(&doc, &spec_for("comp/v1"), &cfg_vis(""));
+        assert_eq!(
+            errs.len(),
+            1,
+            "expected one R9 error for empty visibility (fail-closed), got {:?}",
+            errs
+        );
+        assert_eq!(errs[0].code, "R9");
+    }
+
+    #[test]
+    fn check_private_only_non_private_format_returns_empty() {
+        let doc = make_doc("design/v1", "Proposed", HashMap::new(), vec![], vec![]);
+        for vis in ["public", "private", ""] {
+            let errs = check_private_only(&doc, &design_spec(), &cfg_vis(vis));
+            assert_eq!(
+                errs.len(),
+                0,
+                "expected no errors for non-private format (visibility={:?}), got {:?}",
+                vis,
+                errs
+            );
+        }
     }
 }
