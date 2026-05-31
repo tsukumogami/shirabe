@@ -81,6 +81,43 @@ Planning issues are always `simple` complexity and carry a `needs_label` (needs-
 needs-design, needs-spike, or needs-decision) indicating what upstream artifact the
 feature requires.
 
+## Execution Mode Decision (single-pr vs multi-pr)
+
+This is a separate decision from the Decomposition Strategy above. Work-slicing
+(walking skeleton vs horizontal) chooses how issues are shaped against the design;
+execution mode chooses how the resulting work lands. Don't conflate the two: the
+shape of the work and the shape of the delivery are different questions.
+
+**Default: single-pr.** Reach for one PR. Anchored on principle P1 (usable value
+is the unit of work) in
+`${CLAUDE_PLUGIN_ROOT}/references/workflow-principles.md` -- every PR delivers
+observable value on its own, and one PR is the lowest-ceremony shape that clears
+that bar.
+
+**Escape to multi-pr only when a named condition forces it:**
+
+1. **A hard constraint forces multiple PRs.** Cross-repo landing order; a workflow
+   that must reach main before it can be invoked; a merge gate between steps. The
+   constraint must be named in the PLAN doc.
+2. **Each PR is independently useful.** The split delivers genuine incremental
+   value: every PR-shaped unit lands observable value on its own, not just a
+   building block someone has to wait on. "Could be separate PRs" is not the test;
+   "each PR is independently useful to a reader" is.
+
+A roadmap input is always multi-pr -- not because the input is a roadmap, but
+because each feature is a cohesive deliverable that lands observable incremental
+value on its own (P1 again). The mechanism "the input is a roadmap" is not the
+reason; the value the feature delivers is.
+
+The value-confirmation step (Phase 3.5a) then checks each unit -- every feature for
+a roadmap, each PR-shaped unit for a plan whose split delivers incremental value --
+and can fail. A unit that isn't a standalone increment is named as a
+mis-decomposition with the reason, not waved through. Under `--auto` the guard
+records a decision block per `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md`
+and continues; it never hard-stops. See `references/phases/phase-3-decomposition.md`
+step 3.5a for the guard's procedure and step 3.6 for the mode finalization that
+consumes the guard's output.
+
 ## Complexity Classification
 
 Each issue gets a complexity (simple, testable, or critical) that determines its
@@ -248,20 +285,27 @@ Seven sequential phases, plus an execution mode selection between Phases 3 and 4
 | 1. Analysis | Understand source document scope and components/features | `wip/plan_<topic>_analysis.md` |
 | 2. Milestone | Derive milestone from source document | `wip/plan_<topic>_milestones.md` |
 | 3. Decomposition | Break into atomic issues | `wip/plan_<topic>_decomposition.md` |
+| 3.5a. Value Confirmation | Check each unit delivers observable incremental value; can fail | Recorded in decomposition artifact (and `wip/plan_<topic>_decisions.md` under `--auto`) |
 | 3.5. Execution Mode | Select single-pr or multi-pr mode | Recorded in decomposition artifact |
 | 4. Generation | Generate rich issue bodies via agents | `wip/plan_<topic>_issue_*.md` + `wip/plan_<topic>_manifest.json` |
 | 5. Dependencies | Sequence tasks, identify blockers | `wip/plan_<topic>_dependencies.md` |
 | 6. Review | AI validates completeness + sequencing | `wip/plan_<topic>_review.md` |
 | 7. Creation | Create PLAN doc (+ optional GitHub artifacts) | `docs/plans/PLAN-<topic>.md` |
 
-#### Execution Mode Selection (between Phase 3 and Phase 4)
+#### Value Confirmation and Execution Mode Selection (between Phase 3 and Phase 4)
 
-After decomposition completes, the workflow has enough information to evaluate whether
-the work fits a single PR or needs multiple. The decomposition artifact captures issue
-count, complexity levels, and dependency depth -- the inputs to this decision.
+After decomposition completes, the workflow runs the value-confirmation guard (step
+3.5a) and then finalizes the execution mode (step 3.6). The guard checks each unit
+delivers observable incremental value -- every feature for a roadmap, each PR-shaped
+unit for a plan whose split delivers incremental value -- and can fail, naming any
+mis-decomposed unit and the reason it failed the value test. The mode finalization
+then chooses single-pr or multi-pr based on the surfaced rule above.
 
-Present the mode recommendation to the user with rationale. The selection logic and
-heuristic signals are defined in the Phase 3 reference file.
+Under `--auto`, the guard records a decision block per
+`${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` (`confirmed` on a clear pass,
+`assumed` at high review priority on a failing or ambiguous unit) and continues; it
+never hard-stops. The selection logic, the guard procedure, and the heuristic signals
+are defined in the Phase 3 reference file.
 
 - **single-pr**: Phase 4 agents produce structured outlines (not full issue bodies).
   Phase 7 writes them into the PLAN doc's Issue Outlines section. No GitHub issues or
@@ -282,9 +326,9 @@ scope from Context Resolution throughout.
    - Read: `references/phases/phase-2-milestone.md`
    - Artifact: `wip/plan_<topic>_milestones.md`
 
-3. **Decomposition**: Break into atomic issues + execution mode selection
+3. **Decomposition**: Break into atomic issues, then value confirmation (3.5a) + execution mode selection (3.6)
    - Read: `references/phases/phase-3-decomposition.md`
-   - Artifact: `wip/plan_<topic>_decomposition.md` (includes execution mode decision)
+   - Artifact: `wip/plan_<topic>_decomposition.md` (includes value-guard result and execution mode decision)
 
 4. **Generation**: Generate rich issue bodies via parallel agents
    - Read: `references/phases/phase-4-agent-generation.md`

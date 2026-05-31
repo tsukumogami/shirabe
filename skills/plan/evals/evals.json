@@ -228,6 +228,49 @@
         "Transcript validates the upstream: frontmatter value before status transition",
         "Transcript cites ${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md for the visibility-direction rules"
       ]
+    },
+    {
+      "id": 17,
+      "name": "execution-mode-rule-on-skill-surface",
+      "prompt": "/plan -- where does the single-pr/multi-pr decision live, and what does it cite?",
+      "expected_output": "The single-pr/multi-pr rule lives on the plan SKILL.md surface in a section titled 'Execution Mode Decision (single-pr vs multi-pr)', stated as: default single-pr, escape to multi-pr only when a hard constraint forces it OR each PR is independently useful. The section cites the usable-value principle (P1) in ${CLAUDE_PLUGIN_ROOT}/references/workflow-principles.md. The rule is explicitly de-conflated from the decomposition-strategy (walking skeleton vs horizontal) decision, which stays in phase-3-decomposition.md as a separately named decision.",
+      "files": [],
+      "expectations": [
+        "Agent identifies the single-pr/multi-pr rule on the plan SKILL.md surface (not lazily loaded in a phase file)",
+        "Agent cites the default as single-pr",
+        "Agent names the two escape conditions: a hard constraint, or each PR is independently useful",
+        "Agent cites the usable-value principle (P1) in workflow-principles.md as the anchor",
+        "Agent identifies the decomposition-strategy decision (walking skeleton vs horizontal) as a separately named decision in phase-3-decomposition.md, not conflated with the execution-mode decision"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "value-guard-roadmap-passes",
+      "prompt": "/plan docs/roadmaps/ROADMAP-q4-platform.md --auto",
+      "expected_output": "Detects input_type as roadmap. Runs the value-confirmation guard (step 3.5a) on each feature before finalizing the execution mode in step 3.6. For a well-shaped roadmap where every feature lands observable incremental value on its own (e.g., 'user authentication ships sign-in/sign-up' or 'audit log surfaces events to the admin console'), each feature is recorded as confirmed in wip/plan_q4-platform_decisions.md. The execution mode is finalized as multi-pr with the rationale 'each feature is a cohesive deliverable landing observable incremental value' -- the usable-value principle, not the input-is-a-roadmap mechanism.",
+      "files": [],
+      "expectations": [
+        "Transcript runs the value-confirmation guard (step 3.5a) before execution-mode finalization (step 3.6)",
+        "Transcript checks each roadmap feature for standalone observable value",
+        "Transcript records confirmed decision blocks for each passing feature under --auto",
+        "Transcript anchors the multi-pr outcome on the usable-value principle, NOT on 'the input is a roadmap'",
+        "Transcript finalizes execution_mode as multi-pr with a value-based rationale"
+      ]
+    },
+    {
+      "id": 19,
+      "name": "value-guard-flags-mis-decomposed-unit",
+      "prompt": "/plan docs/designs/DESIGN-batch-pipeline.md --auto, where the decomposition produced four PRs and PR 3 is shaped as 'add the validator stub used by PR 4' with no observable behavior change on its own.",
+      "expected_output": "The value-confirmation guard (step 3.5a) flags PR 3 by name as a mis-decomposition, stating the reason: it is a building block that lands no observable value on its own; a reader of PR 3 in isolation sees only the stub. Under --auto the guard records this as an assumed decision block at high review priority in wip/plan_batch-pipeline_decisions.md (failing units route to assumed-high on purpose, the same bucket as ambiguous units). The block surfaces in the terminal summary and PR body. The guard does not hard-stop; the run continues to step 3.6.",
+      "files": [],
+      "expectations": [
+        "Transcript runs the value-confirmation guard (step 3.5a) on each PR-shaped unit",
+        "Transcript names PR 3 as a mis-decomposition with the reason: not a standalone increment, only a building block for PR 4",
+        "Transcript records an assumed decision block at high review priority for PR 3 (not confirmed, not silently passed)",
+        "Transcript routes the failing unit to the same assumed-high bucket as ambiguous units, on purpose",
+        "Transcript describes the assumed block surfacing in the terminal summary and PR body",
+        "Transcript does NOT hard-stop under --auto; the run continues to step 3.6"
+      ]
     }
   ]
 }
