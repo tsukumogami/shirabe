@@ -187,10 +187,24 @@ Present a brief summary of the PRD:
 - Acceptance criteria count
 - Any known limitations
 
-Use AskUserQuestion to ask for approval. Provide context explaining the PRD is validated
-and ready for acceptance. Options:
+Use AskUserQuestion to request the verdict. Frame the question as the agent
+recommending acceptance based on the jury verdicts; the user's verdict is the
+gate. The prompt copy MUST advise the author that any rejection rationale
+becomes part of the repository's permanent git history:
+
+> Rationale will be committed to git history. Do not include secrets,
+> customer identifiers, or content you intend to keep private.
+
+Options:
+
 - **Approve** -- status changes to Accepted, ready for downstream work
-- **Request changes** -- specify what needs to change
+- **Request changes** -- specify what needs to change; the workflow loops back
+  to Phase 3 step 3.5 to incorporate the feedback
+- **Reject** -- terminal verdict; the Draft PRD is deleted via `git rm` and a
+  discard commit lands on the current branch. The author exits the workflow;
+  no PRD ships. The discard commit is the durable observable signal of
+  rejection in both in-chain (`/scope` reads it from `git log`) and
+  out-of-chain (author re-reads the same commit) contexts.
 
 ### 4.6 Handle Approval
 
@@ -220,6 +234,75 @@ Assess complexity from the requirements:
 **If user wants changes:**
 Return to Phase 3 step 3.5 to incorporate the specific feedback. Don't re-walk
 the entire doc -- focus on the areas the user identified.
+
+**If user rejects:**
+
+The Reject branch is a terminal verdict. It discards the Draft PRD and exits
+the workflow. Run the following ordered actions; do not skip steps.
+
+1. **Second-confirmation prompt.** Re-ask the author with AskUserQuestion that
+   they want to discard the Draft PRD permanently. Surface the commit subject
+   that will land (`docs(prd): discard PRD draft for <topic>`) so the author
+   sees the durable trace before approving destruction. If the author declines,
+   route back to step 4.5 without modifying any files.
+
+2. **Capture the rationale.** Prompt the author for a one-paragraph rationale
+   explaining why the PRD is being discarded. Restate the public-history
+   disclaimer ("Rationale will be committed to git history") in the prompt so
+   the author has a second opportunity to redact private content.
+
+3. **Write the rationale to a tmpfile.** Author-supplied rationale strings are
+   free-form and may contain shell metacharacters (quotes, backticks, dollar
+   signs). Persist the rationale to a temporary file rather than passing it
+   through any shell argument:
+
+   ```bash
+   RATIONALE_FILE=$(mktemp)
+   cat > "$RATIONALE_FILE" <<EOF
+   docs(prd): discard PRD draft for <topic>
+
+   <rationale captured at step 2>
+   EOF
+   ```
+
+   The first line is the conventional-commit subject (the literal substring
+   `/scope`'s Component 7.7 git-log search reads); a blank line separates the
+   subject from the rationale body.
+
+4. **Remove the durable PRD artifact.**
+
+   ```bash
+   git rm docs/prds/PRD-<topic>.md
+   ```
+
+5. **Remove the wip working artifacts** for this invocation:
+
+   ```bash
+   rm -f wip/prd_<topic>_*.md
+   rm -f wip/research/prd_<topic>_phase2_*.md
+   rm -f wip/research/prd_<topic>_phase4_*.md
+   ```
+
+6. **Commit the discard via `git commit -F`** (file path), never `-m`:
+
+   ```bash
+   git commit -F "$RATIONALE_FILE"
+   rm -f "$RATIONALE_FILE"
+   ```
+
+   Equivalent stdin form (`git commit -F -` reading from a here-document) is
+   acceptable when scripting inline; the invariant is that the rationale never
+   transits a `-m "..."` shell argument. The discard commit lands on the
+   current branch and is the durable observable signal of rejection per
+   AC30c — `/scope`'s Component 7.7 reads the commit subject from `git log`
+   when invoked in-chain; an out-of-chain author reads the same commit body
+   for the rationale.
+
+7. **Exit the workflow.** Do not run step 4.7 cleanup (the Reject branch
+   handled its own wip cleanup inline in step 5). No PRD ships; the discard
+   commit is the only artifact. If on a shared branch with an open PR,
+   surface the discard commit SHA in your final response so the caller can
+   route accordingly.
 
 ### 4.7 Cleanup
 
