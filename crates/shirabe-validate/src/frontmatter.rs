@@ -28,7 +28,8 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use saphyr::{LoadableYamlNode, MarkedYamlOwned, YamlDataOwned};
+use saphyr::{MarkedYamlOwned, YamlDataOwned, YamlLoader};
+use saphyr_parser::{BufferedInput, Parser};
 
 use crate::doc::{Doc, FieldValue, Section};
 
@@ -194,8 +195,20 @@ fn parse_yaml_fields(
 ) -> Result<HashMap<String, FieldValue>, ParseError> {
     let yaml_str = std::str::from_utf8(fm_bytes).map_err(|e| ParseError::Yaml(e.to_string()))?;
 
-    let docs =
-        MarkedYamlOwned::load_from_str(yaml_str).map_err(|e| ParseError::Yaml(e.to_string()))?;
+    // Load with `early_parse(false)` so every scalar keeps its ORIGINAL
+    // source token in the `Representation` variant rather than being parsed
+    // into a typed `Scalar`. This mirrors Go's `yaml.Node.Value`, which
+    // always carries the as-written text. Without it, saphyr would
+    // canonicalize typed scalars (`1.50` -> `1.5`, `0x1F` -> `31`) and the
+    // FC02/FC03 annotation bytes would diverge from the Go baseline.
+    // See DESIGN Decision 1 (§"Typed-scalar preservation").
+    let mut loader = YamlLoader::<MarkedYamlOwned>::default();
+    loader.early_parse(false);
+    let mut parser = Parser::new(BufferedInput::new(yaml_str.chars()));
+    parser
+        .load(&mut loader, true)
+        .map_err(|e| ParseError::Yaml(e.to_string()))?;
+    let docs = loader.into_documents();
 
     let mut fields: HashMap<String, FieldValue> = HashMap::new();
 
@@ -216,13 +229,13 @@ fn parse_yaml_fields(
     let offset = fm_start_line.saturating_sub(1);
 
     for (key_node, val_node) in mapping.iter() {
-        let Some(key) = key_node.data.as_str() else {
+        let Some(key) = scalar_source_text(&key_node.data) else {
             continue;
         };
         let absolute_line = key_node.span.start.line() + offset;
-        let value = scalar_to_string(&val_node.data);
+        let value = scalar_source_text(&val_node.data).unwrap_or_default();
         fields.insert(
-            key.to_string(),
+            key,
             FieldValue {
                 value: value.trim_end_matches('\n').to_string(),
                 line: absolute_line,
@@ -233,32 +246,27 @@ fn parse_yaml_fields(
     Ok(fields)
 }
 
-/// Coerce a YAML scalar (string, integer, float, boolean) to its
-/// string representation.
+/// Return a scalar node's ORIGINAL source text, or `None` for non-scalar
+/// nodes (mappings, sequences).
 ///
-/// saphyr's `Scalar` enum distinguishes typed scalars, so `as_str`
-/// returns `None` on an integer or boolean node. shirabe's corpus
-/// includes typed-integer frontmatter (`issue_count: 8` in plan/v1),
-/// so this function MUST coerce typed scalars back to their string
-/// representation rather than fall through to an empty default.
+/// Because the loader runs with `early_parse(false)`, every scalar arrives
+/// as `YamlDataOwned::Representation(source_text, ..)` carrying the exact
+/// as-written token (`1.50`, `0x1F`, `TRUE`, a block-scalar's folded
+/// content, etc.). This matches Go's `yaml.Node.Value`, which preserves the
+/// source token, so the FC02/FC03 annotation bytes stay identical. The
+/// `Value(String)` arm is a defensive fallback in case a node is already a
+/// parsed string (it never fires under `early_parse(false)`).
 ///
-/// Per DESIGN Decision 1 (§"Typed-scalar preservation"): falling back
-/// to `unwrap_or_default()` on `as_str` would silently drop typed
-/// scalar values; the parity fixture catches divergence on this path.
-fn scalar_to_string(data: &YamlDataOwned<MarkedYamlOwned>) -> String {
-    if let Some(s) = data.as_str() {
-        return s.to_string();
+/// Per DESIGN Decision 1 (§"Typed-scalar preservation"): reconstructing
+/// from the parsed typed value (`i.to_string()`, `f.to_string()`) would
+/// canonicalize the token and diverge from the Go baseline; the parity
+/// fixture catches that divergence.
+fn scalar_source_text(data: &YamlDataOwned<MarkedYamlOwned>) -> Option<String> {
+    match data {
+        YamlDataOwned::Representation(text, _, _) => Some(text.clone()),
+        YamlDataOwned::Value(scalar) => scalar.as_str().map(str::to_string),
+        _ => None,
     }
-    if let Some(b) = data.as_bool() {
-        return b.to_string();
-    }
-    if let Some(i) = data.as_integer() {
-        return i.to_string();
-    }
-    if let Some(f) = data.as_floating_point() {
-        return f.to_string();
-    }
-    String::new()
 }
 
 /// Return all bytes from the given 1-indexed start line onward.

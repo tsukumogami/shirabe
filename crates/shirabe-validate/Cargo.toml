@@ -8,3 +8,4 @@ publish = false
 [dependencies]
 regex = "1"
 saphyr = "=0.0.6"
+saphyr-parser = "=0.0.6"
