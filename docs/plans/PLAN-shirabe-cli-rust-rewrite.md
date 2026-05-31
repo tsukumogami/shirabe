@@ -203,9 +203,11 @@ source tree.
 - Implement `tests/parity_test.rs` asserting byte equality on stdout/stderr/
   exit-code per file.
 - Add `.github/workflows/parity-check.yml` as a reusable workflow
-  (`on: workflow_call:`) with inputs for `go-baseline-version` and
-  `corpus-glob`, downloading matching Go and Rust binaries from shirabe's
-  GitHub releases and asserting byte equality on caller corpora.
+  (`on: workflow_call:`) with inputs for `go-baseline-ref` and
+  `corpus-glob`. The workflow builds the Go baseline from `go-baseline-ref`
+  (checkout + `go build`, defaulting to the pinned commit `20fb8ed`) rather
+  than downloading a release, downloads the Rust release binary, and asserts
+  byte equality on caller corpora.
 - Document the workflow's inputs table and failure modes per
   maintainer-reviewer's polish finding.
 - Update `.github/workflows/release-binaries.yml` to use Cargo. Verify
