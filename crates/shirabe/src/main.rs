@@ -14,7 +14,7 @@ use clap::{Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
     detect_format, format_error, format_notice, is_notice, parse_doc, validate_file, Config,
-    ValidationError,
+    ParseError, ValidationError,
 };
 
 /// The maximum accepted size of the `--custom-statuses` value, matching the
@@ -101,7 +101,7 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
                         file: path.clone(),
                         line: 1,
                         code: "IO".to_string(),
-                        message: format!("could not read file: {}", err),
+                        message: format!("could not read file: {}", io_error_text(&err)),
                     })
                 );
                 has_errors = true;
@@ -186,6 +186,21 @@ fn parse_custom_statuses(value: &str) -> Result<HashMap<String, Vec<String>>, St
 /// prefix.
 fn invalid_yaml(detail: &str) -> String {
     format!("--custom-statuses contains invalid YAML: {}", detail)
+}
+
+/// Renders a [`ParseError`] for the `could not read file:` annotation,
+/// trimming `ParseError`'s `io error: ` Display prefix so the message
+/// shape tracks Go's `could not read file: read <path>: ...` rather than
+/// surfacing the Rust-internal wrapper label. The residual OS-string
+/// difference (Rust's `std::io::Error` text vs Go's `os.PathError` text)
+/// is an accepted out-of-contract divergence -- no parity-corpus file
+/// triggers the IO-read-failure path. See DESIGN's divergence note.
+fn io_error_text(err: &ParseError) -> String {
+    let rendered = err.to_string();
+    rendered
+        .strip_prefix("io error: ")
+        .map(str::to_string)
+        .unwrap_or(rendered)
 }
 
 /// Returns the final path component of `path`, matching Go's
