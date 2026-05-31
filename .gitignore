@@ -25,3 +25,6 @@ decision-workspace/
 
 # Local overlay files (e.g. CLAUDE.local.md)
 *.local*
+
+# Cargo build directory
+/target
