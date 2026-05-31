@@ -166,6 +166,168 @@ func checkFC04(doc Doc, spec FormatSpec) []ValidationError {
 	return errs
 }
 
+// legacyPlanTableColumns is the historic four-column plan-table shape
+// (Issue | Title | Dependencies | Complexity). FC05 recognizes it
+// specially to emit a migration hint pointing the author at the
+// canonical three-column shape.
+var legacyPlanTableColumns = []string{"Issue", "Title", "Dependencies", "Complexity"}
+
+// checkFC05 validates that the Implementation Issues table header
+// matches the format's required column contract (R6). The profile is
+// selected by spec.IssuesTableColumns -- absent (empty) means the
+// format has no issues table and the check is a no-op.
+//
+// FC05 is error-level. A legacy plan-table shape (Issue | Title |
+// Dependencies | Complexity) emits a migration-hint message rather
+// than a generic schema-mismatch message, pointing the author at the
+// canonical three-column shape.
+func checkFC05(doc Doc, spec FormatSpec) []ValidationError {
+	if len(spec.IssuesTableColumns) == 0 {
+		return nil
+	}
+	table, ok := parseIssuesTable(doc)
+	if !ok {
+		return nil
+	}
+
+	// Detect the legacy plan-table shape and emit a migration hint.
+	if spec.SchemaVersion == "plan/v1" && stringSlicesEqual(table.Columns, legacyPlanTableColumns) {
+		return []ValidationError{
+			{
+				File:    doc.Path,
+				Line:    table.HeaderLine,
+				Code:    "FC05",
+				Message: `[FC05] legacy plan table shape "Issue | Title | Dependencies | Complexity" found; migrate by folding the Title cell into the issue link text: "[#N: <title>](url) | <deps> | <complexity>"`,
+			},
+		}
+	}
+
+	if stringSlicesEqual(table.Columns, spec.IssuesTableColumns) {
+		return validateRowShape(doc, table)
+	}
+
+	want := strings.Join(spec.IssuesTableColumns, " | ")
+	got := strings.Join(table.Columns, " | ")
+	return []ValidationError{
+		{
+			File:    doc.Path,
+			Line:    table.HeaderLine,
+			Code:    "FC05",
+			Message: fmt.Sprintf(`[FC05] issues-table header %q does not match the %s profile (expected %q)`, got, spec.Name, want),
+		},
+	}
+}
+
+// validateRowShape checks that table rows are well-formed. Every entity
+// row must be followed by an italic description row; a child reference
+// row may sit between them.
+func validateRowShape(doc Doc, table Table) []ValidationError {
+	var errs []ValidationError
+
+	// Each entity row must be followed by a description row, optionally
+	// with one child reference row between them.
+	for i, row := range table.Rows {
+		if row.Kind != RowEntity {
+			continue
+		}
+		next := i + 1
+		// Skip a single child reference row if present.
+		if next < len(table.Rows) && table.Rows[next].Kind == RowChild {
+			next++
+		}
+		if next >= len(table.Rows) || table.Rows[next].Kind != RowDescription {
+			errs = append(errs, ValidationError{
+				File:    doc.Path,
+				Line:    row.Line,
+				Code:    "FC05",
+				Message: fmt.Sprintf(`[FC05] entity row at line %d is missing its description row (expected an italic "_..._" row immediately after)`, row.Line),
+			})
+		}
+	}
+
+	return errs
+}
+
+// checkFC06 verifies that every Dependencies value in an entity row
+// names a key that exists as an entity row in the same table (R7). The
+// check is document-local (no graph model). FC06 is error-level.
+//
+// FC06 is a no-op when the format has no issues table or the table is
+// absent.
+func checkFC06(doc Doc, spec FormatSpec) []ValidationError {
+	if len(spec.IssuesTableColumns) == 0 {
+		return nil
+	}
+	table, ok := parseIssuesTable(doc)
+	if !ok {
+		return nil
+	}
+
+	// Build the entity-row key set.
+	keys := make(map[string]bool, len(table.Rows))
+	for _, row := range table.Rows {
+		if row.Kind == RowEntity && row.Key != "" {
+			keys[row.Key] = true
+		}
+	}
+
+	var errs []ValidationError
+	for _, row := range table.Rows {
+		if row.Kind != RowEntity {
+			continue
+		}
+		for _, dep := range row.Deps {
+			if dep == "" {
+				continue
+			}
+			// Cross-repo refs (`tsukumogami/<repo>#N`, `owner/repo#N`)
+			// and bare external URLs are out of scope for the
+			// document-local check. We only flag intra-doc references
+			// that look like the doc's own key form but don't match.
+			if !isLocalKey(dep) {
+				continue
+			}
+			if !keys[dep] {
+				errs = append(errs, ValidationError{
+					File:    doc.Path,
+					Line:    row.Line,
+					Code:    "FC06",
+					Message: fmt.Sprintf(`[FC06] dependency %q in row %q names no row in this table`, dep, row.Key),
+				})
+			}
+		}
+	}
+	return errs
+}
+
+// isLocalKey reports whether dep looks like a document-local key (a
+// bare `#N` token or a feature label). Cross-repo references with a
+// slash before the `#` are not local.
+func isLocalKey(dep string) bool {
+	if strings.HasPrefix(dep, "#") {
+		return true
+	}
+	// A feature label is local; a `owner/repo#N` is not (it has a `/`).
+	if strings.Contains(dep, "/") {
+		return false
+	}
+	return true
+}
+
+// stringSlicesEqual reports whether two slices have the same length
+// and the same elements in order.
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // checkPlanUpstream (R6) verifies that a Plan doc's upstream field points at a
 // file that exists on disk and is tracked by git. The field is optional; an
 // absent upstream value returns nil. The git tracking check runs `git ls-files

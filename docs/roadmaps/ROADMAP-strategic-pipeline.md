@@ -1,4 +1,5 @@
 ---
+schema: roadmap/v1
 status: Active
 theme: |
   Complete the strategic-to-tactical pipeline by adding the missing inception
@@ -396,17 +397,43 @@ Feature 12 (Artifact Type Decision Reference) --- independent
 
 ## Progress
 
-| Feature | Status | Downstream Artifact |
-|---------|--------|-------------------|
-| Feature 1: VISION Artifact Type | Done | DESIGN-vision-artifact-type.md (Current) |
-| Feature 2: Roadmap Creation Skill | Done | PRD-roadmap-skill.md (Done), DESIGN-roadmap-creation-skill.md (Current) |
-| Feature 3: Artifact Traceability | Done | PRD-artifact-traceability.md (Done), DESIGN-artifact-traceability.md (Current) |
-| Feature 4: Complexity Routing Expansion | Done | PRD-complexity-routing-expansion.md (Done), DESIGN-complexity-routing-expansion.md (Current) |
-| Feature 5: Plan Skill Rework | Done | PRD-plan-skill-rework.md (Done), DESIGN-plan-skill-rework.md (Current) |
-| Feature 6: Pipeline Documentation | Done | PRD-pipeline-documentation.md (Done) |
-| Feature 7: Crystallize Framework Calibration | Not Started | -- |
-| Feature 8: Completion Cascade Automation | In Progress | DESIGN-work-on-koto-unification.md (Current) |
-| Feature 9: Upstream Context Propagation | Not Started | -- |
-| Feature 10: Progress Consistency | Not Started | -- |
-| Feature 11: Lifecycle Script Hardening | Not Started | -- |
-| Feature 12: Artifact Type Decision Reference | Not Started | -- |
+The per-feature lifecycle state and any downstream artifact references
+live in the Features section above. The canonical Implementation
+Issues table below carries the current Status for each feature; this
+section is kept as the roadmap-format-required narrative slot for
+ad-hoc progress notes and is currently empty.
+
+## Implementation Issues
+
+| Feature | Issues | Dependencies | Status |
+|---------|--------|--------------|--------|
+| Feature 1: VISION Artifact Type | None | None | Done |
+| _DESIGN-vision-artifact-type.md (Current). Adds the VISION artifact type as the strategic root of the pipeline._ | | | |
+| Feature 2: Roadmap Creation Skill | None | None | Done |
+| _PRD-roadmap-skill.md (Done), DESIGN-roadmap-creation-skill.md (Current). Adds the /roadmap skill that sequences features into a coordinated initiative._ | | | |
+| Feature 3: Artifact Traceability | None | Feature 1: VISION Artifact Type | Done |
+| _PRD-artifact-traceability.md (Done), DESIGN-artifact-traceability.md (Current). Adds upstream frontmatter linking artifacts up the chain._ | | | |
+| Feature 4: Complexity Routing Expansion | None | Feature 1: VISION Artifact Type | Done |
+| _PRD-complexity-routing-expansion.md (Done), DESIGN-complexity-routing-expansion.md (Current). Adds the Strategic complexity level so a VISION can route work through the pipeline._ | | | |
+| Feature 5: Plan Skill Rework | None | Feature 2: Roadmap Creation Skill | Done |
+| _PRD-plan-skill-rework.md (Done), DESIGN-plan-skill-rework.md (Current). Reworks /plan so a roadmap can drive decomposition without a special re-entry mode._ | | | |
+| Feature 6: Pipeline Documentation | None | Feature 1: VISION Artifact Type, Feature 2: Roadmap Creation Skill, Feature 3: Artifact Traceability, Feature 4: Complexity Routing Expansion | Done |
+| _PRD-pipeline-documentation.md (Done). Documents the completed pipeline end-to-end._ | | | |
+| Feature 7: Crystallize Framework Calibration | None | None | Not Started |
+| _Independent calibration work that benefits from Feature 4 but does not require it._ | | | |
+| Feature 8: Completion Cascade Automation | None | Feature 5: Plan Skill Rework | In Progress |
+| _DESIGN-work-on-koto-unification.md (Current). Automates the completion cascade so the /plan output flows into /work-on cleanly._ | | | |
+| Feature 9: Upstream Context Propagation | None | Feature 5: Plan Skill Rework | Not Started |
+| _Propagates upstream context across the plan-to-implementation seam. Depends on the rewored /plan output shape._ | | | |
+| Feature 10: Progress Consistency | None | Feature 8: Completion Cascade Automation | Not Started |
+| _Shares the milestone-detection problem the cascade automation solves; lands after it._ | | | |
+| Feature 11: Lifecycle Script Hardening | None | None | Not Started |
+| _Hardens the lifecycle scripts independently of the rest of the roadmap._ | | | |
+| Feature 12: Artifact Type Decision Reference | None | None | Not Started |
+| _Reference work for the artifact-type decision. Benefits from Feature 4's signal-based routing but lands independently._ | | | |
+
+## Dependency Graph
+
+```mermaid
+graph TD
+```
