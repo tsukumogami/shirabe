@@ -3,12 +3,12 @@ status: Proposed
 problem: |
   shirabe's deterministic surface (`shirabe validate` CLI, the line-number-aware
   YAML frontmatter parser, the seven validation rules, the GHA annotation
-  emitter) is implemented in Go. The parent strategy commits to consolidating
-  the deterministic surface in Rust so that future downstream consumers (koto
-  template-script-calling, bunki crate-bundling) can link against a Rust crate
-  rather than shell out across a Go-Rust seam. This design is the foundation
-  step of that initiative: translate `cmd/shirabe/` + `internal/validate/`
-  from Go to Rust while preserving the public contract byte-for-byte.
+  emitter) is implemented in Go. Aligning this surface with koto's Rust
+  substrate keeps cross-component composition structurally cheap and removes
+  the Go/Rust seam that currently sits between shirabe and the rest of the
+  toolkit's workflow tier. This design is the foundation step of that
+  convergence: translate `cmd/shirabe/` + `internal/validate/` from Go to
+  Rust while preserving the public contract byte-for-byte.
 decision: |
   Translate the 1,417 LOC of Go (cmd/shirabe + internal/validate +
   internal/annotation) to Rust as a Cargo workspace with two crates from day
@@ -424,15 +424,21 @@ constraint alone.
 ### Decision 4: Cargo crate layout
 
 **Question.** Is the rewrite a single binary crate (one `Cargo.toml`,
-everything in `src/`) or a Cargo workspace with a separate library crate
-anticipating the library-crate-publication follow-on?
+everything in `src/`) or a Cargo workspace with a separate library
+crate anticipating the library-crate boundary that follows from
+convergence with koto?
 
 **Key assumptions.**
-- The library-crate-publication follow-on will publish a library crate
-  exposing the validate API to downstream consumers. The API surface
-  stays "internal-shaped, public for distribution" until a downstream
-  consumer locks the contract — that's the parent initiative's staging
-  framing for the publication step.
+- Convergence with koto's Rust substrate makes a library-crate
+  publication the eventual natural shape: koto's workflow templates
+  may want to call shirabe's validate logic without shelling out, and
+  a Rust crate boundary is the structurally cheap way to allow that.
+  The publication itself is the library-crate-publication follow-on's
+  scope, not this design's.
+- Until a downstream consumer commits to linking, the library API
+  stays "internal-shaped, public for distribution" — unstable across
+  shirabe versions, locked only when the first call-site surfaces
+  concrete requirements.
 - Restructuring a single binary crate into a workspace later means
   changing every import path that crosses the new crate boundary; a
   workspace from day one bypasses this.
