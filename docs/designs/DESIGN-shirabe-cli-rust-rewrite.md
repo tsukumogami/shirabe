@@ -876,10 +876,11 @@ the existing code has a directly corresponding step in the new code:
      │  │
      │  ├─ read file bytes
      │  ├─ split_frontmatter -> (yaml_bytes, fm_start_line, body_start_line)
-     │  ├─ parse_yaml_fields via saphyr:
-     │  │    ├─ saphyr::Loader::load_from_str(yaml_str)
+     │  ├─ parse_yaml_fields via saphyr (early_parse(false)):
+     │  │    ├─ loader.early_parse(false); loader.load_from_str(yaml_str)
      │  │    ├─ walk mapping; for each (key_node, val_node):
-     │  │    │    fields[key] = FieldValue { value, line: key_node.span().start.line }
+     │  │    │    fields[key] = FieldValue { value: scalar_source_text(val),
+     │  │    │                               line: key_node.span().start.line }
      │  │    └─ return HashMap
      │  ├─ scan_body for ## headings + body lines
      │  └─ build Doc
@@ -934,12 +935,17 @@ specific patch version in `Cargo.toml` and bind the imports to that
 version's actual surface:
 
 ```rust
-use saphyr::{MarkedYamlOwned, LoadableYamlNode};
+use saphyr::{MarkedYamlOwned, YamlDataOwned};
 
 fn parse_yaml_fields(yaml_str: &str, fm_start_line: usize)
     -> Result<HashMap<String, FieldValue>, ParseError>
 {
-    let docs = MarkedYamlOwned::load_from_str(yaml_str)?;
+    // Load with early_parse(false) so every scalar keeps its original
+    // source token in the Representation variant rather than being
+    // reparsed to a typed value (see "Typed-scalar preservation" below).
+    let mut loader = MarkedYamlOwned::loader();
+    loader.early_parse(false);
+    let docs = loader.load_from_str(yaml_str)?;
     let mut fields = HashMap::new();
     let Some(doc) = docs.into_iter().next() else { return Ok(fields); };
 
@@ -954,17 +960,24 @@ fn parse_yaml_fields(yaml_str: &str, fm_start_line: usize)
     let offset = fm_start_line.saturating_sub(1);
 
     for (key_node, val_node) in mapping.iter() {
-        let Some(key) = key_node.data.as_str() else { continue; };
+        // scalar_source_text returns the verbatim Representation token.
+        let Some(key) = scalar_source_text(&key_node.data) else { continue; };
         let absolute_line = key_node.span.start.line() + offset;
-        let value = val_node.data.as_str()
+        let value = scalar_source_text(&val_node.data)
             .map(|s| s.trim_end_matches('\n').to_string())
             .unwrap_or_default();
-        fields.insert(
-            key.to_string(),
-            FieldValue { value, line: absolute_line },
-        );
+        fields.insert(key, FieldValue { value, line: absolute_line });
     }
     Ok(fields)
+}
+
+// Under early_parse(false) every scalar arrives as
+// YamlDataOwned::Representation(source_text, ..); return that verbatim.
+fn scalar_source_text(data: &YamlDataOwned<MarkedYamlOwned>) -> Option<String> {
+    match data {
+        YamlDataOwned::Representation(text, _, _) => Some(text.clone()),
+        _ => None,
+    }
 }
 ```
 
@@ -978,19 +991,22 @@ the API class is what the validator needs, and saphyr provides it.
 
 **Typed-scalar preservation.** Go's `yaml.v3` stores typed scalars
 (`42`, `true`) on `yaml.Node` as `Value: "42"` and `Value: "true"`
-— the string representation of the typed value. The Go
-`parseYAMLFields` reads `valNode.Value` directly. saphyr's
-`Scalar` enum distinguishes typed scalars, so `as_str()` may
-return `None` on an integer or boolean node. shirabe's corpus
-includes at least one typed-integer field (`issue_count: 8` in
-plan/v1 frontmatter), so the field-value extraction must coerce
-typed scalars back to their string representation rather than
-fall through to `unwrap_or_default()`. The implementation calls
-saphyr's `Yaml::Value::as_yaml_string()` (or equivalent — the
-exact method name pins at implementation time) on each value
-node before falling back to empty. The parity fixture catches
-divergence on this path: any plan/v1 corpus file exercising
-`issue_count` validates the typed-scalar pathway.
+— the original source token, not a reparsed canonical form. The Go
+`parseYAMLFields` reads `valNode.Value` directly. To match this
+byte-for-byte, the Rust parser preserves the original scalar source
+lexical form rather than reparsing to a typed value: it loads the
+document with saphyr's `early_parse(false)`, so every scalar arrives
+as `YamlDataOwned::Representation(source_text, ..)` carrying the exact
+source token, and a `scalar_source_text()` helper returns that text
+verbatim. No reparse-to-canonical occurs and no
+`as_yaml_string()`-style coercion is involved — a value like
+`status: 1.50` stays `1.50`, not `1.5`. The parity fixture catches
+divergence on this path, and it now genuinely exercises it: the
+corpus includes a typed-scalar regression artifact
+(`DESIGN-typed-scalar-status.md`, with `status: 1.50`) plus
+null (`~`) and hex (`0x1F`) cases in a consumed field, so
+`parity_test.rs` asserts source-text preservation on non-round-tripping
+scalars rather than the claim resting on an incidentally-typed field.
 
 Backstop: if the pinned saphyr version's API surface differs more
 than cosmetically from this sketch (a possibility given the 0.0.x
