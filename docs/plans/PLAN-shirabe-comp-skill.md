@@ -71,7 +71,7 @@ R9 error.
 - No `comp/v1` entry yet (lands in <<ISSUE:2>>); existing tests pass unchanged.
 - `go test ./internal/validate/...` passes.
 
-**Dependencies:** None
+**Dependencies**: None
 
 ### Issue 2: feat(validate): add comp/v1 Formats-map entry with Private: true and FormatSpec tests
 
@@ -96,7 +96,7 @@ cover FC01/FC02/FC04 against a known-good fixture.
   exactly one R9 error and no FC errors (R9 early-return contract).
 - `go test ./internal/validate/...` passes.
 
-**Dependencies:** <<ISSUE:1>>
+**Dependencies**: <<ISSUE:1>>
 
 ### Issue 3: docs(comp): author skills/comp/references/comp-format.md from scratch
 
@@ -127,7 +127,7 @@ authoring input only.
   and `skills/brief/references/brief-format.md`; no verbatim paragraphs
   imported from the workspace-level reference.
 
-**Dependencies:** <<ISSUE:2>>
+**Dependencies**: <<ISSUE:2>>
 
 ### Issue 4: feat(comp): add transition-status.sh and transition-status_test.sh (BRIEF-mirrored)
 
@@ -152,7 +152,7 @@ enum. No directory movement.
   and at least three rejected transitions.
 - Running the test harness exits 0.
 
-**Dependencies:** <<ISSUE:3>>
+**Dependencies**: <<ISSUE:3>>
 
 ### Issue 5: feat(comp): add SKILL.md and the six phase files (phase-0 through phase-5)
 
@@ -190,7 +190,7 @@ Phase 5 for parent capture.
   rule applied during authoring).
 - Files are appropriate for the Public-visibility shirabe repo.
 
-**Dependencies:** <<ISSUE:4>>
+**Dependencies**: <<ISSUE:4>>
 
 ### Issue 6: docs(comp): land Phase 4 reviewer rubrics verbatim in phase-4-validate.md per Decision 2
 
@@ -216,7 +216,7 @@ checks and the all-PASS aggregation rule.
 - All-PASS aggregation rule is documented (1-2 minor FAIL fixed inline;
   significant FAIL loops back to Phase 3).
 
-**Dependencies:** <<ISSUE:5>>
+**Dependencies**: <<ISSUE:5>>
 
 ### Issue 7: test(comp): add evals.json with eight scenarios plus fixtures and test-cli.sh
 
@@ -245,7 +245,7 @@ mirroring `skills/brief/evals/test-cli.sh`.
   scenarios deterministically.
 - `scripts/run-evals.sh comp` reports all assertions passing.
 
-**Dependencies:** <<ISSUE:6>>
+**Dependencies**: <<ISSUE:6>>
 
 ### Issue 8: docs(claude-md): add /comp guidance paragraph to shirabe CLAUDE.md per PRD R11
 
@@ -265,7 +265,7 @@ redirect-to-alternatives behavior for public repos.
 - Style and length consistent with adjacent artifact-type listings.
 - `shirabe validate` passes on the modified file.
 
-**Dependencies:** <<ISSUE:5>>
+**Dependencies**: <<ISSUE:5>>
 
 ### Issue 9: docs(release): release-notes entry calling out docs/competitive/** path-filter widening per PRD R9
 
@@ -288,7 +288,7 @@ and the workspace-level COMP reference deprecation note.
   paragraph from <<ISSUE:8>>.
 - Suitable for the Public-visibility shirabe release.
 
-**Dependencies:** <<ISSUE:2>>, <<ISSUE:5>>
+**Dependencies**: <<ISSUE:2>>, <<ISSUE:5>>
 
 ## Implementation Issues
 
