@@ -13,12 +13,17 @@ planned_chain:
   - plan
 chain_ran:
   - brief
+  - prd
 chain_skipped: []
 child_snapshots:
   brief:
+    status: Accepted
+    content_hash: be7ff5733219427332299c17be8c093627d1ea36
+    captured_at: 2026-05-31T19:38:00Z
+  prd:
     status: Draft
-    content_hash: 8ba65c2013d82dea6034eea61f03bfcb1bc4a3ab
-    captured_at: 2026-05-31T19:25:00Z
+    content_hash: eef4be69dcc59f1ece157ee80b22bd107152a97e
+    captured_at: 2026-05-31T19:38:00Z
 ---
 
 # /scope state — shirabe-comp-skill
