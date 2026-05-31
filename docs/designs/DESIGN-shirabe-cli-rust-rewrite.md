@@ -591,30 +591,40 @@ Pinning to `20fb8ed` makes the parity baseline and the source the
 Outline 5 cut deletes the *same commit*: there is no gap between
 "what we captured as the contract" and "what we removed from the
 tree," so the parity tests assert against exactly the Go behavior
-being replaced. A pinned commit SHA is immutable, preserving the
-original immutable-baseline intent that a tagged release would have
-served — there is simply no intermediate Go release to cut.
+being replaced. The immutability the baseline needs comes from the
+commit pin itself, not from a frozen release artifact: a pinned
+commit SHA is immutable, so building from it satisfies the
+immutable-baseline intent a tagged release would otherwise have
+served. There is no intermediate Go release to cut, and the team
+deliberately declines to cut a throwaway one.
 
-The `tests/fixtures/capture_go_baseline.sh` script builds the Go
-binary locally from the pinned commit (it does not download a
-release tag, because no tag carries the post-#134 contract — this is
-a deliberate deviation from the design's earlier "download from
-releases" framing), runs it against `corpus/`, and writes the
-stdout/stderr/exit triple to `expected/`. The committed `expected/`
-is the output of the Go tree the rewrite actually replaces. If
-`main` advances with a Go-side validation change the team wants the
-Rust port to mirror before the cut, the capture is re-run against the
-new commit and `expected/` is updated as a separate change before the
-rewrite lands. The script records the pinned commit SHA so the
-baseline is reproducible.
+**Build the baseline from the pinned ref, do not download a release.**
+Both parity layers produce the baseline binary by checking out
+shirabe at the pinned ref and running `go build ./cmd/shirabe` at
+runtime, rather than downloading a release asset. This is a
+deliberate, documented deviation from the design's original Layer-2
+framing, which had the workflow download a captured Go baseline
+binary from a release: no published release carries the post-#134
+contract, so there is no release asset to download. Decision 3's
+Layer-2 description and inputs table are updated to match (the input
+is `go-baseline-ref`, a git ref built from, not a release tag).
+
+The `tests/fixtures/capture_go_baseline.sh` script (Layer 1) checks
+out the pinned commit and runs `go build ./cmd/shirabe`, runs the
+resulting binary against `corpus/`, and writes the stdout/stderr/exit
+triple to `expected/`. The committed `expected/` is the output of the
+Go tree the rewrite actually replaces. If `main` advances with a
+Go-side validation change the team wants the Rust port to mirror
+before the cut, the capture is re-run against the new commit and
+`expected/` is updated as a separate change before the rewrite lands.
+The script records the pinned commit SHA so the baseline is
+reproducible.
 
 The Layer 2 reusable `parity-check.yml` workflow (Decision 3) uses
 the same build-from-ref mechanism: its `go-baseline-ref` input is a
-git ref the workflow checks out and builds with `go build`, not a
-release tag it downloads, defaulting to the pinned baseline commit
-(`20fb8ed`). Both layers therefore build the Go baseline from a git
-ref rather than a published release, since no release carries the
-post-#134 contract.
+git ref the workflow checks out and builds with `go build
+./cmd/shirabe`, defaulting to the pinned baseline commit (`20fb8ed`),
+rather than a release tag it downloads.
 
 **Considered and rejected.**
 
