@@ -1,4 +1,5 @@
 ---
+schema: roadmap/v1
 status: Active
 theme: |
   Convert shirabe skills from prose-based workflow management to koto-orchestrated
@@ -147,42 +148,56 @@ gates for version validation. Converts last.
 
 ### Milestone: [Koto Adoption](https://github.com/tsukumogami/shirabe/milestone/3)
 
-| Issue | Phase | Dependencies | Label |
-|-------|-------|-------------|-------|
-| [#49: review-plan fast-path](https://github.com/tsukumogami/shirabe/issues/49) | 1 | None | `needs-design` |
-| [#50: decision (degraded)](https://github.com/tsukumogami/shirabe/issues/50) | 1 | None | `needs-design` |
-| ~~[#51: file koto requests](https://github.com/tsukumogami/shirabe/issues/51)~~ | 1 | None | Done |
-| [#52: prd conversion](https://github.com/tsukumogami/shirabe/issues/52) | 2 | tsukumogami/koto#65, tsukumogami/koto#87 | `needs-design` |
-| [#53: plan conversion](https://github.com/tsukumogami/shirabe/issues/53) | 2 | tsukumogami/koto#65 | `needs-design` |
-| [#54: explore basic](https://github.com/tsukumogami/shirabe/issues/54) | 2 | tsukumogami/koto#65, tsukumogami/koto#87 | `needs-design` |
-| [#55: design linear](https://github.com/tsukumogami/shirabe/issues/55) | 2 | tsukumogami/koto#65 | `needs-design` |
-| [#56: explore full loops](https://github.com/tsukumogami/shirabe/issues/56) | 3 | #54, tsukumogami/koto#105 | `needs-design` |
-| [#57: review-plan adversarial](https://github.com/tsukumogami/shirabe/issues/57) | 3 | #49, tsukumogami/koto#106 | `needs-design` |
-| [#58: decision full validators](https://github.com/tsukumogami/shirabe/issues/58) | 3 | #50 | `needs-spike` |
-| [#59: design parallel](https://github.com/tsukumogami/shirabe/issues/59) | 3 | #55, tsukumogami/koto#106 | `needs-design` |
-| [#60: release conversion](https://github.com/tsukumogami/shirabe/issues/60) | 3 | tsukumogami/koto#104, tsukumogami/koto#107 | `needs-design` |
+| Feature | Issues | Dependencies | Status |
+|---------|--------|--------------|--------|
+| Feature 1: review-plan fast-path | [#49](https://github.com/tsukumogami/shirabe/issues/49) | None | needs-design |
+| _Phase 1. Adds a degraded-mode review-plan that runs against koto's current capabilities, validating the conversion pattern before harder conversions._ | | | |
+| Feature 2: decision (degraded) | [#50](https://github.com/tsukumogami/shirabe/issues/50) | None | needs-design |
+| _Phase 1. Adds a degraded /decision conversion using koto today, validating the pattern alongside Feature 1._ | | | |
+| ~~Feature 3: file koto requests~~ | ~~[#51](https://github.com/tsukumogami/shirabe/issues/51)~~ | ~~None~~ | ~~Done~~ |
+| ~~_Phase 1. Filed the koto feature requests the rest of the conversions depend on._~~ | | | |
+| Feature 4: prd conversion | [#52](https://github.com/tsukumogami/shirabe/issues/52) | tsukumogami/koto#65, tsukumogami/koto#87 | needs-design |
+| _Phase 2. Converts the /prd skill to koto. Needs koto#65 (variables) and koto#87 (evidence promotion) to ship first._ | | | |
+| Feature 5: plan conversion | [#53](https://github.com/tsukumogami/shirabe/issues/53) | tsukumogami/koto#65 | needs-design |
+| _Phase 2. Converts the /plan skill to koto, gated on koto#65._ | | | |
+| Feature 6: explore basic | [#54](https://github.com/tsukumogami/shirabe/issues/54) | tsukumogami/koto#65, tsukumogami/koto#87 | needs-design |
+| _Phase 2. Basic /explore conversion -- linear pipeline only, no loops. Gated on koto#65 and koto#87._ | | | |
+| Feature 7: design linear | [#55](https://github.com/tsukumogami/shirabe/issues/55) | tsukumogami/koto#65 | needs-design |
+| _Phase 2. Linear /design conversion, gated on koto#65. Parallel /design lands later as Feature 11._ | | | |
+| Feature 8: explore full loops | [#56](https://github.com/tsukumogami/shirabe/issues/56) | Feature 6: explore basic, tsukumogami/koto#105 | needs-design |
+| _Phase 3. Adds the loop variant to /explore on top of Feature 6, gated on koto#105 (bounded iteration)._ | | | |
+| Feature 9: review-plan adversarial | [#57](https://github.com/tsukumogami/shirabe/issues/57) | Feature 1: review-plan fast-path, tsukumogami/koto#106 | needs-design |
+| _Phase 3. Adversarial variant on top of Feature 1, gated on koto#106 (glob gate)._ | | | |
+| Feature 10: decision full validators | [#58](https://github.com/tsukumogami/shirabe/issues/58) | Feature 2: decision (degraded) | needs-spike |
+| _Phase 3. Full-validator /decision on top of Feature 2. Carries the spike for validator integration._ | | | |
+| Feature 11: design parallel | [#59](https://github.com/tsukumogami/shirabe/issues/59) | Feature 7: design linear, tsukumogami/koto#106 | needs-design |
+| _Phase 3. Adds parallel-track support to /design on top of Feature 7, gated on koto#106._ | | | |
+| Feature 12: release conversion | [#60](https://github.com/tsukumogami/shirabe/issues/60) | tsukumogami/koto#104, tsukumogami/koto#107 | needs-design |
+| _Phase 3. The poorest koto fit -- 15+ external commands and heavy external state. Gated on koto#104 (polling) and koto#107 (content-match). Converts last._ | | | |
+
+## Dependency Graph
 
 ```mermaid
 graph LR
-    I49["#49<br/>review-plan<br/>fast-path"]
-    I50["#50<br/>decision<br/>degraded"]
-    I51["#51<br/>file koto<br/>requests"]
-    I52["#52<br/>prd"]
-    I53["#53<br/>plan"]
-    I54["#54<br/>explore<br/>basic"]
-    I55["#55<br/>design<br/>linear"]
-    I56["#56<br/>explore<br/>full loops"]
-    I57["#57<br/>review-plan<br/>adversarial"]
-    I58["#58<br/>decision<br/>full validators"]
-    I59["#59<br/>design<br/>parallel"]
-    I60["#60<br/>release"]
+    I49["#49: review-plan fast-path"]
+    I50["#50: decision (degraded)"]
+    I51["#51: file koto requests"]
+    I52["#52: prd"]
+    I53["#53: plan"]
+    I54["#54: explore basic"]
+    I55["#55: design linear"]
+    I56["#56: explore full loops"]
+    I57["#57: review-plan adversarial"]
+    I58["#58: decision full validators"]
+    I59["#59: design parallel"]
+    I60["#60: release"]
 
-    K65["koto#65<br/>variables"]
-    K87["koto#87<br/>evidence<br/>promotion"]
-    K104["koto#104<br/>polling gate"]
-    K105["koto#105<br/>bounded<br/>iteration"]
-    K106["koto#106<br/>glob gate"]
-    K107["koto#107<br/>content-match"]
+    K65["koto#65: variables"]
+    K87["koto#87: evidence promotion"]
+    K104["koto#104: polling gate"]
+    K105["koto#105: bounded iteration"]
+    K106["koto#106: glob gate"]
+    K107["koto#107: content-match"]
 
     I49 --> I57
     I50 --> I58
