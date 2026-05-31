@@ -1,0 +1,14 @@
+[package]
+name = "shirabe"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[[bin]]
+# non-default binary name during Go/Rust coexistence (O1-O4); renamed to "shirabe" at the Go deletion cut in O5
+name = "shirabe-rs"
+path = "src/main.rs"
+
+[dependencies]
+shirabe-validate = { path = "../shirabe-validate" }
