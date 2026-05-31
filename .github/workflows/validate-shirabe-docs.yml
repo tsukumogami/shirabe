@@ -10,10 +10,10 @@ on:
   pull_request:
     paths:
       - 'docs/**'
-      - 'cmd/shirabe/**'
-      - 'internal/**'
-      - 'go.mod'
-      - 'go.sum'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
       - '.github/workflows/validate-docs.yml'
       - '.github/workflows/validate-shirabe-docs.yml'
 

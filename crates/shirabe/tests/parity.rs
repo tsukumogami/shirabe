@@ -1,7 +1,7 @@
 //! Golden-output parity tests (DESIGN Decision 3, Layer 1).
 //!
 //! For each file under `tests/fixtures/golden/corpus/`, run the Rust
-//! `shirabe-rs` binary with the corpus directory as the working directory
+//! `shirabe` binary with the corpus directory as the working directory
 //! (passing the corpus-relative path), and assert its stdout, stderr, and
 //! exit code byte-match the captured Go baseline under
 //! `tests/fixtures/golden/expected/<path>.{stdout,stderr,exit}`.
@@ -35,13 +35,13 @@ fn assert_parity(rel: &str) {
     let corpus_dir = golden.join("corpus");
     let expected_base = golden.join("expected").join(rel);
 
-    let bin = env!("CARGO_BIN_EXE_shirabe-rs");
+    let bin = env!("CARGO_BIN_EXE_shirabe");
     let output = Command::new(bin)
         .current_dir(&corpus_dir)
         .arg("validate")
         .arg(rel)
         .output()
-        .expect("failed to run shirabe-rs");
+        .expect("failed to run shirabe");
 
     let expected_stdout = read_expected(&expected_base, "stdout");
     let expected_stderr = read_expected(&expected_base, "stderr");

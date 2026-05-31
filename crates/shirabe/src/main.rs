@@ -22,13 +22,9 @@ use shirabe_validate::{
 const MAX_CUSTOM_STATUSES_BYTES: usize = 64 * 1024;
 
 /// Top-level CLI. `name = "shirabe"` keeps `--version` printing
-/// `shirabe <version>` even while the binary target is named `shirabe-rs`
-/// during the Go/Rust coexistence window, matching the Go version template
+/// `shirabe <version>`, matching the Go version template
 /// `"shirabe {{.Version}}\n"` byte-for-byte.
 ///
-// `name = "shirabe"` keeps `--version` printing `shirabe <version>` while
-// the binary target is named `shirabe-rs` during the Go/Rust coexistence
-// window, matching the Go version template `"shirabe {{.Version}}\n"`.
 //
 // A bare `shirabe` (no subcommand) prints the long help to STDOUT and exits
 // 0, matching cobra's bare-command behavior rather than clap's default

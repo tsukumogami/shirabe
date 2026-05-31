@@ -6,8 +6,7 @@ license = "MIT"
 publish = false
 
 [[bin]]
-# non-default binary name during Go/Rust coexistence (O1-O4); renamed to "shirabe" at the Go deletion cut in O5
-name = "shirabe-rs"
+name = "shirabe"
 path = "src/main.rs"
 
 [dependencies]

@@ -1,4 +1,4 @@
-//! CLI integration tests exercising the built `shirabe-rs` binary end to
+//! CLI integration tests exercising the built `shirabe` binary end to
 //! end with `assert_cmd`. These lock the user-facing contract the Go
 //! `cmd/shirabe/main.go` established: the `--version` line, the
 //! `--custom-statuses` size cap message, and the no-args / unrecognized
@@ -8,9 +8,9 @@ use assert_cmd::Command;
 use predicates::str::contains;
 
 /// Resolve the binary under test. The `[[bin]]` target is named
-/// `shirabe-rs` during the Go/Rust coexistence window.
+/// 
 fn shirabe() -> Command {
-    Command::cargo_bin("shirabe-rs").expect("binary `shirabe-rs` builds")
+    Command::cargo_bin("shirabe").expect("binary `shirabe` builds")
 }
 
 #[test]
