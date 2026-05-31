@@ -6,9 +6,9 @@ problem: |
   emitter) is implemented in Go. Aligning this surface with koto's Rust
   substrate keeps cross-component composition structurally cheap and removes
   the Go/Rust seam that currently sits between shirabe and the rest of the
-  toolkit's workflow tier. This design is the foundation step of that
-  convergence: translate `cmd/shirabe/` + `internal/validate/` from Go to
-  Rust while preserving the public contract byte-for-byte.
+  toolkit's workflow tier. This design translates `cmd/shirabe/` +
+  `internal/validate/` from Go to Rust while preserving the public contract
+  byte-for-byte.
 decision: |
   Translate the 1,417 LOC of Go (cmd/shirabe + internal/validate +
   internal/annotation) to Rust as a Cargo workspace with two crates from day
