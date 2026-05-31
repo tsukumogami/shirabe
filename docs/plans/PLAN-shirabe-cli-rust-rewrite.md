@@ -13,6 +13,16 @@ upstream: docs/designs/DESIGN-shirabe-cli-rust-rewrite.md
 
 Active
 
+Implemented, in combined PR [#139](https://github.com/tsukumogami/shirabe/pull/139), ready for review.
+
+The rewrite is built. O1 (#129/#135) and O2 (#130/#136) merged separately
+upstream; O3, O4, and O5 are implemented in the one combined replacement PR
+#139, which is now out of draft and ready for review. The cut has landed in
+that PR — the Go source tree (`cmd/`, `internal/`, `go.mod`, `go.sum`) is
+deleted, the Rust binary is renamed from `shirabe-rs` to `shirabe`, and the CI
+build/release/validate workflows are swapped to Cargo. Issues #131 (O3), #132
+(O4), and #133 (O5) close together when #139 merges.
+
 This plan decomposes the rewrite into five outline-shaped work units corresponding
 to the five sequencing phases in the upstream design's Implementation Approach.
 The build-up outlines O1 (Cargo workspace) and O2 (frontmatter parser + types)
@@ -239,6 +249,11 @@ source tree.
 ## Implementation Issues
 
 ### Milestone: [Shirabe CLI Rust Rewrite](https://github.com/tsukumogami/shirabe/milestone/7)
+
+**Tracking:** #129 (O1) and #130 (O2) merged via PRs #135 and #136. #131 (O3),
+#132 (O4), and #133 (O5) are implemented together in the combined replacement
+PR [#139](https://github.com/tsukumogami/shirabe/pull/139) and close on its
+merge — realizing the issue-tracked, not-separately-merged framing above.
 
 | Issue | Dependencies | Complexity |
 |-------|--------------|------------|
