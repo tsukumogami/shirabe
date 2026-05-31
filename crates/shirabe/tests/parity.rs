@@ -125,21 +125,24 @@ parity_tests! {
     r7_prohibited_sections      => "synthetic/VISION-r7-prohibited-sections.md",
 }
 
-/// Known parity divergence on malformed UTF-8 in frontmatter.
+/// Documented, accepted out-of-contract divergence on malformed UTF-8 in
+/// frontmatter (DESIGN Decision 3; pm's DESIGN known-divergences list).
 ///
-/// Go's `parseDocBytes` runs `yaml.Unmarshal` on the raw bytes, so an
-/// invalid UTF-8 octet errors out and main.go emits a single
-/// `could not read file: parse frontmatter in <path>: yaml: invalid leading
-/// UTF-8 octet` annotation. The Rust `parse_doc_bytes` decodes input with
-/// `String::from_utf8_lossy` (frontmatter.rs), which replaces the bad byte
-/// with U+FFFD instead of erroring, so frontmatter parsing succeeds lossily
-/// and validation proceeds (FC04 etc.). Closing this requires
-/// frontmatter.rs to reject invalid UTF-8 with a `ParseError` rather than
-/// lossy-decode -- an O2-parser change tracked separately. The corpus file
-/// stays so the divergence is captured the moment that fix lands; flip off
-/// `#[ignore]` then.
+/// Go's `parseDocBytes` runs `yaml.Unmarshal` on raw bytes, so an invalid
+/// UTF-8 octet errors and main.go emits a single `could not read file:
+/// parse frontmatter ... yaml: invalid leading UTF-8 octet` annotation.
+/// Rust's `parse_doc_bytes` decodes via `String::from_utf8_lossy`, which
+/// replaces the bad byte with U+FFFD, so parsing proceeds lossily and
+/// validation runs (FC04 etc.).
+///
+/// This is NOT a pending fix: invalid UTF-8 cannot be a real committed
+/// markdown artifact, so the divergence is fundamentally out of the
+/// preservation contract and is accepted as documented (same class as the
+/// control-char nit). The fixture stays because Decision 3 mandates a
+/// malformed-UTF-8 stress input; the test is intentionally `#[ignore]`d
+/// because the divergence is accepted, not because a fix is owed.
 #[test]
-#[ignore = "frontmatter.rs lossy-decodes invalid UTF-8 instead of erroring like Go; tracked as an O2-parser fix"]
+#[ignore = "documented out-of-contract divergence (DESIGN Decision 3): Go yaml.v3 errors on invalid UTF-8, saphyr lossy-decodes; design-mandated stress fixture kept, ignored because accepted not pending"]
 fn stress_malformed_utf8() {
     assert_parity("synthetic/DESIGN-stress-malformed-utf8.md");
 }
