@@ -109,6 +109,7 @@ parity_tests! {
     stress_anchor_cycle         => "synthetic/DESIGN-stress-anchor-cycle.md",
     stress_deep_nesting         => "synthetic/DESIGN-stress-deep-nesting.md",
     typed_scalar_status         => "synthetic/DESIGN-typed-scalar-status.md",
+    typed_scalar_hex_status     => "synthetic/DESIGN-typed-scalar-hex-status.md",
     plan_clean_typed_scalars    => "synthetic/PLAN-clean-typed-scalars.md",
     fc05_legacy_table           => "synthetic/PLAN-fc05-legacy-table.md",
     fc05_missing_description    => "synthetic/PLAN-fc05-missing-description.md",
