@@ -413,14 +413,24 @@ none is reachable by the parity corpus:
    rather than the consumed annotation contract, and it is out of
    corpus: a control character can't be committed as a deterministic
    fixture.
+5. *Malformed-UTF-8 input (parse-error surface).* Go's `yaml.v3`
+   errors when the input bytes aren't valid UTF-8; the Rust frontmatter
+   reader uses `String::from_utf8_lossy`, which replaces invalid
+   sequences with the U+FFFD replacement character and parses through.
+   The two binaries therefore diverge on byte sequences that aren't
+   valid UTF-8. This is the parse-error surface, not the annotation
+   contract, and is out of corpus — invalid bytes can't be a committed
+   text fixture (the coder keeps an `#[ignore]`'d corpus case marking
+   the difference).
 
 The contract these exceptions bound is precise: byte-for-byte on the
-GHA annotation stdout for the corpus. The four above are an
+GHA annotation stdout for the corpus. The five above are an
 unreproducible OS string on an unexercised path, a stderr message
 outside the annotation contract, a build-time value that converges
-in release, and a parse-error/quoting-surface difference on
-uncommittable control-character input. The tsuku recipe and the
-release/install pipeline consume the injected `--version`, not the
+in release, and two parse-error/quoting-surface differences on
+uncommittable control-character and malformed-UTF-8 input. The tsuku
+recipe and the release/install pipeline consume the injected
+`--version`, not the
 local default, so the recipe contract is unaffected.
 
 **Why two layers instead of one fixture directory.** A single fixture
