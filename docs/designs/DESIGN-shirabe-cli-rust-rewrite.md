@@ -338,7 +338,7 @@ jobs:
   shirabe-parity:
     uses: tsukumogami/shirabe/.github/workflows/parity-check.yml@v0.7.0
     with:
-      go-baseline-version: v0.6.1
+      go-baseline-ref: 20fb8ed
       corpus-glob: "docs/**/*.md"
 ```
 
@@ -346,17 +346,19 @@ Workflow inputs:
 
 | Input | Required | Description |
 |-------|----------|-------------|
-| `go-baseline-version` | yes | Tag of the captured Go binary to download. Pinned by the caller; the workflow does not pick a default. Note that the last published Go tag (`v0.6.1`) predates the merged-but-unreleased FC05/FC06/R8 checks (Decision 7), so a Layer-2 caller pinning it asserts against the older contract. The first post-cut release tag carries the current contract. |
+| `go-baseline-ref` | no | Git ref (commit SHA, tag, or branch) of the Go tree to build the baseline binary from. The workflow checks out this ref and runs `go build` rather than downloading a release, because no published tag carries the post-#134 contract (Decision 7). Defaults to the pinned baseline commit (`20fb8ed`). A caller pinning an older ref asserts against the contract at that ref. |
 | `corpus-glob` | yes | Shell glob (interpreted by `find` or `git ls-files`) of files in the caller's checkout to test against. Files whose basename doesn't match a shirabe format prefix are silently skipped. |
 | `rust-binary-version` | no | Tag of the Rust shirabe binary to download. Defaults to the workflow's own `uses:` ref (e.g. `v0.7.0` from `parity-check.yml@v0.7.0`), so callers usually don't set it explicitly. |
 
-The workflow checks out the caller's repo, downloads the captured
-Go baseline binary plus the Rust release binary, runs both against
-the matched files, and diffs output per-file. On any byte mismatch
-on stdout, stderr, or exit code, the workflow **exits non-zero** and
-writes the side-by-side diff to the GHA log (same format Layer 1's
-`parity_test.rs` emits). Callers should treat this workflow as a
-required check on PRs that touch their committed corpus.
+The workflow checks out the caller's repo, builds the Go baseline
+binary from `go-baseline-ref` (the same build-from-ref mechanism
+Layer 1's capture script uses), downloads the Rust release binary,
+runs both against the matched files, and diffs output per-file. On
+any byte mismatch on stdout, stderr, or exit code, the workflow
+**exits non-zero** and writes the side-by-side diff to the GHA log
+(same format Layer 1's `parity_test.rs` emits). Callers should treat
+this workflow as a required check on PRs that touch their committed
+corpus.
 
 Layer 2 exists because shirabe's "preservation contract" extends
 conceptually to every caller of `validate-docs.yml`, but the
@@ -606,11 +608,13 @@ new commit and `expected/` is updated as a separate change before the
 rewrite lands. The script records the pinned commit SHA so the
 baseline is reproducible.
 
-The Layer 2 reusable `parity-check.yml` workflow (Decision 3) is
-unaffected by this pin: it keeps its `go-baseline-version` input.
-Downstream callers pin a published tag there once one exists
-post-cut; until then the Layer 1 in-repo baseline carries the
-contract, built from the local commit above.
+The Layer 2 reusable `parity-check.yml` workflow (Decision 3) uses
+the same build-from-ref mechanism: its `go-baseline-ref` input is a
+git ref the workflow checks out and builds with `go build`, not a
+release tag it downloads, defaulting to the pinned baseline commit
+(`20fb8ed`). Both layers therefore build the Go baseline from a git
+ref rather than a published release, since no release carries the
+post-#134 contract.
 
 **Considered and rejected.**
 
@@ -1087,12 +1091,13 @@ downloaded tag. Commit `corpus/` and `expected/` to the repo. Write
 `parity_test.rs`. Verify every parity test passes.
 
 Add `.github/workflows/parity-check.yml` as a reusable workflow
-(`on: workflow_call:`) with inputs for `go-baseline-version` and
-`corpus-glob`. The workflow downloads the matching Go and Rust
-binaries from shirabe's GitHub releases, runs both against the
-caller's matched files, and asserts byte equality on stdout,
-stderr, and exit code per file. The workflow is documented in
-the design doc and ships as part of this design's deliverable.
+(`on: workflow_call:`) with inputs for `go-baseline-ref` and
+`corpus-glob`. The workflow builds the Go baseline binary from
+`go-baseline-ref` (checkout + `go build`, defaulting to the pinned
+commit `20fb8ed`) and downloads the Rust release binary, runs both
+against the caller's matched files, and asserts byte equality on
+stdout, stderr, and exit code per file. The workflow is documented
+in the design doc and ships as part of this design's deliverable.
 
 Update `.github/workflows/release-binaries.yml` to use cargo.
 Verify `cargo build --release` produces binaries that pass parity
