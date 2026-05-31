@@ -7,6 +7,8 @@
 //! (e.g. koto's Rust substrate) commits to linking; see DESIGN
 //! Decision 4 for the rationale.
 
+pub mod checks;
 pub mod doc;
 pub mod formats;
 pub mod frontmatter;
+pub mod table;
