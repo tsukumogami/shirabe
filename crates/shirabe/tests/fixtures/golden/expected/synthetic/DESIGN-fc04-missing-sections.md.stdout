@@ -1,0 +1,7 @@
+::error file=synthetic/DESIGN-fc04-missing-sections.md,line=1::[FC04] missing required section '## Decision Drivers'
+::error file=synthetic/DESIGN-fc04-missing-sections.md,line=1::[FC04] missing required section '## Considered Options'
+::error file=synthetic/DESIGN-fc04-missing-sections.md,line=1::[FC04] missing required section '## Decision Outcome'
+::error file=synthetic/DESIGN-fc04-missing-sections.md,line=1::[FC04] missing required section '## Solution Architecture'
+::error file=synthetic/DESIGN-fc04-missing-sections.md,line=1::[FC04] missing required section '## Implementation Approach'
+::error file=synthetic/DESIGN-fc04-missing-sections.md,line=1::[FC04] missing required section '## Security Considerations'
+::error file=synthetic/DESIGN-fc04-missing-sections.md,line=1::[FC04] missing required section '## Consequences'

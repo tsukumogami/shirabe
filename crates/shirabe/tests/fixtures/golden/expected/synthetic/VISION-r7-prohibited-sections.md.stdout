@@ -1,0 +1,2 @@
+::error file=synthetic/VISION-r7-prohibited-sections.md,line=38::[R7] section "Competitive Positioning" is prohibited in public VISION docs
+::error file=synthetic/VISION-r7-prohibited-sections.md,line=42::[R7] section "Resource Implications" is prohibited in public VISION docs

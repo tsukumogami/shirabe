@@ -1,0 +1,1 @@
+::error file=synthetic/DESIGN-fc02-wrong-status.md,line=6::[FC02] status "NotARealStatus" is not valid for Design docs. Valid values: Proposed, Accepted, Planned, Current, Superseded

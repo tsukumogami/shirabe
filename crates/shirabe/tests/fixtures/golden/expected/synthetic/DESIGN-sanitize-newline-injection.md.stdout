@@ -1,0 +1,2 @@
+::error file=synthetic/DESIGN-sanitize-newline-injection.md,line=6::[FC02] status "Bogus\nstatus with embedded newline ::error injection attempt" is not valid for Design docs. Valid values: Proposed, Accepted, Planned, Current, Superseded
+::error file=synthetic/DESIGN-sanitize-newline-injection.md,line=11::[FC03] frontmatter status "Bogus\nstatus with embedded newline ::error injection attempt" does not match ## Status body "Bogus"

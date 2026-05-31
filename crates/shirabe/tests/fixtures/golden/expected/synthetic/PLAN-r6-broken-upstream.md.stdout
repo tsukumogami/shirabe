@@ -1,0 +1,1 @@
+::error file=synthetic/PLAN-r6-broken-upstream.md,line=7::[R6] upstream "synthetic/this-upstream-does-not-exist.md" does not exist on disk

@@ -1,0 +1,1 @@
+::error file=synthetic/PLAN-fc06-dangling-dependency.md,line=27::[FC06] dependency "#99" in row "#2" names no row in this table
