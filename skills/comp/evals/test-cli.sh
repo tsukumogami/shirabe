@@ -16,8 +16,9 @@ cd "$REPO_ROOT"
 
 SHIRABE="${SHIRABE:-shirabe}"
 if ! command -v "$SHIRABE" >/dev/null 2>&1; then
-    SHIRABE=/tmp/shirabe-cli-test
-    go build -o "$SHIRABE" ./cmd/shirabe || { echo "FAIL: could not build shirabe binary"; exit 1; }
+    # Build the Rust binary if shirabe is not already on PATH.
+    cargo build -p shirabe || { echo "FAIL: could not build shirabe binary"; exit 1; }
+    SHIRABE="target/debug/shirabe"
 fi
 
 FIXTURES_DIR="skills/comp/evals/fixtures"
