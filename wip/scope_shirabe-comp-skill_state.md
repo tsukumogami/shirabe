@@ -1,11 +1,13 @@
 ---
 topic: shirabe-comp-skill
 chain_started: 2026-05-31T19:12:30Z
-last_updated: 2026-05-31T19:12:30Z
-phase_pointer: phase-2
+last_updated: 2026-05-31T20:15:00Z
+chain_completed: 2026-05-31T20:15:00Z
+phase_pointer: phase-3
 visibility: Public
-exit: UNSET
-exit_artifacts: []
+exit: full-run
+exit_artifacts:
+  - docs/plans/PLAN-shirabe-comp-skill.md
 planned_chain:
   - brief
   - prd
@@ -15,7 +17,9 @@ chain_ran:
   - brief
   - prd
   - design
+  - plan
 chain_skipped: []
+plan_execution_mode: single-pr
 child_snapshots:
   brief:
     status: Accepted
@@ -26,9 +30,13 @@ child_snapshots:
     content_hash: 07f07df435d863036c5221bd8d593f8940c0de22
     captured_at: 2026-05-31T19:50:00Z
   design:
-    status: Proposed
-    content_hash: f12c9a9ca90531b6bd97e1410033901e00ca5594
-    captured_at: 2026-05-31T19:50:00Z
+    status: Planned
+    content_hash: 8571d789034e43178f9bbae3d45ed0da1e49be24
+    captured_at: 2026-05-31T20:15:00Z
+  plan:
+    status: Draft
+    content_hash: 33f059df1e6f3fab983a9c268c111e9a8e5b6033
+    captured_at: 2026-05-31T20:15:00Z
 ---
 
 # /scope state — shirabe-comp-skill

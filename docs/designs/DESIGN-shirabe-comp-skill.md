@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Planned
 upstream: docs/prds/PRD-shirabe-comp-skill.md
 problem: |
   PRD-shirabe-comp-skill commits shirabe to introducing COMP as a
@@ -50,7 +50,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Planned
 
 Authored against the Accepted PRD-shirabe-comp-skill, which owns the
 artifact-format decisions, the jury reviewer count, the validate
