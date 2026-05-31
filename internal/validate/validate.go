@@ -37,6 +37,11 @@ func ValidateFile(doc Doc, spec FormatSpec, cfg Config) []ValidationError {
 	switch spec.Name {
 	case "Plan":
 		errs = append(errs, checkPlanUpstream(doc)...)
+		errs = append(errs, checkFC05(doc, spec)...)
+		errs = append(errs, checkFC06(doc, spec)...)
+	case "Roadmap":
+		errs = append(errs, checkFC05(doc, spec)...)
+		errs = append(errs, checkFC06(doc, spec)...)
 	case "VISION":
 		errs = append(errs, checkVisionPublic(doc, cfg)...)
 	case "Strategy":

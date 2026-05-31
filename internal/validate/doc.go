@@ -26,6 +26,6 @@ type Section struct {
 type ValidationError struct {
 	File    string
 	Line    int
-	Code    string // "FC01", "FC02", "FC03", "FC04", "R6", "R7", "SCHEMA"
+	Code    string // "FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "R6", "R7", "R8", "SCHEMA"
 	Message string
 }
