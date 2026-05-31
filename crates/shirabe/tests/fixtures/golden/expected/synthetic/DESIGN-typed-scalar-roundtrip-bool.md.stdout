@@ -1,0 +1,1 @@
+::error file=synthetic/DESIGN-typed-scalar-roundtrip-bool.md,line=6::[FC02] status "TRUE" is not valid for Design docs. Valid values: Proposed, Accepted, Planned, Current, Superseded

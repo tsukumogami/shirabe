@@ -1,0 +1,1 @@
+::error file=synthetic/DESIGN-typed-scalar-roundtrip-underscore-int.md,line=6::[FC02] status "1_000" is not valid for Design docs. Valid values: Proposed, Accepted, Planned, Current, Superseded
