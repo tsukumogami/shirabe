@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 problem: |
   shirabe's deterministic surface (`shirabe validate` CLI, the line-number-aware
   YAML frontmatter parser, the seven validation rules, the GHA annotation
@@ -39,7 +39,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
