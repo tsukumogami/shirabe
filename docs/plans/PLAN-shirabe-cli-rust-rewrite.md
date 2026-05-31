@@ -166,8 +166,9 @@ preserves the public CLI contract byte-for-byte.
   `main.go`).
 - Implement the exit-code contract: 1 on any error annotation; 0 otherwise;
   skip-on-unrecognized-format matches Go's `continue` behavior.
-- Add a `build.rs` runtime verification check (per Decision 6) that the
-  toolchain matches `rust-toolchain.toml`.
+- Add the `build.rs` runtime toolchain check (per Decision 6),
+  implemented warn-only: a `cargo:warning` when the active `rustc`
+  differs from the `rust-toolchain.toml` pin, non-aborting.
 - The binary still builds as `target/release/shirabe-rs` until Outline 5.
 
 **Acceptance criteria:**
