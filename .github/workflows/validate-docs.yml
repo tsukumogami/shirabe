@@ -71,7 +71,7 @@ jobs:
         env:
           CUSTOM_STATUSES: ${{ inputs.custom-statuses }}
         run: |
-          FILES=$(git diff --name-only \
+          FILES=$(git diff --name-only --diff-filter=ACMR \
             ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} \
             | grep -vE '(^|/)evals/fixtures/' || true)
 

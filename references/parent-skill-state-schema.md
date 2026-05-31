@@ -67,6 +67,40 @@ status value). For full-run exits, the list contains the terminal
 artifact's path; for re-evaluation, the Decision Record path; for
 abandonment-forced, the schema-compliant partial artifact's path.
 
+### Parent-specific conditional fields
+
+Beyond the 5-field minimum, parents extend the schema with conditional
+fields keyed by their own chain-shape and exit-path bindings (see
+Extension Discipline below). Two such fields recur often enough to
+document at the pattern-doc layer so multiple parents adopt them
+identically rather than reinventing the vocabulary.
+
+- **`boundary:`** — gated by `exit: re-evaluation`. Valid values:
+  `prd | design`. The field discriminates which upstream boundary the
+  re-evaluation Decision Record attaches to when a parent's chain has
+  more than one settled-upstream boundary. Parents with multiple
+  settled-upstream boundaries (e.g., `/scope`, whose chain settles at
+  PRD-Accepted and again at DESIGN-Accepted) SHALL set `boundary:`
+  when `exit: re-evaluation` fires; parents with one boundary (e.g.,
+  `/charter`, which settles at a single STRATEGY-Accepted boundary)
+  MAY omit it. The field is a discriminator within the re-evaluation
+  exit path, not a fourth exit path.
+
+- **`plan_execution_mode:`** — gated by `/plan` appearing in
+  `chain_ran`. Valid values: `single-pr | multi-pr`. The field
+  records the output-mode selection of a terminal child that exposes
+  two distinct output modes (in v1 only `/plan` does; the field is
+  therefore parent-specific to chains that include `/plan` as a
+  terminal child). Recording the selection in the state file is what
+  lets downstream consumers — Decision Records, finalization
+  artifacts, future-resume detection — observe which output shape
+  the chain produced without re-reading the terminal artifact.
+
+Both fields satisfy invariant I-5: each is ABSENT from the state
+file when its triggering condition does not hold, never set to null,
+empty string, or placeholder. R9 Parts 2 and 3 (see R9 Hard-
+Finalization Check Spec below) enforce this.
+
 ## Pattern-Level Invariants
 
 The schema enforces four pattern-level invariants that every conforming
@@ -118,6 +152,17 @@ single recurring inner phase rather than a sequence of distinct children)
 MAY omit them. When omitted, invariant I-5 (conditional fields absent when
 ungated) is satisfied; when present, the dual-check and resume-ladder
 machinery consumes them.
+
+Output-mode selection — when a chain's terminal child exposes more
+than one output mode — is recorded SEPARATELY from `chain_ran` and
+`chain_skipped` because the chain-tracking triad captures chain
+MEMBERSHIP, not output mode. A child that completed both single-mode
+and multi-mode runs would appear identically in `chain_ran` either
+way; only a separate field carries the selection. `plan_execution_mode:`
+(see Parent-specific conditional fields above) is the canonical
+example: gated by `/plan` appearing in `chain_ran`, with valid values
+`single-pr | multi-pr`, the field records the output-mode selection
+without collapsing the chain-tracking triad's membership semantics.
 
 ### Status-aware re-entry control
 
@@ -173,10 +218,30 @@ succeed.
    sub-shape) gated on a specific `exit:` value, the sub-shape field is
    set to one of its valid values when the gating `exit:` fires. UNSET or
    out-of-enum sub-shape values fail the check.
+
+   When a parent has more than one sub-shape discriminator gating the
+   same `exit:` value, ALL discriminators MUST be set when the gating
+   `exit:` fires. `/scope`'s `boundary:` plus `decision_record_sub_shape:`
+   is the canonical example: the two discriminators together gate the
+   four re-evaluation Decision Record combinations (prd-re-evaluation,
+   prd-rejection, design-re-evaluation, design-rejection); both must
+   be set when `exit: re-evaluation` fires. UNSET or out-of-enum
+   discriminator values fail R9 Part 2 the same way single-discriminator
+   parents do — the multi-discriminator framing extends the rule, not
+   replaces it.
 3. **Conditional fields absent when ungated.** Fields whose presence is
    gated by a specific `exit:` or sub-shape value are ABSENT from the
    state file when their triggering condition does not hold (invariant
    I-5). Null, empty-string, or placeholder values fail the check.
+
+   Conditional fields whose triggering condition is chain-position
+   rather than `exit:` follow the same I-5 absent-when-ungated rule.
+   `plan_execution_mode:` (gated by `/plan` appearing in `chain_ran`)
+   is the canonical example: when `/plan` is not in `chain_ran`, the
+   field MUST be absent from the state file; null, empty-string, or
+   placeholder values fail R9 Part 3 identically to the `exit:`-gated
+   case. The chain-membership-gated framing extends the rule's reach
+   without changing its mechanics.
 
 When the check fails, the parent SHALL surface the specific violation
 (naming the offending field and the failing rule) and refuse to record

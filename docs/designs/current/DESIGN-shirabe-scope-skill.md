@@ -1,5 +1,5 @@
 ---
-status: Planned
+status: Current
 upstream: docs/prds/PRD-shirabe-scope-skill.md
 problem: |
   shirabe ships the tactical-chain children (`/brief`, `/prd`,
@@ -63,7 +63,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 

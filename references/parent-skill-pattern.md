@@ -110,6 +110,48 @@ silently lose. The three exits together preserve the property that every
 disciplined conversation has a durable home, even when production is the
 wrong outcome.
 
+## Gate Vocabulary
+
+Parents invoke children behind named gates. The pattern recognizes
+four gate shapes; every child-invocation gate in every parent SHALL
+be one of these four. Naming the shapes pattern-side keeps reviewers
+from inventing per-parent vocabulary when a parent's chain shape
+introduces a category the existing shapes already cover.
+
+- **EITHER-signal** — the child is invoked when a parent-defined
+  signal fires OR an upstream condition holds, with either signal
+  sufficient to open the gate. Canonical example: `/charter`'s
+  `/vision` invocation, where the gate opens on either a Phase 1
+  discovery signal or the absence of a published upstream VISION at
+  the canonical path.
+
+- **ALWAYS** — the child is invoked unconditionally on every chain
+  run; no gate exists. Canonical example: `/charter`'s `/strategy`
+  invocation, which is the main-chain spine and runs whether or not
+  upstream VISION or ROADMAP exists.
+
+- **shape-dependent** — the child invocation's *form* (which sub-
+  shape of the child fires, with how many peers, against which set
+  of inputs) is determined by an upstream-recorded predicate on the
+  chain. The gate is not whether-to-invoke but how-to-invoke.
+  Canonical example: `/charter`'s `/roadmap` invocation, whose
+  feature-decomposition shape depends on the STRATEGY's recorded
+  building-block count.
+
+- **Mandatory-with-auto-skip** — the child SHALL be invoked unless
+  its durable artifact already exists at the published-Accepted
+  status at the canonical path, in which case the child is recorded
+  in `chain_skipped` and the chain proceeds to the next gate.
+  Canonical example: `/scope`'s `/prd` invocation, where an
+  Accepted PRD at `docs/prds/PRD-<topic>.md` causes the gate to
+  auto-skip and the chain continues to `/design`; absent that
+  artifact, `/prd` runs.
+
+The four shapes are stable across parents. Each shape's
+canonical example fixes the meaning against an existing parent's
+SKILL.md so a reviewer can grep the example to confirm the shape
+identifier matches the binding.
+
 ## Conditional Feeder Invocation Shape
 
 A parent MAY offer a feeder skill (a side-channel child the chain does not
@@ -133,18 +175,35 @@ SHALL NOT reference the feeder skill or its content surface (the
 degenerate-silence rule). The author hears about the feeder only when all
 three gates open.
 
-**Parents do not extend children's input surfaces.** When a parent needs
-to pass semantic context to a child the child has no API for, the parent
-SHALL NOT add flags or arguments to the child. Parents pass through
-children's existing input modes and rely on the child's own resume logic
-to detect state. PRD R4's thesis-shift signal is the canonical instance —
-`/charter` elicits the signal conversationally and invokes
-`/vision <topic>` with the topic slug alone; `/vision` then uses its own
-resume logic to detect whether an existing VISION exists at the published
-path and routes accordingly. Extending the child's input surface would
-couple the parent to the child's API and break the moment the child
-refactors its inputs; passing through existing modes keeps the parent
-loosely coupled across child revisions.
+**Parents do not extend children's input surfaces** with parent-
+specific flags or arguments. A pattern-level suppression signal —
+defined once in the pattern-doc, read by all parents, and recognized
+by all children identically — is permitted as the sole parent-
+orchestration primitive. The signal mechanism is the parent's state
+file's `parent_orchestration:` block at a substrate-defined path;
+children consult it as a pattern-level convention, not as a per-
+parent API. The block names the invoking child and carries the
+parent's upfront decision about whether the run is a fresh chain or
+a revision, so the child can suppress its own status-aware re-entry
+prompt without learning about the parent that invoked it.
+
+The per-parent prohibition still holds — a parent SHALL NOT add
+flags or arguments to a child's `$ARGUMENTS` parser, and SHALL NOT
+extend the child's environment-variable surface with parent-named
+keys. The `parent_orchestration:` convention is the one named
+exception, and only because it is pattern-defined: every parent
+writes the same block at the same path, and every child reads it
+identically. PRD R4's thesis-shift signal illustrates the loose-
+coupling rule the prohibition protects — when a parent elicits a
+shift signal that needs to reach the child, the parent passes the
+topic slug through the child's existing input mode and writes its
+upfront decision to the `parent_orchestration:` block; the child
+reads the block at its own Phase 0 and routes accordingly. The
+child's `$ARGUMENTS` surface, flag parser, and env-var consumption
+are untouched. Extending those would couple the parent to the
+child's API and break the moment the child refactors its inputs;
+passing through existing modes plus the pattern-level convention
+keeps the parent loosely coupled across child revisions.
 
 ## Named Substitution Surfaces
 

@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   shirabe ships `/brief`, `/prd`, `/design`, and `/plan` at the tactical
   chain's altitude as direct-invocation child skills, but no parent
@@ -26,7 +26,7 @@ outcome: |
 
 ## Status
 
-Accepted
+Done
 
 ## Problem Statement
 
