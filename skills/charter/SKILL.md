@@ -208,6 +208,7 @@ N. **Finalization** — set the `exit:` field to one of `full-run`,
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md` | Resume Logic — meta-ladder rows 1-4 and 9-10 |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-child-inspection.md` | Phase 2 — child-doc inspection (R14 widened rule, dual-check drift detection) |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-worktree-discipline.md` | Phase 2 — per-child worktree-staleness check (Rebase / Proceed anyway / Bail prompt, divergence recording) |
+| `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` | All phases — six pattern-level security contract surfaces (slug re-validation, closed write-target set, enum re-validation, self-heal, visibility, no-untrusted-input-interpolation) |
 | `skills/charter/references/phases/phase-0-setup.md` | Phase 0 |
 | `skills/charter/references/phases/phase-1-discovery.md` | Phase 1 |
 | `skills/charter/references/phases/phase-2-chain-orchestration.md` | Phase 2 |
