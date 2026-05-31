@@ -23,10 +23,9 @@ decision: |
 rationale: |
   The workspace-from-day-one crate layout costs almost nothing now (one
   Cargo.toml split) and prevents a future-publication-driven repository
-  restructuring of every import path later. saphyr is the parser successor
-  to yaml-rust2 with
-  active maintenance and explicit `Span`/`marker` support on every node, so
-  the field→line map shirabe needs falls out of the parse tree directly
+  restructuring of every import path later. saphyr is the actively-maintained
+  successor to yaml-rust2 with explicit `Span`/`marker` support on every node,
+  so the field→line map shirabe needs falls out of the parse tree directly
   rather than requiring a hand-rolled second pass. clap with derive macros
   maps the cobra subcommand tree mechanically with no behavior change. The
   two-layer parity mechanism operationalizes the output-contract-preservation
@@ -354,12 +353,25 @@ jobs:
       corpus-glob: "docs/**/*.md"
 ```
 
+Workflow inputs:
+
+| Input | Required | Description |
+|-------|----------|-------------|
+| `go-baseline-version` | yes | Tag of the captured Go binary to download (e.g. `v0.6.1`). Pinned by the caller; the workflow does not pick a default. |
+| `corpus-glob` | yes | Shell glob (interpreted by `find` or `git ls-files`) of files in the caller's checkout to test against. Files whose basename doesn't match a shirabe format prefix are silently skipped. |
+| `rust-binary-version` | no | Tag of the Rust shirabe binary to download. Defaults to the workflow's own `uses:` ref (e.g. `v0.7.0` from `parity-check.yml@v0.7.0`), so callers usually don't set it explicitly. |
+
 The workflow checks out the caller's repo, downloads the captured
-Go baseline binary plus the Rust release binary for the requested
-shirabe version, runs both against the matched files, and diffs
-output. Layer 2 exists because shirabe's "preservation contract"
-extends conceptually to every caller of `validate-docs.yml`, but
-the shirabe repo cannot embed those callers' artifacts directly.
+Go baseline binary plus the Rust release binary, runs both against
+the matched files, and diffs output per-file. On any byte mismatch
+on stdout, stderr, or exit code, the workflow **exits non-zero** and
+writes the side-by-side diff to the GHA log (same format Layer 1's
+`parity_test.rs` emits). Callers should treat this workflow as a
+required check on PRs that touch their committed corpus.
+
+Layer 2 exists because shirabe's "preservation contract" extends
+conceptually to every caller of `validate-docs.yml`, but the
+shirabe repo cannot embed those callers' artifacts directly.
 Giving them a reusable parity workflow lets each caller assert the
 preservation contract against their own corpus on their own CI
 without leaking content into shirabe.
@@ -714,6 +726,24 @@ the IO-error path in `main.go` (which never constructs a
 A `format_notice(file, msg)` keeps both call sites natural and
 avoids inventing a synthetic `ValidationError` for IO failures.
 Preserving the asymmetry preserves the output bytes.
+
+**Extending the validator.** Two conventions a future contributor
+needs to know without re-reading this design:
+
+- *Adding a new check.* A check is a function
+  `fn check_<name>(doc: &Doc, spec: &FormatSpec, cfg: &Config)
+  -> Vec<ValidationError>` in `checks.rs`, called from
+  `validate_file` in `validate.rs` in the order the existing
+  checks are called. Checks return one error per violation;
+  empty vec means pass.
+- *Adding a new format.* Add one entry to `FORMATS` in
+  `formats.rs` (the `FormatSpec` struct carries the name,
+  prefix, schema version, required fields, valid statuses,
+  and required sections), plus optionally a match arm in
+  `validate_file` if the format needs format-specific checks
+  (the Go code dispatches `Plan` to `check_plan_upstream` and
+  `VISION` to `check_vision_public` via a `switch spec.Name`;
+  the Rust port mirrors this with a `match`).
 
 ### Data flow
 
@@ -1104,9 +1134,10 @@ not exploitation.)
 
 saphyr is published at v0.0.6 (June 2025) and the project's own
 README notes the pre-1.0 API may shift. The design pins saphyr to a
-specific patch version in `Cargo.toml` and commits `Cargo.lock`
-(standard Rust binary-crate practice) so CI builds are
-deterministic across runs. The documented fallback (drop to
+specific patch version in `Cargo.toml` and commits the workspace
+`Cargo.lock` (standard for the binary output; publication of the
+library crate later is a separate concern and may relax this) so
+CI builds are deterministic across runs. The documented fallback (drop to
 `saphyr-parser`'s `SpannedEventReceiver` if the higher-level API
 drifts cosmetically) is also a supply-chain hedge: `saphyr-parser`
 is the lower-level crate the higher-level API itself uses, and its
