@@ -73,7 +73,7 @@ jobs:
 
       - name: Build shirabe
         run: |
-          cd .shirabe-src && cargo build --release --bin shirabe
+          cargo build --release --bin shirabe --manifest-path .shirabe-src/Cargo.toml
           install -m 0755 .shirabe-src/target/release/shirabe /usr/local/bin/shirabe
 
       - name: Validate changed docs
