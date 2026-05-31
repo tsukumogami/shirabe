@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   shirabe gives every first-class artifact type — VISION, STRATEGY,
   ROADMAP, BRIEF, PRD, DESIGN, PLAN — a loadable authoring skill, but
@@ -23,7 +23,7 @@ outcome: |
 
 ## Status
 
-Accepted
+Done
 
 This brief frames the `/comp` competitive-analysis child skill before
 its requirements are written. The downstream PRD owns the format-spec

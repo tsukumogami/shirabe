@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   shirabe ships seven first-class artifact types — VISION, STRATEGY,
   ROADMAP, BRIEF, PRD, DESIGN, PLAN — each with a loadable skill,
@@ -32,7 +32,7 @@ upstream: docs/briefs/BRIEF-shirabe-comp-skill.md
 
 ## Status
 
-In Progress
+Done
 
 This PRD picks up the requirements work scoped by
 `docs/briefs/BRIEF-shirabe-comp-skill.md`. It owns the artifact-format
