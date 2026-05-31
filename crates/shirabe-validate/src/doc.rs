@@ -51,7 +51,8 @@ pub struct Section {
 pub struct ValidationError {
     pub file: String,
     pub line: usize,
-    /// One of "FC01", "FC02", "FC03", "FC04", "R6", "R7", "SCHEMA".
+    /// One of "FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "R6", "R7",
+    /// "R8", "SCHEMA".
     pub code: String,
     pub message: String,
 }

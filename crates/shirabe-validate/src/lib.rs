@@ -22,4 +22,5 @@ pub use annotation::{format_error, format_notice};
 pub use doc::{Config, Doc, FieldValue, Section, ValidationError};
 pub use formats::{detect_format, formats, FormatSpec};
 pub use frontmatter::{parse_doc, ParseError};
+pub use table::{parse_issues_table, Row, RowKind, Table};
 pub use validate::{is_notice, validate_file};
