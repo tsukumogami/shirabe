@@ -45,9 +45,10 @@ jobs:
       - name: Run evals
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          INPUT_SKILL: ${{ github.event.inputs.skill }}
         run: |
-          if [ -n "${{ github.event.inputs.skill }}" ]; then
-            scripts/run-evals.sh "${{ github.event.inputs.skill }}"
+          if [ -n "$INPUT_SKILL" ]; then
+            scripts/run-evals.sh "$INPUT_SKILL"
           else
             scripts/run-evals.sh --all
           fi

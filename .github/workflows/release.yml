@@ -72,29 +72,35 @@ jobs:
       release-url: ${{ steps.tag.outputs.release-url || steps.tag-dry-run.outputs.release-url }}
     steps:
       - name: Validate inputs
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if ! echo "${{ inputs.tag }}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::Tag '${{ inputs.tag }}' does not match v<major>.<minor>.<patch>"
+          if ! echo "$INPUT_TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Tag '$INPUT_TAG' does not match v<major>.<minor>.<patch>"
             exit 1
           fi
 
       - name: Determine effective token
         id: token
+        env:
+          SECRET_TOKEN: ${{ secrets.token }}
+          FALLBACK_TOKEN: ${{ github.token }}
         run: |
-          if [ -n "${{ secrets.token }}" ]; then
-            echo "token=${{ secrets.token }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$SECRET_TOKEN" ]; then
+            echo "token=$SECRET_TOKEN" >> "$GITHUB_OUTPUT"
           else
-            echo "token=${{ github.token }}" >> "$GITHUB_OUTPUT"
+            echo "token=$FALLBACK_TOKEN" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Validate token permissions
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository }}
         run: |
           # Verify the token can push by checking repo permissions
-          PERMISSION=$(gh api repos/${{ github.repository }} --jq '.permissions.push // false')
+          PERMISSION=$(gh api "repos/$REPO" --jq '.permissions.push // false')
           if [ "$PERMISSION" != "true" ]; then
-            echo "::error::Token does not have push permission on ${{ github.repository }}"
+            echo "::error::Token does not have push permission on $REPO"
             echo "If this repo has branch protection, pass a PAT via the token secret."
             exit 1
           fi
@@ -102,10 +108,11 @@ jobs:
       - name: Validate no existing tag
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if git ls-remote --tags origin "${{ inputs.tag }}" | grep -q "${{ inputs.tag }}"; then
-            echo "::error::Tag ${{ inputs.tag }} already exists on remote"
-            echo "Delete it first: git push --delete origin ${{ inputs.tag }}"
+          if git ls-remote --tags origin "$INPUT_TAG" | grep -qF "$INPUT_TAG"; then
+            echo "::error::Tag $INPUT_TAG already exists on remote"
+            echo "Delete it first: git push --delete origin $INPUT_TAG"
             exit 1
           fi
 
@@ -113,26 +120,27 @@ jobs:
         id: draft
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           # gh release view can't find drafts by tag when the git tag doesn't
           # exist yet. Use gh release list with jq filter instead.
-          DRAFT_TAG=$(gh release list --json tagName,isDraft \
-            --jq '.[] | select(.tagName == "${{ inputs.tag }}" and .isDraft) | .tagName' \
+          DRAFT_TAG=$(gh release list --json tagName,isDraft 2>/dev/null | \
+            jq -r --arg tag "$INPUT_TAG" '.[] | select(.tagName == $tag and .isDraft) | .tagName' \
             2>/dev/null || echo "")
 
           if [ -z "$DRAFT_TAG" ]; then
             # Check if a non-draft release exists (already published)
-            PUBLISHED=$(gh release list --json tagName,isDraft \
-              --jq '.[] | select(.tagName == "${{ inputs.tag }}" and (.isDraft | not)) | .tagName' \
+            PUBLISHED=$(gh release list --json tagName,isDraft 2>/dev/null | \
+              jq -r --arg tag "$INPUT_TAG" '.[] | select(.tagName == $tag and (.isDraft | not)) | .tagName' \
               2>/dev/null || echo "")
             if [ -n "$PUBLISHED" ]; then
-              echo "::error::Release ${{ inputs.tag }} exists and is already published"
+              echo "::error::Release $INPUT_TAG exists and is already published"
               exit 1
             fi
-            echo "::warning::No draft release found for ${{ inputs.tag }}. Tag annotation will use a default message."
+            echo "::warning::No draft release found for $INPUT_TAG. Tag annotation will use a default message."
             echo "found=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Draft release found for ${{ inputs.tag }}"
+            echo "Draft release found for $INPUT_TAG"
             echo "found=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -149,21 +157,25 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Stamp release version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           if [ -x .release/set-version.sh ]; then
-            echo "Running .release/set-version.sh ${{ inputs.version }}"
-            .release/set-version.sh "${{ inputs.version }}"
+            echo "Running .release/set-version.sh $INPUT_VERSION"
+            .release/set-version.sh "$INPUT_VERSION"
           else
             echo "No .release/set-version.sh found, skipping version stamp"
           fi
 
       - name: Commit release version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           if git diff --quiet; then
             echo "No version file changes to commit"
           else
             git add -A
-            git commit -m "chore(release): set version to ${{ inputs.tag }}"
+            git commit -m "chore(release): set version to $INPUT_TAG"
           fi
 
       - name: Create annotated tag
@@ -171,40 +183,48 @@ jobs:
         id: tag
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
+          DRAFT_FOUND: ${{ steps.draft.outputs.found }}
         run: |
-          if [ "${{ steps.draft.outputs.found }}" = "true" ]; then
+          if [ "$DRAFT_FOUND" = "true" ]; then
             # Extract release notes from the draft release via API
-            gh api repos/${{ github.repository }}/releases \
-              --jq '.[] | select(.tag_name == "${{ inputs.tag }}" and .draft) | .body' \
+            gh api "repos/$REPO/releases" 2>/dev/null | \
+              jq -r --arg tag "$INPUT_TAG" '.[] | select(.tag_name == $tag and .draft) | .body' \
               > /tmp/release-notes.md
           fi
 
           if [ -s /tmp/release-notes.md ]; then
-            git tag -a "${{ inputs.tag }}" --cleanup=verbatim -F /tmp/release-notes.md
+            git tag -a "$INPUT_TAG" --cleanup=verbatim -F /tmp/release-notes.md
           else
-            git tag -a "${{ inputs.tag }}" -m "Release ${{ inputs.tag }}"
+            git tag -a "$INPUT_TAG" -m "Release $INPUT_TAG"
           fi
 
-          echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
 
-          RELEASE_URL=$(gh api repos/${{ github.repository }}/releases \
-            --jq '.[] | select(.tag_name == "${{ inputs.tag }}") | .html_url' \
+          RELEASE_URL=$(gh api "repos/$REPO/releases" 2>/dev/null | \
+            jq -r --arg tag "$INPUT_TAG" '.[] | select(.tag_name == $tag) | .html_url' \
             2>/dev/null || echo "")
           echo "release-url=${RELEASE_URL:-unknown}" >> "$GITHUB_OUTPUT"
 
       - name: Create annotated tag (dry-run)
         if: ${{ inputs.dry-run == true }}
         id: tag-dry-run
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          echo "DRY-RUN: Would create tag ${{ inputs.tag }} at $(git rev-parse HEAD)"
-          echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          echo "DRY-RUN: Would create tag $INPUT_TAG at $(git rev-parse HEAD)"
+          echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
           echo "release-url=dry-run" >> "$GITHUB_OUTPUT"
 
       - name: Compute next dev version
         id: next-dev
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_DEV_SUFFIX: ${{ inputs.dev-suffix }}
         run: |
-          VERSION="${{ inputs.version }}"
-          SUFFIX="${{ inputs.dev-suffix }}"
+          VERSION="$INPUT_VERSION"
+          SUFFIX="$INPUT_DEV_SUFFIX"
           # Bump patch: 0.3.0 -> 0.3.1
           MAJOR=$(echo "$VERSION" | cut -d. -f1)
           MINOR=$(echo "$VERSION" | cut -d. -f2)
@@ -215,51 +235,63 @@ jobs:
           echo "Next dev version: $NEXT_DEV"
 
       - name: Stamp dev version
+        env:
+          NEXT_DEV_VERSION: ${{ steps.next-dev.outputs.version }}
         run: |
           if [ -x .release/set-version.sh ]; then
-            echo "Running .release/set-version.sh ${{ steps.next-dev.outputs.version }}"
-            .release/set-version.sh "${{ steps.next-dev.outputs.version }}"
+            echo "Running .release/set-version.sh $NEXT_DEV_VERSION"
+            .release/set-version.sh "$NEXT_DEV_VERSION"
           else
             echo "No .release/set-version.sh found, skipping dev version stamp"
           fi
 
       - name: Commit dev version
+        env:
+          NEXT_DEV_VERSION: ${{ steps.next-dev.outputs.version }}
         run: |
           if git diff --quiet; then
             echo "No dev version changes to commit"
           else
             git add -A
-            git commit -m "chore(release): advance to ${{ steps.next-dev.outputs.version }}"
+            git commit -m "chore(release): advance to $NEXT_DEV_VERSION"
           fi
 
       - name: Push branch
         if: ${{ inputs.dry-run == false }}
+        env:
+          INPUT_REF: ${{ inputs.ref }}
         run: |
-          echo "Pushing branch ${{ inputs.ref }}..."
-          if ! git push origin HEAD:${{ inputs.ref }}; then
-            echo "::error::Push to ${{ inputs.ref }} failed"
-            echo "If another commit landed, try: git pull --rebase origin ${{ inputs.ref }} && git push"
+          echo "Pushing branch $INPUT_REF..."
+          if ! git push origin "HEAD:$INPUT_REF"; then
+            echo "::error::Push to $INPUT_REF failed"
+            echo "If another commit landed, try: git pull --rebase origin $INPUT_REF && git push"
             exit 1
           fi
 
       - name: Push tag
         if: ${{ inputs.dry-run == false }}
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          echo "Pushing tag ${{ inputs.tag }}..."
-          if ! git push origin "${{ inputs.tag }}"; then
-            echo "::error::Tag push failed for ${{ inputs.tag }}"
+          echo "Pushing tag $INPUT_TAG..."
+          if ! git push origin "$INPUT_TAG"; then
+            echo "::error::Tag push failed for $INPUT_TAG"
             echo "Check if tag protection rules allow this token to create tags"
             exit 1
           fi
 
       - name: Dry-run summary
         if: ${{ inputs.dry-run == true }}
+        env:
+          INPUT_REF: ${{ inputs.ref }}
+          INPUT_TAG: ${{ inputs.tag }}
+          NEXT_DEV_VERSION: ${{ steps.next-dev.outputs.version }}
         run: |
           echo "=== DRY-RUN SUMMARY ==="
-          echo "Would push branch ${{ inputs.ref }} with these commits:"
-          git log --oneline origin/${{ inputs.ref }}..HEAD
+          echo "Would push branch $INPUT_REF with these commits:"
+          git log --oneline "origin/$INPUT_REF..HEAD"
           echo ""
-          echo "Would create tag ${{ inputs.tag }} at:"
+          echo "Would create tag $INPUT_TAG at:"
           git log --oneline -1 HEAD~1
           echo ""
-          echo "Dev version on main after release: ${{ steps.next-dev.outputs.version }}"
+          echo "Dev version on main after release: $NEXT_DEV_VERSION"

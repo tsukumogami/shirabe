@@ -31,14 +31,15 @@ set -euo pipefail
 # Output error and exit
 json_error() {
     local message="$1"
-    echo "{\"error\": \"$message\"}" >&2
+    jq -nc --arg msg "$message" '{error: $msg}' >&2
     exit 1
 }
 
 # Check prerequisites
 check_prerequisites() {
     if ! command -v jq &>/dev/null; then
-        json_error "jq not found. Please install jq."
+        echo '{"error":"jq not found. Please install jq."}' >&2
+        exit 1
     fi
 }
 

@@ -213,19 +213,15 @@ substitute_placeholders() {
         return
     fi
 
-    local sed_script=""
-    while IFS= read -r line; do
-        local internal_id github_num
-        internal_id=$(echo "$line" | jq -r '.key')
-        github_num=$(echo "$line" | jq -r '.value')
-        sed_script="${sed_script}s/<<ISSUE:${internal_id}>>/#${github_num}/g;"
-    done < <(jq -c 'to_entries[]' "$map_file")
-
-    if [[ -n "$sed_script" ]]; then
-        echo "$content" | sed -E "$sed_script"
-    else
-        echo "$content"
-    fi
+    # Use jq for safe substitution — avoids sed metacharacter injection
+    # from mapping values.
+    jq -Rrs --slurpfile map "$map_file" '
+        . as $content |
+        ($map[0] | to_entries) as $entries |
+        reduce $entries[] as $e ($content;
+            gsub("<<ISSUE:\($e.key)>>"; "#\($e.value | tostring)")
+        )
+    ' <<< "$content"
 }
 
 # Check for unresolved placeholders in text. Returns 0 if clean, 1 if found.
