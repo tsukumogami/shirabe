@@ -63,12 +63,12 @@ with the spike-to-reconciliation merge gate as a second independent justificatio
 
 | Issue | Dependencies | Complexity |
 |-------|--------------|------------|
-| [#111: docs(references): add shared workflow-principles, issues-table, and dependency-diagram references](https://github.com/tsukumogami/shirabe/issues/111) | None | simple |
-| _Creates the three plugin-root shared references and trims the two skill references to cite them; finalizes the five-principle wording. The foundation every other slice consumes -- the validator is the enforcement twin of these references._ | | |
-| [#112: feat(validate): add Markdown issues-table parser and FC05/FC06 content checks](https://github.com/tsukumogami/shirabe/issues/112) | [#111](https://github.com/tsukumogami/shirabe/issues/111) | testable |
-| _Adds `table.go` (`parseIssuesTable` + `Table`) and the error-level `checkFC05` (schema) and `checkFC06` (cross-reference), wired into the Plan arm and a new Roadmap arm. The one new parser the first pass allows; its `Table` is what the later reconciliation check reuses._ | | |
-| [#113: docs(corpus): migrate committed roadmap and plan tables to the canonical profiles](https://github.com/tsukumogami/shirabe/issues/113) | [#112](https://github.com/tsukumogami/shirabe/issues/112) | testable |
-| _Migrates the divergent committed roadmap and legacy plan tables onto the canonical profiles so error-level FC05/FC06 pass on the whole corpus. Lands in the same PR as #112 so the checks never see an unmigrated corpus._ | | |
+| ~~[#111: docs(references): add shared workflow-principles, issues-table, and dependency-diagram references](https://github.com/tsukumogami/shirabe/issues/111)~~ | ~~None~~ | ~~simple~~ |
+| ~~_Creates the three plugin-root shared references and trims the two skill references to cite them; finalizes the five-principle wording. The foundation every other slice consumes -- the validator is the enforcement twin of these references._~~ | | |
+| ~~[#112: feat(validate): add Markdown issues-table parser and FC05/FC06 content checks](https://github.com/tsukumogami/shirabe/issues/112)~~ | ~~[#111](https://github.com/tsukumogami/shirabe/issues/111)~~ | ~~testable~~ |
+| ~~_Adds `table.go` (`parseIssuesTable` + `Table`) and the error-level `checkFC05` (schema) and `checkFC06` (cross-reference), wired into the Plan arm and a new Roadmap arm. The one new parser the first pass allows; its `Table` is what the later reconciliation check reuses._~~ | | |
+| ~~[#113: docs(corpus): migrate committed roadmap and plan tables to the canonical profiles](https://github.com/tsukumogami/shirabe/issues/113)~~ | ~~[#112](https://github.com/tsukumogami/shirabe/issues/112)~~ | ~~testable~~ |
+| ~~_Migrates the divergent committed roadmap and legacy plan tables onto the canonical profiles so error-level FC05/FC06 pass on the whole corpus. Lands in the same PR as #112 so the checks never see an unmigrated corpus._~~ | | |
 | [#114: docs(plan): surface the single-pr/multi-pr decision and add the value-confirmation guard](https://github.com/tsukumogami/shirabe/issues/114) | [#111](https://github.com/tsukumogami/shirabe/issues/111) | testable |
 | _Lifts the single-pr/multi-pr rule onto the plan SKILL surface anchored on the usable-value principle, de-conflated from work-slicing, and adds a value-confirmation step that can fail and records-and-proceeds under `--auto`. Shares the record-and-proceed gate shape with #115's approval gate._ | | |
 | [#115: feat(roadmap): add native populate-issues-table script reusing create-issues-batch](https://github.com/tsukumogami/shirabe/issues/115) | [#111](https://github.com/tsukumogami/shirabe/issues/111) | testable |
