@@ -87,4 +87,11 @@ jobs:
         run: tsuku install tsukumogami/shirabe
 
       - name: Confirm shirabe runs
-        run: shirabe --version
+        run: |
+          # Activate tsuku's environment so an installed tool resolves. The env
+          # file puts both ~/.tsuku/bin and ~/.tsuku/tools/current on PATH and
+          # loads the shell init cache; the manual GITHUB_PATH entry above only
+          # covers bin, so the active-version binary under tools/current was not
+          # found in this non-interactive step (command not found, exit 127).
+          source "$HOME/.tsuku/env"
+          shirabe --version
