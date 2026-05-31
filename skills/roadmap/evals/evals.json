@@ -117,6 +117,20 @@
         "Transcript describes including upstream: in the roadmap frontmatter during Phase 3 drafting",
         "Transcript does NOT treat --upstream as part of the topic name"
       ]
+    },
+    {
+      "id": 10,
+      "name": "populate-issues-table",
+      "prompt": "/roadmap populate docs/roadmaps/ROADMAP-release-automation.md",
+      "expected_output": "Detects 'populate' as the input mode. Presents the features that will be turned into issues for the author's approval (R14 gate). On approval, invokes the `shirabe roadmap populate` subcommand on the shirabe CLI, which reads the Features section via the shared shirabe-validate parser, creates one GitHub issue per feature with discrete `gh issue create` args, and writes the Implementation Issues table and Dependency Graph into the reserved sections by structural section replacement. Does not rewrite the roadmap by prose substitution.",
+      "files": ["docs/roadmaps/ROADMAP-release-automation.md"],
+      "expectations": [
+        "Transcript identifies 'populate' as the input mode from the arguments",
+        "Transcript stops for R14 approval before invoking the subcommand in an interactive run (or records an assumed approval decision block under --auto)",
+        "Transcript plans to run the `shirabe roadmap populate` subcommand against the named roadmap",
+        "Transcript describes invoking gh as a primitive with discrete arguments (not re-driving the plan workflow)",
+        "Transcript describes structural section replacement for the Implementation Issues and Dependency Graph sections (not prose string substitution)"
+      ]
     }
   ]
 }

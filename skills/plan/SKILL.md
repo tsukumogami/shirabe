@@ -254,8 +254,6 @@ document filename: `DESIGN-foo-bar.md` produces topic `foo-bar`, `ROADMAP-foo-ba
 produces topic `foo-bar`.
 
 ```
-if input_type == roadmap AND roadmap has populated Issues table
-                                              -> Phase 7 complete
 if GitHub issues exist for this design        -> Resume at Phase 7 (verify/complete)
 if wip/plan_<topic>_review.md exists          -> Resume at Phase 7
 if wip/plan_<topic>_dependencies.md exists    -> Resume at Phase 6
@@ -271,8 +269,12 @@ To check for existing GitHub issues:
 gh issue list --search "Design: <design-doc-path>" --json number,title,state
 ```
 
-For roadmap input, check the roadmap file's Implementation Issues section
-for content rows beyond the table header. If populated, Phase 7 is complete.
+For roadmap input, populating the roadmap's reserved Implementation Issues
+and Dependency Graph sections is owned by `/roadmap populate` (which calls
+the `shirabe roadmap populate` subcommand), not by this workflow. The plan
+workflow accepts a roadmap as input when the author wants a PLAN document
+for a roadmap-scoped slice; it no longer rewrites the roadmap document
+itself.
 
 When resuming, read the existing artifact to restore context before continuing.
 

@@ -17,6 +17,8 @@ use shirabe_validate::{
     ParseError, ValidationError,
 };
 
+mod populate;
+
 /// The maximum accepted size of the `--custom-statuses` value, matching the
 /// Go binary's 64 KiB guard.
 const MAX_CUSTOM_STATUSES_BYTES: usize = 64 * 1024;
@@ -56,6 +58,21 @@ struct Cli {
 enum Commands {
     /// Validate shirabe doc files.
     Validate(ValidateArgs),
+    /// Roadmap-scoped subcommands.
+    Roadmap(RoadmapArgs),
+}
+
+#[derive(clap::Args)]
+struct RoadmapArgs {
+    #[command(subcommand)]
+    command: RoadmapCommands,
+}
+
+#[derive(Subcommand)]
+enum RoadmapCommands {
+    /// Populate a roadmap's reserved Implementation Issues and Dependency
+    /// Graph sections, creating one GitHub issue per feature.
+    Populate(populate::PopulateArgs),
 }
 
 #[derive(clap::Args)]
@@ -77,6 +94,9 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         Some(Commands::Validate(args)) => run_validate(&args),
+        Some(Commands::Roadmap(args)) => match args.command {
+            RoadmapCommands::Populate(p) => populate::run(&p),
+        },
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would
         // otherwise leave `command` as `None` and exit 0 silently.
