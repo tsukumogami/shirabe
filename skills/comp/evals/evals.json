@@ -1,0 +1,106 @@
+{
+  "skill_name": "comp",
+  "evals": [
+    {
+      "id": 1,
+      "name": "structural-happy-path",
+      "prompt": "Validate the COMP fixture at skills/comp/evals/fixtures/COMP-happy.md under private visibility and report whether it passes.",
+      "expected_output": "Runs shirabe validate --visibility private on a well-formed COMP document with all seven required sections; the document passes (exit 0) with no validation errors.",
+      "files": ["skills/comp/evals/fixtures/COMP-happy.md"],
+      "expectations": [
+        "Runs validation with --visibility private (COMP is private-only)",
+        "Reports the well-formed COMP passes with no errors (exit 0)",
+        "Does not report any R9, FC01, FC02, FC03, or FC04 error"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "fc04-missing-section",
+      "prompt": "Validate skills/comp/evals/fixtures/COMP-missing-section.md under private visibility.",
+      "expected_output": "The fixture omits a required section, so validation under private visibility fails with an FC04 error naming the missing section.",
+      "files": ["skills/comp/evals/fixtures/COMP-missing-section.md"],
+      "expectations": [
+        "Runs validation with --visibility private",
+        "Reports an FC04 error for the missing required section",
+        "Exit code is non-zero"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "fc02-invalid-status",
+      "prompt": "Validate skills/comp/evals/fixtures/COMP-invalid-status.md under private visibility.",
+      "expected_output": "The fixture carries a status outside the Draft/Accepted/Done enum, so validation under private visibility fails with an FC02 error.",
+      "files": ["skills/comp/evals/fixtures/COMP-invalid-status.md"],
+      "expectations": [
+        "Runs validation with --visibility private",
+        "Reports an FC02 error for the invalid status value",
+        "Exit code is non-zero"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "r9-public-rejection",
+      "prompt": "Validate skills/comp/evals/fixtures/COMP-r9-public.md under public visibility.",
+      "expected_output": "COMP is private-only, so validating a well-formed COMP under public visibility fails with exactly one R9 error and no structural errors.",
+      "files": ["skills/comp/evals/fixtures/COMP-r9-public.md"],
+      "expectations": [
+        "Runs validation with --visibility public",
+        "Reports exactly one R9 error (private-only gate)",
+        "Reports no FC01-FC04 errors",
+        "Exit code is non-zero"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "r9-empty-visibility-fail-closed",
+      "prompt": "Validate skills/comp/evals/fixtures/COMP-happy.md with no visibility flag.",
+      "expected_output": "With visibility unset, the private-only gate fails closed: a well-formed COMP is still rejected with an R9 error.",
+      "files": ["skills/comp/evals/fixtures/COMP-happy.md"],
+      "expectations": [
+        "Runs validation without a --visibility flag",
+        "Reports an R9 error because unset visibility fails closed (treated as not-private)",
+        "Exit code is non-zero"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "r9-fires-before-fc",
+      "prompt": "Validate skills/comp/evals/fixtures/COMP-missing-section.md under public visibility and explain which errors fire.",
+      "expected_output": "Under public visibility the R9 gate short-circuits the structural checks: the only error is R9, even though the document is also missing a required section (no FC04).",
+      "files": ["skills/comp/evals/fixtures/COMP-missing-section.md"],
+      "expectations": [
+        "Runs validation with --visibility public",
+        "Reports the R9 error",
+        "Does NOT report FC04, because R9 returns early before the structural checks run"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "draft-to-accepted-transition",
+      "prompt": "Copy skills/comp/evals/fixtures/COMP-draft-to-accepted.md into docs/competitive/ and run skills/comp/scripts/transition-status.sh on it to move it from Draft to Accepted.",
+      "expected_output": "The transition script moves the COMP from Draft to Accepted, updating both frontmatter and the body Status section, with moved:false in its JSON output and no directory change.",
+      "files": ["skills/comp/evals/fixtures/COMP-draft-to-accepted.md"],
+      "expectations": [
+        "Invokes skills/comp/scripts/transition-status.sh <path> Accepted",
+        "Frontmatter status becomes Accepted",
+        "Body Status section first line becomes Accepted",
+        "JSON output reports moved:false (no directory movement)",
+        "Exit code is 0"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "public-repo-skill-refusal",
+      "prompt": "/comp acme-widgets",
+      "expected_output": "Invoked in a public repo, the /comp skill detects non-private visibility at Phase 0 and refuses: it emits '[/comp] REFUSED acme-widgets: visibility=public' to stdout, creates no COMP file, and redirects the author to a public BRIEF or PRD that references the competitive question without containing the analysis.",
+      "files": [],
+      "expectations": [
+        "Plan detects repo visibility at Phase 0 from CLAUDE.md or repo path",
+        "Plan refuses because visibility is not private, before creating any file",
+        "Plan emits the exact stdout signal '[/comp] REFUSED acme-widgets: visibility=public'",
+        "Plan creates no COMP-acme-widgets.md file",
+        "Plan redirects the author to alternatives (a public BRIEF or PRD)"
+      ]
+    }
+  ]
+}
