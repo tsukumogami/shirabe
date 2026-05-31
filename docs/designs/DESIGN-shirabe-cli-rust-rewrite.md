@@ -684,6 +684,17 @@ live in `shirabe-validate`. This boundary is the same one the
 library-crate-publication follow-on will publish; this design just
 doesn't push the library crate to crates.io.
 
+**No API stability commitment.** The `pub use` list above looks like
+a library API surface, but it isn't one yet — every export is
+internal-shaped (public for distribution but unstable across
+shirabe versions). The exports may rename, change signatures, or
+disappear in any release between now and the library-crate-
+publication follow-on without a deprecation cycle, since the only
+caller is shirabe's own binary crate. Semantic versioning of
+`shirabe-validate` as a library is the follow-on's decision,
+shaped by whichever downstream consumer first commits to linking.
+Until then, treat these exports as if they were `pub(crate)`.
+
 **Error types.** `shirabe-validate` exports two error types:
 `ValidationError` (the rule-failure struct with `file`, `line`,
 `code`, `message` fields — directly mirrors the Go type) and
