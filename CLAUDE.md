@@ -50,6 +50,18 @@ type and sits between ROADMAP and PRD on the tactical chain; use it
 to frame a feature's problem, outcome, journeys, and scope before
 writing requirements.
 
+`/comp` (competitive analysis) is a private-only artifact type
+outside the main pipeline. Reach for it when you need to survey
+competitors along explicit dimensions, find concrete gaps, and turn
+those findings into implications for our own choices — distinct from
+a PRD (what one feature does), a BRIEF (a single feature's framing),
+or a DESIGN (technical architecture). Because COMP content is
+competitive, the artifact is private-only: invoked in a public repo,
+`/comp` refuses and emits `[/comp] REFUSED <topic>: visibility=public`,
+redirecting the author to a public BRIEF or PRD that references the
+competitive question without containing the analysis. The same
+private-only contract is enforced at validation time by the R9 check.
+
 ## Strategic Chain Entry: /charter
 
 `/charter` is a parent skill that walks an author through the

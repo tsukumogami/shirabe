@@ -1,0 +1,40 @@
+name: Check comp scripts
+
+on:
+  pull_request:
+    paths:
+      - 'skills/comp/scripts/**'
+      - 'skills/comp/evals/**'
+
+jobs:
+  test-comp-scripts:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        # SHA pin for dtolnay/rust-toolchain@stable; reads rust-toolchain.toml.
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Install jq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y jq
+
+      - name: Install jq (macOS)
+        if: runner.os == 'macOS'
+        run: brew install jq
+
+      - name: Install bash 5 (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install bash
+          echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+
+      - name: Run transition-status tests
+        run: bash skills/comp/scripts/transition-status_test.sh
+
+      - name: Run validate-CLI tests
+        run: bash skills/comp/evals/test-cli.sh

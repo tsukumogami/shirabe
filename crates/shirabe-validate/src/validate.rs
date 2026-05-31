@@ -8,7 +8,7 @@
 
 use crate::checks::{
     check_fc01, check_fc02, check_fc03, check_fc04, check_fc05, check_fc06, check_plan_upstream,
-    check_schema, check_strategy_public, check_vision_public,
+    check_private_only, check_schema, check_strategy_public, check_vision_public,
 };
 use crate::doc::{Doc, ValidationError};
 use crate::formats::FormatSpec;
@@ -31,6 +31,14 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
     // 1. Schema gate: if doc.schema != spec.schema_version, return SCHEMA notice.
     if let Some(schema_err) = check_schema(doc, spec) {
         return vec![schema_err];
+    }
+
+    // 1a. Visibility gate (R9): private-only formats short-circuit before FC
+    // checks when visibility is not "private", so the failure is the single
+    // authoritative reason rather than buried among structural errors.
+    let r9 = check_private_only(doc, spec, cfg);
+    if !r9.is_empty() {
+        return r9;
     }
 
     // 2. Run FC01, FC02, FC03, FC04 in order, collect all errors.
@@ -122,7 +130,7 @@ mod tests {
             code: "SCHEMA".to_string(),
             message: String::new(),
         }));
-        for code in ["FC01", "FC02", "FC03", "FC04", "R6", "R7", "R8"] {
+        for code in ["FC01", "FC02", "FC03", "FC04", "R6", "R7", "R8", "R9"] {
             assert!(
                 !is_notice(&ValidationError {
                     file: String::new(),
@@ -215,5 +223,61 @@ mod tests {
         assert_eq!(errs.len(), 1);
         assert_eq!(errs[0].code, "SCHEMA");
         assert!(is_notice(&errs[0]));
+    }
+
+    // --- validate_file R9 dispatch (comp/v1 private-only gate) ---
+
+    fn comp_fields(status: &str) -> HashMap<String, FieldValue> {
+        let mut m = HashMap::new();
+        m.insert("status".to_string(), fv(status, 2));
+        m.insert("problem".to_string(), fv("a problem", 3));
+        m.insert("scope".to_string(), fv("a scope", 4));
+        m
+    }
+
+    fn comp_sections(omit: &str) -> Vec<Section> {
+        let spec = spec_for("comp/v1");
+        spec.required_sections
+            .iter()
+            .enumerate()
+            .filter(|(_, name)| name.as_str() != omit)
+            .map(|(i, name)| sec(name, i + 1))
+            .collect()
+    }
+
+    #[test]
+    fn validate_file_comp_passes_under_private() {
+        let cfg = Config {
+            custom_statuses: HashMap::new(),
+            visibility: "private".to_string(),
+        };
+        let doc = make_doc(
+            "comp/v1",
+            "Draft",
+            comp_fields("Draft"),
+            comp_sections(""),
+            vec!["## Status".to_string(), String::new(), "Draft".to_string()],
+        );
+        let errs = validate_file(&doc, &spec_for("comp/v1"), &cfg);
+        assert_eq!(errs.len(), 0, "expected no errors under private, got {:?}", errs);
+    }
+
+    #[test]
+    fn validate_file_comp_public_yields_only_r9() {
+        // Omit a required section to prove R9 short-circuits FC04.
+        let cfg = Config {
+            custom_statuses: HashMap::new(),
+            visibility: "public".to_string(),
+        };
+        let doc = make_doc(
+            "comp/v1",
+            "Draft",
+            comp_fields("Draft"),
+            comp_sections("Implications"),
+            vec!["## Status".to_string(), String::new(), "Draft".to_string()],
+        );
+        let errs = validate_file(&doc, &spec_for("comp/v1"), &cfg);
+        assert_eq!(errs.len(), 1, "expected exactly one R9 error, got {:?}", errs);
+        assert_eq!(errs[0].code, "R9", "R9 must fire before FC checks");
     }
 }

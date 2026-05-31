@@ -10,7 +10,7 @@ The reusable workflow (`validate-docs.yml`) checks out shirabe, builds the
 `shirabe` binary from source, diffs the PR's changed files, and runs
 `shirabe validate` on any recognized file. Recognized files are those whose
 basename matches a known prefix: `DESIGN-`, `PRD-`, `VISION-`, `ROADMAP-`,
-or `PLAN-`. Everything else is silently skipped.
+`PLAN-`, or `COMP-`. Everything else is silently skipped.
 
 For recognized files, the validator:
 
@@ -22,7 +22,9 @@ For recognized files, the validator:
    body consistency, required sections.
 3. **Format-specific rules** -- Plan docs: upstream file existence and git
    tracking (R6). VISION docs in public repos: prohibited section headings
-   (R7).
+   (R7). STRATEGY docs in public repos: prohibited section headings (R8).
+   Private-only formats such as COMP: rejected outside private visibility
+   (R9), and the gate fires before FC01-FC04.
 
 Errors produce `::error` GHA annotations that fail the check. Notices
 produce `::notice` annotations that don't.
@@ -86,6 +88,31 @@ To opt a doc in:
 
 You don't need to migrate all docs at once. The schema gate is designed for
 incremental adoption.
+
+## Adopting the COMP format (R9 and `docs/competitive/`)
+
+The `COMP-` prefix (competitive-analysis docs, schema `comp/v1`) is a
+private-only format. Adopters should note three things:
+
+- **Path-filter widening.** COMP docs conventionally live under
+  `docs/competitive/`. The default workflow trigger `paths: ['docs/**']`
+  already covers them. If your `validate-docs.yml` uses a narrower filter
+  (for example `paths: ['docs/designs/**', 'docs/prds/**']`), widen it to
+  include `docs/competitive/**`, or COMP docs will skip validation on PRs.
+- **New error code R9.** R9 is the private-only gate: `shirabe validate`
+  rejects any `Private`-marked format (today, `comp/v1`) unless visibility
+  is exactly `private`, and the gate fails closed on unset visibility. If
+  you filter or alert on validation error codes, key on the prefix range
+  `R7`–`R9` (or an explicit code list) rather than a hardcoded `R7`–`R8`
+  range, so R9 is not dropped silently.
+- **Format-reference home.** `skills/comp/references/comp-format.md` in
+  shirabe is the canonical COMP format reference. Any pre-existing
+  workspace-level COMP reference stays in place for legacy reasons but is
+  not consulted by `shirabe validate` or by the `/comp` skill.
+
+The `/comp` skill authors COMP docs; see the `/comp` guidance paragraph in
+shirabe's `CLAUDE.md` for when to reach for it and the public-repo
+refusal behavior.
 
 ## Local validation
 
