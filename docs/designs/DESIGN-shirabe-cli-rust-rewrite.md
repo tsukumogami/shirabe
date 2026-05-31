@@ -405,12 +405,21 @@ none is reachable by the parity corpus:
    real version (`SHIRABE_VERSION` / `-ldflags`), so the published
    binaries converge; only unversioned local builds differ, and the
    default value isn't in the corpus.
+4. *Control-character input (parse-error surface).* Go's `yaml.v3`
+   rejects control characters at parse time with a single
+   `yaml: control characters are not allowed` error, while saphyr
+   accepts them and validates through to a normal result. Like the
+   IO divergence, this lands on the parse-error / quoting surface
+   rather than the consumed annotation contract, and it is out of
+   corpus: a control character can't be committed as a deterministic
+   fixture.
 
 The contract these exceptions bound is precise: byte-for-byte on the
-GHA annotation stdout for the corpus. The three above are
-respectively an unreproducible OS string on an unexercised path, a
-stderr message outside the annotation contract, and a build-time
-value that converges in release. The tsuku recipe and the
+GHA annotation stdout for the corpus. The four above are an
+unreproducible OS string on an unexercised path, a stderr message
+outside the annotation contract, a build-time value that converges
+in release, and a parse-error/quoting-surface difference on
+uncommittable control-character input. The tsuku recipe and the
 release/install pipeline consume the injected `--version`, not the
 local default, so the recipe contract is unaffected.
 
