@@ -585,16 +585,26 @@ the release workflow needs. CI installs the same toolchain via
 `main` (the post-#134 tree), built locally — currently
 `20fb8ed` (`v0.6.1-16-g20fb8ed`).**
 
+Pinning to `20fb8ed` makes the parity baseline and the source the
+Outline 5 cut deletes the *same commit*: there is no gap between
+"what we captured as the contract" and "what we removed from the
+tree," so the parity tests assert against exactly the Go behavior
+being replaced. A pinned commit SHA is immutable, preserving the
+original immutable-baseline intent that a tagged release would have
+served — there is simply no intermediate Go release to cut.
+
 The `tests/fixtures/capture_go_baseline.sh` script builds the Go
 binary locally from the pinned commit (it does not download a
-release tag, because no tag carries the post-#134 contract), runs it
-against `corpus/`, and writes the stdout/stderr/exit triple to
-`expected/`. The committed `expected/` is the output of the Go tree
-the rewrite actually replaces. If `main` advances with a Go-side
-validation change the team wants the Rust port to mirror before the
-cut, the capture is re-run against the new commit and `expected/` is
-updated as a separate change before the rewrite lands. The script
-records the pinned commit SHA so the baseline is reproducible.
+release tag, because no tag carries the post-#134 contract — this is
+a deliberate deviation from the design's earlier "download from
+releases" framing), runs it against `corpus/`, and writes the
+stdout/stderr/exit triple to `expected/`. The committed `expected/`
+is the output of the Go tree the rewrite actually replaces. If
+`main` advances with a Go-side validation change the team wants the
+Rust port to mirror before the cut, the capture is re-run against the
+new commit and `expected/` is updated as a separate change before the
+rewrite lands. The script records the pinned commit SHA so the
+baseline is reproducible.
 
 The Layer 2 reusable `parity-check.yml` workflow (Decision 3) is
 unaffected by this pin: it keeps its `go-baseline-version` input.
@@ -606,13 +616,20 @@ contract, built from the local commit above.
 
 - *Pin baseline to the `shirabe-go-v0.6.1` tag.* The most recent
   tagged release; the obvious "stable reference" choice. **Rejected**
-  because `v0.6.1` predates the merged-but-unreleased check additions
-  (FC05, FC06, R8) and the issues-table engine. Capturing it would
-  make the Rust port reproduce a stale contract, and the Outline 5
-  Go-tree deletion would then silently drop three checks and the
-  issues-table validation surface that are live on `main`. The
-  rewrite must preserve the contract at cut time, which is `main`,
-  not the last tag.
+  because the validation surface grew substantially after `v0.6.1`:
+  the tag has five formats (Design, PRD, VISION, Roadmap, Plan) and
+  seven checks (SCHEMA, FC01–FC04, R6, R7), whereas the pinned
+  `20fb8ed` has seven formats (adding Strategy and Brief) and ten
+  checks (adding FC05, FC06, R8). PR #134 specifically added FC05,
+  FC06, the `IssuesTableColumns` field, and the `table.go` engine;
+  the Strategy/Brief formats and R8 landed before #134 but still
+  after `v0.6.1`. Capturing `v0.6.1` would make the Rust port
+  reproduce a stale contract, and the Outline 5 Go-tree deletion
+  would then silently drop two formats, three checks, and the entire
+  issues-table validation surface that are live on `main`. This is
+  the load-bearing argument for the rebaseline: the rewrite must
+  preserve the contract at cut time, which is `main`, not the last
+  tag.
 - *Pin baseline to multiple Go commits and assert parity against
   all of them.* Maximally robust. **Rejected** as overkill — the
   rewrite ships against the single Go tree it deletes (the cut-time
