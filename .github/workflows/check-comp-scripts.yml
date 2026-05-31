@@ -1,0 +1,41 @@
+name: Check comp scripts
+
+on:
+  pull_request:
+    paths:
+      - 'skills/comp/scripts/**'
+      - 'skills/comp/evals/**'
+
+jobs:
+  test-comp-scripts:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5  # v6.2.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install jq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y jq
+
+      - name: Install jq (macOS)
+        if: runner.os == 'macOS'
+        run: brew install jq
+
+      - name: Install bash 5 (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install bash
+          echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+
+      - name: Run transition-status tests
+        run: bash skills/comp/scripts/transition-status_test.sh
+
+      - name: Run validate-CLI tests
+        run: bash skills/comp/evals/test-cli.sh
