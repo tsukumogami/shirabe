@@ -41,34 +41,6 @@ rationale: |
 
 Proposed
 
-## Provenance
-
-This design realizes the foundation step of a multi-feature Rust
-consolidation initiative whose planning chain lives in a private
-companion repo. The design stands alone for the technical
-decisions it locks; the planning chain shapes only the scope and
-sequencing. Four planned follow-on features are referenced where
-their existence shapes a decision in this design:
-
-- a **transition-subcommand follow-on** that collapses the per-skill
-  status-transition bash scripts under a `shirabe transition`
-  subcommand;
-- a **cross-repo-resolver follow-on** that adds a `shirabe
-  resolve-upstream` subcommand implementing the `owner/repo:path`
-  reference syntax that today is documented but not implemented;
-- a **library-crate-publication follow-on** that publishes the
-  `shirabe-validate` crate to crates.io with a stabilized public
-  API surface, locked against the first downstream consumer's
-  call-site requirements;
-- a **tripwire-metrics follow-on** that adds a `shirabe metrics`
-  subcommand surfacing the cost-of-delay tripwires the parent
-  strategy commits to monitoring.
-
-References to these follow-ons appear when they constrain the
-present design's decisions (e.g., the library-crate-publication
-follow-on motivates the Cargo workspace layout). The follow-ons
-themselves are out of scope.
-
 ## Context and Problem Statement
 
 shirabe's deterministic surface is a small Go CLI (`shirabe`) with one
@@ -104,73 +76,71 @@ number contract to two scalar field lookups (`status` and
 `upstream`); everything else is independent of the YAML parser's
 position-tracking surface.
 
-The parent initiative commits to consolidating shirabe's runtime substrate
-in Rust. This design is the load-bearing piece: every planned follow-on
-(transition subcommand, cross-repo resolver, library-crate publication,
-tripwire metrics) extends the Rust binary this design creates. The
-design must answer four technical questions before implementation can
-start:
+Aligning shirabe's deterministic surface with koto's Rust substrate
+keeps cross-component composition structurally cheap and removes the
+Go/Rust seam that currently sits between shirabe and the rest of the
+toolkit's workflow tier. This design translates the Go binary to Rust
+while preserving the public output contract byte-for-byte. Four
+technical questions must be answered before implementation can start:
 
 1. **What Rust YAML parser provides per-key line numbers?** `serde_yaml`
    deserializes into Rust structs but discards source positions. The Go
    implementation depends on `yaml.v3`'s `Node.Line` for FC02 (`status`)
    and R6 (`upstream`) annotations — the only two checks that read
-   per-key positions from the YAML mapping. The parent initiative names
-   this as 80% of the technical risk.
-2. **How does the cobra subcommand tree translate to clap?** Mechanical, but
-   the design should document the mapping so the planned follow-on
-   subcommands inherit a
-   conventional shape.
-3. **How is output-contract preservation enforced as a test?** The strategy
-   commits to byte-for-byte preservation as an acceptance criterion, not
-   aspiration; this design names the fixture mechanism.
-4. **Single binary crate vs. Cargo workspace?** The library-crate-
-   publication follow-on will publish a separate crate. Anticipating
-   that shape from day one avoids a structural re-port when
-   publication happens.
+   per-key positions from the YAML mapping. This is the single
+   non-trivial portability risk in the rewrite.
+2. **How does the cobra subcommand tree translate to clap?** Mechanical,
+   but the design should document the mapping so future shirabe
+   subcommands inherit a conventional shape.
+3. **How is output-contract preservation enforced as a test?** Byte-for-
+   byte preservation against the current Go binary is an acceptance
+   criterion, not aspiration; this design names the fixture mechanism.
+4. **Single binary crate vs. Cargo workspace?** The validate logic will
+   eventually want a library-crate boundary so koto and other Rust
+   callers can link directly rather than shell out across a process
+   boundary. Anticipating that boundary from day one avoids a
+   structural re-port later.
 
-A fifth question the parent initiative surfaces — does the
-`shirabe metrics` tripwire subcommand ship inside this design's PR
-or as a separate follow-on — is resolved in **Decision 5** below.
+A fifth question — does a separate `shirabe metrics` subcommand ship
+inside this PR — is resolved in **Decision 5** below.
 
 ## Decision Drivers
 
-- **Byte-for-byte output preservation is mandatory.** Strategy Decision 3:
-  no v2 break window. Every GHA annotation, every exit code, every
-  `--version` byte must match the Go binary on identical inputs. The roadmap
-  scopes the preservation test to "every existing committed artifact in
-  workspace repos that consume `validate-docs.yml`."
+- **Byte-for-byte output preservation is mandatory.** No v2 break
+  window. Every GHA annotation, every exit code, every `--version`
+  byte must match the Go binary on identical inputs.
 - **Per-field line numbers are non-negotiable for FC02 (status) and
-  R6 (upstream).** Today's
-  Go output points GHA annotations at specific frontmatter keys; the Rust
-  binary must do the same on the same files. Falling back to line 1 for
-  these errors would be a behavior regression.
-- **The rewrite must be a non-event for the two internal pinning callers.**
-  shirabe's own `.github/workflows/validate-docs.yml` and the private
-  `vision` repo's caller both consume the published binary on tagged
-  releases. Both must continue to pass on the day the Rust binary ships.
-- **The Cargo crate must be ready for the library-crate-publication
-  follow-on without restructuring.** The parent initiative stages
-  library-as-amplifier (publish later, after a downstream consumer
-  locks the API), but the publication PR shouldn't require renaming
-  every import path. A workspace from day one with the validation
-  logic in a separate crate is the cheap shape.
+  R6 (upstream).** Today's Go output points GHA annotations at
+  specific frontmatter keys; the Rust binary must do the same on the
+  same files. Falling back to line 1 for these errors would be a
+  behavior regression.
+- **The rewrite must be a non-event for known internal pinning
+  callers.** shirabe's own `.github/workflows/validate-docs.yml`
+  consumes the published binary on tagged releases; any other
+  workspace caller of the reusable workflow does the same. All must
+  continue to pass on the day the Rust binary ships.
+- **The Cargo crate layout must support a future library boundary
+  without restructuring.** When koto or any other Rust caller commits
+  to linking the validate logic directly (rather than shelling out to
+  the binary), the library boundary needs to exist already; renaming
+  every import path at that moment is a cost worth avoiding now for
+  the price of one Cargo.toml split.
 - **Test-suite parity, not test-suite migration.** The existing Go test
   suite (`checks_test.go`, `frontmatter_test.go`, ~690 LOC) covers all
-  seven rules and the schema gate. The Rust implementation must hit the
-  same logical assertions; whether it ports test-by-test or restructures
-  is a tactical call inside the implementation.
-- **Eval suite passes unchanged.** Strategy Decision 2 keeps
-  `scripts/run-evals.sh` and per-skill JSON fixtures in their current
-  substrate. The Rust binary must satisfy the existing evals as a baseline
-  acceptance criterion.
-- **No new runtime dependencies on the host CI environment.** The Go binary
-  needs only `git` on PATH (for R6's `git ls-files`). The Rust binary
-  inherits the same minimum.
-- **install.sh contract preservation.** The shell installer's URL pattern
-  (`shirabe-<os>-<arch>` release asset names), install path
-  (`~/.shirabe/bin/shirabe`), and PATH guidance are part of the public
-  contract. Cargo-built binaries must match the same asset naming convention.
+  seven rules and the schema gate. The Rust implementation must hit
+  the same logical assertions; whether it ports test-by-test or
+  restructures is a tactical call inside the implementation.
+- **Eval suite passes unchanged.** `scripts/run-evals.sh` and per-skill
+  JSON fixtures stay in their current substrate. The Rust binary must
+  satisfy the existing evals as a baseline acceptance criterion.
+- **No new runtime dependencies on the host CI environment.** The Go
+  binary needs only `git` on PATH (for R6's `git ls-files`). The Rust
+  binary inherits the same minimum.
+- **install.sh contract preservation.** The shell installer's URL
+  pattern (`shirabe-<os>-<arch>` release asset names), install path
+  (`~/.shirabe/bin/shirabe`), and PATH guidance are part of the
+  public contract. Cargo-built binaries must match the same asset
+  naming convention.
 
 ## Considered Options
 
@@ -197,9 +167,9 @@ column, byte offset) on its `Marker` type, returned alongside every
 key/value node. The frontmatter walker reads the mapping at the document
 root, iterates `(key_node, value_node)` pairs, and produces a
 `HashMap<String, FieldValue { value, line }>` — directly analogous to the
-Go implementation's `parseYAMLFields`. The field→line reconstruction the
-strategy named as 80% of the technical risk is a 30-line function in this
-approach, not a custom parser.
+Go implementation's `parseYAMLFields`. The field→line reconstruction
+that is this rewrite's single largest portability hazard is a 30-line
+function in this approach, not a custom parser.
 
 **Considered and rejected.**
 
@@ -210,7 +180,7 @@ approach, not a custom parser.
   each key string to its first occurrence. **Rejected** because matching
   keys to lines correctly across multi-line scalars, anchor/alias
   expansion, and quoted-key edge cases is exactly the kind of subtle work
-  the parent initiative flagged as the rewrite's single non-trivial risk. Putting
+  this design flags as the rewrite's single non-trivial risk. Putting
   the risk in a hand-rolled scanner concentrates it; pushing it onto a
   parser that already tracks positions distributes it across the
   parser's existing test surface.
@@ -227,26 +197,27 @@ approach, not a custom parser.
   than saphyr's for the same line-number guarantee, and the `unsafe-`
   prefix is a non-trivial review surface for a small CLI.
 
-**Why this isn't a strawman:** the rejected serde_yaml + hand-rolled scan
-approach is the path most Rust CLI authors reach for first, and it would
-plausibly work. The rejection is not because it cannot succeed — it is
-because saphyr makes the same outcome free, and the parent initiative explicitly
-warned about concentrating risk in a hand-rolled YAML reconstruction.
+**Why this isn't a strawman:** the rejected serde_yaml + hand-rolled
+scan approach is the path most Rust CLI authors reach for first, and
+it would plausibly work. The rejection is not because it cannot
+succeed — it is because saphyr makes the same outcome free, and
+concentrating risk in a hand-rolled YAML reconstruction is the worst
+shape for the single largest portability hazard in the rewrite.
 
 ### Decision 2: CLI framework — cobra → clap mapping
 
 **Question.** How does the cobra subcommand tree (`shirabe`, `shirabe
-validate`, `--visibility`, `--custom-statuses`, `--version`) translate to a
-clap idiom that the planned follow-on subcommands (`transition`,
-`resolve-upstream`, `metrics`) inherit cleanly?
+validate`, `--visibility`, `--custom-statuses`, `--version`) translate
+to a clap idiom that future shirabe subcommands inherit cleanly?
 
 **Key assumptions.**
 - clap's `derive` macros are stable in clap v4 and are the conventional
   Rust shape (matching how cobra's struct-based config is the Go
   conventional shape).
-- The subcommand surface today is tiny (one subcommand, two flags); the
-  forthcoming subcommands add roughly the same shape (one subcommand each,
-  a few flags each).
+- The subcommand surface today is tiny (one subcommand, two flags);
+  the validator-side scaling profile for any future subcommands is
+  similar (one subcommand each, a few flags each), so the framework's
+  per-subcommand boilerplate dominates the cost calculation.
 
 **Chosen: clap v4 with `derive` macros, one struct per subcommand.**
 
@@ -267,16 +238,15 @@ matches today's `"shirabe {{.Version}}\n"` output exactly via
   boilerplate and they're the Rust-conventional shape for subcommand
   CLIs of this size — picking builder would surprise future maintainers
   without buying anything.
-- *Hand-rolled argument parser.* Smallest possible dependency footprint.
-  **Rejected** because shirabe already commits to one external dependency
-  for YAML parsing (saphyr) and would gain nothing by avoiding clap; the
-  cobra → clap translation is the parent initiative's "mechanical" item and
-  picking a non-conventional approach turns mechanical work into
-  exploratory work.
+- *Hand-rolled argument parser.* Smallest possible dependency
+  footprint. **Rejected** because shirabe already commits to one
+  external dependency for YAML parsing (saphyr) and would gain nothing
+  by avoiding clap; the cobra → clap translation is structurally
+  mechanical, and picking a non-conventional approach turns mechanical
+  work into exploratory work.
 
-This decision is mechanical per the parent initiative's framing. The design records the
-chosen idiom so the planned follow-on subcommands inherit a
-consistent pattern.
+This decision is mechanical. The design records the chosen idiom so
+future shirabe subcommands inherit a consistent pattern.
 
 ### Decision 3: Output-contract preservation mechanism
 
@@ -286,16 +256,15 @@ in the workspace?
 
 **Key assumptions.**
 - The shirabe repo's preservation contract is bounded by what the
-  shirabe repo itself can verify in its own public CI. Today the
-  reusable `validate-docs.yml` workflow has two known internal
-  callers — shirabe itself (via `validate-shirabe-docs.yml`) and one
-  organization-internal companion repo whose preservation tests run
-  in that repo's own CI, not in shirabe's. Other workspace repos
-  (`koto`, `tsuku`, `niwa`) do not pin the workflow today.
-- The shirabe repo's fixture is what external adopters (and future
-  internal callers) see as the preservation contract; it must
-  exercise the full validation surface (all five formats, all seven
-  rules, edge cases on each).
+  shirabe repo itself can verify in its own public CI. The reusable
+  `validate-docs.yml` workflow has callers in other repos; their
+  preservation tests run in their own CI, not in shirabe's, because
+  shirabe cannot embed their corpora directly (the source-of-truth
+  for what's "their committed artifact set" lives in their repo).
+- The shirabe-side fixture must exercise the full validation surface
+  (all five formats, all seven rules, edge cases on each) so external
+  adopters see a representative preservation contract on the
+  shirabe-side test surface.
 - A captured Go binary at a frozen version (`v0.6.1`, the most recent
   tagged release) is the immutable reference; once captured, the
   fixture asserts against it rather than rebuilding Go each run.
@@ -376,25 +345,22 @@ Giving them a reusable parity workflow lets each caller assert the
 preservation contract against their own corpus on their own CI
 without leaking content into shirabe.
 
-The fixture is the operational implementation of the byte-for-byte
-preservation discipline the parent initiative commits to. Every PR
-in the Rust rewrite must pass Layer 1; Layer 2 is the mechanism by
-which the contract extends to internal and external adopters.
+Every PR in the Rust rewrite must pass Layer 1; Layer 2 is the
+mechanism by which the byte-for-byte contract extends to callers
+shirabe doesn't directly control.
 
-**Why two layers instead of one fixture directory.** The original
-framing of this decision contemplated a single fixture in this repo
-covering every committed artifact across every workspace repo that
-consumes shirabe's reusable validate workflow. That framing breaks
-on the public/private visibility boundary: one of the two known
-workspace consumers of the reusable workflow is a private repo,
-and embedding its artifact corpus into this public source tree
-would leak content the public repo isn't permitted to disclose.
-The two-layer mechanism resolves the constraint and generalizes
-beyond it: any future external adopter — public or private — gets
-the same preservation contract by including `parity-check.yml`,
-without needing this repo to embed their artifacts. The
-generalization is the design's, not a workaround for the
-constraint alone.
+**Why two layers instead of one fixture directory.** A single fixture
+in this repo covering every committed artifact across every caller
+would require embedding callers' corpora into shirabe — which doesn't
+scale: the source of truth for what a caller considers their
+committed artifact set lives in that caller's repo, and content
+ownership decisions live there too. The two-layer split makes the
+preservation contract portable: any caller (an existing workspace
+caller, an external adopter, a future first-time user) gets the same
+byte-equality guarantee by including `parity-check.yml` at a pinned
+shirabe tag, without coupling shirabe's release cadence to their
+corpus changes and without shirabe needing visibility into their
+content.
 
 **Considered and rejected.**
 
@@ -409,10 +375,9 @@ constraint alone.
   fixtures).* The eval suite already exercises the CLI on per-skill JSON
   scenarios. **Rejected** because evals exercise the CLI from the
   caller-skill perspective on synthesized fixtures, not on the
-  workspace's actual document corpus. The roadmap explicitly names the
-  preservation scope as "every existing committed artifact in workspace
-  repos that consume `validate-docs.yml`"; evals do not cover that
-  corpus.
+  workspace's actual document corpus. The preservation contract
+  scope is every existing committed artifact in workspace repos that
+  consume `validate-docs.yml`; evals do not cover that corpus.
 - *Snapshot testing with `insta`.* `insta` is the Rust de-facto snapshot
   library; using it would surface diffs cleanly. **Rejected** because
   `insta` is designed for the "I changed code, accept the new snapshot"
@@ -430,13 +395,13 @@ convergence with koto?
 
 **Key assumptions.**
 - Convergence with koto's Rust substrate makes a library-crate
-  publication the eventual natural shape: koto's workflow templates
-  may want to call shirabe's validate logic without shelling out, and
-  a Rust crate boundary is the structurally cheap way to allow that.
-  The publication itself is the library-crate-publication follow-on's
-  scope, not this design's.
-- Until a downstream consumer commits to linking, the library API
-  stays "internal-shaped, public for distribution" — unstable across
+  boundary the eventual natural shape: koto's workflow templates may
+  want to call shirabe's validate logic without shelling out, and a
+  Rust crate boundary is the structurally cheap way to allow that.
+  The publication itself (a crates.io push, API stability commitment,
+  etc.) is out of scope for this PR.
+- Until a concrete caller commits to linking, the library API stays
+  "internal-shaped, public for distribution" — unstable across
   shirabe versions, locked only when the first call-site surfaces
   concrete requirements.
 - Restructuring a single binary crate into a workspace later means
@@ -468,21 +433,21 @@ shirabe/                         (workspace root)
 ```
 
 The `shirabe-validate` crate is internal-shaped (public visibility for
-distribution but no API stability guarantee across versions). Its public
-surface during this design's PR mirrors the Go `internal/validate`
-exports plus `internal/annotation`. The library-crate-publication
-follow-on will push this crate to crates.io with the same code; the
-publishing decision shifts, the layout does not.
+distribution but no API stability guarantee across versions). Its
+public surface during this PR mirrors the Go `internal/validate`
+exports plus `internal/annotation`. A future publication PR will push
+this crate to crates.io with the same code; the publishing decision
+shifts, the layout does not.
 
 **Considered and rejected.**
 
 - *Single binary crate, restructure when publication lands.* Simplest
-  now; pushes the workspace decision to the moment the library-crate-
-  publication follow-on lands. **Rejected** because that follow-on's
-  design will then need to negotiate every import path change at the
-  same time it's negotiating the library API. The parent initiative
-  stages library-as-amplifier *publishing*, not library-as-amplifier
-  *code shape*. Workspace-from-day-one separates those two questions.
+  now; pushes the workspace decision to the moment the future library
+  publication happens. **Rejected** because the publication design
+  will then need to negotiate every import path change at the same
+  time it's negotiating the library API surface. Decoupling
+  publication-as-code-shape (now) from publication-as-distribution
+  (later) keeps each decision separable.
 - *Single binary crate with `pub mod validate`.* Use Rust's module
   system in place of a separate crate; pull `validate` into a library
   crate when publication lands. **Rejected** because Cargo's
@@ -492,46 +457,41 @@ publishing decision shifts, the layout does not.
   lands at exactly the moment the publication design needs cognitive
   bandwidth for library API decisions.
 - *Three crates from day one (`shirabe-validate`, `shirabe-cli`,
-  `shirabe-bin`).* Pre-anticipate per-subcommand crates for the
-  planned follow-ons. **Rejected** because YAGNI: those follow-on
-  designs haven't picked whether they want separate crates, and the
-  three-crate split adds workspace complexity for zero current
-  benefit. Two crates is the minimum that bypasses the publication-
-  time import-path churn; more is speculation. Also, Decision 2
-  commits the clap subcommand tree to live in the binary crate;
-  the planned follow-on subcommands inherit that tree as new
-  `Commands` enum variants, not as separate crates, so a three-
-  crate split would put subcommand dispatch on the wrong side of
-  a crate boundary.
+  `shirabe-bin`).* Pre-anticipate a separate crate per future
+  subcommand. **Rejected** because YAGNI: future subcommands
+  haven't been designed yet and their crate-shape preferences are
+  unknown, and the three-crate split adds workspace complexity for
+  zero current benefit. Two crates is the minimum that bypasses the future
+  publication-time import-path churn; more is speculation. Also,
+  Decision 2 commits the clap subcommand tree to live in the binary
+  crate; any future shirabe subcommand inherits that tree as a new
+  `Commands` enum variant, not as a separate crate, so a three-crate
+  split would put subcommand dispatch on the wrong side of a crate
+  boundary.
 
-### Decision 5: Tripwire-metrics subcommand timing
+### Decision 5: `shirabe metrics` subcommand timing
 
-**Question.** Does the planned `shirabe metrics` tripwire subcommand
-ship inside this design's PR, or as a separate follow-on once this
-design's PR lands?
+**Question.** Does a `shirabe metrics` subcommand ship inside this
+PR, or as a separate PR after this rewrite lands?
 
 **Key assumptions.**
-- The parent initiative defaults to "follow-on" but allows this
-  design to confirm.
 - The metrics subcommand has no behavioral overlap with `validate`;
   its output is a small JSON or text report read by a scheduled GHA,
   not by the validate-docs reusable workflow.
-- The byte-for-byte preservation fixture (Decision 3) is the load-
-  bearing acceptance work in this PR; coupling metrics to that PR
-  would either delay it or force a partial-completion shape.
+- The byte-for-byte preservation fixture (Decision 3) is the
+  load-bearing acceptance work in this PR; coupling metrics to that
+  PR would either delay it or force a partial-completion shape.
 
-**Chosen: follow-on PR. The metrics subcommand ships as a separate
-small PR after this design's rewrite lands.**
+**Chosen: separate PR. The metrics subcommand ships after this PR
+lands.**
 
-This design's PR ships the workspace, the validate logic, the parity
-fixture, and the install/release plumbing. The metrics subcommand
-lands afterward as a tripwire-metrics-follow-on piece of work; the
-parent initiative already tracks it as a distinct feature.
+This PR ships the workspace, the validate logic, the parity fixture,
+and the install/release plumbing. The metrics subcommand lands
+afterward as its own PR.
 
-The parent initiative's roadmap defaults to this shape. The design
-confirms it because conflating metrics with the rewrite would put
-preservation-fixture review attention against a feature that has no
-validation contract to preserve.
+Conflating metrics with the rewrite would put preservation-fixture
+review attention against a feature that has no validation contract
+to preserve.
 
 **Considered and rejected.**
 
@@ -614,9 +574,8 @@ before the rewrite lands.
   preserve.
 - *Pin baseline to multiple Go versions and assert parity against
   all of them.* Maximally robust. **Rejected** as overkill —
-  v0.6.x is the current release line, and the parent initiative's framing
-  explicitly says the rewrite ships against the current contract,
-  not a historical-version sweep.
+  v0.6.x is the current release line, and the rewrite ships against
+  the current contract, not a historical-version sweep.
 
 ## Decision Outcome
 
@@ -648,18 +607,16 @@ The rewrite ships as one PR that:
 What this PR explicitly does not do:
 
 - Publish `shirabe-validate` to crates.io. The crate exists for the
-  workspace shape; publication is the library-crate-publication
-  follow-on's call.
-- Add the `transition`, `resolve-upstream`, or `metrics` subcommands.
-  Those are each their own follow-on.
+  workspace shape; a publication PR is a separate decision.
+- Add any subcommand beyond `validate`. Other subcommands ship in
+  their own PRs against the workspace this PR creates.
 - Change the GHA annotation byte format, exit codes, install path,
   release asset naming, or `--version` template. All are preserved by
   the fixture.
 
-The byte-for-byte preservation discipline the parent initiative
-commits to is operationalized as the two-layer parity mechanism
-(Decision 3). Every PR in the rewrite (this one and any follow-ups)
-runs Layer 1; merging is gated on parity.
+The byte-for-byte preservation discipline is operationalized as
+the two-layer parity mechanism (Decision 3). Every PR in this rewrite
+and any follow-up PRs runs Layer 1; merging is gated on parity.
 
 ## Solution Architecture
 
@@ -698,19 +655,18 @@ runs Layer 1; merging is gated on parity.
 
 The binary crate carries no validation logic. Every check, the
 frontmatter parser, the format registry, and the annotation emitter
-live in `shirabe-validate`. This boundary is the same one the
-library-crate-publication follow-on will publish; this design just
-doesn't push the library crate to crates.io.
+live in `shirabe-validate`. This boundary is the one a future
+crates.io publication will expose; this design doesn't push the
+library crate to crates.io.
 
 **No API stability commitment.** The `pub use` list above looks like
 a library API surface, but it isn't one yet — every export is
 internal-shaped (public for distribution but unstable across
 shirabe versions). The exports may rename, change signatures, or
-disappear in any release between now and the library-crate-
-publication follow-on without a deprecation cycle, since the only
+disappear in any release without a deprecation cycle, since the only
 caller is shirabe's own binary crate. Semantic versioning of
-`shirabe-validate` as a library is the follow-on's decision,
-shaped by whichever downstream consumer first commits to linking.
+`shirabe-validate` as a library is a future decision, shaped by
+whichever caller first commits to linking against it.
 Until then, treat these exports as if they were `pub(crate)`.
 
 **Error types.** `shirabe-validate` exports two error types:
@@ -905,9 +861,9 @@ If the backstop fires, `Cargo.toml` depends on `saphyr-parser`
 directly instead of `saphyr`. The public crate surface of
 `shirabe-validate` is unchanged either way — the saphyr ↔
 saphyr-parser swap is an implementation detail of
-`shirabe-validate::frontmatter` and doesn't leak into the public
-API the library-crate-publication follow-on will eventually
-stabilize.
+`shirabe-validate::frontmatter` and doesn't leak into whichever
+public API surface a future crates.io publication eventually
+stabilizes.
 
 ### GHA annotation byte format (preservation target)
 
@@ -1086,17 +1042,15 @@ distinct build targets during Phases 1–4; Phase 5 is the cut.
 
 ### Out of scope for this design
 
-- The library crate's API stability (library-crate-publication
-  follow-on).
-- `shirabe transition` subcommand (transition-subcommand follow-on).
-- `shirabe resolve-upstream` subcommand and the underlying cross-
-  repo resolver (cross-repo-resolver follow-on).
-- `shirabe metrics` subcommand (tripwire-metrics follow-on; see
-  Decision 5).
-- crates.io publication of `shirabe-validate` (library-crate-
-  publication follow-on + a separate API-stability decision).
-- Any v2 break to the GHA annotation format, CLI surface, or install
-  contract (the parent initiative's preservation contract forbids).
+- API-stability commitments on `shirabe-validate` (deferred until a
+  concrete consumer surfaces with call-site requirements).
+- crates.io publication of `shirabe-validate` (the workspace exists
+  for the layout shape; publication is a separate decision).
+- Any new subcommands beyond `validate` (other shirabe subcommands
+  ship in their own PRs against the workspace this design creates).
+- Any v2 break to the GHA annotation format, CLI surface, install
+  contract, or release asset names. Byte-for-byte preservation
+  forbids them.
 
 ## Security Considerations
 
@@ -1131,8 +1085,8 @@ exploited by any check in shirabe today; the validator reads scalar
 key/value pairs at the top level of the mapping and treats nested
 structures as opaque. saphyr's behavior on alias expansion is the
 parser's own concern — the validator does not introspect the expanded
-structure. (The strategy already named YAML parser choice as the
-single non-trivial portability risk; the security framing here is
+structure. (YAML parser choice is the rewrite's single non-trivial
+portability risk per Decision 1; the security framing here is
 deliberately narrow because the parser's risk profile is correctness,
 not exploitation.)
 
@@ -1229,8 +1183,8 @@ checkout.
 
 Nothing. The Rust binary processes the same inputs through the same
 checks and emits the same outputs. The security posture is
-preservation, not improvement; the parent initiative's "non-event" framing
-extends to security.
+preservation, not improvement; the rewrite is a non-event at the
+security boundary just as at the output-contract boundary.
 
 ### Why this is not N/A
 
@@ -1247,23 +1201,22 @@ arbitrary.
 
 ### Positive
 
-- **Single-language deterministic substrate.** Once this design's
-  PR lands, the validate CLI is Rust, the planned follow-on
-  subcommands land in the same crate, and the path to the library-
-  crate-publication follow-on is a Cargo manifest change rather than
-  a code reorganization.
-- **Per-field line numbers without a hand-rolled scanner.** The
-  strategy named field→line reconstruction as 80% of the risk; saphyr
-  reduces that risk to choosing the right parser, which is now
-  reduced further by saphyr being the actively-maintained successor
-  to yaml-rust2.
+- **Single-language deterministic substrate.** Once this PR lands,
+  the validate CLI is Rust, future shirabe subcommands land in the
+  same crate, and the path to library publication is a Cargo manifest
+  change rather than a code reorganization.
+- **Per-field line numbers without a hand-rolled scanner.** Field→line
+  reconstruction was the rewrite's flagged-largest portability risk;
+  saphyr reduces that to choosing the right parser, which is in turn
+  reduced by saphyr being the actively-maintained successor to
+  yaml-rust2 with native marker support.
 - **The byte-for-byte preservation contract becomes testable code.**
   The preservation discipline applied across PRs gets a concrete
   acceptance gate. Future Rust changes to shirabe cannot accidentally
   regress GHA annotation output without the parity tests catching it.
-- **The library-crate-publication follow-on doesn't pay a
-  restructuring cost.** The workspace + library crate exist already;
-  publication just decides API stability and the crates.io push.
+- **Future publication doesn't pay a restructuring cost.** The
+  workspace + library crate exist already; a later publication PR
+  just decides API stability and the crates.io push.
 
 ### Negative
 
@@ -1294,16 +1247,15 @@ arbitrary.
   cache key. Cache size is bounded by the Cargo build artifacts for
   saphyr + clap + their transitive dependencies (small).
 
-### Risks the parent initiative already named
+### Pre-identified risks
 
 - *Reconstruction breaks byte-for-byte preservation in subtle ways.*
-  The parent initiative's invalidation signal — extend the
-  preservation fixture to include real artifacts if synthesized
-  tests pass but real artifacts diverge. This design's Decision 3
-  fixture already uses both real artifacts and synthesized cases;
-  if Layer 1 passes but Layer 2 catches divergence on a real-adopter
-  corpus, the synthetic-only direction was incomplete and the
-  Layer 1 corpus extends to cover the divergence class.
+  Recovery path: extend the preservation fixture to include real
+  artifacts if synthesized tests pass but real artifacts diverge.
+  Decision 3's fixture already uses both real shirabe artifacts and
+  synthesized cases; if Layer 1 passes but Layer 2 catches divergence
+  on a caller's corpus, the synthetic-only direction was incomplete
+  and the Layer 1 corpus extends to cover the divergence class.
 - *Toolchain pinning surprises.* `rust-toolchain.toml` pins the
   channel; downstream Rust-version policy is downstream of this PR.
   Pinning to stable (not nightly) avoids the most obvious foot-gun.
