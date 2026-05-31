@@ -56,16 +56,25 @@ jobs:
           ref: ${{ job.workflow_sha }}
           path: .shirabe-src
 
-      - name: Cache Go modules
+      - name: Install Rust toolchain
+        # Reads .shirabe-src/rust-toolchain.toml and installs the pinned channel.
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Cache Cargo
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
         with:
           path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ runner.os }}-go-${{ hashFiles('.shirabe-src/go.sum') }}
+            ~/.cargo/registry
+            ~/.cargo/git
+            .shirabe-src/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('.shirabe-src/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Build shirabe
-        run: cd .shirabe-src && go build -o /usr/local/bin/shirabe ./cmd/shirabe
+        run: |
+          cargo build --release --bin shirabe --manifest-path .shirabe-src/Cargo.toml
+          install -m 0755 .shirabe-src/target/release/shirabe /usr/local/bin/shirabe
 
       - name: Validate changed docs
         env:
@@ -73,7 +82,7 @@ jobs:
         run: |
           FILES=$(git diff --name-only --diff-filter=ACMR \
             ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} \
-            | grep -vE '(^|/)evals/fixtures/' || true)
+            | grep -vE '(^|/)(evals|tests)/fixtures/' || true)
 
           if [ -z "$FILES" ]; then
             echo "::notice::No doc files changed in this PR"

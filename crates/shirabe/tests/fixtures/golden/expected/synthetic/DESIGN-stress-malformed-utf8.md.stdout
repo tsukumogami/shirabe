@@ -1,0 +1,1 @@
+::error file=synthetic/DESIGN-stress-malformed-utf8.md,line=1::could not read file: parse frontmatter in synthetic/DESIGN-stress-malformed-utf8.md: yaml: invalid leading UTF-8 octet

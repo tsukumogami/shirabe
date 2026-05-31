@@ -9,15 +9,17 @@ on:
   pull_request:
     paths:
       - '.tsuku-recipes/**'
-      - 'cmd/shirabe/**'
-      - '.goreleaser.yaml'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - '.github/workflows/validate-tsuku-recipe.yml'
   push:
     branches: [main]
     paths:
       - '.tsuku-recipes/**'
-      - 'cmd/shirabe/**'
-      - '.goreleaser.yaml'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
 
 jobs:
   validate:
@@ -26,6 +28,10 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install Rust toolchain
+        # Reads rust-toolchain.toml at the repo root and installs the pinned channel.
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
 
       - name: Install tsuku
         run: |
@@ -36,8 +42,13 @@ jobs:
         run: tsuku validate --strict .tsuku-recipes/shirabe.toml
 
       - name: Build shirabe with injected version
+        env:
+          # build.rs reads SHIRABE_VERSION and embeds it for --version (mirrors
+          # the former Go `-ldflags "-X main.version=..."`).
+          SHIRABE_VERSION: 0.0.0-ci-test
         run: |
-          go build -ldflags "-X main.version=0.0.0-ci-test" -o /tmp/shirabe ./cmd/shirabe
+          cargo build --release --bin shirabe
+          install -m 0755 target/release/shirabe /tmp/shirabe
           /tmp/shirabe --version
 
       - name: Verify --version output matches recipe pattern

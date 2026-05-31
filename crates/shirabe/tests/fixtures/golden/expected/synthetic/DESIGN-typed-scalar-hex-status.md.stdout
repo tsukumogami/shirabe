@@ -1,0 +1,1 @@
+::error file=synthetic/DESIGN-typed-scalar-hex-status.md,line=6::[FC02] status "0x1F" is not valid for Design docs. Valid values: Proposed, Accepted, Planned, Current, Superseded

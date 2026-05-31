@@ -1,0 +1,1 @@
+::error file=synthetic/PLAN-fc05-legacy-table.md,line=23::[FC05] legacy plan table shape "Issue | Title | Dependencies | Complexity" found; migrate by folding the Title cell into the issue link text: "[#N: <title>](url) | <deps> | <complexity>"

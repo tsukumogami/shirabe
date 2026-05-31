@@ -2,6 +2,22 @@
 
 use std::collections::HashMap;
 
+/// Optional overrides for the validation run.
+///
+/// Shared by `checks.rs` (the individual checks) and `validate.rs` (the
+/// `validate_file` driver). The crate root re-exports this as
+/// `validate::Config` to match the design's public surface.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Config {
+    /// Format schema version -> replacement status enum. When present for
+    /// a schema version, the custom list replaces (does not extend) the
+    /// format's canonical valid statuses.
+    pub custom_statuses: HashMap<String, Vec<String>>,
+    /// `"public"` | `"private"` | `""`. Visibility-gated checks (R7/R8)
+    /// are bypassed only when this is exactly `"private"`.
+    pub visibility: String,
+}
+
 /// Intermediate representation of a parsed shirabe doc file.
 #[derive(Debug, Clone)]
 pub struct Doc {
@@ -35,7 +51,8 @@ pub struct Section {
 pub struct ValidationError {
     pub file: String,
     pub line: usize,
-    /// One of "FC01", "FC02", "FC03", "FC04", "R6", "R7", "SCHEMA".
+    /// One of "FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "R6", "R7",
+    /// "R8", "SCHEMA".
     pub code: String,
     pub message: String,
 }

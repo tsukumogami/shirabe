@@ -13,22 +13,36 @@ upstream: docs/designs/DESIGN-shirabe-cli-rust-rewrite.md
 
 Active
 
+Implemented, in combined PR [#139](https://github.com/tsukumogami/shirabe/pull/139), ready for review.
+
+The rewrite is built. O1 (#129/#135) and O2 (#130/#136) merged separately
+upstream; O3, O4, and O5 are implemented in the one combined replacement PR
+#139, which is now out of draft and ready for review. The cut has landed in
+that PR — the Go source tree (`cmd/`, `internal/`, `go.mod`, `go.sum`) is
+deleted, the Rust binary is renamed from `shirabe-rs` to `shirabe`, and the CI
+build/release/validate workflows are swapped to Cargo. Issues #131 (O3), #132
+(O4), and #133 (O5) close together when #139 merges.
+
 This plan decomposes the rewrite into five outline-shaped work units corresponding
 to the five sequencing phases in the upstream design's Implementation Approach.
-All five outlines ship in **one cohesive replacement PR** per the design's commitment
-("There is no cargo feature flag. The two languages coexist as distinct build
-targets during outlines 1–4; outline 5 is the cut.").
+The build-up outlines O1 (Cargo workspace) and O2 (frontmatter parser + types)
+merged on their own as the Rust binary grew alongside the Go one with no
+integration risk. O3–O5 ship together in **one cohesive replacement PR** per
+the design's commitment ("There is no cargo feature flag. The two languages
+coexist as distinct build targets during outlines 1–4; outline 5 is the cut."):
+O5 is the non-revertible cut, so it cannot land separately from the checks (O3)
+and CLI (O4) it deletes the Go equivalents of.
 
-Multi-pr mode here means issue-tracked, not separately-merged: each outline is
-filed as a GitHub issue under milestone "Shirabe CLI Rust Rewrite" (#7) for
-sub-task tracking, but all five close together when the one cohesive
-replacement PR merges. The issues exist so progress is visible and reviewable
-at the outline granularity, not to force five separate merges.
+Multi-pr mode here means issue-tracked, not forced into five separate merges:
+each outline is filed as a GitHub issue under milestone "Shirabe CLI Rust
+Rewrite" (#7) for sub-task tracking. The issues exist so progress is visible
+and reviewable at the outline granularity.
 
 ## Scope Summary
 
 Translate shirabe's `validate` CLI and the underlying validation engine from
-~1,417 LOC of Go (`cmd/shirabe/` + `internal/validate/` + `internal/annotation/`)
+~1,350 LOC of Go (`cmd/shirabe/` + `internal/validate/` + `internal/annotation/`,
+including the `table.go` issues-table engine added by PR #134)
 to Rust as a Cargo workspace (`crates/shirabe-validate` library + `crates/shirabe`
 binary), preserving the public output contract byte-for-byte, and atomically
 deleting the Go source tree when the rewrite reaches parity.
@@ -95,32 +109,55 @@ plus the Doc/FormatSpec type system.
 
 **Dependencies:** Outline 1.
 
-### Outline 3 — Validation checks and annotation emitter
+### Outline 3 — Validation checks, issues-table engine, and annotation emitter
 
 **Complexity:** critical
-**Goal:** port the seven validation rules and the byte-precise GHA annotation
-emitter — the core public contract of `shirabe validate`.
+**Goal:** port the ten validation rules, the issues-table parser engine, and
+the byte-precise GHA annotation emitter — the core public contract of
+`shirabe validate`. This outline grew when the parity baseline moved off
+`v0.6.1` to the current `main` tree (DESIGN Decision 7): PR #134 added the
+FC05/FC06 issues-table checks and the `table.go` engine after the last tag,
+and the Strategy/Brief formats and R8 also landed post-tag, so the port must
+cover them or the Outline 5 Go-tree deletion would silently drop that surface.
 
 **Work:**
-- Port `internal/validate/checks.go` (SCHEMA, FC01–FC04, R6, R7) to
-  `crates/shirabe-validate/src/checks.rs`. Each check follows the
+- Port `internal/validate/checks.go` (SCHEMA, FC01–FC04, FC05, FC06, R6, R7,
+  R8) to `crates/shirabe-validate/src/checks.rs`. Each check follows the
   `fn check_<name>(&Doc, &FormatSpec, &Config) -> Vec<ValidationError>` signature
-  documented in §Solution Architecture.
+  documented in §Solution Architecture. FC05/FC06 are the issues-table checks
+  (header-profile conformance with a legacy-plan-table migration hint, row
+  shape, and document-local dependency existence); R8 (`check_strategy_public`)
+  mirrors R7 for STRATEGY docs.
+- Port `internal/validate/table.go` (the issues-table parser and row
+  classifier — `RowKind`, `Row`, `Table`, `parse_issues_table`, and the GFM
+  pipe-table helpers) to `crates/shirabe-validate/src/table.rs`. The parser is
+  total over arbitrary line input (never panics on ragged rows, unterminated
+  sections, or missing separators).
+- Add the `issues_table_columns` field to the Rust `FormatSpec` and populate it
+  in the formats map for `roadmap/v1` (`Feature | Issues | Dependencies |
+  Status`) and `plan/v1` (`Issue | Dependencies | Complexity`) — the only two
+  formats with an issues table; empty for the rest. (The `FormatSpec` type and
+  formats map were ported in Outline 2; this outline extends them.)
 - Port `internal/validate/validate.go` (the `validate_file` entry point and
-  the format-dispatch switch) to `crates/shirabe-validate/src/validate.rs`.
+  the format-dispatch switch, including the Plan/Roadmap dispatch to FC05/FC06
+  and the Strategy dispatch to R8) to `crates/shirabe-validate/src/validate.rs`.
 - Port `internal/annotation/annotation.go` (`format_error`, `format_notice`,
   the GHA byte format) to `crates/shirabe-validate/src/annotation.rs`.
 - Implement R6 (`check_plan_upstream`) using `std::process::Command::new("git")`
   with `ls-files --error-unmatch --` — same semantic as the Go `exec.Command`.
 - Implement the hand-written `impl std::error::Error` per Decision 4's rationale
   (avoid thiserror leaking through the future-published crate boundary).
-- Port every Go test in `checks_test.go` to passing Rust equivalents.
+- Port every Go test in `checks_test.go` and `table_test.go` to passing Rust
+  equivalents.
 
 **Acceptance criteria:**
-- [ ] Every Go `checks_test.go` case has a passing Rust equivalent.
+- [ ] Every Go `checks_test.go` and `table_test.go` case has a passing Rust
+  equivalent.
 - [ ] Annotation output matches Go output byte-for-byte for the unit-test corpus.
 - [ ] Each check function's signature matches the §Solution Architecture
   documented convention.
+- [ ] `issues_table_columns` is populated for `roadmap/v1` and `plan/v1` and
+  empty for every other format, matching the Go `IssuesTableColumns` profiles.
 
 **Dependencies:** Outline 2.
 
@@ -139,8 +176,9 @@ preserves the public CLI contract byte-for-byte.
   `main.go`).
 - Implement the exit-code contract: 1 on any error annotation; 0 otherwise;
   skip-on-unrecognized-format matches Go's `continue` behavior.
-- Add a `build.rs` runtime verification check (per Decision 6) that the
-  toolchain matches `rust-toolchain.toml`.
+- Add the `build.rs` runtime toolchain check (per Decision 6),
+  implemented warn-only: a `cargo:warning` when the active `rustc`
+  differs from the `rust-toolchain.toml` pin, non-aborting.
 - The binary still builds as `target/release/shirabe-rs` until Outline 5.
 
 **Acceptance criteria:**
@@ -163,18 +201,24 @@ source tree.
 - Curate `tests/fixtures/golden/corpus/`: include shirabe's own committed
   artifacts under `docs/` (DESIGN-, PRD-, etc.); build `synthetic/` with edge
   cases enumerated in Decision 3 (sanitize coverage, FC01–FC04 failure paths,
-  R6 and R7 paths, parser stress-test inputs, multi-line scalars,
-  missing-frontmatter, unrecognized format, mismatched body status).
+  FC05/FC06 issues-table paths for the Roadmap and Plan profiles plus the
+  legacy plan-table migration hint, R6, R7, and R8 paths, parser stress-test
+  inputs, multi-line scalars, missing-frontmatter, unrecognized format,
+  mismatched body status).
 - Commit `tests/fixtures/capture_go_baseline.sh` (the reproducibility script).
-- Run the capture script against `shirabe-go-v0.6.1` (Decision 7's immutable
-  baseline) to populate `tests/fixtures/golden/expected/`. Commit `corpus/`
-  and `expected/` to the repo.
+- Run the capture script against the Go binary built locally from Decision 7's
+  pinned commit (the rewrite branch's merge-base with `main`, currently
+  `20fb8ed`) — not a downloaded tag — to populate
+  `tests/fixtures/golden/expected/`. Commit `corpus/` and `expected/` to the
+  repo.
 - Implement `tests/parity_test.rs` asserting byte equality on stdout/stderr/
   exit-code per file.
 - Add `.github/workflows/parity-check.yml` as a reusable workflow
-  (`on: workflow_call:`) with inputs for `go-baseline-version` and
-  `corpus-glob`, downloading matching Go and Rust binaries from shirabe's
-  GitHub releases and asserting byte equality on caller corpora.
+  (`on: workflow_call:`) with inputs for `go-baseline-ref` and
+  `corpus-glob`. The workflow builds the Go baseline from `go-baseline-ref`
+  (checkout + `go build`, defaulting to the pinned commit `20fb8ed`) rather
+  than downloading a release, downloads the Rust release binary, and asserts
+  byte equality on caller corpora.
 - Document the workflow's inputs table and failure modes per
   maintainer-reviewer's polish finding.
 - Update `.github/workflows/release-binaries.yml` to use Cargo. Verify
@@ -206,14 +250,19 @@ source tree.
 
 ### Milestone: [Shirabe CLI Rust Rewrite](https://github.com/tsukumogami/shirabe/milestone/7)
 
+**Tracking:** #129 (O1) and #130 (O2) merged via PRs #135 and #136. #131 (O3),
+#132 (O4), and #133 (O5) are implemented together in the combined replacement
+PR [#139](https://github.com/tsukumogami/shirabe/pull/139) and close on its
+merge — realizing the issue-tracked, not-separately-merged framing above.
+
 | Issue | Dependencies | Complexity |
 |-------|--------------|------------|
 | [#129: [O1] Cargo workspace skeleton](https://github.com/tsukumogami/shirabe/issues/129) | None | simple |
 | _Establish the Rust build surface (Cargo workspace with `shirabe-validate` library + `shirabe` binary crates, `rust-toolchain.toml`, CI step) alongside the existing Go build._ | | |
 | [#130: [O2] Frontmatter parser and Doc/FormatSpec types](https://github.com/tsukumogami/shirabe/issues/130) | [#129](https://github.com/tsukumogami/shirabe/issues/129) | testable |
 | _Port the YAML frontmatter parser with per-key line-number support via `saphyr`'s `MarkedYamlOwned`, plus the Doc/FormatSpec types and format-detection logic._ | | |
-| [#131: [O3] Validation checks and annotation emitter](https://github.com/tsukumogami/shirabe/issues/131) | [#130](https://github.com/tsukumogami/shirabe/issues/130) | critical |
-| _Port the seven validation rules (SCHEMA, FC01–FC04, R6, R7) and the byte-precise GHA annotation emitter — the core public contract of `shirabe validate`._ | | |
+| [#131: [O3] Validation checks, issues-table engine, and annotation emitter](https://github.com/tsukumogami/shirabe/issues/131) | [#130](https://github.com/tsukumogami/shirabe/issues/130) | critical |
+| _Port the ten validation rules (SCHEMA, FC01–FC06, R6, R7, R8), the `table.go` issues-table parser engine, and the byte-precise GHA annotation emitter; add `issues_table_columns` to the Rust FormatSpec and formats map for roadmap/v1 and plan/v1. The core public contract of `shirabe validate`._ | | |
 | [#132: [O4] Binary crate and CLI surface](https://github.com/tsukumogami/shirabe/issues/132) | [#131](https://github.com/tsukumogami/shirabe/issues/131) | testable |
 | _Wire the clap CLI binary, `--version` template, `--custom-statuses` 64 KiB cap, and the exit-code contract. Builds as `shirabe-rs` until O5._ | | |
 | [#133: [O5] Golden-output fixture, reusable parity workflow, and release pipeline cut](https://github.com/tsukumogami/shirabe/issues/133) | [#132](https://github.com/tsukumogami/shirabe/issues/132) | critical |
@@ -225,7 +274,7 @@ source tree.
 graph TD
     O1["Outline 1: Cargo workspace skeleton"]
     O2["Outline 2: Frontmatter parser + types"]
-    O3["Outline 3: Checks + annotation emitter"]
+    O3["Outline 3: Checks + table engine + annotation emitter"]
     O4["Outline 4: clap CLI binary"]
     O5["Outline 5: Parity fixture + release cut"]
 
@@ -256,12 +305,14 @@ consumes.
 |---------|---------|-----------------|
 | O1 | Workspace scaffold | <1 day |
 | O2 | Frontmatter + types (~290 LOC + tests, saphyr risk distributed) | 1–2 days |
-| O3 | 7 checks + annotation emitter (~570 LOC + tests) | 2–3 days |
+| O3 | 10 checks + issues-table engine + annotation emitter (~1,100 LOC + tests; roughly doubled by the #134 issues-table surface) | 4–6 days |
 | O4 | clap CLI + main glue (~150 LOC + tests) | 1 day |
 | O5 | Fixture curation + parity workflow + release cut | 2–3 days |
 
-**Total:** roughly one engineer-week of focused work, consistent with the
-upstream design's effort framing.
+**Total:** roughly 1.5 engineer-weeks of focused work. The upstream design's
+"~1 engineer-week" framing predates PR #134; porting the issues-table engine
+and the FC05/FC06 checks adds roughly half a week to O3 (see DESIGN Decision 7
+for why the baseline moved off `v0.6.1`).
 
 **Parallelization opportunities:** none within the plan — the chain is
 strictly linear. Cross-cutting concerns the implementer can work on in
@@ -276,7 +327,7 @@ parallel with any outline:
 ```
 1. feat(rust): bootstrap Cargo workspace with shirabe-validate + shirabe crates
 2. feat(rust): port frontmatter parser and Doc/FormatSpec types
-3. feat(rust): port validation checks and annotation emitter
+3. feat(rust): port validation checks, issues-table engine, and annotation emitter
 4. feat(rust): wire clap CLI binary with --version and --custom-statuses
 5. test(rust): commit golden corpus + capture baseline + parity_test
 6. ci: add reusable parity-check.yml workflow

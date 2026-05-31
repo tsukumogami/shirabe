@@ -7,6 +7,20 @@
 //! (e.g. koto's Rust substrate) commits to linking; see DESIGN
 //! Decision 4 for the rationale.
 
+pub mod annotation;
+pub mod checks;
 pub mod doc;
 pub mod formats;
 pub mod frontmatter;
+pub mod table;
+pub mod validate;
+
+// Crate root re-exports. This list mirrors the design's intended public
+// surface (DESIGN §"crates/shirabe-validate (library)"). Every export is
+// internal-shaped and unstable; see the crate-level doc comment above.
+pub use annotation::{format_error, format_notice};
+pub use doc::{Config, Doc, FieldValue, Section, ValidationError};
+pub use formats::{detect_format, formats, FormatSpec};
+pub use frontmatter::{parse_doc, ParseError};
+pub use table::{parse_issues_table, Row, RowKind, Table};
+pub use validate::{is_notice, validate_file};
