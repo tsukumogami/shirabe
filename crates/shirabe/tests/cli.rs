@@ -28,6 +28,40 @@ fn version_prints_shirabe_space_version_newline() {
 }
 
 #[test]
+fn lowercase_v_prints_version() {
+    // cobra binds `-v` (lowercase) to version; clap's default is `-V`. We
+    // bind both, so `-v` must print the same `shirabe <version>` line and
+    // exit 0, matching the Go binary's `shirabe -v`.
+    let expected = format!("shirabe {}\n", env!("CARGO_PKG_VERSION"));
+    shirabe().arg("-v").assert().success().stdout(expected);
+}
+
+#[test]
+fn uppercase_v_prints_version() {
+    // `-V` (clap's conventional version short) also prints version. NOTE:
+    // Go cobra rejects `-V` (it only binds `-v`); accepting `-V` here is a
+    // deliberate, documented deviation -- the version output stream/exit is
+    // the contract that matters, and keeping clap's `-V` avoids surprising
+    // Rust-tooling users.
+    let expected = format!("shirabe {}\n", env!("CARGO_PKG_VERSION"));
+    shirabe().arg("-V").assert().success().stdout(expected);
+}
+
+#[test]
+fn bare_invocation_prints_help_to_stdout_and_exits_zero() {
+    // cobra's bare `shirabe` (no subcommand) prints help to STDOUT and
+    // exits 0. clap would default to a usage error on stderr with exit 2;
+    // we override that. The help TEXT differs between frameworks, so assert
+    // only the contract that matters: exit 0, output on stdout (non-empty),
+    // and nothing on stderr.
+    shirabe()
+        .assert()
+        .success()
+        .stdout(contains("Workflow skills for AI coding agents"))
+        .stderr("");
+}
+
+#[test]
 fn custom_statuses_over_cap_is_rejected() {
     // A value larger than 64 KiB must be rejected with the Go-matching
     // message and a non-zero exit, before any file is read.

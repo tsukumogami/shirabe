@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
     detect_format, format_error, format_notice, is_notice, parse_doc, validate_file, Config,
@@ -25,15 +25,39 @@ const MAX_CUSTOM_STATUSES_BYTES: usize = 64 * 1024;
 /// `shirabe <version>` even while the binary target is named `shirabe-rs`
 /// during the Go/Rust coexistence window, matching the Go version template
 /// `"shirabe {{.Version}}\n"` byte-for-byte.
+///
+// `name = "shirabe"` keeps `--version` printing `shirabe <version>` while
+// the binary target is named `shirabe-rs` during the Go/Rust coexistence
+// window, matching the Go version template `"shirabe {{.Version}}\n"`.
+//
+// A bare `shirabe` (no subcommand) prints the long help to STDOUT and exits
+// 0, matching cobra's bare-command behavior rather than clap's default
+// usage-error-to-stderr / exit 2. This is handled in `main` by detecting
+// the `None` subcommand (the subcommand is optional) and printing help
+// explicitly — `arg_required_else_help` is intentionally left off because
+// it exits with an error code. A plain `//` block (not `///`) keeps this
+// rationale out of the generated `--help` text.
 #[derive(Parser)]
 #[command(
     name = "shirabe",
     about = "Workflow skills for AI coding agents",
-    version = env!("SHIRABE_VERSION")
+    version = env!("SHIRABE_VERSION"),
+    disable_version_flag = true
 )]
 struct Cli {
+    /// Print version (`shirabe <version>`) and exit. Bound to both `-v`
+    /// (matching cobra's lowercase version short) and `-V` (clap's
+    /// conventional version short) so either form works.
+    #[arg(
+        short = 'v',
+        short_alias = 'V',
+        long = "version",
+        action = clap::ArgAction::Version
+    )]
+    version: (),
+
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -60,7 +84,18 @@ struct ValidateArgs {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Validate(args) => run_validate(&args),
+        Some(Commands::Validate(args)) => run_validate(&args),
+        // Bare invocation: print the long help to stdout and exit 0,
+        // matching cobra's behavior for a command with no `Run`. clap would
+        // otherwise leave `command` as `None` and exit 0 silently.
+        None => {
+            let mut cmd = Cli::command();
+            // Ignore a write failure (e.g. closed stdout) -- the exit code
+            // is the contract, and cobra likewise doesn't fail on it.
+            let _ = cmd.print_long_help();
+            println!();
+            ExitCode::SUCCESS
+        }
     }
 }
 
