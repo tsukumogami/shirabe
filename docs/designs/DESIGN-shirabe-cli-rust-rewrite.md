@@ -623,6 +623,20 @@ the release workflow needs. CI installs the same toolchain via
   reproducibility reason plus the additional churn of nightly's
   faster cadence and occasional breakage.
 
+**Deviation: no `build.rs` runtime toolchain check.** This design
+(and the PLAN's O4 outline) originally prescribed a `build.rs`
+runtime check that the active toolchain matches `rust-toolchain.toml`.
+That check was implemented and then removed; `build.rs` now does
+version injection only. The `rust-toolchain.toml` pin
+(`channel = "1.95.0"`, components `rustfmt` + `clippy`) is the actual
+enforcement — `rustup` honors it automatically and CI installs via
+`dtolnay/rust-toolchain` reading that file — so a runtime
+`rustc`-equality check duplicated the pin and added contributor
+friction (a deliberate local override would hard-warn on every
+build). It was dropped as redundant, not load-bearing: the
+Decision 2 version-injection mechanism is intact, and no CI step or
+tsuku recipe depends on the removed check.
+
 ### Decision 7: Captured Go baseline version pinning
 
 **Question.** Which Go commit is captured as the parity fixture's
