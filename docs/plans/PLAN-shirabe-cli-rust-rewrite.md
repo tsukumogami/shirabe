@@ -15,15 +15,18 @@ Active
 
 This plan decomposes the rewrite into five outline-shaped work units corresponding
 to the five sequencing phases in the upstream design's Implementation Approach.
-All five outlines ship in **one cohesive replacement PR** per the design's commitment
-("There is no cargo feature flag. The two languages coexist as distinct build
-targets during outlines 1–4; outline 5 is the cut.").
+The build-up outlines O1 (Cargo workspace) and O2 (frontmatter parser + types)
+merged on their own as the Rust binary grew alongside the Go one with no
+integration risk. O3–O5 ship together in **one cohesive replacement PR** per
+the design's commitment ("There is no cargo feature flag. The two languages
+coexist as distinct build targets during outlines 1–4; outline 5 is the cut."):
+O5 is the non-revertible cut, so it cannot land separately from the checks (O3)
+and CLI (O4) it deletes the Go equivalents of.
 
-Multi-pr mode here means issue-tracked, not separately-merged: each outline is
-filed as a GitHub issue under milestone "Shirabe CLI Rust Rewrite" (#7) for
-sub-task tracking, but all five close together when the one cohesive
-replacement PR merges. The issues exist so progress is visible and reviewable
-at the outline granularity, not to force five separate merges.
+Multi-pr mode here means issue-tracked, not forced into five separate merges:
+each outline is filed as a GitHub issue under milestone "Shirabe CLI Rust
+Rewrite" (#7) for sub-task tracking. The issues exist so progress is visible
+and reviewable at the outline granularity.
 
 ## Scope Summary
 
