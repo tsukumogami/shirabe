@@ -635,10 +635,11 @@ automatically and CI installs the pinned toolchain via
 `dtolnay/rust-toolchain` reading that file. The check exists to
 surface drift (a deliberately overridden local toolchain) before it
 could shift a `Debug`/`format!` byte the parity fixture depends on,
-not to gate the build — softening any hard-fail reading to warn-only
-keeps that drift signal without adding contributor friction. So the
-prescribed check is present, in its warn-only variant, beyond the
-strict pin.
+not to gate the build — warn-only keeps that drift signal without
+adding contributor friction, and Decision 6 never mandated
+abort-on-mismatch, so the warn-only behavior is within the design.
+The prescribed check is present; this is an implementation detail of
+how it reports, not a deviation from Decision 6.
 
 ### Decision 7: Captured Go baseline version pinning
 
