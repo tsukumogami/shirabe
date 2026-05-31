@@ -73,7 +73,7 @@ jobs:
         run: |
           FILES=$(git diff --name-only --diff-filter=ACMR \
             ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} \
-            | grep -vE '(^|/)evals/fixtures/' || true)
+            | grep -vE '(^|/)(evals|tests)/fixtures/' || true)
 
           if [ -z "$FILES" ]; then
             echo "::notice::No doc files changed in this PR"
