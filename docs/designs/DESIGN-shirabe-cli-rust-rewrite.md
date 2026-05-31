@@ -2,7 +2,7 @@
 status: Planned
 problem: |
   shirabe's deterministic surface (`shirabe validate` CLI, the line-number-aware
-  YAML frontmatter parser, the seven validation rules, the GHA annotation
+  YAML frontmatter parser, the ten validation rules, the GHA annotation
   emitter) is implemented in Go. Aligning this surface with koto's Rust
   substrate keeps cross-component composition structurally cheap and removes
   the Go/Rust seam that currently sits between shirabe and the rest of the
@@ -10,7 +10,7 @@ problem: |
   `internal/validate/` from Go to Rust while preserving the public contract
   byte-for-byte.
 decision: |
-  Translate the 1,417 LOC of Go (cmd/shirabe + internal/validate +
+  Translate the ~1,350 LOC of Go (cmd/shirabe + internal/validate +
   internal/annotation) to Rust as a Cargo workspace with two crates from day
   one (a `shirabe-validate` library crate carrying the validate logic and a
   thin `shirabe` binary crate carrying the clap CLI), using saphyr for
@@ -46,10 +46,16 @@ Planned
 shirabe's deterministic surface is a small Go CLI (`shirabe`) with one
 subcommand today (`validate`), backed by:
 
-- 1,417 LOC of Go across `cmd/shirabe/main.go` (104 LOC), `internal/validate/`
-  (557 LOC across `validate.go`, `checks.go`, `formats.go`, `frontmatter.go`,
-  `doc.go`), `internal/annotation/annotation.go` (35 LOC), and Go-side tests
-  (690 LOC across `checks_test.go` and `frontmatter_test.go`).
+- About 1,350 LOC of Go across `cmd/shirabe/main.go` (104 LOC),
+  `internal/validate/` (~1,213 LOC across `validate.go`, `checks.go`,
+  `formats.go`, `frontmatter.go`, `doc.go`, and `table.go` — the
+  issues-table engine), `internal/annotation/annotation.go` (35 LOC),
+  and Go-side tests (~1,480 LOC across `checks_test.go`,
+  `frontmatter_test.go`, and `table_test.go`). The validate package
+  grew past the last tagged release: PR #134 added `table.go`,
+  `table_test.go`, and the issues-table checks (see below), so the
+  surface the rewrite ports is the current `main` tree, not `v0.6.1`
+  (Decision 7).
 - Two external dependencies: `github.com/spf13/cobra` (CLI framework) and
   `gopkg.in/yaml.v3` (frontmatter parsing).
 - One callable contract: GitHub Actions annotation lines on stdout
@@ -57,24 +63,30 @@ subcommand today (`validate`), backed by:
   `::notice file=<path>::message`), exit code 1 if any error annotation was
   emitted, zero otherwise.
 
-The validation logic encodes five doc formats (Design, PRD, VISION, Roadmap,
-Plan) and seven check rules (SCHEMA gate, FC01–FC04 frontmatter checks, R6
-Plan upstream check, R7 VISION public-visibility check). Two rules —
-**FC02** (`status` enum) and **R6** (Plan upstream existence + git
-tracking) — require **per-key line numbers from the YAML frontmatter**
-so the rendered GHA annotation points at the offending field rather
-than the top of the file. The Go implementation gets these from
-`yaml.v3`'s `yaml.Node.Line` field, which is populated during decoding.
+The validation logic encodes seven doc formats (Design, PRD, VISION,
+Roadmap, Plan, Strategy, Brief) and ten check rules: the SCHEMA gate,
+FC01–FC04 frontmatter checks, FC05/FC06 issues-table checks (header
+profile and document-local dependency existence, run for Roadmap and
+Plan), R6 (Plan upstream existence + git tracking), R7 (VISION
+public-visibility), and R8 (STRATEGY public-visibility). Only two
+rules — **FC02** (`status` enum) and **R6** (Plan upstream existence +
+git tracking) — require **per-key line numbers from the YAML
+frontmatter** so the rendered GHA annotation points at the offending
+field rather than the top of the file. The Go implementation gets
+these from `yaml.v3`'s `yaml.Node.Line` field, which is populated
+during decoding.
 
-The remaining five rules don't consume YAML per-key positions: SCHEMA,
+The other eight rules don't consume YAML per-key positions: SCHEMA,
 FC01, and FC04 hardcode `line=1`; FC03 (frontmatter `status` ↔ `##
-Status` body match) and R7 (prohibited sections in public VISION
-docs) read the `## Status` heading's line from a separate Markdown
-body scan (`scanBody` in `internal/validate/frontmatter.go`), not
-from YAML node positions. This narrows the parser's per-key line-
-number contract to two scalar field lookups (`status` and
-`upstream`); everything else is independent of the YAML parser's
-position-tracking surface.
+Status` body match), R7, and R8 (prohibited sections in public VISION
+and STRATEGY docs) read section lines from a separate Markdown body
+scan (`scanBody` in `internal/validate/frontmatter.go`); FC05 and FC06
+report the issues-table header line or a row line, both computed by the
+table parser's own line tracking (`internal/validate/table.go`), not
+from YAML node positions. This narrows the parser's per-key line-number
+contract to two scalar field lookups (`status` and `upstream`);
+everything else is independent of the YAML parser's position-tracking
+surface.
 
 Aligning shirabe's deterministic surface with koto's Rust substrate
 keeps cross-component composition structurally cheap and removes the
@@ -126,10 +138,11 @@ inside this PR — is resolved in **Decision 5** below.
   every import path at that moment is a cost worth avoiding now for
   the price of one Cargo.toml split.
 - **Test-suite parity, not test-suite migration.** The existing Go test
-  suite (`checks_test.go`, `frontmatter_test.go`, ~690 LOC) covers all
-  seven rules and the schema gate. The Rust implementation must hit
-  the same logical assertions; whether it ports test-by-test or
-  restructures is a tactical call inside the implementation.
+  suite (`checks_test.go`, `frontmatter_test.go`, `table_test.go`,
+  ~1,480 LOC) covers the nine error rules, the schema gate, and the
+  issues-table engine. The Rust implementation must hit the same
+  logical assertions; whether it ports test-by-test or restructures is
+  a tactical call inside the implementation.
 - **Eval suite passes unchanged.** `scripts/run-evals.sh` and per-skill
   JSON fixtures stay in their current substrate. The Rust binary must
   satisfy the existing evals as a baseline acceptance criterion.
@@ -262,12 +275,13 @@ in the workspace?
   shirabe cannot embed their corpora directly (the source-of-truth
   for what's "their committed artifact set" lives in their repo).
 - The shirabe-side fixture must exercise the full validation surface
-  (all five formats, all seven rules, edge cases on each) so external
-  adopters see a representative preservation contract on the
-  shirabe-side test surface.
-- A captured Go binary at a frozen version (`v0.6.1`, the most recent
-  tagged release) is the immutable reference; once captured, the
-  fixture asserts against it rather than rebuilding Go each run.
+  (all seven formats, all ten rules including the issues-table checks,
+  edge cases on each) so external adopters see a representative
+  preservation contract on the shirabe-side test surface.
+- A captured Go binary at a frozen commit (the rewrite branch's
+  merge-base with `main`; see Decision 7) is the immutable reference;
+  once captured, the fixture asserts against it rather than rebuilding
+  Go each run.
 
 **Chosen: two-layer fixture mechanism — a public-corpus parity fixture
 committed to the shirabe repo, plus a reusable `parity-check.yml`
@@ -291,8 +305,13 @@ Layer 1 — public-corpus fixture in the shirabe repo at
    cover multi-line block scalars, `\n`-bearing field values for
    sanitize-path coverage, unrecognized formats, missing
    frontmatter, mismatched `## Status` body, each of FC01/FC04
-   failure paths, R7 success and failure paths, and a small
-   set of **parser stress-test inputs** that exercise the
+   failure paths, R7 and R8 success and failure paths (public
+   VISION and STRATEGY docs with and without prohibited sections),
+   FC05 paths (a wrong issues-table header for both the Roadmap and
+   Plan profiles, the legacy four-column plan-table migration hint,
+   and a missing-description-row shape) and FC06 paths (an entity
+   row whose Dependencies value names no row in the same table), and
+   a small set of **parser stress-test inputs** that exercise the
    panic surface (malformed UTF-8 in YAML, deeply nested
    mapping structure, anchor-cycle YAML). The stress-test set
    makes the "Rust panics go to stderr; parity catches
@@ -300,8 +319,9 @@ Layer 1 — public-corpus fixture in the shirabe repo at
    without these inputs, the panic-surface mitigation is
    unfalsified by Layer 1.
 2. `expected/` — for each corpus file, the captured stdout, stderr,
-   and exit code produced by `shirabe-go-v0.6.1 validate <path>`.
-   The capture is regenerated by `tests/fixtures/capture_go_baseline.sh`
+   and exit code produced by the baseline Go binary built from the
+   pinned commit (Decision 7) running `validate <path>`. The capture
+   is regenerated by `tests/fixtures/capture_go_baseline.sh`
    (committed alongside) so the baseline is reproducible.
 3. `parity_test.rs` — a `#[test]` per corpus file that runs the Rust
    binary, captures its three outputs, and asserts equality. Any
@@ -326,7 +346,7 @@ Workflow inputs:
 
 | Input | Required | Description |
 |-------|----------|-------------|
-| `go-baseline-version` | yes | Tag of the captured Go binary to download (e.g. `v0.6.1`). Pinned by the caller; the workflow does not pick a default. |
+| `go-baseline-version` | yes | Tag of the captured Go binary to download. Pinned by the caller; the workflow does not pick a default. Note that the last published Go tag (`v0.6.1`) predates the merged-but-unreleased FC05/FC06/R8 checks (Decision 7), so a Layer-2 caller pinning it asserts against the older contract. The first post-cut release tag carries the current contract. |
 | `corpus-glob` | yes | Shell glob (interpreted by `find` or `git ls-files`) of files in the caller's checkout to test against. Files whose basename doesn't match a shirabe format prefix are silently skipped. |
 | `rust-binary-version` | no | Tag of the Rust shirabe binary to download. Defaults to the workflow's own `uses:` ref (e.g. `v0.7.0` from `parity-check.yml@v0.7.0`), so callers usually don't set it explicitly. |
 
@@ -421,7 +441,8 @@ shirabe/                         (workspace root)
 │   │       ├── doc.rs           (Doc, FieldValue, Section, ValidationError)
 │   │       ├── formats.rs       (FormatSpec, Formats map, detect_format)
 │   │       ├── frontmatter.rs   (parse_doc, parse_yaml_fields via saphyr)
-│   │       ├── checks.rs        (check_schema, check_fc01..04, check_plan_upstream, check_vision_public)
+│   │       ├── checks.rs        (check_schema, check_fc01..06, check_plan_upstream, check_vision_public, check_strategy_public)
+│   │       ├── table.rs         (Row, Table, RowKind, parse_issues_table)
 │   │       ├── validate.rs      (Config, validate_file, is_notice)
 │   │       └── annotation.rs    (format_error, format_notice, sanitize;
 │   │                              format_error takes ValidationError,
@@ -540,42 +561,62 @@ the release workflow needs. CI installs the same toolchain via
 
 ### Decision 7: Captured Go baseline version pinning
 
-**Question.** Which Go binary version is captured as the parity
-fixture's `expected/` baseline?
+**Question.** Which Go commit is captured as the parity fixture's
+`expected/` baseline?
 
 **Key assumptions.**
-- The Go binary's behavior is deterministic on a given version
-  (`v0.6.1` produces identical output for identical input).
-- The current `main` branch may have un-tagged commits between
-  `v0.6.1` and the rewrite-merge point that change behavior; the
-  rewrite must preserve the *released* contract, not the
-  in-progress-on-`main` contract.
+- The Go binary's behavior is deterministic on a given commit (the
+  same source tree produces identical output for identical input).
+- The validation surface on `main` has grown past the last tagged
+  release. PR #134 merged after `v0.6.1` and added checks FC05, FC06,
+  the issues-table engine (`internal/validate/table.go`,
+  `table_test.go`), and the `IssuesTableColumns` field on
+  `FormatSpec` (populated for `roadmap/v1` and `plan/v1`). The
+  Strategy and Brief formats and check R8 (`checkStrategyPublic`)
+  also landed after `v0.6.1`. None of these are in a tagged release
+  yet — they are merged-but-unreleased on `main`.
+- Because the rewrite atomically deletes the Go tree (Decision
+  Outcome step 7 / Outline 5), the contract the Rust binary must
+  preserve is whatever is live on `main` at cut time, not the last
+  tag. A baseline that predates the merged-but-unreleased checks
+  would let the cut silently drop them.
 
-**Chosen: pin the baseline to `shirabe-go-v0.6.1` (the most recent
-tagged release).**
+**Chosen: pin the baseline to the rewrite branch's merge-base with
+`main` (the post-#134 tree), built locally — currently
+`20fb8ed` (`v0.6.1-16-g20fb8ed`).**
 
-The `tests/fixtures/capture_go_baseline.sh` script downloads (or
-builds locally from the `v0.6.1` git tag) the captured Go binary,
-runs it against `corpus/`, and writes the stdout/stderr/exit triple
-to `expected/`. The committed `expected/` is the v0.6.1 output. If
-v0.6.x ships a bugfix the team explicitly wants to mirror in the
-Rust port (e.g., a sanitization improvement), the capture is
-re-run against v0.6.x and `expected/` is updated as a separate PR
-before the rewrite lands.
+The `tests/fixtures/capture_go_baseline.sh` script builds the Go
+binary locally from the pinned commit (it does not download a
+release tag, because no tag carries the post-#134 contract), runs it
+against `corpus/`, and writes the stdout/stderr/exit triple to
+`expected/`. The committed `expected/` is the output of the Go tree
+the rewrite actually replaces. If `main` advances with a Go-side
+validation change the team wants the Rust port to mirror before the
+cut, the capture is re-run against the new commit and `expected/` is
+updated as a separate change before the rewrite lands. The script
+records the pinned commit SHA so the baseline is reproducible.
+
+The Layer 2 reusable `parity-check.yml` workflow (Decision 3) is
+unaffected by this pin: it keeps its `go-baseline-version` input.
+Downstream callers pin a published tag there once one exists
+post-cut; until then the Layer 1 in-repo baseline carries the
+contract, built from the local commit above.
 
 **Considered and rejected.**
 
-- *Pin baseline to `main` HEAD at rewrite-PR-open time.* Tracks
-  the most recent Go behavior. **Rejected** because un-tagged
-  changes on `main` between releases are not part of the public
-  contract external adopters consume; the external pin point is
-  the tagged release. Capturing `main` would conflate
-  in-development Go changes with the contract the rewrite must
-  preserve.
-- *Pin baseline to multiple Go versions and assert parity against
-  all of them.* Maximally robust. **Rejected** as overkill —
-  v0.6.x is the current release line, and the rewrite ships against
-  the current contract, not a historical-version sweep.
+- *Pin baseline to the `shirabe-go-v0.6.1` tag.* The most recent
+  tagged release; the obvious "stable reference" choice. **Rejected**
+  because `v0.6.1` predates the merged-but-unreleased check additions
+  (FC05, FC06, R8) and the issues-table engine. Capturing it would
+  make the Rust port reproduce a stale contract, and the Outline 5
+  Go-tree deletion would then silently drop three checks and the
+  issues-table validation surface that are live on `main`. The
+  rewrite must preserve the contract at cut time, which is `main`,
+  not the last tag.
+- *Pin baseline to multiple Go commits and assert parity against
+  all of them.* Maximally robust. **Rejected** as overkill — the
+  rewrite ships against the single Go tree it deletes (the cut-time
+  `main`), not a historical-version sweep.
 
 ## Decision Outcome
 
@@ -583,14 +624,16 @@ The rewrite ships as one PR that:
 
 1. Adds a Cargo workspace at the repo root with two crates
    (`shirabe-validate` library, `shirabe` binary).
-2. Implements the seven validation rules and the GHA annotation emitter
-   in `shirabe-validate` using `saphyr` for line-aware YAML parsing.
+2. Implements the ten validation rules (including the FC05/FC06
+   issues-table checks and the `table.rs` engine) and the GHA
+   annotation emitter in `shirabe-validate` using `saphyr` for
+   line-aware YAML parsing.
 3. Wires the clap derive-based CLI in `shirabe` to mirror the cobra
    surface exactly (one `validate` subcommand, `--visibility`,
    `--custom-statuses`, `--version` with the same template).
 4. Commits the golden-output fixture under `tests/fixtures/golden/`
    covering every shirabe-side committed artifact plus a synthetic
-   edge-case corpus exercising all seven validation rules.
+   edge-case corpus exercising all ten validation rules.
 5. Adds `.github/workflows/parity-check.yml` as a reusable workflow
    downstream callers can include from their own CI to run the same
    parity assertion against their own corpora at a pinned shirabe
@@ -644,6 +687,8 @@ and any follow-up PRs runs Layer 1; merging is gated on parity.
 │  pub use formats::{FormatSpec, FORMATS,         │
 │                    detect_format};              │
 │  pub use frontmatter::parse_doc;                │
+│  pub use table::{Row, RowKind, Table,           │
+│                  parse_issues_table};           │
 │  pub use validate::{Config, validate_file,      │
 │                     is_notice};                 │
 │  pub use annotation::{format_error,             │
@@ -701,11 +746,14 @@ needs to know without re-reading this design:
 - *Adding a new format.* Add one entry to `FORMATS` in
   `formats.rs` (the `FormatSpec` struct carries the name,
   prefix, schema version, required fields, valid statuses,
-  and required sections), plus optionally a match arm in
+  required sections, and `issues_table_columns` — empty for
+  formats without an issues table), plus optionally a match arm in
   `validate_file` if the format needs format-specific checks
-  (the Go code dispatches `Plan` to `check_plan_upstream` and
-  `VISION` to `check_vision_public` via a `switch spec.Name`;
-  the Rust port mirrors this with a `match`).
+  (the Go code dispatches `Plan` to `check_plan_upstream` plus the
+  FC05/FC06 issues-table checks, `Roadmap` to the FC05/FC06 checks,
+  `VISION` to `check_vision_public`, and `Strategy` to
+  `check_strategy_public` via a `switch spec.Name`; the Rust port
+  mirrors this with a `match`).
 
 ### Data flow
 
@@ -751,8 +799,12 @@ the existing code has a directly corresponding step in the new code:
      │  ├─ check_fc03 (frontmatter ↔ ## Status body match)
      │  ├─ check_fc04 (required sections)
      │  └─ format-specific:
-     │       Plan  -> check_plan_upstream (R6: file exists + git ls-files)
-     │       VISION -> check_vision_public (R7: prohibited sections in public)
+     │       Plan     -> check_plan_upstream (R6: file exists + git ls-files)
+     │                   check_fc05 (issues-table header + row shape)
+     │                   check_fc06 (issues-table dependency existence)
+     │       Roadmap  -> check_fc05, check_fc06
+     │       VISION   -> check_vision_public (R7: prohibited sections in public)
+     │       Strategy -> check_strategy_public (R8: prohibited sections in public)
      │
      ▼
    for err in errors:
@@ -974,14 +1026,24 @@ Port `frontmatter_test.go` table tests to `#[test]` cases in
 `crates/shirabe-validate/src/frontmatter.rs`. Verify every existing
 frontmatter test case passes on the Rust side.
 
-**Phase 3 — Validation checks and annotation emitter.**
+**Phase 3 — Validation checks, issues-table engine, and annotation
+emitter.**
 Port `internal/validate/checks.go` and `internal/validate/validate.go`
-to `shirabe-validate` (`checks.rs`, `validate.rs`). Port `internal/
+to `shirabe-validate` (`checks.rs`, `validate.rs`), including the
+issues-table checks FC05 and FC06 and the STRATEGY public-visibility
+check R8 (`check_strategy_public`). Port `internal/validate/table.go`
+(the issues-table parser and row classifier) to
+`shirabe-validate::table`, with its `RowKind`/`Row`/`Table` types and
+the `parse_issues_table` entry point. Add the `issues_table_columns`
+field to the Rust `FormatSpec` and populate it for the `roadmap/v1`
+and `plan/v1` formats (the only two formats with an issues table),
+matching the Go `IssuesTableColumns` profiles. Port `internal/
 annotation/annotation.go` to `shirabe-validate::annotation`. Port
-`checks_test.go` cases. R6 (`check_plan_upstream`) calls `std::process::
-Command::new("git")` with `ls-files --error-unmatch --` — same
-semantic as the Go `exec.Command`. Verify the Go unit-test corpus
-passes on the Rust side.
+`checks_test.go` and `table_test.go` cases. R6 (`check_plan_upstream`)
+calls `std::process::Command::new("git")` with
+`ls-files --error-unmatch --` — same semantic as the Go
+`exec.Command`. Verify the Go unit-test corpus passes on the Rust
+side.
 
 **Phase 4 — Binary crate and CLI surface.**
 Wire `crates/shirabe/src/main.rs` with the clap Cli, Commands, and
@@ -996,13 +1058,16 @@ release plumbing.**
 Curate `tests/fixtures/golden/corpus/`: include shirabe's own
 committed artifacts under `docs/` (DESIGN-, PRD-, etc.) and build
 out `synthetic/` with the edge cases enumerated in Decision 3
-(sanitize coverage, FC01–FC04 failure paths, R6 and R7 paths,
-parser stress-test inputs for the panic surface,
-multi-line scalars, missing-frontmatter, unrecognized format,
-mismatched body status). Run `tests/fixtures/capture_go_baseline.sh`
-to populate `expected/` against `shirabe-go-v0.6.1`. Commit
-`corpus/` and `expected/` to the repo. Write `parity_test.rs`.
-Verify every parity test passes.
+(sanitize coverage, FC01–FC04 failure paths, FC05/FC06 issues-table
+paths for the Roadmap and Plan profiles plus the legacy plan-table
+migration hint, R6, R7, and R8 paths, parser stress-test inputs for
+the panic surface, multi-line scalars, missing-frontmatter,
+unrecognized format, mismatched body status). Run
+`tests/fixtures/capture_go_baseline.sh` to populate `expected/`
+against the Go binary built locally from the pinned commit
+(Decision 7's merge-base with `main`, currently `20fb8ed`), not a
+downloaded tag. Commit `corpus/` and `expected/` to the repo. Write
+`parity_test.rs`. Verify every parity test passes.
 
 Add `.github/workflows/parity-check.yml` as a reusable workflow
 (`on: workflow_call:`) with inputs for `go-baseline-version` and
@@ -1025,10 +1090,10 @@ shirabe-rs` (a non-default name so it doesn't collide with the
 Go binary at `./shirabe`); `cargo test --workspace` asserts the
 Rust side green and `go test ./...` continues to assert the Go
 side green. The parity fixture asserts the Rust binary's output
-against the committed `expected/` baseline (captured once from
-`shirabe-go-v0.6.1` per Decision 7), so Phases 1–4 don't need a
-live Go binary on the PR runner to run the fixture — the
-baseline is immutable bytes on disk.
+against the committed `expected/` baseline (captured once from the
+Go binary built locally at Decision 7's pinned commit), so Phases
+1–4 don't need a live Go binary on the PR runner to run the fixture
+— the baseline is immutable bytes on disk.
 
 Phase 5 deletes `cmd/`, `internal/`, `go.mod`, `go.sum`; renames
 the Rust binary from `shirabe-rs` to `shirabe`; and changes
@@ -1224,10 +1289,11 @@ arbitrary.
   binary crate would be marginally simpler today. The trade is
   intentional (see Decision 4) but real.
 - **Captured Go binary in CI artifacts is a one-time cost.** The
-  baseline capture script needs the v0.6.1 Go binary built once and
-  the outputs committed. Refreshing the baseline (if v0.6.x ships a
-  preserved fix that we want to mirror) requires re-running the
-  capture and updating `expected/`.
+  baseline capture script builds the Go binary once from Decision 7's
+  pinned commit and commits the outputs. Refreshing the baseline (if
+  `main` advances with a Go-side validation change we want to mirror
+  before the cut) requires re-running the capture and updating
+  `expected/`.
 - **Rust toolchain in CI.** The validate-docs workflow now installs
   Rust instead of (or in addition to) Go for the build-from-source
   path. The `actions/cache` key for Rust target+registry is larger
@@ -1239,8 +1305,9 @@ arbitrary.
   crates; further splits require an SR-level design.
 - *Baseline refresh cost:* the capture script is committed and idempotent;
   the recovery path is "rerun capture_go_baseline.sh against a freshly
-  built v0.6.x." The baseline is intentionally tied to a tagged Go
-  release so it doesn't drift on Go-side commits.
+  built Go binary at the pinned commit." The baseline is tied to a
+  specific commit SHA (Decision 7), so it doesn't drift on later
+  Go-side commits unless the team deliberately re-pins.
 - *CI cache size:* the existing `actions/cache` step in
   `validate-docs.yml` already caches Go modules; the swap is to cache
   the Cargo registry + `target/` directory under a Cargo-specific
