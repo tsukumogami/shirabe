@@ -45,15 +45,11 @@ const MAX_CUSTOM_STATUSES_BYTES: usize = 64 * 1024;
     disable_version_flag = true
 )]
 struct Cli {
-    /// Print version (`shirabe <version>`) and exit. Bound to both `-v`
-    /// (matching cobra's lowercase version short) and `-V` (clap's
-    /// conventional version short) so either form works.
-    #[arg(
-        short = 'v',
-        short_alias = 'V',
-        long = "version",
-        action = clap::ArgAction::Version
-    )]
+    /// Print version (`shirabe <version>`) and exit. Bound to `-v`
+    /// (lowercase) only, matching cobra, which binds `-v` to version and
+    /// rejects `-V`. clap's conventional `-V` is deliberately NOT bound, so
+    /// `shirabe -V` errors out like the Go binary does.
+    #[arg(short = 'v', long = "version", action = clap::ArgAction::Version)]
     version: (),
 
     #[command(subcommand)]

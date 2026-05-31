@@ -37,14 +37,13 @@ fn lowercase_v_prints_version() {
 }
 
 #[test]
-fn uppercase_v_prints_version() {
-    // `-V` (clap's conventional version short) also prints version. NOTE:
-    // Go cobra rejects `-V` (it only binds `-v`); accepting `-V` here is a
-    // deliberate, documented deviation -- the version output stream/exit is
-    // the contract that matters, and keeping clap's `-V` avoids surprising
-    // Rust-tooling users.
-    let expected = format!("shirabe {}\n", env!("CARGO_PKG_VERSION"));
-    shirabe().arg("-V").assert().success().stdout(expected);
+fn uppercase_v_is_rejected() {
+    // Strict cobra parity: Go binds `-v` to version and REJECTS `-V`
+    // ("unknown shorthand flag"). We mirror that — `-V` is unbound, so it
+    // must error (non-zero exit), NOT print the version. The exact error
+    // text differs from cobra (different framework); the contract is that
+    // `-V` is not a version alias.
+    shirabe().arg("-V").assert().failure();
 }
 
 #[test]
