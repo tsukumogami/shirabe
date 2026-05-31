@@ -1,10 +1,14 @@
 # Roadmap Document Format Reference
 
-Structure, lifecycle, validation rules, and quality guidance for Roadmap
-documents.
+Structure, lifecycle, validation rules, and quality guidance for
+Roadmap documents. The roadmap profile of the shared issues-table
+framework owns the Implementation Issues shape; the shared
+dependency-diagram convention owns the mermaid graph. This file
+carries the roadmap-specific deltas, lifecycle, and quality guidance.
 
 ## Table of Contents
 
+- [Shared References](#shared-references)
 - [Frontmatter](#frontmatter)
 - [Required Sections](#required-sections)
 - [Reserved Sections](#reserved-sections)
@@ -13,12 +17,38 @@ documents.
 - [Validation Rules](#validation-rules)
 - [Quality Guidance](#quality-guidance)
 
+## Shared References
+
+Both the issues-table format (roadmap profile) and the
+dependency-diagram convention live at the plugin root and are
+consumed by both the roadmap and plan workflows:
+
+- `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` -- the shared
+  issues-table framework. The roadmap profile keys on features with
+  the `Feature | Issues | Dependencies | Status` shape, the `Issues`
+  fan-out column listing the issue links the feature decomposed into,
+  and the migration rules for the divergent committed shapes
+  (`Feature | Status | Downstream Artifact` and `Issue | Phase |
+  Dependencies | Label`). This reference owns table shape, description
+  rows, and strikethrough rules.
+
+- `${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md` -- the
+  shared dependency-diagram convention. Owns the mermaid syntax
+  rules, the fixed status-class palette, node format, class
+  assignment, initial status, status updates, and legend.
+
+- `${CLAUDE_PLUGIN_ROOT}/references/workflow-principles.md` -- the
+  five principles both workflows derive from. A roadmap is multi-pr
+  because each feature delivers observable incremental value (P1),
+  not because "the input is a roadmap."
+
 ## Frontmatter
 
 Every roadmap begins with YAML frontmatter:
 
 ```yaml
 ---
+schema: roadmap/v1
 status: Draft
 theme: |
   1 paragraph describing the overarching theme or initiative this
@@ -31,36 +61,37 @@ upstream: docs/visions/VISION-<name>.md  # optional
 ---
 ```
 
-Required fields: `status`, `theme`, `scope`. Optional: `upstream` (path to the
-VISION document that this roadmap traces to, when one exists). Each field should
-be 1 paragraph using YAML literal block scalars (`|`).
+Required fields: `schema`, `status`, `theme`, `scope`. Optional:
+`upstream` (path to the VISION document that this roadmap traces to,
+when one exists). Each field other than `schema` should be 1
+paragraph using YAML literal block scalars (`|`).
 
-The `upstream` field links the roadmap to the strategic artifact that motivated
-it. When present, it points to a VISION document (the natural parent in the
-traceability chain). Roadmaps that emerge from exploration without a formal
-VISION omit this field. For cross-repo upstream references and the
-visibility-direction rules, see
+The `upstream` field links the roadmap to the strategic artifact that
+motivated it. When present, it points to a VISION document (the
+natural parent in the traceability chain). Roadmaps that emerge from
+exploration without a formal VISION omit this field. For cross-repo
+upstream references and the visibility-direction rules, see
 `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
 
-Frontmatter status must match the Status section in the body -- agent workflows
-parse frontmatter to determine lifecycle state, so divergence causes silent
-errors.
+Frontmatter status must match the Status section in the body --
+agent workflows parse frontmatter to determine lifecycle state, so
+divergence causes silent errors.
 
 ## Required Sections
 
 Every roadmap has these sections in order:
 
 1. **Status** -- current lifecycle state
-2. **Theme** -- what initiative this roadmap coordinates and why sequencing
-   matters
+2. **Theme** -- what initiative this roadmap coordinates and why
+   sequencing matters
 3. **Features** -- ordered list of features with names, descriptions,
-   dependencies, and status. Each feature should reference its downstream
-   artifact (PRD, design doc, or plan) when one exists.
-4. **Sequencing Rationale** -- why features are ordered this way. What
-   constraints drive the ordering: technical dependencies, user value delivery,
-   risk reduction?
-5. **Progress** -- current state of the roadmap. Which features are done, in
-   progress, or not started. Updated as work progresses.
+   dependencies, and status. Each feature should reference its
+   downstream artifact (PRD, design doc, or plan) when one exists.
+4. **Sequencing Rationale** -- why features are ordered this way.
+   What constraints drive the ordering: technical dependencies, user
+   value delivery, risk reduction?
+5. **Progress** -- current state of the roadmap. Which features are
+   done, in progress, or not started. Updated as work progresses.
 
 ### Per-Feature Format
 
@@ -78,30 +109,37 @@ Each feature in the Features section follows this structure:
 **Status:** Not started
 ```
 
-The `Needs` annotation is optional. Features without it are treated as ready
-for direct implementation. When present, it determines which `needs-*` label
-gets applied during issue creation.
+The `Needs` annotation is optional. Features without it are treated
+as ready for direct implementation. When present, it determines which
+`needs-*` label gets applied during issue creation.
 
 ## Reserved Sections
 
-Two sections follow Progress. They're structurally part of the roadmap but
-are NOT populated by `/roadmap` -- they exist as empty placeholders at creation
-time and are filled later by `/plan` during decomposition.
+Two sections follow Progress. They're structurally part of the
+roadmap but are NOT populated by `/roadmap` -- they exist as empty
+placeholders at creation time and are filled later by `/plan` during
+decomposition.
 
-6. **Implementation Issues** -- table mapping features to GitHub issues.
-   Empty at creation.
+6. **Implementation Issues** -- table mapping features to GitHub
+   issues. Empty at creation. The canonical roadmap profile shape
+   (`Feature | Issues | Dependencies | Status`), description rows, and
+   strikethrough rules are defined in
+   `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md`.
 
 ```markdown
 ## Implementation Issues
 
 <!-- Populated by /plan during decomposition. Do not fill manually. -->
 
-| Feature | Issues | Status |
-|---------|--------|--------|
+| Feature | Issues | Dependencies | Status |
+|---------|--------|--------------|--------|
 ```
 
-7. **Dependency Graph** -- Mermaid diagram showing feature dependencies and
-   issue relationships. Empty at creation.
+7. **Dependency Graph** -- Mermaid diagram showing feature
+   dependencies and issue relationships. Empty at creation. Mermaid
+   syntax rules, the fixed status-class palette, node format, and
+   legend are defined in
+   `${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md`.
 
 ```markdown
 ## Dependency Graph
@@ -113,24 +151,26 @@ graph TD
 ```
 ```
 
-These sections must appear in every roadmap file, even when empty. Their
-presence signals that the roadmap is structurally complete and ready for
-downstream planning workflows.
+These sections must appear in every roadmap file, even when empty.
+Their presence signals that the roadmap is structurally complete and
+ready for downstream planning workflows.
 
 ## Content Boundaries
 
 A roadmap is NOT:
 
-- **A PRD**: PRDs define requirements for a single feature. Roadmaps sequence
-  multiple features. If you're writing detailed requirements, that's a PRD.
-- **A plan**: Plans break a single artifact into implementable issues. Roadmaps
-  operate one level above, coordinating across multiple PRDs or design docs.
-- **A project timeline**: Roadmaps don't include dates or time estimates. They
-  capture ordering and dependencies, not schedules.
+- **A PRD**: PRDs define requirements for a single feature. Roadmaps
+  sequence multiple features. If you're writing detailed
+  requirements, that's a PRD.
+- **A plan**: Plans break a single artifact into implementable
+  issues. Roadmaps operate one level above, coordinating across
+  multiple PRDs or design docs.
+- **A project timeline**: Roadmaps don't include dates or time
+  estimates. They capture ordering and dependencies, not schedules.
 
-If you're defining requirements for one feature, write a PRD. If you're breaking
-one design into issues, write a plan. If you're sequencing multiple features
-with dependencies, write a roadmap.
+If you're defining requirements for one feature, write a PRD. If
+you're breaking one design into issues, write a plan. If you're
+sequencing multiple features with dependencies, write a roadmap.
 
 ## Lifecycle
 
@@ -148,57 +188,69 @@ Draft --> Active --> Done
 
 ### Transition Rules
 
-- **Draft -> Active**: Feature list is complete and sequencing is justified.
-  Human must explicitly approve.
-- **Active -> Done**: Every feature has reached a terminal state (delivered or
-  explicitly dropped with rationale documented).
-- **Done -> any**: Forbidden. A completed roadmap is a historical record. Create
-  a new roadmap for follow-on work.
-- **Active -> Draft**: Forbidden. If the feature list needs significant revision,
-  create a new roadmap version.
+- **Draft -> Active**: Feature list is complete and sequencing is
+  justified. Human must explicitly approve.
+- **Active -> Done**: Every feature has reached a terminal state
+  (delivered or explicitly dropped with rationale documented).
+- **Done -> any**: Forbidden. A completed roadmap is a historical
+  record. Create a new roadmap for follow-on work.
+- **Active -> Draft**: Forbidden. If the feature list needs
+  significant revision, create a new roadmap version.
 
 ### Edit Rules
 
 Active roadmaps can update the Progress section and reserved sections
-(Implementation Issues, Dependency Graph) freely. Changes to the Features list
-or Sequencing Rationale require creating a new roadmap -- those sections are
-locked once the roadmap leaves Draft.
+(Implementation Issues, Dependency Graph) freely. Changes to the
+Features list or Sequencing Rationale require creating a new roadmap
+-- those sections are locked once the roadmap leaves Draft.
 
 ## File Location
 
-Roadmaps live at `docs/roadmaps/ROADMAP-<name>.md` (kebab-case). No directory
-movement based on status -- all roadmaps stay in `docs/roadmaps/` regardless
-of lifecycle state.
+Roadmaps live at `docs/roadmaps/ROADMAP-<name>.md` (kebab-case). No
+directory movement based on status -- all roadmaps stay in
+`docs/roadmaps/` regardless of lifecycle state.
 
 ## Validation Rules
 
 ### During drafting
 
-- Frontmatter has `status`, `theme`, `scope` fields
+- Frontmatter has `schema`, `status`, `theme`, `scope` fields
 - Frontmatter status matches Status section in body
 - All 5 required sections present and in order
 - Both reserved sections present (may be empty)
 - Status is "Draft"
-- At least 2 features listed (single-feature work doesn't need a roadmap)
+- At least 2 features listed (single-feature work doesn't need a
+  roadmap)
 
 ### When referenced by downstream workflows
 
 - Status must be "Active" to serve as upstream context
-- If status is "Draft": inform the referencing workflow that the roadmap
-  isn't yet approved
+- If status is "Draft": inform the referencing workflow that the
+  roadmap isn't yet approved
 
 ### Status consistency
 
 - Frontmatter `status` and body Status section must always match
-- Features marked as done in the Features section should be reflected in Progress
-- Reserved sections should only contain content if populated by `/plan`
+- Features marked as done in the Features section should be
+  reflected in Progress
+- Reserved sections should only contain content if populated by
+  `/plan`
+
+### Validation enforcement
+
+The Go validator runs FC05 (issues-table schema conformance) and FC06
+(cross-reference existence) on roadmap docs. See
+`${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` for the canonical
+roadmap profile contract those checks enforce.
 
 ## Quality Guidance
 
 ### Theme
 
-- Identifies a coherent capability area, not a grab-bag of unrelated work
-- Explains why coordination matters (shared infrastructure, user-facing story)
+- Identifies a coherent capability area, not a grab-bag of unrelated
+  work
+- Explains why coordination matters (shared infrastructure,
+  user-facing story)
 - Scoped to one initiative -- don't combine unrelated streams
 
 ### Features
@@ -211,8 +263,8 @@ of lifecycle state.
 ### Sequencing Rationale
 
 - Explains ordering constraints, not just lists the order
-- Distinguishes hard dependencies (technical blockers) from soft preferences
-  (nice-to-have ordering)
+- Distinguishes hard dependencies (technical blockers) from soft
+  preferences (nice-to-have ordering)
 - Acknowledges where parallel execution is possible
 
 ### Progress
@@ -225,6 +277,8 @@ of lifecycle state.
 
 - Too granular: tracking individual issues instead of features
 - Too broad: mixing unrelated initiatives into one roadmap
-- Missing rationale: listing features without explaining why this order
+- Missing rationale: listing features without explaining why this
+  order
 - Stale progress: not updating the Progress section as work completes
-- Editing reserved sections manually instead of letting /plan populate them
+- Editing reserved sections manually instead of letting /plan
+  populate them
