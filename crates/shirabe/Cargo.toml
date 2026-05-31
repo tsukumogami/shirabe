@@ -11,4 +11,6 @@ name = "shirabe-rs"
 path = "src/main.rs"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
+saphyr = "=0.0.6"
 shirabe-validate = { path = "../shirabe-validate" }
