@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   The six artifact-lifecycle skills (vision, strategy, roadmap, brief, prd,
   design) each ship a `transition-status.sh` script that advances a document
@@ -24,7 +24,7 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
 This brief frames a developer-tooling consolidation on the shirabe CLI. It
 follows the byte-faithful Go-to-Rust rewrite of the `validate` subcommand:
