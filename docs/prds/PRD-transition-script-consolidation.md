@@ -1,5 +1,5 @@
 ---
-status: Draft
+status: Accepted
 problem: |
   The six artifact-lifecycle skills (vision, strategy, roadmap, brief, prd,
   design) each ship a copy-pasted `transition-status.sh` (~2,000 lines of bash
@@ -19,7 +19,7 @@ upstream: docs/briefs/BRIEF-transition-script-consolidation.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem statement
 
@@ -201,21 +201,6 @@ configuration, and the `git mv` mechanics.
   callers and deleting the scripts would leave the duplication — the actual
   problem — in place. The cutover is part of the feature; the PLAN sequences it
   so the scripts are deleted only after parity is shown and callers are moved.
-
-## Open questions
-
-Carried to the DESIGN:
-
-- CLI surface: argument order, lifecycle-verb vs capitalized-status target form,
-  and how the per-type extra input (superseding document, reason) is passed
-  given its requiredness depends on the (type, target) pair.
-- Whether the per-skill rules (status sets, graphs, directory rules,
-  preconditions) are a hardcoded table or a declarative configuration — kept
-  compatible with a later effort that makes the CLI the single authority for
-  deterministic checks.
-- `git mv` semantics: tracked vs untracked file, target already exists, staged
-  vs committed result, behavior outside a git repository, idempotency on re-run.
-- Body `## Status` rewrite ownership and the per-type body templates.
 
 ## Related
 
