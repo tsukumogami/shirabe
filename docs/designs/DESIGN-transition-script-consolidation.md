@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 upstream: docs/prds/PRD-transition-script-consolidation.md
 problem: |
   Six per-skill `transition-status.sh` scripts (~2,000 lines of bash)
@@ -28,7 +28,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
