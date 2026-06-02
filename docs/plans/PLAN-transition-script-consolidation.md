@@ -190,6 +190,24 @@ transition-status`), then delete the scripts:
 
 **Dependencies:** Issue 4.
 
+## Implementation Issues
+
+Single-pr: these are commits within one PR, not separately-merged GitHub issues
+(no milestone is created). The identifiers map to the Issue Outlines above.
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| Issue 1 | None | testable |
+| _Spec-table engine core plus the membership-only / no-move types (prd, roadmap, brief)._ | | |
+| Issue 2 | Issue 1 | testable |
+| _Ordered-graph rule, content preconditions, and the idempotent no-op._ | | |
+| Issue 3 | Issue 2 | critical |
+| _Directory moves, `--superseded-by`/`--reason`, sanitization, per-type templates._ | | |
+| Issue 4 | Issue 3 | critical |
+| _Golden parity harness across all six types._ | | |
+| Issue 5 | Issue 4 | critical |
+| _Migrate every caller and delete the six scripts (the irreversible cut)._ | | |
+
 ## Dependency Graph
 
 ```mermaid
