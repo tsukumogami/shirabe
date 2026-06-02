@@ -213,10 +213,15 @@ The PRD calls for a single PR (full cutover). Suggested commit order within it:
    inputs and `--reason` sanitization, the per-type body templates and extra
    frontmatter fields.
 4. The golden parity harness across all six types.
-5. Caller migration — each skill's `SKILL.md`, `work-on/run-cascade.sh` and its
-   test, the prd skill's direct call to the brief script — then deletion of the
-   six `transition-status.sh` scripts, with a grep confirming no committed file
-   references them.
+5. Caller migration across the full reference surface (`git grep
+   transition-status`): each skill's `SKILL.md`; `work-on/run-cascade.sh` and
+   its test; the prd skill's direct call to the brief script; the
+   `skills/{brief,strategy}/evals/test-cli.sh` harnesses; the
+   `check-brief-scripts.yml` CI job; the affected `evals.json` expected_output;
+   and the instructional reference/phase docs. Then delete the six scripts and
+   their `transition-status_test.sh`. The grep-clean check excludes the frozen
+   `validate` golden corpus (`crates/shirabe/tests/fixtures/golden/corpus/`),
+   which holds point-in-time doc snapshots, not live references.
 
 The binary keeps building as `shirabe`; no new crate.
 
