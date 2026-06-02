@@ -97,12 +97,6 @@ move because the PRD state machine does not allow
 Draft → Done, with the same error contract it would give for any skill — one
 place to reason about transition errors.
 
-### Migrate a skill off its script
-
-A skill's SKILL.md replaces its `bash scripts/transition-status.sh ...`
-invocation with `shirabe transition <status> ...`, and the script is deleted
-once the subcommand is shown to reproduce its behavior.
-
 ## Scope Boundary
 
 **In scope:**
