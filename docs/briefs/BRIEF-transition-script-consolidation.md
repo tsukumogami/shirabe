@@ -11,7 +11,7 @@ problem: |
   reach the other five.
 outcome: |
   A skill author advances any document by running
-  `shirabe transition <skill> <status> <file>` against the shirabe binary they
+  `shirabe transition <status> <file>` against the shirabe binary they
   already have installed. Behavior is identical across all six artifact types
   because there is one implementation, and each skill's status rules live in a
   single place instead of six drifting scripts.
@@ -57,8 +57,10 @@ reads, validates, and rewrites status should not.
 ## User Outcome
 
 A skill author advances a document with one command —
-`shirabe transition <skill> <status> <file>` — using the shirabe binary the
-workflow already depends on. The result is the same regardless of artifact
+`shirabe transition <status> <file>` — using the shirabe binary the
+workflow already depends on. shirabe infers the artifact type from the
+document's `schema:` frontmatter, the same way `validate` does, so the type
+is never passed as an argument. The result is the same regardless of artifact
 type: the same status validation, the same frontmatter rewrite, the same JSON
 envelope, and the same directory move for the artifact types that require one,
 because all of it runs through a single implementation.
@@ -73,30 +75,32 @@ changes, it changes once and every skill picks it up. The six scripts go away.
 ### Accept a draft
 
 An author finishes a design and runs
-`shirabe transition design accepted docs/designs/DESIGN-foo.md`. The command
-confirms the document's current status permits the move to Accepted, rewrites
-the frontmatter, and prints the JSON envelope the skill consumes — the same
+`shirabe transition accepted docs/designs/DESIGN-foo.md`. shirabe reads the
+file's `schema:` frontmatter to recognize it as a design, confirms the
+document's current status permits the move to Accepted, rewrites the
+frontmatter, and prints the JSON envelope the skill consumes — the same
 envelope today's script prints.
 
 ### Promote with a directory move
 
 An author promotes a design to Current with
-`shirabe transition design current docs/designs/DESIGN-foo.md`. The command
+`shirabe transition current docs/designs/DESIGN-foo.md`. The command
 validates the transition, rewrites the status, and moves the file into
 `docs/designs/current/` as part of the same operation — the move the per-skill
 script used to perform with bespoke awk, now handled uniformly.
 
 ### Reject an invalid transition
 
-An author runs `shirabe transition prd done docs/prds/PRD-foo.md` against a
-Draft PRD. The command rejects it because the PRD state machine does not allow
+An author runs `shirabe transition done docs/prds/PRD-foo.md` against a
+Draft PRD. shirabe recognizes the PRD from its `schema:` and rejects the
+move because the PRD state machine does not allow
 Draft → Done, with the same error contract it would give for any skill — one
 place to reason about transition errors.
 
 ### Migrate a skill off its script
 
 A skill's SKILL.md replaces its `bash scripts/transition-status.sh ...`
-invocation with `shirabe transition <skill> ...`, and the script is deleted
+invocation with `shirabe transition <status> ...`, and the script is deleted
 once the subcommand is shown to reproduce its behavior.
 
 ## Scope Boundary
@@ -128,9 +132,12 @@ once the subcommand is shown to reproduce its behavior.
 
 Deferred to the PRD and DESIGN:
 
-- The exact CLI contract: argument order, whether `<skill>` is passed
-  explicitly or inferred from the document's `schema:` frontmatter, and which
-  flags exist (`--json`, `--dry-run`).
+- The exact CLI contract: argument order, which flags exist (`--json`,
+  `--dry-run`), and whether to add an optional `--type` override that asserts
+  the expected artifact type for safety. The artifact type itself is inferred
+  from the document's `schema:` frontmatter (matching `validate`), not passed
+  as a required argument; a doc with missing or unrecognized `schema:` fails
+  with a clear "cannot determine artifact type" error.
 - Whether the per-skill status machines and directory rules are a hardcoded
   table or a declarative configuration.
 - The parity bar: the `validate` rewrite held a byte-for-byte output contract;
