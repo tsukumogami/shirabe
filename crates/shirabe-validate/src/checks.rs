@@ -1642,9 +1642,11 @@ mod tests {
         }
     }
 
-    // --- check_fc07 (R1-R12 acceptance criteria) ---
+    // --- check_fc07 (R2-R12 acceptance criteria) ---
     //
-    // PRD acceptance-criterion coverage matrix (R2-R12, 26 total):
+    // PRD acceptance-criterion coverage matrix. The PRD lists 24 binary
+    // ACs (R2-R12). Each is mapped to a named test or assertion below.
+    //
     //   AC-R2.1 table-key-with-no-diagram-node: covered by fn check_fc07_table_key_with_no_matching_diagram_node_fires
     //   AC-R2.2 diagram-node-with-no-table-key: covered by fn check_fc07_diagram_node_with_no_matching_table_key_fires
     //   AC-R2.3 non-issue-keyed-node-excluded: covered by fn check_fc07_non_issue_keyed_node_id_does_not_fire
@@ -1657,9 +1659,9 @@ mod tests {
     //   AC-R4.4 missing-class-no-notice: covered by fn check_fc07_node_without_class_does_not_fire
     //   AC-R4.5 non-status-class-no-notice: covered by fn check_fc07_non_status_class_does_not_fire
     //   AC-R4.6 undefined-classdef-fires: covered by fn check_fc07_undefined_class_fires
-    //   AC-R5 extractor-four-views: covered by fn check_fc07_uses_extractor_four_views_no_dep (and mermaid::tests::*)
-    //   AC-R6 is_notice-membership: covered by validate::tests::is_notice_only_schema
-    //   AC-R7 single-point-promotion-seam: covered by fn fc07_promotion_seam_is_single_match_arm
+    //   AC-R5 extractor-four-views-no-new-dep: covered by fn check_fc07_uses_extractor_four_views_no_dep (and mermaid::tests::*)
+    //   AC-R6 is_notice-membership-exit-0: covered by validate::tests::is_notice_only_schema and fn fc07_promotion_seam_is_single_match_arm
+    //   AC-R7 single-point-promotion-seam-line-diff: covered by fn fc07_promotion_seam_is_single_match_arm
     //   AC-R8 notice-prefix-and-voice: covered by fn check_fc07_notices_share_prefix_and_voice
     //   AC-R9.1 unterminated-fence: covered by fn check_fc07_unterminated_fence_emits_notice
     //   AC-R9.2 missing-block-skips-per-node: covered by fn check_fc07_missing_block_short_circuits_per_node_checks
@@ -1667,11 +1669,8 @@ mod tests {
     //   AC-R9.4 inline-class-syntax: covered by fn check_fc07_inline_class_syntax_emits_notice_and_records
     //   AC-R9.5 whitespace-in-class-list: covered by mermaid::tests::extract_diagram_class_multi_key_with_internal_whitespace_tolerated
     //   AC-R10 bounded-iteration: covered by mermaid::tests::extract_diagram_very_long_line_does_not_panic, ..._arbitrary_utf8_..., ..._deeply_nested_punctuation_...
-    //   AC-R11 reuse-no-new-dep: structural; FC07 is one new function in shirabe-validate, no new crate (see Cargo.toml)
-    //   AC-R12 public-cleanliness: covered by fn fc07_notice_bodies_are_public_clean
-    //   AC class-vs-Status no-op when no class: covered by fn check_fc07_node_without_class_does_not_fire
-    //   AC node-set short-circuit on missing block: covered by fn check_fc07_missing_block_short_circuits_per_node_checks
-    //   AC dispatched-only-in-plan-and-roadmap: covered by fn check_fc07_is_a_noop_for_formats_without_issues_table
+    //   AC-R11 reuse-no-new-dep-no-new-binary: structural; covered by fn check_fc07_is_a_noop_for_formats_without_issues_table (one new function) and the workspace Cargo.toml (no new external dep)
+    //   AC-R12 public-cleanliness-notice-bodies-and-doc-comments: covered by fn fc07_notice_bodies_are_public_clean and fn fc07_doc_comments_are_public_clean
 
     /// Pinned pre-cleanup regression fixture. The exact defect PR #147
     /// hand-fixed: a plan-profile entity row in a terminal state
@@ -2105,5 +2104,96 @@ mod tests {
             "FC07 must be dispatched in the Plan arm; got {:?}",
             errs
         );
+    }
+
+    #[test]
+    fn fc07_non_status_class_set_matches_extractor_recognition() {
+        // The NON_STATUS_CLASSES constant lists the names the extractor
+        // recognises but FC07 does not reconcile against Status. Every
+        // listed class must not be in STATUS_CLASSES.
+        for non_status in NON_STATUS_CLASSES {
+            assert!(
+                !STATUS_CLASSES.contains(non_status),
+                "{:?} must not overlap with STATUS_CLASSES",
+                non_status
+            );
+        }
+        // Spike enumeration sanity: the v1 set is exactly these ten names.
+        assert_eq!(NON_STATUS_CLASSES.len(), 10);
+    }
+
+    #[test]
+    fn fc07_doc_comments_are_public_clean() {
+        // R12 public-cleanliness scan extended per Outline 6: the FC07
+        // doc-comments on check_fc07 (and on the helper functions it
+        // documents) and the is_notice promotion-seam doc-comment must
+        // not name a private repo, a private path, an external issue
+        // number, or a pre-announcement feature.
+        //
+        // We read the actual source files at compile time and scan
+        // every line that starts with a `///` doc-comment marker for the
+        // FC07-relevant prose. The check is a textual one: the line set
+        // includes every doc-comment line in checks.rs and validate.rs
+        // (the two files FC07 touches).
+        let checks_src = include_str!("checks.rs");
+        let validate_src = include_str!("validate.rs");
+        let combined: Vec<&str> = checks_src
+            .lines()
+            .chain(validate_src.lines())
+            .filter(|line| line.trim_start().starts_with("///"))
+            .collect();
+        assert!(
+            !combined.is_empty(),
+            "expected at least one doc-comment line"
+        );
+
+        // The scan focuses on doc-comments that mention FC07 either by
+        // name or by the seam wording.
+        let fc07_comments: Vec<&&str> = combined
+            .iter()
+            .filter(|l| {
+                l.contains("FC07")
+                    || l.contains("promotion seam")
+                    || l.contains("class-versus-Status")
+            })
+            .collect();
+        assert!(
+            !fc07_comments.is_empty(),
+            "expected FC07-relevant doc-comments to scan"
+        );
+
+        for line in fc07_comments {
+            let lower = line.to_lowercase();
+            // No private repo paths.
+            assert!(
+                !line.contains("private/"),
+                "private path in FC07 doc-comment: {:?}",
+                line
+            );
+            // No private repo names from the workspace.
+            for name in ["coding-tools", "vision", "tools/", "dot-niwa-overlay"] {
+                assert!(
+                    !lower.contains(&name.to_lowercase()),
+                    "private workspace name {:?} in FC07 doc-comment: {:?}",
+                    name,
+                    line
+                );
+            }
+            // No external URLs.
+            assert!(
+                !lower.contains("http://") && !lower.contains("https://"),
+                "URL in FC07 doc-comment: {:?}",
+                line
+            );
+            // No pre-announcement leakage.
+            for word in ["upcoming", "unreleased", "internal beta", "pre-announcement"] {
+                assert!(
+                    !lower.contains(word),
+                    "pre-announcement language {:?} in FC07 doc-comment: {:?}",
+                    word,
+                    line
+                );
+            }
+        }
     }
 }
