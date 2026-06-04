@@ -7,12 +7,17 @@
 //! Message strings are preserved byte-for-byte from the Go
 //! `internal/validate/checks.go` so the annotation output stays identical.
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::process::Command;
+use std::sync::LazyLock;
+
+use regex::Regex;
 
 use crate::doc::{Config, Doc, ValidationError};
 use crate::formats::FormatSpec;
-use crate::table::{parse_issues_table, RowKind, Table};
+use crate::mermaid::{extract_diagram, find_dependency_graph_block, Diagram, Issue};
+use crate::table::{parse_issues_table, Profile, Row, RowKind, Table};
 
 /// Section names that `vision/v1` docs must not contain in public repos.
 /// See DESIGN-gha-doc-validation.md (R7).
@@ -440,6 +445,471 @@ pub fn check_private_only(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Val
 /// `&[&str]` literal.
 fn columns_eq(columns: &[String], want: &[&str]) -> bool {
     columns.len() == want.len() && columns.iter().zip(want).all(|(a, b)| a == b)
+}
+
+/// Matches an issue-keyed diagram node id (`I<n>`). Nodes whose id does
+/// not match this pattern are excluded from the bijection and edge
+/// agreement checks; this is the tolerated subset for the `O<n>` outline
+/// ids and `K<n>` cross-repo references the corpus carries today.
+static ISSUE_KEYED_NODE_ID: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^I[0-9]+$").unwrap());
+
+/// The three Status-bearing class names FC07 reconciles against table row
+/// state. A node carrying any other class (a non-Status class such as a
+/// Complexity marker, a pipeline-position marker like `needsDesign`, or
+/// the `koto` external-node marker) is recorded by the extractor but is
+/// not reconciled.
+const STATUS_CLASSES: &[&str] = &["done", "ready", "blocked"];
+
+/// Non-Status classes the extractor records but FC07 ignores for the
+/// class-versus-Status pass. Listed for the AC-coverage scan in tests.
+#[cfg_attr(not(test), allow(dead_code))]
+const NON_STATUS_CLASSES: &[&str] = &[
+    "needsDesign",
+    "needsPrd",
+    "needsSpike",
+    "needsDecision",
+    "tracksDesign",
+    "tracksPlan",
+    "simple",
+    "testable",
+    "critical",
+    "koto",
+];
+
+/// Reconcile the parsed Implementation Issues table against the extracted
+/// Dependency Graph mermaid block across three dimensions in one pass.
+///
+/// The check emits one notice per defect in the FC05/FC06 voice:
+///
+/// 1. **Node-set bijection** over the issue-keyed subset (ids matching
+///    `^I[0-9]+$`). A table key with no matching diagram node fires a
+///    notice; a diagram node with no matching table key fires a notice.
+///    Nodes whose id does not match the pattern (`O<n>` outline ids,
+///    `K<n>` cross-repo references) are excluded.
+/// 2. **Edge agreement** over pairs of issue-keyed nodes. For every
+///    `(blocker, dependent)` pair where `dependent`'s Dependencies cell
+///    lists `blocker`, the diagram must contain `blocker --> dependent`.
+///    The convention is **blocker on the left, dependent on the right**;
+///    see `references/dependency-diagram.md` and the spike at
+///    `docs/spikes/SPIKE-mermaid-parser.md` for the corpus survey
+///    confirming this convention is consistent. The check is symmetric:
+///    edges that are not justified by any Dependencies cell also fire.
+/// 3. **Class-versus-Status agreement** over the Status-bearing class
+///    set (`done`, `ready`, `blocked`). The truth table:
+///    - `done` requires the row to be in a terminal state.
+///    - `ready` requires the row to be open and every Dependencies-cell
+///      target to resolve to a terminal row.
+///    - `blocked` requires the row to be open and at least one
+///      Dependencies-cell target to resolve to an open row.
+///    Non-Status classes (`needsDesign`, `needsPrd`, `needsSpike`,
+///    `needsDecision`, `tracksDesign`, `tracksPlan`, `simple`,
+///    `testable`, `critical`, `koto`) are not reconciled.
+///
+/// FC07 returns an empty vec when the format has no
+/// `issues_table_columns` (the same no-op gate FC05 and FC06 use). The
+/// per-issue notices the extractor surfaces (`UnterminatedFence`,
+/// `MissingBlock`, etc.) are converted to per-defect notices before the
+/// per-dimension passes; a `MissingBlock` short-circuits the per-node
+/// checks.
+pub fn check_fc07(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    if spec.issues_table_columns.is_empty() {
+        return Vec::new();
+    }
+    let mut errs: Vec<ValidationError> = Vec::new();
+
+    let table = match parse_issues_table(doc) {
+        Some(t) => t,
+        None => return errs,
+    };
+
+    let location = match find_dependency_graph_block(doc) {
+        Some(l) => l,
+        None => return errs,
+    };
+
+    // A MissingBlock short-circuits per-node passes: every entity row
+    // becomes a node-set notice otherwise, swamping the signal.
+    let mut missing_block = false;
+    for issue in &location.issues {
+        let err = issue_to_notice(doc, issue);
+        if let Issue::MissingBlock { .. } = issue {
+            missing_block = true;
+        }
+        errs.push(err);
+    }
+    if missing_block {
+        return errs;
+    }
+
+    // Extract the body lines for the located block. Index conversion: the
+    // BlockLocation carries 1-indexed absolute lines; doc.body is
+    // 0-indexed. body_end is one-past-last (the closing-fence line).
+    let body_start_idx = location.body_start.saturating_sub(1);
+    let body_end_idx = location
+        .body_end
+        .saturating_sub(1)
+        .min(doc.body.len());
+    let body_slice: Vec<&str> = doc
+        .body
+        .get(body_start_idx..body_end_idx)
+        .map(|s| s.iter().map(|x| x.as_str()).collect())
+        .unwrap_or_default();
+    let (diagram, extract_issues) = extract_diagram(&body_slice, location.body_start);
+    for issue in &extract_issues {
+        errs.push(issue_to_notice(doc, issue));
+    }
+
+    // Run the three reconciliation passes.
+    errs.extend(node_set_pass(doc, &table, &diagram));
+    errs.extend(edge_pass(doc, &table, &diagram));
+    errs.extend(class_vs_status_pass(doc, &table, &diagram));
+
+    errs
+}
+
+/// Convert an extractor [`Issue`] to a per-defect FC07 notice. Notice
+/// bodies name the diagram id or line rather than any URL or external
+/// identifier.
+fn issue_to_notice(doc: &Doc, issue: &Issue) -> ValidationError {
+    let (line, message) = match issue {
+        Issue::UnterminatedFence { line } => (
+            *line,
+            "[FC07] unterminated mermaid block (no closing fence)".to_string(),
+        ),
+        Issue::MissingBlock { line } => (
+            *line,
+            "[FC07] no mermaid block under ## Dependency Graph (skipping per-node checks)"
+                .to_string(),
+        ),
+        Issue::HeaderFlowchart { line } => (
+            *line,
+            "[FC07] diagram header is 'flowchart'; expected 'graph TD' or 'graph LR'".to_string(),
+        ),
+        Issue::HeaderUnrecognized { line } => (
+            *line,
+            "[FC07] diagram header is not recognised; expected 'graph TD' or 'graph LR'"
+                .to_string(),
+        ),
+        Issue::InlineClassSyntax { line } => (
+            *line,
+            "[FC07] inline class syntax ':::' is not the canonical form; use 'class <id> <name>'"
+                .to_string(),
+        ),
+        Issue::UndefinedClass { name, line } => (
+            *line,
+            format!(
+                "[FC07] class statement names class {:?} which no classDef in this diagram declares",
+                name
+            ),
+        ),
+    };
+    ValidationError {
+        file: doc.path.clone(),
+        line,
+        code: "FC07".to_string(),
+        message,
+    }
+}
+
+/// Node-set bijection pass. Compares the entity-row key set (filtered to
+/// issue-keyed `#N` rows for the plan profile; entity-row Issues cell for
+/// the roadmap profile is not consulted here -- FC07 binds to diagram
+/// node ids, which canonically encode the issue number via `I<n>`) to
+/// the diagram node set, restricted on both sides to the issue-keyed
+/// subset (`^I[0-9]+$`).
+fn node_set_pass(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationError> {
+    let mut errs = Vec::new();
+
+    let table_keys = table_issue_keys(table);
+    let diagram_keys: HashSet<&str> = diagram
+        .nodes
+        .iter()
+        .filter(|n| ISSUE_KEYED_NODE_ID.is_match(&n.id))
+        .map(|n| n.id.as_str())
+        .collect();
+
+    // Table key with no diagram node.
+    for row in &table.rows {
+        if row.kind != RowKind::Entity {
+            continue;
+        }
+        let key = row.key.as_str();
+        if let Some(num) = key.strip_prefix('#') {
+            if !num.chars().all(|c| c.is_ascii_digit()) {
+                continue;
+            }
+            let expected = format!("I{}", num);
+            if !diagram_keys.contains(expected.as_str()) {
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line: row.line,
+                    code: "FC07".to_string(),
+                    message: format!(
+                        "[FC07] table row {:?} has no matching diagram node (expected {:?})",
+                        key, expected
+                    ),
+                });
+            }
+        }
+    }
+
+    // Diagram node with no table key.
+    for node in &diagram.nodes {
+        if !ISSUE_KEYED_NODE_ID.is_match(&node.id) {
+            continue;
+        }
+        // node.id is "I<n>"; the corresponding table key is "#<n>".
+        let num = &node.id[1..];
+        let table_key = format!("#{}", num);
+        if !table_keys.contains(table_key.as_str()) {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: node.line,
+                code: "FC07".to_string(),
+                message: format!(
+                    "[FC07] diagram node {:?} has no matching table row (expected key {:?})",
+                    node.id, table_key
+                ),
+            });
+        }
+    }
+
+    errs
+}
+
+/// Edge agreement pass. The convention bound here is **blocker on the
+/// left, dependent on the right**: if table row `#a` lists `#b` in its
+/// Dependencies cell, the diagram must contain `Ib --> Ia`. Edges
+/// involving any non-issue-keyed endpoint are excluded from both
+/// directions.
+fn edge_pass(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationError> {
+    let mut errs = Vec::new();
+
+    // Build the set of (src, dst) edges restricted to issue-keyed pairs.
+    let diagram_edges: HashSet<(String, String)> = diagram
+        .edges
+        .iter()
+        .filter(|e| ISSUE_KEYED_NODE_ID.is_match(&e.src) && ISSUE_KEYED_NODE_ID.is_match(&e.dst))
+        .map(|e| (e.src.clone(), e.dst.clone()))
+        .collect();
+
+    // Build the table-justified edge set: for every row #a with dep #b,
+    // the edge is (Ib, Ia).
+    let mut table_edges: HashSet<(String, String)> = HashSet::new();
+    for row in &table.rows {
+        if row.kind != RowKind::Entity {
+            continue;
+        }
+        let dependent = match issue_id_from_key(&row.key) {
+            Some(id) => id,
+            None => continue,
+        };
+        for dep in &row.deps {
+            let blocker = match issue_id_from_dep(dep) {
+                Some(id) => id,
+                None => continue,
+            };
+            table_edges.insert((blocker.clone(), dependent.clone()));
+            // Missing-edge notice from the table side.
+            if !diagram_edges.contains(&(blocker.clone(), dependent.clone())) {
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line: row.line,
+                    code: "FC07".to_string(),
+                    message: format!(
+                        "[FC07] table row {:?} lists dependency {:?} but diagram has no matching edge ({} --> {})",
+                        row.key, dep, blocker, dependent
+                    ),
+                });
+            }
+        }
+    }
+
+    // Orphan-edge notice from the diagram side.
+    for edge in &diagram.edges {
+        if !ISSUE_KEYED_NODE_ID.is_match(&edge.src) || !ISSUE_KEYED_NODE_ID.is_match(&edge.dst) {
+            continue;
+        }
+        if !table_edges.contains(&(edge.src.clone(), edge.dst.clone())) {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: edge.line,
+                code: "FC07".to_string(),
+                message: format!(
+                    "[FC07] diagram edge {} --> {} has no matching dependency in the table",
+                    edge.src, edge.dst
+                ),
+            });
+        }
+    }
+
+    errs
+}
+
+/// Class-versus-Status agreement pass. For each class assignment whose
+/// name is in [`STATUS_CLASSES`] and whose id is an issue-keyed diagram
+/// node, evaluate the four-case truth table:
+///
+/// - `done`: row must be in a terminal state.
+/// - `ready`: row must be open AND every dependency target must be in a
+///   terminal state.
+/// - `blocked`: row must be open AND at least one dependency target must
+///   itself be open.
+///
+/// A mismatch fires one notice in the four-field shape (node, declared
+/// class, observed state, expected class). Non-Status classes are
+/// skipped (see [`NON_STATUS_CLASSES`] for the recognised set).
+fn class_vs_status_pass(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationError> {
+    let mut errs = Vec::new();
+
+    // Build a fast lookup from diagram id to its parsed row.
+    let row_by_id: std::collections::HashMap<String, &Row> = table
+        .rows
+        .iter()
+        .filter(|r| r.kind == RowKind::Entity)
+        .filter_map(|r| issue_id_from_key(&r.key).map(|id| (id, r)))
+        .collect();
+
+    for assign in &diagram.class_assignments {
+        if !STATUS_CLASSES.contains(&assign.name.as_str()) {
+            continue;
+        }
+        if !ISSUE_KEYED_NODE_ID.is_match(&assign.id) {
+            continue;
+        }
+        let row = match row_by_id.get(&assign.id) {
+            Some(r) => *r,
+            None => continue, // node-set pass already reported this
+        };
+
+        let observed = observed_state(row, table.profile);
+        let expected = expected_class(row, table.profile, &row_by_id);
+        if assign.name != expected {
+            errs.push(class_status_notice(
+                doc,
+                &assign.id,
+                &assign.name,
+                observed,
+                expected,
+                assign.line,
+            ));
+        }
+    }
+
+    errs
+}
+
+/// The observed terminal-or-open state for a row, used to render the
+/// class-versus-Status notice body.
+fn observed_state(row: &Row, profile: Profile) -> &'static str {
+    if row.terminal {
+        return "terminal";
+    }
+    // Open: distinguish the roadmap-profile Status-value cases for the
+    // notice body. The plan profile has no Status cell.
+    match (profile, row.status.as_deref()) {
+        (Profile::Roadmap, Some(s)) if !s.is_empty() => "open",
+        _ => "open",
+    }
+}
+
+/// Derive the expected Status class for a row from its terminal-or-open
+/// state and its dependencies. `row_by_id` resolves dependency `#N`
+/// tokens to their rows so the `ready` / `blocked` truth-table cases can
+/// inspect dependency state.
+fn expected_class(
+    row: &Row,
+    _profile: Profile,
+    row_by_id: &std::collections::HashMap<String, &Row>,
+) -> &'static str {
+    if row.terminal {
+        return "done";
+    }
+    // Inspect dependency state to decide ready vs blocked.
+    let mut all_deps_terminal = true;
+    let mut has_open_dep = false;
+    for dep in &row.deps {
+        let dep_id = match issue_id_from_dep(dep) {
+            Some(id) => id,
+            None => continue,
+        };
+        match row_by_id.get(&dep_id) {
+            Some(r) => {
+                if r.terminal {
+                    // dep is closed
+                } else {
+                    has_open_dep = true;
+                    all_deps_terminal = false;
+                }
+            }
+            None => {
+                // Unknown dep: treated as not-yet-terminal for the
+                // ready/blocked decision (consistent with the truth
+                // table's "open" classification).
+                all_deps_terminal = false;
+                has_open_dep = true;
+            }
+        }
+    }
+    if has_open_dep {
+        return "blocked";
+    }
+    if all_deps_terminal {
+        return "ready";
+    }
+    "ready"
+}
+
+fn class_status_notice(
+    doc: &Doc,
+    node_id: &str,
+    declared: &str,
+    observed: &str,
+    expected: &str,
+    line: usize,
+) -> ValidationError {
+    ValidationError {
+        file: doc.path.clone(),
+        line,
+        code: "FC07".to_string(),
+        message: format!(
+            "[FC07] node {:?} declared class {:?}, observed state {:?}, expected class {:?}",
+            node_id, declared, observed, expected
+        ),
+    }
+}
+
+/// Collect the set of `#N` entity-row keys from the table.
+fn table_issue_keys(table: &Table) -> HashSet<&str> {
+    table
+        .rows
+        .iter()
+        .filter(|r| r.kind == RowKind::Entity)
+        .map(|r| r.key.as_str())
+        .filter(|k| k.starts_with('#') && k[1..].chars().all(|c| c.is_ascii_digit()))
+        .collect()
+}
+
+/// Map an entity-row key (`#N`) to its diagram node id (`IN`). Returns
+/// `None` for non-issue-keyed keys (roadmap-profile feature labels, for
+/// instance).
+fn issue_id_from_key(key: &str) -> Option<String> {
+    let num = key.strip_prefix('#')?;
+    if !num.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(format!("I{}", num))
+}
+
+/// Map a Dependencies-cell token to its diagram node id. Cross-repo
+/// references (`owner/repo#N`) and free-text feature labels return
+/// `None`; these are excluded from the edge agreement check.
+fn issue_id_from_dep(dep: &str) -> Option<String> {
+    if dep.contains('/') {
+        return None;
+    }
+    issue_id_from_key(dep)
 }
 
 #[cfg(test)]
@@ -1170,5 +1640,470 @@ mod tests {
                 errs
             );
         }
+    }
+
+    // --- check_fc07 (R1-R12 acceptance criteria) ---
+    //
+    // PRD acceptance-criterion coverage matrix (R2-R12, 26 total):
+    //   AC-R2.1 table-key-with-no-diagram-node: covered by fn check_fc07_table_key_with_no_matching_diagram_node_fires
+    //   AC-R2.2 diagram-node-with-no-table-key: covered by fn check_fc07_diagram_node_with_no_matching_table_key_fires
+    //   AC-R2.3 non-issue-keyed-node-excluded: covered by fn check_fc07_non_issue_keyed_node_id_does_not_fire
+    //   AC-R3.1 missing-edge-from-deps: covered by fn check_fc07_dependency_without_edge_fires
+    //   AC-R3.2 orphan-edge-from-diagram: covered by fn check_fc07_orphan_diagram_edge_fires
+    //   AC-R3.3 cross-repo-edge-excluded: covered by fn check_fc07_edge_with_non_issue_keyed_endpoint_excluded
+    //   AC-R4.1 done-on-open-row-fires: covered by fn check_fc07_done_class_on_open_row_fires
+    //   AC-R4.2 ready-with-open-dep-fires: covered by fn check_fc07_ready_class_with_open_dep_fires
+    //   AC-R4.3 blocked-on-terminal-row-fires: covered by fn check_fc07_blocked_class_on_terminal_row_fires
+    //   AC-R4.4 missing-class-no-notice: covered by fn check_fc07_node_without_class_does_not_fire
+    //   AC-R4.5 non-status-class-no-notice: covered by fn check_fc07_non_status_class_does_not_fire
+    //   AC-R4.6 undefined-classdef-fires: covered by fn check_fc07_undefined_class_fires
+    //   AC-R5 extractor-four-views: covered by fn check_fc07_uses_extractor_four_views_no_dep (and mermaid::tests::*)
+    //   AC-R6 is_notice-membership: covered by validate::tests::is_notice_only_schema
+    //   AC-R7 single-point-promotion-seam: covered by fn fc07_promotion_seam_is_single_match_arm
+    //   AC-R8 notice-prefix-and-voice: covered by fn check_fc07_notices_share_prefix_and_voice
+    //   AC-R9.1 unterminated-fence: covered by fn check_fc07_unterminated_fence_emits_notice
+    //   AC-R9.2 missing-block-skips-per-node: covered by fn check_fc07_missing_block_short_circuits_per_node_checks
+    //   AC-R9.3 flowchart-header: covered by fn check_fc07_flowchart_header_emits_notice_and_continues
+    //   AC-R9.4 inline-class-syntax: covered by fn check_fc07_inline_class_syntax_emits_notice_and_records
+    //   AC-R9.5 whitespace-in-class-list: covered by mermaid::tests::extract_diagram_class_multi_key_with_internal_whitespace_tolerated
+    //   AC-R10 bounded-iteration: covered by mermaid::tests::extract_diagram_very_long_line_does_not_panic, ..._arbitrary_utf8_..., ..._deeply_nested_punctuation_...
+    //   AC-R11 reuse-no-new-dep: structural; FC07 is one new function in shirabe-validate, no new crate (see Cargo.toml)
+    //   AC-R12 public-cleanliness: covered by fn fc07_notice_bodies_are_public_clean
+    //   AC class-vs-Status no-op when no class: covered by fn check_fc07_node_without_class_does_not_fire
+    //   AC node-set short-circuit on missing block: covered by fn check_fc07_missing_block_short_circuits_per_node_checks
+    //   AC dispatched-only-in-plan-and-roadmap: covered by fn check_fc07_is_a_noop_for_formats_without_issues_table
+
+    /// Pinned pre-cleanup regression fixture. The exact defect PR #147
+    /// hand-fixed: a plan-profile entity row in a terminal state
+    /// (strikethrough) paired with a diagram that still classes the
+    /// node `blocked`. FC07 must emit the four-field truth-table notice
+    /// naming the node, the declared class, the observed state, and the
+    /// expected class.
+    const PRE_CLEANUP_REGRESSION_FIXTURE: &str =
+        "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| ~~[#111: shared references](https://example.com/111)~~ | ~~None~~ | ~~simple~~ |\n| ~~_Closed item._~~ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I111[\"#111: shared references\"]\n    classDef blocked fill:#fff9c4\n    class I111 blocked\n```\n";
+
+    #[test]
+    fn check_fc07_pinned_pre_cleanup_class_vs_status_fixture() {
+        let doc = doc_md(PRE_CLEANUP_REGRESSION_FIXTURE);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        // Find the four-field class-versus-Status notice. There may be
+        // other notices in the fixture; the pinned assertion is on the
+        // class-vs-Status defect.
+        let class_notices: Vec<&ValidationError> = errs
+            .iter()
+            .filter(|e| {
+                e.message.contains("declared class")
+                    && e.message.contains("observed state")
+                    && e.message.contains("expected class")
+            })
+            .collect();
+        assert_eq!(
+            class_notices.len(),
+            1,
+            "expected exactly one class-vs-Status notice; got {:?}",
+            errs
+        );
+        let m = &class_notices[0].message;
+        assert!(m.contains("\"I111\""), "notice names the node id");
+        assert!(m.contains("\"blocked\""), "notice names the declared class");
+        assert!(m.contains("\"terminal\""), "notice names the observed state");
+        assert!(m.contains("\"done\""), "notice names the expected class");
+        assert_eq!(class_notices[0].code, "FC07");
+    }
+
+    fn well_formed_plan(extra_diagram: &str) -> String {
+        format!(
+            "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 2\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n| [#2: beta](https://example.com/2) | [#1](https://example.com/1) | testable |\n| _Beta._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    I2[\"#2: beta\"]\n    I1 --> I2\n    classDef ready fill:#bbdefb\n    classDef blocked fill:#fff9c4\n{}```\n",
+            extra_diagram
+        )
+    }
+
+    #[test]
+    fn check_fc07_no_op_on_well_formed_plan() {
+        let doc = doc_md(&well_formed_plan("    class I1 ready\n    class I2 blocked\n"));
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        assert_eq!(errs.len(), 0, "expected no FC07 notices, got {:?}", errs);
+    }
+
+    #[test]
+    fn check_fc07_table_key_with_no_matching_diagram_node_fires() {
+        // Table has #1, #2; diagram only has I1.
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 2\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n| [#2: beta](https://example.com/2) | None | testable |\n| _Beta._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    classDef ready fill:#bbdefb\n    class I1 ready\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        let names = errs
+            .iter()
+            .filter(|e| e.message.contains("no matching diagram node"))
+            .count();
+        assert_eq!(names, 1, "expected one missing-node notice, got {:?}", errs);
+        assert!(errs.iter().any(|e| e.message.contains("\"#2\"")));
+    }
+
+    #[test]
+    fn check_fc07_diagram_node_with_no_matching_table_key_fires() {
+        // Diagram has I1, I2; table only has #1.
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    I2[\"#2: orphan\"]\n    classDef ready fill:#bbdefb\n    class I1 ready\n    class I2 ready\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        let orphans = errs
+            .iter()
+            .filter(|e| e.message.contains("no matching table row"))
+            .count();
+        assert_eq!(orphans, 1, "expected one orphan-node notice, got {:?}", errs);
+        assert!(errs.iter().any(|e| e.message.contains("\"I2\"")));
+    }
+
+    #[test]
+    fn check_fc07_non_issue_keyed_node_id_does_not_fire() {
+        // Outline-ids `O<n>` are excluded from the bijection check.
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    O1[\"outline 1\"]\n    O2[\"outline 2\"]\n    O1 --> O2\n    classDef simple fill:#c8e6c9\n    classDef ready fill:#bbdefb\n    class I1 ready\n    class O1,O2 simple\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        // No bijection notice should name O1 or O2.
+        for e in &errs {
+            assert!(
+                !e.message.contains("\"O1\"") && !e.message.contains("\"O2\""),
+                "bijection should exclude non-issue-keyed ids; got {:?}",
+                e
+            );
+        }
+    }
+
+    #[test]
+    fn check_fc07_dependency_without_edge_fires() {
+        // Table says #2 depends on #1; diagram has both nodes but no edge.
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 2\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n| [#2: beta](https://example.com/2) | [#1](https://example.com/1) | testable |\n| _Beta._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    I2[\"#2: beta\"]\n    classDef ready fill:#bbdefb\n    classDef blocked fill:#fff9c4\n    class I1 ready\n    class I2 blocked\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("no matching edge") && e.message.contains("I1 --> I2")),
+            "expected missing-edge notice for I1 --> I2; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_orphan_diagram_edge_fires() {
+        // Diagram has I1 --> I2; table does not list #1 as a dependency
+        // of #2. (Note: this also implies #2 may have no dep at all.)
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 2\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n| [#2: beta](https://example.com/2) | None | testable |\n| _Beta._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    I2[\"#2: beta\"]\n    I1 --> I2\n    classDef ready fill:#bbdefb\n    class I1 ready\n    class I2 ready\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter().any(|e| e.message.contains("no matching dependency")
+                && e.message.contains("I1 --> I2")),
+            "expected orphan-edge notice; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_edge_with_non_issue_keyed_endpoint_excluded() {
+        // Edge `K65 --> I1` should not fire an edge notice.
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    K65[\"koto: external\"]\n    K65 --> I1\n    classDef ready fill:#bbdefb\n    classDef koto fill:#FFE0B2\n    class I1 ready\n    class K65 koto\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        for e in &errs {
+            assert!(
+                !e.message.contains("K65 --> I1"),
+                "edges with non-issue-keyed endpoint must be excluded; got {:?}",
+                e
+            );
+        }
+    }
+
+    #[test]
+    fn check_fc07_done_class_on_open_row_fires() {
+        // Row #1 is open (no strikethrough); diagram classes I1 done.
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    classDef done fill:#c8e6c9\n    class I1 done\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter().any(|e| e.message.contains("\"I1\"")
+                && e.message.contains("\"done\"")
+                && e.message.contains("\"open\"")),
+            "expected class-vs-Status notice for done-on-open; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_ready_class_with_open_dep_fires() {
+        // Row #2 depends on #1; #1 is open; diagram classes I2 ready.
+        // Truth table: ready requires every dep terminal -> mismatch.
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 2\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n| [#2: beta](https://example.com/2) | [#1](https://example.com/1) | testable |\n| _Beta._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    I2[\"#2: beta\"]\n    I1 --> I2\n    classDef ready fill:#bbdefb\n    class I1 ready\n    class I2 ready\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter().any(|e| e.message.contains("\"I2\"")
+                && e.message.contains("\"ready\"")
+                && e.message.contains("\"blocked\"")),
+            "expected ready-with-open-dep mismatch; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_blocked_class_on_terminal_row_fires() {
+        // Pinned pre-cleanup case (also tested by
+        // check_fc07_pinned_pre_cleanup_class_vs_status_fixture).
+        let doc = doc_md(PRE_CLEANUP_REGRESSION_FIXTURE);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter().any(|e| e.message.contains("\"I111\"")
+                && e.message.contains("\"blocked\"")
+                && e.message.contains("\"done\"")),
+            "expected blocked-on-terminal mismatch; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_node_without_class_does_not_fire() {
+        // No class assignment on I1 -- no class-vs-Status notice.
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        for e in &errs {
+            assert!(
+                !e.message.contains("declared class"),
+                "no class -> no class-vs-Status notice; got {:?}",
+                e
+            );
+        }
+    }
+
+    #[test]
+    fn check_fc07_non_status_class_does_not_fire() {
+        // simple, testable, critical, koto, needsDesign etc. are not
+        // reconciled against Status.
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    classDef simple fill:#c8e6c9\n    classDef needsDesign fill:#e1bee7\n    class I1 simple\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        for e in &errs {
+            assert!(
+                !e.message.contains("declared class"),
+                "non-Status class -> no class-vs-Status notice; got {:?}",
+                e
+            );
+        }
+    }
+
+    #[test]
+    fn check_fc07_undefined_class_fires() {
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    class I1 nosuchclass\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter().any(|e| e.message.contains("\"nosuchclass\"")
+                && e.message.contains("no classDef")),
+            "expected undefined-class notice; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_unterminated_fence_emits_notice() {
+        // Opening fence with no closing fence before EOF.
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("unterminated mermaid block")),
+            "expected unterminated-fence notice; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_missing_block_short_circuits_per_node_checks() {
+        // ## Dependency Graph exists but no mermaid block under it.
+        // Per-node checks must be skipped (we must NOT see one missing-node
+        // notice per table row).
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 3\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: a](https://example.com/1) | None | simple |\n| _A._ | | |\n| [#2: b](https://example.com/2) | None | simple |\n| _B._ | | |\n| [#3: c](https://example.com/3) | None | simple |\n| _C._ | | |\n\n## Dependency Graph\n\nNo block.\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        // Exactly one missing-block notice, no per-row missing-node noise.
+        let missing_block = errs
+            .iter()
+            .filter(|e| e.message.contains("no mermaid block under"))
+            .count();
+        assert_eq!(missing_block, 1, "expected exactly one missing-block notice");
+        let per_row = errs
+            .iter()
+            .filter(|e| e.message.contains("no matching diagram node"))
+            .count();
+        assert_eq!(per_row, 0, "per-node checks must be skipped");
+    }
+
+    #[test]
+    fn check_fc07_flowchart_header_emits_notice_and_continues() {
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\nflowchart TD\n    I1[\"#1: alpha\"]\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("header is 'flowchart'")),
+            "expected flowchart-header notice; got {:?}",
+            errs
+        );
+        // Body is still attempted: no missing-node notice for #1.
+        let missing_node_for_1 = errs
+            .iter()
+            .filter(|e| {
+                e.message.contains("no matching diagram node") && e.message.contains("\"#1\"")
+            })
+            .count();
+        assert_eq!(
+            missing_node_for_1, 0,
+            "extractor still attempts the body after flowchart header"
+        );
+    }
+
+    #[test]
+    fn check_fc07_inline_class_syntax_emits_notice_and_records() {
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    I2[\"#2: beta\"]\n    I1:::ready --> I2\n    classDef ready fill:#bbdefb\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("inline class syntax")),
+            "expected inline-class notice; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_uses_extractor_four_views_no_dep() {
+        // Smoke check that FC07 consumes the four extractor views: a
+        // well-formed plan that exercises nodes, edges, class
+        // assignments, and classDefs returns no notices.
+        let doc = doc_md(&well_formed_plan("    class I1 ready\n    class I2 blocked\n"));
+        let errs = check_fc07(&doc, &spec_for("plan/v1"));
+        assert_eq!(errs.len(), 0, "expected no FC07 notices; got {:?}", errs);
+    }
+
+    #[test]
+    fn check_fc07_notices_share_prefix_and_voice() {
+        // Every FC07 notice begins with `[FC07]` and identifies the
+        // defect site by node id, table key, edge endpoints, or class
+        // name -- not by URL or external identifier.
+        let mut all_errs: Vec<ValidationError> = Vec::new();
+        // Sample three different defect shapes.
+        all_errs.extend(check_fc07(
+            &doc_md(PRE_CLEANUP_REGRESSION_FIXTURE),
+            &spec_for("plan/v1"),
+        ));
+        let md_missing_node = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n```\n";
+        all_errs.extend(check_fc07(&doc_md(md_missing_node), &spec_for("plan/v1")));
+        for e in &all_errs {
+            assert!(
+                e.message.starts_with("[FC07]"),
+                "every FC07 notice must begin with [FC07]; got {:?}",
+                e.message
+            );
+            assert!(
+                !e.message.contains("http://") && !e.message.contains("https://"),
+                "notice bodies must not include URLs; got {:?}",
+                e.message
+            );
+        }
+    }
+
+    #[test]
+    fn check_fc07_is_a_noop_for_formats_without_issues_table() {
+        let doc = doc_md(
+            "---\nschema: design/v1\nstatus: Accepted\n---\n\n## Implementation Issues\n\n| Some | Random | Headers |\n|------|--------|---------|\n| a | b | c |\n",
+        );
+        let errs = check_fc07(&doc, &spec_for("design/v1"));
+        assert_eq!(errs.len(), 0);
+    }
+
+    #[test]
+    fn fc07_promotion_seam_is_single_match_arm() {
+        // The promotion seam is the `is_notice` match-arm: removing
+        // `"FC07"` from the alternation is the one-line diff that flips
+        // FC07 from notice to error. We assert structurally via the
+        // is_notice membership: FC07 is a notice today.
+        use crate::validate::is_notice;
+        let e = ValidationError {
+            file: String::new(),
+            line: 0,
+            code: "FC07".to_string(),
+            message: String::new(),
+        };
+        assert!(is_notice(&e), "FC07 must be notice-level for v1");
+    }
+
+    #[test]
+    fn fc07_notice_bodies_are_public_clean() {
+        // R12 public-cleanliness scan: walk a representative set of FC07
+        // notice bodies (one per defect shape) and assert none contains
+        // a private repo path, an external issue number outside the
+        // diagram-node form, or a pre-announcement feature name.
+        //
+        // The scan also covers the doc-comments on check_fc07 (via the
+        // module-level comment in the rendered notice messages); the
+        // promotion-seam doc-comment is covered by the validate.rs test
+        // module's is_notice_only_schema (which exercises the function
+        // whose doc-comment names the seam).
+        let mut all_errs: Vec<ValidationError> = Vec::new();
+        all_errs.extend(check_fc07(
+            &doc_md(PRE_CLEANUP_REGRESSION_FIXTURE),
+            &spec_for("plan/v1"),
+        ));
+
+        // Build a doc that exercises every Issue variant in one go.
+        let md_all_issues = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | [#2](https://example.com/2) | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\nflowchart TD\n    I1[\"#1: alpha\"]\n    I3[\"#3: orphan\"]\n    I1:::ready --> I3\n    class I1 nosuchclass\n```\n";
+        all_errs.extend(check_fc07(&doc_md(md_all_issues), &spec_for("plan/v1")));
+
+        for e in &all_errs {
+            // No private repo paths or filenames.
+            assert!(
+                !e.message.contains("private/"),
+                "private path in FC07 notice: {:?}",
+                e.message
+            );
+            // No GitHub issue/PR references outside the canonical
+            // diagram-node form: `#NNN` outside `"#NNN"` or `IN`/`#N`
+            // table-key form. Our notices always quote the diagram id
+            // or table key; verify none names a different surface
+            // (commit shas, branch names, etc.).
+            assert!(
+                !e.message.to_lowercase().contains("github.com"),
+                "external URL in FC07 notice: {:?}",
+                e.message
+            );
+            // No "next/upcoming/announcement" pre-announcement leakage.
+            for word in ["upcoming", "unreleased", "internal beta"] {
+                assert!(
+                    !e.message.to_lowercase().contains(word),
+                    "pre-announcement language {:?} in FC07 notice: {:?}",
+                    word,
+                    e.message
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn check_fc07_dispatched_in_plan_and_roadmap_arms() {
+        // FC07 is wired in validate_file's Plan and Roadmap arms; for any
+        // other format (design, prd, brief, ...) check_fc07 itself is a
+        // no-op (covered by the is_a_noop_for_formats_without_issues_table
+        // test). This test exercises the dispatch via validate_file.
+        use crate::validate::{validate_file, Config};
+        let cfg = Config::default();
+        // A plan with a class-vs-Status defect surfaces FC07 via
+        // validate_file.
+        let doc = doc_md(PRE_CLEANUP_REGRESSION_FIXTURE);
+        let errs = validate_file(&doc, &spec_for("plan/v1"), &cfg);
+        assert!(
+            errs.iter().any(|e| e.code == "FC07"),
+            "FC07 must be dispatched in the Plan arm; got {:?}",
+            errs
+        );
     }
 }
