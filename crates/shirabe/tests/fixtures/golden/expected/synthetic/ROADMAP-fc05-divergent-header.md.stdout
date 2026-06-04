@@ -1,1 +1,2 @@
 ::error file=synthetic/ROADMAP-fc05-divergent-header.md,line=30::[FC05] issues-table header "Feature | Status | Downstream Artifact" does not match the Roadmap profile (expected "Feature | Issues | Dependencies | Status")
+::notice file=synthetic/ROADMAP-fc05-divergent-header.md::[FC07] no mermaid block under ## Dependency Graph (skipping per-node checks)

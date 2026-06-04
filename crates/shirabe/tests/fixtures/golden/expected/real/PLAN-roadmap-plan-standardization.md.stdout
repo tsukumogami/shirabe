@@ -1,1 +1,8 @@
 ::error file=real/PLAN-roadmap-plan-standardization.md,line=5::[R6] upstream "docs/designs/DESIGN-roadmap-plan-standardization.md" does not exist on disk
+::notice file=real/PLAN-roadmap-plan-standardization.md::[FC07] node "I111" declared class "ready", observed state "terminal", expected class "done"
+::notice file=real/PLAN-roadmap-plan-standardization.md::[FC07] node "I112" declared class "blocked", observed state "terminal", expected class "done"
+::notice file=real/PLAN-roadmap-plan-standardization.md::[FC07] node "I113" declared class "blocked", observed state "terminal", expected class "done"
+::notice file=real/PLAN-roadmap-plan-standardization.md::[FC07] node "I114" declared class "blocked", observed state "open", expected class "ready"
+::notice file=real/PLAN-roadmap-plan-standardization.md::[FC07] node "I115" declared class "blocked", observed state "open", expected class "ready"
+::notice file=real/PLAN-roadmap-plan-standardization.md::[FC07] node "I116" declared class "blocked", observed state "open", expected class "ready"
+::notice file=real/PLAN-roadmap-plan-standardization.md::[FC07] node "I118" declared class "blocked", observed state "open", expected class "ready"

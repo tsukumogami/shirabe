@@ -1,1 +1,2 @@
 ::error file=synthetic/PLAN-r6-broken-upstream.md,line=7::[R6] upstream "synthetic/this-upstream-does-not-exist.md" does not exist on disk
+::notice file=synthetic/PLAN-r6-broken-upstream.md::[FC07] no mermaid block under ## Dependency Graph (skipping per-node checks)
