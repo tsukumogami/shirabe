@@ -1672,12 +1672,13 @@ mod tests {
     //   AC-R11 reuse-no-new-dep-no-new-binary: structural; covered by fn check_fc07_is_a_noop_for_formats_without_issues_table (one new function) and the workspace Cargo.toml (no new external dep)
     //   AC-R12 public-cleanliness-notice-bodies-and-doc-comments: covered by fn fc07_notice_bodies_are_public_clean and fn fc07_doc_comments_are_public_clean
 
-    /// Pinned pre-cleanup regression fixture. The exact defect PR #147
-    /// hand-fixed: a plan-profile entity row in a terminal state
-    /// (strikethrough) paired with a diagram that still classes the
-    /// node `blocked`. FC07 must emit the four-field truth-table notice
-    /// naming the node, the declared class, the observed state, and the
-    /// expected class.
+    /// Pinned pre-cleanup regression fixture. The defect shape: a
+    /// plan-profile entity row in a terminal state (strikethrough) paired
+    /// with a diagram that still classes the node `blocked`. The fixture
+    /// captures the exact drift a recent hand-fix corrected by hand, so
+    /// the next occurrence fires automatically. FC07 must emit the
+    /// four-field truth-table notice naming the node, the declared
+    /// class, the observed state, and the expected class.
     const PRE_CLEANUP_REGRESSION_FIXTURE: &str =
         "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| ~~[#111: shared references](https://example.com/111)~~ | ~~None~~ | ~~simple~~ |\n| ~~_Closed item._~~ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I111[\"#111: shared references\"]\n    classDef blocked fill:#fff9c4\n    class I111 blocked\n```\n";
 
@@ -2191,6 +2192,20 @@ mod tests {
                     !lower.contains(word),
                     "pre-announcement language {:?} in FC07 doc-comment: {:?}",
                     word,
+                    line
+                );
+            }
+            // No PR/issue-number references in code comments. These rot
+            // as the codebase evolves and belong in the PR description
+            // rather than in source. The `[FC07]` notice prefix is the
+            // one allowed `[FCxx]`-style token in these lines.
+            let stripped = line.replace("[FC07]", "");
+            let lower_stripped = stripped.to_lowercase();
+            for marker in ["pr #", "pull #", "issue #"] {
+                assert!(
+                    !lower_stripped.contains(marker),
+                    "PR/issue reference {:?} in FC07 doc-comment: {:?}",
+                    marker,
                     line
                 );
             }
