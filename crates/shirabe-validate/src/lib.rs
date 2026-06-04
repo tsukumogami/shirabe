@@ -13,6 +13,7 @@ pub mod doc;
 pub mod features;
 pub mod formats;
 pub mod frontmatter;
+pub mod mermaid;
 pub mod table;
 pub mod validate;
 
