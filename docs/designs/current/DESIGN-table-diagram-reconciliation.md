@@ -136,6 +136,17 @@ cases the spike enumerated (`UnterminatedFence`, `MissingBlock`,
 location and the extracted views -- and emits per-issue notices in
 addition to the per-dimension reconciliation notices.
 
+The extractor recognises three edge-arrow variants per
+`references/dependency-diagram.md`: `-->` (hard), `-.->` (soft), and
+`==>` (cross-altitude blocker). Each variant optionally carries a
+`|"label"|` annotation that is presentation only and not captured. All
+three variants normalize to the same `Edge` record at extraction time;
+FC07's edge-agreement pass treats them identically. `subgraph ... end`
+blocks are first-class: nodes declared inside subgraphs participate
+in bijection and edge agreement on the same terms as nodes declared
+outside them; subgraph names and `direction` overrides are
+presentation only.
+
 **Alternatives considered.**
 
 - *Return separate `Vec`/`HashSet` values from the extractor without a
@@ -304,6 +315,33 @@ table with the last column named `Status` indicates the roadmap
 profile; the canonical 3-column plan shape indicates the plan
 profile. A small enum `Profile { Plan, Roadmap }` is added to the
 `Table` struct.
+
+**Bijection contract per profile.** FC07's node-set bijection and
+edge agreement bind `I<n>` diagram ids to table rows via two
+different rules selected by `Table.profile`:
+
+- **Plan profile.** `I<n>` binds to the entity row whose key column
+  is `#n`. Edges derive from the Dependencies cell directly: a `#a`
+  dep on row `#b` requires `Ia --> Ib`.
+- **Roadmap profile.** `I<n>` binds to the entity row whose **Issues
+  column** contains a markdown link to issue `#n`. The diagram's
+  expected `I<n>` set is the union of every `#n` reference across
+  the table's Issues cells. A row whose Issues cell is `None`
+  contributes no expected node. Edges derive from each row's
+  Dependencies cell: a dep token that names another entity row
+  (by feature label) contributes one expected `Ia --> Ib` for every
+  blocker `I<a>` from the depended-upon row's Issues set times every
+  dependent `I<b>` from the row's own Issues set. Cross-product
+  tokens (containing `/`) are out-of-band and skipped; they are
+  treated as unknown deps in the class-versus-Status pass.
+
+The roadmap-profile binding is **label match** on issue number, not
+positional. The earlier consideration of a stable mnemonic `F<n>`
+shape (positional binding to entity rows) was dropped from the
+canonical spec because authors in the wild use issue-keyed `I<n>`
+nodes against the Issues column, and because positional binding is
+brittle under row reorderings while issue numbers are durable
+identifiers per the GitHub issue tracker.
 
 **Alternatives considered.**
 

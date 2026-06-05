@@ -168,34 +168,61 @@ file dispatcher, behind the same schema gate that gates FC05 and FC06,
 and produces zero, one, or many notices per file depending on the
 defects found.
 
-**R2: Node-set bijection (strict over the reconciling subset).** For
-every entity-row key in the table whose node id matches `^I[0-9]+$`,
-the diagram must contain a node with that id. For every diagram node
-whose id matches `^I[0-9]+$`, the table must contain a matching
-entity row. A table key with no matching diagram node fires a notice
-naming the table key. A diagram node with no matching table key fires
-a notice naming the orphan node.
+**R2: Node-set bijection (strict over the reconciling subset).** FC07
+binds `I<n>` diagram ids to table entity rows via a per-profile rule
+selected by `Table.profile`:
+
+- **Plan profile.** `I<n>` binds to the entity row whose key column
+  is `#n`. For every entity-row key matching `#<n>`, the diagram
+  must contain `I<n>`. For every diagram node matching `^I[0-9]+$`,
+  the table must contain an entity row with key `#<n>`.
+- **Roadmap profile.** `I<n>` binds to the entity row whose **Issues
+  column** contains a markdown link to issue `#n`. The diagram's
+  expected `I<n>` set is the union of every `#n` reference across
+  the table's Issues cells. A row whose Issues cell is `None`
+  contributes no expected node. For every diagram node matching
+  `^I[0-9]+$`, the table must contain an entity row whose Issues
+  cell references that issue.
+
+A table-side defect (a row that should have a matching diagram node
+but does not) fires a notice naming the row and the expected `I<n>`.
+A diagram-side defect (a node with no matching table row) fires a
+notice naming the orphan node.
 
 A diagram node whose id does not match `^I[0-9]+$` is excluded from
 both directions of the bijection check (the **tolerated exception**).
-This tolerates the two non-issue-keyed shapes the spike enumerated in
-the committed corpus today: the `O<n>` outline ids in the Rust
-rewrite plan and the `K<n>` cross-repo reference ids in the koto
-roadmap.
+This tolerates the non-issue-keyed shapes in the committed corpus:
+`O<n>` outline ids in plan-profile diagrams, and custom-mnemonic
+external references (e.g., `KT5V2`, `NW6`, `BK7`, `SH8`) in
+roadmap-profile diagrams that point to issues in other products'
+roadmaps. The earlier `F<n>` mnemonic alternative for roadmap nodes
+was considered and dropped from the canonical spec because authors
+in the wild use issue-keyed `I<n>` against the Issues column; see
+the parent design's Decision 6 for the rationale.
 
-**R3: Edge agreement (symmetric over the reconciling subset).** For
-every pair of issue-keyed nodes `I<a>` and `I<b>` where the table row
-for `#a` lists `#b` in its Dependencies cell, the diagram must
-contain the edge `I<b> --> I<a>` (the convention is blocker on the
-left, dependent on the right). For every edge `I<b> --> I<a>` where
-both endpoints are issue-keyed reconciling nodes, the table row for
-`#a` must list `#b` in its Dependencies cell.
+**R3: Edge agreement (symmetric over the reconciling subset).**
+Convention: **blocker on the left, dependent on the right**. The
+expected edge set derives from each row's Dependencies cell via the
+per-profile resolution rule:
+
+- **Plan profile.** A row with key `#a` listing `#b` in its
+  Dependencies cell expects the edge `I<b> --> I<a>`.
+- **Roadmap profile.** A dependent row whose Issues cell maps to a
+  set of `I<n>` nodes, with a Dependencies-cell entry that names
+  another entity row (by feature label) whose Issues cell maps to a
+  set of blocker `I<n>` nodes, expects one `I<blocker> --> I<dependent>`
+  edge for every (blocker, dependent) pair in the cross product of
+  the two sets. Cross-product dependency tokens (containing `/`) are
+  excluded from edge derivation; they reference external state the
+  local diagram cannot reflect.
 
 A Dependencies-cell entry with no matching diagram edge fires a
 notice naming the missing edge. A diagram edge with no matching
 Dependencies entry fires a notice naming the orphan edge. Edges
 involving a non-reconciling node id (any endpoint that does not match
-`^I[0-9]+$`) are excluded from both directions.
+`^I[0-9]+$`) are excluded from both directions. The three edge
+variants (`-->`, `-.->`, `==>` with optional `|"label"|`) are treated
+identically for agreement purposes; the variant is presentation only.
 
 **R4: Class-versus-Status agreement (truth table over the
 Status-bearing class set).** For each diagram node `I<n>` carrying a
@@ -214,13 +241,18 @@ class assignment whose name is in the Status-bearing set (`done`,
   notice; a missing class is a presentation gap, not a contract
   violation.
 
-The `needsDesign`, `needsPrd`, `needsSpike`, `needsDecision`,
-`tracksDesign`, and `tracksPlan` classes are recorded by the
-extractor but are not reconciled against Status — they encode
-pipeline-position metadata that the Implementation Issues table does
-not carry. Non-Status classes (`simple`, `testable`, `critical`
-Complexity markers, the `koto` external-node marker, any future
-custom class) are not checked.
+The pipeline-stage classes -- `needsDesign`, `needsPrd`, `needsSpike`,
+`needsDecision`, `needsPlanning`, `needsExplore`, `tracksDesign`, and
+`tracksPlan` -- are recorded by the extractor but are not reconciled
+against Status. They encode upstream-artifact prerequisites, which
+the Implementation Issues table does not carry. Plan-profile
+Complexity markers (`simple`, `testable`, `critical`), the
+roadmap-profile `external` marker for custom-mnemonic external
+nodes, the legacy `koto` external-node marker, and any future custom
+class are also not checked. When a node carries multiple classes (a
+combinatorial assignment with one Status class plus one critical-path
+overlay), FC07 evaluates each Status-bearing class against the truth
+table independently and ignores the rest.
 
 Each mismatch fires a notice that names the node, the declared class,
 the observed table state, and the expected class. A class statement
