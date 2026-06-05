@@ -1,0 +1,17 @@
+parent_layer:
+  peers: []
+
+child_layer:
+  peers:
+    - role: bet-quality-reviewer
+      cardinality: reviewer
+      phase: phase-4-validate
+      purpose: evaluates whether the strategy names a falsifiable bet
+    - role: altitude-reviewer
+      cardinality: reviewer
+      phase: phase-4-validate
+      purpose: evaluates altitude band conformance
+    - role: structural-format-reviewer
+      cardinality: reviewer
+      phase: phase-4-validate
+      purpose: evaluates structural conformance to strategy-format.md
