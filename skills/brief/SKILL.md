@@ -243,6 +243,20 @@ After acceptance, suggest next steps:
 
 ---
 
+## Team Shape
+
+`/brief`'s team shape is declared in [`team.yaml`](./team.yaml) as the
+machine-readable contract surface. The child layer spawns two reviewer
+peers at Phase 4 (`content-quality-reviewer`,
+`structural-format-reviewer`) to validate the drafted BRIEF.
+
+v1 parent skills (`/scope`, `/charter`) do NOT parse this file at
+dispatch time per the
+[`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md)
+Dispatch Contract section — the file is consumed by reviewers, the
+future Phase D validator extension, and the future amplifier-layer
+substrate.
+
 ## Reference Files
 
 | File | When to load |

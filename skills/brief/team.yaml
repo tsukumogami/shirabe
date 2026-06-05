@@ -1,0 +1,13 @@
+parent_layer:
+  peers: []
+
+child_layer:
+  peers:
+    - role: content-quality-reviewer
+      cardinality: reviewer
+      phase: phase-4-validate
+      purpose: evaluates Problem Statement / User Outcome / Journeys / Scope Boundary quality
+    - role: structural-format-reviewer
+      cardinality: reviewer
+      phase: phase-4-validate
+      purpose: verifies schema, heading, and format conformance
