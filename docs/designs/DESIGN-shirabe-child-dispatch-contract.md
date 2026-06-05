@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   The parent-skill pattern v1 reference and the two parent SKILL.md
   files describe parent-to-child dispatch across three passages
@@ -54,7 +54,7 @@ spawned_from:
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
