@@ -1,0 +1,17 @@
+parent_layer:
+  peers: []
+
+child_layer:
+  peers:
+    - role: completeness-reviewer
+      cardinality: reviewer
+      phase: phase-4-validate
+      purpose: finds gaps in requirements vs problem statement
+    - role: clarity-reviewer
+      cardinality: reviewer
+      phase: phase-4-validate
+      purpose: evaluates wording and unambiguity
+    - role: testability-reviewer
+      cardinality: reviewer
+      phase: phase-4-validate
+      purpose: evaluates AC verifiability
