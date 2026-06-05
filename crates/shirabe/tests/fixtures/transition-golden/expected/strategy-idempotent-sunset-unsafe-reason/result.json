@@ -1,0 +1,5 @@
+{
+  "code": 2,
+  "error": "Sunset reason contains forbidden character (\\\\, /, or &); use plain prose",
+  "success": false
+}
