@@ -645,19 +645,66 @@ audit trails, retrospectives) treat them differently.
 
 ### Binding Notes for `/charter`
 
-`/charter` v1 binds the discipline at two layers:
+`/charter` v1 binds the discipline at the child layer, not at the
+dispatch boundary. The dispatch mechanism the discipline binds
+against is named in the `## Dispatch Contract` section above:
+inline Skill-tool invocation from `/charter`'s own agent context,
+with the child running its own team (when it has one) at the child
+layer. The discipline's content — sleep-check-nudge loop, terminal
+exits, timing table, idle-pings rule, nudge content rule,
+`ci_outcome` semantics — is unchanged; what changes is the layer
+the binding fires at.
 
 - **At the parent-itself layer:** the binding is vacuous in v1.
   `/charter` runs as a single-agent skill (see `/charter`'s SKILL.md
   Team Shape section); no peers are dispatched at the
   `/charter`-itself layer, so the loop has zero dispatched tasks to
   drive.
-- **At the child-skill dispatch layer:** the binding is concrete.
-  Each `/vision`, `/strategy`, and `/roadmap` invocation is a
-  dispatch in the discipline sense: the team-lead (`/charter` as the
-  parent-of-the-child) drives the dispatched child to a terminal
-  exit. The child-skill invocation task class is the implementation
-  pass class above (120s window, 10-cycle patience budget). When
-  ESCALATE fires against a child invocation, the `triggering_child:`
-  field is the same value as `triggering_teammate:` from the
-  pattern-level mapping above.
+- **At the child-itself layer:** the discipline binds inside each
+  child against the child's own peers. `/vision`, `/strategy`, and
+  `/roadmap` each construct their own team (when they have one) per
+  the Dispatch Contract's Child Team-Shape Declaration; the child is
+  the team-lead in the discipline sense, driving its own peers'
+  dispatched tasks to terminal exits. The child-skill invocation
+  task class is the implementation pass class above (120s window,
+  10-cycle patience budget) as seen from `/charter`'s synchronous
+  Skill-tool wait. When ESCALATE fires inside a child invocation,
+  the escalation surfaces through the child's normal terminal
+  artifact (a partial doc with abandonment-forced state) and the
+  child's `triggering_teammate:` field; `/charter` learns about it
+  via the Hand-Back Contract's R20 file-existence check and
+  frontmatter `status:` read, not by inboxing a verdict from a team
+  it does not own.
+
+### Binding Notes for `/scope`
+
+`/scope` v1 binds the discipline at the child layer, not at the
+dispatch boundary. The dispatch mechanism the discipline binds
+against is named in the `## Dispatch Contract` section above:
+inline Skill-tool invocation from `/scope`'s own agent context, with
+the child running its own team (when it has one) at the child
+layer. The discipline's content — sleep-check-nudge loop, terminal
+exits, timing table, idle-pings rule, nudge content rule,
+`ci_outcome` semantics — is unchanged; what changes is the layer
+the binding fires at.
+
+- **At the parent-itself layer:** the binding is vacuous in v1.
+  `/scope` runs as a single-agent skill (see `/scope`'s SKILL.md
+  Team Shape section); no peers are dispatched at the
+  `/scope`-itself layer, so the loop has zero dispatched tasks to
+  drive.
+- **At the child-itself layer:** the discipline binds inside each
+  child against the child's own peers. `/brief`, `/prd`, `/design`,
+  and `/plan` each construct their own team (when they have one) per
+  the Dispatch Contract's Child Team-Shape Declaration; the child is
+  the team-lead in the discipline sense, driving its own peers'
+  dispatched tasks to terminal exits. The child-skill invocation
+  task class is the implementation pass class above (120s window,
+  10-cycle patience budget) as seen from `/scope`'s synchronous
+  Skill-tool wait. When ESCALATE fires inside a child invocation,
+  the escalation surfaces through the child's normal terminal
+  artifact (a partial doc with abandonment-forced state) and the
+  child's `triggering_teammate:` field; `/scope` learns about it
+  via the Hand-Back Contract's R20 file-existence check and
+  frontmatter `status:` read, not by inboxing a verdict from a team
+  it does not own.
