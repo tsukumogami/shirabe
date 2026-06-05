@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Current
 problem: |
   shirabe plans and roadmaps render a feature's structure on two surfaces -- the
   Implementation Issues table and the Dependency Graph mermaid block --
@@ -45,7 +45,7 @@ upstream: docs/prds/PRD-table-diagram-reconciliation.md
 
 ## Status
 
-Accepted
+Current
 
 ## Context and Problem Statement
 

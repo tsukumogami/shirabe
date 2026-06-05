@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   shirabe plans and roadmaps describe each feature's structure twice —
   in an Implementation Issues table and a Dependency Graph mermaid
@@ -28,7 +28,7 @@ upstream: docs/briefs/BRIEF-table-diagram-reconciliation.md
 
 ## Status
 
-Accepted
+Done
 
 This PRD picks up the requirements work scoped by
 `docs/briefs/BRIEF-table-diagram-reconciliation.md`. It owns the

@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   shirabe plans and roadmaps render a feature's structure in two
   parallel surfaces -- the Implementation Issues table and the
@@ -24,7 +24,7 @@ upstream: docs/designs/DESIGN-roadmap-plan-standardization.md
 
 ## Status
 
-Accepted
+Done
 
 ## Problem Statement
 
