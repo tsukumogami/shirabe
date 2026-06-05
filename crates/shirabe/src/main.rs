@@ -13,8 +13,8 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
-    detect_format, format_error, format_notice, is_notice, parse_doc, validate_file, Config,
-    ParseError, ValidationError,
+    detect_format, format_error, format_notice, is_notice, parse_doc, run_transition,
+    validate_file, Config, Flags, ParseError, ValidationError,
 };
 
 mod populate;
@@ -60,6 +60,8 @@ enum Commands {
     Validate(ValidateArgs),
     /// Roadmap-scoped subcommands.
     Roadmap(RoadmapArgs),
+    /// Transition a shirabe doc to a new status.
+    Transition(TransitionArgs),
 }
 
 #[derive(clap::Args)]
@@ -73,6 +75,24 @@ enum RoadmapCommands {
     /// Populate a roadmap's reserved Implementation Issues and Dependency
     /// Graph sections, creating one GitHub issue per feature.
     Populate(populate::PopulateArgs),
+}
+
+#[derive(clap::Args)]
+struct TransitionArgs {
+    /// Path to the doc to transition.
+    file: String,
+
+    /// Target status (canonical name; multi-word values like "In Progress"
+    /// must be quoted).
+    status: String,
+
+    /// Doc path for a supersession (design Superseded, vision Sunset).
+    #[arg(long)]
+    superseded_by: Option<String>,
+
+    /// Free-text reason for a sunset (strategy Sunset).
+    #[arg(long)]
+    reason: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -97,6 +117,7 @@ fn main() -> ExitCode {
         Some(Commands::Roadmap(args)) => match args.command {
             RoadmapCommands::Populate(p) => populate::run(&p),
         },
+        Some(Commands::Transition(args)) => run_transition_cmd(&args),
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would
         // otherwise leave `command` as `None` and exit 0 silently.
@@ -171,6 +192,26 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+/// Runs the `transition` subcommand. On success, prints the per-type JSON
+/// result to stdout and exits 0. On failure, prints the error JSON (with a
+/// matching `code` field) to stderr and exits with the engine's 1/2/3 code.
+fn run_transition_cmd(args: &TransitionArgs) -> ExitCode {
+    let flags = Flags {
+        superseded_by: args.superseded_by.clone(),
+        reason: args.reason.clone(),
+    };
+    match run_transition(&args.file, &args.status, &flags) {
+        Ok(outcome) => {
+            print!("{}", outcome.to_json());
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprint!("{}", err.to_json());
+            ExitCode::from(err.code as u8)
+        }
     }
 }
 
