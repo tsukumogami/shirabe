@@ -25,6 +25,26 @@ Walking skeleton does not apply: this is documentation reconciliation, not a fea
 
 **Why 13 issues.** Each child in Phase C has tightly-coupled file edits (team.yaml + SKILL.md cross-reference) that split would create trivial half-issues. Phase A's three sub-edits each touch a distinct reference file and can land independently once Issue 1 exists. Phase B splits along the two parents' asymmetric Phase 2 structures: /scope's single `## Child Invocation` section is one attachment point; /charter's four per-child Invocation Rule sections share one file and combine into a single issue.
 
+## Implementation Issues
+
+Summary table of all 13 issues. Each row links to the detailed outline below in `## Issue Outlines`. Single-pr-mode placeholders `<<ISSUE:N>>` are resolved at koto-run time; in single-pr mode the issues land in the same PR rather than separately filed on GitHub.
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#1: docs(parent-skill-pattern): add Dispatch Contract section](#1-docsparent-skill-pattern-add-dispatch-contract-section) | None | testable |
+| [#2: docs(parent-skill-pattern): rework Binding Notes for /charter and add Binding Notes for /scope](#2-docsparent-skill-pattern-rework-binding-notes-for-charter-and-add-binding-notes-for-scope) | <<ISSUE:1>> | simple |
+| [#3: docs(parent-skill-pattern): annotate state-schema with dispatch-contract cross-reference](#3-docsparent-skill-pattern-annotate-state-schema-with-dispatch-contract-cross-reference) | <<ISSUE:1>> | simple |
+| [#4: docs(scope,charter): cross-reference Dispatch Contract from parent Team Shape sections](#4-docsscopecharter-cross-reference-dispatch-contract-from-parent-team-shape-sections) | <<ISSUE:1>> | simple |
+| [#5: docs(scope): cross-reference Dispatch Contract from Phase 2 Child Invocation](#5-docsscope-cross-reference-dispatch-contract-from-phase-2-child-invocation) | <<ISSUE:1>> | simple |
+| [#6: docs(charter): cross-reference Dispatch Contract from Phase 2 per-child Invocation Rules](#6-docscharter-cross-reference-dispatch-contract-from-phase-2-per-child-invocation-rules) | <<ISSUE:1>> | simple |
+| [#7: docs(brief): add team.yaml and Team Shape section](#7-docsbrief-add-teamyaml-and-team-shape-section) | <<ISSUE:1>> | simple |
+| [#8: docs(prd): add team.yaml and Team Shape section](#8-docsprd-add-teamyaml-and-team-shape-section) | <<ISSUE:1>> | simple |
+| [#9: docs(design): add team.yaml and Team Shape section](#9-docsdesign-add-teamyaml-and-team-shape-section) | <<ISSUE:1>> | simple |
+| [#10: docs(plan): add team.yaml and Team Shape section](#10-docsplan-add-teamyaml-and-team-shape-section) | <<ISSUE:1>> | simple |
+| [#11: docs(vision): add team.yaml and Team Shape section](#11-docsvision-add-teamyaml-and-team-shape-section) | <<ISSUE:1>> | simple |
+| [#12: docs(strategy): add team.yaml and Team Shape section](#12-docsstrategy-add-teamyaml-and-team-shape-section) | <<ISSUE:1>> | simple |
+| [#13: docs(roadmap): add team.yaml and Team Shape section](#13-docsroadmap-add-teamyaml-and-team-shape-section) | <<ISSUE:1>> | simple |
+
 ## Issue Outlines
 
 ### [#1: docs(parent-skill-pattern): add Dispatch Contract section](#1-docsparent-skill-pattern-add-dispatch-contract-section)
