@@ -227,6 +227,24 @@ Execute phases sequentially by reading the corresponding phase file:
 
 ---
 
+## Team Shape
+
+`/design`'s team shape is declared in [`team.yaml`](./team.yaml) as the
+machine-readable contract surface. The child layer spawns four peer
+roles across three phases: `decision-researcher` (worker,
+upper_bound 9, phase-2-execution) walks the decision protocol per
+pending architectural question; `security-researcher` (reviewer,
+phase-5-security) investigates security implications;
+`architecture-reviewer` and `security-reviewer` (reviewers,
+phase-6-final-review) jury the final DESIGN.
+
+v1 parent skills (`/scope`, `/charter`) do NOT parse this file at
+dispatch time per the
+[`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md)
+Dispatch Contract section — the file is consumed by reviewers, the
+future Phase D validator extension, and the future amplifier-layer
+substrate.
+
 ## Reference Files
 
 | File | When to load |
