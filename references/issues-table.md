@@ -190,7 +190,7 @@ validator's `FC05` message points the author at this migration.
 
 ### Roadmap: divergent committed shapes
 
-Two shapes are known to exist in the committed corpus and migrate
+Three shapes are known to exist in the committed corpus and migrate
 into the canonical roadmap profile:
 
 - `Feature | Status | Downstream Artifact` -- the `Downstream Artifact`
@@ -204,13 +204,23 @@ into the canonical roadmap profile:
   is dropped (phase grouping moves to body prose). The `Label`
   column folds into `Status`: `needs-design` becomes `Status =
   needs-design`, `Done` becomes `Status = Done`, and similar.
+- `Feature | Issues | Status` (3-column) -- this shape drops the
+  Dependencies column and carries dependencies in per-feature body
+  prose (a `**Dependencies:**` line under each feature heading).
+  Migration adds a Dependencies column populated from the body
+  prose, producing the canonical 4-column shape. The 3-column shape
+  defeats FC06's machine-checkable cross-reference existence check
+  and FC07's edge-agreement pass: dependencies must live in the
+  Dependencies column to be reconciled against the diagram. The
+  3-column shape is **non-canonical**; FC05 may flag it as a profile
+  mismatch in a future release.
 
 In every migration, no issue link or dependency relationship is
 dropped or altered in meaning; only the table shape changes.
 
 ## Validation
 
-The Go validator in `internal/validate/` enforces the
+The Rust validator in `crates/shirabe-validate/src/` enforces the
 machine-checkable subset of this reference:
 
 - **FC05** -- issues-table schema conformance. Profile is selected by
@@ -220,9 +230,21 @@ machine-checkable subset of this reference:
 - **FC06** -- cross-reference existence. Every value in a
   Dependencies cell must name an entity-row key that exists in the
   same table.
+- **FC07** -- table-diagram reconciliation. The Implementation Issues
+  table and the Dependency Graph mermaid block must agree on three
+  dimensions: the issue-keyed node set (bijection between `I<n>`
+  diagram nodes and `#n` references in the table), the edge set
+  (every diagram edge justified by a Dependencies cell and vice
+  versa), and the class-versus-Status agreement. For the plan
+  profile, `I<n>` binds to the row whose key column is `#n`. For
+  the roadmap profile, `I<n>` binds to the row whose Issues column
+  contains `#n`; rows with `Issues = None` contribute no expected
+  diagram nodes. See `dependency-diagram.md` for the diagram-side
+  conventions.
 
-Both checks are error-level. A doc that names itself a roadmap or a
-plan (via filename prefix `ROADMAP-` or `PLAN-`) must declare its
-schema in frontmatter (`schema: roadmap/v1` or `schema: plan/v1`) for
-these checks to engage; the SCHEMA gate fires a notice on a missing
-or mismatched schema and skips the FC checks.
+FC05 and FC06 are error-level. FC07 is notice-level for v1. A doc
+that names itself a roadmap or a plan (via filename prefix `ROADMAP-`
+or `PLAN-`) must declare its schema in frontmatter (`schema:
+roadmap/v1` or `schema: plan/v1`) for these checks to engage; the
+SCHEMA gate fires a notice on a missing or mismatched schema and
+skips the FC checks.
