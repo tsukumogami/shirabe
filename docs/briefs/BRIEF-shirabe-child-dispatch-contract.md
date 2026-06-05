@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   The parent-skill pattern v1 docs (`references/parent-skill-pattern.md`
   plus `/scope` and `/charter` SKILL.md) describe a parent invoking its
@@ -22,7 +22,7 @@ outcome: |
 
 ## Status
 
-Accepted
+Done
 
 The downstream PRD owns the requirements articulation. The chosen
 dispatch mechanism (Skill tool inline, single subagent, TeamCreate

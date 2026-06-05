@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Current
 upstream: docs/prds/PRD-shirabe-child-dispatch-contract.md
 problem: |
   The parent-skill pattern v1 reference and the two parent SKILL.md
@@ -64,7 +64,7 @@ spawned_from:
 
 ## Status
 
-Accepted
+Current
 
 ## Context and Problem Statement
 
