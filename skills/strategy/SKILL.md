@@ -86,7 +86,8 @@ From `$ARGUMENTS`:
 1. **Empty** — ask the user what bet they want to articulate.
 2. **Path to existing STRATEGY** with lifecycle verb (`accept`,
    `activate`, `sunset`) — execute the lifecycle transition via
-   `scripts/transition-status.sh`. Sunset requires a reason argument.
+   `shirabe transition <strategy-path> <status>`. Sunset requires a
+   reason: `shirabe transition <strategy-path> Sunset --reason "<text>"`.
 3. **Path to a VISION document** (matches `docs/visions/VISION-*.md`)
    — treat as the upstream VISION for the new STRATEGY; derive the
    bet candidate from upstream content during Phase 1.
@@ -214,7 +215,7 @@ Execute phases sequentially by reading the corresponding phase file:
 
 Final artifact: `docs/strategies/STRATEGY-<topic>.md`, created in
 Draft status. After explicit user approval at Phase 5, transition to
-Accepted via `scripts/transition-status.sh`.
+Accepted via `shirabe transition <strategy-path> Accepted`.
 
 After acceptance, suggest next steps:
 

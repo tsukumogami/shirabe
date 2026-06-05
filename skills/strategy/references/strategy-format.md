@@ -209,10 +209,9 @@ downstream doc exists) or Open Questions (when it doesn't yet).
 
 ### Transitions
 
-All transitions are executed by
-`skills/strategy/scripts/transition-status.sh`. The script validates
-preconditions, updates status in both frontmatter and body, and moves
-files between directories when status changes.
+All transitions are executed by `shirabe transition`. The subcommand
+validates preconditions, updates status in both frontmatter and body, and
+moves files between directories when status changes.
 
 | Transition | Preconditions | Directory Movement |
 |-----------|---------------|-------------------|
@@ -227,14 +226,14 @@ downstream artifact consumes it. Forbidding this transition would
 force a contrived `Accepted -> Active -> Sunset` path through a
 never-realized Active state.
 
-**Script interface:**
+**Command interface:**
 
 ```
-skills/strategy/scripts/transition-status.sh <strategy-doc-path> <target-status> [reason]
+shirabe transition <strategy-doc-path> <target-status> [--reason "<text>"]
 ```
 
-`<target-status>` is one of `Accepted | Active | Sunset`. The optional
-`[reason]` argument is required for Sunset transitions and is captured
+`<target-status>` is one of `Accepted | Active | Sunset`. The
+`--reason` flag is required for Sunset transitions and is captured
 in the body Status section.
 
 **Forbidden transitions:**

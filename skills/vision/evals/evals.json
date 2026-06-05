@@ -51,12 +51,12 @@
       "id": 4,
       "name": "lifecycle-accept-verb",
       "prompt": "/vision accept docs/visions/VISION-package-registry.md",
-      "expected_output": "Detects lifecycle verb 'accept'. Validates Open Questions section is empty or removed. Runs transition-status.sh to transition from Draft to Accepted. Reports success. File stays in docs/visions/ (no directory movement for Accepted).",
+      "expected_output": "Detects lifecycle verb 'accept'. Validates Open Questions section is empty or removed. Runs shirabe transition to transition from Draft to Accepted. Reports success. File stays in docs/visions/ (no directory movement for Accepted).",
       "files": ["docs/visions/VISION-package-registry.md"],
       "expectations": [
         "Plan detects 'accept' as a lifecycle verb rather than starting the creation workflow",
         "Plan includes validating that Open Questions section is empty or removed before transition",
-        "Plan mentions running scripts/transition-status.sh to perform the transition",
+        "Plan mentions running shirabe transition to perform the transition",
         "Plan targets transitioning from Draft to Accepted status",
         "Plan does NOT move the file to a different directory (file stays in docs/visions/)"
       ]
@@ -65,11 +65,11 @@
       "id": 5,
       "name": "lifecycle-sunset-with-move",
       "prompt": "/vision sunset docs/visions/VISION-old-project.md",
-      "expected_output": "Detects lifecycle verb 'sunset'. Runs transition-status.sh to transition from Active to Sunset. File is moved to docs/visions/sunset/VISION-old-project.md via git mv. Status updated in both frontmatter and body.",
+      "expected_output": "Detects lifecycle verb 'sunset'. Runs shirabe transition to transition from Active to Sunset. File is moved to docs/visions/sunset/VISION-old-project.md via git mv. Status updated in both frontmatter and body.",
       "files": ["docs/visions/VISION-old-project.md"],
       "expectations": [
         "Plan detects 'sunset' as a lifecycle verb rather than starting the creation workflow",
-        "Plan mentions running scripts/transition-status.sh to perform the transition",
+        "Plan mentions running shirabe transition to perform the transition",
         "Plan includes moving the file to docs/visions/sunset/ directory",
         "Plan mentions the transition is from Active to Sunset status",
         "Plan mentions git mv or file movement for the directory change"

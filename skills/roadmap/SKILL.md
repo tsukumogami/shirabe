@@ -61,7 +61,8 @@ From `$ARGUMENTS`:
 1. **Empty** -- ask the user what initiative or theme they want to create a
    roadmap for
 2. **Path to existing ROADMAP** with lifecycle verb (`activate`, `done`) --
-   execute the lifecycle transition via `scripts/transition-status.sh`
+   execute the lifecycle transition via `shirabe transition <roadmap-path>
+   <status>`
 3. **`populate <path>`** -- populate the roadmap's reserved Implementation
    Issues and Dependency Graph sections by invoking the
    `shirabe roadmap populate` subcommand on the shirabe CLI. Native to the
@@ -187,7 +188,8 @@ Execute phases sequentially by reading the corresponding phase file:
 ### Output
 
 Final artifact: `docs/roadmaps/ROADMAP-<topic>.md`, created in Draft status.
-After user approval, transition to Active via `scripts/transition-status.sh`.
+After user approval, transition to Active via `shirabe transition
+<roadmap-path> Active`.
 
 A roadmap must be Active before merging to main. Draft roadmaps should not
 appear on the default branch -- the transition to Active signals that the
@@ -225,7 +227,7 @@ Lifecycle verbs are invoked as:
 /roadmap done docs/roadmaps/ROADMAP-<topic>.md
 ```
 
-Both delegate to `scripts/transition-status.sh`.
+Both delegate to `shirabe transition`.
 
 ---
 

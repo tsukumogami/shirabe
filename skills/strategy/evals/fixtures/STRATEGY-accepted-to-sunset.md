@@ -20,7 +20,7 @@ Accepted
 This fixture exercises the lifecycle refinement named in design
 Decision 3: a bet can be invalidated by external events before any
 downstream artifact consumes the STRATEGY. The test invokes
-`transition-status.sh` with target `Sunset` directly from Accepted,
+`shirabe transition` with target `Sunset` directly from Accepted,
 without going through Active.
 
 ## Defensibility Thesis

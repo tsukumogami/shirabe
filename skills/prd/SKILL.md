@@ -137,14 +137,14 @@ Execute phases sequentially by reading the corresponding phase file:
      `Done`, and skip entirely when /prd was invoked without a brief input
      (empty or topic). Update both the brief frontmatter `status:` and the
      body `## Status` line atomically so the FC03 cross-check stays
-     consistent. Use the existing brief transition script:
+     consistent. Use the transition subcommand:
 
      ```bash
-     ${CLAUDE_PLUGIN_ROOT}/skills/brief/scripts/transition-status.sh <brief-path> Accepted
+     shirabe transition <brief-path> Accepted
      ```
 
-     The script is a no-op when the brief is already `Accepted`, exits with
-     a clear error if asked to transition from `Done`, and updates both
+     The subcommand is a no-op when the brief is already `Accepted`, exits
+     with a clear error if asked to transition from `Done`, and updates both
      frontmatter and body in one operation. Commit:
      `docs(brief): mark <brief-name> accepted`
 

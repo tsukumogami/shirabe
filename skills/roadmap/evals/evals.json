@@ -32,12 +32,12 @@
       "id": 3,
       "name": "lifecycle-activate",
       "prompt": "/roadmap activate docs/roadmaps/ROADMAP-release-automation.md",
-      "expected_output": "Detects 'activate' as a lifecycle verb. Validates at least 2 features exist. Runs transition-status.sh to transition from Draft to Active. Reports success.",
+      "expected_output": "Detects 'activate' as a lifecycle verb. Validates at least 2 features exist. Runs shirabe transition to transition from Draft to Active. Reports success.",
       "files": ["docs/roadmaps/ROADMAP-release-automation.md"],
       "expectations": [
         "Transcript identifies 'activate' as a lifecycle verb from the arguments",
         "Transcript plans to validate that at least 2 features exist in the roadmap",
-        "Transcript plans to run scripts/transition-status.sh to perform the Draft to Active transition",
+        "Transcript plans to run shirabe transition to perform the Draft to Active transition",
         "Transcript does NOT plan to execute the full creation workflow (Phases 1-4)"
       ]
     },
@@ -45,12 +45,12 @@
       "id": 4,
       "name": "lifecycle-done",
       "prompt": "/roadmap done docs/roadmaps/ROADMAP-release-automation.md",
-      "expected_output": "Detects 'done' as a lifecycle verb. Validates all features have terminal status. Runs transition-status.sh to transition from Active to Done. Roadmap stays in docs/roadmaps/ (no directory movement).",
+      "expected_output": "Detects 'done' as a lifecycle verb. Validates all features have terminal status. Runs shirabe transition to transition from Active to Done. Roadmap stays in docs/roadmaps/ (no directory movement).",
       "files": ["docs/roadmaps/ROADMAP-release-automation.md"],
       "expectations": [
         "Transcript identifies 'done' as a lifecycle verb from the arguments",
         "Transcript plans to validate that all features have terminal status (delivered or dropped)",
-        "Transcript plans to run scripts/transition-status.sh to perform the Active to Done transition",
+        "Transcript plans to run shirabe transition to perform the Active to Done transition",
         "Transcript confirms roadmap stays in docs/roadmaps/ with no directory movement"
       ]
     },

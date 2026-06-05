@@ -190,10 +190,9 @@ own them).
 
 ### Transitions
 
-All transitions are executed by
-`skills/brief/scripts/transition-status.sh`. The script validates
-preconditions and updates status in both the frontmatter and the body
-`## Status` first line. No transition moves the file between
+All transitions are executed by `shirabe transition`. The subcommand
+validates preconditions and updates status in both the frontmatter and
+the body `## Status` first line. No transition moves the file between
 directories -- the brief stays in `docs/briefs/` through every state,
 mirroring PRD's terminal-state handling rather than VISION's or
 STRATEGY's.
@@ -207,14 +206,14 @@ STRATEGY's.
 invalidation -- a brief makes no falsifiable bet that could fail, so
 there is no Sunset state and no `done/` subdirectory.
 
-**Script interface:**
+**Command interface:**
 
 ```
-skills/brief/scripts/transition-status.sh <brief-doc-path> <target-status>
+shirabe transition <brief-doc-path> <target-status>
 ```
 
-`<target-status>` is one of `Accepted | Done`. There is no `[reason]`
-argument -- neither forward transition captures free text. The script
+`<target-status>` is one of `Accepted | Done`. There is no `--reason`
+flag -- neither forward transition captures free text. The subcommand
 rewrites the body `## Status` first line to the bare target status word
 (`Accepted`, `Done`), preserving the bare-word-on-its-own-line shape so
 the document stays FC03-valid after the transition.

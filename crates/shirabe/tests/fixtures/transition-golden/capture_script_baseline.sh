@@ -28,10 +28,14 @@
 # record. The parity test (transition_parity.rs) reproduces the same setup and
 # asserts the subcommand matches these baselines.
 #
-# The oracle scripts are the immutable reference (Issue 5 deletes them). This
-# capture is reproducible from the corpus + the scripts at any commit where the
-# scripts still exist; the recorded baselines are committed so the parity test
-# asserts against files, not a live oracle run.
+# The oracle scripts were the immutable reference and Issue 5 has now DELETED
+# them, so this capture is no longer runnable on the current tree. It is
+# retained only as frozen provenance: it documents exactly how the committed
+# baselines under expected/<case_id>/ were generated (from the corpus + the
+# scripts at the pre-cut commits). The parity test (transition_parity.rs)
+# asserts against those committed baseline files, never a live oracle run, so
+# deleting the scripts does not affect the test. To regenerate, check out a
+# commit before the Issue 5 cut.
 #
 # Usage:
 #   crates/shirabe/tests/fixtures/transition-golden/capture_script_baseline.sh

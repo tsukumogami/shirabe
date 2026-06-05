@@ -52,12 +52,12 @@
       "id": 4,
       "name": "lifecycle-accept-verb",
       "prompt": "/strategy accept docs/strategies/STRATEGY-adopting-plugin-x.md",
-      "expected_output": "Detects 'accept' as a lifecycle verb rather than starting the creation workflow. Validates Open Questions section is empty or removed before transition. Runs skills/strategy/scripts/transition-status.sh with target Accepted. The file stays in docs/strategies/ (no directory movement for Accepted).",
+      "expected_output": "Detects 'accept' as a lifecycle verb rather than starting the creation workflow. Validates Open Questions section is empty or removed before transition. Runs shirabe transition with target Accepted. The file stays in docs/strategies/ (no directory movement for Accepted).",
       "files": ["docs/strategies/STRATEGY-adopting-plugin-x.md"],
       "expectations": [
         "Plan detects 'accept' as a lifecycle verb rather than starting the creation workflow",
         "Plan validates the Open Questions section is empty or removed before transition",
-        "Plan invokes skills/strategy/scripts/transition-status.sh to perform the transition",
+        "Plan invokes shirabe transition to perform the transition",
         "Plan targets transitioning from Draft to Accepted status",
         "Plan does NOT move the file to a different directory for the Accepted transition"
       ]
@@ -66,13 +66,13 @@
       "id": 5,
       "name": "lifecycle-sunset-with-reason",
       "prompt": "/strategy sunset docs/strategies/STRATEGY-old-bet.md \"Upstream VISION pivoted\"",
-      "expected_output": "Detects 'sunset' as a lifecycle verb. Validates the reason argument is non-empty and free of forbidden characters (/, &, \\, newlines, ---). Runs transition-status.sh with target Sunset and the reason. The file is moved to docs/strategies/sunset/ via git mv. The reason is recorded in the body Status section.",
+      "expected_output": "Detects 'sunset' as a lifecycle verb. Validates the reason argument is non-empty and free of forbidden characters (/, &, \\, newlines, ---). Runs shirabe transition with target Sunset and --reason. The file is moved to docs/strategies/sunset/ via git mv. The reason is recorded in the body Status section.",
       "files": ["docs/strategies/STRATEGY-old-bet.md"],
       "expectations": [
         "Plan detects 'sunset' as a lifecycle verb rather than starting the creation workflow",
         "Plan validates the reason argument is non-empty",
         "Plan mentions the reason argument is sanitized to reject forbidden characters (/, &, \\\\, newlines, ---)",
-        "Plan invokes skills/strategy/scripts/transition-status.sh with target Sunset and a reason argument",
+        "Plan invokes shirabe transition with target Sunset and a --reason argument",
         "Plan moves the file to docs/strategies/sunset/ via git mv",
         "Plan records the reason in the body Status section"
       ]

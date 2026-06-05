@@ -16,10 +16,10 @@ Active
 
 ## Strategic Context
 
-This fixture exists to exercise `transition-status.sh`'s Active ->
+This fixture exists to exercise `shirabe transition`'s Active ->
 Sunset path. The conventional sunset path: the bet was invalidated
-after downstream work began. The test invokes the script with
-target `Sunset` and a reason; the script must update status, embed
+after downstream work began. The test invokes the subcommand with
+target `Sunset` and a `--reason`; the subcommand must update status, embed
 the reason in the body Status section, and `git mv` the file into
 `docs/strategies/sunset/`.
 

@@ -96,15 +96,15 @@ narrowing, or block on a concern the jury did not catch.
 
 ### If Approve
 
-1. Run the transition script to move Draft → Accepted:
+1. Run the transition subcommand to move Draft → Accepted:
 
    ```bash
-   skills/brief/scripts/transition-status.sh \
+   shirabe transition \
      docs/briefs/BRIEF-<topic>.md \
      Accepted
    ```
 
-   The script updates both the frontmatter `status:` field and the body
+   The subcommand updates both the frontmatter `status:` field and the body
    `## Status` first line (rewriting it to the bare word `Accepted`). No
    directory move on any transition — the brief stays in `docs/briefs/`.
 
@@ -226,7 +226,7 @@ After this phase:
 
 ## Workflow Exit
 
-`/brief` exits here. The next interaction with this BRIEF is via the
-`transition-status.sh` script when the brief moves to Done (its downstream PRD has
+`/brief` exits here. The next interaction with this BRIEF is via
+`shirabe transition` when the brief moves to Done (its downstream PRD has
 operationalized it). The Accepted → Done transition is operator-invoked, not
 workflow-driven, and moves no files.
