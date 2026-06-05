@@ -63,6 +63,8 @@ invocation. At the `/scope`-itself layer the binding is vacuous in
 v1 — there are no peers dispatched whose terminal exits the team-
 lead drives.
 
+See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
+
 ## Input Modes
 
 From `$ARGUMENTS`:

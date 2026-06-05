@@ -42,6 +42,8 @@ Shape Declarator section). When the amplifier-layer substrate ships,
 team-emitting parents declare their roster as structured metadata;
 single-agent parents like `/charter` keep the prose form.
 
+See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
+
 ## Input Modes
 
 From `$ARGUMENTS`:
