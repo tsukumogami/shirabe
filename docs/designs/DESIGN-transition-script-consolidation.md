@@ -199,6 +199,32 @@ subcommand in the `shirabe` binary.
   `In Progress`; and the directory-move and extra-field cases. This mirrors the
   `validate` rewrite's golden-parity approach.
 
+### Boundary and extensibility
+
+The command operates on **one document, deterministically and locally**, like
+`validate`. Two kinds of logic deliberately stay out of it:
+
+- **External-state checks.** A gate such as "a PLAN may reach Done only when its
+  issues are complete in GitHub or the enclosing PR" needs network and auth and
+  is non-deterministic. The command performs no network or GitHub checks; the
+  workflow that triggers such a transition (which already holds the GitHub/PR
+  context) verifies the condition, then calls `shirabe transition`. Spec-table
+  preconditions are limited to deterministic, document-local checks (the
+  existing Open-Questions-resolved and ≥2-features gates).
+- **Cross-document / cross-repo propagation.** When a document transitions,
+  related artifacts sometimes need updating — e.g. an upstream roadmap feature
+  dropping its `needs-design` marker once a design is Accepted, possibly in
+  another repo. The command edits no other document; propagating a transition's
+  effects across the upstream chain is the cascade/workflow layer's job (today's
+  `run-cascade.sh`), and the cross-repo case is an open gap tracked separately —
+  not part of this consolidation.
+
+Extending per-type behavior follows from this: a new **deterministic,
+document-local** rule is a new `TransitionSpec` precondition variant plus its
+function, referenced from one type's spec — one localized change. Anything that
+needs external state or edits to other documents belongs in the workflow layer,
+not the spec table.
+
 ## Implementation Approach
 
 The PRD calls for a single PR (full cutover). Suggested commit order within it:
