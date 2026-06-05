@@ -272,20 +272,20 @@ merge — realizing the issue-tracked, not-separately-merged framing above.
 
 ```mermaid
 graph TD
-    O1["Outline 1: Cargo workspace skeleton"]
-    O2["Outline 2: Frontmatter parser + types"]
-    O3["Outline 3: Checks + table engine + annotation emitter"]
-    O4["Outline 4: clap CLI binary"]
-    O5["Outline 5: Parity fixture + release cut"]
+    I129["#129: O1 Cargo workspace skeleton"]
+    I130["#130: O2 Frontmatter parser + types"]
+    I131["#131: O3 Checks + table engine + emitter"]
+    I132["#132: O4 clap CLI binary"]
+    I133["#133: O5 Parity fixture + release cut"]
 
-    O1 --> O2 --> O3 --> O4 --> O5
+    I129 --> I130 --> I131 --> I132 --> I133
 
     classDef simple fill:#e1f5ff,stroke:#0066cc
     classDef testable fill:#fff4e1,stroke:#cc7700
     classDef critical fill:#ffe1e1,stroke:#cc0000
-    class O1 simple
-    class O2,O4 testable
-    class O3,O5 critical
+    class I129 simple
+    class I130,I132 testable
+    class I131,I133 critical
 ```
 
 Strictly linear. Each outline builds on the previous. Outline 5 is the
