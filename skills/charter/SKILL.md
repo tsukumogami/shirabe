@@ -101,21 +101,12 @@ absorbing the violation.
 The topic slug appears in the state-file path
 (`wip/charter_<topic>_state.md`), the terminal artifact filename
 (`docs/strategies/STRATEGY-<topic>.md`), and downstream child wip/
-paths. The slug MUST match the regex `^[a-z0-9-]+$`.
-
-The regex is the pattern-level constraint sourced from
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
-(Topic-Slug Regex section); every parent skill cites it identically.
-Phase 0 validates `$ARGUMENTS` AS PROVIDED against this regex —
-byte-for-byte, no normalization, no derivation. Slugs failing the
-regex MUST be rejected at Phase 0 with a clear error message naming
-the violated pattern. `/charter` MUST NOT proceed silently when the
-slug is invalid, and MUST NOT silently normalize the input into a
-conforming slug — silent normalization hides input the author did
-not intend and breaks the contract that the slug recorded in state
-is identical to the slug the author typed.
-
-The Phase 0 setup procedure is at
+paths. The slug MUST match the regex `^[a-z0-9-]+$` — the
+pattern-level constraint canonical in
+[`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md)
+(Topic-Slug Regex section), including the validation discipline
+(AS PROVIDED, no normalization) and the resume-time re-validation
+rule. Phase 0's slug-handling procedure lives at
 `skills/charter/references/phases/phase-0-setup.md`.
 
 ## Workflow Phases
