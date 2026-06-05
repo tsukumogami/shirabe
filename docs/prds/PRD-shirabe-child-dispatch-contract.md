@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   The parent-skill pattern v1 docs (`references/parent-skill-pattern.md`,
   `skills/scope/SKILL.md`, `skills/charter/SKILL.md`) describe parents
@@ -32,7 +32,7 @@ upstream: docs/briefs/BRIEF-shirabe-child-dispatch-contract.md
 
 ## Status
 
-Accepted
+In Progress
 
 ## Problem Statement
 
