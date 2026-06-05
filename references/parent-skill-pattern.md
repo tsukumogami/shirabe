@@ -327,9 +327,6 @@ would. This is the v1 binding under `team_primitive:
 single-team-per-leader-no-nested`: the parent owns no team at its
 own layer; the child runs in the parent's agent context and the
 child itself constructs whatever team it needs at the child layer.
-This is a Layer-2 binding — amplifier-layer substrates MAY substitute
-a nested-team-capable primitive or live-team-query primitive without
-re-authoring the contract's Layer-1 elements.
 
 R14 child-isolation is preserved by construction: the parent reads
 only the child's durable artifact (per the hand-back contract below)
@@ -468,16 +465,11 @@ The contract surface (file at well-known path; fixed schema;
 glob-checkable presence via `skills/*/team.yaml`) exists in v1; the
 runtime read is a v2 binding.
 
-The Layer-1 / Layer-2 split applies to the contract overall: the
-four contract elements (mechanism, pre-dispatch state, observability
-surface, hand-back) and the child-team-shape declaration as a
-contract surface are Layer 1; the specific bindings (the Skill tool,
-the YAML schema, the per-file path) are Layer 2. v1 has no
-per-parent override slot — the contract applies verbatim to both
-parents and all seven children. The contract applies to chain runs
-initiated after the contract lands; existing in-flight runs are not
-retroactively re-shaped (R11), because their dispatch shape already
-matches what the contract codifies.
+v1 has no per-parent override slot — the contract applies verbatim
+to both parents and all seven children. The contract applies to
+chain runs initiated after the contract lands; existing in-flight
+runs are not retroactively re-shaped (R11), because their dispatch
+shape already matches what the contract codifies.
 
 ## Required SKILL.md Structural Elements
 
@@ -643,68 +635,36 @@ durable-evidence claim (no flake, no rework) while `failing_fixed`
 records that rework occurred. Downstream consumers (release notes,
 audit trails, retrospectives) treat them differently.
 
-### Binding Notes for `/charter`
+### Binding Notes for v1 Parents
 
-`/charter` v1 binds the discipline at the child layer, not at the
-dispatch boundary. The dispatch mechanism the discipline binds
-against is named in the `## Dispatch Contract` section above:
-inline Skill-tool invocation from `/charter`'s own agent context,
-with the child running its own team (when it has one) at the child
-layer. The discipline's content — sleep-check-nudge loop, terminal
-exits, timing table, idle-pings rule, nudge content rule,
-`ci_outcome` semantics — is unchanged; what changes is the layer
-the binding fires at.
+Both v1 parents (`/scope` and `/charter`) bind the discipline at the
+child layer, not at the dispatch boundary. The dispatch mechanism the
+discipline binds against is named in the `## Dispatch Contract` section
+above: inline Skill-tool invocation from the parent's own agent context,
+with the child running its own team (when it has one) at the child layer.
+The discipline's content — sleep-check-nudge loop, terminal exits, timing
+table, idle-pings rule, nudge content rule, `ci_outcome` semantics — is
+unchanged; what changes is the layer the binding fires at.
 
-- **At the parent-itself layer:** the binding is vacuous in v1.
-  `/charter` runs as a single-agent skill (see `/charter`'s SKILL.md
-  Team Shape section); no peers are dispatched at the
-  `/charter`-itself layer, so the loop has zero dispatched tasks to
-  drive.
-- **At the child-itself layer:** the discipline binds inside each
-  child against the child's own peers. `/vision`, `/strategy`, and
-  `/roadmap` each construct their own team (when they have one) per
-  the Dispatch Contract's Child Team-Shape Declaration; the child is
-  the team-lead in the discipline sense, driving its own peers'
-  dispatched tasks to terminal exits. The child-skill invocation
+- **At the parent-itself layer:** the binding is vacuous in v1. Both
+  parents run as single-agent skills (see each parent's SKILL.md Team
+  Shape section); no peers are dispatched at the parent-itself layer, so
+  the loop has zero dispatched tasks to drive.
+- **At the child-itself layer:** the discipline binds inside each child
+  against the child's own peers. Each child constructs its own team (when
+  it has one) per the Dispatch Contract's Child Team-Shape Declaration;
+  the child is the team-lead in the discipline sense, driving its own
+  peers' dispatched tasks to terminal exits. The child-skill invocation
   task class is the implementation pass class above (120s window,
-  10-cycle patience budget) as seen from `/charter`'s synchronous
-  Skill-tool wait. When ESCALATE fires inside a child invocation,
-  the escalation surfaces through the child's normal terminal
-  artifact (a partial doc with abandonment-forced state) and the
-  child's `triggering_teammate:` field; `/charter` learns about it
-  via the Hand-Back Contract's R20 file-existence check and
-  frontmatter `status:` read, not by inboxing a verdict from a team
-  it does not own.
+  10-cycle patience budget) as seen from the parent's synchronous
+  Skill-tool wait. When ESCALATE fires inside a child invocation, the
+  escalation surfaces through the child's normal terminal artifact (a
+  partial doc with abandonment-forced state) and the child's
+  `triggering_teammate:` field; the parent learns about it via the
+  Hand-Back Contract's R20 file-existence check and frontmatter `status:`
+  read, not by inboxing a verdict from a team it does not own.
 
-### Binding Notes for `/scope`
-
-`/scope` v1 binds the discipline at the child layer, not at the
-dispatch boundary. The dispatch mechanism the discipline binds
-against is named in the `## Dispatch Contract` section above:
-inline Skill-tool invocation from `/scope`'s own agent context, with
-the child running its own team (when it has one) at the child
-layer. The discipline's content — sleep-check-nudge loop, terminal
-exits, timing table, idle-pings rule, nudge content rule,
-`ci_outcome` semantics — is unchanged; what changes is the layer
-the binding fires at.
-
-- **At the parent-itself layer:** the binding is vacuous in v1.
-  `/scope` runs as a single-agent skill (see `/scope`'s SKILL.md
-  Team Shape section); no peers are dispatched at the
-  `/scope`-itself layer, so the loop has zero dispatched tasks to
-  drive.
-- **At the child-itself layer:** the discipline binds inside each
-  child against the child's own peers. `/brief`, `/prd`, `/design`,
-  and `/plan` each construct their own team (when they have one) per
-  the Dispatch Contract's Child Team-Shape Declaration; the child is
-  the team-lead in the discipline sense, driving its own peers'
-  dispatched tasks to terminal exits. The child-skill invocation
-  task class is the implementation pass class above (120s window,
-  10-cycle patience budget) as seen from `/scope`'s synchronous
-  Skill-tool wait. When ESCALATE fires inside a child invocation,
-  the escalation surfaces through the child's normal terminal
-  artifact (a partial doc with abandonment-forced state) and the
-  child's `triggering_teammate:` field; `/scope` learns about it
-  via the Hand-Back Contract's R20 file-existence check and
-  frontmatter `status:` read, not by inboxing a verdict from a team
-  it does not own.
+| Parent | Children invoked |
+|---|---|
+| `/scope` | `/brief`, `/prd`, `/design`, `/plan` |
+| `/charter` | `/vision`, `/strategy`, `/roadmap` |
