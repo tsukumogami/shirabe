@@ -51,7 +51,9 @@ fn prd_legal_change_writes_doc_and_emits_base_result() {
 
 #[test]
 fn roadmap_legal_change_emits_new_path_and_moved_false() {
-    let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n";
+    // Draft -> Active is a legal edge; the >=2-features precondition (Issue 2)
+    // is satisfied by the two `### Feature` headings.
+    let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n### Feature A\n### Feature B\n";
     let path = write_doc("ROADMAP-cli.md", doc);
 
     shirabe()

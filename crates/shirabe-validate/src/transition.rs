@@ -41,14 +41,65 @@ use crate::frontmatter::{self, ParseError};
 /// with no ordering constraint. `Graph` types (vision, strategy, roadmap,
 /// brief) restrict transitions to an explicit edge list.
 ///
-/// Issue 1 only enforces membership (the target-is-a-known-status check in
-/// the engine covers both rules); `Graph` edge evaluation arrives in Issue 2.
+/// The `Graph` variant also carries the script-faithful rejection surface so
+/// the engine reproduces each script's `validate_transition` byte-for-byte: a
+/// terminal status (whose presence as the *current* status blocks every
+/// transition), the terminal-status error message, and the per-edge rejection
+/// messages for the named illegal pairs the scripts enumerate. Any illegal
+/// `(from, to)` not in `rejections` falls back to the generic
+/// `"Invalid transition: <from> -> <to>"` message the scripts' `*)` arm emits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Rule {
     /// Any valid status is a legal target.
     MembershipOnly,
-    /// Only the listed `(from, to)` edges are legal transitions.
-    Graph(Vec<(String, String)>),
+    /// An ordered transition graph with the scripts' rejection messages.
+    Graph(Graph),
+}
+
+/// The graph rule's data: legal edges plus the script-faithful rejection
+/// messages and terminal-status handling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Graph {
+    /// The legal `(from, to)` edges.
+    pub edges: Vec<(String, String)>,
+    /// The terminal status: when it is the *current* status, every transition
+    /// is rejected with `terminal_message` (the scripts' first guard).
+    pub terminal: String,
+    /// The error message emitted when the current status is `terminal`.
+    pub terminal_message: String,
+    /// Per-edge rejection messages for the named illegal `(from, to)` pairs the
+    /// scripts enumerate before their generic `*)` fallback.
+    pub rejections: Vec<(String, String, String)>,
+}
+
+impl Graph {
+    /// Evaluate `current -> target` against the graph, reproducing the scripts'
+    /// `validate_transition`: terminal guard first, then legal edges, then the
+    /// named rejections, then the generic fallback. Returns `Ok(())` for a
+    /// legal edge or an exit-2 [`TransitionError`] with the script's message.
+    fn evaluate(&self, current: &str, target: &str) -> Result<(), TransitionError> {
+        if current == self.terminal {
+            return Err(TransitionError::new(2, self.terminal_message.clone()));
+        }
+        if self
+            .edges
+            .iter()
+            .any(|(from, to)| from == current && to == target)
+        {
+            return Ok(());
+        }
+        if let Some((_, _, message)) = self
+            .rejections
+            .iter()
+            .find(|(from, to, _)| from == current && to == target)
+        {
+            return Err(TransitionError::new(2, message.clone()));
+        }
+        Err(TransitionError::new(
+            2,
+            format!("Invalid transition: {} -> {}", current, target),
+        ))
+    }
 }
 
 /// Deterministic, document-local precondition gates.
@@ -170,6 +221,13 @@ fn edges(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         .collect()
 }
 
+fn rejections(triples: &[(&str, &str, &str)]) -> Vec<(String, String, String)> {
+    triples
+        .iter()
+        .map(|(a, b, c)| (a.to_string(), b.to_string(), c.to_string()))
+        .collect()
+}
+
 /// Return the [`TransitionSpec`] for a format name (`FormatSpec.name`), or
 /// `None` if the format has no transition behavior.
 ///
@@ -192,11 +250,31 @@ pub fn transition_table() -> Vec<TransitionSpec> {
         TransitionSpec {
             format_name: "VISION".to_string(),
             statuses: s(&["Draft", "Accepted", "Active", "Sunset"]),
-            rule: Rule::Graph(edges(&[
-                ("Draft", "Accepted"),
-                ("Accepted", "Active"),
-                ("Active", "Sunset"),
-            ])),
+            rule: Rule::Graph(Graph {
+                edges: edges(&[
+                    ("Draft", "Accepted"),
+                    ("Accepted", "Active"),
+                    ("Active", "Sunset"),
+                ]),
+                terminal: "Sunset".to_string(),
+                terminal_message: "Sunset is a terminal status; no further transitions allowed"
+                    .to_string(),
+                rejections: rejections(&[
+                    (
+                        "Draft",
+                        "Active",
+                        "Draft cannot transition directly to Active; must be Accepted first",
+                    ),
+                    (
+                        "Draft",
+                        "Sunset",
+                        "Draft cannot transition to Sunset; delete the document instead",
+                    ),
+                    ("Active", "Accepted", "Active cannot regress to Accepted"),
+                    ("Active", "Draft", "Active cannot regress to Draft"),
+                    ("Accepted", "Draft", "Accepted cannot regress to Draft"),
+                ]),
+            }),
             precondition: Precondition::OpenQuestionsResolved,
             moves: Moves {
                 entries: vec![("Sunset".to_string(), "docs/visions/sunset".to_string())],
@@ -213,12 +291,32 @@ pub fn transition_table() -> Vec<TransitionSpec> {
             format_name: "Strategy".to_string(),
             statuses: s(&["Draft", "Accepted", "Active", "Sunset"]),
             // Strategy's graph includes Accepted -> Sunset, which vision lacks.
-            rule: Rule::Graph(edges(&[
-                ("Draft", "Accepted"),
-                ("Accepted", "Active"),
-                ("Accepted", "Sunset"),
-                ("Active", "Sunset"),
-            ])),
+            rule: Rule::Graph(Graph {
+                edges: edges(&[
+                    ("Draft", "Accepted"),
+                    ("Accepted", "Active"),
+                    ("Accepted", "Sunset"),
+                    ("Active", "Sunset"),
+                ]),
+                terminal: "Sunset".to_string(),
+                terminal_message: "Sunset is a terminal status; no further transitions allowed"
+                    .to_string(),
+                rejections: rejections(&[
+                    (
+                        "Draft",
+                        "Active",
+                        "Draft cannot transition directly to Active; must be Accepted first",
+                    ),
+                    (
+                        "Draft",
+                        "Sunset",
+                        "Draft cannot transition to Sunset; delete the document instead",
+                    ),
+                    ("Active", "Accepted", "Active cannot regress to Accepted"),
+                    ("Active", "Draft", "Active cannot regress to Draft"),
+                    ("Accepted", "Draft", "Accepted cannot regress to Draft"),
+                ]),
+            }),
             precondition: Precondition::OpenQuestionsResolved,
             moves: Moves {
                 entries: vec![("Sunset".to_string(), "docs/strategies/sunset".to_string())],
@@ -235,7 +333,21 @@ pub fn transition_table() -> Vec<TransitionSpec> {
         TransitionSpec {
             format_name: "Roadmap".to_string(),
             statuses: s(&["Draft", "Active", "Done"]),
-            rule: Rule::Graph(edges(&[("Draft", "Active"), ("Active", "Done")])),
+            rule: Rule::Graph(Graph {
+                edges: edges(&[("Draft", "Active"), ("Active", "Done")]),
+                terminal: "Done".to_string(),
+                terminal_message:
+                    "Done is a terminal status; roadmaps are permanent records once completed"
+                        .to_string(),
+                rejections: rejections(&[
+                    (
+                        "Draft",
+                        "Done",
+                        "Draft cannot transition directly to Done; must go through Active first",
+                    ),
+                    ("Active", "Draft", "Active cannot regress to Draft"),
+                ]),
+            }),
             precondition: Precondition::MinFeatures(2),
             moves: Moves::default(),
             extra_input: ExtraInput::None,
@@ -245,7 +357,20 @@ pub fn transition_table() -> Vec<TransitionSpec> {
         TransitionSpec {
             format_name: "Brief".to_string(),
             statuses: s(&["Draft", "Accepted", "Done"]),
-            rule: Rule::Graph(edges(&[("Draft", "Accepted"), ("Accepted", "Done")])),
+            rule: Rule::Graph(Graph {
+                edges: edges(&[("Draft", "Accepted"), ("Accepted", "Done")]),
+                terminal: "Done".to_string(),
+                terminal_message: "Done is a terminal status; no further transitions allowed"
+                    .to_string(),
+                rejections: rejections(&[
+                    (
+                        "Draft",
+                        "Done",
+                        "Draft cannot transition directly to Done; must be Accepted first",
+                    ),
+                    ("Accepted", "Draft", "Accepted cannot regress to Draft"),
+                ]),
+            }),
             precondition: Precondition::None,
             moves: Moves::default(),
             extra_input: ExtraInput::None,
@@ -445,29 +570,131 @@ pub fn run_transition(
         ));
     }
 
-    // Step 4: idempotent short-circuit.
+    // EXTRA-INPUT GATE (Issue 3): the extra-input gate runs BEFORE the
+    // idempotent short-circuit below (per the design's step-4-before-5
+    // ordering), so re-runs at the current status still validate required
+    // inputs. Issue 3 inserts that gate here, just above the short-circuit.
+
+    // Step 5: idempotent short-circuit.
     //
-    // Issue 1: no extra-input gate yet, so the no-op can short-circuit here
-    // directly. Issue 3 introduces the extra-input gate that must run BEFORE
-    // this short-circuit (per the design's step 4-before-5 ordering).
+    // A no-op returns success directly without running the transition rule or
+    // preconditions (the design's step 5: rule and preconditions do NOT run on
+    // an idempotent re-run). Edits are skipped, the path is unchanged, and
+    // `moved` is false.
     if current_status == target_status {
         return Ok(success(&spec, file, &current_status, target_status));
     }
 
-    // NOTE: graph-rule evaluation (Issue 2), preconditions (Issue 2), and
-    // moves (Issue 3) slot in here, after the short-circuit, in the order the
-    // design specifies. Issue 1's membership-only path reaches the edits
-    // directly.
+    // Step 6: transition rule. `Graph` types check the edge is legal (reusing
+    // the scripts' terminal guard + per-edge rejection messages); illegal
+    // edges are exit 2. `MembershipOnly` types are already covered by the
+    // step-3 membership check above.
+    if let Rule::Graph(graph) = &spec.rule {
+        graph.evaluate(&current_status, target_status)?;
+    }
 
-    // Step 5: apply edits (read the file, rewrite, write back).
+    // Step 7: precondition. A failed deterministic, document-local gate is
+    // exit 2. (Moves land in Issue 3.)
+    check_precondition(&spec, &doc, &current_status, target_status)?;
+
+    // Step 8: apply edits (read the file, rewrite, write back).
     let original = fs::read_to_string(file)
         .map_err(|e| TransitionError::new(3, format!("Failed to read file: {}", io_text(&e))))?;
     let updated = rewrite(&original, &doc, &spec, &current_status, target_status);
     fs::write(file, updated)
         .map_err(|e| TransitionError::new(3, format!("Failed to write file: {}", io_text(&e))))?;
 
-    // Step 6: assemble the result.
+    // Step 10: assemble the result. (Moves are step 9, Issue 3.)
     Ok(success(&spec, file, &current_status, target_status))
+}
+
+/// Run the type's content precondition, reproducing the scripts' per-edge gate.
+///
+/// The scripts only run their precondition on a specific edge: vision/strategy
+/// check Open Questions on `Draft -> Accepted`, roadmap checks the feature count
+/// on `Draft -> Active`. A failed gate is exit 2 with the script's message.
+fn check_precondition(
+    spec: &TransitionSpec,
+    doc: &crate::Doc,
+    current_status: &str,
+    target_status: &str,
+) -> Result<(), TransitionError> {
+    match spec.precondition {
+        Precondition::None => Ok(()),
+        Precondition::OpenQuestionsResolved => {
+            if current_status == "Draft" && target_status == "Accepted" {
+                validate_open_questions_resolved(doc)
+            } else {
+                Ok(())
+            }
+        }
+        Precondition::MinFeatures(min) => {
+            if current_status == "Draft" && target_status == "Active" {
+                validate_features_count(doc, min)
+            } else {
+                Ok(())
+            }
+        }
+    }
+}
+
+/// Port of the scripts' `validate_open_questions_resolved`: if a
+/// `## Open Questions` section exists, its content (between the heading and the
+/// next `## ` heading or EOF) must be empty after stripping blank lines. Any
+/// non-blank content is exit 2.
+fn validate_open_questions_resolved(doc: &crate::Doc) -> Result<(), TransitionError> {
+    let Some(start) = doc.body.iter().position(|l| l == "## Open Questions") else {
+        // Section doesn't exist, that's fine.
+        return Ok(());
+    };
+
+    // Content runs from the line after the heading to the next `## ` heading
+    // (or EOF), with the closing heading excluded — matching the scripts'
+    // `sed -n '/^## Open Questions$/,/^## /{ /^## /d; p; }'`.
+    let mut has_content = false;
+    for line in &doc.body[start + 1..] {
+        if line.starts_with("## ") {
+            break;
+        }
+        // `sed '/^[[:space:]]*$/d'`: drop whitespace-only lines.
+        if !line.trim().is_empty() {
+            has_content = true;
+            break;
+        }
+    }
+
+    if has_content {
+        return Err(TransitionError::new(
+            2,
+            "Draft -> Accepted requires Open Questions section to be empty or removed. \
+             Found unresolved content."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Port of the scripts' `validate_features_count`: count `### Feature` headings
+/// (lines starting with `### Feature`); fewer than `min` is exit 2 with the
+/// script's `Found <count>.` message.
+fn validate_features_count(doc: &crate::Doc, min: usize) -> Result<(), TransitionError> {
+    let count = doc
+        .body
+        .iter()
+        .filter(|l| l.starts_with("### Feature"))
+        .count();
+
+    if count < min {
+        return Err(TransitionError::new(
+            2,
+            format!(
+                "Draft -> Active requires at least {} ### Feature headings in the Features \
+                 section. Found {}.",
+                min, count
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// Build the success [`Outcome`] for a type. Issue 1 types never move, so
@@ -834,6 +1061,189 @@ mod tests {
         let expected =
             "{\n  \"success\": false,\n  \"error\": \"Invalid status: Foo\",\n  \"code\": 2\n}\n";
         assert_eq!(err.to_json(), expected);
+    }
+
+    // ---- graph rule (Issue 2) ----
+
+    #[test]
+    fn roadmap_draft_to_done_skips_active_exits_2() {
+        // Draft -> Done is a named rejection: must go through Active first.
+        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n### Feature A\n### Feature B\n";
+        let path = write_doc("ROADMAP-skip.md", doc);
+        let err = run_transition(&path, "Done", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert_eq!(
+            err.message,
+            "Draft cannot transition directly to Done; must go through Active first"
+        );
+        // No edits on a rejected transition.
+        assert_eq!(fs::read_to_string(&path).unwrap(), doc);
+    }
+
+    #[test]
+    fn roadmap_active_to_done_succeeds() {
+        let doc = "---\nstatus: Active\n---\n\n## Status\n\nActive\n";
+        let path = write_doc("ROADMAP-active.md", doc);
+        let outcome = run_transition(&path, "Done", &Flags::default()).expect("ok");
+        assert_eq!(outcome.new_status, "Done");
+        assert!(fs::read_to_string(&path).unwrap().contains("status: Done"));
+    }
+
+    #[test]
+    fn brief_draft_to_done_skips_accepted_exits_2() {
+        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n";
+        let path = write_doc("BRIEF-skip.md", doc);
+        let err = run_transition(&path, "Done", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert_eq!(
+            err.message,
+            "Draft cannot transition directly to Done; must be Accepted first"
+        );
+    }
+
+    #[test]
+    fn brief_regression_to_draft_exits_2() {
+        let doc = "---\nstatus: Accepted\n---\n\n## Status\n\nAccepted\n";
+        let path = write_doc("BRIEF-regress.md", doc);
+        let err = run_transition(&path, "Draft", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert_eq!(err.message, "Accepted cannot regress to Draft");
+    }
+
+    #[test]
+    fn vision_draft_to_active_skips_accepted_exits_2() {
+        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n";
+        let path = write_doc("VISION-skip.md", doc);
+        let err = run_transition(&path, "Active", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert_eq!(
+            err.message,
+            "Draft cannot transition directly to Active; must be Accepted first"
+        );
+    }
+
+    #[test]
+    fn vision_accepted_to_sunset_is_invalid_but_strategy_allows_it() {
+        // Vision lacks the Accepted -> Sunset edge; it is an unlisted illegal
+        // transition (generic message). Strategy has the edge and succeeds.
+        let vision = "---\nstatus: Accepted\n---\n\n## Status\n\nAccepted\n";
+        let vpath = write_doc("VISION-as.md", vision);
+        let verr = run_transition(&vpath, "Sunset", &Flags::default()).expect_err("err");
+        assert_eq!(verr.code, 2);
+        assert_eq!(verr.message, "Invalid transition: Accepted -> Sunset");
+
+        // Strategy's Accepted -> Sunset is a legal, non-moving graph edge here
+        // (the Sunset directory move is Issue 3).
+        let strategy = "---\nstatus: Accepted\n---\n\n## Status\n\nAccepted\n";
+        let spath = write_doc("STRATEGY-as.md", strategy);
+        let outcome = run_transition(&spath, "Sunset", &Flags::default()).expect("ok");
+        assert_eq!(outcome.new_status, "Sunset");
+    }
+
+    #[test]
+    fn terminal_status_blocks_all_transitions() {
+        // Roadmap Done is terminal: the terminal guard fires regardless of the
+        // (otherwise unlisted) target.
+        let doc = "---\nstatus: Done\n---\n\n## Status\n\nDone\n";
+        let path = write_doc("ROADMAP-terminal.md", doc);
+        let err = run_transition(&path, "Active", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert_eq!(
+            err.message,
+            "Done is a terminal status; roadmaps are permanent records once completed"
+        );
+    }
+
+    // ---- preconditions (Issue 2) ----
+
+    #[test]
+    fn vision_draft_to_accepted_blocked_by_open_questions() {
+        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n## Open Questions\n\n- Should we ship X?\n";
+        let path = write_doc("VISION-oq.md", doc);
+        let err = run_transition(&path, "Accepted", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert_eq!(
+            err.message,
+            "Draft -> Accepted requires Open Questions section to be empty or removed. \
+             Found unresolved content."
+        );
+    }
+
+    #[test]
+    fn strategy_draft_to_accepted_blocked_by_open_questions() {
+        let doc =
+            "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n## Open Questions\n\n- unresolved\n";
+        let path = write_doc("STRATEGY-oq.md", doc);
+        let err = run_transition(&path, "Accepted", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert!(err.message.contains("Found unresolved content."));
+    }
+
+    #[test]
+    fn vision_draft_to_accepted_passes_with_empty_open_questions() {
+        // Heading present but only blank content -> resolved.
+        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n## Open Questions\n\n\n## Next\n\nbody\n";
+        let path = write_doc("VISION-oq-empty.md", doc);
+        let outcome = run_transition(&path, "Accepted", &Flags::default()).expect("ok");
+        assert_eq!(outcome.new_status, "Accepted");
+    }
+
+    #[test]
+    fn vision_draft_to_accepted_passes_with_no_open_questions_section() {
+        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n";
+        let path = write_doc("VISION-no-oq.md", doc);
+        let outcome = run_transition(&path, "Accepted", &Flags::default()).expect("ok");
+        assert_eq!(outcome.new_status, "Accepted");
+    }
+
+    #[test]
+    fn roadmap_draft_to_active_blocked_by_too_few_features() {
+        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n### Feature A\n";
+        let path = write_doc("ROADMAP-onefeat.md", doc);
+        let err = run_transition(&path, "Active", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert_eq!(
+            err.message,
+            "Draft -> Active requires at least 2 ### Feature headings in the Features \
+             section. Found 1."
+        );
+    }
+
+    #[test]
+    fn roadmap_draft_to_active_passes_with_two_features() {
+        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n### Feature A\n### Feature B\n";
+        let path = write_doc("ROADMAP-twofeat.md", doc);
+        let outcome = run_transition(&path, "Active", &Flags::default()).expect("ok");
+        assert_eq!(outcome.new_status, "Active");
+    }
+
+    // ---- idempotent no-op skips graph + preconditions (Issue 2) ----
+
+    #[test]
+    fn idempotent_at_terminal_status_succeeds_moved_false() {
+        // Re-requesting the current terminal status is a no-op success: the
+        // terminal guard in the graph rule does NOT fire.
+        let doc = "---\nstatus: Done\n---\n\n## Status\n\nDone\n";
+        let path = write_doc("ROADMAP-done-noop.md", doc);
+        let before = fs::read_to_string(&path).unwrap();
+        let outcome = run_transition(&path, "Done", &Flags::default()).expect("ok");
+        assert_eq!(outcome.old_status, "Done");
+        assert_eq!(outcome.new_status, "Done");
+        assert!(!outcome.moved);
+        assert_eq!(outcome.new_path, path);
+        // No edits on a no-op.
+        assert_eq!(fs::read_to_string(&path).unwrap(), before);
+    }
+
+    #[test]
+    fn idempotent_noop_skips_open_questions_precondition() {
+        // Draft -> Draft is a no-op even with unresolved Open Questions: the
+        // precondition must not run on an idempotent re-run.
+        let doc =
+            "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n## Open Questions\n\n- unresolved\n";
+        let path = write_doc("VISION-noop-oq.md", doc);
+        let outcome = run_transition(&path, "Draft", &Flags::default()).expect("ok");
+        assert_eq!(outcome.new_status, "Draft");
     }
 
     #[test]
