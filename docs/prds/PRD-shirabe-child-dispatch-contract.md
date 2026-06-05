@@ -1,5 +1,5 @@
 ---
-status: Draft
+status: Accepted
 problem: |
   The parent-skill pattern v1 docs (`references/parent-skill-pattern.md`,
   `skills/scope/SKILL.md`, `skills/charter/SKILL.md`) describe parents
@@ -31,7 +31,7 @@ upstream: docs/briefs/BRIEF-shirabe-child-dispatch-contract.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -81,8 +81,8 @@ Functional requirements (R1-R8) bind what the contract surface must expose. Non-
 
 - **R2.1 — Dispatch mechanism.** Which harness primitive carries each child invocation, and the relationship of that mechanism to the parent's single-agent shape, to the child's team-shape declaration, and to the R19/I-7 discipline that governs the in-flight period.
 - **R2.2 — Pre-dispatch state.** What the parent SHALL have written before the dispatch fires (the `parent_orchestration:` sentinel, the relevant state-file fields, the worktree-staleness gate output), what the child's input mode receives, and what state the child can rely on being present when it begins.
-- **R2.3 — Observability surface.** What the parent IS allowed to inspect mid-run (the `wip/` filesystem surface the contract permits, the child's durable artifact for terminal-artifact polling, `git log` for new commits, structured messages from a coordinator if the chosen mechanism uses one) and what the parent IS NOT allowed to inspect (child internals, per existing R14 child-isolation). The contract's positive statement of the observability surface SHALL be explicit; relying solely on R14's negative statement is insufficient.
-- **R2.4 — Hand-back contract.** What the parent reads when the child returns (the R20 structural file-existence check, the artifact's frontmatter `status:` value, the artifact's git blob hash, any Phase-N Reject discard commit detected via `git log <pre_invocation_sha>..HEAD`, any Decision Record produced), and what teardown the parent SHALL perform before the next child begins (clearing `parent_orchestration:`, capturing the child snapshot, running the validator pass-through).
+- **R2.3 — Observability surface.** What the parent IS allowed to inspect mid-run (the `wip/` filesystem surface the contract permits, the child's durable artifact for terminal-artifact polling, `git log` for new commits, structured messages from a coordinator if the chosen mechanism uses one) and what the parent IS NOT allowed to inspect (child internals, per existing R14 child-isolation). The contract's positive statement of the observability surface SHALL be explicit; relying solely on R14's negative statement is insufficient. (Positive example: "the parent reads the child's durable artifact at `docs/<type>/<TYPE>-<topic>.md` for terminal-artifact polling." Negative example: "R14 prohibits the parent from reading the child's `wip/` internals.")
+- **R2.4 — Hand-back contract.** What the parent reads when the child returns (the R20 structural file-existence check, the artifact's frontmatter `status:` value, the artifact's git blob hash, any Phase-N Reject discard commit detected via `git log <pre_invocation_sha>..HEAD`, any Decision Record produced), and what teardown the parent SHALL perform before the next child begins (clearing `parent_orchestration:`, capturing the child snapshot, running the validator pass-through against the child's emitted artifact via `shirabe validate`).
 
 **R3 — Child-side team-shape declaration.** Each of the seven children (`/brief`, `/prd`, `/design`, `/plan`, `/vision`, `/strategy`, `/roadmap`) SHALL declare its team shape in a parent-readable section in its SKILL.md. The declaration SHALL distinguish reviewer-shaped roles (one peer reviews all N work items in one pass) from variable-cardinality worker role types (one peer per work item) with an upper bound, matching the cardinality-shape vocabulary the existing Team-Shape Declarator section in the pattern reference defines. The declaration SHALL be present even for children whose team is empty in v1 (the explicit "no team" declaration counts; silent omission does not).
 
@@ -92,7 +92,7 @@ Functional requirements (R1-R8) bind what the contract surface must expose. Non-
 - **R4.2 — Phase 2 child-invocation step.** The Phase 2 child-invocation step in `/scope`'s phase-2 reference (and `/charter`'s equivalent) SHALL cross-reference the contract section as the source of the dispatch mechanism. Today's "the child's existing input mode" wording SHALL be absorbed into the contract section's R2.1 element; the Phase 2 step becomes a back-reference.
 - **R4.3 — R19/I-7 Team-Lead Operating Discipline.** The Team-Lead Operating Discipline section in `references/parent-skill-pattern.md` SHALL cite the dispatch-contract section as the source of which mechanism the discipline binds against. The discipline's posture (sleep-check-nudge, filesystem-evidence-first, PASS/FAIL/ESCALATE terminal exits, idle-pings-are-not-inbox-messages, nudge content rule, ci_outcome semantics) SHALL be preserved verbatim; only the cross-reference is added.
 
-**R5 — Symmetric application across `/scope` and `/charter`.** Both parents SHALL reference the contract section identically: the same heading text in the same SKILL.md slot, the same cross-reference shape in the same Phase 2 slot. Per-parent variation SHALL be limited to the names of the children each parent dispatches to. Any per-parent override of the contract SHALL exist only in a clearly-named override slot in that parent's SKILL.md; absent an override slot, the contract applies verbatim.
+**R5 — Symmetric application across `/scope` and `/charter`.** Both parents SHALL reference the contract section identically: the cross-reference passages are verbatim across the two parents, with substitution permitted only for child names (`/brief`, `/prd`, `/design`, `/plan` vs `/vision`, `/strategy`, `/roadmap`) and topic-slug placeholders. Per-parent variation in mechanism wording or contract structure is prohibited. Any per-parent override of the contract SHALL exist only in a clearly-named override slot in that parent's SKILL.md; absent an override slot, the contract applies verbatim.
 
 **R6 — Invariant preservation.** The dispatch contract SHALL preserve all seven semantic invariants (I-1 through I-7) without renumbering them and without changing their wording. The contract operationalizes I-7 (Active Orchestration) by naming the dispatch mechanism the discipline binds against; it does NOT replace, supersede, or weaken any invariant. The named-but-unsatisfied framing of I-6 (Cross-branch resume) is preserved.
 
@@ -114,9 +114,9 @@ Each criterion is binary pass/fail. A reviewer who did not write the PRD MUST be
 
 ### Pattern-Level Contract Section
 
-- [ ] **AC1 — Contract section exists.** `references/parent-skill-pattern.md` contains exactly one top-level section whose heading identifies it as the dispatch contract (e.g., `## Child-Dispatch Contract` or equivalent). The heading text is grep-anchorable; running `grep -n '^## ' references/parent-skill-pattern.md` lists the contract section exactly once.
+- [ ] **AC1 — Contract section exists.** `references/parent-skill-pattern.md` contains exactly one top-level section whose heading text contains the case-insensitive substring `dispatch contract` or `child-dispatch contract` (the exact heading wording is DESIGN's choice). Running `grep -in 'dispatch contract' references/parent-skill-pattern.md | grep '^[0-9]*:##'` returns exactly one line.
 
-- [ ] **AC2 — Four contract elements named.** The contract section names all four elements from R2 (dispatch mechanism, pre-dispatch state, observability surface, hand-back contract). Each element is identifiable by a sub-heading or equivalent grep-anchor; running a structured grep against the contract section surfaces four element markers.
+- [ ] **AC2 — Four contract elements named.** The contract section names all four elements from R2 (dispatch mechanism, pre-dispatch state, observability surface, hand-back contract). Each element is identifiable by a sub-heading (e.g., `### Dispatch Mechanism`), a bold-text leader, or an equivalent grep-anchor whose exact form DESIGN specifies. The marker shape is fixed at contract-section time and uniform across the four elements; a grep against the contract section returns four element markers.
 
 - [ ] **AC3 — Dispatch mechanism explicit.** The contract section's mechanism element (R2.1) names exactly one harness primitive (the specific name is DESIGN's choice; the PRD requires that ONE is named, not zero and not multiple). An orchestrator reading the section can answer "what harness primitive carries the dispatch?" by quoting the section.
 
@@ -128,7 +128,7 @@ Each criterion is binary pass/fail. A reviewer who did not write the PRD MUST be
 
 ### Child-Side Team-Shape Declarations
 
-- [ ] **AC7 — All seven children declare team shape.** Each of `skills/brief/SKILL.md`, `skills/prd/SKILL.md`, `skills/design/SKILL.md`, `skills/plan/SKILL.md`, `skills/vision/SKILL.md`, `skills/strategy/SKILL.md`, `skills/roadmap/SKILL.md` contains a parent-readable team-shape declaration (heading text, sub-heading, or frontmatter field — exact format is DESIGN's choice; the PRD requires presence). Running a grep for the contract-defined declaration marker against all seven SKILL.md files returns seven non-empty results.
+- [ ] **AC7 — All seven children declare team shape.** Each of `skills/brief/SKILL.md`, `skills/prd/SKILL.md`, `skills/design/SKILL.md`, `skills/plan/SKILL.md`, `skills/vision/SKILL.md`, `skills/strategy/SKILL.md`, `skills/roadmap/SKILL.md` contains a parent-readable team-shape declaration (heading text, sub-heading, or frontmatter field — exact format is DESIGN's choice; the PRD requires presence). The grep marker is whichever stable heading text or frontmatter key DESIGN specifies in the contract section; the marker is fixed at contract-section time and applied uniformly across all seven children. Running a grep for that marker against all seven SKILL.md files returns seven non-empty results.
 
 - [ ] **AC8 — Reviewer vs variable-cardinality distinction.** Each team-shape declaration that names peer roles distinguishes reviewer-shaped roles from variable-cardinality worker role types. A child with no peers in v1 explicitly declares "no team" (or equivalent); silent omission fails AC7.
 
@@ -190,14 +190,6 @@ Each criterion is binary pass/fail. A reviewer who did not write the PRD MUST be
 
 - **Section placement in the pattern reference.** Whether the contract section lands between Team-Shape Declarator and Team-Lead Operating Discipline (the natural slot Phase 2 research identified), or elsewhere, is DESIGN's choice. The PRD requires a single section (R9, AC1); the placement is downstream.
 
-## Open Questions
-
-- **OQ1 — Per-parent override slot in v1.** R5 names the per-parent override concept and AC14 makes the absence-or-presence explicit. The PRD does not commit to whether v1 needs an override slot. If the DESIGN's chosen mechanism applies identically to `/scope` and `/charter` (the symmetric case), no override is needed. If the chosen mechanism has a per-parent variation (e.g., `/scope` dispatches inline but `/charter` uses a team), DESIGN must introduce an override slot. Open until DESIGN.
-
-- **OQ2 — Child team-shape declaration format granularity.** R3 names presence + reviewer-vs-variable-cardinality distinction + upper bound. The PRD does not specify exact format granularity beyond "parent-readable" (which DESIGN will operationalize as grep-anchorable). Open until DESIGN names the format.
-
-- **OQ3 — Forward-looking note placement.** R11 / AC17 require a forward-looking note about in-flight runs. Whether the note lives in the contract section itself, in a separate "Scope" subsection of the pattern reference, or in the parents' SKILL.md files is open. The PRD requires presence; placement is DESIGN.
-
 ## Known Limitations
 
 - **L1 — The contract is documentation, not enforcement.** The contract section names the dispatch mechanism, but nothing programmatic prevents a future PR from contradicting it. Symmetry and invariant preservation rely on reviewer discipline plus the existing pattern-validator (which catches structural violations but cannot catch wording drift). This limitation is consistent with the rest of the pattern's contract surface — the pattern reference is documentation; the validator is the structural floor.
@@ -215,6 +207,8 @@ Each criterion is binary pass/fail. A reviewer who did not write the PRD MUST be
 - **D3 — The PRD does not name the harness primitive.** The user explicitly cautioned against pre-deciding the mechanism. Research (Lead 3) found that the existing three-passage tension is the symptom of the missing contract, not the missing mechanism — the contract can be specified without the mechanism choice. Alternative: pre-commit to a mechanism in the PRD (rejected — user constraint, and DESIGN's trade-off analysis is the right place for the choice). Decision: AC3 requires ONE primitive is named (in DESIGN); the PRD requires the contract surface, not the choice.
 
 - **D4 — Layer-1 / Layer-2 split preserved, not extended.** Research (Lead 1) found that the existing two-layer contract is what lets the pattern admit amplifier-layer substrate later. The contract's properties are Layer 1; the v1 mechanism is Layer 2. Alternative: collapse the layer split for the contract (rejected — would break the amplifier-layer migration path). Decision: R8 / AC16 preserve the split.
+
+- **D5 — DESIGN-deferred decisions surfaced explicitly.** Three decisions the PRD intentionally defers to DESIGN, captured here so DESIGN has a clear backlog: (a) **per-parent override slot in v1** — R5 / AC14 require the absence-or-presence to be explicit, but the PRD does not commit to which; if the chosen mechanism applies identically across `/scope` and `/charter`, no override is needed, otherwise DESIGN introduces one; (b) **child team-shape declaration format granularity** — R3 names presence + reviewer-vs-variable-cardinality distinction + upper bound, but the exact format (heading text, frontmatter key, sub-section shape) is DESIGN's call; (c) **forward-looking note placement** — R11 / AC17 require the note exists, but whether it lives in the contract section, in a separate scope sub-section, or in the parents' SKILL.md files is DESIGN's. Each is deferred deliberately; none changes the PRD's requirements.
 
 ## References
 
