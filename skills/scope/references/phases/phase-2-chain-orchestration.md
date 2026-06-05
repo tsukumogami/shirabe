@@ -123,6 +123,8 @@ the child to route its own Slot 2 behavior).
 
 ## Child Invocation
 
+See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
+
 Phase 2 invokes the child via the child's existing input mode:
 `/<child-name> <topic-slug>`. R14 child-isolation is preserved
 — `/scope` reads only the child's durable artifact's
