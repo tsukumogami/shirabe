@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Done
 problem: |
   The seven artifact-lifecycle skills (vision, strategy, roadmap, brief, prd,
   design, comp) each ship a copy-pasted `transition-status.sh` (~2,250 lines of
@@ -19,7 +19,7 @@ upstream: docs/briefs/BRIEF-transition-script-consolidation.md
 
 ## Status
 
-Accepted
+Done
 
 ## Problem statement
 
