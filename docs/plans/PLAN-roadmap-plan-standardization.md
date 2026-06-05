@@ -4,7 +4,7 @@ status: Active
 execution_mode: multi-pr
 upstream: docs/designs/DESIGN-roadmap-plan-standardization.md
 milestone: "roadmap-plan-standardization"
-issue_count: 9
+issue_count: 10
 ---
 
 # PLAN: roadmap-plan-standardization
@@ -81,6 +81,8 @@ with the spike-to-reconciliation merge gate as a second independent justificatio
 | ~~_Writes the spike investigating the mermaid graph subset the corpus uses, a line-oriented extraction approach with no external dependency, and the reconciliation strictness. The explicit upstream that gates the reconciliation increment._~~ | | |
 | ~~[#119: feat(validate): add mermaid extractor and checkFC07 table-diagram reconciliation as a notice](https://github.com/tsukumogami/shirabe/issues/119)~~ | ~~[#112](https://github.com/tsukumogami/shirabe/issues/112), [#118](https://github.com/tsukumogami/shirabe/issues/118)~~ | ~~testable~~ |
 | ~~_Adds `mermaid.go` and `checkFC07` reconciling the parsed `Table` against the extracted diagram, shipped as a notice via `IsNotice` so an unreconciled committed diagram does not redden CI, with a one-line path to error-level promotion after corpus reconciliation. The final, spike-gated increment._~~ | | |
+| [#152: feat(validate): add fc08 legend-vs-classdef reconciliation as a notice](https://github.com/tsukumogami/shirabe/issues/152) | [#119](https://github.com/tsukumogami/shirabe/issues/119) | testable |
+| _Adds `checkFC08` reconciling the Dependency Graph Legend prose against the diagram's `classDef` declarations and the canonical class palette. Ships as a notice via `is_notice` so unupdated Legends do not redden CI, with a one-line path to error-level promotion after corpus reconciliation. Surfaces the drift surface FC07 explicitly does not cover._ | | |
 
 ## Dependency Graph
 
@@ -95,6 +97,7 @@ graph TD
     I117["#117: lifecycle CI + terminal wiring"]
     I118["#118: mermaid-parser spike"]
     I119["#119: mermaid extractor + FC07 notice"]
+    I152["#152: legend-vs-classdef FC08 notice"]
 
     I111 --> I112
     I111 --> I114
@@ -105,6 +108,7 @@ graph TD
     I112 --> I119
     I116 --> I117
     I118 --> I119
+    I119 --> I152
 
     classDef done fill:#c8e6c9
     classDef ready fill:#bbdefb
@@ -117,7 +121,7 @@ graph TD
     classDef tracksPlan fill:#FFE0B2,stroke:#F57C00,color:#000
 
     class I111,I112,I113,I114,I115,I118,I119 done
-    class I116 ready
+    class I116,I152 ready
     class I117 blocked
 ```
 
