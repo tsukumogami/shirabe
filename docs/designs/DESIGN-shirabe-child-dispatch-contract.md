@@ -14,16 +14,19 @@ decision: |
   Skill tool, invoked inline by the parent — and treat the
   child's team shape as a declared shape the parent reads but does
   NOT pre-materialize at the parent layer. Encode the child's
-  team-shape declaration as a fenced YAML block embedded under a
-  stable `## Team Shape` heading in the child's SKILL.md. Construct
-  the team (when one exists) at the child-dispatch layer, owned by
-  the child itself; the parent owns no team. Land a single
-  Dispatch Contract section in `references/parent-skill-pattern.md`
-  between Team-Shape Declarator and Team-Lead Operating Discipline,
-  with four labelled sub-elements (mechanism, pre-dispatch state,
+  team-shape declaration as a dedicated `team.yaml` file at the
+  well-known per-skill location `skills/<name>/team.yaml`, so the
+  parent loads only ~10 lines of contract surface at dispatch time
+  rather than the child's full SKILL.md. Construct the team (when
+  one exists) at the child-dispatch layer, owned by the child
+  itself; the parent owns no team. Land a single Dispatch Contract
+  section in `references/parent-skill-pattern.md` between
+  Team-Shape Declarator and Team-Lead Operating Discipline, with
+  four labelled sub-elements (mechanism, pre-dispatch state,
   observability surface, hand-back). Propagate verbatim
   cross-references from both parent SKILL.mds and all seven
-  child SKILL.mds.
+  child SKILL.mds; the child SKILL.mds gain a brief `## Team
+  Shape` section pointing at the sibling team.yaml.
 rationale: |
   Three competing mechanism readings are reconciled by treating
   the literal "child's existing input mode" passage as the
@@ -34,10 +37,12 @@ rationale: |
   child violates no-nested when children themselves spawn juries;
   single sub-agent per child silently re-routes the discipline's
   filesystem-evidence checks against a layer the parent does not
-  own. The fenced YAML declarator beats prose (grep-anchorable,
-  schema-validatable) and frontmatter (children already use
-  frontmatter for schema/status; a `team:` key would collide with
-  artifact-schema validators). Child-owned construction preserves
+  own. The dedicated team.yaml declarator beats prose
+  (grep-anchorable, schema-validatable), frontmatter (children
+  already use frontmatter for plugin metadata; a `team:` key would
+  collide with the skill plugin loader), and embedded markdown
+  (forces parents to load the child's full SKILL.md to read ~10
+  lines of structured contract). Child-owned construction preserves
   R14 child-isolation: the parent reads the declaration but never
   materializes peers, so the child remains the team's sole
   parent-of-the-parent. The Layer-1 / Layer-2 split is preserved
@@ -142,13 +147,19 @@ The question: how does each of the seven children declare its team shape so the 
 
 **Option 2D — Fenced YAML block under `## Team Shape` in SKILL.md body.** Each child has a `## Team Shape` heading whose body contains a fenced YAML code block following a fixed schema. The schema's top-level keys: `parent_layer:` (peers materialized at parent-of-parent time, almost always empty), `child_layer:` (peers spawned inside the child, with role types and cardinality).
 
-- *Pros:* YAML is the schema language the pattern already uses for state files. Grep-anchorable on the heading and on the fence (` ```yaml `). Schema-validatable via a separate validator pass without coupling to SKILL.md frontmatter. The amplifier-layer migration to structured metadata is a no-op — the body block already IS structured metadata; the substrate just needs to parse it. Distinguishes reviewer-shaped roles from variable-cardinality worker role types via explicit `cardinality:` and `upper_bound:` fields, satisfying R3 / AC8 / AC9 grep-checkably.
-- *Cons:* Slightly heavier than prose for children with empty teams (the `parent_layer: []` and `child_layer: []` block is more visual weight than "no team"). The mitigation: a fixed-schema empty-team block is itself a clear declaration and satisfies the "explicit no-team" branch of R3.
-- *Verdict:* Chosen. The amplifier-layer migration argument is the decider — every other option needs re-encoding when the substrate ships; 2D is already in the destination shape.
+- *Pros:* YAML is the schema language the pattern already uses for state files. Grep-anchorable on the heading and on the fence (` ```yaml `). Schema-validatable via a separate validator pass without coupling to SKILL.md frontmatter. Distinguishes reviewer-shaped roles from variable-cardinality worker role types via explicit `cardinality:` and `upper_bound:` fields, satisfying R3 / AC8 / AC9 grep-checkably.
+- *Cons:* Forces the parent to load the entire child SKILL.md into context to read ~10 lines of structured declaration. Today's SKILL.md files are 300-700 lines each; the team declaration is a fraction of a percent of that surface. Loading the whole file violates R3's "loads only the team-shape information into context" principle. Schema validation requires extracting YAML from a markdown fence, an extra parse step the substrate doesn't need anywhere else. Mixing the contract surface (machine-read by the parent) with the operating manual (read by the child agent at invocation time) couples two distinct readers to one file.
+- *Verdict:* Rejected on reconsideration. The minimum-context-load principle (added to R3 during the DESIGN-Accepted re-review) makes the embedded-in-SKILL.md location wrong. The earlier verdict that "2D is already in the destination shape" for amplifier-layer migration is true but undersells the cost — every parent reading the declaration today eats the cost.
 
-**Chosen: 2D — Fenced YAML block under `## Team Shape` in SKILL.md body.**
+**Option 2E — Dedicated `team.yaml` file at well-known per-skill location.** Each child gets a new file at `skills/<name>/team.yaml` containing the same YAML schema 2D embedded. The file is the contract surface; SKILL.md retains a brief `## Team Shape` prose section that cross-references `team.yaml` as the source of truth.
 
-The exact schema:
+- *Pros:* Minimum-context-load: a parent reads ~10 lines of YAML, not a 300-700 line SKILL.md. The file IS the contract — its path is the well-known location, its content is the declaration. Glob-checkable for presence (`ls skills/*/team.yaml` returns seven files) rather than grep-checkable across mixed markdown bodies. Schema validation is trivial (parse the YAML file directly; no markdown extraction). Separates two distinct readers cleanly: parent reads `team.yaml` (machine-readable contract); child agent reads SKILL.md (human-readable operating manual). Amplifier-layer migration is a no-op — the substrate already has a YAML file to parse; no new file format introduced. The file's path under `skills/<name>/` matches shirabe's existing per-skill organization (`SKILL.md`, `references/`, `scripts/`, `evals/` siblings).
+- *Cons:* Two files to keep consistent per skill (the `team.yaml` declares the shape; SKILL.md prose may reference it). Mitigation: a future shirabe validator check can verify the SKILL.md `## Team Shape` section references `team.yaml` and that the declared shape matches actual team construction at runtime. Slightly more migration work (create 7 new files vs add 7 headings) but each file is ~10 lines and the work is per-skill independent.
+- *Verdict:* Chosen. The contract surface is a file at a path — clean, machine-readable, minimum-context, and matches the user's stated principle: "the team lead loads in its context the minimum amount of info about the skill it's about to launch."
+
+**Chosen: 2E — Dedicated `team.yaml` file at `skills/<name>/team.yaml`.**
+
+The exact schema (identical for 2D and 2E; only the location differs):
 
 ```yaml
 parent_layer:
@@ -169,6 +180,8 @@ child_layer:
 ```
 
 `reviewer` cardinality means one peer reviews all N work items; `upper_bound` is omitted (one is implicit). `worker` cardinality means one peer per work item; `upper_bound` names the maximum N. The schema mirrors the pattern reference's existing Reviewer-shaped-vs-variable-cardinality vocabulary verbatim.
+
+The SKILL.md `## Team Shape` section retains a brief prose description (one or two sentences naming the team's purpose and pointing at the file) so a child-agent reader of SKILL.md still sees the team mentioned in-line. The cross-reference text: "See [`team.yaml`](./team.yaml) for the machine-readable declaration that parents read at dispatch time."
 
 ### Decision 3 — Team-Construction Layer
 
@@ -225,11 +238,11 @@ The question: where does R11's forward-looking note ("the contract applies to ch
 
 ## Decision Outcome
 
-The DESIGN binds the dispatch mechanism to **inline Skill-tool invocation** (Decision 1's 1C), the child-side declarator format to a **fenced YAML block under `## Team Shape`** (Decision 2's 2D), and team construction to **the child layer** (Decision 3's 3C). The three decisions reinforce each other: 1C requires the parent to own no team; 2D gives the child a parseable declaration the parent can read at dispatch time; 3C places team construction with the entity that has the substrate to construct it. The four PRD-required contract elements (R2.1-R2.4) become four labelled sub-sections under a single new `## Dispatch Contract` heading in `references/parent-skill-pattern.md`.
+The DESIGN binds the dispatch mechanism to **inline Skill-tool invocation** (Decision 1's 1C), the child-side declarator format to a **dedicated `skills/<name>/team.yaml` file** (Decision 2's 2E), and team construction to **the child layer** (Decision 3's 3C). The three decisions reinforce each other: 1C requires the parent to own no team; 2E gives the parent a minimum-context, machine-readable declaration to read at dispatch time without loading the child's full operating manual; 3C places team construction with the entity that has the substrate to construct it. The four PRD-required contract elements (R2.1-R2.4) become four labelled sub-sections under a single new `## Dispatch Contract` heading in `references/parent-skill-pattern.md`.
 
-The combination is the only one consistent with v1's `team_primitive: single-team-per-leader-no-nested`. The alternatives all fail at the substrate level: TeamCreate per child (1A) and parent-constructed teams (3A/3B) violate no-nested; single sub-agent per child (1B) hides team state behind an opaque layer the parent does not own. Inline Skill-tool plus child-owned construction lets the parent stay honestly single-agent and lets the child run its own R19 discipline against its own peers — which is what every existing jury-running child already does.
+The combination is the only one consistent with v1's `team_primitive: single-team-per-leader-no-nested`. The alternatives all fail at the substrate level: TeamCreate per child (1A) and parent-constructed teams (3A/3B) violate no-nested; single sub-agent per child (1B) hides team state behind an opaque layer the parent does not own. Inline Skill-tool plus dedicated-file declarator plus child-owned construction lets the parent stay honestly single-agent, lets the parent read a minimum-context contract surface, and lets the child run its own R19 discipline against its own peers — which is what every existing jury-running child already does.
 
-The Layer-1 / Layer-2 split is preserved: the four contract elements are Layer 1 (substrate-agnostic — every future substrate names a mechanism, a pre-dispatch state, an observability surface, and a hand-back). The specific bindings (the Skill tool, the YAML schema, the wip/state.md path) are Layer 2 (substrate-bound — replaceable when the amplifier layer ships).
+The Layer-1 / Layer-2 split is preserved: the four contract elements are Layer 1 (substrate-agnostic — every future substrate names a mechanism, a pre-dispatch state, an observability surface, and a hand-back). The specific bindings (the Skill tool, the dedicated `team.yaml` file path, the YAML schema, the wip/state.md path) are Layer 2 (substrate-bound — replaceable when the amplifier layer ships).
 
 ## Solution Architecture
 
@@ -279,7 +292,13 @@ Total section length: approximately 110 lines (matches the section-density of th
 
 ### Component 2 — Child team-shape declarations
 
-Every one of `skills/brief/SKILL.md`, `skills/prd/SKILL.md`, `skills/design/SKILL.md`, `skills/plan/SKILL.md`, `skills/vision/SKILL.md`, `skills/strategy/SKILL.md`, `skills/roadmap/SKILL.md` gets a `## Team Shape` section containing a fenced YAML block per Decision 2's schema. The migration table below names what each child's declaration looks like, derived from the child's existing phases.
+Every one of `skills/brief/`, `skills/prd/`, `skills/design/`, `skills/plan/`, `skills/vision/`, `skills/strategy/`, `skills/roadmap/` gets a NEW file `team.yaml` at the skill directory root, containing the schema per Decision 2's 2E. The child's existing SKILL.md gets a brief `## Team Shape` section (one or two sentences naming the team's purpose) that cross-references the sibling `team.yaml` as the machine-readable source of truth.
+
+Two separate edits per child:
+1. **Create `skills/<name>/team.yaml`** — the structured declaration the parent reads at dispatch time. ~10 lines per file.
+2. **Add `## Team Shape` section to SKILL.md** — short prose pointer: "This skill's team shape is declared in [`team.yaml`](./team.yaml), read by parent skills (`/scope`, `/charter`) at dispatch time. [One sentence summary of what's in it.]"
+
+The migration table below names what each child's `team.yaml` content looks like, derived from the child's existing phases.
 
 | Child | parent_layer | child_layer peers (post-migration) |
 |---|---|---|
@@ -386,7 +405,7 @@ Verbatim cross-references between the two parents. AC10, AC11, AC13 are verified
 
 ### Phase C — Migrate child team-shape declarations
 
-Seven children, one `## Team Shape` section each. The order does not matter; the changes are independent. After this phase, AC7, AC8, AC9 are verified.
+Seven children. For each child: (1) create `skills/<name>/team.yaml` with the schema-conformant declaration; (2) add a brief `## Team Shape` section to `skills/<name>/SKILL.md` pointing at `team.yaml`. The order does not matter; the changes are independent. After this phase, AC7, AC8, AC9 are verified (glob `skills/*/team.yaml` returns exactly seven files).
 
 ### Phase D — Validator extension (optional, deferred)
 
@@ -404,7 +423,7 @@ The contract is documentation reconciliation; it introduces no new code paths, n
 
 **Dispatch primitive surface.** Inline Skill-tool invocation has the same security properties as a user typing the child's slash command directly — the child runs in the parent's agent context with the same tool allowlist. The contract does not widen the tool allowlist; it does not grant the parent privileged access to the child's internals. R14 child-isolation is preserved (the parent reads only the durable artifact path and frontmatter, never child wip/).
 
-**Declarator format surface.** The fenced YAML block is markdown content under a SKILL.md heading. It is not code; it is parsed by a future validator (Phase D) that lives in shirabe and runs against the same trust boundary as the rest of `shirabe validate`. No external input flows into the YAML parser; the declarations are author-written and committed to the repo.
+**Declarator format surface.** The `skills/<name>/team.yaml` file is plain YAML at a fixed per-skill location. It is not code; it is parsed by a future validator (Phase D) that lives in shirabe and runs against the same trust boundary as the rest of `shirabe validate`. No external input flows into the YAML parser; the declarations are author-written and committed to the repo. The file path is fixed (not author-supplied) so no path-traversal surface is introduced.
 
 **Pre-dispatch state surface.** The `parent_orchestration:` block was already named in the pattern; the contract section codifies its role but does not add fields. The block is read by children at their Phase 0 (existing behavior) and cleared by the parent at Phase 2 end (existing behavior).
 
@@ -429,7 +448,7 @@ The contract is documentation reconciliation; it introduces no new code paths, n
 
 ### Mitigations
 
-- **Validator extension deferred.** Phase D's validator extension is captured as future work; until it ships, the YAML block's schema conformance relies on author / reviewer discipline. Grep-checking the heading and the fence is sufficient for AC7.
+- **Validator extension deferred.** Phase D's validator extension is captured as future work; until it ships, the team.yaml schema conformance relies on author / reviewer discipline. Glob-checking `skills/*/team.yaml` for presence (exactly seven files) is sufficient for AC7.
 - **In-flight-run forward-looking note.** Existing runs continue to work because the contract codifies their current dispatch shape (the runs already use inline Skill-tool dispatch in practice; the contract just names it). The R11 note exists for completeness, not because in-flight runs would actually break.
 
 ## References
