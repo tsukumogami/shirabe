@@ -304,6 +304,21 @@ what the subcommand will write before the gate is reached; under
 
 ---
 
+## Team Shape
+
+`/roadmap`'s team shape is declared in [`team.yaml`](./team.yaml) as
+the machine-readable contract surface. The child layer spawns three
+reviewer peers at Phase 4 (`theme-coherence-reviewer`,
+`sequencing-and-dependency-reviewer`,
+`annotation-and-boundary-reviewer`) to validate the drafted ROADMAP.
+
+v1 parent skills (`/scope`, `/charter`) do NOT parse this file at
+dispatch time per the
+[`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md)
+Dispatch Contract section — the file is consumed by reviewers, the
+future Phase D validator extension, and the future amplifier-layer
+substrate.
+
 ## Reference Files
 
 | File | When to load |
