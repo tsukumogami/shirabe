@@ -190,12 +190,7 @@ reviewer peers at Phase 4 (`thesis-quality-reviewer`,
 `content-boundary-reviewer`, `section-guidance-reviewer`) to validate
 the drafted VISION.
 
-v1 parent skills (`/scope`, `/charter`) do NOT parse this file at
-dispatch time per the
-[`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md)
-Dispatch Contract section — the file is consumed by reviewers, the
-future Phase D validator extension, and the future amplifier-layer
-substrate.
+See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
 
 ## Reference Files
 

@@ -312,12 +312,7 @@ reviewer peers at Phase 4 (`theme-coherence-reviewer`,
 `sequencing-and-dependency-reviewer`,
 `annotation-and-boundary-reviewer`) to validate the drafted ROADMAP.
 
-v1 parent skills (`/scope`, `/charter`) do NOT parse this file at
-dispatch time per the
-[`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md)
-Dispatch Contract section — the file is consumed by reviewers, the
-future Phase D validator extension, and the future amplifier-layer
-substrate.
+See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
 
 ## Reference Files
 

@@ -179,12 +179,7 @@ machine-readable contract surface. The child layer spawns three
 reviewer peers at Phase 4 (`completeness-reviewer`, `clarity-reviewer`,
 `testability-reviewer`) to validate the drafted PRD.
 
-v1 parent skills (`/scope`, `/charter`) do NOT parse this file at
-dispatch time per the
-[`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md)
-Dispatch Contract section — the file is consumed by reviewers, the
-future Phase D validator extension, and the future amplifier-layer
-substrate.
+See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
 
 ## Reference Files
 
