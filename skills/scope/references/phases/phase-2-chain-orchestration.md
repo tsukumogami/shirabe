@@ -10,6 +10,21 @@ captures the child snapshot, and routes through the validator
 pass-through. Phase-N Reject from `/prd` or `/design` is
 observed via `git log` against the discard commit.
 
+## Table of Contents
+
+- [Per-Child Invocation Loop Ordering](#per-child-invocation-loop-ordering)
+- [Worktree-Staleness Check Before Each Child Invocation](#worktree-staleness-check-before-each-child-invocation)
+- [`parent_orchestration:` Sentinel Write](#parent_orchestration-sentinel-write)
+- [Child Invocation](#child-invocation)
+- [R20 Structural File-Existence Check](#r20-structural-file-existence-check)
+- [`parent_orchestration:` Cleanup](#parent_orchestration-cleanup)
+- [Child-Snapshot Capture](#child-snapshot-capture)
+- [Phase-N Reject Handling](#phase-n-reject-handling)
+- [Validator Pass-Through](#validator-pass-through)
+- [Per-Child Gates from `planned_chain:`, Not Re-Walked](#per-child-gates-from-planned_chain-not-re-walked)
+- [State-File Enum Re-Validation Before Path Interpolation](#state-file-enum-re-validation-before-path-interpolation)
+- [References](#references)
+
 ## Per-Child Invocation Loop Ordering
 
 For each child name in `planned_chain:` in order, Phase 2 runs

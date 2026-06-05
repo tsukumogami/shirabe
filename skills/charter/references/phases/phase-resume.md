@@ -24,6 +24,26 @@ The contract framing for drift detection plus the R14-widened
 child-internals isolation rule is cited from
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-child-inspection.md`.
 
+## Table of Contents
+
+- [The 10-Row Ladder](#the-10-row-ladder)
+- [Row 1 — Malformed State File](#row-1--malformed-state-file)
+- [Row 2 — Exit Field Already Set](#row-2--exit-field-already-set)
+- [Row 3 — State File Fresh (< 7 days)](#row-3--state-file-fresh--7-days)
+- [Row 4 — State File Stale (≥ 7 days)](#row-4--state-file-stale--7-days)
+- [Row 5 — Accepted/Active STRATEGY Exists](#row-5--acceptedactive-strategy-exists)
+- [Row 6 — Draft STRATEGY Exists](#row-6--draft-strategy-exists)
+- [Row 7 — `/strategy` Partial Run](#row-7--strategy-partial-run)
+- [Row 8 — `/vision` Partial Run](#row-8--vision-partial-run)
+- [Row 9 — On Topic-Related Branch](#row-9--on-topic-related-branch)
+- [Row 10 — On Main or Unrelated Branch](#row-10--on-main-or-unrelated-branch)
+- [Drift Detection (Child-Snapshot Dual Check)](#drift-detection-child-snapshot-dual-check)
+- [Status-Aware Re-Entry Suppression](#status-aware-re-entry-suppression)
+- [R14 Child-Internals Isolation](#r14-child-internals-isolation)
+- [Manual-Fallback Rejection Is Not Retroactive](#manual-fallback-rejection-is-not-retroactive)
+- [Out-of-Chain Hand-Edit Detection](#out-of-chain-hand-edit-detection)
+- [Security Considerations](#security-considerations)
+
 ## The 10-Row Ladder
 
 ```

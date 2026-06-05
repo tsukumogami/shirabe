@@ -8,6 +8,24 @@ There is no altitude reviewer. A brief frames one feature, so there is no altitu
 band to police — the strategy type's third reviewer, its Building Blocks
 granularity rubric, and its Sunset-reason check do not apply here.
 
+## Table of Contents
+
+- [Goal](#goal)
+- [Resume Check](#resume-check)
+- [Approach: 2-Agent Parallel Jury](#approach-2-agent-parallel-jury)
+- [4.1 Spawn Jury Agents](#41-spawn-jury-agents)
+  - [Content Quality Reviewer](#content-quality-reviewer)
+  - [Structural Format Reviewer](#structural-format-reviewer)
+- [4.2 Collect Results](#42-collect-results)
+- [4.3 Aggregate Verdicts](#43-aggregate-verdicts)
+- [4.4 Apply Minor Fixes (If Any)](#44-apply-minor-fixes-if-any)
+- [4.5 Surface Verdicts to User](#45-surface-verdicts-to-user)
+- [4.6 Handle Loop-Back](#46-handle-loop-back)
+- [4.7 Commit Validated Draft](#47-commit-validated-draft)
+- [Quality Checklist](#quality-checklist)
+- [Artifact State](#artifact-state)
+- [Next Phase](#next-phase)
+
 ## Goal
 
 Validate the BRIEF draft through independent review by two specialist agents —

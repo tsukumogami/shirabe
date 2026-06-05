@@ -26,6 +26,21 @@ finalization check (see
 either accepts the state or surfaces a clear error. The orchestration
 below produces the writes; the R9 check validates them.
 
+## Table of Contents
+
+- [Three Exits + One Fallthrough](#three-exits--one-fallthrough)
+- [Exit 1 — full-run](#exit-1--full-run)
+- [Exit 2 — re-evaluation, re-evaluation Sub-Shape (US-2)](#exit-2--re-evaluation-re-evaluation-sub-shape-us-2)
+- [Exit 2 — re-evaluation, rejection Sub-Shape (US-3a) and the Reject-vs-Bail Distinction](#exit-2--re-evaluation-rejection-sub-shape-us-3a-and-the-reject-vs-bail-distinction)
+- [AC12b — Revise Branch](#ac12b--revise-branch)
+- [Exit 3 — abandonment-forced](#exit-3--abandonment-forced)
+- [R8 Tie-Break — Most-Recently-Running Resolution](#r8-tie-break--most-recently-running-resolution)
+- [Reject vs Bail — The Load-Bearing Distinction](#reject-vs-bail--the-load-bearing-distinction)
+- [State-Field References](#state-field-references)
+- [Routing-Source Citations](#routing-source-citations)
+- [Exit-Artifact Template References](#exit-artifact-template-references)
+- [Security Considerations](#security-considerations)
+
 ## Three Exits + One Fallthrough
 
 - **Exit 1 — full-run** — the chain completes through its terminal

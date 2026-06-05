@@ -2,6 +2,21 @@
 
 Three-agent jury review followed by finalization and user approval.
 
+## Table of Contents
+
+- [Goal](#goal)
+- [Resume Check](#resume-check)
+- [Approach: 3-Agent Jury](#approach-3-agent-jury)
+  - [4.1 Launch Jury Agents](#41-launch-jury-agents)
+  - [4.2 Collect Results](#42-collect-results)
+  - [4.3 Process Feedback](#43-process-feedback)
+  - [4.4 Finalize PRD](#44-finalize-prd)
+  - [4.5 Present to User](#45-present-to-user)
+  - [4.6 Handle Approval](#46-handle-approval)
+  - [4.7 Cleanup](#47-cleanup)
+- [Quality Checklist](#quality-checklist)
+- [Artifact State](#artifact-state)
+
 ## Goal
 
 Validate the PRD draft through independent review by three specialist agents, fix any
