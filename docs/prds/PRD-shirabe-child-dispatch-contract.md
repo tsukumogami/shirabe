@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Accepted
 problem: |
   The parent-skill pattern v1 docs (`references/parent-skill-pattern.md`,
