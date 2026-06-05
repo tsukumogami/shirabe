@@ -175,6 +175,25 @@ NOT be hijacked by a child's status-aware re-entry prompt.
 The signaling mechanism between parent and child is parent-specific; the
 invariant is that the parent decides, not the child.
 
+#### `parent_orchestration:` block
+
+The `parent_orchestration:` block is the pattern-level convention every
+parent writes and every child reads identically; the block is the
+**pre-dispatch state element of the dispatch contract** named in
+[`parent-skill-pattern.md`](parent-skill-pattern.md) under
+`## Dispatch Contract`'s Pre-Dispatch State sub-section. The parent
+writes the block to its state file immediately before invoking the
+child via the Skill tool; the child reads it at its own Phase 0 to
+route Slot 2 behavior (suppress its status-aware re-entry prompt) and
+the parent clears it on hand-back per the Dispatch Contract's
+`parent_orchestration:` cleanup step. The block's fields are fixed at
+the pattern layer (no parent extends or omits any field):
+`invoking_child:` names the child the parent is about to invoke;
+`suppress_status_aware_prompt:` carries the upfront decision to
+silence the child's status-aware re-entry; `rationale:` carries the
+`fresh-chain | revise` framing the child reads to route its own Slot 2
+behavior.
+
 ## Extension Discipline
 
 Every parent extends the 5-field minimum with parent-specific fields keyed
