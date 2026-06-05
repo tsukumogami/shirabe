@@ -394,6 +394,23 @@ Final artifacts depend on execution mode:
 
 ---
 
+## Team Shape
+
+`/plan`'s team shape is declared in [`team.yaml`](./team.yaml) as the
+machine-readable contract surface. The child layer spawns one worker
+peer role: `decomposer` (worker, upper_bound 20, phase-4-agent-
+generation), one decomposer per outline emitted by Phase 3. `/plan`'s
+Phase 6 also invokes `/review-plan` as a sub-skill via inline
+Skill-tool dispatch; this is a CHILD invocation under the Dispatch
+Contract, NOT a peer, and is therefore not declared in team.yaml.
+
+v1 parent skills (`/scope`, `/charter`) do NOT parse this file at
+dispatch time per the
+[`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md)
+Dispatch Contract section — the file is consumed by reviewers, the
+future Phase D validator extension, and the future amplifier-layer
+substrate.
+
 ## Reference Files
 
 | File | When to load |

@@ -1,0 +1,10 @@
+parent_layer:
+  peers: []
+
+child_layer:
+  peers:
+    - role: decomposer
+      cardinality: worker
+      upper_bound: 20
+      phase: phase-4-agent-generation
+      purpose: generates an issue body per outline from Phase 3; runtime count equals the issue count emitted by Phase 3, capped at the upper bound
