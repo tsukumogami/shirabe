@@ -1,6 +1,7 @@
 ---
 schema: design/v1
 status: Accepted
+upstream: docs/prds/PRD-shirabe-child-dispatch-contract.md
 problem: |
   The parent-skill pattern v1 reference and the two parent SKILL.md
   files describe parent-to-child dispatch across three passages
@@ -53,7 +54,6 @@ rationale: |
   parent-of-the-parent. The Layer-1 / Layer-2 split is preserved
   by labelling the YAML schema and the Skill-tool primitive as
   Layer 2, with the four contract elements as Layer 1.
-upstream: docs/prds/PRD-shirabe-child-dispatch-contract.md
 spawned_from:
   issue: 150
   repo: tsukumogami/shirabe
@@ -98,73 +98,41 @@ The technical problem DESIGN settles: pick one harness primitive consistent with
 
 The DESIGN settles three independent decisions and three D5 backlog items. Each decision walks its alternatives before naming the chosen option, per the PRD's "no solution before deliberation" constraint.
 
-### Decision 1 — Dispatch Mechanism
+### Decision 1: Dispatch Mechanism
 
 The question: which harness primitive carries each child invocation?
 
-**Option 1A — TeamCreate-backed team per child dispatch.** The parent calls `TeamCreate` to spawn a team for each child invocation. The team has a coordinator (the child) and peers materialized from the child's declared team shape. The parent dispatches via `SendMessage` to the coordinator.
+#### Chosen: 1C — Inline Skill-tool invocation
 
-- *Pros:* Matches the R19/I-7 discipline's asynchronous shape literally; the parent has structured messages to inbox-process; the team-lead discipline reads against a real team boundary.
-- *Cons:* Violates `team_primitive: single-team-per-leader-no-nested` when the child itself runs a jury (`/prd`, `/design`, `/brief`, `/strategy`, `/roadmap`, `/vision`). The child's jury would be a nested team inside the dispatch team. The substrate forbids this in v1. Also: the parent now owns the team it dispatched to, which breaks R14 child-isolation — the parent would see the child's peers' inbox messages and partial artifacts.
-- *Verdict:* Rejected. The substrate constraint is hard.
-
-**Option 1B — Single general-purpose sub-agent per child dispatch.** The parent spawns one sub-agent via the Agent tool. The sub-agent runs the child invocation. The parent monitors the sub-agent via `run_in_background` polling.
-
-- *Pros:* Matches the R19 sleep-check-nudge loop in shape; lets the parent run as single-agent at its own layer.
-- *Cons:* The sub-agent is itself a parent-of-the-team-the-child-creates. When the child runs a jury, that jury is nested inside the dispatched sub-agent — the same `single-team-per-leader-no-nested` violation 1A hits, dressed differently. Worse, the parent's filesystem-evidence check now reads against a layer (the sub-agent's filesystem) the parent does not own; this is what triggered the run that surfaced #150 — the author flagged the dispatch as not matching intent because the sub-agent's filesystem state was opaque to the parent.
-- *Verdict:* Rejected. The "single sub-agent" compromise is the silent reading that broke the original run.
-
-**Option 1C — Inline Skill-tool invocation.** The parent calls the Skill tool directly with the child's name and the topic slug, the same way a user typing `/<child> <topic>` would. The child runs in the parent's own agent context; the child's own team-construction (juries, decision-researchers) is the child's responsibility and happens at the child layer, not at the parent layer.
+The parent calls the Skill tool directly with the child's name and the topic slug, the same way a user typing `/<child> <topic>` would. The child runs in the parent's own agent context; the child's own team-construction (juries, decision-researchers) is the child's responsibility and happens at the child layer, not at the parent layer.
 
 - *Pros:* The literal reading of Phase 2's "the child's existing input mode." Compatible with `team_primitive: single-team-per-leader-no-nested` — the parent owns no team; the child owns its own team. R14 child-isolation is preserved because the parent reads only the child's durable artifact path, never the child's internal team coordination. The R19 discipline binds at the child layer (the child runs the discipline against its own peers) not at the parent layer (the parent runs no team-lead loop at all — there is no team to lead).
 - *Cons:* Requires re-interpreting the R19 binding for `/scope` and `/charter`. Today, `/scope`'s Team Shape section says R19 binds at the child-skill-dispatch layer, which gestures at parent-runs-team-lead-against-child. Under 1C, R19 binds inside the child against the child's own peers, and the parent's role is the synchronous Skill-tool caller. The Binding Notes section in the pattern reference (which today describes `/charter` as having a vacuous parent-layer binding and a concrete child-dispatch binding) needs rewording to reflect that R19 binds inside the child, not across the dispatch.
-- *Verdict:* Chosen. The substrate is the forcing function: only inline Skill-tool dispatch matches `single-team-per-leader-no-nested`. The R19 reinterpretation is a wording change, not a discipline change — the sleep-check-nudge loop runs inside whichever skill spawns a team, which is the child, not the parent. The author's intent in the run that surfaced #150 matches 1C: the parent stays single-agent, the child runs its own discipline.
 
-**Option 1D — Shape-dependent: parent reads the child's declared shape and constructs the matching primitive.** The user's hypothesis. The parent inspects the child's team-shape declaration; if the declaration names peers, the parent constructs a team; if not, the parent calls inline.
+The substrate is the forcing function: only inline Skill-tool dispatch matches `single-team-per-leader-no-nested`. The R19 reinterpretation is a wording change, not a discipline change — the sleep-check-nudge loop runs inside whichever skill spawns a team, which is the child, not the parent. The author's intent in the run that surfaced #150 matches 1C: the parent stays single-agent, the child runs its own discipline.
 
-- *Pros:* Matches the intuition that "the contract reads the inner skill's declared shape." Lets simple children stay simple and complex children get teams.
-- *Cons:* Reintroduces the 1A violation for any child that itself runs a jury — the parent-constructed team plus the child-run jury equals a nested team. The "shape-dependent" framing also conflates two concerns: the dispatch primitive (how the parent calls the child) and the team-construction layer (which agent materializes the child's peers). Decision 3 below settles the team-construction layer separately; conflating it here makes the contract harder to read. Finally, "shape-dependent" is already a gate-vocabulary term in the pattern (see `## Gate Vocabulary` in the pattern reference, where "shape-dependent" describes a gate whose sub-shape is upstream-recorded). Reusing the term for dispatch-mechanism choice would overload it.
-- *Verdict:* Rejected. The intuition the option captures is real but is the wrong altitude: the parent SHOULD read the child's declared shape (this is what AC7 requires) but the reading does not change the dispatch primitive; it informs *who* constructs the team (the child, per Decision 3 below).
+#### Alternatives Considered
 
-**Chosen: 1C — Inline Skill-tool invocation.**
+- **Option 1A — TeamCreate-backed team per child dispatch.** The parent calls `TeamCreate` to spawn a team for each child invocation. The team has a coordinator (the child) and peers materialized from the child's declared team shape. The parent dispatches via `SendMessage` to the coordinator. *Pros:* Matches the R19/I-7 discipline's asynchronous shape literally; the parent has structured messages to inbox-process; the team-lead discipline reads against a real team boundary. *Cons:* Violates `team_primitive: single-team-per-leader-no-nested` when the child itself runs a jury (`/prd`, `/design`, `/brief`, `/strategy`, `/roadmap`, `/vision`). The child's jury would be a nested team inside the dispatch team. The substrate forbids this in v1. Also: the parent now owns the team it dispatched to, which breaks R14 child-isolation — the parent would see the child's peers' inbox messages and partial artifacts. Rejected because the substrate constraint is hard.
 
-### Decision 2 — Declarator Format
+- **Option 1B — Single general-purpose sub-agent per child dispatch.** The parent spawns one sub-agent via the Agent tool. The sub-agent runs the child invocation. The parent monitors the sub-agent via `run_in_background` polling. *Pros:* Matches the R19 sleep-check-nudge loop in shape; lets the parent run as single-agent at its own layer. *Cons:* The sub-agent is itself a parent-of-the-team-the-child-creates. When the child runs a jury, that jury is nested inside the dispatched sub-agent — the same `single-team-per-leader-no-nested` violation 1A hits, dressed differently. Worse, the parent's filesystem-evidence check now reads against a layer (the sub-agent's filesystem) the parent does not own; this is what triggered the run that surfaced #150 — the author flagged the dispatch as not matching intent because the sub-agent's filesystem state was opaque to the parent. Rejected because the "single sub-agent" compromise is the silent reading that broke the original run.
+
+- **Option 1D — Shape-dependent: parent reads the child's declared shape and constructs the matching primitive.** The user's hypothesis. The parent inspects the child's team-shape declaration; if the declaration names peers, the parent constructs a team; if not, the parent calls inline. *Pros:* Matches the intuition that "the contract reads the inner skill's declared shape." Lets simple children stay simple and complex children get teams. *Cons:* Reintroduces the 1A violation for any child that itself runs a jury — the parent-constructed team plus the child-run jury equals a nested team. The "shape-dependent" framing also conflates two concerns: the dispatch primitive (how the parent calls the child) and the team-construction layer (which agent materializes the child's peers). Decision 3 below settles the team-construction layer separately; conflating it here makes the contract harder to read. Finally, "shape-dependent" is already a gate-vocabulary term in the pattern (see `## Gate Vocabulary` in the pattern reference, where "shape-dependent" describes a gate whose sub-shape is upstream-recorded). Reusing the term for dispatch-mechanism choice would overload it. Rejected because the intuition the option captures is real but is the wrong altitude: the parent SHOULD read the child's declared shape (this is what AC7 requires) but the reading does not change the dispatch primitive; it informs *who* constructs the team (the child, per Decision 3 below).
+
+### Decision 2: Declarator Format
 
 The question: how does each of the seven children declare its team shape so the parent can read it?
 
-**Option 2A — Prose subsection under a `## Team Shape` heading.** Each child gets a `## Team Shape` heading with free-form prose describing peers.
+#### Chosen: 2E — Dedicated `team.yaml` file at `skills/<name>/team.yaml`
 
-- *Pros:* Zero new validation infrastructure; matches the v1 prose-declarator form the parent-skill-pattern already calls out.
-- *Cons:* Not mechanically parseable. The PRD's R3 requires the declaration to distinguish reviewer-shaped roles from variable-cardinality worker role types and to name an upper bound for variable-cardinality. Prose cannot be grep-checked for those distinctions; a reviewer evaluating compliance would need to read prose against intent. AC9 (upper bound named) becomes a judgment call.
-- *Verdict:* Rejected. R3's structural distinctions need a structural format.
-
-**Option 2B — Structured YAML in SKILL.md frontmatter.** Add a `team:` top-level key to the child's SKILL.md frontmatter with a nested schema for peers, roles, cardinality, upper bound.
-
-- *Pros:* Frontmatter is the most schema-validated surface in shirabe; existing artifact validators already parse it.
-- *Cons:* Children's SKILL.md frontmatter today does not follow the artifact schema/v1 convention — SKILL.md files have plugin-format frontmatter (`name`, `description`), not artifact frontmatter. Adding a `team:` key to that frontmatter risks collisions with the plugin loader's parser and with future skill-marketplace metadata. Worse, the artifact validators that already parse `schema:` and `status:` would attempt to validate the `team:` block against schemas that do not apply to SKILL.md files.
-- *Verdict:* Rejected. The frontmatter surface is wrong: SKILL.md frontmatter is for plugin metadata, not for content schemas.
-
-**Option 2C — Structured markdown table under `## Team Shape`.** Each child gets a `## Team Shape` heading with a fixed-column markdown table (Role, Cardinality, Upper Bound, Notes).
-
-- *Pros:* Tables are grep-anchorable by column headers and human-readable.
-- *Cons:* Tables are brittle to wrap, hard to extend without breaking column alignment, and a poor fit for nested data (a role with multiple notes-of-notes). The amplifier-layer migration to structured metadata (as the pattern reference's Team-Shape Declarator section anticipates) would require re-encoding tables as YAML anyway.
-- *Verdict:* Rejected. Tables are a halfway house between prose and YAML; the amplifier-layer migration path makes the halfway position more expensive than going straight to YAML.
-
-**Option 2D — Fenced YAML block under `## Team Shape` in SKILL.md body.** Each child has a `## Team Shape` heading whose body contains a fenced YAML code block following a fixed schema. The schema's top-level keys: `parent_layer:` (peers materialized at parent-of-parent time, almost always empty), `child_layer:` (peers spawned inside the child, with role types and cardinality).
-
-- *Pros:* YAML is the schema language the pattern already uses for state files. Grep-anchorable on the heading and on the fence (` ```yaml `). Schema-validatable via a separate validator pass without coupling to SKILL.md frontmatter. Distinguishes reviewer-shaped roles from variable-cardinality worker role types via explicit `cardinality:` and `upper_bound:` fields, satisfying R3 / AC8 / AC9 grep-checkably.
-- *Cons:* Forces the parent to load the entire child SKILL.md into context to read ~10 lines of structured declaration. Today's SKILL.md files are 300-700 lines each; the team declaration is a fraction of a percent of that surface. Loading the whole file violates R3's "loads only the team-shape information into context" principle. Schema validation requires extracting YAML from a markdown fence, an extra parse step the substrate doesn't need anywhere else. Mixing the contract surface (machine-read by the parent) with the operating manual (read by the child agent at invocation time) couples two distinct readers to one file.
-- *Verdict:* Rejected on reconsideration. The minimum-context-load principle (added to R3 during the DESIGN-Accepted re-review) makes the embedded-in-SKILL.md location wrong. The earlier verdict that "2D is already in the destination shape" for amplifier-layer migration is true but undersells the cost — every parent reading the declaration today eats the cost.
-
-**Option 2E — Dedicated `team.yaml` file at well-known per-skill location.** Each child gets a new file at `skills/<name>/team.yaml` containing the same YAML schema 2D embedded. The file is the contract surface; SKILL.md retains a brief `## Team Shape` prose section that cross-references `team.yaml` as the source of truth.
+Each child gets a new file at `skills/<name>/team.yaml` containing the structured YAML declaration. The file is the contract surface; SKILL.md retains a brief `## Team Shape` prose section that cross-references `team.yaml` as the source of truth.
 
 - *Pros:* Minimum-context-load by design: a reader (human, future-substrate, future-validator, future-amplifier-layer parent) loads ~10 lines of YAML rather than a 300-700-line SKILL.md to learn the team shape. The file IS the contract — its path is the well-known location, its content is the declaration. Glob-checkable for presence (`ls skills/*/team.yaml` returns seven files) rather than grep-checkable across mixed markdown bodies. Schema validation is trivial (parse the YAML file directly; no markdown extraction). Separates two distinct readers cleanly: `team.yaml` is machine-readable contract; SKILL.md is human-readable operating manual for the child agent. Amplifier-layer migration is a no-op — the substrate already has a YAML file to parse; no new file format introduced. The file's path under `skills/<name>/` matches shirabe's existing per-skill organization (`SKILL.md`, `references/`, `scripts/`, `evals/` siblings).
 - *Cons:* Two files to keep consistent per skill (the `team.yaml` declares the shape; SKILL.md prose may reference it). Mitigation: a future shirabe validator check (Phase D) can verify the SKILL.md `## Team Shape` section references `team.yaml` and that the declared shape matches actual team construction at runtime. Slightly more migration work (create 7 new files vs add 7 headings) but each file is ~10 lines and the work is per-skill independent.
-- *Verdict:* Chosen. The contract surface is a file at a path — clean, machine-readable, minimum-context-by-construction, and matches the user's stated principle: "the team lead loads in its context the minimum amount of info about the skill it's about to launch." See "v1 runtime read semantics" note below for the v1-vs-v2 read distinction.
+
+The contract surface is a file at a path — clean, machine-readable, minimum-context-by-construction, and matches the user's stated principle: "the team lead loads in its context the minimum amount of info about the skill it's about to launch." See "v1 runtime read semantics" note below for the v1-vs-v2 read distinction.
 
 **v1 runtime read semantics.** In v1, the parent does NOT parse `team.yaml` at dispatch time. The substrate has no team.yaml parser; Decision 1's inline Skill-tool mechanism passes the topic-slug argument and nothing else. The file is consumed in v1 by: (a) reviewers reading the declaration to verify it matches the child's actual peer roster, (b) the Phase D validator extension when it ships, and (c) the future amplifier-layer substrate when it ships TeamCreate semantics. The "minimum-context-load" framing is forward-looking — when those readers materialize, they load the file's ~10 lines rather than the child's full SKILL.md. The contract surface (file at path) exists in v1; the runtime read is a v2 binding under `team_primitive`'s Layer-2 substitution.
-
-**Chosen: 2E — Dedicated `team.yaml` file at `skills/<name>/team.yaml`.**
 
 The exact schema (identical for 2D and 2E; only the location differs):
 
@@ -190,63 +158,84 @@ child_layer:
 
 The SKILL.md `## Team Shape` section retains a brief prose description (one or two sentences naming the team's purpose and pointing at the file) so a child-agent reader of SKILL.md still sees the team mentioned in-line. The cross-reference text: "See [`team.yaml`](./team.yaml) for the machine-readable team-shape declaration. v1 parent skills (`/scope`, `/charter`) do not parse this file at dispatch time; it is consumed by reviewers, the Phase D validator extension, and the future amplifier-layer substrate."
 
-### Decision 3 — Team-Construction Layer
+#### Alternatives Considered
+
+- **Option 2A — Prose subsection under a `## Team Shape` heading.** Each child gets a `## Team Shape` heading with free-form prose describing peers. *Pros:* Zero new validation infrastructure; matches the v1 prose-declarator form the parent-skill-pattern already calls out. *Cons:* Not mechanically parseable. The PRD's R3 requires the declaration to distinguish reviewer-shaped roles from variable-cardinality worker role types and to name an upper bound for variable-cardinality. Prose cannot be grep-checked for those distinctions; a reviewer evaluating compliance would need to read prose against intent. AC9 (upper bound named) becomes a judgment call. *Verdict:* Rejected. R3's structural distinctions need a structural format.
+
+- **Option 2B — Structured YAML in SKILL.md frontmatter.** Add a `team:` top-level key to the child's SKILL.md frontmatter with a nested schema for peers, roles, cardinality, upper bound. *Pros:* Frontmatter is the most schema-validated surface in shirabe; existing artifact validators already parse it. *Cons:* Children's SKILL.md frontmatter today does not follow the artifact schema/v1 convention — SKILL.md files have plugin-format frontmatter (`name`, `description`), not artifact frontmatter. Adding a `team:` key to that frontmatter risks collisions with the plugin loader's parser and with future skill-marketplace metadata. Worse, the artifact validators that already parse `schema:` and `status:` would attempt to validate the `team:` block against schemas that do not apply to SKILL.md files. *Verdict:* Rejected. The frontmatter surface is wrong: SKILL.md frontmatter is for plugin metadata, not for content schemas.
+
+- **Option 2C — Structured markdown table under `## Team Shape`.** Each child gets a `## Team Shape` heading with a fixed-column markdown table (Role, Cardinality, Upper Bound, Notes). *Pros:* Tables are grep-anchorable by column headers and human-readable. *Cons:* Tables are brittle to wrap, hard to extend without breaking column alignment, and a poor fit for nested data (a role with multiple notes-of-notes). The amplifier-layer migration to structured metadata (as the pattern reference's Team-Shape Declarator section anticipates) would require re-encoding tables as YAML anyway. *Verdict:* Rejected. Tables are a halfway house between prose and YAML; the amplifier-layer migration path makes the halfway position more expensive than going straight to YAML.
+
+- **Option 2D — Fenced YAML block under `## Team Shape` in SKILL.md body.** Each child has a `## Team Shape` heading whose body contains a fenced YAML code block following a fixed schema. The schema's top-level keys: `parent_layer:` (peers materialized at parent-of-parent time, almost always empty), `child_layer:` (peers spawned inside the child, with role types and cardinality). *Pros:* YAML is the schema language the pattern already uses for state files. Grep-anchorable on the heading and on the fence (` ```yaml `). Schema-validatable via a separate validator pass without coupling to SKILL.md frontmatter. Distinguishes reviewer-shaped roles from variable-cardinality worker role types via explicit `cardinality:` and `upper_bound:` fields, satisfying R3 / AC8 / AC9 grep-checkably. *Cons:* Forces the parent to load the entire child SKILL.md into context to read ~10 lines of structured declaration. Today's SKILL.md files are 300-700 lines each; the team declaration is a fraction of a percent of that surface. Loading the whole file violates R3's "loads only the team-shape information into context" principle. Schema validation requires extracting YAML from a markdown fence, an extra parse step the substrate doesn't need anywhere else. Mixing the contract surface (machine-read by the parent) with the operating manual (read by the child agent at invocation time) couples two distinct readers to one file. *Verdict:* Rejected on reconsideration. The minimum-context-load principle (added to R3 during the DESIGN-Accepted re-review) makes the embedded-in-SKILL.md location wrong. The earlier verdict that "2D is already in the destination shape" for amplifier-layer migration is true but undersells the cost — every parent reading the declaration today eats the cost.
+
+### Decision 3: Team-Construction Layer
 
 The question: when a child has peers, who constructs the team — the parent (the `/scope` or `/charter` coordination layer), or the child itself?
 
-**Option 3A — Parent constructs the team for the whole chain (one team spans all children).** `/scope` constructs a team at chain start with peers covering all child-emitted roles; the coordinator dispatches each child as a phase.
+#### Chosen: 3C — Child-layer team construction
 
-- *Pros:* Single team spans the chain; teardown is once per chain run.
-- *Cons:* Violates `team_primitive: single-team-per-leader-no-nested` because the parent now owns a team while children spawn juries inside that team. The upper-bound-roster declared at team-creation time would need to span every possible role across all four children — `/brief`'s 2 reviewers, `/prd`'s 3 jurors, `/design`'s N decision-researchers, `/plan`'s decomposers — turning the parent's Team Shape section into a transitive declaration of every descendant's team needs. R14 child-isolation breaks: the parent sees the peers the child dispatches.
-- *Verdict:* Rejected.
-
-**Option 3B — Parent constructs a fresh team per child dispatch.** `/scope` calls TeamCreate per child invocation; the team's roster matches the child's declaration; the team is torn down after the child returns.
-
-- *Pros:* Smaller blast radius than 3A; the parent's roster declaration stays per-child.
-- *Cons:* Same nested-team violation as Decision 1's option 1A. The child's internal jury (when it has one) becomes a nested team inside the parent's per-child team.
-- *Verdict:* Rejected.
-
-**Option 3C — Child constructs its own team at the child layer.** The parent calls the Skill tool inline (per Decision 1's 1C). The child reads its own team-shape declaration during its Phase 0; if the declaration names peers, the child calls TeamCreate at its own layer (matching today's behavior — `/prd`'s Phase 4 jury, `/design`'s Phase 2 decision-researchers, etc.). The parent owns no team.
+The parent calls the Skill tool inline (per Decision 1's 1C). The child reads its own team-shape declaration during its Phase 0; if the declaration names peers, the child calls TeamCreate at its own layer (matching today's behavior — `/prd`'s Phase 4 jury, `/design`'s Phase 2 decision-researchers, etc.). The parent owns no team.
 
 - *Pros:* Compatible with `single-team-per-leader-no-nested` (only one team exists at a time — the child's). Preserves R14 child-isolation (the parent has no view into the child's team). Matches the actual runtime behavior of `/prd`, `/design`, `/brief`, `/strategy`, `/roadmap`, `/vision` today — those children already construct their own juries; this decision codifies it. Lets the parent's Team Shape section honestly say "single-agent, no team" because that is what the parent actually does.
 - *Cons:* The R19 discipline binding moves. Today's `/scope` Team Shape section says R19 binds at the child-skill-dispatch layer; under 3C it binds inside the child against the child's own peers. The Binding Notes section in the pattern reference needs to be reworded. (This is the same wording change Decision 1 already requires.)
-- *Verdict:* Chosen.
-
-**Chosen: 3C — Child-layer team construction.**
 
 This resolves issue #150's "Reading 1 vs Reading 2" question explicitly: Reading 2 (parent constructs the team) is rejected; Reading 1 (child constructs its own team if any) is the contract. The issue's suggested-fix title ("/scope spawns a TeamCreate-backed team per child dispatch") is wrong as stated; the correct framing is "/scope invokes the child inline; the child spawns its own team if it has one."
 
-### Decision 4 — Per-Parent Override Slot in v1 (PRD D5(a))
+#### Alternatives Considered
+
+- **Option 3A — Parent constructs the team for the whole chain (one team spans all children).** `/scope` constructs a team at chain start with peers covering all child-emitted roles; the coordinator dispatches each child as a phase. *Pros:* Single team spans the chain; teardown is once per chain run. *Cons:* Violates `team_primitive: single-team-per-leader-no-nested` because the parent now owns a team while children spawn juries inside that team. The upper-bound-roster declared at team-creation time would need to span every possible role across all four children — `/brief`'s 2 reviewers, `/prd`'s 3 jurors, `/design`'s N decision-researchers, `/plan`'s decomposers — turning the parent's Team Shape section into a transitive declaration of every descendant's team needs. R14 child-isolation breaks: the parent sees the peers the child dispatches. *Verdict:* Rejected.
+
+- **Option 3B — Parent constructs a fresh team per child dispatch.** `/scope` calls TeamCreate per child invocation; the team's roster matches the child's declaration; the team is torn down after the child returns. *Pros:* Smaller blast radius than 3A; the parent's roster declaration stays per-child. *Cons:* Same nested-team violation as Decision 1's option 1A. The child's internal jury (when it has one) becomes a nested team inside the parent's per-child team. *Verdict:* Rejected.
+
+### Decision 4: Per-Parent Override Slot in v1 (PRD D5(a))
 
 The question: should the contract introduce a named override slot in `/scope`'s and `/charter`'s SKILL.md files for per-parent dispatch-behavior overrides?
 
-- *Pros of introducing one:* Future-proof; if a third parent (e.g., `/work-on`) needs to override a contract element, the slot already exists.
-- *Cons:* AC13 requires the contract-relevant passages to differ only in child names and topic-slug placeholders. An override slot that exists but is empty in v1 is a maintenance attractor — reviewers debate what should go in it; future contributors fill it for the wrong reasons.
-- *Decision:* No override slot in v1. The contract section in the pattern reference includes a one-sentence note: "v1 has no per-parent overrides; the contract applies verbatim to both parents." When `/work-on` migrates and an override is genuinely needed, the slot is introduced at that point with the override's content as the forcing function. AC14's "absence is explicit" branch is satisfied.
+#### Chosen: No override slot in v1
 
-### Decision 5 — Declarator Format Granularity (PRD D5(b))
+The contract section in the pattern reference includes a one-sentence note: "v1 has no per-parent overrides; the contract applies verbatim to both parents." When `/work-on` migrates and an override is genuinely needed, the slot is introduced at that point with the override's content as the forcing function. AC14's "absence is explicit" branch is satisfied.
+
+- *Cons:* AC13 requires the contract-relevant passages to differ only in child names and topic-slug placeholders. An override slot that exists but is empty in v1 is a maintenance attractor — reviewers debate what should go in it; future contributors fill it for the wrong reasons.
+
+#### Alternatives Considered
+
+- **Introduce a named override slot in v1.** *Pros:* Future-proof; if a third parent (e.g., `/work-on`) needs to override a contract element, the slot already exists. *Verdict:* Rejected. The slot would be empty in v1 and become a maintenance attractor; AC13 requires the contract-relevant passages to differ only in child names and topic-slug placeholders.
+
+### Decision 5: Declarator Format Granularity (PRD D5(b))
 
 The question: granularity of the declarator schema — every field optional, fields constrained, or fields required?
 
-- *Pros of permissive (every field optional):* Lower migration burden.
-- *Cons:* Defeats grep-checking. AC8 / AC9 become unverifiable.
-- *Pros of strict (every field required):* Maximum grep-checkability.
-- *Cons:* Vacuous fields for empty teams; `upper_bound` makes no sense for reviewer cardinality.
-- *Decision:* Mixed strictness. `parent_layer.peers` and `child_layer.peers` are required lists (may be empty). When a peer is declared, `role`, `cardinality`, `phase`, `purpose` are required; `upper_bound` is required iff `cardinality: worker`. An empty-team child declares two empty lists; this is the explicit "no team" branch that satisfies R3. Field-value vocabularies are fixed at contract-section time:
-  - `role`: kebab-case string ending in `-reviewer` for reviewer cardinality or matching the worker role-type name (e.g., `decision-researcher`, `decomposer`).
-  - `cardinality`: enum, exactly `reviewer` or `worker`.
-  - `upper_bound`: positive integer when `cardinality: worker`; absent when `cardinality: reviewer`.
-  - `phase`: kebab-case slug matching the child's phase reference filename without extension (e.g., `phase-4-validate`, `phase-2-execution`, `phase-6-final-review`). The phase slug is grep-checkable against `skills/<name>/references/phases/<phase>.md`; an invalid phase slug fails the validator extension when it ships (Phase D).
-  - `purpose`: free-text one-line description.
+#### Chosen: Mixed strictness
 
-### Decision 6 — Forward-Looking Note Placement (PRD D5(c))
+`parent_layer.peers` and `child_layer.peers` are required lists (may be empty). When a peer is declared, `role`, `cardinality`, `phase`, `purpose` are required; `upper_bound` is required iff `cardinality: worker`. An empty-team child declares two empty lists; this is the explicit "no team" branch that satisfies R3. Field-value vocabularies are fixed at contract-section time:
+
+- `role`: kebab-case string ending in `-reviewer` for reviewer cardinality or matching the worker role-type name (e.g., `decision-researcher`, `decomposer`).
+- `cardinality`: enum, exactly `reviewer` or `worker`.
+- `upper_bound`: positive integer when `cardinality: worker`; absent when `cardinality: reviewer`.
+- `phase`: kebab-case slug matching the child's phase reference filename without extension (e.g., `phase-4-validate`, `phase-2-execution`, `phase-6-final-review`). The phase slug is grep-checkable against `skills/<name>/references/phases/<phase>.md`; an invalid phase slug fails the validator extension when it ships (Phase D).
+- `purpose`: free-text one-line description.
+
+#### Alternatives Considered
+
+- **Permissive (every field optional).** *Pros:* Lower migration burden. *Verdict:* Rejected. Defeats grep-checking; AC8 / AC9 become unverifiable.
+
+- **Strict (every field required).** *Pros:* Maximum grep-checkability. *Verdict:* Rejected. Produces vacuous fields for empty teams; `upper_bound` makes no sense for reviewer cardinality.
+
+### Decision 6: Forward-Looking Note Placement (PRD D5(c))
 
 The question: where does R11's forward-looking note ("the contract applies to chain runs initiated after the contract lands; existing in-flight runs are not retroactively re-shaped") live?
 
-- *Pros of placing in the contract section itself:* One-stop reading; a reader who finds the contract section finds the scope boundary in the same place.
-- *Pros of placing in a separate scope sub-section:* Lets the contract section stay focused on the four elements.
-- *Pros of placing in parent SKILL.md files:* Closest to where in-flight-run authors would look.
-- *Decision:* Place the note in the contract section itself as a closing sentence after the four elements. AC17 is satisfied with one grep target rather than three. The parents' SKILL.md cross-references inherit the note via the cross-reference. Rejected: placement in parent SKILL.md (forces both parents to carry duplicate prose, violating AC13's symmetric-wording requirement).
+#### Chosen: In the contract section itself as a closing sentence
+
+Place the note in the contract section itself as a closing sentence after the four elements. AC17 is satisfied with one grep target rather than three. The parents' SKILL.md cross-references inherit the note via the cross-reference.
+
+- *Pros:* One-stop reading; a reader who finds the contract section finds the scope boundary in the same place.
+
+#### Alternatives Considered
+
+- **Place the note in a separate scope sub-section.** *Pros:* Lets the contract section stay focused on the four elements. *Verdict:* Rejected. Splits the scope boundary from the four contract elements, requiring a second grep target.
+
+- **Place the note in parent SKILL.md files.** *Pros:* Closest to where in-flight-run authors would look. *Verdict:* Rejected. Forces both parents to carry duplicate prose, violating AC13's symmetric-wording requirement.
 
 ## Decision Outcome
 
