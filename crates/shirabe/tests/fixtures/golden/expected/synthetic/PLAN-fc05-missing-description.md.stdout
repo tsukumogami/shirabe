@@ -1,1 +1,2 @@
 ::error file=synthetic/PLAN-fc05-missing-description.md,line=25::[FC05] entity row at line 25 is missing its description row (expected an italic "_..._" row immediately after)
+::notice file=synthetic/PLAN-fc05-missing-description.md::[FC07] no mermaid block under ## Dependency Graph (skipping per-node checks)

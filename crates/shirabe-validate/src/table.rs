@@ -26,6 +26,20 @@ pub enum RowKind {
     Child,
 }
 
+/// Distinguishes the two issues-table shapes the validator recognises.
+///
+/// Detected from `Table.columns`: a 4-column shape whose last column is
+/// `Status` indicates the roadmap profile; any other shape (including the
+/// canonical 3-column plan shape) indicates the plan profile. FC07 uses
+/// the profile to select the terminality rule: strikethrough-on-done for
+/// the plan profile, Status-cell value (`Done`/`Closed`) for the roadmap
+/// profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Profile {
+    Plan,
+    Roadmap,
+}
+
 /// One body row of an issues table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
@@ -47,6 +61,18 @@ pub struct Row {
     pub line: usize,
     /// The row's raw text including leading and trailing pipes.
     pub raw: String,
+    /// True when the row is in a terminal state.
+    ///
+    /// For plan-profile rows: true when the original (pre-strip) first
+    /// cell is wrapped in `~~...~~` strikethrough. For roadmap-profile
+    /// rows: true when the Status cell value is `Done` or `Closed`
+    /// (case-insensitive, trimmed). Description and Child rows are never
+    /// terminal.
+    pub terminal: bool,
+    /// The raw Status cell value for roadmap-profile entity rows;
+    /// `None` for plan-profile rows and for non-entity rows. FC07 echoes
+    /// the value verbatim in the four-field class-versus-Status notice.
+    pub status: Option<String>,
 }
 
 /// The parsed issues table from a single Markdown doc.
@@ -59,6 +85,9 @@ pub struct Table {
     pub rows: Vec<Row>,
     /// The 1-indexed absolute line number of the header row.
     pub header_line: usize,
+    /// The detected issues-table profile. See [`Profile`] for the
+    /// detection rule.
+    pub profile: Profile,
 }
 
 /// Matches the Implementation Issues section heading. The validator finds
@@ -119,10 +148,21 @@ pub fn parse_issues_table(doc: &Doc) -> Option<Table> {
     // validate.
     let dep_col = columns.iter().position(|c| c == "Dependencies");
 
+    // A roadmap-profile shape is the 4-column form ending in Status. Any
+    // other shape (including the canonical 3-column plan form, legacy
+    // shapes, and divergent roadmap shapes FC05 flags) classifies as Plan.
+    let profile = detect_profile(&columns);
+    let status_col = if matches!(profile, Profile::Roadmap) {
+        columns.iter().position(|c| c == "Status")
+    } else {
+        None
+    };
+
     let mut table = Table {
         columns,
         rows: Vec::new(),
         header_line,
+        profile,
     };
 
     // Iterate body rows until we hit a blank line or the section ends.
@@ -138,7 +178,7 @@ pub fn parse_issues_table(doc: &Doc) -> Option<Table> {
             break;
         }
         let cells = split_row(raw);
-        let mut row = classify_row(&cells, dep_col);
+        let mut row = classify_row(&cells, dep_col, profile, status_col);
         // Absolute line = header_line offset by (i - hdr_idx).
         row.line = header_line + (i - hdr_idx);
         row.raw = doc.body[i].clone();
@@ -146,6 +186,18 @@ pub fn parse_issues_table(doc: &Doc) -> Option<Table> {
     }
 
     Some(table)
+}
+
+/// Detect the issues-table profile from its column headers. A 4-column
+/// table whose last column is `Status` is the roadmap profile; every
+/// other shape (canonical 3-column plan, legacy 4-column plan, divergent
+/// roadmap shapes) is the plan profile.
+fn detect_profile(columns: &[String]) -> Profile {
+    if columns.len() == 4 && columns.last().map(|s| s.as_str()) == Some("Status") {
+        Profile::Roadmap
+    } else {
+        Profile::Plan
+    }
 }
 
 /// Return the `[start, end)` body indices that bound the Implementation
@@ -227,21 +279,31 @@ fn split_row(raw: &str) -> Vec<String> {
 }
 
 /// Inspect the cells of a body row and produce a [`Row`] with its kind,
-/// key, and dependency targets populated. `dep_col` is the index of the
-/// Dependencies column in the table header (`None` if absent).
-fn classify_row(cells: &[String], dep_col: Option<usize>) -> Row {
+/// key, dependency targets, and terminality populated. `dep_col` is the
+/// index of the Dependencies column (`None` if absent). `profile` selects
+/// the terminality rule. `status_col` is the index of the Status column
+/// for the roadmap profile (`None` otherwise).
+fn classify_row(
+    cells: &[String],
+    dep_col: Option<usize>,
+    profile: Profile,
+    status_col: Option<usize>,
+) -> Row {
     let blank = |kind| Row {
         kind,
         key: String::new(),
         deps: Vec::new(),
         line: 0,
         raw: String::new(),
+        terminal: false,
+        status: None,
     };
 
     if cells.is_empty() {
         return blank(RowKind::Entity);
     }
-    let first = strip_strikethrough(&cells[0]);
+    let raw_first = &cells[0];
+    let first = strip_strikethrough(raw_first);
 
     // Child reference row: first cell starts with `^_` and remaining cells
     // are empty (after strikethrough strip).
@@ -263,7 +325,44 @@ fn classify_row(cells: &[String], dep_col: Option<usize>) -> Row {
             row.deps = extract_deps(&strip_strikethrough(&cells[dc]));
         }
     }
+    match profile {
+        Profile::Plan => {
+            // Plan-profile terminality: original first cell wrapped in
+            // `~~...~~`. We inspect the raw cell rather than the stripped
+            // form so a struck-through cell is observable here.
+            row.terminal = is_strikethrough_wrapped(raw_first);
+        }
+        Profile::Roadmap => {
+            if let Some(sc) = status_col {
+                if sc < cells.len() {
+                    let raw_status = strip_strikethrough(&cells[sc]);
+                    let trimmed = raw_status.trim().to_string();
+                    row.terminal = is_terminal_roadmap_status(&trimmed);
+                    if !trimmed.is_empty() {
+                        row.status = Some(trimmed);
+                    }
+                }
+            }
+        }
+    }
     row
+}
+
+/// Reports whether `raw` is wrapped in a `~~...~~` strikethrough that
+/// covers the entire trimmed cell. A cell with leading or trailing text
+/// outside the strikethrough markers is not terminal.
+fn is_strikethrough_wrapped(raw: &str) -> bool {
+    let t = raw.trim();
+    t.starts_with("~~") && t.ends_with("~~") && t.len() >= 4
+}
+
+/// Roadmap-profile terminality rule: `Done` and `Closed` are terminal
+/// (case-insensitive, trimmed). Every other Status value (including
+/// `In Progress`, `Not Started`, and `needs-*` annotations) is open. The
+/// rule mirrors `references/issues-table.md` for the Status column.
+fn is_terminal_roadmap_status(status: &str) -> bool {
+    let t = status.trim();
+    t.eq_ignore_ascii_case("Done") || t.eq_ignore_ascii_case("Closed")
 }
 
 /// Parse a Dependencies cell value into a list of targets. `None`
@@ -532,5 +631,118 @@ mod tests {
         // Section heading with no body, no closing section.
         let doc = doc_from_markdown("## Implementation Issues\n");
         let _ = parse_issues_table(&doc);
+    }
+
+    // --- Terminality, Status, Profile (FC07 prerequisites) ---
+
+    #[test]
+    fn profile_detected_as_plan_for_canonical_three_column_shape() {
+        let doc = doc_from_markdown(
+            "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n",
+        );
+        let table = parse_issues_table(&doc).expect("table parses");
+        assert_eq!(table.profile, Profile::Plan);
+    }
+
+    #[test]
+    fn profile_detected_as_roadmap_for_four_column_status_shape() {
+        let doc = doc_from_markdown(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | Done |\n| _Alpha._ | | | |\n",
+        );
+        let table = parse_issues_table(&doc).expect("table parses");
+        assert_eq!(table.profile, Profile::Roadmap);
+    }
+
+    #[test]
+    fn profile_falls_back_to_plan_for_divergent_roadmap_shape() {
+        let doc = doc_from_markdown(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Status | Downstream Artifact |\n|---------|--------|---------------------|\n| Feature 1: alpha | Done | DESIGN-foo.md |\n",
+        );
+        let table = parse_issues_table(&doc).expect("table parses");
+        assert_eq!(
+            table.profile,
+            Profile::Plan,
+            "3-column shape ending in non-Status falls back to Plan"
+        );
+    }
+
+    #[test]
+    fn plan_profile_strikethrough_sets_terminal() {
+        let doc = doc_from_markdown(
+            "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| ~~[#1: done item](https://example.com/1)~~ | ~~None~~ | ~~simple~~ |\n| ~~_Description._~~ | | |\n",
+        );
+        let table = parse_issues_table(&doc).expect("table parses");
+        assert!(table.rows[0].terminal, "struck entity row is terminal");
+        assert_eq!(table.rows[0].status, None);
+    }
+
+    #[test]
+    fn plan_profile_no_strikethrough_means_open() {
+        let doc = doc_from_markdown(
+            "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: open item](https://example.com/1) | None | simple |\n| _Description._ | | |\n",
+        );
+        let table = parse_issues_table(&doc).expect("table parses");
+        assert!(!table.rows[0].terminal, "non-struck entity row is open");
+    }
+
+    #[test]
+    fn roadmap_profile_status_done_is_terminal() {
+        let doc = doc_from_markdown(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | Done |\n| _Alpha._ | | | |\n",
+        );
+        let table = parse_issues_table(&doc).expect("table parses");
+        assert!(table.rows[0].terminal);
+        assert_eq!(table.rows[0].status.as_deref(), Some("Done"));
+    }
+
+    #[test]
+    fn roadmap_profile_status_closed_is_terminal() {
+        let doc = doc_from_markdown(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | Closed |\n| _Alpha._ | | | |\n",
+        );
+        let table = parse_issues_table(&doc).expect("table parses");
+        assert!(table.rows[0].terminal);
+        assert_eq!(table.rows[0].status.as_deref(), Some("Closed"));
+    }
+
+    #[test]
+    fn roadmap_profile_status_in_progress_is_open() {
+        let doc = doc_from_markdown(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | In Progress |\n| _Alpha._ | | | |\n",
+        );
+        let table = parse_issues_table(&doc).expect("table parses");
+        assert!(!table.rows[0].terminal);
+        assert_eq!(table.rows[0].status.as_deref(), Some("In Progress"));
+    }
+
+    #[test]
+    fn roadmap_profile_status_not_started_is_open() {
+        let doc = doc_from_markdown(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | Not Started |\n| _Alpha._ | | | |\n",
+        );
+        let table = parse_issues_table(&doc).expect("table parses");
+        assert!(!table.rows[0].terminal);
+        assert_eq!(table.rows[0].status.as_deref(), Some("Not Started"));
+    }
+
+    #[test]
+    fn roadmap_profile_needs_annotation_counts_as_open() {
+        let doc = doc_from_markdown(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | needs-design |\n| _Alpha._ | | | |\n",
+        );
+        let table = parse_issues_table(&doc).expect("table parses");
+        assert!(!table.rows[0].terminal);
+        assert_eq!(table.rows[0].status.as_deref(), Some("needs-design"));
+    }
+
+    #[test]
+    fn description_row_is_never_terminal() {
+        let doc = doc_from_markdown(
+            "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| ~~[#1: done](https://example.com/1)~~ | ~~None~~ | ~~simple~~ |\n| _Description._ | | |\n",
+        );
+        let table = parse_issues_table(&doc).expect("table parses");
+        assert_eq!(table.rows[1].kind, RowKind::Description);
+        assert!(!table.rows[1].terminal);
+        assert_eq!(table.rows[1].status, None);
     }
 }

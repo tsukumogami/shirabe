@@ -7,8 +7,9 @@
 //! `validate::{Config, validate_file, is_notice}`.
 
 use crate::checks::{
-    check_fc01, check_fc02, check_fc03, check_fc04, check_fc05, check_fc06, check_plan_upstream,
-    check_private_only, check_schema, check_strategy_public, check_vision_public,
+    check_fc01, check_fc02, check_fc03, check_fc04, check_fc05, check_fc06, check_fc07,
+    check_plan_upstream, check_private_only, check_schema, check_strategy_public,
+    check_vision_public,
 };
 use crate::doc::{Doc, ValidationError};
 use crate::formats::FormatSpec;
@@ -16,11 +17,19 @@ use crate::formats::FormatSpec;
 pub use crate::doc::Config;
 
 /// Reports whether a [`ValidationError`] should be emitted as a GHA
-/// `::notice` annotation rather than a `::error`. Only SCHEMA-code results
-/// are notices; all other codes (FC01-FC06, R6, R7, R8) are errors that
-/// contribute to a non-zero exit.
+/// `::notice` annotation rather than a `::error`.
+///
+/// **Promotion seam.** FC07 ships notice-level for v1; remove the
+/// `"FC07"` arm from this match to promote the check from notice to
+/// error in a single-line diff. The match expression is the one place
+/// that drives the notice-vs-error split; the corresponding test in this
+/// module (`is_notice_only_schema_and_fc07`) tracks the membership.
+///
+/// All other codes (`FC01`-`FC06`, `R6`-`R9`) are errors that contribute
+/// to a non-zero exit. `SCHEMA` is the long-standing notice; `FC07` is
+/// the v1 addition pending the corpus-cleanup PR.
 pub fn is_notice(err: &ValidationError) -> bool {
-    err.code == "SCHEMA"
+    matches!(err.code.as_str(), "SCHEMA" | "FC07")
 }
 
 /// Runs all checks for a given doc against its format spec. Returns a
@@ -58,10 +67,12 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
             errs.extend(check_plan_upstream(doc));
             errs.extend(check_fc05(doc, spec));
             errs.extend(check_fc06(doc, spec));
+            errs.extend(check_fc07(doc, spec));
         }
         "Roadmap" => {
             errs.extend(check_fc05(doc, spec));
             errs.extend(check_fc06(doc, spec));
+            errs.extend(check_fc07(doc, spec));
         }
         "VISION" => {
             errs.extend(check_vision_public(doc, cfg));
@@ -124,13 +135,22 @@ mod tests {
 
     #[test]
     fn is_notice_only_schema() {
+        // SCHEMA and FC07 are the notice-level codes for v1. FC07 ships
+        // notice-level pending the corpus-cleanup PR; removing the FC07
+        // arm from is_notice promotes the check to error.
         assert!(is_notice(&ValidationError {
             file: String::new(),
             line: 0,
             code: "SCHEMA".to_string(),
             message: String::new(),
         }));
-        for code in ["FC01", "FC02", "FC03", "FC04", "R6", "R7", "R8", "R9"] {
+        assert!(is_notice(&ValidationError {
+            file: String::new(),
+            line: 0,
+            code: "FC07".to_string(),
+            message: String::new(),
+        }));
+        for code in ["FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "R6", "R7", "R8", "R9"] {
             assert!(
                 !is_notice(&ValidationError {
                     file: String::new(),
