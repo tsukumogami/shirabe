@@ -177,13 +177,28 @@ pub enum BodyTemplate {
 ///
 /// The per-type result shapes stay divergent (the PRD chose preserve-over-
 /// unify). prd and brief emit the four base fields; roadmap adds `new_path`
-/// and `moved`; the move types add `superseded_by` / `reason` in Issue 3.
+/// and `moved`; the move types append `superseded_by` / `reason` after `moved`
+/// when the corresponding extra input was supplied (matching the scripts'
+/// `json_success`, which only emits the trailing field when non-empty).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResultFields {
     /// `{success, doc_path, old_status, new_status}` (prd, brief).
     Base,
     /// Base plus `new_path` and `moved` (roadmap, design, vision, strategy).
     WithPath,
+}
+
+/// An optional trailing JSON field on a `WithPath` result, mirroring the
+/// scripts' `json_success` sixth argument: design/vision emit `superseded_by`,
+/// strategy emits `reason`, and only when the value is present and non-empty.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExtraField {
+    /// No trailing field (roadmap, or a move type called without its flag).
+    None,
+    /// `"superseded_by": <path>` (design Superseded, vision Sunset).
+    SupersededBy(String),
+    /// `"reason": <text>` (strategy Sunset).
+    Reason(String),
 }
 
 /// A declarative descriptor for one doc type's transition behavior.
@@ -284,7 +299,7 @@ pub fn transition_table() -> Vec<TransitionSpec> {
                 target_status: "Sunset".to_string(),
                 missing_code: 1,
             },
-            body_template: BodyTemplate::BareStatus,
+            body_template: BodyTemplate::SunsetSupersededBy,
             result_fields: ResultFields::WithPath,
         },
         TransitionSpec {
@@ -327,7 +342,7 @@ pub fn transition_table() -> Vec<TransitionSpec> {
                 target_status: "Sunset".to_string(),
                 missing_code: 2,
             },
-            body_template: BodyTemplate::BareStatus,
+            body_template: BodyTemplate::SunsetReason,
             result_fields: ResultFields::WithPath,
         },
         TransitionSpec {
@@ -405,7 +420,7 @@ pub fn transition_table() -> Vec<TransitionSpec> {
                 target_status: "Superseded".to_string(),
                 missing_code: 1,
             },
-            body_template: BodyTemplate::BareStatus,
+            body_template: BodyTemplate::SupersededBy,
             result_fields: ResultFields::WithPath,
         },
     ]
@@ -426,10 +441,13 @@ pub struct Outcome {
     pub new_status: String,
     /// The path after a move; equals `doc_path` for non-moving types.
     pub new_path: String,
-    /// Whether the file moved. Always `false` in Issue 1.
+    /// Whether the file moved.
     pub moved: bool,
     /// The result-field shape, controlling which fields render to JSON.
     pub result_fields: ResultFields,
+    /// The optional trailing extra field (`superseded_by` / `reason`), emitted
+    /// after `moved` on a `WithPath` result when present.
+    pub extra_field: ExtraField,
 }
 
 impl Outcome {
@@ -463,7 +481,22 @@ impl Outcome {
                     "  \"new_path\": {},\n",
                     json_string(&self.new_path)
                 ));
-                out.push_str(&format!("  \"moved\": {}\n", self.moved));
+                // The trailing extra field, when present, follows `moved` (so
+                // `moved` gains a comma); matching the scripts' `json_success`
+                // which only emits the sixth field when non-empty.
+                match &self.extra_field {
+                    ExtraField::None => {
+                        out.push_str(&format!("  \"moved\": {}\n", self.moved));
+                    }
+                    ExtraField::SupersededBy(value) => {
+                        out.push_str(&format!("  \"moved\": {},\n", self.moved));
+                        out.push_str(&format!("  \"superseded_by\": {}\n", json_string(value)));
+                    }
+                    ExtraField::Reason(value) => {
+                        out.push_str(&format!("  \"moved\": {},\n", self.moved));
+                        out.push_str(&format!("  \"reason\": {}\n", json_string(value)));
+                    }
+                }
             }
         }
         out.push_str("}\n");
@@ -540,7 +573,7 @@ pub struct Flags {
 pub fn run_transition(
     file: &str,
     target_status: &str,
-    _flags: &Flags,
+    flags: &Flags,
 ) -> Result<Outcome, TransitionError> {
     // Step 1: detect type.
     let spec = detect_format(basename(file))
@@ -552,6 +585,14 @@ pub fn run_transition(
     if !Path::new(file).is_file() {
         return Err(TransitionError::new(1, format!("doc not found: {}", file)));
     }
+
+    // Path hardening (additive, per the design's Security section): the input
+    // `<file>` must resolve inside the repo work tree. The scripts do not do
+    // this; it is a deliberate, conscious break justified because every real
+    // caller passes a repo-relative path. The doc's work-tree root, resolved
+    // once here, also anchors the `--superseded-by` pointer check below.
+    reject_outside_repo(file)?;
+    let doc_root = repo_root_for(parent_dir(&absolute_path(file)));
 
     // Step 2: parse current status.
     let doc = frontmatter::parse_doc(file).map_err(parse_error_to_transition)?;
@@ -570,19 +611,31 @@ pub fn run_transition(
         ));
     }
 
-    // EXTRA-INPUT GATE (Issue 3): the extra-input gate runs BEFORE the
-    // idempotent short-circuit below (per the design's step-4-before-5
-    // ordering), so re-runs at the current status still validate required
-    // inputs. Issue 3 inserts that gate here, just above the short-circuit.
+    // Step 4: extra-input gate. This runs BEFORE the idempotent short-circuit
+    // (per the design's step-4-before-5 ordering), so a re-run at the current
+    // status still validates required inputs (design Superseded with no
+    // `--superseded-by` is still exit 1; strategy Sunset with no/unsafe
+    // `--reason` is still exit 2). Returns the trailing extra field to record
+    // on the result when an optional/required input is present.
+    let extra_field = extra_input_gate(&spec, target_status, flags, &doc_root)?;
 
     // Step 5: idempotent short-circuit.
     //
-    // A no-op returns success directly without running the transition rule or
-    // preconditions (the design's step 5: rule and preconditions do NOT run on
-    // an idempotent re-run). Edits are skipped, the path is unchanged, and
-    // `moved` is false.
+    // A no-op returns success directly without running the transition rule,
+    // preconditions, edits, or the move (the design's step 5). The path is
+    // unchanged and `moved` is false; the extra field (if any) is still
+    // recorded, matching the scripts' idempotent `json_success` call which
+    // passes the sixth argument through.
     if current_status == target_status {
-        return Ok(success(&spec, file, &current_status, target_status));
+        return Ok(success(
+            &spec,
+            file,
+            &current_status,
+            target_status,
+            file,
+            false,
+            extra_field,
+        ));
     }
 
     // Step 6: transition rule. `Graph` types check the edge is legal (reusing
@@ -594,18 +647,152 @@ pub fn run_transition(
     }
 
     // Step 7: precondition. A failed deterministic, document-local gate is
-    // exit 2. (Moves land in Issue 3.)
+    // exit 2.
     check_precondition(&spec, &doc, &current_status, target_status)?;
 
-    // Step 8: apply edits (read the file, rewrite, write back).
+    // Step 8: apply edits (read the file, rewrite, write back). The rewrite
+    // covers the `status:` frontmatter line, the body `## Status` line (per the
+    // type's template), and the extra frontmatter field (`superseded_by` /
+    // `sunset_reason`) when supplied.
     let original = fs::read_to_string(file)
         .map_err(|e| TransitionError::new(3, format!("Failed to read file: {}", io_text(&e))))?;
-    let updated = rewrite(&original, &doc, &spec, &current_status, target_status);
+    let updated = rewrite(&original, &doc, &spec, target_status, flags);
     fs::write(file, updated)
         .map_err(|e| TransitionError::new(3, format!("Failed to write file: {}", io_text(&e))))?;
 
-    // Step 10: assemble the result. (Moves are step 9, Issue 3.)
-    Ok(success(&spec, file, &current_status, target_status))
+    // Step 9: move. If the spec moves on this target status and the doc is not
+    // already in the target directory, `git mv` (or `mv` outside a repo) into
+    // it; a file-operation failure (e.g. target exists) is exit 3.
+    let (new_path, moved) = maybe_move(&spec, file, target_status)?;
+
+    // Step 10: assemble the result.
+    Ok(success(
+        &spec,
+        file,
+        &current_status,
+        target_status,
+        &new_path,
+        moved,
+        extra_field,
+    ))
+}
+
+/// The extra-input gate: validate the per-`(type, target)` extra input and
+/// return the trailing [`ExtraField`] to record on the result.
+///
+/// Reproduces the scripts' argument handling:
+/// - design Superseded: `--superseded-by` required; missing is exit 1 (the
+///   scripts treat it as an invalid-arguments error). Records `superseded_by`.
+/// - vision Sunset: `--superseded-by` optional; recorded when present.
+/// - strategy Sunset: `--reason` required and sanitized; missing/unsafe is
+///   exit 2. Records `reason`.
+///
+/// The gate only fires when `target_status` matches the spec's `target_status`;
+/// for any other target the extra input is ignored (mirroring the scripts,
+/// which only consult the third argument on the moving status).
+fn extra_input_gate(
+    spec: &TransitionSpec,
+    target_status: &str,
+    flags: &Flags,
+    doc_root: &Path,
+) -> Result<ExtraField, TransitionError> {
+    match &spec.extra_input {
+        ExtraInput::None => Ok(ExtraField::None),
+        ExtraInput::SupersededBy {
+            required,
+            target_status: gate_status,
+            missing_code,
+        } => {
+            if target_status != gate_status {
+                return Ok(ExtraField::None);
+            }
+            match flags.superseded_by.as_deref() {
+                Some(path) if !path.is_empty() => {
+                    // Additive hardening: the supersession pointer must resolve
+                    // inside the *doc's* work tree (not its own), like `<file>`.
+                    reject_outside_root(path, doc_root)?;
+                    Ok(ExtraField::SupersededBy(path.to_string()))
+                }
+                _ => {
+                    if *required {
+                        Err(TransitionError::new(
+                            *missing_code,
+                            format!(
+                                "{} status requires path to superseding document \
+                                 (--superseded-by)",
+                                gate_status
+                            ),
+                        ))
+                    } else {
+                        Ok(ExtraField::None)
+                    }
+                }
+            }
+        }
+        ExtraInput::Reason {
+            required,
+            sanitized,
+            target_status: gate_status,
+            missing_code,
+        } => {
+            if target_status != gate_status {
+                return Ok(ExtraField::None);
+            }
+            match flags.reason.as_deref() {
+                Some(reason) if !reason.is_empty() => {
+                    if *sanitized {
+                        sanitize_reason(reason)?;
+                    }
+                    Ok(ExtraField::Reason(reason.to_string()))
+                }
+                _ => {
+                    if *required {
+                        // Port of `sanitize_reason`'s empty-reason guard, which
+                        // the scripts hit because Sunset always sanitizes.
+                        Err(TransitionError::new(
+                            *missing_code,
+                            "Sunset requires a non-empty reason argument".to_string(),
+                        ))
+                    } else {
+                        Ok(ExtraField::None)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Port of strategy's `sanitize_reason`: a Sunset reason is spliced into the
+/// body via a substitution, so reject inputs that would break it or escape the
+/// section. Each rejection is exit 2 with the script's exact message.
+fn sanitize_reason(reason: &str) -> Result<(), TransitionError> {
+    if reason.is_empty() {
+        return Err(TransitionError::new(
+            2,
+            "Sunset requires a non-empty reason argument".to_string(),
+        ));
+    }
+    if reason.contains('\n') {
+        return Err(TransitionError::new(
+            2,
+            "Sunset reason must be a single line (no newlines)".to_string(),
+        ));
+    }
+    // sed's s/// replacement syntax uses backslash, forward slash, and
+    // ampersand.
+    if reason.contains('\\') || reason.contains('/') || reason.contains('&') {
+        return Err(TransitionError::new(
+            2,
+            "Sunset reason contains forbidden character (\\, /, or &); use plain prose".to_string(),
+        ));
+    }
+    if reason.contains("---") {
+        return Err(TransitionError::new(
+            2,
+            "Sunset reason must not contain the frontmatter delimiter '---'".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Run the type's content precondition, reproducing the scripts' per-edge gate.
@@ -697,17 +884,245 @@ fn validate_features_count(doc: &crate::Doc, min: usize) -> Result<(), Transitio
     Ok(())
 }
 
-/// Build the success [`Outcome`] for a type. Issue 1 types never move, so
-/// `new_path` equals the input path and `moved` is `false`.
-fn success(spec: &TransitionSpec, file: &str, old: &str, new: &str) -> Outcome {
+/// Build the success [`Outcome`] for a type. `doc_path` is always the original
+/// input path; `new_path`/`moved` reflect the move (equal to the input path /
+/// `false` for non-moving types or a no-op). `extra_field` carries the trailing
+/// `superseded_by` / `reason` when present.
+#[allow(clippy::too_many_arguments)]
+fn success(
+    spec: &TransitionSpec,
+    file: &str,
+    old: &str,
+    new: &str,
+    new_path: &str,
+    moved: bool,
+    extra_field: ExtraField,
+) -> Outcome {
     Outcome {
         doc_path: file.to_string(),
         old_status: old.to_string(),
         new_status: new.to_string(),
-        new_path: file.to_string(),
-        moved: false,
+        new_path: new_path.to_string(),
+        moved,
         result_fields: spec.result_fields.clone(),
+        extra_field,
     }
+}
+
+/// Perform the directory move if the spec moves on `target_status` and the doc
+/// is not already in the target directory. Returns `(new_path, moved)`.
+///
+/// Port of the scripts' move step: compare the doc's directory (normalized
+/// relative to the repo work tree) against the target directory; if they
+/// differ, `mkdir -p` the target and `git mv` (or `mv` outside a repo) the
+/// file in, leaving it staged-not-committed. A file-operation failure (e.g.
+/// the target already exists) is exit 3.
+fn maybe_move(
+    spec: &TransitionSpec,
+    file: &str,
+    target_status: &str,
+) -> Result<(String, bool), TransitionError> {
+    let Some((_, target_dir)) = spec
+        .moves
+        .entries
+        .iter()
+        .find(|(status, _)| status == target_status)
+    else {
+        // No move for this status.
+        return Ok((file.to_string(), false));
+    };
+
+    let current_dir = normalized_dir(file);
+    if current_dir == *target_dir {
+        // Already in the target directory.
+        return Ok((file.to_string(), false));
+    }
+
+    // Resolve the move against the doc's own work tree (the scripts run from
+    // the repo root with repo-relative paths; the engine reproduces that by
+    // anchoring the target to the doc's repo root). `target_dir` is
+    // repo-relative; the returned `new_path` keeps that repo-relative shape so
+    // callers (run-cascade.sh) see the same `new_path` they do today.
+    let abs_file = absolute_path(file);
+    let root = repo_root_for(parent_dir(&abs_file));
+    let abs_target_dir = root.join(target_dir);
+    let filename = basename(file);
+    let abs_target_path = abs_target_dir.join(filename);
+    let new_path = format!("{}/{}", target_dir, filename);
+
+    fs::create_dir_all(&abs_target_dir).map_err(|e| {
+        TransitionError::new(
+            3,
+            format!("Failed to create target directory: {}", io_text(&e)),
+        )
+    })?;
+
+    if in_git_repo(&root) {
+        git_mv(&root, &abs_file, &abs_target_path)?;
+    } else {
+        fs::rename(&abs_file, &abs_target_path)
+            .map_err(|_| TransitionError::new(3, "mv failed".to_string()))?;
+    }
+
+    Ok((new_path, true))
+}
+
+/// Run `git -C <root> mv <src> <dst>` with an argument vector (never an
+/// interpolated shell string, per the design's no-shell-injection note),
+/// anchored to the doc's work tree. A non-zero exit is exit 3 with the scripts'
+/// `git mv failed` message.
+fn git_mv(root: &Path, src: &Path, dst: &Path) -> Result<(), TransitionError> {
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("mv")
+        .arg(src)
+        .arg(dst)
+        .status()
+        .map_err(|e| TransitionError::new(3, format!("git mv failed: {}", io_text(&e))))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(TransitionError::new(3, "git mv failed".to_string()))
+    }
+}
+
+/// Whether `dir` is inside a git work tree (the scripts' `git rev-parse
+/// --git-dir`, run from the doc's directory).
+fn in_git_repo(dir: &Path) -> bool {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .arg("rev-parse")
+        .arg("--git-dir")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// The repo work-tree root for the work tree containing `dir`
+/// (`git -C <dir> rev-parse --show-toplevel`), falling back to `dir` itself
+/// when it is not in a repo — matching the scripts' `get_repo_root` (the
+/// scripts `cd` into the doc's directory before resolving the root, so the
+/// relevant work tree is the *doc's*, not the process cwd's).
+fn repo_root_for(dir: &Path) -> std::path::PathBuf {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .arg("rev-parse")
+        .arg("--show-toplevel")
+        .output();
+    if let Ok(out) = output {
+        if out.status.success() {
+            let root = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !root.is_empty() {
+                return std::path::PathBuf::from(root);
+            }
+        }
+    }
+    dir.to_path_buf()
+}
+
+/// Resolve `path` to an absolute path the way the scripts' `normalize_path`
+/// does: an absolute input is taken as-is; a relative input is joined to the
+/// current directory (its parent is the cwd-relative dirname). Symlinks are not
+/// resolved (parity with the scripts, which use `cd "$(dirname)" && pwd`).
+fn absolute_path(path: &str) -> std::path::PathBuf {
+    let p = Path::new(path);
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        cwd.join(p)
+    }
+}
+
+/// The doc's directory, normalized relative to the repo work tree, as the
+/// scripts' `get_normalized_dir` computes it. Used to decide whether a move is
+/// needed.
+fn normalized_dir(path: &str) -> String {
+    let abs = absolute_path(path);
+    let root = repo_root_for(parent_dir(&abs));
+    let rel = abs
+        .strip_prefix(&root)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|_| abs.clone());
+    rel.parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| ".".to_string())
+}
+
+/// Additive path hardening (the design's Security section): reject a path that
+/// resolves outside the repo work tree containing it. Exit 1, matching the
+/// invalid-arguments family. The work tree is resolved from the path's own
+/// directory (mirroring the scripts' `cd "$(dirname)"`), so a doc that lives in
+/// its own repo is never spuriously rejected; only a path that escapes that
+/// repo's root (e.g. via `..`) is. Outside any repo, `repo_root_for` falls back
+/// to the path's directory, so the path is trivially inside.
+fn reject_outside_repo(path: &str) -> Result<(), TransitionError> {
+    let abs = absolute_path(path);
+    // Anchor the work tree on the path's own directory (the doc exists, so its
+    // parent does); resolve the repo root from there.
+    let root = repo_root_for(parent_dir(&abs));
+    reject_outside_root(path, &root)
+}
+
+/// Reject `path` if it resolves outside the given repo `root`. Used for the
+/// `--superseded-by` pointer, which must live in the *same* work tree as the
+/// doc (so the pointer is checked against the doc's root, not its own — a
+/// pointer need not exist on disk yet). A relative pointer is resolved against
+/// `root` (real callers run from the repo root, so a repo-relative pointer
+/// resolves under it); an absolute pointer is taken as-is.
+fn reject_outside_root(path: &str, root: &Path) -> Result<(), TransitionError> {
+    let p = Path::new(path);
+    let abs = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        root.join(p)
+    };
+    // Lexically resolve `..`/`.` so an escaping path is judged by where it
+    // actually points, not its literal spelling.
+    let normalized = lexical_normalize(&abs);
+    let root_norm = lexical_normalize(root);
+    if normalized.starts_with(&root_norm) {
+        Ok(())
+    } else {
+        Err(TransitionError::new(
+            1,
+            format!("path resolves outside the repository work tree: {}", path),
+        ))
+    }
+}
+
+/// The parent directory of an absolute path, or the path itself if it has none.
+fn parent_dir(abs: &Path) -> &Path {
+    abs.parent().unwrap_or(abs)
+}
+
+/// Lexically resolve `.` and `..` segments in an absolute path without touching
+/// the filesystem, so `<repo>/docs/../../etc` collapses to `/etc` and trips the
+/// out-of-repo check.
+fn lexical_normalize(abs: &Path) -> std::path::PathBuf {
+    let mut out: Vec<std::ffi::OsString> = Vec::new();
+    for comp in abs.components() {
+        use std::path::Component;
+        match comp {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            Component::RootDir => out.push(std::ffi::OsString::from("/")),
+            Component::Normal(c) => out.push(c.to_os_string()),
+            Component::Prefix(p) => out.push(p.as_os_str().to_os_string()),
+        }
+    }
+    let mut result = std::path::PathBuf::new();
+    for c in out {
+        result.push(c);
+    }
+    result
 }
 
 /// Extract the current status the way the scripts do: prefer the frontmatter
@@ -758,19 +1173,115 @@ fn body_status_line(doc: &crate::Doc, spec: &TransitionSpec) -> Option<String> {
     None
 }
 
-/// Rewrite the frontmatter `status:` line and the body `## Status` line in the
-/// raw file text. Targeted line edits (mirroring the scripts' `sed`), not a
-/// YAML re-serialization, so untouched bytes are preserved.
+/// The extra frontmatter field a move type adds beside `status:` for its
+/// terminal status: `(key, value)` to insert-or-update after the `status:`
+/// line, or `None`.
+fn extra_frontmatter_field(
+    spec: &TransitionSpec,
+    target_status: &str,
+    flags: &Flags,
+) -> Option<(String, String)> {
+    match &spec.extra_input {
+        ExtraInput::SupersededBy {
+            target_status: gate,
+            ..
+        } if target_status == gate => {
+            let value = flags.superseded_by.as_deref().filter(|v| !v.is_empty())?;
+            Some(("superseded_by".to_string(), value.to_string()))
+        }
+        ExtraInput::Reason {
+            target_status: gate,
+            ..
+        } if target_status == gate => {
+            let value = flags.reason.as_deref().filter(|v| !v.is_empty())?;
+            Some(("sunset_reason".to_string(), value.to_string()))
+        }
+        _ => None,
+    }
+}
+
+/// The replacement body `## Status` line for `target_status`, per the type's
+/// template. Bare/full types write the target word. The splicing templates only
+/// apply when the target is the type's special status *and* the input is
+/// present — otherwise they fall back to the bare target word, matching the
+/// scripts' `if [[ "$target_status" == "Superseded"/"Sunset" ]] && [[ -n ... ]]`
+/// guard around `new_status_line`.
+fn new_body_line(spec: &TransitionSpec, target_status: &str, flags: &Flags) -> String {
+    let bare = target_status.to_string();
+    match spec.body_template {
+        BodyTemplate::BareStatus | BodyTemplate::FullStatusLine => bare,
+        BodyTemplate::SupersededBy => match special_path(spec, target_status, flags) {
+            Some(path) => format!("Superseded by [{}]({})", basename(&path), path),
+            None => bare,
+        },
+        BodyTemplate::SunsetSupersededBy => match special_path(spec, target_status, flags) {
+            Some(path) => format!("Sunset: superseded by [{}]({})", basename(&path), path),
+            None => bare,
+        },
+        BodyTemplate::SunsetReason => match special_reason(spec, target_status, flags) {
+            Some(reason) => format!("Sunset: {}", reason),
+            None => bare,
+        },
+    }
+}
+
+/// The `--superseded-by` path, but only when the target matches the type's
+/// special (move) status — so a stray flag on a non-special target is ignored,
+/// matching the scripts.
+fn special_path(spec: &TransitionSpec, target_status: &str, flags: &Flags) -> Option<String> {
+    let gate = match &spec.extra_input {
+        ExtraInput::SupersededBy { target_status, .. } => target_status.as_str(),
+        _ => return None,
+    };
+    if target_status != gate {
+        return None;
+    }
+    flags
+        .superseded_by
+        .as_deref()
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+}
+
+/// The `--reason` text, but only when the target matches the type's special
+/// (move) status.
+fn special_reason(spec: &TransitionSpec, target_status: &str, flags: &Flags) -> Option<String> {
+    let gate = match &spec.extra_input {
+        ExtraInput::Reason { target_status, .. } => target_status.as_str(),
+        _ => return None,
+    };
+    if target_status != gate {
+        return None;
+    }
+    flags
+        .reason
+        .as_deref()
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+}
+
+/// Rewrite the frontmatter `status:` line, the body `## Status` line, and (for
+/// move types) the extra frontmatter field, in the raw file text. Targeted line
+/// edits (mirroring the scripts' `sed`/`awk`), not a YAML re-serialization, so
+/// untouched bytes are preserved.
 fn rewrite(
     original: &str,
     doc: &crate::Doc,
     spec: &TransitionSpec,
-    _current_status: &str,
     target_status: &str,
+    flags: &Flags,
 ) -> String {
     let has_trailing_newline = original.ends_with('\n');
     let has_frontmatter = doc.fields.contains_key("status");
     let body_old = body_status_line(doc, spec);
+    let body_new = new_body_line(spec, target_status, flags);
+    let extra_field = extra_frontmatter_field(spec, target_status, flags);
+    // Whether the extra field already exists in the frontmatter (update in
+    // place) vs. needs inserting after the `status:` line.
+    let extra_exists = extra_field
+        .as_ref()
+        .map(|(key, _)| doc.fields.contains_key(key))
+        .unwrap_or(false);
 
     let mut out_lines: Vec<String> = Vec::new();
     let mut in_frontmatter = false;
@@ -796,15 +1307,32 @@ fn rewrite(
         if has_frontmatter && in_frontmatter && line.starts_with("status:") {
             // `s/^status:.*$/status: <target>/`
             out_lines.push(format!("status: {}", target_status));
+            // Insert the extra field right after `status:` when it does not
+            // already exist (the scripts' awk `/^status:/ { print; print sup }`).
+            if let Some((key, value)) = &extra_field {
+                if !extra_exists {
+                    out_lines.push(format!("{}: {}", key, value));
+                }
+            }
             continue;
         }
 
+        // Update an existing extra field in place (the scripts' grep-then-sed).
+        if has_frontmatter && in_frontmatter && extra_exists {
+            if let Some((key, value)) = &extra_field {
+                if line.starts_with(&format!("{}:", key)) {
+                    out_lines.push(format!("{}: {}", key, value));
+                    continue;
+                }
+            }
+        }
+
         // Body `## Status` rewrite: replace the exact matched old line with
-        // the new line (full line for prd, bare word otherwise).
+        // the new line (per the type's template).
         if !rewrote_body {
             if let Some(old) = &body_old {
                 if line.trim_start() == old.as_str() && line.trim_start() == line {
-                    out_lines.push(target_status.to_string());
+                    out_lines.push(body_new.clone());
                     rewrote_body = true;
                     continue;
                 }
@@ -889,6 +1417,36 @@ mod tests {
         let path = dir.join(basename);
         fs::write(&path, content).expect("write doc");
         path.to_string_lossy().into_owned()
+    }
+
+    /// Create a fresh temp git repo, write `content` to `rel_path` inside it,
+    /// `git add` the doc so `git mv` can track it, and return
+    /// `(repo_root, absolute_doc_path)`. Used by the move tests, which need the
+    /// `git mv` path exercised inside a real work tree.
+    fn write_doc_in_git_repo(rel_path: &str, content: &str) -> (std::path::PathBuf, String) {
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let root = std::env::temp_dir().join(format!("shirabe-trepo-{}-{}", std::process::id(), n));
+        fs::create_dir_all(&root).expect("mkdir repo");
+        run_git(&root, &["init", "-q"]);
+        // Identity so `git mv`/commit work in CI's bare environment.
+        run_git(&root, &["config", "user.email", "t@t"]);
+        run_git(&root, &["config", "user.name", "t"]);
+
+        let doc = root.join(rel_path);
+        fs::create_dir_all(doc.parent().unwrap()).expect("mkdir doc dir");
+        fs::write(&doc, content).expect("write doc");
+        run_git(&root, &["add", rel_path]);
+        (root.clone(), doc.to_string_lossy().into_owned())
+    }
+
+    fn run_git(root: &std::path::Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .status()
+            .expect("run git");
+        assert!(status.success(), "git {:?} failed", args);
     }
 
     // ---- prd ----
@@ -1036,6 +1594,7 @@ mod tests {
             new_path: "docs/prds/PRD-foo.md".to_string(),
             moved: false,
             result_fields: ResultFields::Base,
+            extra_field: ExtraField::None,
         };
         let expected = "{\n  \"success\": true,\n  \"doc_path\": \"docs/prds/PRD-foo.md\",\n  \"old_status\": \"Draft\",\n  \"new_status\": \"Done\"\n}\n";
         assert_eq!(outcome.to_json(), expected);
@@ -1050,6 +1609,7 @@ mod tests {
             new_path: "x".to_string(),
             moved: false,
             result_fields: ResultFields::WithPath,
+            extra_field: ExtraField::None,
         };
         let expected = "{\n  \"success\": true,\n  \"doc_path\": \"x\",\n  \"old_status\": \"Draft\",\n  \"new_status\": \"Active\",\n  \"new_path\": \"x\",\n  \"moved\": false\n}\n";
         assert_eq!(outcome.to_json(), expected);
@@ -1132,11 +1692,17 @@ mod tests {
         assert_eq!(verr.code, 2);
         assert_eq!(verr.message, "Invalid transition: Accepted -> Sunset");
 
-        // Strategy's Accepted -> Sunset is a legal, non-moving graph edge here
-        // (the Sunset directory move is Issue 3).
+        // Strategy's Accepted -> Sunset is a legal graph edge. It requires a
+        // sanitized `--reason`; supply one so the gate passes. (The move into
+        // docs/strategies/sunset/ is exercised in the move-specific tests that
+        // run inside a temp git repo.)
         let strategy = "---\nstatus: Accepted\n---\n\n## Status\n\nAccepted\n";
         let spath = write_doc("STRATEGY-as.md", strategy);
-        let outcome = run_transition(&spath, "Sunset", &Flags::default()).expect("ok");
+        let flags = Flags {
+            reason: Some("bet invalidated".to_string()),
+            ..Flags::default()
+        };
+        let outcome = run_transition(&spath, "Sunset", &flags).expect("ok");
         assert_eq!(outcome.new_status, "Sunset");
     }
 
@@ -1251,5 +1817,266 @@ mod tests {
         assert_eq!(transition_table().len(), 6);
         assert!(transition_spec("PRD").is_some());
         assert!(transition_spec("Plan").is_none());
+    }
+
+    // ---- Issue 3: design supersede (extra input + body + frontmatter + move) ----
+
+    #[test]
+    fn design_supersede_records_field_writes_body_and_git_mvs_to_archive() {
+        let doc =
+            "---\nschema: design/v1\nstatus: Current\n---\n\n# Title\n\n## Status\n\nCurrent\n";
+        let (root, path) = write_doc_in_git_repo("docs/designs/current/DESIGN-old.md", doc);
+        let flags = Flags {
+            superseded_by: Some("docs/designs/DESIGN-new.md".to_string()),
+            ..Flags::default()
+        };
+        let outcome = run_transition(&path, "Superseded", &flags).expect("ok");
+
+        assert_eq!(outcome.old_status, "Current");
+        assert_eq!(outcome.new_status, "Superseded");
+        assert!(outcome.moved);
+        assert_eq!(outcome.new_path, "docs/designs/archive/DESIGN-old.md");
+        assert_eq!(
+            outcome.extra_field,
+            ExtraField::SupersededBy("docs/designs/DESIGN-new.md".to_string())
+        );
+
+        // The file moved into the archive directory and the source is gone.
+        let moved = root.join("docs/designs/archive/DESIGN-old.md");
+        assert!(moved.is_file());
+        assert!(!std::path::Path::new(&path).exists());
+
+        let updated = fs::read_to_string(&moved).unwrap();
+        assert!(updated.contains("status: Superseded"));
+        assert!(updated.contains("superseded_by: docs/designs/DESIGN-new.md"));
+        // Body line is the supersession template, not the bare word.
+        assert!(updated
+            .contains("## Status\n\nSuperseded by [DESIGN-new.md](docs/designs/DESIGN-new.md)\n"));
+
+        // The move is staged but not committed (git mv leaves it in the index).
+        let staged = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["status", "--porcelain"])
+            .output()
+            .unwrap();
+        let porcelain = String::from_utf8_lossy(&staged.stdout);
+        assert!(porcelain.contains("docs/designs/archive/DESIGN-old.md"));
+
+        // JSON carries superseded_by after moved.
+        let json = outcome.to_json();
+        assert!(json.contains("\"moved\": true,"));
+        assert!(json.contains("\"superseded_by\": \"docs/designs/DESIGN-new.md\""));
+    }
+
+    #[test]
+    fn design_superseded_without_flag_exits_1() {
+        let doc = "---\nstatus: Current\n---\n\n## Status\n\nCurrent\n";
+        let path = write_doc("DESIGN-nosup.md", doc);
+        let err = run_transition(&path, "Superseded", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 1);
+        // The doc is untouched (the gate fired before any edit).
+        assert_eq!(fs::read_to_string(&path).unwrap(), doc);
+    }
+
+    #[test]
+    fn design_idempotent_superseded_still_requires_flag_exits_1() {
+        // Re-run at the current Superseded status: the extra-input gate runs
+        // before the idempotent short-circuit, so a missing flag is still
+        // exit 1 even though the status would otherwise be a no-op.
+        let doc = "---\nstatus: Superseded\n---\n\n## Status\n\nSuperseded\n";
+        let path = write_doc("DESIGN-idem-sup.md", doc);
+        let err = run_transition(&path, "Superseded", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 1);
+    }
+
+    #[test]
+    fn design_to_current_moves_without_supersede_field() {
+        // Current is a move target with no extra input; the body stays bare.
+        let doc = "---\nstatus: Accepted\n---\n\n## Status\n\nAccepted\n";
+        let (root, path) = write_doc_in_git_repo("docs/designs/DESIGN-c.md", doc);
+        let outcome = run_transition(&path, "Current", &Flags::default()).expect("ok");
+        assert!(outcome.moved);
+        assert_eq!(outcome.new_path, "docs/designs/current/DESIGN-c.md");
+        assert_eq!(outcome.extra_field, ExtraField::None);
+        let moved = root.join("docs/designs/current/DESIGN-c.md");
+        let updated = fs::read_to_string(&moved).unwrap();
+        assert!(updated.contains("status: Current"));
+        assert!(!updated.contains("superseded_by:"));
+        assert!(updated.contains("## Status\n\nCurrent\n"));
+    }
+
+    // ---- Issue 3: strategy sunset (reason + sanitization + move) ----
+
+    #[test]
+    fn strategy_sunset_requires_reason_exits_2() {
+        let doc = "---\nstatus: Active\n---\n\n## Status\n\nActive\n";
+        let path = write_doc("STRATEGY-noreason.md", doc);
+        let err = run_transition(&path, "Sunset", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert_eq!(err.message, "Sunset requires a non-empty reason argument");
+        assert_eq!(fs::read_to_string(&path).unwrap(), doc);
+    }
+
+    #[test]
+    fn strategy_sunset_unsafe_reason_exits_2() {
+        let doc = "---\nstatus: Active\n---\n\n## Status\n\nActive\n";
+        let path = write_doc("STRATEGY-unsafe.md", doc);
+        for (reason, _why) in [
+            ("a / b", "slash"),
+            ("a & b", "ampersand"),
+            ("a \\ b", "backslash"),
+            ("front --- matter", "delimiter"),
+            ("line1\nline2", "newline"),
+        ] {
+            let flags = Flags {
+                reason: Some(reason.to_string()),
+                ..Flags::default()
+            };
+            let err = run_transition(&path, "Sunset", &flags).expect_err("err");
+            assert_eq!(err.code, 2, "reason {:?} should be rejected", reason);
+        }
+        // Still untouched after every rejection.
+        assert_eq!(fs::read_to_string(&path).unwrap(), doc);
+    }
+
+    #[test]
+    fn strategy_sunset_clean_reason_writes_field_body_and_moves() {
+        let doc = "---\nstatus: Active\n---\n\n# Title\n\n## Status\n\nActive\n";
+        let (root, path) = write_doc_in_git_repo("docs/strategies/STRATEGY-x.md", doc);
+        let flags = Flags {
+            reason: Some("upstream VISION pivoted".to_string()),
+            ..Flags::default()
+        };
+        let outcome = run_transition(&path, "Sunset", &flags).expect("ok");
+
+        assert_eq!(outcome.new_status, "Sunset");
+        assert!(outcome.moved);
+        assert_eq!(outcome.new_path, "docs/strategies/sunset/STRATEGY-x.md");
+        assert_eq!(
+            outcome.extra_field,
+            ExtraField::Reason("upstream VISION pivoted".to_string())
+        );
+
+        let moved = root.join("docs/strategies/sunset/STRATEGY-x.md");
+        let updated = fs::read_to_string(&moved).unwrap();
+        assert!(updated.contains("status: Sunset"));
+        assert!(updated.contains("sunset_reason: upstream VISION pivoted"));
+        assert!(updated.contains("## Status\n\nSunset: upstream VISION pivoted\n"));
+
+        let json = outcome.to_json();
+        assert!(json.contains("\"moved\": true,"));
+        assert!(json.contains("\"reason\": \"upstream VISION pivoted\""));
+    }
+
+    #[test]
+    fn strategy_idempotent_sunset_still_requires_reason_exits_2() {
+        let doc = "---\nstatus: Sunset\n---\n\n## Status\n\nSunset\n";
+        let path = write_doc("STRATEGY-idem-sun.md", doc);
+        let err = run_transition(&path, "Sunset", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+    }
+
+    // ---- Issue 3: vision sunset (optional pointer + move) ----
+
+    #[test]
+    fn vision_sunset_with_pointer_records_field_and_moves() {
+        let doc = "---\nstatus: Active\n---\n\n# Title\n\n## Status\n\nActive\n";
+        let (root, path) = write_doc_in_git_repo("docs/visions/VISION-x.md", doc);
+        let flags = Flags {
+            superseded_by: Some("docs/visions/VISION-new.md".to_string()),
+            ..Flags::default()
+        };
+        let outcome = run_transition(&path, "Sunset", &flags).expect("ok");
+
+        assert!(outcome.moved);
+        assert_eq!(outcome.new_path, "docs/visions/sunset/VISION-x.md");
+        assert_eq!(
+            outcome.extra_field,
+            ExtraField::SupersededBy("docs/visions/VISION-new.md".to_string())
+        );
+
+        let moved = root.join("docs/visions/sunset/VISION-x.md");
+        let updated = fs::read_to_string(&moved).unwrap();
+        assert!(updated.contains("status: Sunset"));
+        assert!(updated.contains("superseded_by: docs/visions/VISION-new.md"));
+        assert!(updated.contains(
+            "## Status\n\nSunset: superseded by [VISION-new.md](docs/visions/VISION-new.md)\n"
+        ));
+    }
+
+    #[test]
+    fn vision_sunset_without_pointer_is_optional_and_moves_bare() {
+        // Vision's --superseded-by is optional: a Sunset with no pointer still
+        // succeeds, moves, writes the bare body word, and emits no extra field.
+        let doc = "---\nstatus: Active\n---\n\n## Status\n\nActive\n";
+        let (root, path) = write_doc_in_git_repo("docs/visions/VISION-y.md", doc);
+        let outcome = run_transition(&path, "Sunset", &Flags::default()).expect("ok");
+
+        assert!(outcome.moved);
+        assert_eq!(outcome.new_path, "docs/visions/sunset/VISION-y.md");
+        assert_eq!(outcome.extra_field, ExtraField::None);
+
+        let moved = root.join("docs/visions/sunset/VISION-y.md");
+        let updated = fs::read_to_string(&moved).unwrap();
+        assert!(updated.contains("status: Sunset"));
+        assert!(!updated.contains("superseded_by:"));
+        assert!(updated.contains("## Status\n\nSunset\n"));
+
+        let json = outcome.to_json();
+        assert!(!json.contains("superseded_by"));
+    }
+
+    // ---- Issue 3: move-failure + path hardening ----
+
+    #[test]
+    fn move_target_exists_exits_3() {
+        let doc = "---\nstatus: Current\n---\n\n## Status\n\nCurrent\n";
+        let (root, path) = write_doc_in_git_repo("docs/designs/current/DESIGN-clash.md", doc);
+        // Pre-create the destination so `git mv` refuses to overwrite.
+        let dest_dir = root.join("docs/designs/archive");
+        fs::create_dir_all(&dest_dir).unwrap();
+        fs::write(dest_dir.join("DESIGN-clash.md"), "existing\n").unwrap();
+
+        let flags = Flags {
+            superseded_by: Some("docs/designs/DESIGN-new.md".to_string()),
+            ..Flags::default()
+        };
+        let err = run_transition(&path, "Superseded", &flags).expect_err("err");
+        assert_eq!(err.code, 3);
+    }
+
+    #[test]
+    fn file_outside_repo_work_tree_exits_1() {
+        // A `..`-escaping path inside a repo resolves outside the work tree.
+        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n";
+        let (root, _path) = write_doc_in_git_repo("docs/briefs/BRIEF-z.md", doc);
+        // Write a sibling target outside the repo and reference it via `..`.
+        let outside = root.parent().unwrap().join("BRIEF-outside.md");
+        fs::write(&outside, doc).unwrap();
+        let escaping = format!(
+            "{}/docs/briefs/../../BRIEF-outside.md",
+            root.to_string_lossy()
+        );
+        let err = run_transition(&escaping, "Accepted", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 1);
+    }
+
+    #[test]
+    fn superseded_by_outside_repo_work_tree_exits_1() {
+        let doc = "---\nstatus: Current\n---\n\n## Status\n\nCurrent\n";
+        let (root, path) = write_doc_in_git_repo("docs/designs/current/DESIGN-esc.md", doc);
+        // Climb above the repo root (one more `..` than the doc's depth) so the
+        // pointer truly escapes the work tree.
+        let escaping = format!(
+            "{}/docs/designs/current/../../../../DESIGN-new.md",
+            root.to_string_lossy()
+        );
+        let flags = Flags {
+            superseded_by: Some(escaping),
+            ..Flags::default()
+        };
+        let err = run_transition(&path, "Superseded", &flags).expect_err("err");
+        assert_eq!(err.code, 1);
     }
 }
