@@ -20,6 +20,25 @@ use regex::Regex;
 
 use crate::doc::Doc;
 
+/// Matches any of the three recognised edge-arrow shapes plus optional
+/// edge-label `|"..."|`:
+///
+/// - `-->` -- hard dependency
+/// - `-.->` -- soft / cross-product enrichment dependency
+/// - `==>` -- cross-altitude blocker
+///
+/// The capture is non-greedy on the label so chained edges with labels
+/// still split cleanly. Used to canonicalize each edge line into
+/// `--CANONICAL_EDGE_TOKEN--` before splitting, so all three shapes
+/// produce the same edge records.
+static EDGE_ARROW_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\s*(?:-->|-\.->|==>)(?:\|"[^"]*"\||\|[^|]*\|)?\s*"#).unwrap()
+});
+
+/// Sentinel token used internally to split edge lines after the three
+/// arrow variants have been normalized into the same shape.
+const CANONICAL_EDGE_TOKEN: &str = "\x00ARROW\x00";
+
 /// The extracted views from a single mermaid block.
 ///
 /// Four parallel views. Each is independently consumed by FC07: the node
@@ -313,12 +332,19 @@ pub fn extract_diagram(lines: &[&str], start_line: usize) -> (Diagram, Vec<Issue
             continue;
         }
 
-        // Edge line: contains `-->`. Chained forms are split into adjacent
-        // pairs. Endpoints may carry inline `:::class`; we strip the suffix
-        // and surface an InlineClassSyntax issue for each piece that uses
-        // it.
-        if line.contains("-->") {
-            let pieces: Vec<&str> = line.split("-->").map(|p| p.trim()).collect();
+        // Edge line: contains any of `-->`, `-.->`, `==>`, each
+        // optionally followed by a `|"label"|` or `|label|` annotation.
+        // All three shapes are normalized to the same canonical token
+        // and chained forms (`A --> B --> C`) split into adjacent pairs.
+        // Endpoints may carry inline `:::class`; we strip the suffix and
+        // surface an InlineClassSyntax issue for each piece that uses
+        // it. The convention is presentation-only -- FC07 treats
+        // `-->`, `-.->`, and `==>` identically.
+        if line.contains("-->") || line.contains("-.->") || line.contains("==>") {
+            let canonical = EDGE_ARROW_PATTERN
+                .replace_all(line, CANONICAL_EDGE_TOKEN)
+                .into_owned();
+            let pieces: Vec<&str> = canonical.split(CANONICAL_EDGE_TOKEN).map(|p| p.trim()).collect();
             if pieces.len() < 2 {
                 continue;
             }
@@ -480,6 +506,59 @@ mod tests {
         assert_eq!((d.edges[0].src.as_str(), d.edges[0].dst.as_str()), ("O1", "O2"));
         assert_eq!((d.edges[1].src.as_str(), d.edges[1].dst.as_str()), ("O2", "O3"));
         assert_eq!((d.edges[2].src.as_str(), d.edges[2].dst.as_str()), ("O3", "O4"));
+    }
+
+    #[test]
+    fn extract_diagram_dotted_edge_variant() {
+        // `-.->` soft edge per the canonical edge-variant grammar.
+        let (d, _) = extract_block(&["graph TD", "I1 -.-> I2"]);
+        assert_eq!(d.edges.len(), 1);
+        assert_eq!((d.edges[0].src.as_str(), d.edges[0].dst.as_str()), ("I1", "I2"));
+    }
+
+    #[test]
+    fn extract_diagram_dotted_edge_with_label() {
+        // `-.->|"soft"|` soft edge with annotation; the label is
+        // presentation only and not captured.
+        let (d, _) = extract_block(&["graph TD", "I1 -.->|\"soft\"| I2"]);
+        assert_eq!(d.edges.len(), 1);
+        assert_eq!((d.edges[0].src.as_str(), d.edges[0].dst.as_str()), ("I1", "I2"));
+    }
+
+    #[test]
+    fn extract_diagram_thick_edge_variant() {
+        // `==>` cross-altitude blocker.
+        let (d, _) = extract_block(&["graph TD", "I1 ==> I2"]);
+        assert_eq!(d.edges.len(), 1);
+        assert_eq!((d.edges[0].src.as_str(), d.edges[0].dst.as_str()), ("I1", "I2"));
+    }
+
+    #[test]
+    fn extract_diagram_thick_edge_with_label() {
+        // `==>|"label"|` cross-altitude blocker with a required label
+        // per references/dependency-diagram.md.
+        let (d, _) = extract_block(&["graph TD", "KT5V2 ==>|\"V2 port-forward\"| I477"]);
+        assert_eq!(d.edges.len(), 1);
+        assert_eq!(
+            (d.edges[0].src.as_str(), d.edges[0].dst.as_str()),
+            ("KT5V2", "I477")
+        );
+    }
+
+    #[test]
+    fn extract_diagram_mixed_edge_variants_in_one_diagram() {
+        // All three variants in one diagram parse to the same Edge
+        // shape (FC07 treats them identically).
+        let (d, _) = extract_block(&[
+            "graph TD",
+            "I1 --> I2",
+            "I2 -.-> I3",
+            "I3 ==>|\"x\"| I4",
+        ]);
+        assert_eq!(d.edges.len(), 3);
+        assert_eq!((d.edges[0].src.as_str(), d.edges[0].dst.as_str()), ("I1", "I2"));
+        assert_eq!((d.edges[1].src.as_str(), d.edges[1].dst.as_str()), ("I2", "I3"));
+        assert_eq!((d.edges[2].src.as_str(), d.edges[2].dst.as_str()), ("I3", "I4"));
     }
 
     #[test]

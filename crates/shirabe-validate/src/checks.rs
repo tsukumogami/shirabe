@@ -447,12 +447,20 @@ fn columns_eq(columns: &[String], want: &[&str]) -> bool {
     columns.len() == want.len() && columns.iter().zip(want).all(|(a, b)| a == b)
 }
 
-/// Matches an issue-keyed diagram node id (`I<n>`). Nodes whose id does
-/// not match this pattern are excluded from the bijection and edge
-/// agreement checks; this is the tolerated subset for the `O<n>` outline
-/// ids and `K<n>` cross-repo references the corpus carries today.
+/// Matches an issue-keyed diagram node id (`I<n>`). Used by both plan
+/// and roadmap profiles to identify the bijection and edge-agreement
+/// subset of diagram nodes. Nodes whose id does not match this pattern
+/// (outline ids `O<n>`, custom-mnemonic external references like
+/// `KT5V2` or `NW6`, or any other shape) are excluded from FC07's
+/// reconciliation and are tolerated in the diagram.
 static ISSUE_KEYED_NODE_ID: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^I[0-9]+$").unwrap());
+
+/// Matches a `#N` issue token inside Markdown link text. Used to parse
+/// the roadmap-profile Issues column into the set of issue numbers a
+/// feature row fans out into.
+static ISSUE_REF_IN_CELL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"#([0-9]+)").unwrap());
 
 /// The three Status-bearing class names FC07 reconciles against table row
 /// state. A node carrying any other class (a non-Status class such as a
@@ -462,39 +470,63 @@ static ISSUE_KEYED_NODE_ID: LazyLock<Regex> =
 const STATUS_CLASSES: &[&str] = &["done", "ready", "blocked"];
 
 /// Non-Status classes the extractor records but FC07 ignores for the
-/// class-versus-Status pass. Listed for the AC-coverage scan in tests.
+/// class-versus-Status pass. Includes the pipeline-stage palette per
+/// `references/dependency-diagram.md` (needs-prerequisite markers,
+/// child-tracking markers), the plan-profile Complexity markers, the
+/// roadmap-profile external-reference marker, and the `koto` external-
+/// node marker the predecessor corpus used. Listed for the AC-coverage
+/// scan in tests.
 #[cfg_attr(not(test), allow(dead_code))]
 const NON_STATUS_CLASSES: &[&str] = &[
     "needsDesign",
     "needsPrd",
     "needsSpike",
     "needsDecision",
+    "needsPlanning",
+    "needsExplore",
     "tracksDesign",
     "tracksPlan",
     "simple",
     "testable",
     "critical",
+    "external",
     "koto",
 ];
 
 /// Reconcile the parsed Implementation Issues table against the extracted
 /// Dependency Graph mermaid block across three dimensions in one pass.
 ///
+/// FC07 engages on the two profiles that carry an issues table -- plan
+/// and roadmap -- and selects per-profile binding rules from the
+/// parsed `Table.profile`. The diagram-side conventions are shared:
+/// `I<n>` node ids identify the issue-keyed subset; nodes whose id does
+/// not match `^I[0-9]+$` (outline ids, custom-mnemonic external
+/// references) are excluded from bijection and edge agreement by
+/// design.
+///
+/// **Plan profile.** `I<n>` binds to the entity row whose key column
+/// is `#n`. Edges are derived from the row's Dependencies cell:
+/// `Ia --> Ib` is expected for every `#a` listed in row `#b`'s
+/// Dependencies cell.
+///
+/// **Roadmap profile.** `I<n>` binds to the entity row whose Issues
+/// column contains `#n` (a markdown link to issue n). Roadmap rows
+/// whose Issues cell is `None` contribute no expected `I<n>` node and
+/// no edges; a feature that has not yet been decomposed into issues
+/// is silent in the diagram. Roadmap-profile edges are derived from
+/// the same Dependencies cell: a dependency that names another entity
+/// row (by feature label) resolves to that row's set of `I<n>` nodes;
+/// each cross-product `Ia --> Ib` pair is expected.
+///
 /// The check emits one notice per defect in the FC05/FC06 voice:
 ///
-/// 1. **Node-set bijection** over the issue-keyed subset (ids matching
-///    `^I[0-9]+$`). A table key with no matching diagram node fires a
-///    notice; a diagram node with no matching table key fires a notice.
-///    Nodes whose id does not match the pattern (`O<n>` outline ids,
-///    `K<n>` cross-repo references) are excluded.
-/// 2. **Edge agreement** over pairs of issue-keyed nodes. For every
-///    `(blocker, dependent)` pair where `dependent`'s Dependencies cell
-///    lists `blocker`, the diagram must contain `blocker --> dependent`.
-///    The convention is **blocker on the left, dependent on the right**;
-///    see `references/dependency-diagram.md` and the spike at
-///    `docs/spikes/SPIKE-mermaid-parser.md` for the corpus survey
-///    confirming this convention is consistent. The check is symmetric:
-///    edges that are not justified by any Dependencies cell also fire.
+/// 1. **Node-set bijection.** A table row with no matching diagram
+///    node fires a notice; a diagram node with no matching table row
+///    fires a notice.
+/// 2. **Edge agreement.** Convention is **blocker on the left,
+///    dependent on the right**; see `references/dependency-diagram.md`.
+///    Symmetric: missing-from-diagram and orphan-edge-from-diagram both
+///    fire.
 /// 3. **Class-versus-Status agreement** over the Status-bearing class
 ///    set (`done`, `ready`, `blocked`). The truth table:
 ///    - `done` requires the row to be in a terminal state.
@@ -502,9 +534,13 @@ const NON_STATUS_CLASSES: &[&str] = &[
 ///      target to resolve to a terminal row.
 ///    - `blocked` requires the row to be open and at least one
 ///      Dependencies-cell target to resolve to an open row.
-///    Non-Status classes (`needsDesign`, `needsPrd`, `needsSpike`,
-///    `needsDecision`, `tracksDesign`, `tracksPlan`, `simple`,
-///    `testable`, `critical`, `koto`) are not reconciled.
+///    Non-Status classes (pipeline-stage classes like `needsDesign`,
+///    `needsPrd`, `needsSpike`, `needsPlanning`, `needsExplore`,
+///    Complexity markers, the `external` cross-product marker, and
+///    legacy `koto`) are not reconciled. A node carrying multiple
+///    classes contributes one notice only if its Status-bearing class
+///    disagrees with the truth table; other classes on the same node
+///    are observed but not reconciled.
 ///
 /// FC07 returns an empty vec when the format has no
 /// `issues_table_columns` (the same no-op gate FC05 and FC06 use). The
@@ -612,13 +648,22 @@ fn issue_to_notice(doc: &Doc, issue: &Issue) -> ValidationError {
     }
 }
 
-/// Node-set bijection pass. Compares the entity-row key set (filtered to
-/// issue-keyed `#N` rows for the plan profile; entity-row Issues cell for
-/// the roadmap profile is not consulted here -- FC07 binds to diagram
-/// node ids, which canonically encode the issue number via `I<n>`) to
-/// the diagram node set, restricted on both sides to the issue-keyed
-/// subset (`^I[0-9]+$`).
+/// Node-set bijection pass. Dispatches to the per-profile pass: plan
+/// profile pairs `I<n>` diagram ids with `#n` entity-row keys; roadmap
+/// profile pairs `I<n>` diagram ids with `#n` references found in the
+/// Issues column of any entity row. The shared diagram-side filter
+/// `^I[0-9]+$` excludes outline ids and custom-mnemonic external
+/// references on both profiles.
 fn node_set_pass(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationError> {
+    match table.profile {
+        Profile::Plan => node_set_pass_plan(doc, table, diagram),
+        Profile::Roadmap => node_set_pass_roadmap(doc, table, diagram),
+    }
+}
+
+/// Plan-profile bijection: `^I[0-9]+$` diagram ids against `#n`
+/// entity-row keys.
+fn node_set_pass_plan(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationError> {
     let mut errs = Vec::new();
 
     let table_keys = table_issue_keys(table);
@@ -678,12 +723,122 @@ fn node_set_pass(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationE
     errs
 }
 
-/// Edge agreement pass. The convention bound here is **blocker on the
-/// left, dependent on the right**: if table row `#a` lists `#b` in its
-/// Dependencies cell, the diagram must contain `Ib --> Ia`. Edges
-/// involving any non-issue-keyed endpoint are excluded from both
-/// directions.
+/// Roadmap-profile bijection: `^I[0-9]+$` diagram ids against the set
+/// of `#n` references found in entity-row Issues cells. A row whose
+/// Issues cell is `None` contributes no expected nodes. The diagram's
+/// `I<n>` set is the union of every `#n` that appears across the
+/// table's Issues cells.
+fn node_set_pass_roadmap(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationError> {
+    let mut errs = Vec::new();
+
+    // Build the table-justified expected node set: for each entity row,
+    // parse its raw row text for `#n` tokens inside the Issues column
+    // and add `In` to the expected set. Track the row each expected
+    // node was derived from so the missing-node notice can cite the row
+    // line. The Issues column is the second column of the canonical
+    // roadmap profile (index 1) -- the parser does not split the raw
+    // row into per-column cells beyond what RowKind classification
+    // needed, so we extract the issue tokens from `row.raw` directly.
+    let issues_col_idx = table
+        .columns
+        .iter()
+        .position(|c| c == "Issues");
+    let mut expected_nodes: Vec<(String, usize, String)> = Vec::new(); // (expected_id, row_line, row_key)
+    for row in &table.rows {
+        if row.kind != RowKind::Entity {
+            continue;
+        }
+        let issues_cell = match issues_col_idx {
+            Some(idx) => split_raw_row_cell(&row.raw, idx),
+            None => String::new(),
+        };
+        for cap in ISSUE_REF_IN_CELL.captures_iter(&issues_cell) {
+            let num = &cap[1];
+            let expected = format!("I{}", num);
+            expected_nodes.push((expected, row.line, row.key.clone()));
+        }
+    }
+
+    let expected_set: HashSet<&str> = expected_nodes
+        .iter()
+        .map(|(id, _, _)| id.as_str())
+        .collect();
+
+    let diagram_keys: HashSet<&str> = diagram
+        .nodes
+        .iter()
+        .filter(|n| ISSUE_KEYED_NODE_ID.is_match(&n.id))
+        .map(|n| n.id.as_str())
+        .collect();
+
+    // Table row with no diagram node.
+    for (expected, row_line, row_key) in &expected_nodes {
+        if !diagram_keys.contains(expected.as_str()) {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: *row_line,
+                code: "FC07".to_string(),
+                message: format!(
+                    "[FC07] table row {:?} lists issue in Issues column with no matching diagram node (expected {:?})",
+                    row_key, expected
+                ),
+            });
+        }
+    }
+
+    // Diagram node with no table row.
+    for node in &diagram.nodes {
+        if !ISSUE_KEYED_NODE_ID.is_match(&node.id) {
+            continue;
+        }
+        if !expected_set.contains(node.id.as_str()) {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: node.line,
+                code: "FC07".to_string(),
+                message: format!(
+                    "[FC07] diagram node {:?} has no matching table row (no entity-row Issues cell references this issue)",
+                    node.id
+                ),
+            });
+        }
+    }
+
+    errs
+}
+
+/// Extract the cell at `idx` from a raw markdown table row. Returns the
+/// cell's trimmed text, or an empty string if the row has fewer cells
+/// than `idx + 1`. Mirrors the parsing the table module does
+/// internally; FC07 reuses it for the roadmap-profile Issues-column
+/// lookup since the parsed `Row` struct only keeps the key, deps, and
+/// raw text.
+fn split_raw_row_cell(raw: &str, idx: usize) -> String {
+    let trimmed = raw.trim();
+    let trimmed = trimmed.strip_prefix('|').unwrap_or(trimmed);
+    let trimmed = trimmed.strip_suffix('|').unwrap_or(trimmed);
+    trimmed
+        .split('|')
+        .nth(idx)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
+}
+
+/// Edge agreement pass. Convention is **blocker on the left, dependent
+/// on the right**. Dispatches to the per-profile pass: plan profile
+/// resolves dep tokens directly to `I<n>` ids; roadmap profile resolves
+/// dep tokens (feature labels) to the depended-upon row's set of
+/// `I<n>` nodes derived from that row's Issues cell.
 fn edge_pass(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationError> {
+    match table.profile {
+        Profile::Plan => edge_pass_plan(doc, table, diagram),
+        Profile::Roadmap => edge_pass_roadmap(doc, table, diagram),
+    }
+}
+
+/// Plan-profile edge agreement: if table row `#a` lists `#b` in its
+/// Dependencies cell, the diagram must contain `Ib --> Ia`.
+fn edge_pass_plan(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationError> {
     let mut errs = Vec::new();
 
     // Build the set of (src, dst) edges restricted to issue-keyed pairs.
@@ -747,6 +902,118 @@ fn edge_pass(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationError
     errs
 }
 
+/// Roadmap-profile edge agreement. Builds two maps:
+///
+/// 1. **feature-label -> `Vec<I<n>>`**: each entity row's feature label
+///    maps to the set of `I<n>` ids derived from its Issues cell.
+/// 2. **deps -> edges**: for each dependent row, for each dep that
+///    resolves to another entity row's label, every `I<a>` in the
+///    blocker row's set crosses every `I<b>` in the dependent row's
+///    set, contributing one expected `Ia --> Ib` edge.
+///
+/// Cross-product dependency tokens (containing `/`) and feature-label
+/// tokens that do not match any row are excluded from the edge
+/// derivation -- they encode out-of-band relationships the local
+/// diagram cannot reflect.
+fn edge_pass_roadmap(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationError> {
+    let mut errs = Vec::new();
+
+    let issues_col_idx = table
+        .columns
+        .iter()
+        .position(|c| c == "Issues");
+
+    // Build the feature-label -> Vec<I<n>> map. A row whose Issues cell
+    // is `None` maps to an empty vec.
+    let mut nodes_by_label: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for row in &table.rows {
+        if row.kind != RowKind::Entity {
+            continue;
+        }
+        let issues_cell = match issues_col_idx {
+            Some(idx) => split_raw_row_cell(&row.raw, idx),
+            None => String::new(),
+        };
+        let ids: Vec<String> = ISSUE_REF_IN_CELL
+            .captures_iter(&issues_cell)
+            .map(|c| format!("I{}", &c[1]))
+            .collect();
+        nodes_by_label.insert(row.key.clone(), ids);
+    }
+
+    // Build the set of (src, dst) diagram edges restricted to
+    // issue-keyed pairs.
+    let diagram_edges: HashSet<(String, String)> = diagram
+        .edges
+        .iter()
+        .filter(|e| ISSUE_KEYED_NODE_ID.is_match(&e.src) && ISSUE_KEYED_NODE_ID.is_match(&e.dst))
+        .map(|e| (e.src.clone(), e.dst.clone()))
+        .collect();
+
+    // Build the table-justified edge set: for each dependent row, for
+    // each dep that resolves to another row, every (blocker_id,
+    // dependent_id) pair contributes an expected edge.
+    let mut table_edges: HashSet<(String, String)> = HashSet::new();
+    for row in &table.rows {
+        if row.kind != RowKind::Entity {
+            continue;
+        }
+        let dependent_ids = match nodes_by_label.get(&row.key) {
+            Some(v) => v,
+            None => continue,
+        };
+        for dep in &row.deps {
+            if dep.contains('/') {
+                continue;
+            }
+            let blocker_ids = match nodes_by_label.get(dep.as_str()) {
+                Some(v) => v,
+                None => continue,
+            };
+            for blocker_id in blocker_ids {
+                for dependent_id in dependent_ids {
+                    table_edges
+                        .insert((blocker_id.clone(), dependent_id.clone()));
+                    if !diagram_edges
+                        .contains(&(blocker_id.clone(), dependent_id.clone()))
+                    {
+                        errs.push(ValidationError {
+                            file: doc.path.clone(),
+                            line: row.line,
+                            code: "FC07".to_string(),
+                            message: format!(
+                                "[FC07] table row {:?} lists dependency {:?} but diagram has no matching edge ({} --> {})",
+                                row.key, dep, blocker_id, dependent_id
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Orphan-edge notice from the diagram side.
+    for edge in &diagram.edges {
+        if !ISSUE_KEYED_NODE_ID.is_match(&edge.src) || !ISSUE_KEYED_NODE_ID.is_match(&edge.dst) {
+            continue;
+        }
+        if !table_edges.contains(&(edge.src.clone(), edge.dst.clone())) {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: edge.line,
+                code: "FC07".to_string(),
+                message: format!(
+                    "[FC07] diagram edge {} --> {} has no matching dependency in the table",
+                    edge.src, edge.dst
+                ),
+            });
+        }
+    }
+
+    errs
+}
+
 /// Class-versus-Status agreement pass. For each class assignment whose
 /// name is in [`STATUS_CLASSES`] and whose id is an issue-keyed diagram
 /// node, evaluate the four-case truth table:
@@ -759,17 +1026,55 @@ fn edge_pass(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationError
 ///
 /// A mismatch fires one notice in the four-field shape (node, declared
 /// class, observed state, expected class). Non-Status classes are
-/// skipped (see [`NON_STATUS_CLASSES`] for the recognised set).
+/// skipped (see [`NON_STATUS_CLASSES`] for the recognised set). When a
+/// node carries multiple classes (a combinatorial assignment), each
+/// Status-bearing class is evaluated against the truth table
+/// independently; the other classes are observed but not reconciled.
 fn class_vs_status_pass(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationError> {
     let mut errs = Vec::new();
 
-    // Build a fast lookup from diagram id to its parsed row.
-    let row_by_id: std::collections::HashMap<String, &Row> = table
-        .rows
-        .iter()
-        .filter(|r| r.kind == RowKind::Entity)
-        .filter_map(|r| issue_id_from_key(&r.key).map(|id| (id, r)))
-        .collect();
+    // Build the per-profile lookup from diagram id to its parsed row.
+    // Plan: I<n> -> row whose key is `#n`. Roadmap: I<n> -> row whose
+    // Issues cell contains `#n`.
+    let row_by_id: std::collections::HashMap<String, &Row> = match table.profile {
+        Profile::Plan => table
+            .rows
+            .iter()
+            .filter(|r| r.kind == RowKind::Entity)
+            .filter_map(|r| issue_id_from_key(&r.key).map(|id| (id, r)))
+            .collect(),
+        Profile::Roadmap => {
+            let issues_col_idx = table.columns.iter().position(|c| c == "Issues");
+            let mut map: std::collections::HashMap<String, &Row> =
+                std::collections::HashMap::new();
+            for row in &table.rows {
+                if row.kind != RowKind::Entity {
+                    continue;
+                }
+                let issues_cell = match issues_col_idx {
+                    Some(idx) => split_raw_row_cell(&row.raw, idx),
+                    None => String::new(),
+                };
+                for cap in ISSUE_REF_IN_CELL.captures_iter(&issues_cell) {
+                    map.insert(format!("I{}", &cap[1]), row);
+                }
+            }
+            map
+        }
+    };
+
+    // For the roadmap profile, build a feature-label -> row lookup so
+    // `expected_class` can resolve dep tokens (which are feature labels)
+    // to the depended-upon row's terminality.
+    let label_to_row: std::collections::HashMap<String, &Row> = match table.profile {
+        Profile::Plan => std::collections::HashMap::new(),
+        Profile::Roadmap => table
+            .rows
+            .iter()
+            .filter(|r| r.kind == RowKind::Entity)
+            .map(|r| (r.key.clone(), r))
+            .collect(),
+    };
 
     for assign in &diagram.class_assignments {
         if !STATUS_CLASSES.contains(&assign.name.as_str()) {
@@ -784,7 +1089,7 @@ fn class_vs_status_pass(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<Vali
         };
 
         let observed = observed_state(row, table.profile);
-        let expected = expected_class(row, table.profile, &row_by_id);
+        let expected = expected_class(row, table.profile, &row_by_id, &label_to_row);
         if assign.name != expected {
             errs.push(class_status_notice(
                 doc,
@@ -815,13 +1120,20 @@ fn observed_state(row: &Row, profile: Profile) -> &'static str {
 }
 
 /// Derive the expected Status class for a row from its terminal-or-open
-/// state and its dependencies. `row_by_id` resolves dependency `#N`
-/// tokens to their rows so the `ready` / `blocked` truth-table cases can
-/// inspect dependency state.
+/// state and its dependencies. The dep resolution path is profile-aware:
+///
+/// - **Plan**: dep tokens are `#N` and resolve to their `IN` ids,
+///   then through `row_by_id` (`IN` -> row).
+/// - **Roadmap**: dep tokens are feature labels and resolve to their
+///   rows through `label_to_row` directly. Cross-product tokens
+///   (containing `/`) are treated as out-of-band and ignored for the
+///   ready/blocked decision -- their terminality cannot be observed
+///   from this doc.
 fn expected_class(
     row: &Row,
-    _profile: Profile,
+    profile: Profile,
     row_by_id: &std::collections::HashMap<String, &Row>,
+    label_to_row: &std::collections::HashMap<String, &Row>,
 ) -> &'static str {
     if row.terminal {
         return "done";
@@ -830,11 +1142,20 @@ fn expected_class(
     let mut all_deps_terminal = true;
     let mut has_open_dep = false;
     for dep in &row.deps {
-        let dep_id = match issue_id_from_dep(dep) {
-            Some(id) => id,
-            None => continue,
+        let dep_row: Option<&Row> = match profile {
+            Profile::Plan => issue_id_from_dep(dep).and_then(|id| row_by_id.get(&id).copied()),
+            Profile::Roadmap => {
+                if dep.contains('/') {
+                    // Cross-product dep: treat as unknown -- the
+                    // validator cannot observe its state from this
+                    // doc, so it falls into the "open" case below.
+                    None
+                } else {
+                    label_to_row.get(dep.as_str()).copied()
+                }
+            }
         };
-        match row_by_id.get(&dep_id) {
+        match dep_row {
             Some(r) => {
                 if r.terminal {
                     // dep is closed
@@ -844,9 +1165,9 @@ fn expected_class(
                 }
             }
             None => {
-                // Unknown dep: treated as not-yet-terminal for the
-                // ready/blocked decision (consistent with the truth
-                // table's "open" classification).
+                // Unknown / cross-product dep: treated as not-yet-
+                // terminal for the ready/blocked decision (consistent
+                // with the truth table's "open" classification).
                 all_deps_terminal = false;
                 has_open_dep = true;
             }
@@ -2107,6 +2428,305 @@ mod tests {
         );
     }
 
+    // --- FC07 roadmap-profile arm (D' canonization) ---
+
+    /// Minimal well-formed roadmap fixture. Two features, both with
+    /// issues fanned out in the Issues column, second depends on first
+    /// (by feature label). Diagram has matching `I<n>` nodes and the
+    /// expected `I10 --> I11` edge.
+    const WELL_FORMED_ROADMAP: &str = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | In Progress |\n| _Alpha description._ | | | |\n| Feature 2: beta | [#11](https://example.com/11) | Feature 1: alpha | Not Started |\n| _Beta description._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I10[\"#10: alpha\"]\n    I11[\"#11: beta\"]\n    I10 --> I11\n    classDef blocked fill:#fff9c4\n    classDef ready fill:#bbdefb\n    class I10 ready\n    class I11 blocked\n```\n";
+
+    #[test]
+    fn check_fc07_well_formed_roadmap_passes() {
+        let doc = doc_md(WELL_FORMED_ROADMAP);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        assert_eq!(errs.len(), 0, "expected no FC07 notices, got {:?}", errs);
+    }
+
+    #[test]
+    fn check_fc07_roadmap_missing_diagram_node_fires() {
+        // Table has #10 and #11 in Issues; diagram is missing I11.
+        let md = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | In Progress |\n| _Alpha._ | | | |\n| Feature 2: beta | [#11](https://example.com/11) | None | Not Started |\n| _Beta._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I10[\"#10: alpha\"]\n    classDef ready fill:#bbdefb\n    class I10 ready\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        let missing: Vec<&ValidationError> = errs
+            .iter()
+            .filter(|e| {
+                e.message.contains("Issues column with no matching diagram node")
+                    && e.message.contains("\"I11\"")
+            })
+            .collect();
+        assert_eq!(
+            missing.len(),
+            1,
+            "expected one missing-diagram-node notice for I11, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_roadmap_orphan_diagram_node_fires() {
+        // Diagram has I10 + I99; table only lists #10 in Issues. I99 is
+        // orphan -- no row's Issues cell references issue 99.
+        let md = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | In Progress |\n| _Alpha._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I10[\"#10: alpha\"]\n    I99[\"#99: orphan\"]\n    classDef ready fill:#bbdefb\n    class I10 ready\n    class I99 ready\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        let orphan: Vec<&ValidationError> = errs
+            .iter()
+            .filter(|e| {
+                e.message.contains("no matching table row")
+                    && e.message.contains("\"I99\"")
+            })
+            .collect();
+        assert_eq!(
+            orphan.len(),
+            1,
+            "expected one orphan-diagram-node notice for I99, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_roadmap_issues_none_contributes_no_expected_node() {
+        // A row with Issues = None is silent: no expected I<n>, no
+        // orphan-table notice. The diagram can also be empty.
+        let md = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | None | None | Not Started |\n| _Alpha._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        assert_eq!(
+            errs.len(),
+            0,
+            "rows with Issues = None must not produce any FC07 notices, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_roadmap_missing_edge_fires() {
+        // Row dep names Feature 1, which has #10 in Issues. Row 2 has
+        // #11 in Issues. The diagram is missing the I10 --> I11 edge.
+        let md = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | In Progress |\n| _Alpha._ | | | |\n| Feature 2: beta | [#11](https://example.com/11) | Feature 1: alpha | Not Started |\n| _Beta._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I10[\"#10: alpha\"]\n    I11[\"#11: beta\"]\n    classDef ready fill:#bbdefb\n    classDef blocked fill:#fff9c4\n    class I10 ready\n    class I11 blocked\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        let missing_edges: Vec<&ValidationError> = errs
+            .iter()
+            .filter(|e| {
+                e.message.contains("but diagram has no matching edge")
+                    && e.message.contains("I10 --> I11")
+            })
+            .collect();
+        assert_eq!(
+            missing_edges.len(),
+            1,
+            "expected one missing-edge notice for I10 --> I11, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_roadmap_orphan_diagram_edge_fires() {
+        // Diagram has I10 --> I11 but the table lists no dependency.
+        let md = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | In Progress |\n| _Alpha._ | | | |\n| Feature 2: beta | [#11](https://example.com/11) | None | Not Started |\n| _Beta._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I10[\"#10: alpha\"]\n    I11[\"#11: beta\"]\n    I10 --> I11\n    classDef ready fill:#bbdefb\n    class I10,I11 ready\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        let orphan_edges: Vec<&ValidationError> = errs
+            .iter()
+            .filter(|e| {
+                e.message.contains("no matching dependency in the table")
+                    && e.message.contains("I10 --> I11")
+            })
+            .collect();
+        assert_eq!(
+            orphan_edges.len(),
+            1,
+            "expected one orphan-edge notice for I10 --> I11, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_roadmap_cross_product_dep_excluded_from_edges() {
+        // Cross-product dependency tokens contain `/` and resolve to
+        // out-of-band external references. They contribute no expected
+        // edge (the local diagram cannot have an edge to a non-issue-
+        // keyed external mnemonic), and they do not fire missing-edge
+        // notices.
+        let md = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | tsukumogami/koto#65 | Not Started |\n| _Alpha gated on external koto issue._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I10[\"#10: alpha\"]\n    classDef blocked fill:#fff9c4\n    class I10 blocked\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        assert_eq!(
+            errs.len(),
+            0,
+            "cross-product deps must not fire FC07 notices, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_roadmap_external_mnemonic_node_excluded_from_bijection() {
+        // Diagram has I10 (an issue-keyed node bound to the row's Issues
+        // cell) plus a custom-mnemonic external node `KT5V2`. FC07
+        // excludes the external mnemonic from bijection by design.
+        let md = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | In Progress |\n| _Alpha._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I10[\"#10: alpha\"]\n    KT5V2[\"koto#5 (V2 port-forward)\"]\n    classDef external fill:#eeeeee,stroke-dasharray: 4 2\n    classDef ready fill:#bbdefb\n    class I10 ready\n    class KT5V2 external\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        for e in &errs {
+            assert!(
+                !e.message.contains("\"KT5V2\""),
+                "external mnemonic must be excluded from bijection; got {:?}",
+                e
+            );
+        }
+    }
+
+    #[test]
+    fn check_fc07_roadmap_class_vs_status_blocked_on_open_dep() {
+        // Row 2 is `In Progress` (open), with dep on Feature 1 which is
+        // also `In Progress` (open). Diagram declares I11 `blocked`.
+        // Expected = `blocked` (truth table); declared = `blocked`. OK.
+        let doc = doc_md(WELL_FORMED_ROADMAP);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        let class_notices: Vec<&ValidationError> = errs
+            .iter()
+            .filter(|e| e.message.contains("declared class"))
+            .collect();
+        assert_eq!(
+            class_notices.len(),
+            0,
+            "well-formed roadmap class assignments should match; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_roadmap_class_vs_status_done_on_open_row_fires() {
+        // Row is `Not Started` (open) but diagram declares the node
+        // `done`. Should fire a class-vs-Status notice.
+        let md = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | Not Started |\n| _Alpha._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I10[\"#10: alpha\"]\n    classDef done fill:#c8e6c9\n    class I10 done\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        let class_notices: Vec<&ValidationError> = errs
+            .iter()
+            .filter(|e| {
+                e.message.contains("\"I10\"")
+                    && e.message.contains("declared class \"done\"")
+                    && e.message.contains("expected class \"ready\"")
+            })
+            .collect();
+        assert_eq!(
+            class_notices.len(),
+            1,
+            "expected one done-on-open-row notice for I10, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_roadmap_pipeline_stage_class_no_notice() {
+        // Pipeline-stage classes (needsDesign, needsPrd, etc.) are
+        // recognised but not reconciled against Status. A row with
+        // Status = `needs-design` and a `needsDesign`-classed node
+        // produces no FC07 notice.
+        let md = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | needs-design |\n| _Alpha._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I10[\"#10: alpha\"]\n    classDef needsDesign fill:#e1bee7\n    class I10 needsDesign\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        for e in &errs {
+            assert!(
+                !e.message.contains("declared class"),
+                "pipeline-stage class must not fire class-vs-Status notice; got {:?}",
+                e
+            );
+        }
+    }
+
+    #[test]
+    fn check_fc07_roadmap_combinatorial_class_picks_status_class() {
+        // Node carries both `done` (Status) and a custom critical-path
+        // overlay. FC07 evaluates the Status-bearing class against the
+        // truth table and ignores the overlay. With Status = `Done`,
+        // declared `done`, the truth table agrees -- no notice.
+        let md = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | Done |\n| _Alpha._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I10[\"#10: alpha\"]\n    classDef done fill:#c8e6c9\n    classDef userValueFloor stroke:#2e7d32,stroke-width:3px\n    class I10 done\n    class I10 userValueFloor\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        let class_notices: Vec<&ValidationError> = errs
+            .iter()
+            .filter(|e| e.message.contains("declared class"))
+            .collect();
+        assert_eq!(
+            class_notices.len(),
+            0,
+            "combinatorial class with done + overlay should not fire; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_roadmap_pre_cleanup_regression_fixture() {
+        // The pre-cleanup ROADMAP-koto-adoption.md drift the canonization
+        // PR resolves: 12 entity rows with Issues #49-#60, diagram with
+        // matching I49-I60 + K-prefixed external mnemonics. With the new
+        // FC07 roadmap arm engaged, this shape produces 0 FC07 notices
+        // via real reconciliation (the Issues-column label-match binds
+        // each I<n> to its row; K65/K87/K104/K105/K106/K107 are excluded
+        // as non-issue-keyed external mnemonics).
+        let md = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#49](https://example.com/49) | None | needs-design |\n| _Alpha._ | | | |\n| Feature 2: beta | [#57](https://example.com/57) | Feature 1: alpha | needs-design |\n| _Beta._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph LR\n    I49[\"#49: alpha\"]\n    I57[\"#57: beta\"]\n    K65[\"koto#65\"]\n    I49 --> I57\n    K65 --> I57\n    classDef koto fill:#ffccbc\n    classDef needsDesign fill:#e1bee7\n    class K65 koto\n    class I49,I57 needsDesign\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        assert_eq!(
+            errs.len(),
+            0,
+            "pre-cleanup roadmap fixture must validate clean under D' canonization; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_roadmap_thick_edge_variant_recognised() {
+        // The cross-altitude blocker edge `==>` with a `|"label"|` is
+        // recognised by the extractor and treated the same as `-->`
+        // for FC07 purposes. A roadmap with one thick edge produces no
+        // notice if the edge is justified by the table.
+        let md = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | In Progress |\n| _Alpha._ | | | |\n| Feature 2: beta | [#11](https://example.com/11) | Feature 1: alpha | Not Started |\n| _Beta._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I10[\"#10: alpha\"]\n    I11[\"#11: beta\"]\n    I10 ==>|\"hard blocker\"| I11\n    classDef ready fill:#bbdefb\n    classDef blocked fill:#fff9c4\n    class I10 ready\n    class I11 blocked\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        assert_eq!(
+            errs.len(),
+            0,
+            "thick edge variant should be treated as a regular edge for FC07; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_roadmap_dotted_edge_variant_recognised() {
+        // The soft-edge variant `-.->` is recognised by the extractor
+        // and treated the same as `-->`.
+        let md = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | In Progress |\n| _Alpha._ | | | |\n| Feature 2: beta | [#11](https://example.com/11) | Feature 1: alpha | Not Started |\n| _Beta._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I10[\"#10: alpha\"]\n    I11[\"#11: beta\"]\n    I10 -.->|\"soft\"| I11\n    classDef ready fill:#bbdefb\n    classDef blocked fill:#fff9c4\n    class I10 ready\n    class I11 blocked\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        assert_eq!(
+            errs.len(),
+            0,
+            "dotted edge variant should be treated as a regular edge for FC07; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc07_roadmap_subgraph_nodes_are_first_class() {
+        // Nodes declared inside `subgraph ... end` blocks participate
+        // in FC07's bijection and edge agreement.
+        let md = "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | In Progress |\n| _Alpha._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n  subgraph Phase1 [\"Phase 1\"]\n    direction TB\n    I10[\"#10: alpha\"]\n  end\n\n  classDef ready fill:#bbdefb\n  class I10 ready\n```\n";
+        let doc = doc_md(md);
+        let errs = check_fc07(&doc, &spec_for("roadmap/v1"));
+        assert_eq!(
+            errs.len(),
+            0,
+            "subgraph-declared nodes should participate in FC07 normally; got {:?}",
+            errs
+        );
+    }
+
     #[test]
     fn fc07_non_status_class_set_matches_extractor_recognition() {
         // The NON_STATUS_CLASSES constant lists the names the extractor
@@ -2119,8 +2739,19 @@ mod tests {
                 non_status
             );
         }
-        // Spike enumeration sanity: the v1 set is exactly these ten names.
-        assert_eq!(NON_STATUS_CLASSES.len(), 10);
+        // The set covers the pipeline-stage classes per
+        // references/dependency-diagram.md, plus plan-profile
+        // Complexity markers, plus the external + koto markers.
+        assert_eq!(NON_STATUS_CLASSES.len(), 13);
+        // Spot-check the new pipeline-stage and external entries the
+        // D' references update canonized.
+        for name in ["needsPlanning", "needsExplore", "external"] {
+            assert!(
+                NON_STATUS_CLASSES.contains(&name),
+                "{:?} must be in NON_STATUS_CLASSES per the references update",
+                name
+            );
+        }
     }
 
     #[test]
