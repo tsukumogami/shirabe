@@ -2,7 +2,7 @@
 status: Accepted
 upstream: docs/prds/PRD-transition-script-consolidation.md
 problem: |
-  Six per-skill `transition-status.sh` scripts (~2,000 lines of bash)
+  Seven per-skill `transition-status.sh` scripts (~2,250 lines of bash)
   reimplement one lifecycle-transition workflow by copy-paste and have drifted.
   The PRD requires consolidating them into one `shirabe transition` subcommand
   that reproduces each artifact type's behavior faithfully, then migrating every
@@ -17,8 +17,8 @@ decision: |
   per-type JSON result, and 1/2/3 exit codes, and a golden parity harness pins
   the behavior before the scripts are deleted.
 rationale: |
-  A data-driven spec table removes the duplication (one engine, six small specs)
-  while keeping each type's genuine differences explicit and in one place.
+  A data-driven spec table removes the duplication (one engine, seven small
+  specs) while keeping each type's genuine differences explicit and in one place.
   Matching the scripts' `<file> <status>` order and shelling out to git keeps
   caller migration and parity verification simple. Named flags disambiguate the
   doc-path vs free-text third input the scripts overloaded onto one positional.
@@ -32,7 +32,7 @@ Accepted
 
 ## Context and Problem Statement
 
-The six artifact-lifecycle skills each ship a `transition-status.sh` (~2,000
+The seven artifact-lifecycle skills each ship a `transition-status.sh` (~2,250
 lines of bash total). Each reads a document's current status from frontmatter
 and the body `## Status` line, decides whether the requested transition is
 allowed, rewrites the frontmatter (and body) status, moves the file into a
@@ -57,6 +57,7 @@ The per-type behavior to preserve, from the scripts:
 | strategy | Draft, Accepted, Active, Sunset | ordered graph | Sunset → `docs/strategies/sunset/` | Open Questions resolved (Draft→Accepted) | `--reason` (required, Sunset; sanitized) | `reason`, `new_path`, `moved` |
 | roadmap | Draft, Active, Done | ordered graph | never | ≥2 features (Draft→Active) | none | `new_path`, `moved` |
 | brief | Draft, Accepted, Done | ordered graph | never | none | none | (4 fields) |
+| comp | Draft, Accepted, Done | ordered graph (incl. Draft→Done shortcut) | never | none | none | `moved` (always false; no `new_path`) |
 | prd | Draft, Accepted, In Progress, Done | membership only | never | none | none | (4 fields) |
 | design | Proposed, Accepted, Planned, Current, Superseded | membership only | Current → `docs/designs/current/`, Superseded → `docs/designs/archive/` | none | `--superseded-by` (required, Superseded) | `superseded_by`, `new_path`, `moved` |
 
@@ -152,8 +153,11 @@ subcommand in the `shirabe` binary.
   not — so the table holds each type's exact edge list, not a shared one. The
   `missing_code` records the per-type exit code for a missing required input:
   **1** for design's `--superseded-by` (the scripts treat it as an
-  invalid-arguments error), **2** for strategy's `--reason`. The six specs live
-  in one table.
+  invalid-arguments error), **2** for strategy's `--reason`. The seven specs live
+  in one table. comp shares brief's graph but adds the Draft→Done shortcut edge,
+  and its `result_fields` emit a bare `moved` (always false) without a
+  `new_path` — a third result shape distinct from brief's 4-field and roadmap's
+  `new_path`/`moved`.
 - **Engine** (`fn run_transition(file, status, flags) -> Result<Outcome, TransitionError>`).
   The order matches the scripts so parity holds — in particular the extra-input
   gate runs **before** the idempotent short-circuit:
@@ -238,14 +242,15 @@ The PRD calls for a single PR (full cutover). Suggested commit order within it:
 3. Directory moves (design/vision/strategy) via `git mv`, the per-type extra
    inputs and `--reason` sanitization, the per-type body templates and extra
    frontmatter fields.
-4. The golden parity harness across all six types.
+4. The golden parity harness across all seven types.
 5. Caller migration across the full reference surface (`git grep
    transition-status`): each skill's `SKILL.md`; `work-on/run-cascade.sh` and
    its test; the prd skill's direct call to the brief script; the
-   `skills/{brief,strategy}/evals/test-cli.sh` harnesses; the
-   `check-brief-scripts.yml` CI job; the affected `evals.json` expected_output;
-   and the instructional reference/phase docs. Then delete the six scripts and
-   their `transition-status_test.sh`. The grep-clean check excludes the frozen
+   `skills/{brief,strategy,comp}/evals/test-cli.sh` harnesses; the
+   `check-brief-scripts.yml` and `check-comp-scripts.yml` CI jobs; the affected
+   `evals.json` expected_output; and the instructional reference/phase docs. Then
+   delete the seven scripts and their `transition-status_test.sh`. The grep-clean
+   check excludes the frozen
    `validate` golden corpus (`crates/shirabe/tests/fixtures/golden/corpus/`),
    which holds point-in-time doc snapshots, not live references.
 
@@ -267,7 +272,7 @@ The binary keeps building as `shirabe`; no new crate.
 
 ## Consequences
 
-- **Positive**: ~2,000 lines of drifting bash become one engine plus six small
+- **Positive**: ~2,250 lines of drifting bash become one engine plus seven small
   specs; a transition rule changes in one place; callers get a single
   installed-binary entry point; parity is pinned by a golden harness.
 - **Negative / accepted**: the per-type result shapes stay divergent (the PRD

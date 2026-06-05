@@ -2,7 +2,7 @@
 # test-cli.sh — deterministic CLI checks for the comp skill.
 #
 # Complements skills/comp/evals/evals.json (transcript-graded skill evals)
-# by exercising shirabe validate behavior and the transition-status script
+# by exercising `shirabe validate` and `shirabe transition` behavior
 # against the committed fixtures. COMP is private-only, so the structural
 # checks run with --visibility private; the R9 checks run without it.
 #
@@ -22,7 +22,6 @@ if ! command -v "$SHIRABE" >/dev/null 2>&1; then
 fi
 
 FIXTURES_DIR="skills/comp/evals/fixtures"
-TRANSITION="skills/comp/scripts/transition-status.sh"
 
 pass_count=0
 fail_count=0
@@ -98,16 +97,16 @@ out=$("$SHIRABE" validate --visibility public "$FIXTURES_DIR/COMP-missing-sectio
 contains "R9-before-FC: broken COMP under public shows [R9]" "$out" "[R9]"
 not_contains "R9-before-FC: FC04 is short-circuited under public" "$out" "[FC04]"
 
-# ----- transition-status.sh behavior -----
+# ----- shirabe transition behavior -----
 
 echo ""
-echo "[transition-status.sh]"
+echo "[shirabe transition]"
 
 mkdir -p docs/competitive
 # Scenario 7: Draft -> Accepted transitions cleanly in place.
 tmp_accept="docs/competitive/COMP-test-accept.md"
 cp "$FIXTURES_DIR/COMP-draft-to-accepted.md" "$tmp_accept"
-bash "$TRANSITION" "$tmp_accept" Accepted >/dev/null 2>&1
+"$SHIRABE" transition "$tmp_accept" Accepted >/dev/null 2>&1
 check "Draft -> Accepted transitions cleanly (exit 0)" "$?" "0"
 fm_status=$(grep "^status:" "$tmp_accept" | sed 's/status: //')
 check "frontmatter status is Accepted after transition" "$fm_status" "Accepted"

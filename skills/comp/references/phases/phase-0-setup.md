@@ -12,7 +12,7 @@ Parse `$ARGUMENTS`:
 - **Empty** — ask the user which competitive question to survey, then
   derive a topic slug from their answer.
 - **Existing COMP path + lifecycle verb** (`accept`, `done`) — this is a
-  transition invocation; run `scripts/transition-status.sh <path>
+  transition invocation; run `shirabe transition <path>
   Accepted|Done` and exit. No new authoring.
 - **`--upstream <path>`** — record the upstream artifact path for Phase 1.
 - **Anything else** — treat the first token as the topic slug.

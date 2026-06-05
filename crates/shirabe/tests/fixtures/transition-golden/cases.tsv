@@ -50,3 +50,7 @@ design-invalid-status	design	docs/designs/DESIGN-invalid-status.md	Bogus	-	-
 design-to-current	design	docs/designs/DESIGN-to-current.md	Current	-	-
 design-supersede	design	docs/designs/current/DESIGN-supersede.md	Superseded	superseded_by	docs/designs/DESIGN-replacement.md
 design-idempotent-superseded-no-pointer	design	docs/designs/archive/DESIGN-idempotent-superseded-no-pointer.md	Superseded	-	-
+comp-legal-move	comp	docs/competitive/COMP-legal-move.md	Accepted	-	-
+comp-draft-to-done-shortcut	comp	docs/competitive/COMP-draft-to-done-shortcut.md	Done	-	-
+comp-rejected-regress	comp	docs/competitive/COMP-rejected-regress.md	Draft	-	-
+comp-idempotent-done	comp	docs/competitive/COMP-idempotent-done.md	Done	-	-

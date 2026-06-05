@@ -16,17 +16,19 @@ Active
 ## Scope Summary
 
 Implement the `shirabe transition <file> <status>` subcommand that consolidates
-the six per-skill `transition-status.sh` scripts, per
+the seven per-skill `transition-status.sh` scripts, per
 `DESIGN-transition-script-consolidation.md`. A declarative per-type spec table
 interpreted by one engine reproduces each artifact type's validation, edits,
 `git mv` moves, per-type JSON result, and 1/2/3 exit codes; a golden parity
-harness pins the behavior; then every caller is migrated and the six scripts are
-deleted.
+harness pins the behavior; then every caller is migrated and the seven scripts
+are deleted. (The original cutover covered six types; the comp artifact type,
+whose `transition-status.sh` landed separately, was folded in afterward as a
+seventh spec on the same engine and parity harness.)
 
 ## Decomposition Strategy
 
 **Single-pr.** The work is one cohesive subcommand plus a full cutover, and the
-cutover is not safely separable: the six scripts cannot be deleted until the
+cutover is not safely separable: the seven scripts cannot be deleted until the
 subcommand reproduces their behavior *and* every caller is migrated, and a
 half-migrated state (some skills on the subcommand, some on scripts, with the
 parity harness incomplete) is strictly worse than either endpoint. So the issues
@@ -46,7 +48,7 @@ no move, and no precondition (prd, roadmap, brief — base behavior).
 **Work:**
 - Add a `transition` module in `crates/shirabe-validate` with the
   `TransitionSpec` struct (statuses, rule, precondition, moves, extra_input,
-  body_template, result_fields) and the six-entry table (membership/graph rule
+  body_template, result_fields) and the seven-entry table (membership/graph rule
   and status sets filled for all; later issues fill the rest).
 - Implement the engine core: `detect_format` reuse (error exit 1 on unknown
   type), current-status parse via the existing read-only parser, target-status
@@ -123,7 +125,7 @@ the per-type missing-input exit codes.
 
 **Dependencies:** Issue 2.
 
-### Issue 4: test(transition): golden parity harness across all six types
+### Issue 4: test(transition): golden parity harness across all seven types
 
 **Complexity:** critical
 **Goal:** pin byte/structural + exit-code parity against the scripts before any
@@ -142,7 +144,7 @@ deletion.
   applicable), asserting structural result equality + exact exit code.
 
 **Acceptance criteria:**
-- [ ] The harness passes for all six types across the cases above.
+- [ ] The harness passes for all seven types across the cases above.
 - [ ] A deliberately introduced behavior change in the engine fails the harness
   (the harness actually discriminates).
 
@@ -151,19 +153,21 @@ deletion.
 ### Issue 5: refactor(transition): migrate callers and delete the scripts
 
 **Complexity:** critical
-**Goal:** the cutover — every caller on the subcommand, the six scripts gone.
+**Goal:** the cutover — every caller on the subcommand, the seven scripts gone.
 
 **Work:** migrate the full reference surface (confirmed by `git grep
 transition-status`), then delete the scripts:
 - **Live invocations** → `shirabe transition`: each skill's `SKILL.md` (brief,
-  prd, roadmap, strategy, vision, design); `skills/work-on/scripts/run-cascade.sh`
-  (and `run-cascade_test.sh`); the prd skill's direct call to the brief script;
-  the eval harnesses `skills/brief/evals/test-cli.sh` and
-  `skills/strategy/evals/test-cli.sh`.
-- **CI**: `.github/workflows/check-brief-scripts.yml` runs the brief script's
-  test — retire or repoint that job (it dies when the script is deleted).
+  prd, roadmap, strategy, vision, design, comp);
+  `skills/work-on/scripts/run-cascade.sh` (and `run-cascade_test.sh`); the prd
+  skill's direct call to the brief script; the eval harnesses
+  `skills/brief/evals/test-cli.sh`, `skills/strategy/evals/test-cli.sh`, and
+  `skills/comp/evals/test-cli.sh`.
+- **CI**: `.github/workflows/check-brief-scripts.yml` and
+  `check-comp-scripts.yml` run the brief and comp script tests — retire those
+  jobs (they die when the scripts are deleted).
 - **Evals**: update the `expected_output`/invocation strings in
-  `skills/{brief,prd,roadmap,strategy,vision,work-on}/evals/evals.json` (and
+  `skills/{brief,prd,roadmap,strategy,vision,comp,work-on}/evals/evals.json` (and
   re-run the affected evals per the repo's eval discipline).
 - **Instructional docs**: update the reference/phase docs that tell authors to
   run the script — `skills/brief/references/{brief-format.md,phases/phase-5-finalize.md}`,
@@ -171,8 +175,9 @@ transition-status`), then delete the scripts:
   `skills/plan/references/phases/phase-7-creation.md`,
   `skills/roadmap/references/phases/phase-4-validate.md`,
   `skills/strategy/references/{strategy-format.md,phases/phase-5-finalize.md}`,
-  `skills/vision/references/vision-format.md`.
-- **Delete** the six `skills/<skill>/scripts/transition-status.sh` and the
+  `skills/vision/references/vision-format.md`,
+  `skills/comp/references/phases/{phase-0-setup.md,phase-5-finalize.md}`.
+- **Delete** the seven `skills/<skill>/scripts/transition-status.sh` and the
   per-script `transition-status_test.sh`, then `git grep transition-status`
   shows no live reference. Exclude the frozen `validate` golden corpus
   (`crates/shirabe/tests/fixtures/golden/corpus/`) — those are point-in-time doc
@@ -184,8 +189,8 @@ transition-status`), then delete the scripts:
   invocation.
 - [ ] `run-cascade_test.sh`, the eval `test-cli.sh` harnesses, and the affected
   `evals.json` pass against the subcommand.
-- [ ] `check-brief-scripts.yml` is retired or repointed (CI does not reference a
-  deleted script).
+- [ ] `check-brief-scripts.yml` and `check-comp-scripts.yml` are retired (CI does
+  not reference a deleted script).
 - [ ] `cargo test`, doc-validation CI, and the parity harness are green.
 
 **Dependencies:** Issue 4.
@@ -204,9 +209,9 @@ Single-pr: these are commits within one PR, not separately-merged GitHub issues
 | Issue 3 | Issue 2 | critical |
 | _Directory moves, `--superseded-by`/`--reason`, sanitization, per-type templates._ | | |
 | Issue 4 | Issue 3 | critical |
-| _Golden parity harness across all six types._ | | |
+| _Golden parity harness across all seven types._ | | |
 | Issue 5 | Issue 4 | critical |
-| _Migrate every caller and delete the six scripts (the irreversible cut)._ | | |
+| _Migrate every caller and delete the seven scripts (the irreversible cut)._ | | |
 
 ## Dependency Graph
 

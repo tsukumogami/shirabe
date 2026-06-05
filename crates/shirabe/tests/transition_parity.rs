@@ -1,7 +1,7 @@
 //! Golden-parity tests for the `shirabe transition` subcommand.
 //!
 //! This is the cutover gate (PLAN Issue 4): it pins the subcommand's behavior
-//! against the six per-skill `transition-status.sh` scripts (the parity
+//! against the seven per-skill `transition-status.sh` scripts (the parity
 //! oracle) before Issue 5 deletes them. It mirrors the `validate` golden-parity
 //! harness (`parity.rs`): a frozen corpus, captured baselines, and one
 //! `#[test]` per case so a failure names the exact diverging case.
@@ -404,4 +404,12 @@ parity_tests! {
     design_to_current           => "design-to-current",
     design_supersede            => "design-supersede",
     design_idem_superseded_no_pointer => "design-idempotent-superseded-no-pointer",
+
+    // comp (graph, no move; brief-shaped plus the Draft -> Done shortcut, and a
+    // bare `moved: false` result field): legal move, the Draft -> Done shortcut,
+    // a rejected regression (Accepted -> Draft, exit 2), idempotent terminal.
+    comp_legal_move             => "comp-legal-move",
+    comp_draft_to_done_shortcut => "comp-draft-to-done-shortcut",
+    comp_rejected_regress       => "comp-rejected-regress",
+    comp_idempotent_done        => "comp-idempotent-done",
 }

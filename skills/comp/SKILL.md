@@ -86,8 +86,8 @@ From `$ARGUMENTS`:
 1. **Empty** — ask the user which competitive question they want to
    survey.
 2. **Path to existing COMP** with a lifecycle verb (`accept`, `done`) —
-   execute the transition via `scripts/transition-status.sh`. No
-   directory move.
+   execute the transition via `shirabe transition <comp-path>
+   Accepted|Done`. No directory move.
 3. **`--upstream <path>`** — treat the named artifact as the upstream
    for the new COMP; derive the competitive question candidate from it
    during Phase 1.

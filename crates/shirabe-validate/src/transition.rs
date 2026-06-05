@@ -1,6 +1,6 @@
 //! Status-transition engine for shirabe doc types.
 //!
-//! Consolidates the six per-skill `transition-status.sh` scripts behind one
+//! Consolidates the seven per-skill `transition-status.sh` scripts behind one
 //! declarative spec table interpreted by a single engine, per
 //! `DESIGN-transition-script-consolidation.md`.
 //!
@@ -176,14 +176,19 @@ pub enum BodyTemplate {
 /// The JSON result-field shape for a type.
 ///
 /// The per-type result shapes stay divergent (the PRD chose preserve-over-
-/// unify). prd and brief emit the four base fields; roadmap adds `new_path`
-/// and `moved`; the move types append `superseded_by` / `reason` after `moved`
-/// when the corresponding extra input was supplied (matching the scripts'
-/// `json_success`, which only emits the trailing field when non-empty).
+/// unify). prd and brief emit the four base fields; comp adds a bare `moved`
+/// (always false, COMP docs never move) without a `new_path`; roadmap adds
+/// `new_path` and `moved`; the move types append `superseded_by` / `reason`
+/// after `moved` when the corresponding extra input was supplied (matching the
+/// scripts' `json_success`, which only emits the trailing field when non-empty).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResultFields {
     /// `{success, doc_path, old_status, new_status}` (prd, brief).
     Base,
+    /// Base plus a bare `moved` (always false) but no `new_path` (comp). The
+    /// comp script's `json_success` emits `moved: false` because COMP docs
+    /// never change directory, yet it never reports a `new_path`.
+    WithMoved,
     /// Base plus `new_path` and `moved` (roadmap, design, vision, strategy).
     WithPath,
 }
@@ -203,7 +208,7 @@ pub enum ExtraField {
 
 /// A declarative descriptor for one doc type's transition behavior.
 ///
-/// The six specs live in one table ([`transition_spec`]); the engine
+/// The seven specs live in one table ([`transition_spec`]); the engine
 /// interprets them. This is the single place a transition rule changes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransitionSpec {
@@ -246,7 +251,7 @@ fn rejections(triples: &[(&str, &str, &str)]) -> Vec<(String, String, String)> {
 /// Return the [`TransitionSpec`] for a format name (`FormatSpec.name`), or
 /// `None` if the format has no transition behavior.
 ///
-/// The PLAN type is intentionally absent: it is not one of the six artifact
+/// The PLAN type is intentionally absent: it is not one of the seven artifact
 /// types the scripts cover, and its Done gate needs external GitHub state
 /// (out of scope per the design's Boundary note).
 pub fn transition_spec(format_name: &str) -> Option<TransitionSpec> {
@@ -255,7 +260,7 @@ pub fn transition_spec(format_name: &str) -> Option<TransitionSpec> {
         .find(|spec| spec.format_name == format_name)
 }
 
-/// The full six-entry transition spec table.
+/// The full seven-entry transition spec table.
 ///
 /// Status sets and the membership/graph rule are filled for all six types;
 /// the precondition / moves / extra-input / move-template fields are shaped
@@ -393,6 +398,30 @@ pub fn transition_table() -> Vec<TransitionSpec> {
             result_fields: ResultFields::Base,
         },
         TransitionSpec {
+            format_name: "Comp".to_string(),
+            statuses: s(&["Draft", "Accepted", "Done"]),
+            // comp's graph mirrors brief's Draft/Accepted/Done lifecycle but
+            // adds the Draft -> Done shortcut (a Draft analysis may close
+            // directly). Done is terminal; COMP docs never move.
+            rule: Rule::Graph(Graph {
+                edges: edges(&[
+                    ("Draft", "Accepted"),
+                    ("Accepted", "Done"),
+                    ("Draft", "Done"),
+                ]),
+                terminal: "Done".to_string(),
+                terminal_message: "Done is a terminal status; no further transitions allowed"
+                    .to_string(),
+                rejections: rejections(&[("Accepted", "Draft", "Accepted cannot regress to Draft")]),
+            }),
+            precondition: Precondition::None,
+            moves: Moves::default(),
+            extra_input: ExtraInput::None,
+            body_template: BodyTemplate::BareStatus,
+            // comp emits a bare `moved: false` (no `new_path`); see WithMoved.
+            result_fields: ResultFields::WithMoved,
+        },
+        TransitionSpec {
             format_name: "PRD".to_string(),
             statuses: s(&["Draft", "Accepted", "In Progress", "Done"]),
             rule: Rule::MembershipOnly,
@@ -471,6 +500,15 @@ impl Outcome {
                     "  \"new_status\": {}\n",
                     json_string(&self.new_status)
                 ));
+            }
+            ResultFields::WithMoved => {
+                // comp: `new_status` then a bare `moved` (always false), no
+                // `new_path` and no trailing extra field.
+                out.push_str(&format!(
+                    "  \"new_status\": {},\n",
+                    json_string(&self.new_status)
+                ));
+                out.push_str(&format!("  \"moved\": {}\n", self.moved));
             }
             ResultFields::WithPath => {
                 out.push_str(&format!(
@@ -1813,10 +1851,93 @@ mod tests {
     }
 
     #[test]
-    fn table_has_six_types() {
-        assert_eq!(transition_table().len(), 6);
+    fn table_has_seven_types() {
+        assert_eq!(transition_table().len(), 7);
         assert!(transition_spec("PRD").is_some());
+        assert!(transition_spec("Comp").is_some());
         assert!(transition_spec("Plan").is_none());
+    }
+
+    // ---- comp (graph, no move; brief-shaped plus the Draft -> Done shortcut) ----
+
+    #[test]
+    fn comp_legal_change_rewrites_and_emits_base_result() {
+        let doc = "---\nschema: comp/v1\nstatus: Draft\n---\n\n# Title\n\n## Status\n\nDraft\n";
+        let path = write_doc("COMP-foo.md", doc);
+        let outcome = run_transition(&path, "Accepted", &Flags::default()).expect("ok");
+
+        assert_eq!(outcome.old_status, "Draft");
+        assert_eq!(outcome.new_status, "Accepted");
+        assert_eq!(outcome.result_fields, ResultFields::WithMoved);
+        // COMP docs never move.
+        assert!(!outcome.moved);
+        assert_eq!(outcome.new_path, path);
+
+        let updated = fs::read_to_string(&path).unwrap();
+        assert!(updated.contains("status: Accepted"));
+        assert!(updated.contains("\n## Status\n\nAccepted\n"));
+
+        // comp's JSON carries a bare `moved: false` after `new_status` but no
+        // `new_path`.
+        let json = outcome.to_json();
+        assert!(json.contains("\"new_status\": \"Accepted\","));
+        assert!(json.contains("\"moved\": false"));
+        assert!(!json.contains("new_path"));
+    }
+
+    #[test]
+    fn comp_with_moved_json_matches_jq_shape() {
+        let outcome = Outcome {
+            doc_path: "docs/competitive/COMP-x.md".to_string(),
+            old_status: "Draft".to_string(),
+            new_status: "Accepted".to_string(),
+            new_path: "docs/competitive/COMP-x.md".to_string(),
+            moved: false,
+            result_fields: ResultFields::WithMoved,
+            extra_field: ExtraField::None,
+        };
+        let expected = "{\n  \"success\": true,\n  \"doc_path\": \"docs/competitive/COMP-x.md\",\n  \"old_status\": \"Draft\",\n  \"new_status\": \"Accepted\",\n  \"moved\": false\n}\n";
+        assert_eq!(outcome.to_json(), expected);
+    }
+
+    #[test]
+    fn comp_draft_to_done_shortcut_succeeds() {
+        // comp permits the Draft -> Done shortcut (a Draft analysis may close
+        // directly), unlike brief.
+        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n";
+        let path = write_doc("COMP-shortcut.md", doc);
+        let outcome = run_transition(&path, "Done", &Flags::default()).expect("ok");
+        assert_eq!(outcome.new_status, "Done");
+        assert!(fs::read_to_string(&path).unwrap().contains("status: Done"));
+    }
+
+    #[test]
+    fn comp_regression_to_draft_exits_2() {
+        let doc = "---\nstatus: Accepted\n---\n\n## Status\n\nAccepted\n";
+        let path = write_doc("COMP-regress.md", doc);
+        let err = run_transition(&path, "Draft", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert_eq!(err.message, "Accepted cannot regress to Draft");
+    }
+
+    #[test]
+    fn comp_unknown_status_exits_2() {
+        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n";
+        let path = write_doc("COMP-bad.md", doc);
+        let err = run_transition(&path, "Archived", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+    }
+
+    #[test]
+    fn comp_idempotent_at_terminal_succeeds() {
+        let doc = "---\nstatus: Done\n---\n\n## Status\n\nDone\n";
+        let path = write_doc("COMP-done-noop.md", doc);
+        let before = fs::read_to_string(&path).unwrap();
+        let outcome = run_transition(&path, "Done", &Flags::default()).expect("ok");
+        assert_eq!(outcome.old_status, "Done");
+        assert_eq!(outcome.new_status, "Done");
+        assert!(!outcome.moved);
+        assert_eq!(fs::read_to_string(&path).unwrap(), before);
     }
 
     // ---- Issue 3: design supersede (extra input + body + frontmatter + move) ----

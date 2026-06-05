@@ -28,8 +28,10 @@
 # record. The parity test (transition_parity.rs) reproduces the same setup and
 # asserts the subcommand matches these baselines.
 #
-# The oracle scripts were the immutable reference and Issue 5 has now DELETED
-# them, so this capture is no longer runnable on the current tree. It is
+# The oracle scripts (the original six plus comp's, retired when the
+# consolidation was extended to the comp artifact type) were the immutable
+# reference and have now been DELETED, so this capture is no longer runnable on
+# the current tree. It is
 # retained only as frozen provenance: it documents exactly how the committed
 # baselines under expected/<case_id>/ were generated (from the corpus + the
 # scripts at the pre-cut commits). The parity test (transition_parity.rs)

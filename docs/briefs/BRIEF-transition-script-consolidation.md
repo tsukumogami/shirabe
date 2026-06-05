@@ -2,13 +2,13 @@
 schema: brief/v1
 status: Accepted
 problem: |
-  The six artifact-lifecycle skills (vision, strategy, roadmap, brief, prd,
-  design) each ship a `transition-status.sh` script that advances a document
-  from one lifecycle status to the next. Together they are roughly 2,000 lines
-  of bash that reimplement one workflow by copy-paste, and they have drifted:
-  the shared logic is maintained six times, the per-skill behaviors that
-  legitimately differ are tangled together with the shared spine, and a fix in
-  one script does not reach the other five.
+  The seven artifact-lifecycle skills (vision, strategy, roadmap, brief, prd,
+  design, comp) each ship a `transition-status.sh` script that advances a
+  document from one lifecycle status to the next. Together they are roughly
+  2,250 lines of bash that reimplement one workflow by copy-paste, and they have
+  drifted: the shared logic is maintained seven times, the per-skill behaviors
+  that legitimately differ are tangled together with the shared spine, and a fix
+  in one script does not reach the other six.
 outcome: |
   A caller — a skill author at a terminal, or a skill invoking it
   programmatically — advances any document by running
@@ -33,7 +33,7 @@ the per-skill transition scripts into a subcommand worthwhile.
 
 ## Problem Statement
 
-Each of the six artifact-lifecycle skills ships its own
+Each of the seven artifact-lifecycle skills ships its own
 `skills/<skill>/scripts/transition-status.sh`. The scripts advance a document
 through that skill's lifecycle: they read the current status from frontmatter
 and the body `## Status` line, decide whether the requested transition is
@@ -41,16 +41,16 @@ allowed, rewrite the frontmatter status, move the file into a status
 subdirectory for the skills that require it, and print a machine-readable JSON
 result the calling skill consumes.
 
-The six scripts total roughly 2,000 lines of bash (vision 431, strategy 445,
-design 389, roadmap 285, brief 245, prd 199). They share a spine — argument
-handling, the frontmatter-and-body status detection, the frontmatter rewrite,
-and the JSON result assembly — but only by copy-paste, so the spine is
-maintained in six places and has drifted. They also legitimately differ in
+The seven scripts total roughly 2,250 lines of bash (vision 431, strategy 445,
+design 389, roadmap 285, comp 249, brief 245, prd 199). They share a spine —
+argument handling, the frontmatter-and-body status detection, the frontmatter
+rewrite, and the JSON result assembly — but only by copy-paste, so the spine is
+maintained in seven places and has drifted. They also legitimately differ in
 ways that are tangled into each copy rather than expressed against a common
 core: each skill has its own status set; some enforce an ordered transition
-graph (vision, strategy, roadmap, brief) while others only check that the
+graph (vision, strategy, roadmap, brief, comp) while others only check that the
 target is a known status (design, prd); three move the file into a status
-directory (design, vision, strategy) and three do not; and a few carry
+directory (design, vision, strategy) and four do not; and a few carry
 content preconditions and per-type output fields described in Scope below.
 
 Two costs follow. Maintenance: a change to the shared behavior has to be made
@@ -115,14 +115,17 @@ moves the file. Strategy's Sunset (which requires a reason) and vision's Sunset
 ## Scope Boundary
 
 **In scope** — the consolidated `shirabe transition` subcommand reproduces the
-full behavior the six scripts have today:
+full behavior the seven scripts have today:
 
-- All six artifact-lifecycle skills: vision, strategy, roadmap, brief, prd,
-  design.
+- All seven artifact-lifecycle skills: vision, strategy, roadmap, brief, prd,
+  design, comp.
 - Each skill's status handling exactly as it is today: the skills that enforce
-  an ordered transition graph (vision, strategy, roadmap, brief) keep it, and
-  the skills that only check status membership (design, prd) keep that. This is
-  a faithful port; it does not add or remove transition legality.
+  an ordered transition graph (vision, strategy, roadmap, brief, comp) keep it,
+  and the skills that only check status membership (design, prd) keep that. This
+  is a faithful port; it does not add or remove transition legality. comp shares
+  brief's Draft/Accepted/Done lifecycle but additionally permits the
+  Draft → Done shortcut, and emits a bare `moved: false` result field (no
+  `new_path`).
 - The content preconditions some skills run: vision and strategy block
   Draft → Accepted when the document still has unresolved Open Questions;
   roadmap blocks Draft → Active without at least two features.
@@ -133,7 +136,7 @@ full behavior the six scripts have today:
   (`superseded_by`, `sunset_reason`) and body lines, the directory move via
   `git mv` for the three skills that move (design, vision, strategy) with their
   target directories, and each skill's JSON result shape.
-- Migrating every caller and then deleting the six scripts: each skill's own
+- Migrating every caller and then deleting the seven scripts: each skill's own
   `SKILL.md` invocation, the `work-on` skill's `run-cascade.sh` (which calls the
   scripts programmatically and parses their JSON) and its test, and the prd
   skill's direct call to the brief script. The scripts are deleted only after
@@ -165,10 +168,12 @@ Deferred to the PRD and DESIGN:
   A misnamed file (prefix says one type, `schema:` says another) is already
   caught by validate's schema-consistency check, so a separate `--type` flag is
   probably unnecessary.
-- **Result parity.** The six JSON results are not identical today: brief and prd
-  emit four fields; roadmap, design, and vision add `new_path`/`moved` (roadmap
-  emits them even though it never moves); design and vision add `superseded_by`;
-  strategy adds `reason`. Decide whether to preserve each type's shape (and to
+- **Result parity.** The seven JSON results are not identical today: brief and
+  prd emit four fields; comp emits those four plus a bare `moved: false` (it
+  never moves, and unlike roadmap it reports no `new_path`); roadmap, design, and
+  vision add `new_path`/`moved` (roadmap emits them even though it never moves);
+  design and vision add `superseded_by`; strategy adds `reason`. Decide whether
+  to preserve each type's shape (and to
   what fidelity — byte-for-byte vs structural) or converge them, and note what
   breaks: `run-cascade.sh` keys off `new_path`. The exit-code contract (0
   success, non-zero with a reason on stderr) is part of this surface, because
@@ -195,5 +200,5 @@ Deferred to the PRD and DESIGN:
 
 ## References
 
-- The six scripts under `skills/<skill>/scripts/transition-status.sh`.
+- The seven scripts under `skills/<skill>/scripts/transition-status.sh`.
 - The programmatic caller `skills/work-on/scripts/run-cascade.sh` and its test.

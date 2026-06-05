@@ -12,13 +12,13 @@ without it. If the user wants changes, loop back to Phase 3.
 
 ## 5.2 Transition Status
 
-After approval, transition the document with the lifecycle script:
+After approval, transition the document with the lifecycle subcommand:
 
 ```bash
-skills/comp/scripts/transition-status.sh docs/competitive/COMP-<topic>.md Accepted
+shirabe transition docs/competitive/COMP-<topic>.md Accepted
 ```
 
-The script updates frontmatter and body together and emits JSON on
+The subcommand updates frontmatter and body together and emits JSON on
 stdout (`{success, doc_path, old_status, new_status, moved: false}`).
 Capture `new_status` for the FINALIZED block.
 

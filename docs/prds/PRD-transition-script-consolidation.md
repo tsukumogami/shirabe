@@ -1,14 +1,14 @@
 ---
 status: Accepted
 problem: |
-  The six artifact-lifecycle skills (vision, strategy, roadmap, brief, prd,
-  design) each ship a copy-pasted `transition-status.sh` (~2,000 lines of bash
-  total) that advances a document through its lifecycle. The shared spine is
-  maintained six times and has drifted, while the genuine per-skill differences
+  The seven artifact-lifecycle skills (vision, strategy, roadmap, brief, prd,
+  design, comp) each ship a copy-pasted `transition-status.sh` (~2,250 lines of
+  bash total) that advances a document through its lifecycle. The shared spine is
+  maintained seven times and has drifted, while the genuine per-skill differences
   are tangled into each copy. There is no single place to fix a bug or change a
   rule.
 goals: |
-  Consolidate the six scripts into one `shirabe transition` subcommand on the
+  Consolidate the seven scripts into one `shirabe transition` subcommand on the
   shirabe CLI that reproduces each artifact type's existing behavior faithfully,
   defines the per-skill rules in one place, migrates every caller, and deletes
   the scripts.
@@ -24,23 +24,23 @@ Accepted
 ## Problem statement
 
 Each artifact-lifecycle skill ships its own
-`skills/<skill>/scripts/transition-status.sh`. The six scripts advance a
+`skills/<skill>/scripts/transition-status.sh`. The seven scripts advance a
 document through that skill's lifecycle: read the current status from
 frontmatter and the body `## Status` line, decide whether the requested
 transition is allowed, rewrite the frontmatter (and body) status, move the file
 into a status subdirectory for the skills that require it, and print a
 machine-readable JSON result the calling skill consumes.
 
-The six total roughly 2,000 lines of bash (vision 431, strategy 445, design
-389, roadmap 285, brief 245, prd 199). They share a spine — argument handling,
-status detection, frontmatter rewrite, JSON result assembly — only by
-copy-paste, so it is maintained in six places and has drifted. The genuine
+The seven total roughly 2,250 lines of bash (vision 431, strategy 445, design
+389, roadmap 285, comp 249, brief 245, prd 199). They share a spine — argument
+handling, status detection, frontmatter rewrite, JSON result assembly — only by
+copy-paste, so it is maintained in seven places and has drifted. The genuine
 per-skill differences (distinct status sets; ordered transition graphs in some,
 membership-only checks in others; directory moves in three; content
 preconditions and per-type output fields in a few) are tangled into each copy
 rather than expressed against a shared core. A fix to the shared behavior must
-be made six times and in practice is made once and forgotten elsewhere; nothing
-keeps the copies in step.
+be made seven times and in practice is made once and forgotten elsewhere;
+nothing keeps the copies in step.
 
 SR1 of the broader CLI effort already rewrote `shirabe validate` from Go to
 Rust, so a Rust shirabe binary that skills call now exists. That makes folding
@@ -49,14 +49,14 @@ consolidation.
 
 ## Goals
 
-- One `shirabe transition` subcommand handles lifecycle transitions for all six
+- One `shirabe transition` subcommand handles lifecycle transitions for all seven
   artifact types.
 - It reproduces each type's current behavior faithfully — same validation,
   edits, moves, results, and exit codes — so callers see no behavior change.
 - Each skill's lifecycle rules live in one place in the binary instead of six
   drifting scripts.
-- Every caller is migrated to the subcommand and the six scripts are deleted, so
-  the duplication is actually removed.
+- Every caller is migrated to the subcommand and the seven scripts are deleted,
+  so the duplication is actually removed.
 
 ## User stories
 
@@ -78,8 +78,9 @@ consolidation.
 
 ## Requirements
 
-**R1 — Single subcommand, all six types.** `shirabe transition` handles
-lifecycle transitions for vision, strategy, roadmap, brief, prd, and design.
+**R1 — Single subcommand, all seven types.** `shirabe transition` handles
+lifecycle transitions for vision, strategy, roadmap, brief, prd, design, and
+comp.
 
 **R2 — Type is inferred, not passed.** The command determines the artifact type
 itself, using the same filename-prefix recognition `validate` uses
@@ -89,9 +90,11 @@ artifact type" message and a non-zero exit code; it does not silently no-op.
 
 **R3 — Per-type status rules preserved exactly.** Each type keeps its current
 status set and transition behavior: the types that enforce an ordered
-transition graph (vision, strategy, roadmap, brief) keep it; the types that only
-check that the target is a known status (design, prd) keep that. The command
-adds no new statuses and changes no transition's legality.
+transition graph (vision, strategy, roadmap, brief, comp) keep it; the types
+that only check that the target is a known status (design, prd) keep that. comp
+mirrors brief's Draft/Accepted/Done graph and additionally allows the
+Draft → Done shortcut. The command adds no new statuses and changes no
+transition's legality.
 
 **R4 — Content preconditions preserved.** The command preserves the
 content-precondition gates the scripts run: vision and strategy block
@@ -116,13 +119,13 @@ multi-word `In Progress`); and the type-specific extra frontmatter fields
 directory using `git mv`, as the scripts do — design Current →
 `docs/designs/current/`, design Superseded → `docs/designs/archive/`, vision
 Sunset → `docs/visions/sunset/`, strategy Sunset → `docs/strategies/sunset/`;
-the other three types never move.
+the other four types (roadmap, brief, prd, comp) never move.
 
 **R8 — Result and exit-code parity, per type.** The command emits each type's
-existing machine-readable result shape (brief and prd emit four fields; roadmap,
-design, and vision add `new_path`/`moved`; design and vision add
-`superseded_by`; strategy adds `reason`) on success to stdout, and errors to
-stderr. Parity is per type and structural: the same JSON keys with the same
+existing machine-readable result shape (brief and prd emit four fields; comp
+emits those four plus a bare `moved: false` but no `new_path`; roadmap, design,
+and vision add `new_path`/`moved`; design and vision add `superseded_by`;
+strategy adds `reason`) on success to stdout, and errors to stderr. Parity is per type and structural: the same JSON keys with the same
 values (key order and whitespace need not match), not a unified shape. The
 command preserves the specific exit-code contract the scripts advertise — `1`
 for bad arguments / file-not-found / unparseable status, `2` for an illegal
@@ -139,7 +142,7 @@ This preserves the cascade's ability to re-run after a partial failure.
 **R10 — Full cutover.** Every caller is migrated to the subcommand: each skill's
 own `SKILL.md` invocation, the work-on skill's `run-cascade.sh` (which calls the
 scripts programmatically and parses their JSON) and its test, and the prd
-skill's direct call to the brief script. The six scripts are deleted once the
+skill's direct call to the brief script. The seven scripts are deleted once the
 subcommand reproduces their behavior and the callers are moved over.
 
 Deferred to the DESIGN (interface and implementation mechanics, not
@@ -150,7 +153,7 @@ configuration, and the `git mv` mechanics.
 
 ## Acceptance criteria
 
-- [ ] For each of the six types, the subcommand produces the same frontmatter and
+- [ ] For each of the seven types, the subcommand produces the same frontmatter and
   body edits, the same file move (or none), the same per-type JSON result
   (same keys and values), and the same exit code as the script it replaces —
   verified across that type's legal transitions, at least one rejected
@@ -171,7 +174,7 @@ configuration, and the `git mv` mechanics.
   failure) and the JSON error object's `code` field matches.
 - [ ] A document whose type cannot be determined from its filename fails with a
   non-zero exit and a non-empty error message on stderr.
-- [ ] Every caller invokes `shirabe transition`; the six `transition-status.sh`
+- [ ] Every caller invokes `shirabe transition`; the seven `transition-status.sh`
   scripts are deleted and no committed file references them; the work-on
   cascade test passes against the subcommand.
 - [ ] `cargo test` and the repo's doc-validation CI pass.
@@ -187,7 +190,7 @@ configuration, and the `git mv` mechanics.
 
 ## Decisions and trade-offs
 
-- **Faithful per-type parity over unification.** The six result shapes differ
+- **Faithful per-type parity over unification.** The seven result shapes differ
   today; this feature preserves each rather than converging them. Converging
   would change what brief/prd/roadmap consumers see and break the work-on
   cascade's `new_path` parsing unless migrated in lockstep — a larger, separate
@@ -205,5 +208,5 @@ configuration, and the `git mv` mechanics.
 ## Related
 
 - Upstream framing: `docs/briefs/BRIEF-transition-script-consolidation.md`.
-- The six scripts under `skills/<skill>/scripts/transition-status.sh`.
+- The seven scripts under `skills/<skill>/scripts/transition-status.sh`.
 - The programmatic caller `skills/work-on/scripts/run-cascade.sh` and its test.
