@@ -372,7 +372,7 @@ Final artifacts depend on execution mode:
 - Roadmap enriched directly -- Implementation Issues table and Dependency Graph
   written into the roadmap's reserved sections (no separate PLAN doc)
 - GitHub milestone + per-feature planning issues with `needs-*` labels
-- Table uses `Feature | Issues | Status` format from `roadmap-format.md`
+- Table uses `Feature | Issues | Dependencies | Status` format from `roadmap-format.md`
 - Roadmap stays Active (no status transition)
 
 **single-pr mode:**
