@@ -12,7 +12,7 @@ problem: |
 outcome: |
   A caller — a skill author at a terminal, or a skill invoking it
   programmatically — advances any document by running
-  `shirabe transition <status> <file>` against the shirabe binary the workflow
+  `shirabe transition <file> <status>` against the shirabe binary the workflow
   already depends on. shirabe recognizes the document's type itself, applies
   that type's existing transition behavior, and returns the same
   machine-readable result the skill consumes. The behavior each artifact type
@@ -63,7 +63,7 @@ status should not be six hand-maintained copies.
 ## User Outcome
 
 A caller advances a document with one command —
-`shirabe transition <status> <file>` — using the shirabe binary the workflow
+`shirabe transition <file> <status>` — using the shirabe binary the workflow
 already depends on. The caller does not tell the command what kind of document
 it is: shirabe recognizes the artifact type itself, the way `validate` already
 recognizes a document it is asked to check.
@@ -82,7 +82,7 @@ every skill picks it up, and the six scripts go away.
 ### Accept a brief
 
 An author accepts a draft brief with
-`shirabe transition accepted docs/briefs/BRIEF-foo.md`. shirabe recognizes the
+`shirabe transition docs/briefs/BRIEF-foo.md Accepted`. shirabe recognizes the
 document as a brief, confirms a brief is allowed to go from Draft to Accepted,
 rewrites the frontmatter and body status, and prints the result the brief
 skill consumes — the same result today's script prints.
@@ -90,14 +90,14 @@ skill consumes — the same result today's script prints.
 ### Promote with a directory move
 
 An author promotes a design to Current with
-`shirabe transition current docs/designs/DESIGN-foo.md`. shirabe recognizes the
+`shirabe transition docs/designs/DESIGN-foo.md Current`. shirabe recognizes the
 design, rewrites the status, and moves the file into `docs/designs/current/`
 with `git mv` as part of the same operation — the move the per-skill script
 performs today.
 
 ### Reject an out-of-order transition
 
-An author runs `shirabe transition done docs/roadmaps/ROADMAP-foo.md` on a
+An author runs `shirabe transition docs/roadmaps/ROADMAP-foo.md Done` on a
 Draft roadmap. shirabe rejects it, because a roadmap advances Draft → Active →
 Done and cannot jump straight to Done — the same ordered-transition rule the
 roadmap script enforces today, with the same error and exit code.
@@ -108,7 +108,7 @@ An author supersedes a design, providing the document that replaces it. shirabe
 requires that pointer (a superseded design must name its successor), records it
 in the design's frontmatter and in the result, rewrites the status, and moves
 the old design into `docs/designs/archive/`. This is the richest path: it takes
-an input beyond `<status> <file>`, writes a type-specific extra field, and
+an input beyond `<file> <status>`, writes a type-specific extra field, and
 moves the file. Strategy's Sunset (which requires a reason) and vision's Sunset
 (which optionally takes a superseding document) are variants of the same shape.
 
@@ -129,7 +129,7 @@ full behavior the seven scripts have today:
 - The content preconditions some skills run: vision and strategy block
   Draft → Accepted when the document still has unresolved Open Questions;
   roadmap blocks Draft → Active without at least two features.
-- The per-type inputs beyond `<status> <file>`: a superseding-document pointer
+- The per-type inputs beyond `<file> <status>`: a superseding-document pointer
   (required for design's Superseded, optional for vision's Sunset) and
   strategy's Sunset reason, including strategy's sanitization of that reason.
 - The per-type edits and outputs: the type-specific extra frontmatter fields
@@ -155,12 +155,12 @@ full behavior the seven scripts have today:
 
 Deferred to the PRD and DESIGN:
 
-- **CLI surface.** Argument order (the scripts take `<file> <status>`; the
-  command here is written `<status> <file>` — confirm or align), whether the
-  command accepts lifecycle verbs (`accept`, `sunset`), capitalized statuses
-  (`Accepted`, `Sunset`), or both, and how the per-type extra inputs
-  (superseding-document, reason) are passed — positional or flag — given their
-  requiredness depends on the (type, target) pair.
+- **CLI surface** (resolved in the PRD/DESIGN). Argument order is aligned to the
+  scripts: `shirabe transition <file> <status>`. The command takes the
+  capitalized canonical statuses (`Accepted`, `Sunset`), not lifecycle verbs,
+  and the per-type extra inputs are passed as flags (`--superseded-by`,
+  `--reason`) rather than positionally, since their requiredness depends on the
+  (type, target) pair.
 - **Type detection.** `validate` recognizes a document's type from its filename
   prefix (`DESIGN-`, `PRD-`, …) via `detect_format`; confirm transition uses the
   same key, and decide what happens when the type cannot be determined (today
