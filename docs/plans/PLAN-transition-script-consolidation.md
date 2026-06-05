@@ -11,7 +11,7 @@ upstream: docs/designs/DESIGN-transition-script-consolidation.md
 
 ## Status
 
-Draft
+Active
 
 ## Scope Summary
 
