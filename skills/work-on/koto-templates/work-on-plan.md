@@ -53,12 +53,15 @@ states:
       - target: spawn_and_await
         when:
           impact: none
+          gates.impact_classified.exit_code: 0
       - target: spawn_and_await
         when:
           impact: informational
+          gates.impact_classified.exit_code: 0
       - target: escalate_upstream_drift
         when:
           impact: intent-changing
+          gates.impact_classified.exit_code: 0
         context_assignments:
           failure_reason: "worktree_discipline_check: upstream-drift detected (intent-changing): ${evidence.rationale}"
 
