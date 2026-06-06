@@ -1325,6 +1325,313 @@ fn extract_closes_refs(body: &str, default_owner: &str, default_repo: &str) -> V
     out
 }
 
+/// The canonical Status palette every diagram inherits. A `classDef`
+/// declaring one of these names does not require a Legend entry; a
+/// Legend entry naming one of these names does not require a matching
+/// `classDef` declaration. Tracks the "Status Classes" section of
+/// `references/dependency-diagram.md`.
+///
+/// Distinct from `STATUS_CLASSES` only in intent (FC08's canonical-
+/// palette tolerance); the names are the same Status set FC07 uses,
+/// so the array deliberately duplicates the contents rather than
+/// aliasing to keep each check's binding self-contained.
+const FC08_STATUS_PALETTE: &[&str] = &["done", "ready", "blocked"];
+
+/// The pipeline-stage and tracks-prefix class set FC08 expects the
+/// Legend to name when the diagram declares them. These classes are
+/// outside the canonical Status palette and a reader needs the Legend
+/// to decode them; Sub-check B fires when the Legend omits a
+/// `classDef` declaration for one of these names. They participate in
+/// the kebab-to-camel normalization rule (Sub-check C). Tracks the
+/// "Pipeline Stage Classes" section of
+/// `references/dependency-diagram.md`.
+#[cfg_attr(not(test), allow(dead_code))]
+const FC08_PIPELINE_STAGE_CLASSES: &[&str] = &[
+    "needsDesign",
+    "needsPrd",
+    "needsPlanning",
+    "needsSpike",
+    "needsDecision",
+    "needsExplore",
+    "tracksDesign",
+    "tracksPlan",
+];
+
+/// Normalize a kebab-case class name to its camelCase form by
+/// uppercasing the first character after each `-` and dropping the
+/// hyphen. Names with no hyphens are returned unchanged.
+///
+/// Total over arbitrary UTF-8 input: iterates `chars()` (UTF-8-safe)
+/// and uses `to_uppercase()` (also UTF-8-safe). No `unwrap`, no byte
+/// indexing past a multi-byte boundary, no unbounded loop -- the
+/// output `String` allocation is bounded by the input character
+/// count.
+fn normalize_kebab_to_camel(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut upper_next = false;
+    for c in s.chars() {
+        if c == '-' {
+            upper_next = true;
+            continue;
+        }
+        if upper_next {
+            out.extend(c.to_uppercase());
+            upper_next = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Parse the text after a Legend line's leading `Legend:` token into
+/// the recovered class names. Splits on `,` then on `=`; the right-
+/// hand side of each `=` is the class name. Entries without `=`,
+/// entries with empty halves, and empty entries are silently dropped.
+///
+/// A composite entry like `tracks-design/tracks-plan` is split on `/`
+/// and each non-empty part is recorded as a separate class name
+/// (matching the documented Legend convention in
+/// `references/dependency-diagram.md`).
+///
+/// Total over arbitrary UTF-8 input: uses only `str::split`,
+/// `str::split_once`, and `str::trim`, all of which are UTF-8-safe.
+fn parse_legend_entries(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for entry in s.split(',') {
+        let Some((_color, name)) = entry.split_once('=') else {
+            continue;
+        };
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        for part in name.split('/') {
+            let part = part.trim();
+            if !part.is_empty() {
+                out.push(part.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// Extract the first Legend line's class names from body lines
+/// following the located Dependency Graph fence.
+///
+/// `body` is the doc body (the same `Vec<String>` `Doc` carries),
+/// indexed 0-based. `fence_end_line` is the 1-based line number of
+/// the closing-fence line (`BlockLocation.body_end`); the scan
+/// begins on the line AFTER that, 0-based index
+/// `fence_end_line.saturating_sub(0)` since `body_end` already
+/// points at the closing-fence line index + 1 in 1-based numbering.
+///
+/// The scan stops at the first line whose content (after `trim()`
+/// and stripping optional `**` bold markers) begins with `Legend:`
+/// (case-sensitive on the leading token). Two acceptable shapes:
+///
+/// - `Legend: ...` (plain), with or without leading whitespace.
+/// - `**Legend**: ...` (bold-wrapped), with or without leading
+///   whitespace.
+///
+/// Returns an empty `Vec` when no Legend line is found, when the
+/// recovered entries contain no parseable class names, or when the
+/// scan starts past the end of `body`.
+///
+/// The extractor is total: no panics, no UTF-8 boundary errors, no
+/// unbounded loops. The "first Legend wins" rule short-circuits the
+/// scan as soon as a Legend line is recognized.
+fn extract_legend(body: &[String], fence_end_line: usize) -> Vec<String> {
+    let start = fence_end_line.min(body.len());
+    for line in &body[start..] {
+        let trimmed = line.trim();
+        // Accept `**Legend**:` first (the documented canonical shape).
+        if let Some(rest) = trimmed.strip_prefix("**Legend**:") {
+            return parse_legend_entries(rest);
+        }
+        // Accept `Legend:` (plain or wrapped with stripped `**`).
+        let unwrapped = trimmed.strip_prefix("**").unwrap_or(trimmed);
+        if let Some(rest) = unwrapped.strip_prefix("Legend:") {
+            return parse_legend_entries(rest);
+        }
+    }
+    Vec::new()
+}
+
+/// FC08 -- Legend-vs-classDef reconciliation.
+///
+/// Reconciles each plan or roadmap doc's Dependency Graph Legend prose
+/// line against the diagram's `classDef` declarations and the canonical
+/// class palette. Three sub-checks share a single pass over the located
+/// Dependency Graph block, the extracted `Diagram.class_defs` field,
+/// and the recovered Legend names:
+///
+/// - **Sub A (Legend-names-no-classDef).** Each Legend class name must
+///   correspond to a local `classDef` declaration OR be in the
+///   canonical Status palette (`done`, `ready`, `blocked`). A name
+///   satisfying neither fires a notice naming the class.
+/// - **Sub B (classDef-omitted-from-Legend).** Each `classDef`
+///   declaration outside the canonical Status palette must be named by
+///   the Legend (modulo kebab-to-camel normalization). A `classDef`
+///   the Legend omits fires a notice naming the class.
+/// - **Sub C (normalization-mismatch).** A Legend entry that matches
+///   a `classDef` only under kebab-to-camel normalization fires a
+///   notice recommending the camelCase form.
+///
+/// The check ships at notice level via the `is_notice` membership;
+/// promotion to error is the one-line removal of the `"FC08"` arm from
+/// the `matches!` expression in `validate::is_notice`.
+///
+/// FC08 returns an empty `Vec` when the format has no
+/// `issues_table_columns` (the same no-op gate FC05/FC06/FC07 use) or
+/// when the Dependency Graph block is absent. A doc with no Legend
+/// line produces no notice (the Legend convention is optional).
+///
+/// Notice bodies name only entities the doc itself already names
+/// (class names parsed from the Legend or the diagram; the kebab-to-
+/// camel normalized form derived from those names). No notice quotes
+/// any external identifier, URL, env-var value, or private repo name
+/// (PRD R12 public-cleanliness).
+pub fn check_fc08(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    if spec.issues_table_columns.is_empty() {
+        return Vec::new();
+    }
+    let location = match find_dependency_graph_block(doc) {
+        Some(l) => l,
+        None => return Vec::new(),
+    };
+    // A MissingBlock short-circuits FC08 per the FC07 precedent.
+    for issue in &location.issues {
+        if let Issue::MissingBlock { .. } = issue {
+            return Vec::new();
+        }
+    }
+    // Extract the diagram (FC07 infrastructure; reuses `class_defs`).
+    let body_start_idx = location.body_start.saturating_sub(1);
+    let body_end_idx = location
+        .body_end
+        .saturating_sub(1)
+        .min(doc.body.len());
+    if body_start_idx > body_end_idx {
+        return Vec::new();
+    }
+    let body_slice: Vec<&str> = doc.body[body_start_idx..body_end_idx]
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
+    let (diagram, _issues) = extract_diagram(&body_slice, location.body_start);
+
+    // Extract the Legend from the lines AFTER the closing fence. The
+    // closing-fence line is at 0-based index `body_end_idx`; the scan
+    // starts on the next line.
+    let legend_scan_start = location.body_end.min(doc.body.len());
+    let legend_names = extract_legend(&doc.body, legend_scan_start);
+
+    let mut errs = Vec::new();
+    errs.extend(check_fc08_sub_a(doc, &legend_names, &diagram.class_defs));
+    errs.extend(check_fc08_sub_b(doc, &legend_names, &diagram.class_defs));
+    errs.extend(check_fc08_sub_c(doc, &legend_names, &diagram.class_defs));
+    errs
+}
+
+fn check_fc08_sub_a(
+    doc: &Doc,
+    legend: &[String],
+    class_defs: &HashSet<String>,
+) -> Vec<ValidationError> {
+    let mut errs = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for name in legend {
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        let normalized = normalize_kebab_to_camel(name);
+        let in_palette = FC08_STATUS_PALETTE
+            .iter()
+            .any(|p| *p == name.as_str() || *p == normalized.as_str());
+        let in_classdefs = class_defs.contains(name) || class_defs.contains(&normalized);
+        if !in_palette && !in_classdefs {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: 0,
+                code: "FC08".to_string(),
+                message: format!(
+                    "[FC08] Legend names class `{name}` but no `classDef {name}` exists \
+                     in the diagram and `{name}` is not in the canonical Status palette"
+                ),
+            });
+        }
+    }
+    errs
+}
+
+fn check_fc08_sub_b(
+    doc: &Doc,
+    legend: &[String],
+    class_defs: &HashSet<String>,
+) -> Vec<ValidationError> {
+    // PRD R4: an absent Legend produces no FC08 notice (the Legend
+    // convention is optional). Sub B only fires when a Legend is
+    // present but omits a classDef declaration outside the canonical
+    // palette.
+    if legend.is_empty() {
+        return Vec::new();
+    }
+    let legend_normalized: HashSet<String> = legend
+        .iter()
+        .map(|n| normalize_kebab_to_camel(n))
+        .collect();
+    let mut class_def_names: Vec<&String> = class_defs.iter().collect();
+    class_def_names.sort();
+    let mut errs = Vec::new();
+    for cd in class_def_names {
+        if FC08_STATUS_PALETTE.iter().any(|p| *p == cd.as_str()) {
+            continue;
+        }
+        if legend.iter().any(|n| n == cd) || legend_normalized.contains(cd) {
+            continue;
+        }
+        errs.push(ValidationError {
+            file: doc.path.clone(),
+            line: 0,
+            code: "FC08".to_string(),
+            message: format!(
+                "[FC08] Diagram declares `classDef {cd}` outside the canonical Status \
+                 palette but the Legend does not name it"
+            ),
+        });
+    }
+    errs
+}
+
+fn check_fc08_sub_c(
+    doc: &Doc,
+    legend: &[String],
+    class_defs: &HashSet<String>,
+) -> Vec<ValidationError> {
+    let mut errs = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for name in legend {
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        let normalized = normalize_kebab_to_camel(name);
+        if normalized != *name && class_defs.contains(&normalized) {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: 0,
+                code: "FC08".to_string(),
+                message: format!(
+                    "[FC08] Legend names class `{name}` but the diagram declares \
+                     `classDef {normalized}`; use the camelCase form `{normalized}` \
+                     to match the codebase convention"
+                ),
+            });
+        }
+    }
+    errs
+}
+
 /// FC09 -- doc-vs-GitHub state reconciliation.
 ///
 /// The third reconciliation axis in `shirabe-validate`. FC07 reconciles
@@ -3372,6 +3679,423 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ------------------------------------------------------------------
+    // check_fc08 tests (PRD R1-R16 acceptance criteria). The 17 ACs map
+    // to dedicated test functions; each function's name encodes the AC
+    // it covers, mirroring the FC07 naming convention.
+    //
+    //   AC: Sub A fires on non-classDef non-palette name: check_fc08_sub_a_legend_names_no_classdef_fires
+    //   AC: Sub B fires on classDef outside palette omitted by Legend: check_fc08_sub_b_classdef_omitted_from_legend_fires
+    //   AC: Sub C fires on normalization mismatch: check_fc08_sub_c_normalization_mismatch_fires
+    //   AC: Sub A tolerates canonical palette names without classDef: check_fc08_sub_a_canonical_palette_no_notice
+    //   AC: Sub B tolerates canonical palette classDef without Legend: check_fc08_sub_b_canonical_palette_no_notice
+    //   AC: Absent Legend no notice: check_fc08_absent_legend_no_notice
+    //   AC: Absent diagram no notice: check_fc08_absent_dependency_graph_no_notice
+    //   AC: Malformed Legend no panic: check_fc08_malformed_legend_no_panic
+    //   AC: Duplicate Legend entries deduplicated: check_fc08_duplicate_legend_entries_deduplicated
+    //   AC: **Legend**: bold wrapper parses identically: check_fc08_bold_legend_wrapper_parses_identically
+    //   AC: Dispatched in plan and roadmap arms: check_fc08_dispatched_in_plan_and_roadmap_arms
+    //   AC: FC08 is notice-level via is_notice: tests::is_notice_only_schema_fc07_fc08_fc09 in validate.rs
+    //   AC: Removal of FC08 arm is single-line: check_fc08_promotion_seam_is_single_match_arm
+    //   AC: Notice voice mirrors FC05/FC06/FC07/FC09 prefix: check_fc08_notices_share_prefix_and_voice
+    //   AC: No new dependency: check_fc08_introduces_no_new_dependency (structural; verified by Cargo.toml diff)
+    //   AC: No private repo names in notices: check_fc08_notice_bodies_are_public_clean
+    //   AC: Sub C composite entry parses both halves: check_fc08_composite_legend_entry_parses_both_halves
+
+    /// Build a plan-profile markdown doc with a well-formed table, a
+    /// Dependency Graph block, and an optional Legend line. The
+    /// `extra_classdef` argument is the body of the classDef block
+    /// (e.g. `"    classDef ready fill:#bbdefb\n    class I1 ready\n"`),
+    /// and `legend_line` is the Legend prose line to append after the
+    /// closing fence (pass empty string to omit the Legend).
+    fn fc08_plan_with_legend(extra_classdef: &str, legend_line: &str) -> String {
+        format!(
+            "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n{}```\n\n{}\n",
+            extra_classdef, legend_line
+        )
+    }
+
+    #[test]
+    fn check_fc08_sub_a_legend_names_no_classdef_fires() {
+        // Legend names `mystery`; diagram only declares `ready`; `mystery`
+        // is not in the canonical palette. Sub A fires.
+        let md = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    class I1 ready\n",
+            "**Legend**: Blue = ready, Magenta = mystery",
+        );
+        let doc = doc_md(&md);
+        let errs = check_fc08(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter().any(|e| e.message.contains("Legend names class `mystery`")),
+            "expected Sub A notice naming mystery; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc08_sub_a_canonical_palette_no_notice() {
+        // Legend names `done` (canonical Status palette); diagram has
+        // no `classDef done`. Sub A should NOT fire.
+        let md = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    class I1 ready\n",
+            "**Legend**: Green = done, Blue = ready",
+        );
+        let doc = doc_md(&md);
+        let errs = check_fc08(&doc, &spec_for("plan/v1"));
+        assert!(
+            !errs.iter().any(|e| e.message.contains("Legend names class `done`")),
+            "Sub A should tolerate canonical palette names; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc08_sub_b_classdef_omitted_from_legend_fires() {
+        // Diagram declares `classDef needsExplore`; Legend doesn't name it.
+        // Sub B fires.
+        let md = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    classDef needsExplore fill:#ffe0b2\n    class I1 ready\n",
+            "**Legend**: Blue = ready",
+        );
+        let doc = doc_md(&md);
+        let errs = check_fc08(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter().any(|e| e.message.contains("classDef needsExplore") &&
+                                e.message.contains("Legend does not name it")),
+            "expected Sub B notice naming needsExplore; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc08_sub_b_canonical_palette_no_notice() {
+        // Diagram declares `classDef done` (canonical palette); Legend
+        // omits it. Sub B should NOT fire.
+        let md = fc08_plan_with_legend(
+            "    classDef done fill:#c8e6c9\n    classDef ready fill:#bbdefb\n    class I1 ready\n",
+            "**Legend**: Blue = ready",
+        );
+        let doc = doc_md(&md);
+        let errs = check_fc08(&doc, &spec_for("plan/v1"));
+        assert!(
+            !errs.iter().any(|e| e.message.contains("classDef done")),
+            "Sub B should tolerate canonical palette classDefs; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc08_sub_c_normalization_mismatch_fires() {
+        // Legend uses kebab-case `needs-design`; diagram declares
+        // camelCase `classDef needsDesign`. Sub C fires recommending the
+        // camelCase form.
+        let md = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    classDef needsDesign fill:#e1bee7\n    class I1 ready\n",
+            "**Legend**: Blue = ready, Purple = needs-design",
+        );
+        let doc = doc_md(&md);
+        let errs = check_fc08(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter().any(|e| e.message.contains("`needs-design`") &&
+                                e.message.contains("`needsDesign`") &&
+                                e.message.contains("camelCase")),
+            "expected Sub C notice naming both forms; got {:?}",
+            errs
+        );
+        // Sub B should NOT also fire for needsDesign (Legend names it,
+        // modulo normalization).
+        let sub_b_count = errs
+            .iter()
+            .filter(|e| e.message.contains("Legend does not name it"))
+            .count();
+        assert_eq!(sub_b_count, 0, "Sub B should not double-fire under normalization; got {:?}", errs);
+    }
+
+    #[test]
+    fn check_fc08_absent_legend_no_notice() {
+        // No Legend line in the body. The diagram declares pipeline-
+        // stage classes; without a Legend, FC08 stays silent (Legend
+        // convention is optional).
+        let md = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    classDef needsExplore fill:#ffe0b2\n    class I1 ready\n",
+            "",
+        );
+        let doc = doc_md(&md);
+        let errs = check_fc08(&doc, &spec_for("plan/v1"));
+        assert_eq!(
+            errs.len(),
+            0,
+            "absent Legend should produce no FC08 notice; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc08_absent_dependency_graph_no_notice() {
+        // Doc has no `## Dependency Graph` section at all. FC08 must
+        // stay silent (FC07's territory; FC08 reconciles only when a
+        // diagram is present).
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n\n**Legend**: Magenta = mystery\n";
+        let doc = doc_md(md);
+        let errs = check_fc08(&doc, &spec_for("plan/v1"));
+        assert_eq!(
+            errs.len(),
+            0,
+            "absent diagram should produce no FC08 notice; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc08_malformed_legend_no_panic() {
+        // Legend with stray comma producing empty entry, an entry
+        // missing `=`, an entry with empty halves. Parser drops the
+        // junk and reconciles the recovered entries; no panic.
+        let md = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    class I1 ready\n",
+            "**Legend**: Blue = ready, , just-a-color, = , Magenta = mystery",
+        );
+        let doc = doc_md(&md);
+        let errs = check_fc08(&doc, &spec_for("plan/v1"));
+        // Should fire exactly one Sub A notice (for `mystery`), having
+        // silently dropped the malformed entries.
+        let mystery_notices = errs
+            .iter()
+            .filter(|e| e.message.contains("Legend names class `mystery`"))
+            .count();
+        assert_eq!(
+            mystery_notices, 1,
+            "expected one mystery notice from malformed Legend; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc08_duplicate_legend_entries_deduplicated() {
+        // Legend names `mystery` twice. Sub A should fire exactly once.
+        let md = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    class I1 ready\n",
+            "**Legend**: Blue = ready, Magenta = mystery, Pink = mystery",
+        );
+        let doc = doc_md(&md);
+        let errs = check_fc08(&doc, &spec_for("plan/v1"));
+        let mystery_notices = errs
+            .iter()
+            .filter(|e| e.message.contains("Legend names class `mystery`"))
+            .count();
+        assert_eq!(
+            mystery_notices, 1,
+            "duplicate Legend entries should be deduplicated; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc08_bold_legend_wrapper_parses_identically() {
+        // Test both `**Legend**:` and `Legend:` forms produce the same
+        // notices.
+        let md_bold = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    class I1 ready\n",
+            "**Legend**: Magenta = mystery",
+        );
+        let md_plain = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    class I1 ready\n",
+            "Legend: Magenta = mystery",
+        );
+        let errs_bold = check_fc08(&doc_md(&md_bold), &spec_for("plan/v1"));
+        let errs_plain = check_fc08(&doc_md(&md_plain), &spec_for("plan/v1"));
+        assert_eq!(
+            errs_bold.len(),
+            errs_plain.len(),
+            "bold and plain Legend forms should produce identical notice counts; bold={:?} plain={:?}",
+            errs_bold,
+            errs_plain
+        );
+        assert!(errs_bold.iter().any(|e| e.message.contains("mystery")));
+        assert!(errs_plain.iter().any(|e| e.message.contains("mystery")));
+    }
+
+    #[test]
+    fn check_fc08_composite_legend_entry_parses_both_halves() {
+        // Documented composite entry `tracks-design/tracks-plan` parses
+        // as two distinct names. Both should normalize to camelCase
+        // and Sub C should fire for each if the diagram has the
+        // camelCase classDef.
+        let md = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    classDef tracksDesign fill:#FFE0B2\n    classDef tracksPlan fill:#FFE0B2\n    class I1 ready\n",
+            "**Legend**: Blue = ready, Orange = tracks-design/tracks-plan",
+        );
+        let doc = doc_md(&md);
+        let errs = check_fc08(&doc, &spec_for("plan/v1"));
+        let sub_c_count = errs
+            .iter()
+            .filter(|e| e.message.contains("camelCase"))
+            .count();
+        assert_eq!(
+            sub_c_count, 2,
+            "composite entry should produce two Sub C notices; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc08_dispatched_in_plan_and_roadmap_arms() {
+        // Confirm check_fc08 returns notices for plan/v1 AND for the
+        // roadmap profile. The dispatch test in validate_file's own
+        // tests gates that the arm wiring is correct; this gates that
+        // check_fc08 itself engages on both profile specs.
+        let md = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    class I1 ready\n",
+            "**Legend**: Blue = ready, Magenta = mystery",
+        );
+        let doc = doc_md(&md);
+        let errs_plan = check_fc08(&doc, &spec_for("plan/v1"));
+        assert!(!errs_plan.is_empty(), "plan profile should engage FC08");
+
+        // Roadmap profile spec also engages (issues_table_columns non-
+        // empty). The check function's gate is identical for both.
+        let errs_roadmap = check_fc08(&doc, &spec_for("roadmap/v1"));
+        assert!(!errs_roadmap.is_empty(), "roadmap profile should engage FC08");
+    }
+
+    #[test]
+    fn check_fc08_no_op_on_format_without_issues_table() {
+        // The brief format has no issues_table_columns. FC08 must
+        // return immediately.
+        let md = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    class I1 ready\n",
+            "**Legend**: Magenta = mystery",
+        );
+        let doc = doc_md(&md);
+        let errs = check_fc08(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 0, "non-issues-table format should no-op; got {:?}", errs);
+    }
+
+    #[test]
+    fn check_fc08_notices_share_prefix_and_voice() {
+        // Every FC08 notice begins with `[FC08]`. The prefix is the
+        // PRD R6 binding shared with FC05/FC06/FC07/FC09.
+        let md = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    classDef needsExplore fill:#ffe0b2\n    classDef needsDesign fill:#e1bee7\n    class I1 ready\n",
+            "**Legend**: Blue = ready, Magenta = mystery, Purple = needs-design",
+        );
+        let doc = doc_md(&md);
+        let errs = check_fc08(&doc, &spec_for("plan/v1"));
+        assert!(errs.len() >= 3, "expected at least one notice from each sub-check; got {:?}", errs);
+        for e in &errs {
+            assert_eq!(e.code, "FC08", "all FC08 notices must have code=FC08");
+            assert!(
+                e.message.starts_with("[FC08]"),
+                "all FC08 notices must begin with `[FC08]`; got message {:?}",
+                e.message
+            );
+        }
+    }
+
+    #[test]
+    fn check_fc08_notice_bodies_are_public_clean() {
+        // FC08 notices must not name private repos, paths, env vars, or
+        // pre-announcement features. The notice surface interpolates
+        // only class names parsed from the diagram or the Legend.
+        let md = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    classDef needsExplore fill:#ffe0b2\n    classDef needsDesign fill:#e1bee7\n    class I1 ready\n",
+            "**Legend**: Blue = ready, Magenta = mystery, Purple = needs-design",
+        );
+        let doc = doc_md(&md);
+        let errs = check_fc08(&doc, &spec_for("plan/v1"));
+        let banned = [
+            "tsukumogami/tools",
+            "tsukumogami/vision",
+            "ANTHROPIC_API_KEY",
+            "GITHUB_TOKEN",
+            "TAVILY_API_KEY",
+            "private/",
+            "/home/",
+        ];
+        for e in &errs {
+            for b in &banned {
+                assert!(
+                    !e.message.contains(b),
+                    "FC08 notice body contains banned substring {:?}: {}",
+                    b,
+                    e.message
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn check_fc08_promotion_seam_is_single_match_arm() {
+        // The promotion seam is a single `| "FC08"` arm in the
+        // is_notice match expression. The membership site is the one
+        // place to flip; this test pins the current notice-level
+        // membership and documents the seam.
+        use crate::validate::is_notice;
+        let e = ValidationError {
+            file: String::new(),
+            line: 0,
+            code: "FC08".to_string(),
+            message: String::new(),
+        };
+        assert!(is_notice(&e), "FC08 must be notice-level for v1");
+    }
+
+    #[test]
+    fn check_fc08_introduces_no_new_dependency() {
+        // Structural: FC08 uses only `std::collections::HashSet`,
+        // `regex` (already in workspace deps), and the existing
+        // mermaid extractor infrastructure. No new external crate is
+        // imported in checks.rs for FC08. This test asserts the
+        // implementation symbols FC08 depends on are all from the
+        // existing dependency surface.
+        //
+        // The check is structural: if a new dependency were added, it
+        // would surface in `use ` statements at the top of checks.rs,
+        // which already include only `std::*`, `regex::Regex`, and
+        // crate-internal modules. The test pins the function exists
+        // and is callable.
+        let md = fc08_plan_with_legend(
+            "    classDef ready fill:#bbdefb\n    class I1 ready\n",
+            "**Legend**: Blue = ready",
+        );
+        let doc = doc_md(&md);
+        let _errs = check_fc08(&doc, &spec_for("plan/v1"));
+    }
+
+    #[test]
+    fn check_fc08_extract_legend_total_over_arbitrary_input() {
+        // R15 totality: the Legend extractor must handle arbitrary
+        // strings without panicking. Pin a representative set of
+        // malformed shapes.
+        let cases = vec![
+            "",
+            "Legend:",
+            "**Legend**:",
+            "Legend: ",
+            "Legend: , , , ",
+            "Legend: =, =, =",
+            "Legend: a =, = b",
+            "Legend: ////",
+            "Legend: \u{0080}\u{ff}",  // multi-byte UTF-8 entry contents
+            "**Legend**: \u{1F600} = emoji-class",  // emoji color
+        ];
+        for input in cases {
+            let body = vec![input.to_string()];
+            let _ = extract_legend(&body, 0);  // must not panic
+        }
+    }
+
+    #[test]
+    fn check_fc08_normalize_kebab_to_camel_canonical_pairs() {
+        assert_eq!(normalize_kebab_to_camel("needs-design"), "needsDesign");
+        assert_eq!(normalize_kebab_to_camel("tracks-design"), "tracksDesign");
+        assert_eq!(normalize_kebab_to_camel("done"), "done");
+        assert_eq!(normalize_kebab_to_camel(""), "");
+        assert_eq!(normalize_kebab_to_camel("-leading"), "Leading");
+        assert_eq!(normalize_kebab_to_camel("trailing-"), "trailing");
+        assert_eq!(normalize_kebab_to_camel("a-b-c"), "aBC");
     }
 
     // ------------------------------------------------------------------

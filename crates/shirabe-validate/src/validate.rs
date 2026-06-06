@@ -8,8 +8,8 @@
 
 use crate::checks::{
     check_fc01, check_fc02, check_fc03, check_fc04, check_fc05, check_fc06, check_fc07,
-    check_fc09, check_plan_upstream, check_private_only, check_schema, check_strategy_public,
-    check_vision_public,
+    check_fc08, check_fc09, check_plan_upstream, check_private_only, check_schema,
+    check_strategy_public, check_vision_public,
 };
 use crate::doc::{Doc, ValidationError};
 use crate::formats::FormatSpec;
@@ -20,19 +20,19 @@ pub use crate::doc::Config;
 /// Reports whether a [`ValidationError`] should be emitted as a GHA
 /// `::notice` annotation rather than a `::error`.
 ///
-/// **Promotion seam.** FC07 and FC09 ship notice-level for v1; remove
-/// the corresponding arm from this match to promote the check from
-/// notice to error in a single-line diff. The match expression is the
-/// one place that drives the notice-vs-error split; the corresponding
-/// test in this module (`is_notice_only_schema_fc07_fc09`) tracks the
-/// membership.
+/// **Promotion seam.** FC07, FC08, and FC09 ship notice-level for v1;
+/// remove the corresponding arm from this match to promote the check
+/// from notice to error in a single-line diff. The match expression is
+/// the one place that drives the notice-vs-error split; the
+/// corresponding test in this module
+/// (`is_notice_only_schema_fc07_fc08_fc09`) tracks the membership.
 ///
 /// All other codes (`FC01`-`FC06`, `R6`-`R9`) are errors that contribute
-/// to a non-zero exit. `SCHEMA` is the long-standing notice; `FC07` and
-/// `FC09` are notice-level additions pending their respective
-/// corpus-cleanup PRs.
+/// to a non-zero exit. `SCHEMA` is the long-standing notice; `FC07`,
+/// `FC08`, and `FC09` are notice-level additions pending their
+/// respective corpus-cleanup PRs.
 pub fn is_notice(err: &ValidationError) -> bool {
-    matches!(err.code.as_str(), "SCHEMA" | "FC07" | "FC09")
+    matches!(err.code.as_str(), "SCHEMA" | "FC07" | "FC08" | "FC09")
 }
 
 /// Runs all checks for a given doc against its format spec. Returns a
@@ -71,6 +71,7 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
             errs.extend(check_fc05(doc, spec));
             errs.extend(check_fc06(doc, spec));
             errs.extend(check_fc07(doc, spec));
+            errs.extend(check_fc08(doc, spec));
             // FC09: construct one client and detect PR context once per
             // validate_file call. The client's `gh auth status` probe
             // runs at construction; missing credentials surface as the
@@ -83,6 +84,7 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
             errs.extend(check_fc05(doc, spec));
             errs.extend(check_fc06(doc, spec));
             errs.extend(check_fc07(doc, spec));
+            errs.extend(check_fc08(doc, spec));
             let fc09_client = GhSubprocessClient::new();
             let fc09_ctx = detect_pr_context();
             errs.extend(check_fc09(doc, spec, &fc09_client, fc09_ctx.as_ref()));
@@ -147,11 +149,11 @@ mod tests {
     // --- is_notice (ported from TestIsNotice) ---
 
     #[test]
-    fn is_notice_only_schema_fc07_fc09() {
-        // SCHEMA, FC07, and FC09 are the notice-level codes for v1.
-        // FC07 and FC09 both ship notice-level pending their respective
-        // corpus-cleanup PRs; removing either arm from is_notice
-        // promotes the check to error.
+    fn is_notice_only_schema_fc07_fc08_fc09() {
+        // SCHEMA, FC07, FC08, and FC09 are the notice-level codes for
+        // v1. FC07, FC08, and FC09 all ship notice-level pending their
+        // respective corpus-cleanup PRs; removing any arm from is_notice
+        // promotes the corresponding check to error in a one-line diff.
         assert!(is_notice(&ValidationError {
             file: String::new(),
             line: 0,
@@ -162,6 +164,12 @@ mod tests {
             file: String::new(),
             line: 0,
             code: "FC07".to_string(),
+            message: String::new(),
+        }));
+        assert!(is_notice(&ValidationError {
+            file: String::new(),
+            line: 0,
+            code: "FC08".to_string(),
             message: String::new(),
         }));
         assert!(is_notice(&ValidationError {
