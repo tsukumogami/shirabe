@@ -28,8 +28,50 @@ Read the PRD file from the path provided in `$ARGUMENTS`. Verify:
 - File exists and is a valid PRD (`docs/prds/PRD-*.md`)
 - Status is "Accepted"
 
-If the PRD status is not "Accepted", STOP and inform the user. Design work requires
-an accepted PRD.
+#### Parent-orchestration auto-transition (sentinel-gated)
+
+Before applying the hard-stop status check below, look for the
+`parent_orchestration:` sentinel block. Read any
+`wip/*_<topic>_state.md` file matching the current topic
+(glob pattern, not a hardcoded `wip/scope_<topic>_state.md` — the
+glob keeps the branch forward-compatible with future parent skills
+beyond `/scope`). The `<topic>` value is the topic slug extracted
+from the PRD path.
+
+When the sentinel is present AND its `invoking_child:` field is
+`design` AND the PRD's current status is `Accepted` (the
+pre-transition status `/prd` leaves behind after its own
+brief-handoff), run:
+
+```bash
+shirabe transition <prd-path> "In Progress"
+```
+
+then proceed past the hard-stop check. The sentinel's presence
+is the explicit signal that a parent (`/scope` or any future
+parent skill) is driving this invocation; the auto-transition
+is the symmetric counterpart to `/prd`'s brief-handoff in
+`skills/prd/SKILL.md` lines 132-138.
+
+When the sentinel is ABSENT (no matching state file or no
+`parent_orchestration:` block) OR its `invoking_child:` field
+does NOT match `design`, do NOT auto-transition. Fall through
+to the hard-stop check below.
+
+This is the symmetric three-skill contract: when a chain-context
+signal is present (BRIEF input for `/prd`, `parent_orchestration:`
+sentinel for `/design` and `/plan`), the skill auto-transitions
+its upstream artifact forward by one status before consuming it.
+When no chain-context signal is present, the skill applies its
+protective hard-stop. Direct `/design` invocation against a Draft
+or non-Accepted PRD writes no sentinel; the sentinel check returns
+absent; the hard-stop fires. The "silent auto-promote on direct
+invocation" failure mode cannot reach this code path because the
+sentinel is the explicit signal.
+
+If the PRD status is not "Accepted" (and the sentinel was absent
+or did not match `invoking_child: design`), STOP and inform the
+user. Design work requires an accepted PRD.
 
 ### 0.3 Synthesize Problem Statement
 
