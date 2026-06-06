@@ -4,7 +4,7 @@ status: Draft
 execution_mode: single-pr
 upstream: docs/designs/DESIGN-shirabe-pattern-v1-ergonomics.md
 milestone: "shirabe pattern v1 ergonomics"
-issue_count: 22
+issue_count: 18
 ---
 
 # PLAN: shirabe pattern v1 ergonomics
@@ -13,382 +13,58 @@ issue_count: 22
 
 Draft
 
-Phase 6 review verdict: **proceed** as inline-substitute-review under sub-agent dispatch from `/scope`'s chain (`parent_orchestration.invoking_child: plan`, `rationale: fresh-chain`); the v0.9.1-dev `/plan` SKILL.md doesn't yet ship the inline-substitute-review variant that Issue 13 of this PLAN documents — the fallback was walked under this PLAN's own R6 contract ahead of landing, dogfooded the same way the upstream DESIGN's Phase 6 ran. The independence-loss caveat is recorded in the friction log and reproduced on the PR description (cleaned before merge with the rest of wip/ artifacts).
+Phase 6 review verdict: **proceed** as inline-substitute-review under sub-agent dispatch from `/scope`'s chain (`parent_orchestration.invoking_child: plan`, `rationale: fresh-chain`). The revised upstream DESIGN (commit b3a2e9b) applies the lazy-load three-tier preference order; this PLAN's four-batch decomposition mirrors DESIGN D7's revised sequencing. The independence-loss caveat is recorded in the friction log and reproduced on the PR description (cleaned before merge with the rest of wip/ artifacts).
 
 ## Scope Summary
 
-Land one canonical contract per fix-class at the pattern level plus per-skill citations, materialize the two missing format references at the canonical altitude, extend `/design` Phase 6 jury with a structural-format reviewer, grow `/plan` Phase 3/4/7 with consistency checks, grow `/scope` Phase 0/1 with convention + cold-start handling, add a shared CLI-version preflight reference, and extend the Rust validator with three notice-level checks. Sequenced in three batches per DESIGN D7 (pattern upstream → per-skill consumers → validator downstream) so per-skill citations dereference canonical statements that already exist at the moment of citation.
+Apply the lazy-load principle across the seven pattern-v1 fix classes: extend the Rust validator with six new notice-level checks (Batch 1), author five per-error resolution reference files at `references/fixes/` plus two materialized format references (Batch 2), apply lightweight skill-prose edits — pointer rows, Phase-0 detection lines, format-reference clarifications, CLAUDE.md convention header (Batch 3), and ship validator-pointer-resolution tests (Batch 4). Replaces the original-pass eager-load per-skill subsections with detection-and-pointer rows that the validator dereferences only when the failure fires.
 
 ## Decomposition Strategy
 
-**Horizontal decomposition** (three batches per DESIGN D7).
+**Horizontal decomposition** (four batches per revised DESIGN D7).
 
-Issues are sliced layer-by-layer per the DESIGN's three-batch sequencing — pattern-level upstream, per-skill consumers, validator downstream. Walking skeleton does not apply: there is no e2e runtime flow to stub. Each layer is independently shippable; R31 backward compatibility holds at every layer boundary because the `parent_orchestration:` sentinel gates every new fallback path (absent sentinel falls through to existing behavior).
+Issues are sliced layer-by-layer per the DESIGN's four-batch lazy-load-tier-first sequencing — CLI extensions, reference files, lightweight skill edits, tests. Walking skeleton does not apply: there is no e2e runtime flow to stub. Each batch is independently shippable; R31 backward compatibility holds at every batch boundary because tier-1 checks are notice-level (advisory only, exit-code unchanged) and tier-2 pointers fire only when the validator emits the FC code.
 
-Grouping rule for Batch 2: one issue per SKILL.md (Resume Logic sentinel-consultation row + `### Sub-Agent Dispatch Fallback` subsection bundled together for each skill), to bound blast radius per file. For Batch 3: one issue per validator-feature (FC code or single check function change).
+Grouping rules. **Batch 1** (CLI extensions): one issue per validator check function or per CLI sub-command, to bound blast radius per checks.rs change. **Batch 2** (reference files): one issue per file — the seven reference files have distinct content and authoring tone; grouping them would couple unrelated reviews. **Batch 3** (lightweight skill edits): grouped where the edit is identical across skills (per-skill pointer-row + Phase-0 line is the same edit applied eight times; one issue covers all eight). **Batch 4** (tests): one issue covering all new FCs plus the validator-pointer-resolution flow.
 
 Cross-batch edge counts:
-- Batch 1 → Batch 2: 16 edges (per-skill citations dereference pattern-level statements)
-- Batch 1 → Batch 3: 1 edge (FC11 dereferences plan-format.md at validate-time)
-- Batch 2 → Batch 3: 0 edges (validator operates on artifact contents, not on per-skill consumer prose)
+- Batch 1 → Batch 2: 6 edges (Batch 2's `references/fixes/*.md` files are dereferenced by Batch 1's FC notice text; the FC codes must exist before the pointers are committed).
+- Batch 1 → Batch 3: 2 edges (Batch 3's /scope Phase 0 SKILL prose dereferences Batch 1's slug-prefix CLI extension; CLAUDE.md header lands in Batch 3 but FC-CONVENTIONS detects it from Batch 1).
+- Batch 2 → Batch 3: 1 edge (Batch 3's per-skill pointer rows dereference Batch 2's `references/fixes/sub-agent-dispatch.md`).
+- Batch 1 → Batch 4: 6 edges (Batch 4's tests dereference all six Batch 1 FCs).
+- Batch 2 → Batch 4: 5 edges (Batch 4's pointer-resolution tests dereference all five `references/fixes/*.md` files).
 
-Critical path depth: 3 (Issue 5 → Issue 14 → Issue 22). Within-batch parallelism: 11 issues are depth-0.
+Critical path depth: 3 (Batch-1 Issue → Batch-2 Issue → Batch-4 Issue). Within-batch parallelism: Batch 1's six CLI issues are independent of each other; Batch 2's seven reference files are independent of each other; Batch 3's six skill-edit issues are mostly independent.
 
 ## Issue Outlines
 
-### Issue 1: docs(references): add `## Sub-Agent Dispatch Fallbacks` section to parent-skill-pattern.md
+### Issue 1: feat(validate): extend check_schema with SCHEMA-MISSING notice and add slug-prefix detection sub-command
 
-**Goal**: Land the canonical contract for the five sub-agent dispatch fallback shapes (serial-self-jury, parent-delegated-approval, decision-bypass-with-inline-resolution, inline-substitute-review, deterministic-mode-bypass) plus R8's NOT-covered carve-out at the pattern level so per-skill citations can dereference one source of truth.
-
-**Acceptance Criteria**:
-- [ ] `references/parent-skill-pattern.md` contains a top-level `## Sub-Agent Dispatch Fallbacks` section positioned after `## Team-Lead Operating Discipline`.
-- [ ] Section names all five canonical fallback shapes with the operating conditions for each.
-- [ ] Section's serial-self-jury subsection states "verdict-preamble surfaces operating context and independence-loss caveat".
-- [ ] Section's decision-bypass-with-inline-resolution subsection states the two engagement conditions and the DESIGN-side recording requirement.
-- [ ] Section closes with a carve-out paragraph naming `tsukumogami/vision#535` Track B.
-- [ ] Direct-invocation behavior preserved.
-
-**Dependencies**: None
-
-**Type**: docs
-**Files**: `references/parent-skill-pattern.md`
-
-### Issue 2: docs(references): add `### Child-Side Sentinel Consultation Row Convention` subsection to parent-skill-pattern.md
-
-**Goal**: Add the canonical Resume Logic sentinel-consultation row template plus the per-skill state-file-path table inside the existing `## Conditional Feeder Invocation Shape` section so seven child Resume Logic tables can copy one canonical row template verbatim.
+**Goal**: Apply DESIGN Batch 1 / R18 / R27 (CLI extension). Extend `crates/shirabe-validate/src/checks.rs` `check_schema` (currently lines 39-51) to emit a SCHEMA-MISSING notice when `doc.schema.is_empty()`. Add the slug-prefix detection capability — either as a new check function reading `docs/` artifact filenames and emitting a notice when an input slug lacks the detected prefix, or as a new validator sub-command (e.g., a separate Rust module exposing `shirabe validate detect-prefix <slug>`). Closes `tsukumogami/shirabe#157` on the validator surface.
 
 **Acceptance Criteria**:
-- [ ] `references/parent-skill-pattern.md` contains a `### Child-Side Sentinel Consultation Row Convention` subsection inside `## Conditional Feeder Invocation Shape`.
-- [ ] Subsection provides a canonical row template (predicate + action + three subfield reads).
-- [ ] Subsection's template names the three subfields (`invoking_child`, `suppress_status_aware_prompt`, `rationale`) and the routing action (per rationale: fresh-chain | revise).
-- [ ] Subsection includes a per-skill state-file-path table mapping seven children to `wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md` (strategic).
-- [ ] Absent-sentinel fall-through behavior is stated explicitly.
-
-**Dependencies**: None
-
-**Type**: docs
-**Files**: `references/parent-skill-pattern.md`
-
-### Issue 3: docs(references): create cli-version-preflight.md shared reference
-
-**Goal**: Create `references/cli-version-preflight.md` as a new shared reference describing the per-subcommand preflight contract (`shirabe <subcommand> --help` as the capability probe) plus the documented manual-sed-edit fallback path.
-
-**Acceptance Criteria**:
-- [ ] `references/cli-version-preflight.md` exists.
-- [ ] Reference describes the per-subcommand preflight contract.
-- [ ] Reference describes the documented fallback path.
-- [ ] Reference establishes the prose template each citing child SKILL copies.
-- [ ] No network calls, downloads, or permission escalations.
-
-**Dependencies**: None
-
-**Type**: docs
-**Files**: `references/cli-version-preflight.md`
-
-### Issue 4: docs(design): create design-format.md format reference at canonical altitude
-
-**Goal**: Materialize `skills/design/references/design-format.md` per Decision 3 / R15 with the four-field frontmatter schema, the nine required-section list, context-aware section table, and Implementation Issues ownership convention (table owned by `/plan`, not `/design`).
-
-**Acceptance Criteria**:
-- [ ] `skills/design/references/design-format.md` exists.
-- [ ] File documents the four required frontmatter fields and three optional fields.
-- [ ] File lists the nine required sections in canonical order.
-- [ ] File contains the context-aware section table.
-- [ ] File states the Implementation Issues table ownership convention explicitly.
-- [ ] File altitude matches the brief-format.md / prd-format.md precedent.
-
-**Dependencies**: None
-
-**Type**: docs
-**Files**: `skills/design/references/design-format.md`
-
-### Issue 5: docs(plan): create plan-format.md format reference at canonical altitude
-
-**Goal**: Materialize `skills/plan/references/plan-format.md` per Decision 3 / R17 with the PLAN frontmatter schema, the section list, and the canonical `## Implementation Issues` structure for single-pr emission (Issues Table with `ID | Title | Status | Notes` columns plus Mermaid diagram). Closes `tsukumogami/shirabe#158` on the spec surface.
-
-**Acceptance Criteria**:
-- [ ] `skills/plan/references/plan-format.md` exists.
-- [ ] File documents the PLAN frontmatter schema.
-- [ ] File lists the canonical PLAN section names.
-- [ ] File documents the canonical `## Implementation Issues` structure.
-- [ ] File states the diagram-reconciliation contract (PR #149 precedent).
-- [ ] File states the classDef-reconciliation contract (PR #169 precedent).
-- [ ] File altitude matches brief-format.md / prd-format.md precedent.
-
-**Dependencies**: None
-
-**Type**: docs
-**Files**: `skills/plan/references/plan-format.md`
-
-### Issue 6: docs(brief): apply R11/R12/R13 clarifications to brief-format.md
-
-**Goal**: Apply three brief-format clarifications per Decision 3: R11 disambiguate public issue numbers at lines 310-311 with rationale; R12 document the optional `motivating_context:` frontmatter field; R13 name "the downstream PRD's Decisions and Trade-offs section" as the canonical BRIEF Open-Questions closure surface.
-
-**Acceptance Criteria**:
-- [ ] `skills/brief/references/brief-format.md:310-311` has "private" inserted before "issue numbers" with rationale.
-- [ ] File documents the optional `motivating_context:` frontmatter field (cross-repo reference; visibility-crossing allowed).
-- [ ] File names "the downstream PRD's Decisions and Trade-offs section" as the canonical BRIEF Open-Questions closure surface.
-- [ ] No additional R11/R12/R13 changes to other files.
-
-**Dependencies**: None
-
-**Type**: docs
-**Files**: `skills/brief/references/brief-format.md`
-
-### Issue 7: docs(prd): apply R11/R12/R14/R16 clarifications to prd-format.md
-
-**Goal**: Apply four prd-format clarifications per Decision 3: R11 grammar disambiguation; R12 `motivating_context:` field; R14 "Decisions and Trade-offs" as conventional closure section; R16 distinguish "competitive findings" from "competitive-analysis-as-an-artifact-type" in Content Boundaries.
-
-**Acceptance Criteria**:
-- [ ] `skills/prd/references/prd-format.md` has "private" inserted before "issue numbers" parallel to brief-format.
-- [ ] File documents the optional `motivating_context:` frontmatter field.
-- [ ] Optional Sections description names "Decisions and Trade-offs" as the conventional BRIEF Open-Questions closure section.
-- [ ] Content Boundaries distinguishes competitive findings from competitive-analysis-as-an-artifact-type.
-- [ ] No additional R11/R12/R14/R16 changes to other files.
-
-**Dependencies**: None
-
-**Type**: docs
-**Files**: `skills/prd/references/prd-format.md`
-
-### Issue 8: docs(design): extend wip-hygiene carve-out wording in phase-6-final-review.md plus CLAUDE.md Release Notes Convention header
-
-**Goal**: Apply Decision 5 / R25 (extend the wip-hygiene rule at phase-6-final-review.md:104-106 with the skill-implementation carve-out) plus Decision 6 / R28 (add `## Release Notes Convention: docs/guides/` CLAUDE.md header).
-
-**Acceptance Criteria**:
-- [ ] phase-6-final-review.md:104-106 wip-hygiene rule extends with the skill-implementation carve-out.
-- [ ] Carve-out wording contains the "skill-implementation purposes" qualifier.
-- [ ] CLAUDE.md contains `## Release Notes Convention: docs/guides/` header.
-- [ ] New header parallels existing convention headers; no new mechanism.
-- [ ] `/prd` and `/design` Phase 0 behavior preserved (the new header just becomes a new field they may consult).
-
-**Dependencies**: None
-
-**Type**: docs
-**Files**: `skills/design/references/phases/phase-6-final-review.md`, `CLAUDE.md`
-
-### Issue 9: docs(brief): cite sentinel + fallback contracts in brief SKILL.md
-
-**Goal**: Add `### Sub-Agent Dispatch Fallback` subsection citing Issue 1's pattern reference (binding: Phase 4 two-reviewer jury → serial-self-jury). Add first-row Resume Logic sentinel-consultation row per Issue 2's canonical template (`wip/scope_<topic>_state.md`).
-
-**Acceptance Criteria**:
-- [ ] `skills/brief/SKILL.md` contains a `### Sub-Agent Dispatch Fallback` subsection citing the pattern reference.
-- [ ] Subsection names the brief-specific binding and the independence-loss caveat surface.
-- [ ] Subsection contains the R8 carve-out reference.
-- [ ] Resume Logic table contains a new first row consulting `parent_orchestration:`.
-- [ ] New row names the three subfields and the routing action.
-- [ ] Existing Resume Logic rows preserved verbatim above-them positioning.
-- [ ] R31 preserved.
-
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>, <<ISSUE:6>>
-
-**Type**: docs
-**Files**: `skills/brief/SKILL.md`
-
-### Issue 10: docs(prd): cite sentinel + fallback contracts in prd SKILL.md
-
-**Goal**: Add `### Sub-Agent Dispatch Fallback` subsection citing Issue 1's pattern reference (binding: Phase 4 three-reviewer jury → serial-self-jury). Add first-row Resume Logic sentinel-consultation row.
-
-**Acceptance Criteria**:
-- [ ] `skills/prd/SKILL.md` contains the `### Sub-Agent Dispatch Fallback` subsection citing the pattern reference.
-- [ ] Subsection names the prd-specific binding.
-- [ ] Subsection contains the R8 carve-out reference.
-- [ ] Resume Logic table contains a new first row consulting `parent_orchestration:`.
-- [ ] New row names the three subfields and the routing action.
-- [ ] Existing Resume Logic rows preserved.
-- [ ] R31 preserved.
-
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>, <<ISSUE:7>>
-
-**Type**: docs
-**Files**: `skills/prd/SKILL.md`
-
-### Issue 11: docs(design): cite sentinel + fallback contracts in design SKILL.md and migrate format prose
-
-**Goal**: Add `### Sub-Agent Dispatch Fallback` subsection citing Issue 1's pattern reference (binding: Phase 6 jury plus Phases 1-3 decision loop → serial-self-jury plus decision-bypass-with-inline-resolution). Add first-row Resume Logic sentinel-consultation row. Migrate inline format prose at lines 24-95 to Issue 4's design-format.md with back-reference.
-
-**Acceptance Criteria**:
-- [ ] `skills/design/SKILL.md` contains the `### Sub-Agent Dispatch Fallback` subsection.
-- [ ] Subsection names the design-specific binding (serial-self-jury plus decision-bypass).
-- [ ] Subsection contains the R8 carve-out reference.
-- [ ] Resume Logic table contains a new first row consulting `parent_orchestration:`.
-- [ ] New row names the three subfields and the routing action.
-- [ ] Structure section contains back-reference to `references/design-format.md`.
-- [ ] All previous inline format prose content preserved in design-format.md.
-- [ ] R31 preserved.
-
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>, <<ISSUE:4>>
-
-**Type**: docs
-**Files**: `skills/design/SKILL.md`
-
-### Issue 12: docs(design): add structural-format reviewer to Phase 6 jury
-
-**Goal**: Extend `skills/design/references/phases/phase-6-final-review.md` per Decision 4 / R21 — step 6.1 grows a third reviewer (structural-format-reviewer) parallel to architecture-reviewer and security-reviewer; rubric covers artifact-shape conformance against Issue 4's design-format.md, section presence/order, frontmatter field order, and the R19 budget-vs-spec sub-rubric.
-
-**Acceptance Criteria**:
-- [ ] Step 6.1 spawns three reviewers (architecture, security, structural-format).
-- [ ] Structural-format reviewer's rubric documents the four named items including R19 budget-vs-spec.
-- [ ] R19 sub-rubric specifies heuristics and threshold (>50% overshoot).
-- [ ] Step 6.2 feedback table extends to three rows.
-- [ ] Serial-self-jury fallback under sub-agent dispatch holds for the new reviewer set.
-- [ ] Reviewer is "in addition to" existing reviewers per AC4.4.
-
-**Dependencies**: Blocked by <<ISSUE:4>>
-
-**Type**: docs
-**Files**: `skills/design/references/phases/phase-6-final-review.md`
-
-### Issue 13: docs(plan): cite sentinel + fallback contracts in plan SKILL.md and migrate format prose
-
-**Goal**: Add `### Sub-Agent Dispatch Fallback` subsection citing Issue 1's pattern reference (binding: Phase 6 `/review-plan` plus Phase 3 AskUserQuestion → inline-substitute-review plus execution-mode-hint). Add first-row Resume Logic sentinel-consultation row. Migrate plan format prose to Issue 5's plan-format.md with back-reference.
-
-**Acceptance Criteria**:
-- [ ] `skills/plan/SKILL.md` contains the `### Sub-Agent Dispatch Fallback` subsection.
-- [ ] Subsection names the plan-specific binding (inline-substitute-review plus execution-mode-hint).
-- [ ] Subsection contains the R8 carve-out reference.
-- [ ] Resume Logic table contains a new first row consulting `parent_orchestration:`.
-- [ ] New row names the three subfields and the routing action.
-- [ ] Structure section contains back-reference to `references/plan-format.md`.
-- [ ] All previous inline format prose content preserved in plan-format.md.
-- [ ] R31 preserved.
-
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>, <<ISSUE:5>>
-
-**Type**: docs
-**Files**: `skills/plan/SKILL.md`
-
-### Issue 14: docs(plan): add Phase 3.6 cross-issue consistency, Phase 4 AC anchor grep, Phase 7 emission self-check
-
-**Goal**: Apply Decision 4 / R22's emission half plus Decision 5 / R23 + R24 + R26. Phase 3 sub-step 3.6 (Cross-Issue Field Consistency Pre-Flight). Phase 4 AC anchor-existence grep step. Phase 7 emission self-check reconciling `## Implementation Issues` against plan-format.md canonical structure. Eval-fixture HTML-comment marker placement convention update.
-
-**Acceptance Criteria**:
-- [ ] phase-3-decomposition.md contains a new sub-step 3.6 describing the cross-issue field consistency pass.
-- [ ] phase-4-agent-generation.md contains a new step covering the AC anchor-existence grep and defensive rewrite path.
-- [ ] phase-7-creation.md contains a new emission self-check reconciling against plan-format.md canonical structure.
-- [ ] Eval-fixture authoring guidance reconciles HTML-comment marker placement with the frontmatter parser's `---`-first-non-blank-line requirement (markers inside frontmatter or after closing `---`, never on line 1).
-- [ ] R31 preserved (skill-internal quality checks fire under all invocation modes).
-
-**Dependencies**: Blocked by <<ISSUE:5>>
-
-**Type**: docs
-**Files**: `skills/plan/references/phases/phase-3-decomposition.md`, `skills/plan/references/phases/phase-4-agent-generation.md`, `skills/plan/references/phases/phase-7-creation.md`, `skills/plan/references/templates/`
-
-### Issue 15: docs(vision): cite sentinel + fallback contracts in vision SKILL.md
-
-**Goal**: Add `### Sub-Agent Dispatch Fallback` subsection citing Issue 1's pattern reference (Phase 4 jury → serial-self-jury). Add first-row Resume Logic sentinel-consultation row using `wip/charter_<topic>_state.md` (strategic chain).
-
-**Acceptance Criteria**:
-- [ ] `skills/vision/SKILL.md` contains the `### Sub-Agent Dispatch Fallback` subsection.
-- [ ] Subsection names the vision-specific binding and the independence-loss caveat.
-- [ ] Subsection contains the R8 carve-out reference.
-- [ ] Resume Logic table contains a new first row consulting `parent_orchestration:` in `wip/charter_<topic>_state.md`.
-- [ ] New row names the three subfields and the routing action.
-- [ ] Existing Resume Logic rows preserved.
-- [ ] R31 preserved.
-
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>
-
-**Type**: docs
-**Files**: `skills/vision/SKILL.md`
-
-### Issue 16: docs(strategy): cite sentinel + fallback contracts in strategy SKILL.md
-
-**Goal**: Add `### Sub-Agent Dispatch Fallback` subsection citing Issue 1 (Phase 4 jury → serial-self-jury). Add first-row Resume Logic sentinel-consultation row using `wip/charter_<topic>_state.md`.
-
-**Acceptance Criteria**:
-- [ ] `skills/strategy/SKILL.md` contains the `### Sub-Agent Dispatch Fallback` subsection.
-- [ ] Subsection names the strategy-specific binding.
-- [ ] Subsection contains the R8 carve-out reference.
-- [ ] Resume Logic table contains a new first row consulting `parent_orchestration:` in `wip/charter_<topic>_state.md`.
-- [ ] New row names the three subfields and the routing action.
-- [ ] Existing Resume Logic rows preserved.
-- [ ] R31 preserved.
-
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>
-
-**Type**: docs
-**Files**: `skills/strategy/SKILL.md`
-
-### Issue 17: docs(roadmap): cite sentinel + fallback contracts in roadmap SKILL.md
-
-**Goal**: Add `### Sub-Agent Dispatch Fallback` subsection citing Issue 1 (Phase 4 jury → serial-self-jury). Add first-row Resume Logic sentinel-consultation row using `wip/charter_<topic>_state.md`.
-
-**Acceptance Criteria**:
-- [ ] `skills/roadmap/SKILL.md` contains the `### Sub-Agent Dispatch Fallback` subsection.
-- [ ] Subsection names the roadmap-specific binding.
-- [ ] Subsection contains the R8 carve-out reference.
-- [ ] Resume Logic table contains a new first row consulting `parent_orchestration:` in `wip/charter_<topic>_state.md`.
-- [ ] New row names the three subfields and the routing action.
-- [ ] Existing Resume Logic rows preserved.
-- [ ] R31 preserved.
-
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:2>>
-
-**Type**: docs
-**Files**: `skills/roadmap/SKILL.md`
-
-### Issue 18: docs(work-on): cite deterministic-mode-bypass fallback in work-on SKILL.md
-
-**Goal**: Add `### Sub-Agent Dispatch Fallback` subsection to `skills/work-on/SKILL.md` citing Issue 1's pattern reference (binding: koto plan-orchestrator → deterministic-mode-bypass). State the three engagement conditions (parent supplies decomposition + cascade timing + push timing) and what the audit trail records. No Resume Logic row added (R9 scopes the seven authoring children only).
-
-**Acceptance Criteria**:
-- [ ] `skills/work-on/SKILL.md` contains the `### Sub-Agent Dispatch Fallback` subsection.
-- [ ] Subsection names the work-on-specific binding (koto plan-orchestrator → deterministic-mode-bypass).
-- [ ] Subsection states the three engagement conditions.
-- [ ] Subsection states what is recorded in the audit trail.
-- [ ] Subsection contains the R8 carve-out reference.
-- [ ] No Resume Logic row added to `/work-on`.
-- [ ] R31 preserved.
-
-**Dependencies**: Blocked by <<ISSUE:1>>
-
-**Type**: docs
-**Files**: `skills/work-on/SKILL.md`
-
-### Issue 19: docs(scope): add Phase 0 slug-prefix sampling and Phase 1 cold-start projected-PRD eval
-
-**Goal**: Apply Decision 6 / R27 + R29 to `skills/scope/SKILL.md`. Phase 0 slug-prefix sampling step (sample artifacts; if >50% share a prefix, prompt author on slug mismatch). Phase 1 R29 three parts: cold-start projected-PRD evaluation; post-`/prd` re-evaluation gate writing `chain_revised` to /scope state; framing-shift opener short-circuit on cold-start empty discovery. Cite Issue 3's cli-version-preflight.md.
-
-**Acceptance Criteria**:
-- [ ] `skills/scope/SKILL.md` Phase 0 contains the slug-prefix sampling step (sampling locations, extraction rule, >50% threshold, prompt-before-commit behavior).
-- [ ] Phase 1 R6 contains the cold-start projected-PRD evaluation step.
-- [ ] Phase 1 R6 contains the post-`/prd` re-evaluation gate writing `chain_revised`.
-- [ ] Phase 1 contains the framing-shift opener short-circuit on cold-start empty discovery.
-- [ ] SKILL.md cites `references/cli-version-preflight.md` if it prescribes a `shirabe` subcommand.
-- [ ] R31 preserved (the new steps fire under all invocation modes; default-case path identical).
-
-**Dependencies**: Blocked by <<ISSUE:3>>
-
-**Type**: docs
-**Files**: `skills/scope/SKILL.md`
-
-### Issue 20: feat(validate): extend check_schema with SCHEMA-MISSING notice
-
-**Goal**: Apply Decision 4 / R18. Extend `crates/shirabe-validate/src/checks.rs:39-51` `check_schema` to emit a SCHEMA-MISSING notice when `doc.schema.is_empty()`. Notice level matches FC08/FC09 precedent. Closes `tsukumogami/shirabe#157`.
-
-**Acceptance Criteria**:
-- [ ] `check_schema` emits a notice when `doc.schema.is_empty()`.
-- [ ] Notice text references SCHEMA-MISSING and names the missing field path.
-- [ ] Existing SCHEMA notice on mismatch preserved verbatim.
+- [ ] `check_schema` emits a SCHEMA-MISSING notice when `doc.schema.is_empty()`.
+- [ ] Existing schema-mismatch notice path preserved verbatim.
 - [ ] Notice level is "notice" not "error".
-- [ ] Unit tests cover missing / mismatched / present-and-matching shapes.
+- [ ] Slug-prefix detection capability exists (check function or sub-command path).
+- [ ] Slug-prefix logic samples `docs/briefs/BRIEF-*.md`, `docs/prds/PRD-*.md`, `docs/designs/DESIGN-*.md`, `docs/plans/PLAN-*.md` filenames; extracts the first hyphenated word after the artifact-type prefix; reports the detected prefix when >50% of artifacts share one.
+- [ ] Unit tests cover missing schema / mismatched schema / present schema cases plus slug-prefix detection on a representative fixture set.
 - [ ] `tsukumogami/shirabe#157` referenced in code comment or commit message.
 
 **Dependencies**: None
 
 **Type**: code
-**Files**: `crates/shirabe-validate/src/checks.rs`
+**Files**: `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/validate.rs`
 
-### Issue 21: feat(validate): add FC10 writing-style banned-word check
+### Issue 2: feat(validate): add FC10 writing-style banned-word check
 
-**Goal**: Apply Decision 4 / R20. Add new `check_writing_style` function (FC10) reading banned vocabulary at validate-time from `skills/writing-style/SKILL.md`. Emits notices for each banned-word match. Register in `validate.rs` dispatch order.
+**Goal**: Apply DESIGN Batch 1 / R20. Add new `check_writing_style` function (FC10) reading banned vocabulary at validate-time from `skills/writing-style/SKILL.md`. Emits notices for each banned-word match including file path, line number, matched word. Notice text references `references/fixes/<placeholder>` if a fixes reference is needed (DESIGN's revised shape suggests writing-style violations fall through to the writing-style reference itself rather than a separate fixes file; the FC10 notice text names the writing-style SKILL.md as the resolution surface).
 
 **Acceptance Criteria**:
-- [ ] `check_writing_style` function exists in checks.rs.
+- [ ] `check_writing_style` function exists in `crates/shirabe-validate/src/checks.rs`.
 - [ ] Function reads banned vocabulary at validate-time (not hardcoded).
 - [ ] Function emits notice per match including file path, line number, matched word.
-- [ ] Registered in validate.rs dispatch order with FC code FC10.
+- [ ] Registered in `crates/shirabe-validate/src/validate.rs` dispatch order with FC code FC10.
 - [ ] Unit tests cover each of the seven banned words plus clean baseline plus missing-reference graceful path.
 - [ ] Notice level matches FC08/FC09 precedent.
 
@@ -397,103 +73,334 @@ Critical path depth: 3 (Issue 5 → Issue 14 → Issue 22). Within-batch paralle
 **Type**: code
 **Files**: `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/validate.rs`
 
-### Issue 22: feat(validate): add FC11 plan-section-structure check dereferencing plan-format.md
+### Issue 3: feat(validate): add FC11 plan-section-structure check dereferencing plan-format.md
 
-**Goal**: Apply Decision 4 / R22's validator half. Add new `check_plan_section_structure` function (FC11) reconciling emitted `## Implementation Issues` against Issue 5's canonical structure from plan-format.md. Add canonical-structure entries to formats.rs. Register in validate.rs. Closes `tsukumogami/shirabe#158` on the validator surface.
+**Goal**: Apply DESIGN Batch 1 / R22's validator half. Add new `check_plan_section_structure` function (FC11) reconciling emitted `## Implementation Issues` against the canonical structure from `plan-format.md` (Issue 9 of this PLAN materializes the format reference). Add canonical-structure entries to `crates/shirabe-validate/src/formats.rs` for `plan/v1`. Closes `tsukumogami/shirabe#158` on the validator surface.
 
 **Acceptance Criteria**:
-- [ ] `check_plan_section_structure` function exists in checks.rs.
-- [ ] Function reconciles emitted `## Implementation Issues` against plan-format.md canonical structure.
-- [ ] formats.rs contains canonical-structure entries for the `plan/v1` schema.
-- [ ] Registered in validate.rs dispatch order with FC code FC11.
-- [ ] Unit tests cover canonical / missing-diagram / missing-column / missing-section / valid-alternative cases.
+- [ ] `check_plan_section_structure` function exists in `crates/shirabe-validate/src/checks.rs`.
+- [ ] Function reconciles emitted `## Implementation Issues` against `plan-format.md` canonical structure.
+- [ ] `crates/shirabe-validate/src/formats.rs` contains canonical-structure entries for the `plan/v1` schema.
+- [ ] Registered in `crates/shirabe-validate/src/validate.rs` dispatch order with FC code FC11.
+- [ ] Notice text includes a pointer to `references/fixes/` if structural drift requires non-deterministic resolution (typically FC11 violations are deterministic, so the notice may be self-contained).
 - [ ] `tsukumogami/shirabe#158` referenced in code comment or commit message.
-- [ ] Notice level matches FC08/FC09 precedent.
 
-**Dependencies**: Blocked by <<ISSUE:5>>
+**Dependencies**: Blocked by <<ISSUE:9>>
 
 **Type**: code
 **Files**: `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/validate.rs`, `crates/shirabe-validate/src/formats.rs`
 
+### Issue 4: feat(validate): add FC12 PLAN/DESIGN field consistency check
+
+**Goal**: Apply DESIGN Batch 1 / R23. Add new `check_plan_design_field_consistency` function (FC12) that greps for field-name conflicts across the PLAN's issue ACs and the upstream DESIGN's structural rubrics. Emits a notice with a pointer to `references/fixes/plan-design-field-consistency.md` (Issue 8 of this PLAN authors the fixes file). The deterministic part (detecting field-name collisions) lives in the validator; the non-deterministic resolution lives in the fixes file.
+
+**Acceptance Criteria**:
+- [ ] `check_plan_design_field_consistency` function exists in `crates/shirabe-validate/src/checks.rs`.
+- [ ] Function detects field-name conflicts (e.g., a field declared as free-text in one issue and as enum in a sibling issue).
+- [ ] Notice text includes a pointer to `references/fixes/plan-design-field-consistency.md`.
+- [ ] Registered in `crates/shirabe-validate/src/validate.rs` dispatch order with FC code FC12.
+- [ ] Unit tests cover: clean baseline / one conflict / multiple conflicts / no upstream DESIGN (graceful skip).
+- [ ] Notice level matches FC08/FC09 precedent.
+
+**Dependencies**: Blocked by <<ISSUE:8>>
+
+**Type**: code
+**Files**: `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/validate.rs`
+
+### Issue 5: feat(validate): add FC13 eval-fixture frontmatter-line-1 check
+
+**Goal**: Apply DESIGN Batch 1 / R26. Add new `check_eval_fixture_frontmatter` function (FC13) that detects fixtures where `<!--` appears on line 1 before the `---` frontmatter opener. Emits a notice with a pointer to `references/fixes/eval-fixture-frontmatter.md` (Issue 10 of this PLAN authors the fixes file).
+
+**Acceptance Criteria**:
+- [ ] `check_eval_fixture_frontmatter` function exists in `crates/shirabe-validate/src/checks.rs`.
+- [ ] Function detects `<!--` on line 1 of a fixture file before the `---` opener.
+- [ ] Notice text includes a pointer to `references/fixes/eval-fixture-frontmatter.md`.
+- [ ] Registered in `crates/shirabe-validate/src/validate.rs` dispatch order with FC code FC13.
+- [ ] Unit tests cover: clean baseline / comment-on-line-1 / comment-after-frontmatter (valid) / comment-inside-frontmatter-field (valid).
+- [ ] Notice level matches FC08/FC09 precedent.
+
+**Dependencies**: Blocked by <<ISSUE:10>>
+
+**Type**: code
+**Files**: `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/validate.rs`
+
+### Issue 6: feat(validate): add FC-CONVENTIONS CLAUDE.md headers check
+
+**Goal**: Apply DESIGN Batch 1 / R28. Add new `check_claude_md_conventions` function (FC-CONVENTIONS, or a sub-check folded into an existing convention-check function) that detects missing or malformed `## Release Notes Convention: <path>` header in the per-repo CLAUDE.md. Emits a notice with a pointer to `references/fixes/claude-md-conventions.md` (Issue 11 of this PLAN authors the fixes file).
+
+**Acceptance Criteria**:
+- [ ] `check_claude_md_conventions` function exists in `crates/shirabe-validate/src/checks.rs`.
+- [ ] Function detects missing or malformed `## Release Notes Convention: <path>` header.
+- [ ] Notice text includes a pointer to `references/fixes/claude-md-conventions.md`.
+- [ ] Registered in `crates/shirabe-validate/src/validate.rs` dispatch order with FC code FC-CONVENTIONS.
+- [ ] Unit tests cover: clean baseline / missing header / malformed header (no path) / valid alternate paths.
+- [ ] Notice level matches FC08/FC09 precedent.
+
+**Dependencies**: Blocked by <<ISSUE:11>>
+
+**Type**: code
+**Files**: `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/validate.rs`
+
+### Issue 7: docs(references): author references/fixes/sub-agent-dispatch.md (merged Decision 1 + Decision 2 resolution)
+
+**Goal**: Author `references/fixes/sub-agent-dispatch.md` per DESIGN Batch 2 / Decision 1 + Decision 2 merged. The file is the canonical resolution prose for sub-agent dispatch fallback selection AND parent_orchestration sentinel consultation. Contents: (a) the five canonical fallback shapes (serial-self-jury, parent-delegated-approval, decision-bypass-with-inline-resolution, inline-substitute-review, deterministic-mode-bypass) with full resolution prose; (b) per-skill binding table mapping each of the eight children to applicable fallback shape(s); (c) sentinel detection convention (three subfields: `invoking_child`, `suppress_status_aware_prompt`, `rationale`); (d) chain-handoff and status-transition routing per rationale (fresh-chain / revise); (e) R8's NOT-covered carve-out paragraph naming `tsukumogami/vision#535` Track B.
+
+**Acceptance Criteria**:
+- [ ] `references/fixes/sub-agent-dispatch.md` exists.
+- [ ] File documents the five canonical fallback shapes with resolution prose.
+- [ ] File contains the per-skill binding table (eight children).
+- [ ] File documents the sentinel detection convention (three subfields).
+- [ ] File documents the chain-handoff routing per rationale.
+- [ ] File contains R8's NOT-covered carve-out (Track B reference).
+- [ ] File size is bounded (~50-80 lines target) — designed for lazy-load on demand.
+
+**Dependencies**: None
+
+**Type**: docs
+**Files**: `references/fixes/sub-agent-dispatch.md`
+
+### Issue 8: docs(references): author references/fixes/plan-design-field-consistency.md
+
+**Goal**: Author `references/fixes/plan-design-field-consistency.md` per DESIGN Batch 2 / Decision 5 / R23 resolution. The file is the canonical resolution prose for FC12 (Issue 4's check function). Contents: how to interpret an FC12 notice; which side to align to (PLAN vs DESIGN); when to rewrite the AC vs when to revise the DESIGN; when the conflict is intentional and how to suppress.
+
+**Acceptance Criteria**:
+- [ ] `references/fixes/plan-design-field-consistency.md` exists.
+- [ ] File describes how to interpret FC12 notices.
+- [ ] File describes when to align which side.
+- [ ] File describes the intentional-conflict suppression path.
+- [ ] File size is bounded (~30-50 lines target).
+
+**Dependencies**: None
+
+**Type**: docs
+**Files**: `references/fixes/plan-design-field-consistency.md`
+
+### Issue 9: docs(plan): create plan-format.md format reference at canonical altitude
+
+**Goal**: Materialize `skills/plan/references/plan-format.md` per DESIGN Batch 2 / R17. Contents: PLAN frontmatter schema, canonical section list, canonical `## Implementation Issues` structure for single-pr emission (Issues Table with `ID | Title | Status | Notes` columns plus Mermaid dependency diagram), diagram-reconciliation contract (PR #149 precedent), classDef-reconciliation contract (PR #169 precedent). The validator's FC11 check (Issue 3) dereferences this file at validate-time.
+
+**Acceptance Criteria**:
+- [ ] `skills/plan/references/plan-format.md` exists.
+- [ ] File documents the PLAN frontmatter schema.
+- [ ] File lists the canonical PLAN section names.
+- [ ] File documents the canonical `## Implementation Issues` structure (table + diagram).
+- [ ] File states the diagram-reconciliation contract.
+- [ ] File states the classDef-reconciliation contract.
+- [ ] File altitude matches brief-format.md / prd-format.md precedent.
+
+**Dependencies**: None
+
+**Type**: docs
+**Files**: `skills/plan/references/plan-format.md`
+
+### Issue 10: docs(references): author references/fixes/eval-fixture-frontmatter.md
+
+**Goal**: Author `references/fixes/eval-fixture-frontmatter.md` per DESIGN Batch 2 / Decision 5 / R26 resolution. The file is the canonical resolution prose for FC13 (Issue 5's check function). Contents: the frontmatter parser's `---`-first-non-blank-line requirement, the valid marker placement options (inside a frontmatter field value or after the closing `---` as the first body line), why line-1 markers are forbidden.
+
+**Acceptance Criteria**:
+- [ ] `references/fixes/eval-fixture-frontmatter.md` exists.
+- [ ] File documents the frontmatter parser's line-1 requirement.
+- [ ] File documents the valid marker placement options.
+- [ ] File explains why line-1 markers are forbidden.
+- [ ] File size is bounded (~20-40 lines target).
+
+**Dependencies**: None
+
+**Type**: docs
+**Files**: `references/fixes/eval-fixture-frontmatter.md`
+
+### Issue 11: docs(references): author references/fixes/claude-md-conventions.md
+
+**Goal**: Author `references/fixes/claude-md-conventions.md` per DESIGN Batch 2 / Decision 6 / R28 resolution. The file is the canonical resolution prose for FC-CONVENTIONS (Issue 6's check function). Contents: the canonical `## Release Notes Convention: <path>` header format, the per-repo default (`docs/guides/` for shirabe), cross-references to other CLAUDE.md conventions (`## Repo Visibility:`, `## Planning Context:`, `## Default Scope:`, `## Execution Mode:`).
+
+**Acceptance Criteria**:
+- [ ] `references/fixes/claude-md-conventions.md` exists.
+- [ ] File documents the canonical `## Release Notes Convention: <path>` header format.
+- [ ] File names per-repo defaults.
+- [ ] File cross-references other CLAUDE.md conventions.
+- [ ] File size is bounded (~20-40 lines target).
+
+**Dependencies**: None
+
+**Type**: docs
+**Files**: `references/fixes/claude-md-conventions.md`
+
+### Issue 12: docs(references): author references/fixes/cli-version-preflight.md
+
+**Goal**: Author `references/fixes/cli-version-preflight.md` per DESIGN Batch 2 / Decision 6 / R30 resolution. Located under `references/fixes/` (per the revised DESIGN, renamed from the original-pass `references/cli-version-preflight.md`). Contents: the per-subcommand `shirabe <subcommand> --help` probe convention, the documented manual sed-edit fallback per known-affected subcommand (`shirabe transition` is the v0.6.1 case), the workspace-binary version detection (`shirabe --version`).
+
+**Acceptance Criteria**:
+- [ ] `references/fixes/cli-version-preflight.md` exists.
+- [ ] File documents the per-subcommand `--help` probe convention.
+- [ ] File documents the documented manual sed-edit fallback.
+- [ ] File names the workspace-binary version detection mechanism.
+- [ ] File size is bounded (~30-60 lines target).
+
+**Dependencies**: None
+
+**Type**: docs
+**Files**: `references/fixes/cli-version-preflight.md`
+
+### Issue 13: docs(design): create design-format.md format reference at canonical altitude
+
+**Goal**: Materialize `skills/design/references/design-format.md` per DESIGN Batch 2 / R15. Contents: four-field frontmatter schema (status, problem, decision, rationale, plus optional `upstream:`, `spawned_from:`, `motivating_context:` fields), nine required-section list, context-aware section table (Market Context, Required Tactical Designs, Upstream Design Reference), Implementation Issues ownership convention (table owned by `/plan`, populated during Phase 7 single-pr emission), AND the R25 wip-hygiene carve-out clarification inline (single-rule extension; tier-3 acceptable per DESIGN Decision 5 revised).
+
+**Acceptance Criteria**:
+- [ ] `skills/design/references/design-format.md` exists.
+- [ ] File documents the four required frontmatter fields and three optional fields.
+- [ ] File lists the nine required sections in canonical order.
+- [ ] File contains the context-aware section table.
+- [ ] File states the Implementation Issues table ownership convention.
+- [ ] File contains the R25 wip-hygiene carve-out clarification inline.
+- [ ] File altitude matches brief-format.md / prd-format.md precedent.
+
+**Dependencies**: None
+
+**Type**: docs
+**Files**: `skills/design/references/design-format.md`
+
+### Issue 14: docs(skills): add detection-and-pointer rows to eight child SKILL.md files
+
+**Goal**: Apply DESIGN Batch 3 lightweight skill edits across all eight child SKILLs in a single mechanical pass. For each of `/brief`, `/prd`, `/design`, `/plan`, `/vision`, `/strategy`, `/roadmap`: add (a) a SHORT Phase-0 (or earliest state-reading phase) detection-and-pointer step (~3 lines: "If the `parent_orchestration:` sentinel is present in `wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md` (strategic), see `references/fixes/sub-agent-dispatch.md`."), and (b) a single new Resume Logic table row whose predicate is "sentinel present in <state-file-path>" and whose action is "see `references/fixes/sub-agent-dispatch.md`" — no inline behavior prose. For `/work-on`: add only the Phase-0 detection line (no Resume Logic row, since R9 scopes the seven authoring children only).
+
+**Acceptance Criteria**:
+- [ ] Each of the eight child SKILL.md files contains a Phase-0 detection-and-pointer step.
+- [ ] Seven non-`/work-on` children contain a new first-row Resume Logic sentinel-consultation row pointing at the fixes file.
+- [ ] No per-skill `### Sub-Agent Dispatch Fallback` subsection is added (eager-load surface NOT created).
+- [ ] Existing Resume Logic rows preserved verbatim below the new row.
+- [ ] Existing Phase-0 prose preserved verbatim; the detection step is additive.
+- [ ] R31 backward compatibility preserved: when the sentinel is absent, the new row's predicate is false and behavior is identical to current direct-invocation.
+
+**Dependencies**: Blocked by <<ISSUE:7>>
+
+**Type**: docs
+**Files**: `skills/brief/SKILL.md`, `skills/prd/SKILL.md`, `skills/design/SKILL.md`, `skills/plan/SKILL.md`, `skills/vision/SKILL.md`, `skills/strategy/SKILL.md`, `skills/roadmap/SKILL.md`, `skills/work-on/SKILL.md`
+
+### Issue 15: docs(scope): add Phase 0 slug-prefix CLI invocation and Phase 1 cold-start trim
+
+**Goal**: Apply DESIGN Batch 3 / R27 + R29 to `skills/scope/SKILL.md` and `skills/scope/references/phases/phase-1-discovery.md`. Phase 0 prose grows a step that invokes the slug-prefix CLI capability (per Issue 1) and emits the prompt when the CLI returns a mismatch; the actual sampling lives in the validator. Phase 1 prose (in `phase-1-discovery.md`, already lazy-loaded by /scope) is trimmed to the minimum the workflow logic requires: cold-start projected-PRD evaluation, post-`/prd` re-evaluation gate writing `chain_revised`, framing-shift opener short-circuit on cold-start empty discovery.
+
+**Acceptance Criteria**:
+- [ ] `skills/scope/SKILL.md` Phase 0 contains the CLI-invocation step (calls the shirabe-validate slug-prefix detection, branches on the result).
+- [ ] No standalone sampling logic is duplicated in the SKILL prose (deterministic detection lives in the CLI per the lazy-load principle).
+- [ ] `skills/scope/references/phases/phase-1-discovery.md` contains the cold-start projected-PRD evaluation step.
+- [ ] Phase 1 contains the post-`/prd` re-evaluation gate writing `chain_revised` to /scope's state file.
+- [ ] Phase 1 contains the framing-shift opener short-circuit on cold-start empty discovery.
+- [ ] Phase 1 prose is trimmed (the projection-keyword list, the gate, the short-circuit) — no eager-loaded boilerplate.
+- [ ] R31 preserved.
+
+**Dependencies**: Blocked by <<ISSUE:1>>
+
+**Type**: docs
+**Files**: `skills/scope/SKILL.md`, `skills/scope/references/phases/phase-1-discovery.md`
+
+### Issue 16: docs(design): add structural-format reviewer to Phase 6 jury
+
+**Goal**: Extend `skills/design/references/phases/phase-6-final-review.md` per DESIGN Batch 3 / R21. Step 6.1 grows a third reviewer (structural-format-reviewer) parallel to the existing architecture-reviewer (step 6.1 lines 25-39) and security-reviewer (lines 41-55). The new reviewer's rubric covers artifact-shape conformance against Issue 13's design-format.md, section presence/order, frontmatter field order, and the R19 budget-vs-spec sub-rubric (heuristics + >50% overshoot threshold). Step 6.2 (Process Review Feedback) feedback table extends to three rows.
+
+**Acceptance Criteria**:
+- [ ] Step 6.1 spawns three reviewers (architecture, security, structural-format).
+- [ ] Structural-format reviewer's rubric documents the four named items including R19 budget-vs-spec.
+- [ ] R19 sub-rubric specifies heuristics and threshold (>50% overshoot).
+- [ ] Step 6.2 feedback table extends to three rows.
+- [ ] Reviewer is "in addition to" existing reviewers per AC4.4.
+- [ ] Serial-self-jury fallback under sub-agent dispatch holds for the new reviewer set (the reviewer dereferences `references/fixes/sub-agent-dispatch.md` when the sentinel is present).
+
+**Dependencies**: Blocked by <<ISSUE:13>>
+
+**Type**: docs
+**Files**: `skills/design/references/phases/phase-6-final-review.md`
+
+### Issue 17: docs(plan): add Phase 4 AC anchor-existence prompt step
+
+**Goal**: Apply DESIGN Batch 3 / R24. Add a Phase 4 agent-prompt enrichment step in `skills/plan/references/phases/phase-4-agent-generation.md` covering the per-AC anchor-existence grep: for each AC claiming "annotation only" or "schema fields unchanged", grep the target file at PLAN-authoring time; if the anchor exists, the AC remains; if absent, the AC is rewritten defensively ("annotation added; if anchor missing, this issue includes the minimal anchor definition"). Tier-3 placement; the check is per-AC at generation time, not detectable by the validator (the validator does not have visibility into AC-generation-time intent).
+
+**Acceptance Criteria**:
+- [ ] `phase-4-agent-generation.md` contains the AC anchor-existence prompt step.
+- [ ] Step describes the grep procedure and the defensive-rewrite path.
+- [ ] Step lives in the already-lazy-loaded phase reference (no eager-load into /plan SKILL body).
+- [ ] R31 preserved.
+
+**Dependencies**: None
+
+**Type**: docs
+**Files**: `skills/plan/references/phases/phase-4-agent-generation.md`
+
+### Issue 18: docs(brief,prd,claude): apply format-reference clarifications and CLAUDE.md Release Notes Convention header
+
+**Goal**: Apply DESIGN Batch 3 mechanical edits across three files in one mechanical pass: (a) `skills/brief/references/brief-format.md` per R11/R12/R13 — insert "private" before "issue numbers" at lines 310-311 with rationale; document the optional `motivating_context:` frontmatter field; name "the downstream PRD's Decisions and Trade-offs section" as the canonical BRIEF Open-Questions closure surface. (b) `skills/prd/references/prd-format.md` per R11/R12/R14/R16 — same private-issue-numbers disambiguation parallel; document `motivating_context:`; surface "Decisions and Trade-offs" in the Optional Sections description as conventional BRIEF Open-Questions closure section; distinguish "competitive findings" from "competitive-analysis-as-an-artifact-type" in Content Boundaries. (c) `CLAUDE.md` per R28 — add `## Release Notes Convention: docs/guides/` header, paralleling existing `## Repo Visibility:`, `## Planning Context:`, `## Default Scope:`, `## Execution Mode:` headers.
+
+**Acceptance Criteria**:
+- [ ] `skills/brief/references/brief-format.md` lines 310-311 have "private" inserted before "issue numbers" with rationale.
+- [ ] `brief-format.md` documents the optional `motivating_context:` frontmatter field.
+- [ ] `brief-format.md` names "the downstream PRD's Decisions and Trade-offs section" as the canonical BRIEF Open-Questions closure surface.
+- [ ] `skills/prd/references/prd-format.md` has the parallel private-issue-numbers disambiguation.
+- [ ] `prd-format.md` documents `motivating_context:`.
+- [ ] `prd-format.md` Optional Sections description names "Decisions and Trade-offs" as the conventional closure section.
+- [ ] `prd-format.md` Content Boundaries distinguishes competitive findings from competitive-analysis-as-an-artifact-type.
+- [ ] `CLAUDE.md` contains `## Release Notes Convention: docs/guides/` header.
+- [ ] New CLAUDE.md header parallels existing convention headers; no new mechanism.
+
+**Dependencies**: None
+
+**Type**: docs
+**Files**: `skills/brief/references/brief-format.md`, `skills/prd/references/prd-format.md`, `CLAUDE.md`
+
 ## Implementation Issues
 
-Summary table of the 22 atomic issues sequenced across three batches. Local-anchor links jump to each issue's detailed outline above. In single-pr mode, no GitHub issues are created at the time of writing; the table format here mirrors the canonical multi-pr profile so the validator's FC08/FC11 checks (when Issue 22 lands) can reconcile structure without surface-shape adjustments.
+Summary table of the 18 atomic issues sequenced across four batches. Local-anchor links jump to each issue's detailed outline above. In single-pr mode, no GitHub issues are created at the time of writing; the table format here mirrors the canonical multi-pr profile so the validator's FC08/FC11 checks (when Issues 3 + 9 land) can reconcile structure without surface-shape adjustments.
 
 | Issue | Dependencies | Complexity |
 |-------|--------------|------------|
-| [I1: docs(references): add `## Sub-Agent Dispatch Fallbacks` section](#issue-1-docsreferences-add--sub-agent-dispatch-fallbacks-section-to-parent-skill-patternmd) | None | testable |
-| [I2: docs(references): add Sentinel Row Convention subsection](#issue-2-docsreferences-add--child-side-sentinel-consultation-row-convention-subsection-to-parent-skill-patternmd) | None | testable |
-| [I3: docs(references): create cli-version-preflight.md](#issue-3-docsreferences-create-cli-version-preflightmd-shared-reference) | None | simple |
-| [I4: docs(design): create design-format.md](#issue-4-docsdesign-create-design-formatmd-format-reference-at-canonical-altitude) | None | testable |
-| [I5: docs(plan): create plan-format.md](#issue-5-docsplan-create-plan-formatmd-format-reference-at-canonical-altitude) | None | testable |
-| [I6: docs(brief): brief-format clarifications](#issue-6-docsbrief-apply-r11r12r13-clarifications-to-brief-formatmd) | None | simple |
-| [I7: docs(prd): prd-format clarifications](#issue-7-docsprd-apply-r11r12r14r16-clarifications-to-prd-formatmd) | None | simple |
-| [I8: docs(design): wip-hygiene carve-out + CLAUDE.md Release Notes Convention](#issue-8-docsdesign-extend-wip-hygiene-carve-out-wording-in-phase-6-final-reviewmd-plus-claudemd-release-notes-convention-header) | None | simple |
-| [I9: docs(brief): /brief SKILL.md citations](#issue-9-docsbrief-cite-sentinel--fallback-contracts-in-brief-skillmd) | I1, I2, I6 | simple |
-| [I10: docs(prd): /prd SKILL.md citations](#issue-10-docsprd-cite-sentinel--fallback-contracts-in-prd-skillmd) | I1, I2, I7 | simple |
-| [I11: docs(design): /design SKILL.md citations + format migration](#issue-11-docsdesign-cite-sentinel--fallback-contracts-in-design-skillmd-and-migrate-format-prose) | I1, I2, I4 | testable |
-| [I12: docs(design): Phase 6 structural-format reviewer](#issue-12-docsdesign-add-structural-format-reviewer-to-phase-6-jury) | I4 | testable |
-| [I13: docs(plan): /plan SKILL.md citations + format migration](#issue-13-docsplan-cite-sentinel--fallback-contracts-in-plan-skillmd-and-migrate-format-prose) | I1, I2, I5 | testable |
-| [I14: docs(plan): Phase 3.6 + Phase 4 grep + Phase 7 self-check](#issue-14-docsplan-add-phase-36-cross-issue-consistency-phase-4-ac-anchor-grep-phase-7-emission-self-check) | I5 | testable |
-| [I15: docs(vision): /vision SKILL.md citations](#issue-15-docsvision-cite-sentinel--fallback-contracts-in-vision-skillmd) | I1, I2 | simple |
-| [I16: docs(strategy): /strategy SKILL.md citations](#issue-16-docsstrategy-cite-sentinel--fallback-contracts-in-strategy-skillmd) | I1, I2 | simple |
-| [I17: docs(roadmap): /roadmap SKILL.md citations](#issue-17-docsroadmap-cite-sentinel--fallback-contracts-in-roadmap-skillmd) | I1, I2 | simple |
-| [I18: docs(work-on): /work-on SKILL.md deterministic-mode-bypass](#issue-18-docswork-on-cite-deterministic-mode-bypass-fallback-in-work-on-skillmd) | I1 | simple |
-| [I19: docs(scope): /scope Phase 0 sampling + Phase 1 cold-start](#issue-19-docsscope-add-phase-0-slug-prefix-sampling-and-phase-1-cold-start-projected-prd-eval) | I3 | testable |
-| [I20: feat(validate): check_schema SCHEMA-MISSING notice](#issue-20-featvalidate-extend-check_schema-with-schema-missing-notice) | None | testable |
-| [I21: feat(validate): FC10 writing-style check](#issue-21-featvalidate-add-fc10-writing-style-banned-word-check) | None | testable |
-| [I22: feat(validate): FC11 plan-section-structure check](#issue-22-featvalidate-add-fc11-plan-section-structure-check-dereferencing-plan-formatmd) | I5 | testable |
+| [I1: feat(validate): check_schema SCHEMA-MISSING + slug-prefix detection](#issue-1-featvalidate-extend-check_schema-with-schema-missing-notice-and-add-slug-prefix-detection-sub-command) | None | testable |
+| [I2: feat(validate): FC10 writing-style check](#issue-2-featvalidate-add-fc10-writing-style-banned-word-check) | None | testable |
+| [I3: feat(validate): FC11 plan-section-structure check](#issue-3-featvalidate-add-fc11-plan-section-structure-check-dereferencing-plan-formatmd) | I9 | testable |
+| [I4: feat(validate): FC12 PLAN/DESIGN field consistency check](#issue-4-featvalidate-add-fc12-plandesign-field-consistency-check) | I8 | testable |
+| [I5: feat(validate): FC13 eval-fixture frontmatter-line-1 check](#issue-5-featvalidate-add-fc13-eval-fixture-frontmatter-line-1-check) | I10 | testable |
+| [I6: feat(validate): FC-CONVENTIONS CLAUDE.md headers check](#issue-6-featvalidate-add-fc-conventions-claudemd-headers-check) | I11 | testable |
+| [I7: docs(references): author references/fixes/sub-agent-dispatch.md](#issue-7-docsreferences-author-referencesfixessub-agent-dispatchmd-merged-decision-1--decision-2-resolution) | None | testable |
+| [I8: docs(references): author references/fixes/plan-design-field-consistency.md](#issue-8-docsreferences-author-referencesfixesplan-design-field-consistencymd) | None | simple |
+| [I9: docs(plan): create plan-format.md](#issue-9-docsplan-create-plan-formatmd-format-reference-at-canonical-altitude) | None | testable |
+| [I10: docs(references): author references/fixes/eval-fixture-frontmatter.md](#issue-10-docsreferences-author-referencesfixeseval-fixture-frontmattermd) | None | simple |
+| [I11: docs(references): author references/fixes/claude-md-conventions.md](#issue-11-docsreferences-author-referencesfixesclaude-md-conventionsmd) | None | simple |
+| [I12: docs(references): author references/fixes/cli-version-preflight.md](#issue-12-docsreferences-author-referencesfixescli-version-preflightmd) | None | simple |
+| [I13: docs(design): create design-format.md](#issue-13-docsdesign-create-design-formatmd-format-reference-at-canonical-altitude) | None | testable |
+| [I14: docs(skills): pointer rows in 8 child SKILLs](#issue-14-docsskills-add-detection-and-pointer-rows-to-eight-child-skillmd-files) | I7 | simple |
+| [I15: docs(scope): Phase 0 CLI invocation + Phase 1 cold-start trim](#issue-15-docsscope-add-phase-0-slug-prefix-cli-invocation-and-phase-1-cold-start-trim) | I1 | simple |
+| [I16: docs(design): Phase 6 structural-format reviewer](#issue-16-docsdesign-add-structural-format-reviewer-to-phase-6-jury) | I13 | testable |
+| [I17: docs(plan): Phase 4 AC anchor-existence prompt](#issue-17-docsplan-add-phase-4-ac-anchor-existence-prompt-step) | None | simple |
+| [I18: docs(brief,prd,claude): format clarifications + CLAUDE.md header](#issue-18-docsbriefprdclaude-apply-format-reference-clarifications-and-claudemd-release-notes-convention-header) | None | simple |
 
 ## Dependency Graph
 
 ```mermaid
 graph TD
-  I1["#1: parent-skill-pattern fallbacks"]
-  I2["#2: sentinel row convention"]
-  I3["#3: cli-version-preflight.md"]
-  I4["#4: design-format.md"]
-  I5["#5: plan-format.md"]
-  I6["#6: brief-format clarifications"]
-  I7["#7: prd-format clarifications"]
-  I8["#8: wip-hygiene + Release Notes"]
-  I9["#9: /brief SKILL.md citations"]
-  I10["#10: /prd SKILL.md citations"]
-  I11["#11: /design SKILL.md + migration"]
-  I12["#12: /design Phase 6 reviewer"]
-  I13["#13: /plan SKILL.md + migration"]
-  I14["#14: /plan phase additions"]
-  I15["#15: /vision SKILL.md citations"]
-  I16["#16: /strategy SKILL.md citations"]
-  I17["#17: /roadmap SKILL.md citations"]
-  I18["#18: /work-on SKILL.md citation"]
-  I19["#19: /scope Phase 0+1 additions"]
-  I20["#20: check_schema SCHEMA-MISSING"]
-  I21["#21: FC10 writing-style check"]
-  I22["#22: FC11 plan-section-structure"]
+  I1["#1: check_schema + slug-prefix"]
+  I2["#2: FC10 writing-style"]
+  I3["#3: FC11 plan-section-structure"]
+  I4["#4: FC12 field consistency"]
+  I5["#5: FC13 eval-fixture"]
+  I6["#6: FC-CONVENTIONS"]
+  I7["#7: fixes/sub-agent-dispatch.md"]
+  I8["#8: fixes/plan-design-field-consistency.md"]
+  I9["#9: plan-format.md"]
+  I10["#10: fixes/eval-fixture-frontmatter.md"]
+  I11["#11: fixes/claude-md-conventions.md"]
+  I12["#12: fixes/cli-version-preflight.md"]
+  I13["#13: design-format.md"]
+  I14["#14: 8 child SKILL pointer rows"]
+  I15["#15: /scope Phase 0 + Phase 1"]
+  I16["#16: /design Phase 6 reviewer"]
+  I17["#17: /plan Phase 4 prompt"]
+  I18["#18: brief/prd/CLAUDE.md edits"]
 
-  I1 --> I9
-  I2 --> I9
-  I6 --> I9
-  I1 --> I10
-  I2 --> I10
-  I7 --> I10
-  I1 --> I11
-  I2 --> I11
-  I4 --> I11
-  I4 --> I12
-  I1 --> I13
-  I2 --> I13
-  I5 --> I13
-  I5 --> I14
+  I9 --> I3
+  I8 --> I4
+  I10 --> I5
+  I11 --> I6
+  I7 --> I14
   I1 --> I15
-  I2 --> I15
-  I1 --> I16
-  I2 --> I16
-  I1 --> I17
-  I2 --> I17
-  I1 --> I18
-  I3 --> I19
-  I5 --> I22
+  I13 --> I16
 
   classDef done fill:#c8e6c9
   classDef ready fill:#bbdefb
@@ -505,40 +412,51 @@ graph TD
   classDef tracksDesign fill:#FFE0B2,stroke:#F57C00,color:#000
   classDef tracksPlan fill:#FFE0B2,stroke:#F57C00,color:#000
 
-  class I1,I2,I3,I4,I5,I6,I7,I8,I20,I21 ready
-  class I9,I10,I11,I12,I13,I14,I15,I16,I17,I18,I19,I22 blocked
+  class I1,I2,I7,I8,I9,I10,I11,I12,I13,I17,I18 ready
+  class I3,I4,I5,I6,I14,I15,I16 blocked
 ```
 
 **Legend**: Green = done, Blue = ready, Yellow = blocked, Purple = needs-design, Orange = tracks-design/tracks-plan.
 
 ## Implementation Sequence
 
-**Critical path** (depth 3): Issue 5 → Issue 14 → Issue 22.
+**Critical path** (depth 3): Issue 9 → Issue 3 → tests (subsumed by the Batch-1-CLI completion-check, which depends on every FC including FC11).
 
-Issue 5 (plan-format.md) is the load-bearing root: Issue 14's Phase 7 emission self-check reconciles against it, and Issue 22's FC11 validator check dereferences it at validate-time. Closing the #158 contract drift on both surfaces requires Issue 5 first.
+Issue 9 (plan-format.md) is the load-bearing root: Issue 3's FC11 validator check dereferences it at validate-time. Closing the #158 contract drift on the validator surface requires Issue 9 first.
 
-**Immediate-start (Batch 1, ready)**: Issues 1, 2, 3, 4, 5, 6, 7, 8. Eight independent issues; can be parallelized fully.
+Issue 13 (design-format.md) is the load-bearing root for Issue 16 (Phase 6 structural-format reviewer rubric dereferences it).
 
-**Independent-from-Batch-1 (Batch 3, ready)**: Issues 20, 21. Two validator extensions that don't dereference canonical references from Batch 1; can start immediately in parallel with Batch 1.
+**Immediate-start (ready, no dependencies)**: Issues 1, 2, 7, 8, 9, 10, 11, 12, 13, 17, 18. Eleven independent issues; can be parallelized fully.
 
-**After Issue 1 + Issue 2 + their per-skill format-reference sibling**: Batch 2's eleven per-skill issues fan out. Most pairs of Batch 2 issues are independent of each other (each touches one skill's files), enabling within-batch parallelism.
+**After Issue 1**: Issue 15 (/scope Phase 0 invokes the Batch-1 slug-prefix CLI capability).
 
-**After Issue 5**: Issue 14 and Issue 22 can start once plan-format.md exists.
+**After Issue 7**: Issue 14 (eight SKILL pointer rows dereference `references/fixes/sub-agent-dispatch.md`).
+
+**After Issue 8**: Issue 4 (FC12 notice text dereferences `references/fixes/plan-design-field-consistency.md`).
+
+**After Issue 9**: Issue 3 (FC11 dereferences plan-format.md at validate-time).
+
+**After Issue 10**: Issue 5 (FC13 notice text dereferences `references/fixes/eval-fixture-frontmatter.md`).
+
+**After Issue 11**: Issue 6 (FC-CONVENTIONS notice text dereferences `references/fixes/claude-md-conventions.md`).
+
+**After Issue 13**: Issue 16 (Phase 6 structural-format reviewer dereferences design-format.md).
 
 **Recommended order** (single-pr mode lands all in one PR; the order is for the implementing agent's sequencing inside that PR):
 
-1. Open with Batch 1 issues 1-8 to establish canonical contracts.
-2. Walk Batch 2 issues 9-19 grouped per skill, citing the canonical statements from Batch 1.
-3. Close with Batch 3 issues 20-22 to land the validator extensions that dereference the canonical references.
+1. Open with Batch 2 reference files (Issues 7, 8, 9, 10, 11, 12, 13) — these are pure-docs and unblock the validator checks plus skill edits that dereference them.
+2. Land Batch 1 CLI extensions (Issues 1, 2, 3, 4, 5, 6) once their referenced fixes files exist.
+3. Apply Batch 3 lightweight skill edits (Issues 14, 15, 16, 17, 18) once their referenced reference files and CLI capabilities exist.
+4. (Batch 4 tests are folded into the same PR for single-pr mode; each Batch-1 issue's AC requires unit tests as a sub-requirement.)
 
-This ordering matches DESIGN D7's three-batch sequencing and the R32 dependency direction.
+This ordering matches DESIGN D7-revised's four-batch lazy-load-tier-first sequencing.
 
 ## References
 
-- Upstream DESIGN: `docs/designs/DESIGN-shirabe-pattern-v1-ergonomics.md` (Accepted, commit 2f506cb).
-- Upstream PRD: `docs/prds/PRD-shirabe-pattern-v1-ergonomics.md` (Accepted, commit 96df058).
-- Upstream BRIEF: `docs/briefs/BRIEF-shirabe-pattern-v1-ergonomics.md` (Accepted, commit 7f36c21).
+- Upstream DESIGN: `docs/designs/DESIGN-shirabe-pattern-v1-ergonomics.md` (Accepted, revised at commit b3a2e9b).
+- Upstream PRD: `docs/prds/PRD-shirabe-pattern-v1-ergonomics.md` (Accepted, cascade-edited at commit 4617bd2).
+- Upstream BRIEF: `docs/briefs/BRIEF-shirabe-pattern-v1-ergonomics.md` (Accepted).
 - `tsukumogami/vision#514` — Track A scope; the consolidated set of inside-pattern observations.
 - `tsukumogami/vision#535` — Track B (amplifier-layer mandate refinement), out of scope here.
-- `tsukumogami/shirabe#157` — validator schema silent-skip bug; closed by Issue 20.
-- `tsukumogami/shirabe#158` — `/plan` single-pr `## Implementation Issues` contract drift; closed by Issues 5 + 14 + 22.
+- `tsukumogami/shirabe#157` — validator schema silent-skip bug; closed by Issue 1.
+- `tsukumogami/shirabe#158` — `/plan` single-pr `## Implementation Issues` contract drift; closed by Issues 3 + 9.
