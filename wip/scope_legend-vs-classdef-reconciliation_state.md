@@ -39,8 +39,8 @@ Verdict: /design with small decision-roster (1-2 decisions). All four children i
 Chain proposal (auto-accepted; no user confirmation prompt under --auto):
 - /brief — Mandatory. Completed: docs/briefs/BRIEF-legend-vs-classdef-reconciliation.md (Accepted, validator-clean).
 - /prd — Mandatory. Completed: docs/prds/PRD-legend-vs-classdef-reconciliation.md (Accepted, validator-clean).
-- /design — Mandatory (with small decision-roster, mirroring FC07/FC09 sub-design shape). In progress.
-- /plan — Mandatory (single-pr; ephemeral PLAN to be deleted in work-completing commit).
+- /design — Mandatory. Completed: docs/designs/current/DESIGN-legend-vs-classdef-reconciliation.md (Current, validator-clean, 4 decisions).
+- /plan — Mandatory (single-pr; ephemeral PLAN to be deleted in work-completing commit). In progress.
 
 ## Phase 2 — Child Invocation Loop (in progress)
 
