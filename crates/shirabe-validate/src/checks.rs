@@ -1569,8 +1569,8 @@ pub fn check_fc09(
                         line: assign.line,
                         code: "FC09".to_string(),
                         message: format!(
-                            "[FC09] row {:?} (node {}) claims done; GitHub observes issue #{} still open",
-                            row.key, assign.id, q_number
+                            "[FC09] row {:?} (node {}) claims done; GitHub observes issue #{} still open (expected: remove the strikethrough/done class, or land the closing PR for #{})",
+                            row.key, assign.id, q_number, q_number
                         ),
                     });
                 } else if !doc_claims_done && observed == IssueState::Closed && !row_terminal {
@@ -1579,8 +1579,8 @@ pub fn check_fc09(
                         line: assign.line,
                         code: "FC09".to_string(),
                         message: format!(
-                            "[FC09] row {:?} (node {}) claims open with class {}; GitHub observes issue #{} closed (expected done)",
-                            row.key, assign.id, assign.name, q_number
+                            "[FC09] row {:?} (node {}) claims open with class {}; GitHub observes issue #{} closed (expected: change class from {} to done and apply strikethrough to the row)",
+                            row.key, assign.id, assign.name, q_number, assign.name
                         ),
                     });
                 }
@@ -1693,7 +1693,7 @@ pub fn check_fc09(
                             line: *line,
                             code: "FC09".to_string(),
                             message: format!(
-                                "[FC09] PR body line {:?} claims a closure the doc still shows non-done (row {:?}, class {})",
+                                "[FC09] PR body line {:?} claims a closure the doc still shows non-done (row {:?}, class {}) (expected: update the row to done in this same PR, or remove the \"Closes #N\" line if closure is not intended)",
                                 format!("Closes #{}", r.number),
                                 row_key, class_name
                             ),
@@ -1727,8 +1727,8 @@ pub fn check_fc09(
                             line,
                             code: "FC09".to_string(),
                             message: format!(
-                                "[FC09] row {:?} claims done but GitHub observes issue #{} open and no \"Closes #{}\" appears in this PR",
-                                row_key, n, n
+                                "[FC09] row {:?} claims done but GitHub observes issue #{} open and no \"Closes #{}\" appears in this PR (expected: add \"Closes #{}\" to the PR body if this PR delivers the close, or revert the row's done claim if not)",
+                                row_key, n, n, n
                             ),
                         });
                     }
@@ -3480,7 +3480,7 @@ mod tests {
             .iter()
             .filter(|e| {
                 e.message.contains("claims open with class")
-                    && e.message.contains("expected done")
+                    && e.message.contains("to done and apply strikethrough")
             })
             .collect();
         assert_eq!(sub_b.len(), 1, "Sub B defect must fire; got {:?}", errs);
@@ -3672,7 +3672,8 @@ mod tests {
         let sub_b: Vec<_> = errs
             .iter()
             .filter(|e| {
-                e.message.contains("claims open with class") && e.message.contains("expected done")
+                e.message.contains("claims open with class")
+                    && e.message.contains("to done and apply strikethrough")
             })
             .collect();
         assert_eq!(sub_b.len(), 1, "Sub B on roadmap must fire; got {:?}", errs);
