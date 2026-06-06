@@ -269,6 +269,61 @@
         "Transcript describes the assumed block surfacing in the terminal summary and PR body",
         "Transcript does NOT hard-stop under --auto; the run continues to step 3.6"
       ]
+    },
+    {
+      "id": 20,
+      "name": "phase-1-sentinel-present-matching-plan",
+      "prompt": "/plan docs/designs/DESIGN-sentinel-test.md",
+      "expected_output": "Phase 1 step 1.1 reads the DESIGN and runs the sentinel-gated auto-transition branch BEFORE the hard-stop table. The skill globs wip/*_sentinel-test_state.md (forward-compatible across parent skills, not hardcoded to wip/scope_*) and finds a matching state file containing parent_orchestration.invoking_child: plan. The DESIGN's current status is Accepted (the pre-transition status /design leaves behind after its own PRD-handoff). Because the sentinel is present AND invoking_child matches the current child (plan) AND the DESIGN is at the expected pre-transition status, the skill invokes `shirabe transition docs/designs/DESIGN-sentinel-test.md Planned` and proceeds past the hard-stop table. The DESIGN frontmatter and body Status flip from Accepted to Planned. Phase 1 continues at step 1.2 (Extract Key Information). The auto-transition is the symmetric counterpart to /prd's brief-handoff and /design's PRD-handoff.",
+      "files": [],
+      "expectations": [
+        "Transcript runs the sentinel-gated auto-transition branch BEFORE the hard-stop table",
+        "Transcript globs wip/*_sentinel-test_state.md (forward-compatible glob, NOT a hardcoded wip/scope_*)",
+        "Transcript finds parent_orchestration.invoking_child: plan in the state file",
+        "Transcript invokes shirabe transition <design-path> Planned",
+        "Transcript proceeds to step 1.2 after the transition (does not hard-stop)"
+      ]
+    },
+    {
+      "id": 21,
+      "name": "phase-1-sentinel-present-mismatched-plan",
+      "prompt": "/plan docs/designs/DESIGN-sentinel-mismatch.md",
+      "expected_output": "Phase 1 step 1.1 globs wip/*_sentinel-mismatch_state.md and finds a state file containing parent_orchestration.invoking_child: design (the value does NOT match the current child name 'plan'). The sentinel-gated auto-transition does NOT fire because the invoking_child value mismatches. The skill falls through to the existing hard-stop table. The DESIGN's status is Proposed. The skill STOPs with the 'Proposed' table row error message. R6 is preserved: the protective hard-stop is reachable when the sentinel is present but mismatched. No shirabe transition invocation; no DESIGN status mutation.",
+      "files": [],
+      "expectations": [
+        "Transcript runs the sentinel-gated check BEFORE the hard-stop table",
+        "Transcript finds the sentinel but observes invoking_child mismatch (not 'plan')",
+        "Transcript does NOT invoke shirabe transition",
+        "Transcript falls through to the hard-stop table and STOPs with the 'Proposed' error",
+        "R6 preservation: the protective hard-stop is reachable when the sentinel is mismatched"
+      ]
+    },
+    {
+      "id": 22,
+      "name": "phase-1-sentinel-absent-plan",
+      "prompt": "/plan docs/designs/DESIGN-no-sentinel.md",
+      "expected_output": "Phase 1 step 1.1 globs wip/*_no-sentinel_state.md and finds NO matching state file (this is a direct /plan invocation, not a parent-driven chain). The sentinel-gated auto-transition does NOT fire because the sentinel is absent. The skill falls through to the existing hard-stop table. The DESIGN's status is Proposed. The skill STOPs with the 'Proposed' table row error message. R6 is preserved: direct invocation against a non-Accepted DESIGN cannot silently promote it because no sentinel is on disk. No shirabe transition invocation; no DESIGN status mutation.",
+      "files": [],
+      "expectations": [
+        "Transcript runs the sentinel-gated check BEFORE the hard-stop table",
+        "Transcript finds NO matching state file in the wip/*_no-sentinel_state.md glob",
+        "Transcript does NOT invoke shirabe transition",
+        "Transcript falls through to the hard-stop table and STOPs with the 'Proposed' error",
+        "R6 preservation: direct invocation against a non-Accepted DESIGN cannot silently promote it"
+      ]
+    },
+    {
+      "id": 23,
+      "name": "phase-1-sentinel-forward-compatible-glob",
+      "prompt": "/plan docs/designs/DESIGN-future-parent.md",
+      "expected_output": "Phase 1 step 1.1 globs wip/*_future-parent_state.md. A fixture file at wip/charter_future-parent_state.md (NOT wip/scope_*) exists with parent_orchestration.invoking_child: plan. The glob discovers the state file because the wildcard accepts any parent-name prefix. The sentinel-gated auto-transition fires. This validates the forward-compatibility property: the discovery glob is wip/*_<topic>_state.md (not a hardcoded wip/scope_<topic>_state.md), so future parent skills beyond /scope (e.g., /charter, hypothetical /strategy-chain) drive the transition correctly without re-editing the phase-1 prose.",
+      "files": [],
+      "expectations": [
+        "Transcript globs wip/*_<topic>_state.md (wildcard prefix, not hardcoded wip/scope_*)",
+        "Transcript discovers wip/charter_future-parent_state.md via the wildcard",
+        "Transcript fires the sentinel-gated auto-transition (because invoking_child matches 'plan')",
+        "Forward-compatibility property held: a non-scope parent drives the transition correctly"
+      ]
     }
   ]
 }
