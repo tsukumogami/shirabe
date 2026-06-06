@@ -178,7 +178,7 @@ removed, not the direction of alignment.
 the tracking branch and classify the impact of any upstream changes
 against the PLAN's foundational assumptions between per-issue commits.
 The classification SHALL be one of three categories matching the contract
-in `references/parent-skill-worktree-discipline.md` (None, Informational,
+in `references/worktree-discipline.md` (None, Informational,
 Intent-changing) or a successor categorization DESIGN defines.
 
 **R9.** Intent-changing upstream changes SHALL surface an escalation the
@@ -280,7 +280,7 @@ is grep-checkable or executable unless explicitly marked as judgment-based.
   loop body (one of the phase files under `skills/work-on/references/phases/`
   or the koto template that drives it) contains an invocation of the
   fetch + impact-classification flow defined in
-  `references/parent-skill-worktree-discipline.md` (or its successor
+  `references/worktree-discipline.md` (or its successor
   reference if DESIGN renamed it).
 - [ ] **AC8.2** (executable, satisfies R8): A test fixture that simulates
   an upstream commit landing on the tracking branch between two `/work-on`

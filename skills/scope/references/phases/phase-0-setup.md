@@ -124,7 +124,7 @@ written state enters at Phase 1's discovery prompts.
 
 The worktree-discipline three-phase flow (Rebase phase → Impact-
 analysis phase → Escalation phase) defined in
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-worktree-discipline.md`
+`${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`
 fires BEFORE EACH Phase 2 child invocation. It does NOT fire in
 Phase 0. Phase 0's contracts are bounded to slug validation,
 visibility detection, self-heal, and the initial state-file
@@ -140,6 +140,6 @@ to those.
   storage substrate substitution surface (`wip-yaml-md` is the
   v1 value), L13 amendment defining the `parent_orchestration:`
   block as the pattern-level parent-orchestration primitive.
-- `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-worktree-discipline.md`
+- `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`
   — the three-phase flow Phase 2 invokes before each child
   invocation (not Phase 0).

@@ -146,7 +146,7 @@ Phase 0: SETUP  -> Phase 1: DISCOVER  -> Phase 2: CHAIN  -> Phase 3: FINALIZE  -
 |-------|---------|-----------|
 | 0. Setup | Slug validation; state-file creation; stale `parent_orchestration:` self-heal | `skills/scope/references/phases/phase-0-setup.md` |
 | 1. Discover + Chain Proposal | Visibility detection; topic-related child-doc discovery; R6 shape-predicate evaluation; R7.5 chain-proposal output | `skills/scope/references/phases/phase-1-discovery.md` |
-| 2. Child Invocation Loop | Per-child: worktree-staleness check (Rebase / Impact-analysis / Escalation per `parent-skill-worktree-discipline.md`); write `parent_orchestration:` sentinel; invoke child; structural file-existence check per R20; clear sentinel; capture child snapshot; validator pass-through | `skills/scope/references/phases/phase-2-chain-orchestration.md` |
+| 2. Child Invocation Loop | Per-child: worktree-staleness check (Rebase / Impact-analysis / Escalation per `worktree-discipline.md`); write `parent_orchestration:` sentinel; invoke child; structural file-existence check per R20; clear sentinel; capture child snapshot; validator pass-through | `skills/scope/references/phases/phase-2-chain-orchestration.md` |
 | 3. Exit Finalization | Set `exit:` field; write `exit_artifacts:`; run R9 hard-finalization check | `skills/scope/references/phases/phase-3-exit-finalization.md` |
 | 4. wip Cleanup | Remove the topic's wip/ scratch artifacts; preserve durable Decision Records and force-materialized partials in `docs/` | `skills/scope/references/phases/phase-4-cleanup.md` |
 
@@ -162,7 +162,7 @@ child invocation.
 The per-child worktree-staleness check before each invocation is
 the three-phase flow (Rebase phase → Impact-analysis phase →
 Escalation phase) defined in
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-worktree-discipline.md`.
+`${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`.
 None and Informational impact classifications proceed silently and
 record the rebase in `worktree_rebases:`; Intent-changing
 classifications halt and route to the team-lead for an intent
@@ -252,7 +252,7 @@ Execute phases sequentially by reading the corresponding phase file:
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md` | Phase 0 (slug regex), Phase 2 (state writes including `boundary:` and `plan_execution_mode:`), Phase 3 (R9 check, multi-discriminator Part 2, chain-membership-gated Part 3) |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md` | Resume Logic — meta-ladder rows 1-4 and 8-9, refuse-and-redirect Slot 5 paragraph |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-child-inspection.md` | Phase 2 — child-doc inspection (R14 widened rule, dual-check drift detection) |
-| `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-worktree-discipline.md` | Phase 2 — per-child worktree-staleness check (Rebase / Impact-analysis / Escalation phases with `worktree_rebases:` and `worktree_divergences:` recording) |
+| `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md` | Phase 2 — per-child worktree-staleness check (Rebase / Impact-analysis / Escalation phases with `worktree_rebases:` and `worktree_divergences:` recording) |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` | All phases — six pattern-level security contract surfaces (slug re-validation, closed write-target set, enum re-validation, self-heal, visibility, no-untrusted-input-interpolation) |
 | `skills/scope/references/phases/phase-0-setup.md` | Phase 0 |
 | `skills/scope/references/phases/phase-1-discovery.md` | Phase 1 |

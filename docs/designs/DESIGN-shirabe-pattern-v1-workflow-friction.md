@@ -29,7 +29,7 @@ decision: |
   combined per-child `worktree_discipline_check` koto state plus a
   `ci_monitor` extension distinguishing DIRTY mergeStateStatus from
   pending checks, plus a rename of
-  `references/parent-skill-worktree-discipline.md` to
+  `references/worktree-discipline.md` to
   `references/worktree-discipline.md` reflecting its
   substrate-agnostic content.
 rationale: |
@@ -90,7 +90,7 @@ Three substrate surfaces are in scope:
   silent-wait surface; the per-issue commit loop in `/work-on`'s
   plan-orchestrator mode (driven by the same koto template) is the
   upstream-drift surface. The substrate-shared reference
-  `references/parent-skill-worktree-discipline.md` already defines
+  `references/worktree-discipline.md` already defines
   the None/Informational/Intent-changing classification R8 names.
 
 The three substrates do not interact — a fix that edits one shell
@@ -468,7 +468,7 @@ for the suppressed-checks case.
 
 Key assumptions:
 
-- `references/parent-skill-worktree-discipline.md` (lines 1-100)
+- `references/worktree-discipline.md` (lines 1-100)
   already defines the None / Informational / Intent-changing
   classification and the rebase + analyze + escalate flow. The
   reference is named for the parent-skill pattern but its rule is
@@ -497,7 +497,7 @@ outside #162's named surfaces.
 plan-orchestrator's per-child loop in
 `skills/work-on/koto-templates/work-on-plan.md` to invoke the
 rebase + impact-analysis + escalation flow defined in
-`references/parent-skill-worktree-discipline.md`. The flow fires
+`references/worktree-discipline.md`. The flow fires
 before each per-child invocation (matching the reference's own
 trigger condition at lines 30-44 of the reference).
 
@@ -536,7 +536,7 @@ either; the implementing PR chooses based on prose-flow fit) is
 extended with the per-child instruction: "Before invoking the next
 child workflow, fetch origin/main, rebase the shared branch, classify
 the upstream impact per
-`references/parent-skill-worktree-discipline.md` (rename to
+`references/worktree-discipline.md` (rename to
 `worktree-discipline.md` per Part 3 below), and write the
 classification to `wip/work-on_${PLAN_SLUG}_impact.json`."
 
@@ -606,7 +606,7 @@ escalate_dirty_merge_state:
 ```
 
 **Part 3: Rename the worktree-discipline reference (option c).**
-Rename `references/parent-skill-worktree-discipline.md` to
+Rename `references/worktree-discipline.md` to
 `references/worktree-discipline.md` and update every cross-reference
 in the repo. The reference itself notes at lines 11-14 that its
 rule is substrate-agnostic; the `parent-skill-` prefix is
@@ -726,7 +726,7 @@ contained within its bug's named surface:
 |-----|----------------|----------------------|
 | #156 | `plan-to-tasks.sh` line 288, plus new empty-deps signal block before line 448 | No. Multi-pr path lines 104-141 untouched. `### Dependencies` accumulator lines 312-339 untouched. |
 | #159 | `skills/design/references/phases/phase-0-setup-prd.md` step 0.2, `skills/plan/references/phases/phase-1-analysis.md` step 1.1 | No. `skills/prd/SKILL.md` lines 132-138 untouched. The chosen sentinel-gated mechanism does not refactor or wrap `/prd`'s existing transition. |
-| #162 | `skills/work-on/koto-templates/work-on-plan.md` `ci_monitor` state lines 84-111 plus new per-child worktree-discipline check, `references/parent-skill-worktree-discipline.md` rename | The rename touches every cross-reference in the repo. Cross-references are mechanical; the prose content of the reference is unchanged. The rename is called out at review per R12's documentation requirement. |
+| #162 | `skills/work-on/koto-templates/work-on-plan.md` `ci_monitor` state lines 84-111 plus new per-child worktree-discipline check, `references/worktree-discipline.md` rename | The rename touches every cross-reference in the repo. Cross-references are mechanical; the prose content of the reference is unchanged. The rename is called out at review per R12's documentation requirement. |
 
 The single shared touch — the rename in Part 3 of Decision 3 — is
 a pure-rename surface; it changes the path that all consumers
@@ -884,7 +884,7 @@ plus one phase prose file plus one repo-wide rename.
   classify, write
   `wip/work-on_${PLAN_SLUG}_impact.json`. The instruction
   references the renamed `references/worktree-discipline.md`.
-- `references/parent-skill-worktree-discipline.md` →
+- `references/worktree-discipline.md` →
   `references/worktree-discipline.md`: pure rename, cross-references
   updated across the repo. Affected cross-references (per current
   `grep -r 'parent-skill-worktree-discipline'`): `skills/scope/SKILL.md`
@@ -1002,7 +1002,7 @@ on review-burden and reviewer-set considerations).
 
 ### Phase C: Component 3 (work-on worktree-discipline + ci_monitor)
 
-1. Rename `references/parent-skill-worktree-discipline.md` to
+1. Rename `references/worktree-discipline.md` to
    `references/worktree-discipline.md` and update cross-references
    in `skills/scope/SKILL.md` and
    `skills/scope/references/phases/phase-2-chain-orchestration.md`.
@@ -1095,7 +1095,7 @@ component reads another component's output as input.
   chain workflows stop paying the per-handoff manual-recovery tax
   the PRD frames.
 - **The worktree-discipline reference becomes substrate-agnostic.**
-  Renaming `parent-skill-worktree-discipline.md` to
+  Renaming `worktree-discipline.md` to
   `worktree-discipline.md` makes the rule available to future
   consumers without re-deriving the name. The reference's content
   is already substrate-agnostic per its lines 11-14; the rename

@@ -17,7 +17,7 @@ decision: |
   `/scope` ships as a single-agent loadable skill at
   `skills/scope/SKILL.md` plus four pattern-doc edits (across
   three of the four pattern-reference files), one new top-level
-  reference (`references/parent-skill-worktree-discipline.md`),
+  reference (`references/worktree-discipline.md`),
   and two child-side contract extensions (Phase-N Reject
   finalization gates on `/prd` Phase 4 and `/design` Phase 6).
   The architecture inherits the parent-skill pattern v1's
@@ -133,7 +133,7 @@ System boundaries touched by this design:
   — the per-parent surface table already covers doc-emitting
   children; `/scope`'s four children are all doc-emitting and
   fall under the existing row.
-- `references/parent-skill-worktree-discipline.md` (new) — a
+- `references/worktree-discipline.md` (new) — a
   top-level reference that captures R21's worktree-staleness
   trigger condition as shared infrastructure both `/charter` and
   `/scope` cite. `/charter`'s SKILL.md gains a follow-up reference-
@@ -649,7 +649,7 @@ PRD R21 specifies the discipline: attempt a rebase before each
 Phase 2 child invocation, then escalate based on whether upstream
 changes invalidate the chain's intent — NOT based on whether the
 rebase was mechanically clean. PRD Decision 4 specifies the
-location (`references/parent-skill-worktree-discipline.md` at the
+location (`references/worktree-discipline.md` at the
 top-level reference root, not parent-specific). The question
 deferred to design is the detailed prose: rebase mechanics, the
 impact-classification taxonomy, the recording semantics, and how
@@ -1139,7 +1139,7 @@ modification.
 `/scope` ships as a single-agent loadable skill at
 `skills/scope/SKILL.md` plus four pattern-doc edits (across
 three of the four pattern-reference files), one new top-level
-reference (`references/parent-skill-worktree-discipline.md`),
+reference (`references/worktree-discipline.md`),
 and two child-side contract extensions (Phase-N Reject
 finalization gates on `/prd` Phase 4 and `/design` Phase 6).
 The architecture is built around the parent-skill pattern v1's
@@ -1505,7 +1505,7 @@ gains documented refuse-and-redirect semantics).
 
 **Estimated size:** ~10-12 added lines.
 
-#### Component 4 — New reference: parent-skill-worktree-discipline.md (pattern-doc edit)
+#### Component 4 — New reference: worktree-discipline.md (pattern-doc edit)
 
 A new top-level reference at the pattern-reference root,
 sibling to the four existing `parent-skill-*.md` references.
@@ -1637,7 +1637,7 @@ Phase 2 detailing the child invocation loop. Key sections:
 
 7.1. **Worktree-staleness check** — fires before each child
 invocation per R21. Runs the three-step flow from
-`references/parent-skill-worktree-discipline.md`: (1) the
+`references/worktree-discipline.md`: (1) the
 conflict-resolution sub-agent rebases against the tracking
 branch, resolving conflicts from artifact context where
 possible; (2) upstream commits are classified at one of
@@ -1907,7 +1907,7 @@ Deliverables:
   Part 2 and Part 3 additions (Component 2).
 - `references/parent-skill-resume-ladder-template.md` —
   single Slot 5 paragraph addition (Component 3).
-- `references/parent-skill-worktree-discipline.md` — new
+- `references/worktree-discipline.md` — new
   reference file with six body sections plus a Binding
   Notes section (Component 4).
 

@@ -33,7 +33,7 @@ seven steps in sequence:
 1. **Worktree-staleness check.** Run the three-phase flow
    (Rebase phase → Impact-analysis phase → Escalation phase)
    from
-   `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-worktree-discipline.md`.
+   `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`.
 2. **`parent_orchestration:` sentinel write.** Write the block
    to the state file immediately before invoking the child.
 3. **Child invocation.** Invoke the child via its existing
@@ -56,7 +56,7 @@ flight; cleared the moment the child returns.
 ## Worktree-Staleness Check Before Each Child Invocation
 
 The check runs the three-phase flow defined in
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-worktree-discipline.md`:
+`${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`:
 
 - **Rebase phase.** Execute the equivalent of `git fetch && git
   rebase origin/<tracking-branch>`. Clean rebase proceeds to
@@ -341,7 +341,7 @@ metacharacter into a field that later becomes a path component.
   orchestration primitive; semantic invariant I-7 (Team-Lead
   Operating Discipline) for the child-invocation task class
   (120s window, 10-cycle patience budget).
-- `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-worktree-discipline.md`
+- `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`
   — the three-phase Rebase / Impact-analysis / Escalation flow
   the per-child loop runs before each invocation, the
   `worktree_rebases:` and `worktree_divergences:` recording

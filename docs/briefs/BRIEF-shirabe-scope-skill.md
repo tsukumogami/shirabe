@@ -409,7 +409,7 @@ The scope holds the following inside:
   (Mandatory-with-auto-skip) lands in
   `references/parent-skill-pattern.md` as a new gate vocabulary
   entry; a new top-level reference
-  `references/parent-skill-worktree-discipline.md` lands as
+  `references/worktree-discipline.md` lands as
   shared infrastructure both `/charter` and `/scope` cite; the
   L9 PRD pattern-level requirement tagging convention gets
   reclassified from "untapped learning" to required convention.

@@ -20,7 +20,7 @@ workflow friction in shirabe's tactical chain: parser silent-empty-
 deps (#156), chain-handoff status-gate asymmetry (#159), and
 `/work-on` upstream-drift + `ci_monitor` DIRTY-vs-pending distinction
 (#162). One shared rename of
-`references/parent-skill-worktree-discipline.md` to
+`references/worktree-discipline.md` to
 `references/worktree-discipline.md` lands as companion work to #162.
 
 ## Decomposition Strategy
@@ -49,7 +49,7 @@ Single-pr summary table. Detailed outlines live below in
 | [Issue 2: fix(design,plan): sentinel-gated chain-handoff auto-transition](#issue-2-fixdesignplan-sentinel-gated-chain-handoff-auto-transition) | None | testable |
 | _Add a sentinel-gated auto-transition branch before the existing hard-stop in `/design` Phase 0 step 0.2 and `/plan` Phase 1 step 1.1, reading the `parent_orchestration:` block from `wip/*_<topic>_state.md` and invoking `shirabe transition` when the sentinel matches the current child name._ | | |
 | [Issue 3: refactor(refs): rename parent-skill-worktree-discipline to worktree-discipline](#issue-3-refactorrefs-rename-parent-skill-worktree-discipline-to-worktree-discipline) | None | simple |
-| _Rename `references/parent-skill-worktree-discipline.md` to `references/worktree-discipline.md` and update every cross-reference in the repo; the reference's prose content is unchanged._ | | |
+| _Rename `references/worktree-discipline.md` to `references/worktree-discipline.md` and update every cross-reference in the repo; the reference's prose content is unchanged._ | | |
 | [Issue 4: fix(work-on): per-child worktree-discipline check and ci_monitor DIRTY-vs-pending distinction](#issue-4-fixwork-on-per-child-worktree-discipline-check-and-ci_monitor-dirty-vs-pending-distinction) | [Issue 3](#issue-3-refactorrefs-rename-parent-skill-worktree-discipline-to-worktree-discipline) | critical |
 | _Add a `worktree_discipline_check` state in the per-child loop of `work-on-plan.md` and edit `ci_monitor` to distinguish DIRTY merge state from pending checks via a new `merge_state_clean` gate and a `dirty_merge_state` enum value plus two terminal escalation states._ | | |
 | [Issue 5: test(plan): parser fixtures for colon-placement and asymmetric-empty-deps coverage](#issue-5-testplan-parser-fixtures-for-colon-placement-and-asymmetric-empty-deps-coverage) | [Issue 1](#issue-1-fixplan-accept-both-dependencies-colon-placements-and-warn-on-asymmetric-empty-deps) | testable |
@@ -151,7 +151,7 @@ absent or mismatched, the existing hard-stop fires unchanged
 ### Issue 3: refactor(refs): rename parent-skill-worktree-discipline to worktree-discipline
 
 **Goal**: Rename
-`references/parent-skill-worktree-discipline.md` to
+`references/worktree-discipline.md` to
 `references/worktree-discipline.md` reflecting the reference's
 already-substrate-agnostic content (per its own lines 11-14) and
 preparing it for a second consumer (`/work-on` in Issue 4). Update
@@ -159,7 +159,7 @@ every cross-reference in the repo to the new path; the reference's
 prose content is NOT modified.
 
 **Acceptance Criteria**:
-- [ ] `references/parent-skill-worktree-discipline.md` no longer
+- [ ] `references/worktree-discipline.md` no longer
       exists at the old path.
 - [ ] `references/worktree-discipline.md` exists with content
       byte-identical to the renamed file (no prose edits).
@@ -176,7 +176,7 @@ prose content is NOT modified.
 **Dependencies**: None
 
 **Type**: task
-**Files**: `references/parent-skill-worktree-discipline.md`, `references/worktree-discipline.md`, `skills/scope/SKILL.md`, `skills/scope/references/phases/phase-2-chain-orchestration.md`
+**Files**: `references/worktree-discipline.md`, `references/worktree-discipline.md`, `skills/scope/SKILL.md`, `skills/scope/references/phases/phase-2-chain-orchestration.md`
 
 ### Issue 4: fix(work-on): per-child worktree-discipline check and ci_monitor DIRTY-vs-pending distinction
 
@@ -234,7 +234,7 @@ file (extend an existing phase file or add
       `wip/work-on_${PLAN_SLUG}_impact.json`.
 - [ ] All references to the worktree-discipline reference in any new
       prose use the renamed path `references/worktree-discipline.md`
-      (NOT the old `parent-skill-worktree-discipline.md` path).
+      (NOT the old `worktree-discipline.md` path).
 
 **Dependencies**: Blocked by <<ISSUE:3>>
 
