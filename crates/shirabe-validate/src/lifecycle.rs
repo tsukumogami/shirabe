@@ -806,6 +806,230 @@ pub fn run_lifecycle_check(
     errors
 }
 
+// ---------- chain-targeted entry point ----------
+
+/// Run the chain-aware passing-state lifecycle check against the
+/// single chain containing `doc_path`.
+///
+/// The whole-tree mode (`run_lifecycle_check`) walks every chain in
+/// the tree; this chain-targeted mode walks only the chain whose
+/// members include `doc_path`. The cascade script in
+/// `skills/work-on/scripts/run-cascade.sh` uses this mode to verify
+/// its own chain's posture without surfacing unrelated drift as noise.
+///
+/// The `doc_path` argument may name any chain member: PLAN, DESIGN,
+/// PRD, BRIEF, or ROADMAP. The function canonicalizes the path,
+/// derives the implied root by stripping the matching `docs/...`
+/// suffix, builds the doc index against that root, and filters the
+/// discovered chains to the one containing the canonicalized path.
+///
+/// Returns an empty vec on a clean pass. Returns one or more
+/// `ValidationError`s otherwise. A non-doc-path input, a path with
+/// an unrecognized artifact prefix, or a path that does not resolve
+/// inside the indexed doc directories all produce a single L05
+/// error naming the expected location set.
+///
+/// The `strict` flag has the same shape as `run_lifecycle_check`'s
+/// strict flag — when set and the matched chain's posture is
+/// `Posture::SinglePrMidPR`, the chain re-targets to
+/// `Posture::SinglePrAtMerge`. Multi-pr postures are unchanged by
+/// the strict flag.
+pub fn run_lifecycle_chain_check(
+    doc_path: &Path,
+    _cfg: &Config,
+    strict: bool,
+) -> Vec<ValidationError> {
+    // Resolve the input path to an absolute canonical form. A
+    // missing file or a path outside the filesystem produces a
+    // single L05 error.
+    let canon_doc = match fs::canonicalize(doc_path) {
+        Ok(p) => p,
+        Err(_) => {
+            return vec![error(
+                doc_path.display().to_string(),
+                "L05",
+                &format!(
+                    "doc path not found or not resolvable: {} (expected a doc under docs/{{briefs,prds,designs,designs/current,plans,roadmaps}}/)",
+                    doc_path.display()
+                ),
+            )];
+        }
+    };
+
+    // The basename must carry one of the recognized artifact
+    // prefixes so the lifecycle module can identify the artifact
+    // type. A path inside docs/ that names a non-artifact file (e.g.
+    // README.md) is rejected here.
+    let basename = match canon_doc.file_name().and_then(|s| s.to_str()) {
+        Some(n) => n,
+        None => {
+            return vec![error(
+                doc_path.display().to_string(),
+                "L05",
+                "doc path has no filename component",
+            )];
+        }
+    };
+    if !(basename.starts_with("BRIEF-")
+        || basename.starts_with("PRD-")
+        || basename.starts_with("DESIGN-")
+        || basename.starts_with("PLAN-")
+        || basename.starts_with("ROADMAP-"))
+    {
+        return vec![error(
+            doc_path.display().to_string(),
+            "L05",
+            &format!(
+                "doc path '{}' has an unrecognized artifact prefix (expected BRIEF-/PRD-/DESIGN-/PLAN-/ROADMAP-)",
+                basename
+            ),
+        )];
+    }
+
+    // Derive the implied root by stripping the matching docs/...
+    // suffix from the canonicalized path. The lifecycle module's
+    // indexed directories are
+    // docs/{briefs,prds,designs,designs/current,plans,roadmaps}; the
+    // input doc must sit directly inside one of them.
+    let root = match derive_chain_root(&canon_doc) {
+        Some(r) => r,
+        None => {
+            return vec![error(
+                doc_path.display().to_string(),
+                "L05",
+                &format!(
+                    "doc path '{}' is not inside docs/{{briefs,prds,designs,designs/current,plans,roadmaps}}/",
+                    canon_doc.display()
+                ),
+            )];
+        }
+    };
+
+    let (idx, mut errors) = build_doc_index(&root);
+
+    // The doc must appear in the index we just built. If it does
+    // not, the index-building step rejected it (e.g. frontmatter
+    // parse failure) and the error is already in `errors`. Return
+    // those errors as-is.
+    if !idx.contains_key(&canon_doc) {
+        if errors.is_empty() {
+            errors.push(error(
+                rel_path_lossy(&canon_doc),
+                "L05",
+                "doc not found in lifecycle index (frontmatter parse failure or non-standard placement)",
+            ));
+        }
+        return errors;
+    }
+
+    let (chains, chain_errors) = discover_chains(&idx);
+    errors.extend(chain_errors);
+
+    // Find the chain whose members include the input doc.
+    let matched_chain = chains
+        .iter()
+        .find(|c| c.members.iter().any(|m| m.path == canon_doc));
+
+    if let Some(chain) = matched_chain {
+        let effective_posture = if strict && chain.posture == Posture::SinglePrMidPR {
+            Posture::SinglePrAtMerge
+        } else {
+            chain.posture
+        };
+        for member in &chain.members {
+            let passing = compute_passing_state(member.role, effective_posture);
+            let mismatch = match &passing {
+                PassingState::Deleted => true,
+                _ => !passing.matches(&member.status),
+            };
+            if mismatch {
+                errors.push(error_path(
+                    member.path.clone(),
+                    "L01",
+                    &format!(
+                        "{} at status '{}' (expected {} for {} posture)",
+                        member.role.as_str(),
+                        member.status,
+                        passing.describe(),
+                        effective_posture.name()
+                    ),
+                ));
+            }
+        }
+    } else {
+        // The doc is an orphan — not a member of any discovered
+        // chain. Apply the orphan rule to it directly.
+        if let Some(orphan_doc) = idx.get(&canon_doc) {
+            if let Some(err) = check_orphan(orphan_doc, &idx) {
+                errors.push(err);
+            }
+        }
+    }
+
+    // Stable error ordering: by file, then by code, then by message.
+    errors.sort_by(|a, b| {
+        a.file
+            .cmp(&b.file)
+            .then(a.code.cmp(&b.code))
+            .then(a.message.cmp(&b.message))
+    });
+    errors.dedup();
+    errors
+}
+
+/// Walk up from `doc_path` to find the implied lifecycle root — the
+/// directory that contains a `docs/` subdirectory matching one of
+/// the indexed locations. Returns `None` if the path does not sit
+/// inside one of the recognized doc dirs.
+fn derive_chain_root(doc_path: &Path) -> Option<PathBuf> {
+    // The doc must live in one of these directories (relative to
+    // the lifecycle root). We walk the path components from leaf to
+    // root, accumulating segments until we identify the matching
+    // suffix and return the prefix.
+    //
+    // Example: /repo/docs/plans/PLAN-foo.md
+    //   parent = /repo/docs/plans
+    //   parent matches "docs/plans" suffix -> root = /repo
+    //
+    // Example: /repo/docs/designs/current/DESIGN-foo.md
+    //   parent = /repo/docs/designs/current
+    //   parent matches "docs/designs/current" suffix -> root = /repo
+    let parent = doc_path.parent()?;
+
+    let suffixes: &[&str] = &[
+        "docs/designs/current",
+        "docs/briefs",
+        "docs/prds",
+        "docs/designs",
+        "docs/plans",
+        "docs/roadmaps",
+    ];
+
+    for suffix in suffixes {
+        if let Some(root) = strip_suffix_path(parent, suffix) {
+            return Some(root);
+        }
+    }
+    None
+}
+
+/// Strip a multi-component path suffix from `path`. Returns the
+/// prefix on success. Uses string-form comparison to handle the
+/// multi-segment suffixes (e.g. "docs/designs/current").
+fn strip_suffix_path(path: &Path, suffix: &str) -> Option<PathBuf> {
+    let path_s = path.to_str()?;
+    // Match either an exact suffix at the end or a "/<suffix>" tail.
+    let needle = format!("/{}", suffix);
+    if path_s.ends_with(&needle) {
+        let prefix_len = path_s.len() - needle.len();
+        return Some(PathBuf::from(&path_s[..prefix_len]));
+    }
+    if path_s == suffix {
+        return Some(PathBuf::from(""));
+    }
+    None
+}
+
 // ---------- helpers ----------
 
 fn error(file: String, code: &str, message: &str) -> ValidationError {
@@ -1829,6 +2053,293 @@ mod tests {
         assert!(
             !errors_strict.is_empty(),
             "strict expected to fail on present PLAN, got empty errors"
+        );
+    }
+
+    // ---- chain-targeted mode (run_lifecycle_chain_check) ----
+
+    #[test]
+    fn chain_targeted_single_pr_mid_pr_strict_fails() {
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", "docs/prds/PRD-foo.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Draft", "single-pr", "docs/designs/DESIGN-foo.md"),
+                &plan_body("Draft"),
+            ),
+        ]);
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), true);
+        assert!(
+            !errors.is_empty(),
+            "strict mode expected to fail on present single-pr PLAN, got empty"
+        );
+        // The failures should name PLAN, BRIEF, or PRD members. No
+        // L02 orphan errors should fire — every doc is a chain
+        // member.
+        let codes: Vec<&str> = errors.iter().map(|e| e.code.as_str()).collect();
+        assert!(
+            codes.iter().all(|c| *c == "L01"),
+            "expected only L01 errors, got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn chain_targeted_single_pr_at_terminal_strict_passes() {
+        // The PLAN is absent; the chain root is the DESIGN at
+        // Current. The chain-walker discovers chains rooted at PLAN
+        // or ROADMAP; without one, no chain exists and the docs are
+        // orphans. The orphan rule passes for terminal-state orphans
+        // (DESIGN at Current's target is Current; BRIEF at Done is
+        // terminal; PRD at Done is terminal).
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Done", ""),
+                &body_for("BRIEF", "Done"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Done", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Done"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+        ]);
+        let brief_path = root.join("docs/briefs/BRIEF-foo.md");
+        let errors = run_lifecycle_chain_check(&brief_path, &Config::default(), true);
+        assert!(
+            errors.is_empty(),
+            "single-pr at-terminal chain expected to pass; got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn chain_targeted_single_pr_mid_pr_nonstrict_passes() {
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", "docs/prds/PRD-foo.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Draft", "single-pr", "docs/designs/DESIGN-foo.md"),
+                &plan_body("Draft"),
+            ),
+        ]);
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), false);
+        assert!(
+            errors.is_empty(),
+            "single-pr mid-PR with strict=false should pass; got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn chain_targeted_multi_pr_in_flight_strict_passes() {
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "multi-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), true);
+        assert!(
+            errors.is_empty(),
+            "multi-pr in-flight with strict=true should pass; got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn chain_targeted_non_existent_path_rejects() {
+        let path = std::path::Path::new("/tmp/does-not-exist-shirabe-test.md");
+        let errors = run_lifecycle_chain_check(path, &Config::default(), false);
+        assert_eq!(errors.len(), 1, "expected one error; got: {:?}", errors);
+        assert_eq!(errors[0].code, "L05");
+        assert!(
+            errors[0].message.contains("not found"),
+            "error should name missing path; got: {}",
+            errors[0].message
+        );
+    }
+
+    #[test]
+    fn chain_targeted_unrecognized_prefix_rejects() {
+        // A file inside docs/briefs but with a non-artifact name
+        // (e.g. README.md). The file must exist for the
+        // canonicalize step to succeed.
+        let root = build_tree(&[(
+            "docs/briefs/README.md",
+            "schema: brief/v1\nstatus: Draft\n",
+            "# README",
+        )]);
+        let readme_path = root.join("docs/briefs/README.md");
+        let errors = run_lifecycle_chain_check(&readme_path, &Config::default(), false);
+        assert_eq!(errors.len(), 1, "expected one error; got: {:?}", errors);
+        assert_eq!(errors[0].code, "L05");
+        assert!(
+            errors[0].message.contains("unrecognized artifact prefix"),
+            "error should name the prefix mismatch; got: {}",
+            errors[0].message
+        );
+    }
+
+    #[test]
+    fn chain_targeted_path_outside_docs_rejects() {
+        // The file must exist for canonicalize to succeed, but it
+        // must live outside docs/. Use a temp directory with a
+        // BRIEF-prefix name but no docs/ ancestor.
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let outside = std::env::temp_dir().join(format!(
+            "shirabe-lifecycle-outside-{}-{}",
+            std::process::id(),
+            n
+        ));
+        let _ = fs::remove_dir_all(&outside);
+        fs::create_dir_all(&outside).unwrap();
+        let path = outside.join("BRIEF-foo.md");
+        fs::write(&path, "---\nschema: brief/v1\nstatus: Accepted\n---\n\n# BRIEF\n").unwrap();
+        let errors = run_lifecycle_chain_check(&path, &Config::default(), false);
+        assert_eq!(errors.len(), 1, "expected one error; got: {:?}", errors);
+        assert_eq!(errors[0].code, "L05");
+        assert!(
+            errors[0].message.contains("is not inside"),
+            "error should name the docs/ requirement; got: {}",
+            errors[0].message
+        );
+    }
+
+    #[test]
+    fn chain_targeted_orphan_at_terminal_passes() {
+        // A BRIEF at Done with no downstream references and no
+        // upstream is an orphan; the orphan rule passes because the
+        // BRIEF is at its terminal state.
+        let root = build_tree(&[(
+            "docs/briefs/BRIEF-orphan.md",
+            &make_brief("Done", ""),
+            &body_for("BRIEF", "Done"),
+        )]);
+        let path = root.join("docs/briefs/BRIEF-orphan.md");
+        let errors = run_lifecycle_chain_check(&path, &Config::default(), false);
+        assert!(
+            errors.is_empty(),
+            "orphan at terminal should pass via orphan rule; got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn chain_targeted_orphan_at_non_terminal_fails() {
+        // A BRIEF at Accepted (not terminal) with no chain
+        // participation is an orphan; the orphan rule fails with
+        // L02.
+        let root = build_tree(&[(
+            "docs/briefs/BRIEF-orphan.md",
+            &make_brief("Accepted", ""),
+            &body_for("BRIEF", "Accepted"),
+        )]);
+        let path = root.join("docs/briefs/BRIEF-orphan.md");
+        let errors = run_lifecycle_chain_check(&path, &Config::default(), false);
+        assert!(
+            !errors.is_empty(),
+            "orphan at non-terminal should fail; got empty errors"
+        );
+        assert!(
+            errors.iter().any(|e| e.code == "L02"),
+            "expected L02 error; got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn chain_targeted_from_design_node_walks_full_chain() {
+        // Verify the chain-targeted mode can start from any node in
+        // the chain, not just the PLAN. Pointing at the DESIGN
+        // should walk the same chain as pointing at the PLAN.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", "docs/prds/PRD-foo.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Draft", "single-pr", "docs/designs/DESIGN-foo.md"),
+                &plan_body("Draft"),
+            ),
+        ]);
+        let design_path = root.join("docs/designs/DESIGN-foo.md");
+        let errors = run_lifecycle_chain_check(&design_path, &Config::default(), true);
+        assert!(
+            !errors.is_empty(),
+            "strict mode from DESIGN should still surface the chain's failure"
+        );
+        // The errors should reference chain members by their
+        // relative paths; specifically, the PLAN must surface.
+        let has_plan_error = errors.iter().any(|e| e.file.contains("PLAN-foo.md"));
+        assert!(
+            has_plan_error,
+            "expected at least one error to reference PLAN-foo.md; got: {:?}",
+            errors
         );
     }
 }

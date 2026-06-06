@@ -31,7 +31,9 @@ pub use features::{extract_needs_label, parse_features, strip_label_decoration, 
 pub use finalize::{walk_chain, walk_chain_mode, Mode, NodeAction, NodeEntry, Report, WalkError};
 pub use formats::{detect_format, formats, FormatSpec};
 pub use frontmatter::{parse_doc, ParseError};
-pub use lifecycle::{run_lifecycle_check, target_state_for, Posture, TargetState};
+pub use lifecycle::{
+    run_lifecycle_chain_check, run_lifecycle_check, target_state_for, Posture, TargetState,
+};
 pub use table::{parse_issues_table, Profile, Row, RowKind, Table};
 pub use transition::{
     run_transition, transition_spec, transition_table, BodyTemplate, ExtraInput, Flags, Moves,
