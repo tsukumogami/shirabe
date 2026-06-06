@@ -669,7 +669,24 @@ fn check_orphan(
 /// Returns an empty vec when every chain member is at its passing
 /// state and every orphan doc honors the orphan-rule. Otherwise
 /// returns one or more `ValidationError`s carrying `Lnn` codes.
-pub fn run_lifecycle_check(root: &Path, _cfg: &Config) -> Vec<ValidationError> {
+///
+/// The `strict` flag controls the DRAFT-vs-READY discipline for
+/// single-pr chains. When false (the default), `Posture::SinglePrMidPR`
+/// is a passing posture — BRIEF/PRD at Accepted, DESIGN at
+/// Planned/Current, PLAN at Draft is healthy iteration. When true,
+/// `Posture::SinglePrMidPR` is re-targeted to the
+/// `Posture::SinglePrAtMerge` passing-state row at check time, so a
+/// present single-pr PLAN fails and single-pr BRIEF/PRD at Accepted
+/// fail. Multi-pr postures are unchanged by the strict flag.
+///
+/// The CI workflow sets `strict=true` when the PR is ready-for-review
+/// (`github.event.pull_request.draft == false`) and `strict=false`
+/// when the PR is draft.
+pub fn run_lifecycle_check(
+    root: &Path,
+    _cfg: &Config,
+    strict: bool,
+) -> Vec<ValidationError> {
     let (idx, mut errors) = build_doc_index(root);
     let _inv = build_inverse_upstream(&idx);
     let (chains, chain_errors) = discover_chains(&idx);
@@ -686,8 +703,18 @@ pub fn run_lifecycle_check(root: &Path, _cfg: &Config) -> Vec<ValidationError> {
 
     // Per-chain passing-state check.
     for chain in &chains {
+        // Apply the strict-mode posture re-target. When strict is set
+        // and the chain's posture is single-pr-mid-PR, the
+        // passing-state computation uses the single-pr at-merge row
+        // (PLAN deleted, BRIEF/PRD Done, DESIGN Current) instead of
+        // the mid-PR exemption. Multi-pr postures are unchanged.
+        let effective_posture = if strict && chain.posture == Posture::SinglePrMidPR {
+            Posture::SinglePrAtMerge
+        } else {
+            chain.posture
+        };
         for member in &chain.members {
-            let passing = compute_passing_state(member.role, chain.posture);
+            let passing = compute_passing_state(member.role, effective_posture);
             // The chain root is present in the tree by definition (we
             // discovered it by walking the index). If its passing
             // state is Deleted, that's the work-completing posture's
@@ -710,7 +737,7 @@ pub fn run_lifecycle_check(root: &Path, _cfg: &Config) -> Vec<ValidationError> {
                         member.role.as_str(),
                         member.status,
                         passing.describe(),
-                        chain.posture.name()
+                        effective_posture.name()
                     ),
                 ));
             }
@@ -933,7 +960,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
     }
 
@@ -961,7 +988,7 @@ mod tests {
                 &plan_body("Done"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         // PLAN at Done in tree should fail L01 with the deletion forcing message.
         assert!(
             errors.iter().any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md") && e.message.contains("DELETED")),
@@ -994,7 +1021,7 @@ mod tests {
                 &plan_body("Draft"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
     }
 
@@ -1021,7 +1048,7 @@ mod tests {
                 &design_body("Current"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
     }
 
@@ -1049,7 +1076,7 @@ mod tests {
                 &plan_body("Draft"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(
             errors.iter().any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
             "expected L01 on Draft multi-pr PLAN, got {:?}",
@@ -1082,7 +1109,7 @@ mod tests {
                 &plan_body("Done"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(
             errors.iter().any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
             "expected L01 on present-Done single-pr PLAN, got {:?}",
@@ -1115,7 +1142,7 @@ mod tests {
                 &plan_body("Done"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         // BRIEF at Accepted expected Done (work-completing posture).
         assert!(
             errors.iter().any(|e| e.code == "L01" && e.file.contains("BRIEF-foo.md")),
@@ -1132,7 +1159,7 @@ mod tests {
             &make_brief("Done", ""),
             &body_for("BRIEF", "Done"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
     }
 
@@ -1144,7 +1171,7 @@ mod tests {
             &make_brief("Accepted", ""),
             &body_for("BRIEF", "Accepted"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(
             errors.iter().any(|e| e.code == "L02" && e.file.contains("BRIEF-foo.md")),
             "expected L02 on orphan Accepted BRIEF, got {:?}",
@@ -1166,7 +1193,7 @@ mod tests {
                 &prd_body("Accepted"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         // The PRD is a chain member (chain rooted at the ROADMAP), so
         // it goes through the chain check (Accepted is the in-flight
         // passing state for a multi-pr posture).
@@ -1184,7 +1211,7 @@ mod tests {
             &make_design("Current", ""),
             &design_body("Current"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
     }
 
@@ -1208,7 +1235,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(
             errors.iter().any(|e| e.code == "L03"),
             "expected L03 cycle, got {:?}",
@@ -1223,7 +1250,7 @@ mod tests {
             &make_plan("Active", "multi-pr", "docs/designs/DESIGN-missing.md"),
             &plan_body("Active"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(
             errors.iter().any(|e| e.code == "L04"),
             "expected L04 missing member, got {:?}",
@@ -1241,7 +1268,7 @@ mod tests {
             "---\nschema: brief/v1\nstatus: Draft\nproblem: |\n  unclosed\noutcome: |\n  outcome\nupstream: [unclosed list\n---\n\n# BRIEF: bad\n\n## Status\n\nDraft\n",
         )
         .unwrap();
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         // The parse failure should be reported as L05, not a panic.
         assert!(
             errors.iter().any(|e| e.code == "L05"),
@@ -1287,7 +1314,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass (DESIGN at Planned during in-flight), got {:?}", errors);
     }
 
@@ -1317,7 +1344,7 @@ mod tests {
                 &plan_body("Done"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         // DESIGN at Planned during work-completing should fail
         // (expected Current).
         assert!(
@@ -1358,14 +1385,367 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass (PRD at In Progress in-flight), got {:?}", errors);
     }
 
     #[test]
     fn empty_tree_passes() {
         let root = build_tree(&[]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass on empty tree, got {:?}", errors);
+    }
+
+    // ---- strict-mode tests for the DRAFT-vs-READY discipline ----
+    //
+    // These tests cover the six shapes named in
+    // docs/prds/PRD-lifecycle-draft-ready-discipline.md (R12) plus the
+    // strict-flag-threading verification. The shape parity with the
+    // non-strict counterparts above is intentional — each strict test
+    // reuses the same fixture as a sibling non-strict test and the
+    // assertion is the toggled-by-flag bit.
+
+    #[test]
+    fn single_pr_mid_pr_passes_in_non_strict_mode() {
+        // Same fixture as single_pr_mid_pr_passes; explicit
+        // non-strict assertion documents that DRAFT-mode equivalent
+        // CI runs preserve the upstream non-strict behavior.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Draft", "single-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Draft"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        assert!(
+            errors.is_empty(),
+            "expected single-pr mid-PR pass in non-strict mode, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn single_pr_mid_pr_fails_in_strict_mode_on_present_plan() {
+        // READY-mode equivalent: the same single-pr-mid-PR fixture
+        // fails strict mode because the PLAN is present in the tree.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Draft", "single-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Draft"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), true);
+        // Three L01 errors expected: PLAN must be DELETED, BRIEF must
+        // be Done, PRD must be Done. The posture name in the message
+        // is the re-targeted "single-pr at-merge" not "single-pr mid-PR".
+        assert!(
+            errors.iter().any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
+            "expected L01 on present PLAN in strict mode, got {:?}",
+            errors
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "L01" && e.file.contains("BRIEF-foo.md")),
+            "expected L01 on BRIEF Accepted in strict mode, got {:?}",
+            errors
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "L01" && e.file.contains("PRD-foo.md")),
+            "expected L01 on PRD Accepted in strict mode, got {:?}",
+            errors
+        );
+        // All L01 messages name the re-targeted at-merge posture, not
+        // the chain's literal SinglePrMidPR posture.
+        for err in errors.iter().filter(|e| e.code == "L01") {
+            assert!(
+                err.message.contains("single-pr at-merge"),
+                "expected re-targeted posture name in error message, got {:?}",
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn single_pr_at_merge_passes_in_strict_mode() {
+        // The chain is at single-pr at-merge: PLAN absent, BRIEF/PRD
+        // at Done, DESIGN at Current. Strict and non-strict both pass.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Done", ""),
+                &body_for("BRIEF", "Done"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Done", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Done"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), true);
+        assert!(
+            errors.is_empty(),
+            "expected single-pr at-merge pass in strict mode, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn multi_pr_in_flight_passes_in_strict_mode() {
+        // Multi-pr in-flight is a legitimate passing state on a READY
+        // PR (intermediate multi-pr PR shape). Strict and non-strict
+        // both pass.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "multi-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), true);
+        assert!(
+            errors.is_empty(),
+            "expected multi-pr in-flight pass in strict mode, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn multi_pr_work_completing_fails_in_both_modes() {
+        // Multi-pr work-completing (PLAN at Done in the tree) is the
+        // forcing-function failure that exists independent of strict
+        // mode. Both modes fail.
+        let root_nonstrict = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Done", ""),
+                &body_for("BRIEF", "Done"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Done", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Done"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Done", "multi-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Done"),
+            ),
+        ]);
+        let errors_nonstrict =
+            run_lifecycle_check(&root_nonstrict, &Config::default(), false);
+        assert!(
+            errors_nonstrict
+                .iter()
+                .any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
+            "expected L01 on multi-pr work-completing PLAN in non-strict mode, got {:?}",
+            errors_nonstrict
+        );
+        let root_strict = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Done", ""),
+                &body_for("BRIEF", "Done"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Done", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Done"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Done", "multi-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Done"),
+            ),
+        ]);
+        let errors_strict =
+            run_lifecycle_check(&root_strict, &Config::default(), true);
+        assert!(
+            errors_strict
+                .iter()
+                .any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
+            "expected L01 on multi-pr work-completing PLAN in strict mode, got {:?}",
+            errors_strict
+        );
+    }
+
+    #[test]
+    fn multi_pr_mid_transition_fails_in_strict_mode() {
+        // Multi-pr mid-transition: PLAN at Done (work-completing) but
+        // BRIEF/PRD still at Accepted. Both modes fail — the
+        // work-completing forcing function fires on the PLAN, the
+        // BRIEF/PRD-Done passing state fires on the framing docs.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Done", "multi-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Done"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), true);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "L01" && e.file.contains("BRIEF-foo.md")),
+            "expected L01 on BRIEF stuck at Accepted in strict mode, got {:?}",
+            errors
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "L01" && e.file.contains("PRD-foo.md")),
+            "expected L01 on PRD stuck at Accepted in strict mode, got {:?}",
+            errors
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
+            "expected L01 on PLAN Done in strict mode, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn strict_flag_threads_through_call_chain() {
+        // Threading verification: two identical fixtures, one called
+        // with strict=true, the other with strict=false. The result
+        // must differ — confirming the flag actually reaches the
+        // posture re-target inside the chain-iteration loop rather
+        // than being silently dropped.
+        let root_a = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Draft", "single-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Draft"),
+            ),
+        ]);
+        let errors_nonstrict = run_lifecycle_check(&root_a, &Config::default(), false);
+        let root_b = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Draft", "single-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Draft"),
+            ),
+        ]);
+        let errors_strict = run_lifecycle_check(&root_b, &Config::default(), true);
+        assert!(
+            errors_nonstrict.is_empty(),
+            "non-strict expected to pass, got {:?}",
+            errors_nonstrict
+        );
+        assert!(
+            !errors_strict.is_empty(),
+            "strict expected to fail on present PLAN, got empty errors"
+        );
     }
 }

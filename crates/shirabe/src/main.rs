@@ -150,6 +150,16 @@ struct ValidateArgs {
     /// file arguments.
     #[arg(long, value_name = "ROOT")]
     lifecycle: Option<String>,
+
+    /// Strict mode for `--lifecycle`. Disables the single-pr-mid-PR
+    /// exemption so a present single-pr PLAN fails the check and
+    /// single-pr BRIEF/PRD at Accepted fail. Multi-pr postures are
+    /// unchanged. Default off — preserves the upstream non-strict
+    /// behavior in local CLI invocations. The CI workflow templates
+    /// this flag conditional on the PR's `draft` state so DRAFT PRs
+    /// run non-strict and READY PRs run strict.
+    #[arg(long, default_value_t = false)]
+    strict: bool,
 }
 
 fn main() -> ExitCode {
@@ -189,7 +199,7 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     }
 
     if let Some(root) = args.lifecycle.as_deref() {
-        return run_lifecycle(root, &args.visibility);
+        return run_lifecycle(root, &args.visibility, args.strict);
     }
 
     if args.files.is_empty() {
@@ -254,7 +264,12 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
 /// Runs the chain-aware passing-state lifecycle check against `root`.
 /// Emits one annotation per failure to stdout and returns a non-zero
 /// exit code if any failures were emitted.
-fn run_lifecycle(root: &str, visibility: &str) -> ExitCode {
+///
+/// When `strict` is true, the single-pr-mid-PR exemption is disabled:
+/// a single-pr PLAN present in the tree fails (regardless of its
+/// `status:` value) and single-pr BRIEF/PRD at Accepted fail.
+/// Multi-pr postures are unchanged by the strict flag.
+fn run_lifecycle(root: &str, visibility: &str, strict: bool) -> ExitCode {
     let cfg = Config {
         custom_statuses: HashMap::new(),
         visibility: visibility.to_string(),
@@ -264,7 +279,7 @@ fn run_lifecycle(root: &str, visibility: &str) -> ExitCode {
         eprintln!("--lifecycle root {} does not exist", root);
         return ExitCode::FAILURE;
     }
-    let errors = run_lifecycle_check(root_path, &cfg);
+    let errors = run_lifecycle_check(root_path, &cfg, strict);
     let mut has_errors = false;
     for ve in &errors {
         if is_notice(ve) {
