@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   The completion cascade is a bash script that re-implements lifecycle knowledge
   the Rust transition engine already owns -- frontmatter parsing, per-artifact-type
@@ -21,7 +21,7 @@ upstream: docs/briefs/BRIEF-finalize-chain.md
 
 ## Status
 
-Accepted
+In Progress
 
 ## Problem Statement
 
