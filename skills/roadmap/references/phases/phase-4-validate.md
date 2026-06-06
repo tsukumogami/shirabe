@@ -223,7 +223,7 @@ validated and ready for activation. Options:
 ### 4.6 Handle Approval
 
 **If user approves:**
-1. Run `scripts/transition-status.sh <path> Active` to transition from Draft to Active
+1. Run `shirabe transition <path> Active` to transition from Draft to Active
 2. Commit: `docs(roadmap): activate ROADMAP for <topic>`
 3. Create PR (or update existing PR if on a shared branch)
 

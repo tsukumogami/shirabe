@@ -15,6 +15,7 @@ pub mod formats;
 pub mod frontmatter;
 pub mod mermaid;
 pub mod table;
+pub mod transition;
 pub mod validate;
 
 // Crate root re-exports. This list mirrors the design's intended public
@@ -26,4 +27,8 @@ pub use features::{extract_needs_label, parse_features, strip_label_decoration, 
 pub use formats::{detect_format, formats, FormatSpec};
 pub use frontmatter::{parse_doc, ParseError};
 pub use table::{parse_issues_table, Profile, Row, RowKind, Table};
+pub use transition::{
+    run_transition, transition_spec, transition_table, BodyTemplate, ExtraInput, Flags, Moves,
+    Outcome, Precondition, ResultFields, Rule, TransitionError, TransitionSpec,
+};
 pub use validate::{is_notice, validate_file};

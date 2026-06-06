@@ -105,15 +105,15 @@ catch.
 
 ### If Approve
 
-1. Run the transition script to move Draft → Accepted:
+1. Run the transition subcommand to move Draft → Accepted:
 
    ```bash
-   skills/strategy/scripts/transition-status.sh \
+   shirabe transition \
      docs/strategies/STRATEGY-<topic>.md \
      Accepted
    ```
 
-   The script updates both the frontmatter `status:` field and the body
+   The subcommand updates both the frontmatter `status:` field and the body
    `## Status` section. The Draft → Accepted transition does not move the
    file out of `docs/strategies/` — that movement only happens on Sunset.
 
@@ -238,8 +238,8 @@ After this phase:
 
 ## Workflow Exit
 
-`/strategy` exits here. The next interaction with this STRATEGY is via the
-`transition-status.sh` script when the bet moves to Active (first downstream
+`/strategy` exits here. The next interaction with this STRATEGY is via
+`shirabe transition` when the bet moves to Active (first downstream
 artifact transitions to Active) or to Sunset (bet is invalidated, pivoted,
 or abandoned). Transitions outside Draft → Accepted are operator-invoked,
 not workflow-driven.

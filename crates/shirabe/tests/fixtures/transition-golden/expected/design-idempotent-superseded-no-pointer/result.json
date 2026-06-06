@@ -1,0 +1,5 @@
+{
+  "code": 1,
+  "error": "Superseded status requires path to superseding document as third argument",
+  "success": false
+}

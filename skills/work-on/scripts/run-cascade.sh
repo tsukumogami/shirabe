@@ -43,6 +43,9 @@ _realpath_m() { python3 -c "import os,sys; print(os.path.abspath(sys.argv[1]))" 
 PUSH=false
 PLAN_DOC=""
 REPO_ROOT=""
+# SHIRABE_BIN may be set in the environment (e.g. by the test harness) to point
+# at a specific shirabe binary; it is resolved during setup below. It is
+# deliberately NOT reset here, so an inherited value survives.
 STEPS_JSON=""      # accumulates JSON step objects, comma-separated
 ANY_FAILED=false
 STAGED_FILES=()    # files staged for commit
@@ -257,20 +260,13 @@ handle_design() {
     strip_implementation_issues "$path"
 
     # Transition to Current
-    local script
-    script=$(dirname "$(dirname "$0")")/../../skills/design/scripts/transition-status.sh
-    # Resolve relative to repo root if needed
-    if [[ ! -f "$script" ]]; then
-        script="$REPO_ROOT/skills/design/scripts/transition-status.sh"
-    fi
-
     local result
-    if ! result=$(bash "$script" "$path" Current 2>&1); then
+    if ! result=$("$SHIRABE_BIN" transition "$path" Current 2>&1); then
         local errmsg
         errmsg=$(echo "$result" | head -1)
         ANY_FAILED=true
         add_step "transition_design" "$path" "$found_in" "failed" \
-            "attempted to transition $path to Current (referenced in $found_in), but transition-status.sh exited with: $errmsg"
+            "attempted to transition $path to Current (referenced in $found_in), but shirabe transition exited with: $errmsg"
         return 1
     fi
 
@@ -299,14 +295,13 @@ handle_prd() {
 
     log_info "Transitioning PRD: $path → Done"
 
-    local script="$REPO_ROOT/skills/prd/scripts/transition-status.sh"
     local result
-    if ! result=$(bash "$script" "$path" Done 2>&1); then
+    if ! result=$("$SHIRABE_BIN" transition "$path" Done 2>&1); then
         local errmsg
         errmsg=$(echo "$result" | head -1)
         ANY_FAILED=true
         add_step "transition_prd" "$path" "$found_in" "failed" \
-            "attempted to transition $path to Done (referenced in $found_in), but transition-status.sh exited with: $errmsg"
+            "attempted to transition $path to Done (referenced in $found_in), but shirabe transition exited with: $errmsg"
         return 1
     fi
 
@@ -421,14 +416,13 @@ handle_roadmap() {
             add_step "transition_roadmap" "$path" "$found_in" "skipped" \
                 "$path references issue $open_issue_url which is still open — not transitioning $path to Done; close the issue first or run the cascade again after it closes"
         else
-            local script="$REPO_ROOT/skills/roadmap/scripts/transition-status.sh"
             local result
-            if ! result=$(bash "$script" "$path" Done 2>&1); then
+            if ! result=$("$SHIRABE_BIN" transition "$path" Done 2>&1); then
                 local errmsg
                 errmsg=$(echo "$result" | head -1)
                 ANY_FAILED=true
                 add_step "transition_roadmap" "$path" "$found_in" "failed" \
-                    "attempted to transition $path to Done (referenced in $found_in), but transition-status.sh exited with: $errmsg"
+                    "attempted to transition $path to Done (referenced in $found_in), but shirabe transition exited with: $errmsg"
             else
                 add_step "transition_roadmap" "$path" "$found_in" "ok" ""
             fi
@@ -498,6 +492,24 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
     echo '{"cascade_status":"skipped","steps":[],"error":"not a git repository"}' >&2
     exit 1
 }
+
+# Resolve the shirabe binary used for status transitions. Precedence:
+#   1. $SHIRABE_BIN if set and executable (used by the test harness to inject a stub)
+#   2. `shirabe` on PATH (the plugin-installed binary)
+#   3. a locally built release/debug binary under the repo's crates target dir
+SHIRABE_BIN="${SHIRABE_BIN:-}"
+if [[ -z "$SHIRABE_BIN" ]]; then
+    if command -v shirabe >/dev/null 2>&1; then
+        SHIRABE_BIN="shirabe"
+    elif [[ -x "$REPO_ROOT/target/release/shirabe" ]]; then
+        SHIRABE_BIN="$REPO_ROOT/target/release/shirabe"
+    elif [[ -x "$REPO_ROOT/target/debug/shirabe" ]]; then
+        SHIRABE_BIN="$REPO_ROOT/target/debug/shirabe"
+    else
+        echo '{"cascade_status":"skipped","steps":[],"error":"shirabe binary not found (set SHIRABE_BIN, install shirabe, or build with cargo)"}' >&2
+        exit 1
+    fi
+fi
 
 # Validate PLAN doc
 if [[ ! -f "$PLAN_DOC" ]]; then

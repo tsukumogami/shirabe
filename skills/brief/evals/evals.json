@@ -97,12 +97,12 @@
       "id": 7,
       "name": "lifecycle-accept-verb",
       "prompt": "/brief accept docs/briefs/BRIEF-checkout-flow.md",
-      "expected_output": "Detects 'accept' as a lifecycle verb rather than starting the creation workflow. Validates the Open Questions section is empty or removed before transition. Runs skills/brief/scripts/transition-status.sh with target Accepted. The file stays in docs/briefs/ (no directory movement for any brief transition).",
+      "expected_output": "Detects 'accept' as a lifecycle verb rather than starting the creation workflow. Validates the Open Questions section is empty or removed before transition. Runs shirabe transition with target Accepted. The file stays in docs/briefs/ (no directory movement for any brief transition).",
       "files": ["docs/briefs/BRIEF-checkout-flow.md"],
       "expectations": [
         "Plan detects 'accept' as a lifecycle verb rather than starting the creation workflow",
         "Plan validates the Open Questions section is empty or removed before transition",
-        "Plan invokes skills/brief/scripts/transition-status.sh to perform the transition",
+        "Plan invokes shirabe transition to perform the transition",
         "Plan targets transitioning from Draft to Accepted status",
         "Plan does NOT move the file to a different directory for the Accepted transition",
         "Plan notes there is no reason argument for the accept transition"

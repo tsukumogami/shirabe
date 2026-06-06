@@ -436,7 +436,7 @@
         "Agent invokes run-cascade.sh --push {{PLAN_DOC}} as the plan_completion step rather than executing the cascade steps individually",
         "Agent reads cascade_status from the JSON output emitted by run-cascade.sh",
         "Agent submits cascade_status to koto (completed, partial, or skipped)",
-        "Agent does NOT manually git rm the PLAN doc, run transition-status.sh, or update ROADMAP entries directly"
+        "Agent does NOT manually git rm the PLAN doc, run shirabe transition, or update ROADMAP entries directly"
       ]
     },
     {

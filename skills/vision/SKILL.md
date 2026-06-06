@@ -69,7 +69,8 @@ From `$ARGUMENTS`:
 
 1. **Empty** -- ask the user what project or org they want to define a vision for
 2. **Path to existing VISION** with lifecycle verb (`accept`, `activate`,
-   `sunset`) -- execute the lifecycle transition via `scripts/transition-status.sh`
+   `sunset`) -- execute the lifecycle transition via `shirabe transition
+   <vision-path> <status>` (Sunset optionally takes `--superseded-by <path>`)
 3. **Anything else** -- use as the starting topic for Phase 1 scoping
 
 ### Standalone Entry and Handoff Detection
@@ -170,7 +171,8 @@ Execute phases sequentially by reading the corresponding phase file:
 ### Output
 
 Final artifact: `docs/visions/VISION-<topic>.md`, created in Draft status.
-After user approval, transition to Accepted via `scripts/transition-status.sh`.
+After user approval, transition to Accepted via `shirabe transition
+<vision-path> Accepted`.
 
 After acceptance, suggest next steps:
 

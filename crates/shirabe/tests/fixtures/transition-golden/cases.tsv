@@ -1,0 +1,56 @@
+# Transition golden-parity case manifest.
+#
+# One row per case. Tab-separated. Lines beginning with '#' and blank lines are
+# ignored. Columns:
+#
+#   case_id      Directory under corpus/ and expected/ for this case.
+#   script       Skill whose transition-status.sh is the oracle (the type).
+#   doc_relpath  Repo-relative path of the input doc inside the case's corpus
+#                tree (the path passed to the script / subcommand, run from the
+#                repo root). For moving types this encodes the source directory.
+#   target       Target status (may contain a space, e.g. "In Progress").
+#   flag         Engine flag the script's 3rd positional maps to:
+#                  superseded_by  -> --superseded-by  (vision, design)
+#                  reason         -> --reason          (strategy)
+#                  -              -> no extra input
+#   arg3         Value for the 3rd script arg / engine flag, or '-' for none.
+#
+# The capture script runs each oracle in a fresh temp git repo (so git-mv and
+# staged state are represented) and records result.json, exit, final_path, and
+# final_content. The parity test runs `shirabe transition` the same way,
+# translating arg3 into the named flag, and asserts structural-JSON equality,
+# the exact exit code, the resulting file path, and the resulting file content.
+#
+# case_id	script	doc_relpath	target	flag	arg3
+prd-into-in-progress	prd	docs/prds/PRD-into-in-progress.md	In Progress	-	-
+prd-out-of-in-progress	prd	docs/prds/PRD-out-of-in-progress.md	Done	-	-
+prd-invalid-status	prd	docs/prds/PRD-invalid-status.md	Bogus	-	-
+prd-idempotent-done	prd	docs/prds/PRD-idempotent-done.md	Done	-	-
+roadmap-legal-move	roadmap	docs/roadmaps/ROADMAP-legal-move.md	Active	-	-
+roadmap-rejected-skip	roadmap	docs/roadmaps/ROADMAP-rejected-skip.md	Done	-	-
+roadmap-precondition-features	roadmap	docs/roadmaps/ROADMAP-precondition-features.md	Active	-	-
+roadmap-idempotent-done	roadmap	docs/roadmaps/ROADMAP-idempotent-done.md	Done	-	-
+brief-legal-move	brief	docs/briefs/BRIEF-legal-move.md	Accepted	-	-
+brief-rejected-skip	brief	docs/briefs/BRIEF-rejected-skip.md	Done	-	-
+brief-idempotent-done	brief	docs/briefs/BRIEF-idempotent-done.md	Done	-	-
+vision-legal-move	vision	docs/visions/VISION-legal-move.md	Active	-	-
+vision-rejected-skip	vision	docs/visions/VISION-rejected-skip.md	Active	-	-
+vision-precondition-oq	vision	docs/visions/VISION-precondition-oq.md	Accepted	-	-
+vision-sunset-with-pointer	vision	docs/visions/VISION-sunset-with-pointer.md	Sunset	superseded_by	docs/visions/sunset/VISION-replacement.md
+vision-sunset-bare	vision	docs/visions/VISION-sunset-bare.md	Sunset	-	-
+vision-idempotent-sunset	vision	docs/visions/sunset/VISION-idempotent-sunset.md	Sunset	-	-
+strategy-legal-move	strategy	docs/strategies/STRATEGY-legal-move.md	Active	-	-
+strategy-rejected-skip	strategy	docs/strategies/STRATEGY-rejected-skip.md	Active	-	-
+strategy-precondition-oq	strategy	docs/strategies/STRATEGY-precondition-oq.md	Accepted	-	-
+strategy-sunset-with-reason	strategy	docs/strategies/STRATEGY-sunset-with-reason.md	Sunset	reason	Upstream VISION pivoted
+strategy-idempotent-sunset-no-reason	strategy	docs/strategies/sunset/STRATEGY-idempotent-sunset-no-reason.md	Sunset	-	-
+strategy-idempotent-sunset-unsafe-reason	strategy	docs/strategies/sunset/STRATEGY-idempotent-sunset-unsafe-reason.md	Sunset	reason	bad / reason
+design-legal-move	design	docs/designs/DESIGN-legal-move.md	Accepted	-	-
+design-invalid-status	design	docs/designs/DESIGN-invalid-status.md	Bogus	-	-
+design-to-current	design	docs/designs/DESIGN-to-current.md	Current	-	-
+design-supersede	design	docs/designs/current/DESIGN-supersede.md	Superseded	superseded_by	docs/designs/DESIGN-replacement.md
+design-idempotent-superseded-no-pointer	design	docs/designs/archive/DESIGN-idempotent-superseded-no-pointer.md	Superseded	-	-
+comp-legal-move	comp	docs/competitive/COMP-legal-move.md	Accepted	-	-
+comp-draft-to-done-shortcut	comp	docs/competitive/COMP-draft-to-done-shortcut.md	Done	-	-
+comp-rejected-regress	comp	docs/competitive/COMP-rejected-regress.md	Draft	-	-
+comp-idempotent-done	comp	docs/competitive/COMP-idempotent-done.md	Done	-	-

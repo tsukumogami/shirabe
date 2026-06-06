@@ -77,11 +77,11 @@
     {
       "id": 7,
       "name": "draft-to-accepted-transition",
-      "prompt": "Copy skills/comp/evals/fixtures/COMP-draft-to-accepted.md into docs/competitive/ and run skills/comp/scripts/transition-status.sh on it to move it from Draft to Accepted.",
-      "expected_output": "The transition script moves the COMP from Draft to Accepted, updating both frontmatter and the body Status section, with moved:false in its JSON output and no directory change.",
+      "prompt": "Copy skills/comp/evals/fixtures/COMP-draft-to-accepted.md into docs/competitive/ and run shirabe transition on it to move it from Draft to Accepted.",
+      "expected_output": "The transition subcommand moves the COMP from Draft to Accepted, updating both frontmatter and the body Status section, with moved:false in its JSON output and no directory change.",
       "files": ["skills/comp/evals/fixtures/COMP-draft-to-accepted.md"],
       "expectations": [
-        "Invokes skills/comp/scripts/transition-status.sh <path> Accepted",
+        "Invokes shirabe transition <path> Accepted",
         "Frontmatter status becomes Accepted",
         "Body Status section first line becomes Accepted",
         "JSON output reports moved:false (no directory movement)",

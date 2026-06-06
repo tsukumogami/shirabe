@@ -324,7 +324,7 @@ a path that resolves to nothing.
 Transition the upstream design doc from Accepted to Planned:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/skills/design/scripts/transition-status.sh <design-doc-path> Planned
+shirabe transition <design-doc-path> Planned
 ```
 
 **Important constraints** (implementation tracking lives in the PLAN artifact, not the design doc):

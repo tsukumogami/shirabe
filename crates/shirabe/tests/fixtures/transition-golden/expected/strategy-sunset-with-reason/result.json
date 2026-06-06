@@ -1,0 +1,9 @@
+{
+  "doc_path": "docs/strategies/STRATEGY-sunset-with-reason.md",
+  "moved": true,
+  "new_path": "docs/strategies/sunset/STRATEGY-sunset-with-reason.md",
+  "new_status": "Sunset",
+  "old_status": "Active",
+  "reason": "Upstream VISION pivoted",
+  "success": true
+}

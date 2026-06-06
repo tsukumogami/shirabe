@@ -1,0 +1,9 @@
+{
+  "doc_path": "docs/designs/current/DESIGN-supersede.md",
+  "moved": true,
+  "new_path": "docs/designs/archive/DESIGN-supersede.md",
+  "new_status": "Superseded",
+  "old_status": "Current",
+  "success": true,
+  "superseded_by": "docs/designs/DESIGN-replacement.md"
+}

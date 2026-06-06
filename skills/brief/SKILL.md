@@ -99,8 +99,8 @@ From `$ARGUMENTS`:
 
 1. **Empty** — ask the user which feature they want to frame.
 2. **Path to existing BRIEF** with lifecycle verb (`accept`, `done`) —
-   execute the lifecycle transition via `scripts/transition-status.sh`.
-   No reason argument; no directory move.
+   execute the lifecycle transition via `shirabe transition <brief-path>
+   <status>`. No reason argument; no directory move.
 3. **Path to a ROADMAP or PRD document** (matches
    `docs/roadmaps/ROADMAP-*.md` or `docs/prds/PRD-*.md`) — treat as the
    upstream for the new BRIEF; derive the feature's problem/outcome
@@ -230,7 +230,7 @@ Execute phases sequentially by reading the corresponding phase file:
 
 Final artifact: `docs/briefs/BRIEF-<topic>.md`, created in Draft
 status. After explicit user approval at Phase 5, transition to Accepted
-via `scripts/transition-status.sh`.
+via `shirabe transition <brief-path> Accepted`.
 
 After acceptance, suggest next steps:
 

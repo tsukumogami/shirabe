@@ -241,4 +241,4 @@ Execute phases sequentially by reading the corresponding phase file:
 | `references/phases/phase-6-final-review.md` | Phase 6 |
 | `references/lifecycle.md` | Phase 6 (status transitions, label lifecycle, validation) |
 | `references/quality/considered-options-structure.md` | When writing Considered Options |
-| `${CLAUDE_PLUGIN_ROOT}/scripts/transition-status.sh` | Status transitions with file movement |
+| `shirabe transition <design-path> <status>` (Superseded takes `--superseded-by <path>`) | Status transitions with file movement |

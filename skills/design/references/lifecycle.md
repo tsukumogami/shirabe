@@ -19,13 +19,14 @@ Proposed --> Accepted --> Planned --> Current
 | Current | `docs/designs/current/` | All issues closed |
 | Superseded | `docs/designs/archive/` | Replaced by newer design |
 
-### Status Transition Script
+### Status Transition Command
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/transition-status.sh <path> <target> [superseding-doc]
+shirabe transition <path> <target> [--superseded-by <superseding-doc>]
 ```
 
 Handles status update, file movement (`git mv`), and supersession links.
+The `--superseded-by` flag is required when transitioning to `Superseded`.
 
 ### Label Lifecycle
 

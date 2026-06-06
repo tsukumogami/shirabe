@@ -1,0 +1,5 @@
+{
+  "code": 2,
+  "error": "Draft -> Accepted requires Open Questions section to be empty or removed. Found unresolved content.",
+  "success": false
+}

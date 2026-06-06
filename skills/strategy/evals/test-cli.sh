@@ -2,9 +2,9 @@
 # test-cli.sh — deterministic CLI checks for the strategy skill.
 #
 # Complements skills/strategy/evals/evals.json (transcript-graded skill
-# evals) by exercising shirabe validate behavior and the transition-status
-# script against the committed fixtures. The transcript-graded evals
-# cover authoring intent; this script covers binary CLI behavior.
+# evals) by exercising `shirabe validate` and `shirabe transition` behavior
+# against the committed fixtures. The transcript-graded evals cover
+# authoring intent; this script covers binary CLI behavior.
 #
 # Usage: bash skills/strategy/evals/test-cli.sh
 # Exit codes: 0 all checks pass; 1 one or more checks fail.
@@ -14,15 +14,24 @@ set -u
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$REPO_ROOT"
 
-SHIRABE="${SHIRABE:-shirabe}"
-if ! command -v "$SHIRABE" >/dev/null 2>&1; then
-    # Build the binary if it is not on PATH.
-    SHIRABE=/tmp/shirabe-cli-test
-    go build -o "$SHIRABE" ./cmd/shirabe || { echo "FAIL: could not build shirabe binary"; exit 1; }
+# Resolve the shirabe binary. Precedence: $SHIRABE, then a locally built
+# release/debug binary, then `shirabe` on PATH. The CLI is a Rust crate, so a
+# missing binary is built with cargo.
+SHIRABE="${SHIRABE:-}"
+if [[ -z "$SHIRABE" ]]; then
+    if [[ -x "$REPO_ROOT/target/release/shirabe" ]]; then
+        SHIRABE="$REPO_ROOT/target/release/shirabe"
+    elif [[ -x "$REPO_ROOT/target/debug/shirabe" ]]; then
+        SHIRABE="$REPO_ROOT/target/debug/shirabe"
+    elif command -v shirabe >/dev/null 2>&1; then
+        SHIRABE="shirabe"
+    else
+        cargo build --release --bin shirabe || { echo "FAIL: could not build shirabe binary"; exit 1; }
+        SHIRABE="$REPO_ROOT/target/release/shirabe"
+    fi
 fi
 
 FIXTURES_DIR="skills/strategy/evals/fixtures"
-TRANSITION="skills/strategy/scripts/transition-status.sh"
 
 pass_count=0
 fail_count=0
@@ -90,17 +99,17 @@ check "private-allowed accepts with --visibility private (exit 0, gate bidirecti
 "$SHIRABE" validate "$FIXTURES_DIR/STRATEGY-public-leak.md" >/dev/null 2>&1
 check "public-leak rejects with empty visibility (fail-closed)" "$?" "1"
 
-# ----- transition-status.sh behavior -----
+# ----- shirabe transition behavior -----
 
 echo ""
-echo "[transition-status.sh]"
+echo "[shirabe transition]"
 
-# Copy fixture into docs/strategies/ so the script's directory comparison matches.
+# Copy fixture into docs/strategies/ so the directory comparison matches.
 mkdir -p docs/strategies docs/strategies/sunset
 tmp_accepted="docs/strategies/STRATEGY-test-accepted-to-active.md"
 cp "$FIXTURES_DIR/STRATEGY-accepted-to-active.md" "$tmp_accepted"
 
-bash "$TRANSITION" "$tmp_accepted" Active >/dev/null 2>&1
+"$SHIRABE" transition "$tmp_accepted" Active >/dev/null 2>&1
 check "Accepted -> Active transitions cleanly (exit 0)" "$?" "0"
 
 new_status=$(grep "^status:" "$tmp_accepted" | sed 's/status: //')
@@ -120,7 +129,7 @@ rm -f "$tmp_accepted"
 tmp_sunset="docs/strategies/STRATEGY-test-accepted-to-sunset.md"
 cp "$FIXTURES_DIR/STRATEGY-accepted-to-sunset.md" "$tmp_sunset"
 git add "$tmp_sunset" >/dev/null 2>&1
-bash "$TRANSITION" "$tmp_sunset" Sunset "Upstream VISION pivoted" >/dev/null 2>&1
+"$SHIRABE" transition "$tmp_sunset" Sunset --reason "Upstream VISION pivoted" >/dev/null 2>&1
 check "Accepted -> Sunset (lifecycle refinement) succeeds (exit 0)" "$?" "0"
 
 if [[ -f "docs/strategies/sunset/STRATEGY-test-accepted-to-sunset.md" ]]; then
@@ -142,19 +151,19 @@ rm -f "docs/strategies/sunset/STRATEGY-test-accepted-to-sunset.md"
 tmp_sanitize="docs/strategies/STRATEGY-test-sanitize.md"
 cp "$FIXTURES_DIR/STRATEGY-accepted-to-sunset.md" "$tmp_sanitize"
 
-bash "$TRANSITION" "$tmp_sanitize" Sunset "evil/path" >/dev/null 2>&1
+"$SHIRABE" transition "$tmp_sanitize" Sunset --reason "evil/path" >/dev/null 2>&1
 check "reason with forward-slash rejected (exit 2)" "$?" "2"
 
-bash "$TRANSITION" "$tmp_sanitize" Sunset "evil&payload" >/dev/null 2>&1
+"$SHIRABE" transition "$tmp_sanitize" Sunset --reason "evil&payload" >/dev/null 2>&1
 check "reason with ampersand rejected (exit 2)" "$?" "2"
 
-bash "$TRANSITION" "$tmp_sanitize" Sunset "evil\\backslash" >/dev/null 2>&1
+"$SHIRABE" transition "$tmp_sanitize" Sunset --reason "evil\\backslash" >/dev/null 2>&1
 check "reason with backslash rejected (exit 2)" "$?" "2"
 
-bash "$TRANSITION" "$tmp_sanitize" Sunset "" >/dev/null 2>&1
+"$SHIRABE" transition "$tmp_sanitize" Sunset --reason "" >/dev/null 2>&1
 check "empty reason rejected (exit 2)" "$?" "2"
 
-bash "$TRANSITION" "$tmp_sanitize" Sunset "boundary --- delimiter" >/dev/null 2>&1
+"$SHIRABE" transition "$tmp_sanitize" Sunset --reason "boundary --- delimiter" >/dev/null 2>&1
 check "reason with frontmatter delimiter rejected (exit 2)" "$?" "2"
 
 rm -f "$tmp_sanitize"
@@ -162,14 +171,14 @@ rm -f "$tmp_sanitize"
 # Downgrade rejection.
 tmp_downgrade="docs/strategies/STRATEGY-test-downgrade.md"
 cp "$FIXTURES_DIR/STRATEGY-accepted-to-active.md" "$tmp_downgrade"
-bash "$TRANSITION" "$tmp_downgrade" Draft >/dev/null 2>&1
+"$SHIRABE" transition "$tmp_downgrade" Draft >/dev/null 2>&1
 check "Accepted -> Draft downgrade rejected (exit 2)" "$?" "2"
 rm -f "$tmp_downgrade"
 
 # Direct Draft -> Sunset rejection (must go through Accepted first).
 tmp_draft="docs/strategies/STRATEGY-test-draft.md"
 cp "$FIXTURES_DIR/STRATEGY-happy.md" "$tmp_draft"
-bash "$TRANSITION" "$tmp_draft" Sunset "anything" >/dev/null 2>&1
+"$SHIRABE" transition "$tmp_draft" Sunset --reason "anything" >/dev/null 2>&1
 check "Draft -> Sunset rejected (exit 2)" "$?" "2"
 rm -f "$tmp_draft"
 

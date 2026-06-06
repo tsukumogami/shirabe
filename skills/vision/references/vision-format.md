@@ -119,7 +119,7 @@ or Downstream Artifacts pointers.
 
 ### Transitions
 
-All transitions are executed by `scripts/transition-status.sh`. The script
+All transitions are executed by `shirabe transition`. The subcommand
 validates preconditions, updates status in both frontmatter and body, and
 moves files between directories when status changes.
 
@@ -129,14 +129,14 @@ moves files between directories when status changes.
 | Accepted -> Active | At least one downstream artifact references this VISION | None (stays in `docs/visions/`) |
 | Active -> Sunset | Reason provided (abandoned, pivoted, or invalidated) | Moves to `docs/visions/sunset/` |
 
-**Script interface:**
+**Command interface:**
 
 ```
-scripts/transition-status.sh <vision-doc-path> <target-status> [superseding-doc]
+shirabe transition <vision-doc-path> <target-status> [--superseded-by <path>]
 ```
 
-When a superseding doc is provided, the script records `superseded_by` in
-frontmatter and notes the successor in the Status section body.
+When `--superseded-by` is provided, the subcommand records `superseded_by`
+in frontmatter and notes the successor in the Status section body.
 
 **Forbidden transitions:**
 

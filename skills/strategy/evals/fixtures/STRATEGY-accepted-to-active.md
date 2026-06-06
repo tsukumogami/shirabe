@@ -16,9 +16,9 @@ Accepted
 
 ## Strategic Context
 
-This fixture exists to exercise the `transition-status.sh` script's
+This fixture exists to exercise `shirabe transition`'s
 Accepted -> Active path. The fixture starts at Accepted; the test
-invokes the script with target `Active`.
+invokes the subcommand with target `Active`.
 
 ## Defensibility Thesis
 
@@ -35,9 +35,9 @@ Single block; sufficient for FC04 to not fire.
 
 ## Bet-Specific Falsifiability
 
-- *If the transition script fails to update Accepted -> Active*,
+- *If the transition fails to update Accepted -> Active*,
   the lifecycle plumbing is broken. → *Corrective: investigate
-  `validate_transition` in `skills/strategy/scripts/transition-status.sh`.*
+  the strategy graph in `shirabe transition`.*
 
 ## Non-Goals
 

@@ -1,0 +1,5 @@
+{
+  "code": 2,
+  "error": "Draft cannot transition directly to Active; must be Accepted first",
+  "success": false
+}

@@ -1,0 +1,9 @@
+{
+  "doc_path": "docs/visions/VISION-sunset-with-pointer.md",
+  "moved": true,
+  "new_path": "docs/visions/sunset/VISION-sunset-with-pointer.md",
+  "new_status": "Sunset",
+  "old_status": "Active",
+  "success": true,
+  "superseded_by": "docs/visions/sunset/VISION-replacement.md"
+}
