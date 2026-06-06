@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   Three workflow-level bugs in shirabe pattern v1 fire on routine chain
   runs with silent failure modes catastrophic enough to stop the operator
@@ -16,7 +16,7 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
