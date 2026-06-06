@@ -12,10 +12,20 @@ planned_chain:
   - design
   - plan
 chain_skipped: []
-child_snapshots: {}
+child_snapshots:
+  brief:
+    status: Accepted
+    content_hash: 173e7afead8ba8dbe2e9065a320a4f5fb97217d6
+    captured_at: 2026-06-06T03:45:00Z
+    commit_sha: 5d2d085
+  prd:
+    status: Accepted
+    content_hash: 0b1f0b39744e243b116e6fcca0c6b9ca5d9ebe39
+    captured_at: 2026-06-06T05:30:00Z
+    commit_sha: 49c0e1a
 plan_execution_mode: single-pr
 parent_orchestration:
-  invoking_child: brief
+  invoking_child: prd
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 addressed_issues:
