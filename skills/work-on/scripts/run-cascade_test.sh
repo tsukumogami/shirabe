@@ -134,6 +134,45 @@ Test PRD for cascade validation.
 EOF
 }
 
+# Write a minimal BRIEF fixture. The upstream argument is optional: when given
+# (non-empty) an `upstream:` frontmatter line is written; when empty the field
+# is omitted, matching the optional field in the real format.
+write_brief() {
+    local path="$1"
+    local upstream="${2:-}"
+    mkdir -p "$(dirname "$path")"
+    if [[ -n "$upstream" ]]; then
+        cat > "$path" <<EOF
+---
+schema: brief/v1
+status: Accepted
+upstream: $upstream
+---
+
+# BRIEF: Cascade Test
+
+## Status
+
+Accepted
+
+EOF
+    else
+        cat > "$path" <<EOF
+---
+schema: brief/v1
+status: Accepted
+---
+
+# BRIEF: Cascade Test
+
+## Status
+
+Accepted
+
+EOF
+    fi
+}
+
 # Write a minimal PLAN fixture
 write_plan() {
     local path="$1"
@@ -252,6 +291,14 @@ case "$base" in
         fi
         ;;
     PRD-*)
+        if grep -q '^## Status' "$DOC"; then
+            # Update body status (BSD sed requires semicolon before closing brace)
+            sed -i.bak '/^## Status/{n;s/.*/'"$TARGET"'/;}' "$DOC" 2>/dev/null; rm -f "${DOC}.bak" 2>/dev/null || true
+        fi
+        jq -n --arg p "$DOC" --arg ns "$TARGET" \
+            '{success: true, doc_path: $p, old_status: "Accepted", new_status: $ns}'
+        ;;
+    BRIEF-*)
         if grep -q '^## Status' "$DOC"; then
             # Update body status (BSD sed requires semicolon before closing brace)
             sed -i.bak '/^## Status/{n;s/.*/'"$TARGET"'/;}' "$DOC" 2>/dev/null; rm -f "${DOC}.bak" 2>/dev/null || true
@@ -526,6 +573,97 @@ EOF
     cd "$SCRIPT_DIR"
 }
 
+# ── Scenario 6: DESIGN → PRD → BRIEF → ROADMAP (BRIEF with upstream) ──────────
+scenario_brief_with_upstream() {
+    local scenario="Scenario 6: BRIEF with upstream ROADMAP"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    setup_shirabe_stub "$repo"
+
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_brief "$repo/docs/briefs/BRIEF-cascade-test-full.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_prd "$repo/docs/prds/PRD-cascade-test-full.md" \
+        "docs/briefs/BRIEF-cascade-test-full.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-full.md" \
+        "docs/prds/PRD-cascade-test-full.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-full.md" \
+        "docs/designs/DESIGN-cascade-test-full.md"
+
+    commit_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-full.md")
+
+    local ok=true
+
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "cascade_status is completed" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_brief" and .status == "ok")] | length == 1' \
+        "transition_brief ok" || ok=false
+
+    # The walk must continue past the BRIEF to its upstream ROADMAP
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "update_roadmap_feature" and .status == "ok")] | length == 1' \
+        "walk reaches ROADMAP (update_roadmap_feature ok)" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Scenario 7: DESIGN → PRD → BRIEF (BRIEF with no upstream) ─────────────────
+scenario_brief_no_upstream() {
+    local scenario="Scenario 7: BRIEF with no upstream"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    setup_shirabe_stub "$repo"
+
+    # BRIEF with no upstream field — head of the chain
+    write_brief "$repo/docs/briefs/BRIEF-cascade-test-headless.md"
+    write_prd "$repo/docs/prds/PRD-cascade-test-headless.md" \
+        "docs/briefs/BRIEF-cascade-test-headless.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-headless.md" \
+        "docs/prds/PRD-cascade-test-headless.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-headless.md" \
+        "docs/designs/DESIGN-cascade-test-headless.md"
+
+    commit_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-headless.md")
+
+    local ok=true
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_brief" and .status == "ok")] | length == 1' \
+        "transition_brief ok" || ok=false
+
+    # No catchall failure: the BRIEF must not fall to the unrecognized-prefix path
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.detail != null and (.detail | test("unrecognized filename prefix")))] | length == 0' \
+        "no unrecognized-prefix catchall failure" || ok=false
+
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "cascade_status is completed" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 # Check prerequisites
@@ -557,6 +695,12 @@ scenario_missing_upstream
 cd "$ORIG_DIR"
 
 scenario_partial_chain
+cd "$ORIG_DIR"
+
+scenario_brief_with_upstream
+cd "$ORIG_DIR"
+
+scenario_brief_no_upstream
 cd "$ORIG_DIR"
 
 echo ""
