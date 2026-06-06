@@ -2,7 +2,7 @@
 topic: legend-vs-classdef-reconciliation
 chain_started: 2026-06-06T16:48:16Z
 last_updated: 2026-06-06T16:48:16Z
-phase_pointer: phase-1
+phase_pointer: phase-2
 exit: UNSET
 exit_artifacts: []
 planned_chain: []
@@ -37,7 +37,13 @@ R6 shape predicates for /design decision-roster:
 Verdict: /design with small decision-roster (1-2 decisions). All four children in chain.
 
 Chain proposal (auto-accepted; no user confirmation prompt under --auto):
-- /brief — Mandatory.
-- /prd — Mandatory.
-- /design — Mandatory (with small decision-roster, mirroring FC07/FC09 sub-design shape).
+- /brief — Mandatory. Completed: docs/briefs/BRIEF-legend-vs-classdef-reconciliation.md (Accepted, validator-clean).
+- /prd — Mandatory. Completed: docs/prds/PRD-legend-vs-classdef-reconciliation.md (Accepted, validator-clean).
+- /design — Mandatory (with small decision-roster, mirroring FC07/FC09 sub-design shape). In progress.
 - /plan — Mandatory (single-pr; ephemeral PLAN to be deleted in work-completing commit).
+
+## Phase 2 — Child Invocation Loop (in progress)
+
+- BRIEF complete (committed as fd8eef3): docs/briefs/BRIEF-legend-vs-classdef-reconciliation.md.
+- PRD complete (uncommitted at this checkpoint): docs/prds/PRD-legend-vs-classdef-reconciliation.md.
+- Reviewer rounds for --auto: assumed Accepted per FC07/FC09 precedent fidelity (BRIEF mirrors structure; PRD mirrors structure; validator pass).
