@@ -330,19 +330,31 @@ plan frontmatter (a required field), so the multi-pr/single-pr split is reliable
 
 #### Chosen: A new whole-tree `--lifecycle` validator mode, run by a separate CI job alongside the unchanged changed-files validator
 
-The validator gains a `--lifecycle <root>` mode that walks the doc tree, selects
-roadmap and plan docs, and runs two stateless checks on the parsed `Doc` IR:
-Check A (`L01`) fails any roadmap or `multi-pr` plan present with a status other
-than `Active` (a present Draft fails; a present Done fails, the forcing function
-for deletion), and Check B (`L02`) fails while any `single-pr` plan exists in the
-tree and passes once it is gone. A new reusable workflow plus a self-caller runs
-this mode on every PR with no `paths:` filter, as a separate job from the
-content validator (which keeps running diff-scoped and unchanged). The
-verify-then-delete terminal (R15) lands atomically in the work-completing PR: the
-skill transitions Active to Done via `transition-status.sh`, the author verifies,
-and the same PR deletes the doc. CI never deletes -- Check A failing on a present
-Done is what makes the deletion non-optional (R18). The stale
-move-to-`docs/plans/done/` wording is removed.
+The validator gains a `--lifecycle <root>` mode that walks the doc tree and
+runs a chain-aware passing-state check on the parsed `Doc` IR. The mode
+walks the inverse `upstream:` edge from each PLAN and ROADMAP root, infers
+each chain's posture from the PLAN's `execution_mode` and `status`, and
+verifies every chain member is at the passing state for that posture.
+L01 fires on any state-vs-posture mismatch (subsuming both former stateless
+checks as degenerate cases — present Done multi-pr PLANs and present
+single-pr PLANs at merge are both "PLAN passing state is DELETED, doc is
+present" failures); L02 covers orphan-doc violations per the orphan-doc
+decision record; L03/L04/L05 cover cycles, missing members, and malformed
+input. A new reusable workflow plus a self-caller runs this mode on every
+PR with no `paths:` filter, as a separate job from the content validator
+(which keeps running diff-scoped and unchanged). The verify-then-delete
+terminal (R15) lands atomically in the work-completing PR: the author
+transitions Active to Done, verifies, deletes the doc, and transitions the
+upstream BRIEF/PRD to Done — all in the same PR. CI never deletes; L01
+failing on a present-Done multi-pr PLAN is what makes the deletion non-
+optional (R18). The chain-aware reshape supersedes the previous two-
+stateless-checks framing of this Decision; the two earlier check names
+(Check A, Check B) are subsumed as posture-specific L01 messages. The
+orphan-doc rule is settled in
+`docs/decisions/DECISION-orphan-doc-passing-state-rule-2026-06-06.md`;
+the multi-pr posture-detection mechanism (read the PLAN's frontmatter
+`status:` field) is settled in
+`docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`.
 
 #### Alternatives Considered
 

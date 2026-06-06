@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   shirabe's validator reconciles plan and roadmap docs along the FC07 intra-
   document axis (table-vs-diagram across node set, edge set, and class-vs-
@@ -33,7 +33,7 @@ upstream: docs/briefs/BRIEF-legend-vs-classdef-reconciliation.md
 
 ## Status
 
-Accepted
+Done
 
 This PRD picks up the requirements work scoped by
 `docs/briefs/BRIEF-legend-vs-classdef-reconciliation.md`. It owns the
