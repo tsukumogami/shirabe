@@ -14,8 +14,8 @@ use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
     check_slug_prefix, detect_format, format_error, format_notice, is_notice, parse_doc,
-    run_lifecycle_check, run_transition, validate_file, walk_chain_mode, Config, Flags, Mode,
-    ParseError, SlugPrefixCheck, ValidationError,
+    run_lifecycle_chain_check, run_lifecycle_check, run_transition, validate_file,
+    walk_chain_mode, Config, Flags, Mode, ParseError, SlugPrefixCheck, ValidationError,
 };
 
 mod populate;
@@ -160,6 +160,15 @@ struct ValidateArgs {
     /// run non-strict and READY PRs run strict.
     #[arg(long, default_value_t = false)]
     strict: bool,
+
+    /// Chain-targeted lifecycle mode. Takes a doc-in-a-chain (PLAN,
+    /// DESIGN, PRD, BRIEF, or ROADMAP) and validates only the chain
+    /// containing that doc. Mutually exclusive with `--lifecycle` and
+    /// with positional file arguments. Works with `--strict`. The
+    /// work-on cascade script uses this mode to verify its own chain's
+    /// posture without surfacing unrelated drift as noise.
+    #[arg(long, value_name = "DOC")]
+    lifecycle_chain: Option<String>,
 }
 
 fn main() -> ExitCode {
@@ -190,16 +199,35 @@ fn main() -> ExitCode {
 /// error-level annotation was emitted or a flag was invalid, else
 /// `ExitCode::SUCCESS` (0).
 fn run_validate(args: &ValidateArgs) -> ExitCode {
-    // Lifecycle mode and the per-file mode are mutually exclusive.
+    // The two lifecycle modes (whole-tree `--lifecycle <ROOT>` and
+    // chain-targeted `--lifecycle-chain <DOC>`) and the per-file mode
+    // (positional files) are mutually exclusive across the three
+    // combinations.
     if args.lifecycle.is_some() && !args.files.is_empty() {
         eprintln!(
             "--lifecycle is mutually exclusive with positional file arguments"
         );
         return ExitCode::FAILURE;
     }
+    if args.lifecycle_chain.is_some() && !args.files.is_empty() {
+        eprintln!(
+            "--lifecycle-chain is mutually exclusive with positional file arguments"
+        );
+        return ExitCode::FAILURE;
+    }
+    if args.lifecycle.is_some() && args.lifecycle_chain.is_some() {
+        eprintln!(
+            "--lifecycle and --lifecycle-chain are mutually exclusive"
+        );
+        return ExitCode::FAILURE;
+    }
 
     if let Some(root) = args.lifecycle.as_deref() {
         return run_lifecycle(root, &args.visibility, args.strict);
+    }
+
+    if let Some(doc) = args.lifecycle_chain.as_deref() {
+        return run_lifecycle_chain(doc, &args.visibility, args.strict);
     }
 
     if args.files.is_empty() {
@@ -327,6 +355,46 @@ fn run_slug_prefix_detect(args: &SlugPrefixDetectArgs) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+/// Runs the chain-targeted lifecycle check against the chain
+/// containing `doc_path`. Emits one annotation per failure to stdout
+/// and returns a non-zero exit code if any failures were emitted.
+///
+/// Mirrors `run_lifecycle`'s shape but invokes
+/// `run_lifecycle_chain_check`. The strict flag has the same
+/// behavior: when true, the single-pr-mid-PR exemption is disabled
+/// for the matched chain; multi-pr postures are unchanged.
+///
+/// Used by the work-on cascade script in
+/// `skills/work-on/scripts/run-cascade.sh` for the pre-cascade probe
+/// and post-cascade verification points.
+fn run_lifecycle_chain(doc_path: &str, visibility: &str, strict: bool) -> ExitCode {
+    let cfg = Config {
+        custom_statuses: HashMap::new(),
+        visibility: visibility.to_string(),
+    };
+    let path = std::path::Path::new(doc_path);
+    // The path may not exist — let the lifecycle module surface the
+    // L05 error with its standard formatting. The whole-tree mode's
+    // entry guard rejects on missing roots; the chain-targeted mode
+    // leaves the rejection to the module so the error includes the
+    // expected-location-set guidance.
+    let errors = run_lifecycle_chain_check(path, &cfg, strict);
+    let mut has_errors = false;
+    for ve in &errors {
+        if is_notice(ve) {
+            println!("{}", format_notice(&ve.file, &ve.message));
+        } else {
+            println!("{}", format_error(ve));
+            has_errors = true;
+        }
+    }
+    if has_errors {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 /// Runs the `transition` subcommand. On success, prints the per-type JSON

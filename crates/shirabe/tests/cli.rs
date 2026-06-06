@@ -117,3 +117,50 @@ fn unrecognized_format_is_skipped() {
         .stdout("")
         .stderr("");
 }
+
+#[test]
+fn lifecycle_chain_and_lifecycle_are_mutually_exclusive() {
+    // The two lifecycle modes target different scopes; passing both
+    // surfaces a clear error and exits non-zero before any work runs.
+    shirabe()
+        .arg("validate")
+        .arg("--lifecycle")
+        .arg(".")
+        .arg("--lifecycle-chain")
+        .arg("docs/plans/PLAN-foo.md")
+        .assert()
+        .failure()
+        .stderr(contains(
+            "--lifecycle and --lifecycle-chain are mutually exclusive",
+        ));
+}
+
+#[test]
+fn lifecycle_chain_with_positional_files_is_rejected() {
+    // The chain-targeted mode takes its doc-path via the flag value;
+    // additional positional files would be ambiguous.
+    shirabe()
+        .arg("validate")
+        .arg("--lifecycle-chain")
+        .arg("docs/plans/PLAN-foo.md")
+        .arg("docs/briefs/BRIEF-foo.md")
+        .assert()
+        .failure()
+        .stderr(contains(
+            "--lifecycle-chain is mutually exclusive with positional file arguments",
+        ));
+}
+
+#[test]
+fn lifecycle_chain_missing_path_emits_l05() {
+    // A path that does not resolve to a file produces a single L05
+    // error naming the expected location set.
+    shirabe()
+        .arg("validate")
+        .arg("--lifecycle-chain")
+        .arg("/tmp/shirabe-cli-nonexistent-doc.md")
+        .assert()
+        .failure()
+        .stdout(contains("[L05]"))
+        .stdout(contains("not found or not resolvable"));
+}
