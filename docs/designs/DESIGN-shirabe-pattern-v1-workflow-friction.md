@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-shirabe-pattern-v1-workflow-friction.md
 problem: |
   PRD-shirabe-pattern-v1-workflow-friction binds three independent
@@ -54,7 +54,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
