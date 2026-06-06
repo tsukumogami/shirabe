@@ -31,7 +31,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::frontmatter::{self, ParseError};
-use crate::{detect_format, run_transition, transition_spec, Flags};
+use crate::{detect_format, run_transition, transition_spec, Flags, TransitionError};
 
 /// The terminal action a chain node would take. The variants are exactly the
 /// six dispatch outcomes plus the two walk-stopping conditions; the string
@@ -196,29 +196,114 @@ impl Report {
     }
 }
 
-/// Errors the read-only walk can fail with before any node is recorded (the
-/// per-node `Error`/`Stop` cases are recorded *in* the report, not raised).
-#[derive(Debug)]
-pub enum WalkError {
-    /// The input plan path is missing, not a regular file, or escapes the repo.
-    InvalidPlan(String),
-    /// Reading or parsing a node's frontmatter failed.
-    Parse(String),
-    /// Applying a tactical node's terminal transition failed. Carries the
-    /// node's path, its resolved type, the attempted target status, and the
-    /// engine's reason. The node-aware error shaping and exit-code mapping is
-    /// fleshed out in Issue 3; here it simply propagates the failure rather than
-    /// continuing the walk over a half-applied chain.
-    Transition(String),
+/// A chain-walk failure carrying a node-and-type-aware message and an exit
+/// code, replacing the opaque error surface the bash cascade had (which
+/// captured a bare `{` -- the engine's JSON error rendered to its first line --
+/// with no awareness of why a transition was refused).
+///
+/// The `code` mirrors the single-document `transition` levels exactly:
+/// - `0` is reserved for success (never carried by a `WalkError`).
+/// - `1` tool error: a missing / unreadable / unparseable input, or a
+///   path-validation failure (the value escapes the repo, is not a regular
+///   file, or is a symlink).
+/// - `2` lifecycle violation: an illegal or precondition-failing transition the
+///   engine refused.
+/// - `3` I/O error: a filesystem read/write or `git mv` failure during apply.
+///
+/// The subcommand renders this with [`WalkError::to_json`] in the same
+/// `{ "success": false, "error": <message>, "code": <n> }` shape the
+/// single-document `transition` uses, and exits with [`WalkError::code`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalkError {
+    /// The 1/2/3 exit code, matching the transition levels.
+    pub code: i32,
+    /// The node-and-type-aware human-readable reason.
+    pub message: String,
+}
+
+impl WalkError {
+    fn new(code: i32, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+
+    /// The input plan path is missing, not a regular file, or escapes the repo:
+    /// a tool error (exit 1).
+    fn invalid_plan(message: impl Into<String>) -> Self {
+        Self::new(1, message)
+    }
+
+    /// A path-validation failure on a chain node (outside the repo root, not a
+    /// regular file, or a symlink): a tool error (exit 1).
+    fn invalid_path(message: impl Into<String>) -> Self {
+        Self::new(1, message)
+    }
+
+    /// Reading or parsing a node's frontmatter failed: a tool error (exit 1),
+    /// matching the single-document transition's treatment of an unparseable
+    /// input.
+    fn parse(message: impl Into<String>) -> Self {
+        Self::new(1, message)
+    }
+
+    /// A node's terminal transition was refused. Weaves the node path, its
+    /// resolved artifact type, the attempted `from -> to` transition, and the
+    /// engine's reason into one message, and carries the engine's own exit code
+    /// (2 for a lifecycle violation, 1 for a tool error, 3 for I/O) so the
+    /// chain's exit code is the first failing node's. This is the surface that
+    /// replaces the bash cascade's bare `{`.
+    fn transition(
+        node_path: &str,
+        node_type: Option<&str>,
+        from: &str,
+        to: &str,
+        err: &TransitionError,
+    ) -> Self {
+        let type_label = node_type.unwrap_or("unknown type");
+        Self::new(
+            err.code,
+            format!(
+                "refused transition for {} ({}) {} -> {}: {}",
+                node_path, type_label, from, to, err.message
+            ),
+        )
+    }
+
+    /// An I/O failure while preparing a node for transition (e.g. the DESIGN
+    /// Implementation-Issues strip's read/write): an I/O error (exit 3).
+    fn io(node_path: &str, node_type: Option<&str>, detail: &str) -> Self {
+        let type_label = node_type.unwrap_or("unknown type");
+        Self::new(
+            3,
+            format!(
+                "I/O error preparing {} ({}): {}",
+                node_path, type_label, detail
+            ),
+        )
+    }
+
+    /// The exit code to surface to the process, mirroring the transition levels.
+    pub fn code(&self) -> i32 {
+        self.code
+    }
+
+    /// Render the error JSON exactly as the single-document transition's
+    /// `TransitionError::to_json` does: `{ "success": false, "error": <message>,
+    /// "code": <code> }`, 2-space indented with a trailing newline.
+    pub fn to_json(&self) -> String {
+        format!(
+            "{{\n  \"success\": false,\n  \"error\": {},\n  \"code\": {}\n}}\n",
+            json_string(&self.message),
+            self.code
+        )
+    }
 }
 
 impl std::fmt::Display for WalkError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WalkError::InvalidPlan(msg) => write!(f, "invalid plan: {}", msg),
-            WalkError::Parse(msg) => write!(f, "parse error: {}", msg),
-            WalkError::Transition(msg) => write!(f, "transition error: {}", msg),
-        }
+        write!(f, "{} (code {})", self.message, self.code)
     }
 }
 
@@ -226,7 +311,7 @@ impl std::error::Error for WalkError {}
 
 impl From<ParseError> for WalkError {
     fn from(value: ParseError) -> Self {
-        WalkError::Parse(value.to_string())
+        WalkError::parse(value.to_string())
     }
 }
 
@@ -266,14 +351,11 @@ pub fn walk_chain(plan_path: &str) -> Result<Report, WalkError> {
 /// from that post-move path so the next node's `upstream` link still resolves.
 pub fn walk_chain_mode(plan_path: &str, mode: Mode) -> Result<Report, WalkError> {
     let plan = Path::new(plan_path);
-    if !plan.is_file() {
-        return Err(WalkError::InvalidPlan(format!(
-            "not a regular file: {}",
-            plan_path
-        )));
-    }
+    // The input PLAN gets the same path validation every chain node does:
+    // inside the repo root, a regular file, not a symlink. A failure is a tool
+    // error (exit 1).
     let repo_root = repo_root_for(plan);
-    reject_outside_root(plan_path, &repo_root).map_err(WalkError::InvalidPlan)?;
+    validate_node_path(plan_path, &repo_root).map_err(WalkError::invalid_plan)?;
 
     // The input PLAN is a delete node: its format must carry no transition
     // spec. Assert that, rather than hardcoding the "PLAN-" prefix.
@@ -325,6 +407,13 @@ pub fn walk_chain_mode(plan_path: &str, mode: Mode) -> Result<Report, WalkError>
             break;
         }
 
+        // Path validation before any read or transition: the untrusted
+        // `upstream` value must resolve inside the repo root, be a regular file,
+        // and not be a symlink (mirroring run-cascade.sh's
+        // `validate_upstream_path` intent). A failure is a tool error (exit 1).
+        let node_root = repo_root_for(Path::new(&upstream));
+        validate_node_path(&upstream, &node_root).map_err(WalkError::invalid_path)?;
+
         let fmt = detect_format(basename(&upstream));
         let format_name = fmt.as_ref().map(|f| f.name.clone());
 
@@ -375,10 +464,24 @@ pub fn walk_chain_mode(plan_path: &str, mode: Mode) -> Result<Report, WalkError>
         if mode == Mode::Apply {
             if let Some(target) = &target_status {
                 if matches!(action, NodeAction::TransitionDesign) {
-                    strip_implementation_issues(&upstream).map_err(WalkError::Transition)?;
+                    strip_implementation_issues(&upstream)
+                        .map_err(|e| WalkError::io(&upstream, entry.format.as_deref(), &e))?;
                 }
-                let outcome = run_transition(&upstream, target, &Flags::default())
-                    .map_err(|e| WalkError::Transition(e.to_string()))?;
+                let outcome =
+                    run_transition(&upstream, target, &Flags::default()).map_err(|e| {
+                        // The engine's TransitionError carries only its reason and
+                        // code; we know the node's resolved type and the attempted
+                        // edge. Read the node's current status best-effort for the
+                        // `from` side so the message names the full transition.
+                        let from = current_status_of(&upstream);
+                        WalkError::transition(
+                            &upstream,
+                            entry.format.as_deref(),
+                            from.as_deref().unwrap_or("?"),
+                            target,
+                            &e,
+                        )
+                    })?;
                 entry.old_status = Some(outcome.old_status.clone());
                 entry.new_status = Some(outcome.new_status.clone());
                 entry.new_path = Some(outcome.new_path.clone());
@@ -518,6 +621,44 @@ fn repo_root_for(path: &Path) -> PathBuf {
         }
     }
     dir.to_path_buf()
+}
+
+/// Validate a chain node's path before any read or transition, mirroring
+/// run-cascade.sh's `validate_upstream_path` intent: the path must resolve
+/// inside the repo `root`, be a regular file, and not be a symlink. Returns a
+/// descriptive message on failure (the caller maps it to a tool error, exit 1).
+///
+/// Tracked-in-git is intentionally *not* re-checked here: `run_transition`
+/// already operates only on on-disk files, the apply path stages its own moves,
+/// and the unit tests use temp git repos where a just-written node may be staged
+/// but not yet a tracked-at-HEAD file. The confinement + regular-file + no-
+/// symlink checks are the security-relevant ones the design calls out.
+fn validate_node_path(path: &str, root: &Path) -> Result<(), String> {
+    reject_outside_root(path, root)?;
+    let p = Path::new(path);
+    // `symlink_metadata` does not follow the final symlink, so a symlinked node
+    // is caught here rather than silently resolving to its target.
+    match std::fs::symlink_metadata(p) {
+        Ok(meta) => {
+            let ft = meta.file_type();
+            if ft.is_symlink() {
+                return Err(format!("path is a symlink, not a regular file: {}", path));
+            }
+            if !ft.is_file() {
+                return Err(format!("not a regular file: {}", path));
+            }
+            Ok(())
+        }
+        Err(e) => Err(format!("cannot stat path {}: {}", path, e)),
+    }
+}
+
+/// Best-effort read of a node's current `status` for the refused-transition
+/// message. Returns `None` when the doc cannot be parsed or carries no status;
+/// the message then renders `?` for the `from` side.
+fn current_status_of(doc_path: &str) -> Option<String> {
+    let doc = frontmatter::parse_doc(doc_path).ok()?;
+    doc.fields.get("status").map(|f| f.value.trim().to_string())
 }
 
 /// Reject `path` if it resolves outside `root`. Mirrors the transition module's
@@ -981,5 +1122,176 @@ mod tests {
         assert!(json.contains("\"new_status\": \"Done\""));
         assert!(json.contains("\"new_path\""));
         assert!(json.contains("\"moved\": false"));
+    }
+
+    // ---- Issue 3: typed errors + exit-code contract ----
+
+    /// Exit-code level 0: a clean apply returns `Ok`, so the subcommand exits 0.
+    /// (The full apply chain is covered above; this asserts the success arm of
+    /// the contract explicitly.)
+    #[test]
+    fn exit_code_0_clean_success() {
+        let root = fresh_git_repo();
+        let prd = write_repo_doc(&root, "docs/prds/PRD-ok.md", "Draft", None, "");
+        let plan = write_repo_doc(&root, "docs/plans/PLAN-ok.md", "Draft", Some(&prd), "");
+        let report = walk_chain_mode(&plan, Mode::Apply).expect("apply ok");
+        assert_eq!(report.nodes[1].new_status.as_deref(), Some("Done"));
+    }
+
+    /// Exit-code level 2: a lifecycle violation. This is exactly the bare-`{`
+    /// scenario from the design -- a graph-constrained BRIEF still at Draft,
+    /// asked to go straight to Done (an illegal edge: it must be Accepted
+    /// first). The engine refuses with code 2, and the chain surfaces a full
+    /// node-and-type-aware message instead of a brace.
+    #[test]
+    fn exit_code_2_lifecycle_violation_brief_draft_to_done() {
+        let root = fresh_git_repo();
+        // BRIEF still at Draft: Draft -> Done is illegal (must be Accepted first).
+        let brief = write_repo_doc(&root, "docs/briefs/BRIEF-bad.md", "Draft", None, "");
+        let plan = write_repo_doc(&root, "docs/plans/PLAN-bad.md", "Draft", Some(&brief), "");
+
+        let err = walk_chain_mode(&plan, Mode::Apply).expect_err("must refuse");
+        assert_eq!(err.code(), 2, "lifecycle violation is exit 2");
+        // The message names the node path, its type, the attempted transition,
+        // and the engine's reason -- never a bare fragment.
+        assert!(err.message.contains("BRIEF-bad.md"), "names the node path");
+        assert!(err.message.contains("Brief"), "names the resolved type");
+        assert!(
+            err.message.contains("Draft -> Done"),
+            "names the transition"
+        );
+        assert!(
+            err.message.contains("must be Accepted first"),
+            "carries the engine's reason: {}",
+            err.message
+        );
+    }
+
+    /// Exit-code level 1: a tool error from a path-validation failure. The PLAN
+    /// names an `upstream` that does not exist on disk; validation fails before
+    /// any read or transition.
+    #[test]
+    fn exit_code_1_tool_error_missing_upstream() {
+        let root = fresh_git_repo();
+        let missing = root
+            .join("docs/prds/PRD-gone.md")
+            .to_string_lossy()
+            .into_owned();
+        let plan = write_repo_doc(
+            &root,
+            "docs/plans/PLAN-miss.md",
+            "Draft",
+            Some(&missing),
+            "",
+        );
+
+        let err = walk_chain_mode(&plan, Mode::Apply).expect_err("must fail");
+        assert_eq!(err.code(), 1, "missing/unvalidatable upstream is exit 1");
+        assert!(
+            err.message.contains("PRD-gone.md"),
+            "names the offending path: {}",
+            err.message
+        );
+    }
+
+    /// Exit-code level 1: a path-validation failure where the upstream is a
+    /// symlink (rejected as not a regular file), mirroring
+    /// `validate_upstream_path`'s symlink guard.
+    #[test]
+    fn exit_code_1_tool_error_symlink_upstream() {
+        let root = fresh_git_repo();
+        // A real PRD plus a symlink pointing at it; the chain links to the
+        // symlink, which must be rejected.
+        let real = write_repo_doc(&root, "docs/prds/PRD-real.md", "Draft", None, "");
+        let link = root.join("docs/prds/PRD-link.md");
+        std::os::unix::fs::symlink(&real, &link).expect("symlink");
+        let link_str = link.to_string_lossy().into_owned();
+        let plan = write_repo_doc(
+            &root,
+            "docs/plans/PLAN-link.md",
+            "Draft",
+            Some(&link_str),
+            "",
+        );
+
+        let err = walk_chain_mode(&plan, Mode::Apply).expect_err("must fail");
+        assert_eq!(err.code(), 1, "symlink upstream is a tool error (exit 1)");
+        assert!(
+            err.message.contains("symlink"),
+            "explains the symlink rejection: {}",
+            err.message
+        );
+    }
+
+    /// Exit-code level 3: an I/O error path is reachable -- the structured error
+    /// it produces carries code 3. We exercise the message shape directly since
+    /// provoking a real mid-walk I/O fault is racy; the apply path maps strip
+    /// and engine I/O faults through `WalkError::io` / the engine's code-3
+    /// errors.
+    #[test]
+    fn exit_code_3_io_error_shape() {
+        let err = WalkError::io(
+            "docs/designs/DESIGN-x.md",
+            Some("Design"),
+            "permission denied",
+        );
+        assert_eq!(err.code(), 3);
+        assert!(err.message.contains("DESIGN-x.md"));
+        assert!(err.message.contains("Design"));
+        assert!(err.message.contains("permission denied"));
+    }
+
+    /// A cross-repo `owner/repo:path` upstream stops the walk with a clear
+    /// report entry rather than being resolved (resolution is out of scope).
+    /// This is the apply-mode counterpart to the dry-run test above.
+    #[test]
+    fn cross_repo_upstream_stops_apply_mode() {
+        let root = fresh_git_repo();
+        let plan = write_repo_doc(
+            &root,
+            "docs/plans/PLAN-xrepo.md",
+            "Draft",
+            Some("owner/repo:docs/DESIGN-x.md"),
+            "",
+        );
+        let report = walk_chain_mode(&plan, Mode::Apply).expect("walk ok (no error raised)");
+        let actions: Vec<&str> = report.nodes.iter().map(|n| n.action.as_str()).collect();
+        assert_eq!(actions, vec!["delete_plan", "stop"]);
+        match &report.nodes[1].action {
+            NodeAction::Stop(note) => {
+                assert!(
+                    note.contains("cross-repo"),
+                    "note explains the stop: {}",
+                    note
+                );
+                assert!(note.contains("out of scope"));
+            }
+            other => panic!("expected Stop, got {:?}", other),
+        }
+    }
+
+    /// The structured-error JSON matches the single-document transition's
+    /// `{ success:false, error, code }` shape, and `error` names the node, its
+    /// type, and the engine's reason -- never a bare brace.
+    #[test]
+    fn structured_error_json_names_node_type_and_reason() {
+        let root = fresh_git_repo();
+        let brief = write_repo_doc(&root, "docs/briefs/BRIEF-json.md", "Draft", None, "");
+        let plan = write_repo_doc(&root, "docs/plans/PLAN-bjson.md", "Draft", Some(&brief), "");
+
+        let err = walk_chain_mode(&plan, Mode::Apply).expect_err("must refuse");
+        let json = err.to_json();
+        // Envelope shape, identical to TransitionError::to_json.
+        assert!(json.starts_with("{\n  \"success\": false,\n  \"error\": "));
+        assert!(json.contains("\"code\": 2"));
+        assert!(json.ends_with("}\n"));
+        // The error string is a full sentence, not a bare fragment.
+        assert!(json.contains("BRIEF-json.md"));
+        assert!(json.contains("Brief"));
+        assert!(json.contains("Draft -> Done"));
+        assert!(json.contains("must be Accepted first"));
+        // It is emphatically not just a brace.
+        assert_ne!(err.message.trim(), "{");
+        assert!(err.message.len() > 1);
     }
 }

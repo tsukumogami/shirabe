@@ -236,8 +236,11 @@ fn run_transition_cmd(args: &TransitionArgs) -> ExitCode {
 /// node's terminal transition in-process (stripping a DESIGN's Implementation
 /// Issues section first); `--dry-run` walks read-only. On success, prints the
 /// JSON chain report to stdout and exits 0. On a walk or transition failure,
-/// prints the error to stderr and exits 1. The richer node-aware exit-code
-/// contract lands in a later issue.
+/// prints the node-and-type-aware error JSON
+/// (`{ "success": false, "error": <message>, "code": <n> }`) to stderr and
+/// exits with the chain's aggregated exit code, mirroring `run_transition_cmd`:
+/// 2 lifecycle violation, 1 tool error, 3 I/O error. The exit code is the first
+/// failing node's, since the walk stops there.
 fn run_finalize_chain_cmd(args: &FinalizeChainArgs) -> ExitCode {
     let mode = if args.dry_run {
         Mode::DryRun
@@ -250,8 +253,8 @@ fn run_finalize_chain_cmd(args: &FinalizeChainArgs) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(err) => {
-            eprintln!("{}", err);
-            ExitCode::FAILURE
+            eprint!("{}", err.to_json());
+            ExitCode::from(err.code() as u8)
         }
     }
 }
