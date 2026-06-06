@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Done
 problem: |
   The completion cascade walks a finished PLAN's upstream chain,
   transitioning DESIGN and PRD nodes to their terminal states. It has
@@ -16,7 +16,7 @@ outcome: |
 
 ## Status
 
-Draft
+Done
 
 ## Problem Statement
 

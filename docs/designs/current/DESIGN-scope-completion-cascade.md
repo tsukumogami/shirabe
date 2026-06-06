@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-scope-completion-cascade.md
 problem: |
   The completion cascade walks a finished PLAN's upstream chain and transitions
@@ -37,7 +37,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Upstream Design Reference
 

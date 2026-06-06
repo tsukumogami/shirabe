@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Done
 problem: |
   The completion cascade walks a finished PLAN's upstream chain and transitions
   each node to its terminal status, but it has no handler for a BRIEF node. Since
@@ -20,7 +20,7 @@ upstream: docs/briefs/BRIEF-scope-completion-cascade.md
 
 ## Status
 
-Draft
+Done
 
 ## Problem Statement
 
