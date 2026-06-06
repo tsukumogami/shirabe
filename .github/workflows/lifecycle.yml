@@ -1,0 +1,108 @@
+name: Lifecycle Check
+
+# Example caller (in a downstream repo's .github/workflows/lifecycle.yml):
+#
+# name: Validate chain lifecycle
+# on:
+#   pull_request:
+#     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+# jobs:
+#   lifecycle:
+#     uses: tsukumogami/shirabe/.github/workflows/lifecycle.yml@v0.10.0
+#
+# The reusable workflow runs the chain-aware passing-state check
+# (`shirabe validate --lifecycle .`) against the caller repo's working
+# tree, with strict mode set conditional on
+# `github.event.pull_request.draft`. The whole-tree scan is the point —
+# no `paths:` filter at the caller level, since the check inspects
+# every chain in the tree regardless of which docs the diff touches.
+#
+# DRAFT PRs run in non-strict mode and pass against mid-PR chain
+# states; READY PRs run in strict mode and require single-pr chains to
+# be at their terminal (PLAN deleted, BRIEF/PRD Done, DESIGN Current).
+# See docs/briefs/BRIEF-lifecycle-draft-ready-discipline.md for the
+# DRAFT-vs-READY discipline.
+
+on:
+  workflow_call:
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check PR context
+        # Non-PR triggers (workflow_dispatch, etc.) have no pull_request
+        # event payload to read `.draft` from; skip cleanly with a notice.
+        run: |
+          if [ -z "${{ github.base_ref }}" ]; then
+            echo "::notice::Skipping lifecycle check: requires a PR context (github.base_ref is empty)"
+            exit 0
+          fi
+
+      - name: Checkout caller repo
+        # Fetch full history so the chain walker sees the working tree
+        # as it stands on the PR's head commit. The lifecycle check is
+        # whole-tree and does not consume `git diff`, but the checkout
+        # still mirrors the validate-docs.yml pattern for consistency.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Checkout shirabe
+        # job.workflow_repository and job.workflow_sha resolve to the
+        # called workflow's repository and commit SHA. For external
+        # callers using `uses: tsukumogami/shirabe/.github/workflows/lifecycle.yml@<ref>`,
+        # this picks up tsukumogami/shirabe at the called ref so the
+        # binary matches the workflow contract. For the local
+        # self-caller (`uses: ./.github/workflows/lifecycle.yml`), it
+        # resolves to the caller repo at the caller's commit (this
+        # PR's head), which is what we want.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .shirabe-src
+
+      - name: Install Rust toolchain
+        # Reads .shirabe-src/rust-toolchain.toml and installs the pinned channel.
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Cache Cargo
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .shirabe-src/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('.shirabe-src/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build shirabe
+        run: |
+          cargo build --release --bin shirabe --manifest-path .shirabe-src/Cargo.toml
+          install -m 0755 .shirabe-src/target/release/shirabe /usr/local/bin/shirabe
+
+      - name: Run lifecycle check
+        # The shell conditional reads github.event.pull_request.draft
+        # and sets STRICT_FLAG when the PR is ready-for-review (draft
+        # is false). DRAFT PRs leave STRICT_FLAG empty and run the
+        # check in non-strict mode against mid-PR chain states. READY
+        # PRs run in strict mode and require chains to be at their
+        # terminal passing state. See
+        # docs/decisions/DECISION-lifecycle-strict-mode-interface-2026-06-06.md
+        # for the interface rationale.
+        run: |
+          STRICT_FLAG=""
+          if [ "${{ github.event.pull_request.draft }}" = "false" ]; then
+            STRICT_FLAG="--strict"
+            echo "PR is ready-for-review; running in strict mode."
+          else
+            echo "PR is draft; running in non-strict mode."
+          fi
+          shirabe validate \
+            --visibility=${{ github.repository_visibility }} \
+            --lifecycle . \
+            $STRICT_FLAG
