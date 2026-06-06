@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   The completion cascade re-implements in bash three things the Rust
   transition engine already owns: frontmatter parsing, per-artifact-type
@@ -18,7 +18,7 @@ outcome: |
 
 ## Status
 
-Accepted
+Done
 
 The downstream PRD owns the requirements: the subcommand's exact input and
 output contract, the typed-error shape, and which behaviors must be preserved
