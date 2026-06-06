@@ -41,6 +41,18 @@ Frontmatter includes `schema: plan/v1`, `status`, `execution_mode` (single-pr or
 multi-pr), `milestone`, and `issue_count`. Optional `upstream` links to the source
 document (design doc, PRD, or roadmap).
 
+PLANs are ephemeral: when the work completes, the PLAN file is deleted
+from the tree in the same commit set that transitions the upstream
+BRIEF, PRD, and DESIGN to their terminal states. There is no
+`docs/plans/done/` directory in the current lifecycle model — the
+verify-then-delete terminal is the single forcing function. The
+chain-aware `--lifecycle` check (`shirabe validate --lifecycle .`)
+enforces this; the work-on cascade performs the atomic deletion
+before `gh pr ready` fires (the DRAFT-vs-READY discipline). See
+`docs/decisions/DECISION-lifecycle-strict-mode-interface-2026-06-06.md`
+and `docs/decisions/DECISION-cascade-trigger-mechanism-2026-06-06.md`
+for the strict-mode CLI flag and the cascade trigger rationale.
+
 ## Decomposition Strategies
 
 ### Walking Skeleton

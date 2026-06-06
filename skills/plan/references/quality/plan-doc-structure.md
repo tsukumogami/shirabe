@@ -46,8 +46,15 @@ and roadmap workflows:
 
 ## File Location
 
-PLAN artifacts live at `docs/plans/PLAN-<topic>.md`. When a PLAN
-reaches Done status, move it to `docs/plans/done/PLAN-<topic>.md`.
+PLAN artifacts live at `docs/plans/PLAN-<topic>.md`. PLANs are
+ephemeral: when the work completes, the PLAN file is deleted from
+the tree in the same commit set that transitions the upstream
+BRIEF, PRD, and DESIGN to their terminal states. The
+verify-then-delete terminal is the single forcing function that
+pulls the chain across the line — there is no `docs/plans/done/`
+directory in the new model. The chain-aware `--lifecycle` check
+enforces the deletion; the work-on cascade performs it atomically
+before `gh pr ready` fires (the DRAFT-vs-READY discipline).
 
 ## Frontmatter
 
@@ -77,7 +84,7 @@ unit) but GitHub milestone creation only happens in multi-pr mode.
 |--------|---------|---------|
 | Draft | Plan being written during /plan phases | /plan creates the PLAN artifact |
 | Active | Implementation underway | multi-pr: GitHub issues created; single-pr: /work-on starts |
-| Done | Implementation complete, move to `docs/plans/done/` | multi-pr: all issues closed; single-pr: PR merged |
+| Done | Implementation complete; PLAN deleted in the same commit set that transitions upstream BRIEF/PRD to Done | multi-pr: all issues closed and the work-completing PR is open; single-pr: /work-on cascade ran before the PR flipped to ready |
 
 **Coordinated lifecycle with design docs:**
 

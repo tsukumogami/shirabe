@@ -237,6 +237,26 @@ Lifecycle verbs are invoked as:
 
 Both delegate to `shirabe transition`.
 
+### Chain CI Gate (DRAFT-vs-READY Discipline)
+
+The `lifecycle.yml` reusable workflow runs on every PR with strictness
+conditional on the PR's `draft` state. A DRAFT PR passes against
+mid-PR chain states; a READY PR requires the chain to be at one of
+its terminals — single-pr at-merge (PLAN deleted, BRIEF/PRD Done,
+DESIGN Current) or multi-pr in-flight (BRIEF Accepted, PRD
+Accepted/In Progress, DESIGN Current, PLAN Active) for intermediate
+multi-pr PRs, or multi-pr at-merge for the final verify-then-delete
+PR. ROADMAP-rooted multi-pr chains follow the same shape — the
+final per-feature PR in the chain runs the work-on cascade, which
+performs the atomic PLAN-delete plus BRIEF/PRD/DESIGN-transition
+commit before `gh pr ready` fires. The CI gate is the backstop for
+authors who bypass the cascade.
+
+See `docs/decisions/DECISION-lifecycle-strict-mode-interface-2026-06-06.md`
+and `docs/decisions/DECISION-cascade-trigger-mechanism-2026-06-06.md`
+for the rationale on the `--strict` CLI flag and the cascade
+trigger mechanism.
+
 ---
 
 ## Populating the Issues Table
