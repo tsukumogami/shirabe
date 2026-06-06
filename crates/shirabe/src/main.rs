@@ -13,8 +13,8 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
-    detect_format, format_error, format_notice, is_notice, parse_doc, run_transition,
-    validate_file, Config, Flags, ParseError, ValidationError,
+    detect_format, format_error, format_notice, is_notice, parse_doc, run_lifecycle_check,
+    run_transition, validate_file, Config, Flags, ParseError, ValidationError,
 };
 
 mod populate;
@@ -108,6 +108,14 @@ struct ValidateArgs {
     /// YAML map of schema version to valid status list.
     #[arg(long, default_value = "")]
     custom_statuses: String,
+
+    /// Chain-aware passing-state lifecycle mode. Walks the doc tree under
+    /// the given root, identifies artifact chains via inverse `upstream:`
+    /// traversal, and verifies every chain member is at its passing
+    /// state for the chain's posture. Mutually exclusive with positional
+    /// file arguments.
+    #[arg(long, value_name = "ROOT")]
+    lifecycle: Option<String>,
 }
 
 fn main() -> ExitCode {
@@ -136,6 +144,18 @@ fn main() -> ExitCode {
 /// error-level annotation was emitted or a flag was invalid, else
 /// `ExitCode::SUCCESS` (0).
 fn run_validate(args: &ValidateArgs) -> ExitCode {
+    // Lifecycle mode and the per-file mode are mutually exclusive.
+    if args.lifecycle.is_some() && !args.files.is_empty() {
+        eprintln!(
+            "--lifecycle is mutually exclusive with positional file arguments"
+        );
+        return ExitCode::FAILURE;
+    }
+
+    if let Some(root) = args.lifecycle.as_deref() {
+        return run_lifecycle(root, &args.visibility);
+    }
+
     if args.files.is_empty() {
         return ExitCode::SUCCESS;
     }
@@ -188,6 +208,36 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         }
     }
 
+    if has_errors {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// Runs the chain-aware passing-state lifecycle check against `root`.
+/// Emits one annotation per failure to stdout and returns a non-zero
+/// exit code if any failures were emitted.
+fn run_lifecycle(root: &str, visibility: &str) -> ExitCode {
+    let cfg = Config {
+        custom_statuses: HashMap::new(),
+        visibility: visibility.to_string(),
+    };
+    let root_path = std::path::Path::new(root);
+    if !root_path.exists() {
+        eprintln!("--lifecycle root {} does not exist", root);
+        return ExitCode::FAILURE;
+    }
+    let errors = run_lifecycle_check(root_path, &cfg);
+    let mut has_errors = false;
+    for ve in &errors {
+        if is_notice(ve) {
+            println!("{}", format_notice(&ve.file, &ve.message));
+        } else {
+            println!("{}", format_error(ve));
+            has_errors = true;
+        }
+    }
     if has_errors {
         ExitCode::FAILURE
     } else {
