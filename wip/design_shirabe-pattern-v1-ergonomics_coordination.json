@@ -1,0 +1,21 @@
+{
+  "topic": "shirabe-pattern-v1-ergonomics",
+  "decisions": [
+    {"id": 1, "question": "Sub-agent fallback section format", "status": "complete", "complexity": "critical", "report_file": "wip/design_shirabe-pattern-v1-ergonomics_decision_1_report.md", "chosen": "Option A — Pattern-level canonical section + per-skill citations", "covers_requirements": ["R1","R2","R3","R4","R5","R6","R7","R8"], "covers_acs": ["AC1.1","AC1.2","AC1.3","AC1.4","AC1.5","AC1.6","AC1.7","AC1.8","AC1.9"]},
+    {"id": 2, "question": "Resume Logic sentinel-consultation row format", "status": "complete", "complexity": "standard", "report_file": "wip/design_shirabe-pattern-v1-ergonomics_decision_2_report.md", "chosen": "Option A — First-row sentinel-consultation; pattern-level convention in parent-skill-pattern.md", "covers_requirements": ["R9","R10"], "covers_acs": ["AC2.1","AC2.2","AC2.3"]},
+    {"id": 3, "question": "Format-reference clarifications and file materialization", "status": "complete", "complexity": "critical", "report_file": "wip/design_shirabe-pattern-v1-ergonomics_decision_3_report.md", "chosen": "Option A — Materialize design-format.md and plan-format.md at canonical altitude", "covers_requirements": ["R11","R12","R13","R14","R15","R16","R17"], "covers_acs": ["AC3.1","AC3.2","AC3.3","AC3.4","AC3.5","AC3.6","AC3.7"]},
+    {"id": 4, "question": "Validator vs jury split for the five candidate checks", "status": "complete", "complexity": "critical", "report_file": "wip/design_shirabe-pattern-v1-ergonomics_decision_4_report.md", "chosen": "R18 validator notice; R19 Phase-6 reviewer rubric; R20 validator FC10; R21 third Phase-6 reviewer; R22 Phase-7 self-check + validator FC11", "covers_requirements": ["R18","R19","R20","R21","R22"], "covers_acs": ["AC4.1","AC4.2","AC4.3","AC4.4","AC4.5"]},
+    {"id": 5, "question": "Cross-skill consistency rules placement", "status": "complete", "complexity": "standard", "report_file": "wip/design_shirabe-pattern-v1-ergonomics_decision_5_report.md", "chosen": "R23 /plan Phase 3.6; R24 /plan Phase 4 agent prompt; R25 phase-6-final-review.md wording extension; R26 eval-fixture authoring convention", "covers_requirements": ["R23","R24","R25","R26"], "covers_acs": ["AC5.1","AC5.2","AC5.3","AC5.4"]},
+    {"id": 6, "question": "Convention updates and CLI version-skew preflight", "status": "complete", "complexity": "critical", "report_file": "wip/design_shirabe-pattern-v1-ergonomics_decision_6_report.md", "chosen": "R27 /scope Phase 0 sampling; R28 CLAUDE.md convention; R29 /scope Phase 1 cold-start projection; R30 new shared reference with per-skill citations", "covers_requirements": ["R27","R28","R29","R30"], "covers_acs": ["AC6.1","AC6.2","AC6.3","AC6.4","AC7.1"]},
+    {"id": 7, "question": "Sequencing and migration ordering", "status": "complete", "complexity": "standard", "report_file": "wip/design_shirabe-pattern-v1-ergonomics_decision_7_report.md", "chosen": "Option A — Three-batch ordering (pattern-level → per-skill → validator)", "covers_requirements": ["R31","R32"], "covers_acs": ["AC8.1","AC8.2"]}
+  ],
+  "cross_validation": "passed",
+  "round": 1,
+  "all_decisions_complete": true,
+  "dispatch_context": {
+    "parent": "/scope",
+    "invoking_child": "design",
+    "rationale": "fresh-chain",
+    "jury_substitute": "serial-self-jury (per PRD D2)"
+  }
+}
