@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 upstream: docs/briefs/BRIEF-shirabe-pattern-v1-workflow-friction.md
 problem: |
   Three shirabe pattern-v1 workflow primitives fail catastrophically and
@@ -27,7 +27,7 @@ goals: |
 
 ## Status
 
-Accepted
+In Progress
 
 ## Problem Statement
 
