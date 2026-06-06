@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   The completion cascade (`run-cascade.sh`) re-implements in bash three things the
   Rust transition engine already owns -- frontmatter parsing, per-artifact-type
@@ -27,7 +27,7 @@ upstream: docs/prds/PRD-finalize-chain.md
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
