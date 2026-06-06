@@ -245,7 +245,7 @@ graph TD
     class I2,I3,I4 blocked
 ```
 
-**Legend**: Blue = ready, Yellow = blocked, Green = done.
+**Legend**: Blue = ready, Yellow = blocked, Green = done
 
 ## Implementation Sequence
 
