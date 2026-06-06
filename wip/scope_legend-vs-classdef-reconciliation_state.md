@@ -2,9 +2,15 @@
 topic: legend-vs-classdef-reconciliation
 chain_started: 2026-06-06T16:48:16Z
 last_updated: 2026-06-06T16:48:16Z
-phase_pointer: phase-2
-exit: UNSET
-exit_artifacts: []
+phase_pointer: phase-3
+exit_artifacts:
+  - docs/briefs/BRIEF-legend-vs-classdef-reconciliation.md
+  - docs/prds/PRD-legend-vs-classdef-reconciliation.md
+  - docs/designs/current/DESIGN-legend-vs-classdef-reconciliation.md
+  - docs/plans/PLAN-legend-vs-classdef-reconciliation.md
+exit: full-run
+exit_initial: UNSET
+exit_artifacts_initial: []
 planned_chain: []
 visibility: Public
 execution_mode: auto
@@ -40,7 +46,7 @@ Chain proposal (auto-accepted; no user confirmation prompt under --auto):
 - /brief — Mandatory. Completed: docs/briefs/BRIEF-legend-vs-classdef-reconciliation.md (Accepted, validator-clean).
 - /prd — Mandatory. Completed: docs/prds/PRD-legend-vs-classdef-reconciliation.md (Accepted, validator-clean).
 - /design — Mandatory. Completed: docs/designs/current/DESIGN-legend-vs-classdef-reconciliation.md (Current, validator-clean, 4 decisions).
-- /plan — Mandatory (single-pr; ephemeral PLAN to be deleted in work-completing commit). In progress.
+- /plan — Mandatory (single-pr; ephemeral PLAN to be deleted in work-completing commit). Completed: docs/plans/PLAN-legend-vs-classdef-reconciliation.md (Draft, single-pr, 4 outlines, validator-clean).
 
 ## Phase 2 — Child Invocation Loop (in progress)
 
