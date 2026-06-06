@@ -81,8 +81,8 @@ with the spike-to-reconciliation merge gate as a second independent justificatio
 | ~~_Writes the spike investigating the mermaid graph subset the corpus uses, a line-oriented extraction approach with no external dependency, and the reconciliation strictness. The explicit upstream that gates the reconciliation increment._~~ | | |
 | ~~[#119: feat(validate): add mermaid extractor and checkFC07 table-diagram reconciliation as a notice](https://github.com/tsukumogami/shirabe/issues/119)~~ | ~~[#112](https://github.com/tsukumogami/shirabe/issues/112), [#118](https://github.com/tsukumogami/shirabe/issues/118)~~ | ~~testable~~ |
 | ~~_Adds `mermaid.go` and `checkFC07` reconciling the parsed `Table` against the extracted diagram, shipped as a notice via `IsNotice` so an unreconciled committed diagram does not redden CI, with a one-line path to error-level promotion after corpus reconciliation. The final, spike-gated increment._~~ | | |
-| [#152: feat(validate): add fc08 legend-vs-classdef reconciliation as a notice](https://github.com/tsukumogami/shirabe/issues/152) | [#119](https://github.com/tsukumogami/shirabe/issues/119) | testable |
-| _Adds `checkFC08` reconciling the Dependency Graph Legend prose against the diagram's `classDef` declarations and the canonical class palette. Ships as a notice via `is_notice` so unupdated Legends do not redden CI, with a one-line path to error-level promotion after corpus reconciliation. Surfaces the drift surface FC07 explicitly does not cover._ | | |
+| ~~[#152: feat(validate): add fc08 legend-vs-classdef reconciliation as a notice](https://github.com/tsukumogami/shirabe/issues/152)~~ | ~~[#119](https://github.com/tsukumogami/shirabe/issues/119)~~ | ~~testable~~ |
+| ~~_Adds `checkFC08` reconciling the Dependency Graph Legend prose against the diagram's `classDef` declarations and the canonical class palette. Ships as a notice via `is_notice` so unupdated Legends do not redden CI, with a one-line path to error-level promotion after corpus reconciliation. Surfaces the drift surface FC07 explicitly does not cover._~~ | | |
 | ~~[#153: feat(validate): add fc09 doc-vs-github state reconciliation as a notice](https://github.com/tsukumogami/shirabe/issues/153)~~ | ~~[#119](https://github.com/tsukumogami/shirabe/issues/119)~~ | ~~testable~~ |
 | ~~_Adds `checkFC09` reconciling the doc's claims about issue state (table strikethrough, diagram class assignments) against GitHub's actual issue state plus the current PR's `Closes #N` body lines. First network-dependent check; self-disables offline. Three sub-checks: doc-claims-done vs GH, doc-claims-open vs GH, and PR Closes consistency. The third pillar of consistency alongside FC07's intra-doc and R6's cross-doc checks._~~ | | |
 | [#154: feat(validate): add fc10 single-pr plan validation (issue outlines + execution-mode-aware sections)](https://github.com/tsukumogami/shirabe/issues/154) | [#119](https://github.com/tsukumogami/shirabe/issues/119) | testable |
@@ -128,12 +128,12 @@ graph TD
     classDef tracksDesign fill:#FFE0B2,stroke:#F57C00,color:#000
     classDef tracksPlan fill:#FFE0B2,stroke:#F57C00,color:#000
 
-    class I111,I112,I113,I114,I115,I118,I119,I153 done
-    class I116,I152,I154 ready
+    class I111,I112,I113,I114,I115,I118,I119,I152,I153 done
+    class I116,I154 ready
     class I117 blocked
 ```
 
-**Legend**: Green = done, Blue = ready, Yellow = blocked, Purple = needs-design, Orange = tracks-design/tracks-plan
+**Legend**: Green = done, Blue = ready, Yellow = blocked, Purple = needsDesign, Light blue = needsPrd, Pink = needsSpike, Lilac = needsDecision, Orange = tracksDesign, Orange = tracksPlan
 
 ## Implementation Sequence
 
