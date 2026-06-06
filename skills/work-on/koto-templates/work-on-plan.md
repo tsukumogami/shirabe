@@ -113,7 +113,13 @@ states:
         type: string
         description: URL of the pull request
     transitions:
-      - target: ci_monitor
+      # Reordered for the DRAFT-vs-READY discipline (#117): the
+      # cascade (plan_completion) runs BEFORE gh pr ready so the
+      # chain is at its strict-mode passing state when CI re-runs on
+      # the ready_for_review event. The cascade lives in
+      # plan_completion; pr_finalization here only updates the PR
+      # body and confirms `gh pr ready` is NOT yet invoked.
+      - target: plan_completion
         when:
           finalization_status: updated
       - target: done_blocked
@@ -139,14 +145,14 @@ states:
         type: string
         description: What was fixed or why CI failures are unresolvable
     transitions:
-      - target: plan_completion
+      - target: done
         when:
           ci_outcome: passing
           gates.ci_passing.exit_code: 0
           gates.merge_state_clean.exit_code: 0
       # failing_fixed: agent pushed a follow-up commit to fix CI; gate may be stale.
       # Agent's direct observation is the authoritative signal.
-      - target: plan_completion
+      - target: done
         when:
           ci_outcome: failing_fixed
       - target: done_blocked
@@ -172,6 +178,14 @@ states:
           failure_reason: "escalate_dirty_merge_state: ${evidence.rationale}"
 
   plan_completion:
+    # The completion cascade runs BEFORE gh pr ready so the chain is
+    # at its strict-mode passing state when CI re-runs on the
+    # ready_for_review event (#117 DRAFT-vs-READY discipline). The
+    # state runs: (1) strict-mode lifecycle check expecting failure
+    # that names PLAN+BRIEF+PRD as violators, (2) the run-cascade.sh
+    # script which performs the atomic finalization commit and
+    # pushes, (3) gh pr ready, (4) strict-mode lifecycle check
+    # expecting pass.
     accepts:
       cascade_status:
         type: enum
@@ -181,13 +195,13 @@ states:
         type: string
         description: Summary of what the cascade did or why steps were skipped
     transitions:
-      - target: done
+      - target: ci_monitor
         when:
           cascade_status: completed
-      - target: done
+      - target: ci_monitor
         when:
           cascade_status: partial
-      - target: done
+      - target: ci_monitor
         when:
           cascade_status: skipped
 
@@ -284,7 +298,7 @@ Check progress at any time with `koto status {{SESSION_NAME}}`. Set `batch_outco
 
 ## pr_finalization
 
-Assemble the pull request description from the batch results, update the PR, and mark it ready for review.
+Assemble the pull request description from the batch results and update the PR. Do **not** mark the PR ready in this state — the DRAFT-vs-READY discipline (#117) requires the chain to be at its strict-mode passing state BEFORE `gh pr ready` fires, and the cascade in `plan_completion` performs that finalization. This state confines itself to PR-description assembly.
 
 1. Read `koto context get {{SESSION_NAME}} batch_final_view` to get per-child outcome data.
 2. Assemble a PR description. For each child include:
@@ -294,9 +308,8 @@ Assemble the pull request description from the batch results, update the PR, and
    - `reason_source`: where the reason came from
    - `skipped_because_chain`: dependency chain that caused the skip (if skipped)
 3. Update the PR description: `gh pr edit <pr-number> --body "<assembled description>"`
-4. Mark ready for review: `gh pr ready <pr-number>`
 
-Submit `finalization_status: updated` with `pr_url` after the PR is updated and marked ready, or `finalization_status: update_failed` if either step fails.
+Submit `finalization_status: updated` with `pr_url` after the PR description is updated, or `finalization_status: update_failed` if the edit step fails. The next state (`plan_completion`) runs the cascade and `gh pr ready`.
 
 ## ci_monitor
 
@@ -317,22 +330,49 @@ The PR's merge state is DIRTY (conflicts with the target branch); GitHub has sup
 
 ## plan_completion
 
-Run the completion cascade using `run-cascade.sh` (see `skills/work-on/scripts/run-cascade.sh`).
-The script walks the `upstream` frontmatter chain from the PLAN doc, transitions each artifact,
-and emits a JSON result that drives the evidence fields below.
+Run the completion cascade that pulls the chain to its strict-mode passing state, then mark the PR ready. The DRAFT-vs-READY discipline (#117) requires this ordering: cascade BEFORE `gh pr ready` so the CI re-run on the `ready_for_review` event sees the chain at its terminal.
+
+The state runs four steps. Each step's failure mode is named so the agent recovers without retreating to manual fix-up.
+
+**Step 1: Verify the strict-mode check fails as expected.** Run `shirabe validate --lifecycle . --strict` against the current working tree. The expected outcome is a non-zero exit naming the present PLAN as a violator (plus BRIEF and PRD at Accepted if those are upstream chain members). A clean pass at this step means the chain is already at its terminal — the cascade is a no-op for this chain shape, which is the multi-pr-intermediate case. Capture the violator file paths from the output.
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}} > /tmp/cascade-result.json
+# The cascade script deletes the PLAN, transitions BRIEF/PRD/DESIGN
+# in their upstream chain, commits with message
+# "chore(cascade): post-implementation artifact transitions", and
+# pushes the commit. It is the implementation of step 2 below; the
+# pre-check above is the diagnostic that confirms work to do.
+```
+
+**Step 2: Run the cascade.** `run-cascade.sh --push` performs the atomic finalization commit: deletes the PLAN, transitions upstream BRIEF/PRD/DESIGN to their terminal states, commits, and pushes.
 
 ```bash
 RESULT=$(${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}})
 CASCADE_STATUS=$(echo "$RESULT" | jq -r '.cascade_status')
 ```
 
-Submit `cascade_status` from the JSON output and a brief `cascade_detail` summarising what ran.
+**Step 3: Verify the strict-mode check passes after the cascade.** Re-run `shirabe validate --lifecycle . --strict` on the new working tree (after the cascade's push lands). The expected outcome is a clean pass — the chain is now at its strict-mode passing state. A failure here is a bug in the cascade or a chain inconsistency the cascade could not fix; halt and surface the failure.
 
-- `cascade_status: completed` — all applicable steps ran successfully
-- `cascade_status: partial` — some steps ran, some were skipped due to missing upstream links or files
-- `cascade_status: skipped` — PLAN doc had no `upstream` field; no upstream documents to transition
+```bash
+shirabe validate --lifecycle . --strict
+```
 
-All three values route to `done`.
+**Step 4: Mark the PR ready for review.**
+
+```bash
+gh pr ready $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number')
+```
+
+The CI workflow re-runs on the `ready_for_review` event with strict mode set, and the check should pass on the now-finalized chain.
+
+Submit `cascade_status` from the JSON output and a brief `cascade_detail` summarising what ran (which transitions, which paths, post-cascade strict check outcome).
+
+- `cascade_status: completed` — all applicable steps ran successfully; post-cascade strict check passes
+- `cascade_status: partial` — some steps ran, some were skipped due to missing upstream links or files; post-cascade strict check may still pass or fail
+- `cascade_status: skipped` — PLAN doc had no `upstream` field, or the pre-check found the chain already at its terminal; no upstream documents to transition
+
+All three values route to `ci_monitor`, which waits for the strict-mode CI run to land green on the now-ready PR.
 
 ## escalate
 

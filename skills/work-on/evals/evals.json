@@ -294,7 +294,7 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on docs/plans/PLAN-fixture.md",
-      "expected_output": "Agent detects PLAN.md input, initializes work-on-plan.md template, runs plan-to-tasks.sh to produce tasks JSON, submits tasks to koto via --with-data, monitors children, and when all succeed submits batch_outcome: all_success, routes to pr_finalization, then ci_monitor, then plan_completion where it deletes the PLAN doc and transitions upstream artifacts.",
+      "expected_output": "Agent detects PLAN.md input, initializes work-on-plan.md template, runs plan-to-tasks.sh to produce tasks JSON, submits tasks to koto via --with-data, monitors children, and when all succeed submits batch_outcome: all_success, routes to pr_finalization (updates PR description), then plan_completion (runs the cascade and marks the PR ready), then ci_monitor where strict-mode CI passes on the finalized chain.",
       "files": [],
       "expectations": [
         "Agent plans to initialize work-on-plan.md template (not work-on.md) for PLAN.md input",
@@ -305,8 +305,8 @@
         "Agent plans to submit tasks field with the JSON array from plan-to-tasks.sh",
         "Agent plans to submit batch_outcome: all_success when all children succeed",
         "Agent plans to route to pr_finalization after all children succeed",
-        "Agent plans to mark the PR ready for review and monitor CI in pr_finalization and ci_monitor states",
-        "Agent plans to run plan_completion cascade after CI passes: delete PLAN doc, transition DESIGN to Current, transition PRDs to Done, update ROADMAP feature status"
+        "Agent plans to update the PR description in pr_finalization but NOT mark the PR ready in that state",
+        "Agent plans to route from pr_finalization to plan_completion, which runs the cascade and marks the PR ready via gh pr ready, then routes to ci_monitor"
       ]
     },
     {
@@ -364,13 +364,13 @@
       "mode": "execute",
       "scenario": "e2e-plan-happy",
       "prompt": "/work-on skills/work-on/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent detects PLAN.md path, initializes work-on-plan.md template with PLAN_DOC var, runs plan-to-tasks.sh on the fixture to produce tasks JSON, submits tasks to koto. Then receives pr_finalization state, reads batch_final_view via koto context get, assembles PR description with per-child outcomes, updates the PR, marks it ready, and submits finalization_status: updated.",
+      "expected_output": "Agent detects PLAN.md path, initializes work-on-plan.md template with PLAN_DOC var, runs plan-to-tasks.sh on the fixture to produce tasks JSON, submits tasks to koto. Then receives pr_finalization state, reads batch_final_view via koto context get, assembles PR description with per-child outcomes, updates the PR (but does NOT mark it ready in this state), and submits finalization_status: updated. The next state (plan_completion) marks the PR ready.",
       "files": [],
       "expectations": [
         "Agent initializes work-on-plan.md template (not work-on.md) for PLAN.md input",
         "Agent handles pr_finalization state by reading batch_final_view via koto context get",
         "Agent assembles PR description including per-child name and outcome fields",
-        "Agent marks the PR ready for review with gh pr ready",
+        "Agent does NOT mark the PR ready in pr_finalization state (gh pr ready is deferred to plan_completion)",
         "Agent submits finalization_status: updated after assembling and updating the PR description"
       ]
     },
@@ -429,11 +429,14 @@
       "name": "plan-completion-cascade",
       "tier": 1,
       "mode": "plan_only",
-      "prompt": "After CI passes for a plan orchestration, what does the plan_completion state do?",
-      "expected_output": "Agent invokes skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}} as the plan_completion step, reads cascade_status from the JSON output, and submits it to koto. Does not execute the cascade steps individually.",
+      "prompt": "After pr_finalization completes for a plan orchestration, what does the plan_completion state do?",
+      "expected_output": "Agent runs the strict-mode lifecycle pre-check, invokes skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}}, runs the strict-mode lifecycle post-check, marks the PR ready via gh pr ready, and submits cascade_status to koto. The cascade runs BEFORE gh pr ready so CI re-runs on the ready_for_review event in strict mode against the finalized chain.",
       "files": [],
       "expectations": [
-        "Agent invokes run-cascade.sh --push {{PLAN_DOC}} as the plan_completion step rather than executing the cascade steps individually",
+        "Agent invokes run-cascade.sh --push {{PLAN_DOC}} as the cascade step rather than executing the cascade steps individually",
+        "Agent runs the strict-mode lifecycle check (shirabe validate --lifecycle . --strict) before the cascade to verify the expected violator condition",
+        "Agent runs the strict-mode lifecycle check after the cascade to verify the chain is at its passing state",
+        "Agent marks the PR ready via gh pr ready as the final step of plan_completion (after the cascade lands)",
         "Agent reads cascade_status from the JSON output emitted by run-cascade.sh",
         "Agent submits cascade_status to koto (completed, partial, or skipped)",
         "Agent does NOT manually git rm the PLAN doc, run shirabe transition, or update ROADMAP entries directly"
