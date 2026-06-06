@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 upstream: docs/briefs/BRIEF-shirabe-pattern-v1-ergonomics.md
 problem: |
   Shirabe's parent-skill pattern v1 — the contract letting `/scope`,
@@ -26,7 +26,17 @@ goals: |
 
 ## Status
 
-Draft
+Accepted
+
+Phase 4 jury returned all-PASS as serial-self-jury under
+sub-agent dispatch from `/scope`
+(`parent_orchestration.invoking_child: prd`,
+`rationale: fresh-chain`); the independence-loss caveat is
+recorded in each verdict file
+(`wip/research/prd_shirabe-pattern-v1-ergonomics_phase4_completeness.md`,
+`...phase4_clarity.md`, `...phase4_testability.md`). The downstream
+DESIGN picks the implementation mechanism per observation; this
+PRD commits the contracts that must hold.
 
 ## Problem Statement
 
