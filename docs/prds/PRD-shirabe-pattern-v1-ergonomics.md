@@ -38,6 +38,16 @@ recorded in each verdict file
 DESIGN picks the implementation mechanism per observation; this
 PRD commits the contracts that must hold.
 
+Cascade edit (post-DESIGN-Accepted): R3, R23, R25, R26, R28 are
+rephrased to permit detection-and-pointer mechanisms in the
+consuming skill body with resolution prose carried in a shared
+reference file at a well-known path. The contract — what must
+hold — is unchanged; the rephrasing removes eager-load implications
+that contradict the lazy-load principle the downstream DESIGN
+applies. ACs are unchanged; the rephrased requirements continue
+to satisfy them via the per-error reference files DESIGN Batch 2
+materializes.
+
 ## Problem Statement
 
 Shirabe's parent-skill pattern v1 has been dogfooded across two
@@ -163,10 +173,15 @@ strategic chain the same way `/scope` dispatches the tactical
 chain.
 
 **R3** — Each child SKILL with a human approval gate
-(`AskUserQuestion`) SHALL surface a fallback that names
-parent-delegated approval as the substitute under sub-agent
-dispatch. The fallback SHALL state where the transition-and-commit
-boundary moves to (parent or held until parent returns).
+(`AskUserQuestion`) SHALL provide a detection path that points
+the agent at the parent-delegated-approval fallback under
+sub-agent dispatch. The detection path MAY live inline in the
+SKILL body; the resolution prose (where the transition-and-commit
+boundary moves to — parent or held until parent returns) MAY
+live in a shared per-error reference file the agent loads on
+demand. The contract is that the fallback is reachable from the
+child SKILL when the sentinel is present, not that the fallback
+prose is eager-loaded into the SKILL body.
 
 **R4** — `/design` Phases 1-3 (the per-decision `/decision`
 dispatch loop) SHALL surface a fallback that names an
@@ -186,11 +201,16 @@ dispatch) SHALL surface an inline-substitute single-pass review
 variant when invoked as a sub-agent that cannot recursively
 dispatch.
 
-**R7** — `/work-on`'s plan-orchestrator SHALL surface a
-deterministic-mode bypass for the koto state machine when the
-parent dispatch contract supplies decomposition, cascade timing,
-and push timing upfront. The bypass SHALL name the conditions
-under which it engages and what the audit trail records.
+**R7** — `/work-on`'s plan-orchestrator SHALL provide a detection
+path that points the agent at the deterministic-mode bypass for
+the koto state machine when the parent dispatch contract supplies
+decomposition, cascade timing, and push timing upfront. The
+detection MAY live inline in `/work-on`'s body; the resolution
+prose (the engagement conditions and what the audit trail records)
+MAY live in a shared per-error reference file the agent loads on
+demand. The contract is that the bypass is reachable from
+`/work-on` when the parent dispatch contract is present, not that
+the bypass prose is eager-loaded into the SKILL body.
 
 **R8** — Each fallback path R1-R7 prescribes SHALL state
 explicitly what is NOT covered — specifically, that nested-team
@@ -293,12 +313,16 @@ emitted prose and the format reference SHALL be flagged.
 
 ### Cluster 5 — Cross-skill consistency rules
 
-**R23** — `/plan` SHALL run a pre-flight consistency pass across
-sibling issue outlines that touch the same artifact field. When a
-field's contract is defined two ways across sibling issues (one
-as free-text prose, another as enum), `/plan` SHALL flag the
-collision rather than emit both. The placement of the pre-flight
-(separate phase, folded into Phase 7) is DESIGN territory.
+**R23** — Field-name consistency across sibling issue outlines
+that touch the same artifact field SHALL be detected and flagged.
+When a field's contract is defined two ways across sibling
+issues (one as free-text prose, another as enum), the collision
+SHALL be surfaced rather than silently emitted. The detection
+mechanism (validator extension with FC-code and pointer to a
+per-error reference file, vs `/plan` Phase-N pre-flight prose,
+vs both) is DESIGN territory; the lazy-load principle prefers
+CLI-deterministic detection over eager-load skill prose when
+both are feasible.
 
 **R24** — `/plan` ACs that claim "annotation only; schema fields
 unchanged" SHALL grep the target file at PLAN-authoring time to
@@ -313,13 +337,20 @@ usage" — currently the carve-out covers "quoted statements OF
 the rule itself" but not skill-implementation DESIGNs that
 describe a skill's runtime `wip/` contract (e.g.,
 `DESIGN-shirabe-strategy-skill`, `DESIGN-shirabe-brief-skill`).
+The carve-out is a single-sentence rule clarification; eager-loading
+it in the format reference is acceptable (the lazy-load principle's
+tier-3 placement applies when tiers 1 and 2 are infeasible AND the
+prose is small enough that eager-loading does not bloat context).
 
-**R26** — Eval-fixture authoring guidance (in PLAN issue-drafting
-references and/or eval-authoring references) SHALL reconcile the
-HTML-comment line-1 marker convention with the frontmatter
-parser's requirement that `---` is the first non-blank line.
-Fixtures requiring a marker SHALL place it after frontmatter or
-inside a frontmatter field, never on line 1.
+**R26** — The HTML-comment line-1 marker conflict with the
+frontmatter parser's `---`-first-non-blank-line requirement
+SHALL be detected and surfaced. Fixtures requiring a marker
+SHALL place it after frontmatter or inside a frontmatter field,
+never on line 1. The detection mechanism (validator extension
+with FC-code and pointer to a per-error reference file, vs
+eager-loaded authoring guidance, vs both) is DESIGN territory;
+the lazy-load principle prefers CLI-deterministic detection over
+eager-load skill prose when both are feasible.
 
 ### Cluster 6 — Convention updates
 
@@ -333,10 +364,17 @@ committing any durable artifact to the wrong name.
 **R28** — ACs that reference a "release-notes draft" SHALL
 target durable adopter docs in the location the workspace
 actually uses (`docs/guides/` per current convention; the PRD
-defers location confirmation to DESIGN). `/prd` and `/design`
-SHALL learn the workspace's actual release-notes mechanism and
-frame adopter-obligation ACs against it, not against a
-non-existent committed CHANGELOG file.
+defers location confirmation to DESIGN). The per-repo convention
+SHALL be detectable in a single canonical place (e.g., a CLAUDE.md
+header) and the detection mechanism (validator extension with
+FC-code and pointer to a per-error reference file, vs eager-load
+in `/prd` and `/design` Phase 0 prose, vs both) is DESIGN
+territory; the lazy-load principle prefers CLI-deterministic
+detection over eager-load skill prose when both are feasible.
+The contract is that `/prd` and `/design` reach the workspace's
+actual release-notes mechanism and frame adopter-obligation ACs
+against it — not that the workspace's mechanism is eager-loaded
+into either SKILL body.
 
 **R29** — `/scope` Phase 1's R6 forward-looking predicates (P1
 and P3, which inspect a PRD body) SHALL evaluate the projected
