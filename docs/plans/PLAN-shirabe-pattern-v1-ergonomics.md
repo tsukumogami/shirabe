@@ -352,24 +352,42 @@ Summary table of the 18 atomic issues sequenced across four batches. Local-ancho
 
 | Issue | Dependencies | Complexity |
 |-------|--------------|------------|
-| [I1: feat(validate): check_schema SCHEMA-MISSING + slug-prefix detection](#issue-1-featvalidate-extend-check_schema-with-schema-missing-notice-and-add-slug-prefix-detection-sub-command) | None | testable |
-| [I2: feat(validate): FC10 writing-style check](#issue-2-featvalidate-add-fc10-writing-style-banned-word-check) | None | testable |
-| [I3: feat(validate): FC11 plan-section-structure check](#issue-3-featvalidate-add-fc11-plan-section-structure-check-dereferencing-plan-formatmd) | I9 | testable |
-| [I4: feat(validate): FC12 PLAN/DESIGN field consistency check](#issue-4-featvalidate-add-fc12-plandesign-field-consistency-check) | I8 | testable |
-| [I5: feat(validate): FC13 eval-fixture frontmatter-line-1 check](#issue-5-featvalidate-add-fc13-eval-fixture-frontmatter-line-1-check) | I10 | testable |
-| [I6: feat(validate): FC-CONVENTIONS CLAUDE.md headers check](#issue-6-featvalidate-add-fc-conventions-claudemd-headers-check) | I11 | testable |
-| [I7: docs(references): author references/fixes/sub-agent-dispatch.md](#issue-7-docsreferences-author-referencesfixessub-agent-dispatchmd-merged-decision-1--decision-2-resolution) | None | testable |
-| [I8: docs(references): author references/fixes/plan-design-field-consistency.md](#issue-8-docsreferences-author-referencesfixesplan-design-field-consistencymd) | None | simple |
-| [I9: docs(plan): create plan-format.md](#issue-9-docsplan-create-plan-formatmd-format-reference-at-canonical-altitude) | None | testable |
-| [I10: docs(references): author references/fixes/eval-fixture-frontmatter.md](#issue-10-docsreferences-author-referencesfixeseval-fixture-frontmattermd) | None | simple |
-| [I11: docs(references): author references/fixes/claude-md-conventions.md](#issue-11-docsreferences-author-referencesfixesclaude-md-conventionsmd) | None | simple |
-| [I12: docs(references): author references/fixes/cli-version-preflight.md](#issue-12-docsreferences-author-referencesfixescli-version-preflightmd) | None | simple |
-| [I13: docs(design): create design-format.md](#issue-13-docsdesign-create-design-formatmd-format-reference-at-canonical-altitude) | None | testable |
-| [I14: docs(skills): pointer rows in 8 child SKILLs](#issue-14-docsskills-add-detection-and-pointer-rows-to-eight-child-skillmd-files) | I7 | simple |
-| [I15: docs(scope): Phase 0 CLI invocation + Phase 1 cold-start trim](#issue-15-docsscope-add-phase-0-slug-prefix-cli-invocation-and-phase-1-cold-start-trim) | I1 | simple |
-| [I16: docs(design): Phase 6 structural-format reviewer](#issue-16-docsdesign-add-structural-format-reviewer-to-phase-6-jury) | I13 | testable |
-| [I17: docs(plan): Phase 4 AC anchor-existence prompt](#issue-17-docsplan-add-phase-4-ac-anchor-existence-prompt-step) | None | simple |
-| [I18: docs(brief,prd,claude): format clarifications + CLAUDE.md header](#issue-18-docsbriefprdclaude-apply-format-reference-clarifications-and-claudemd-release-notes-convention-header) | None | simple |
+| [#1: feat(validate): check_schema SCHEMA-MISSING + slug-prefix detection](#issue-1-featvalidate-extend-check_schema-with-schema-missing-notice-and-add-slug-prefix-detection-sub-command) | None | testable |
+| _Extend `check_schema` to emit a SCHEMA-MISSING notice when `doc.schema.is_empty()`, and add a slug-prefix detection capability that samples existing artifact filenames and emits a notice when a candidate slug lacks the detected prefix. Closes `tsukumogami/shirabe#157` on the validator surface._ | | |
+| [#2: feat(validate): FC10 writing-style check](#issue-2-featvalidate-add-fc10-writing-style-banned-word-check) | None | testable |
+| _Add a new FC10 check that reads banned vocabulary at validate-time from `skills/writing-style/SKILL.md` and emits notices for each banned-word match with file path, line number, and matched word._ | | |
+| [#3: feat(validate): FC11 plan-section-structure check](#issue-3-featvalidate-add-fc11-plan-section-structure-check-dereferencing-plan-formatmd) | [#9](#issue-9-docsplan-create-plan-formatmd-format-reference-at-canonical-altitude) | testable |
+| _Add an FC11 check reconciling the emitted `## Implementation Issues` against the canonical structure from `plan-format.md`, and add canonical-structure entries to `formats.rs` for `plan/v1`. Closes `tsukumogami/shirabe#158` on the validator surface._ | | |
+| [#4: feat(validate): FC12 PLAN/DESIGN field consistency check](#issue-4-featvalidate-add-fc12-plandesign-field-consistency-check) | [#8](#issue-8-docsreferences-author-referencesfixesplan-design-field-consistencymd) | testable |
+| _Add an FC12 check that detects field-name conflicts across a PLAN's issue ACs and its upstream DESIGN's structural rubrics, with a notice pointing to `references/fixes/plan-design-field-consistency.md` for the non-deterministic resolution prose._ | | |
+| [#5: feat(validate): FC13 eval-fixture frontmatter-line-1 check](#issue-5-featvalidate-add-fc13-eval-fixture-frontmatter-line-1-check) | [#10](#issue-10-docsreferences-author-referencesfixeseval-fixture-frontmattermd) | testable |
+| _Add an FC13 check that detects eval fixtures where `<!--` appears on line 1 before the `---` frontmatter opener, with a notice pointing to `references/fixes/eval-fixture-frontmatter.md`._ | | |
+| [#6: feat(validate): FC-CONVENTIONS CLAUDE.md headers check](#issue-6-featvalidate-add-fc-conventions-claudemd-headers-check) | [#11](#issue-11-docsreferences-author-referencesfixesclaude-md-conventionsmd) | testable |
+| _Add an FC-CONVENTIONS check that detects missing or malformed `## Release Notes Convention: <path>` headers in per-repo CLAUDE.md files, with a notice pointing to `references/fixes/claude-md-conventions.md`._ | | |
+| [#7: docs(references): author references/fixes/sub-agent-dispatch.md](#issue-7-docsreferences-author-referencesfixessub-agent-dispatchmd-merged-decision-1--decision-2-resolution) | None | testable |
+| _Author the canonical resolution prose for sub-agent dispatch fallback selection and `parent_orchestration` sentinel consultation: the five fallback shapes, the per-skill binding table for the eight children, the sentinel detection convention, chain-handoff routing, and the R8 not-covered carve-out._ | | |
+| [#8: docs(references): author references/fixes/plan-design-field-consistency.md](#issue-8-docsreferences-author-referencesfixesplan-design-field-consistencymd) | None | simple |
+| _Author the canonical resolution prose for FC12: how to interpret an FC12 notice, which side to align (PLAN vs DESIGN), when to rewrite the AC vs revise the DESIGN, and when the conflict is intentional and how to suppress._ | | |
+| [#9: docs(plan): create plan-format.md](#issue-9-docsplan-create-plan-formatmd-format-reference-at-canonical-altitude) | None | testable |
+| _Materialize `skills/plan/references/plan-format.md` with the PLAN frontmatter schema, canonical section list, canonical `## Implementation Issues` structure for single-pr emission, and the diagram- and classDef-reconciliation contracts. FC11 dereferences this file at validate-time._ | | |
+| [#10: docs(references): author references/fixes/eval-fixture-frontmatter.md](#issue-10-docsreferences-author-referencesfixeseval-fixture-frontmattermd) | None | simple |
+| _Author the canonical resolution prose for FC13: the frontmatter parser's `---`-first-non-blank-line requirement, valid marker placement options (inside a field value or after the closing `---`), and why line-1 markers are forbidden._ | | |
+| [#11: docs(references): author references/fixes/claude-md-conventions.md](#issue-11-docsreferences-author-referencesfixesclaude-md-conventionsmd) | None | simple |
+| _Author the canonical resolution prose for FC-CONVENTIONS: the `## Release Notes Convention: <path>` header format, per-repo default (`docs/guides/` for shirabe), and cross-references to other CLAUDE.md convention headers._ | | |
+| [#12: docs(references): author references/fixes/cli-version-preflight.md](#issue-12-docsreferences-author-referencesfixescli-version-preflightmd) | None | simple |
+| _Author the canonical preflight reference under `references/fixes/`: the per-subcommand `shirabe <subcommand> --help` probe, the documented manual sed-edit fallback for known-affected subcommands, and the workspace-binary version detection via `shirabe --version`._ | | |
+| [#13: docs(design): create design-format.md](#issue-13-docsdesign-create-design-formatmd-format-reference-at-canonical-altitude) | None | testable |
+| _Materialize `skills/design/references/design-format.md` with the four-field frontmatter schema plus optional fields, the nine required-section list, the context-aware section table, the Implementation Issues ownership convention, and the inline R25 wip-hygiene carve-out clarification._ | | |
+| [#14: docs(skills): pointer rows in 8 child SKILLs](#issue-14-docsskills-add-detection-and-pointer-rows-to-eight-child-skillmd-files) | [#7](#issue-7-docsreferences-author-referencesfixessub-agent-dispatchmd-merged-decision-1--decision-2-resolution) | simple |
+| _Apply Batch 3 lightweight skill edits across all eight child SKILLs in one mechanical pass: a short Phase-0 detection-and-pointer step plus a single Resume Logic row pointing at `references/fixes/sub-agent-dispatch.md` (with `/work-on` getting only the Phase-0 line)._ | | |
+| [#15: docs(scope): Phase 0 CLI invocation + Phase 1 cold-start trim](#issue-15-docsscope-add-phase-0-slug-prefix-cli-invocation-and-phase-1-cold-start-trim) | [#1](#issue-1-featvalidate-extend-check_schema-with-schema-missing-notice-and-add-slug-prefix-detection-sub-command) | simple |
+| _Grow `/scope` Phase 0 with a step that invokes the slug-prefix CLI capability and emits the prompt on mismatch, and trim `phase-1-discovery.md` to the minimum the workflow requires (cold-start projected-PRD evaluation, post-`/prd` re-evaluation gate, framing-shift short-circuit)._ | | |
+| [#16: docs(design): Phase 6 structural-format reviewer](#issue-16-docsdesign-add-structural-format-reviewer-to-phase-6-jury) | [#13](#issue-13-docsdesign-create-design-formatmd-format-reference-at-canonical-altitude) | testable |
+| _Extend `/design` Phase 6 step 6.1 with a third reviewer (structural-format-reviewer) parallel to the existing architecture and security reviewers, covering shape conformance against `design-format.md` plus the R19 budget-vs-spec sub-rubric. Step 6.2's feedback table extends to three rows._ | | |
+| [#17: docs(plan): Phase 4 AC anchor-existence prompt](#issue-17-docsplan-add-phase-4-ac-anchor-existence-prompt-step) | None | simple |
+| _Add a Phase 4 agent-prompt enrichment step covering the per-AC anchor-existence grep: for each AC claiming "annotation only" or "schema fields unchanged", grep the target file at PLAN-authoring time, and rewrite the AC defensively if the anchor is absent._ | | |
+| [#18: docs(brief,prd,claude): format clarifications + CLAUDE.md header](#issue-18-docsbriefprdclaude-apply-format-reference-clarifications-and-claudemd-release-notes-convention-header) | None | simple |
+| _Apply Batch 3 mechanical edits across three files: brief-format.md and prd-format.md private-issue-numbers disambiguation plus `motivating_context:` and BRIEF-Open-Questions-closure surfacing, and a `## Release Notes Convention: docs/guides/` header in CLAUDE.md._ | | |
 
 ## Dependency Graph
 
