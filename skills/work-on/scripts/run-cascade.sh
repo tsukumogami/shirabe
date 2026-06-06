@@ -310,6 +310,33 @@ handle_prd() {
     add_step "transition_prd" "$path" "$found_in" "ok" ""
 }
 
+# ── Handler: handle_brief ─────────────────────────────────────────────────────
+# Transition BRIEF to Done. Mirrors handle_prd: a BRIEF transitions in place to
+# a terminal Done with no directory move, so the handler carries no move-path
+# state.
+# Usage: handle_brief <brief-path> <found-in>
+
+handle_brief() {
+    local path="$1"
+    local found_in="$2"
+
+    log_info "Transitioning BRIEF: $path → Done"
+
+    local result
+    if ! result=$("$SHIRABE_BIN" transition "$path" Done 2>&1); then
+        local errmsg
+        errmsg=$(echo "$result" | head -1)
+        ANY_FAILED=true
+        add_step "transition_brief" "$path" "$found_in" "failed" \
+            "attempted to transition $path to Done (referenced in $found_in), but shirabe transition exited with: $errmsg"
+        return 1
+    fi
+
+    git add "$path" || true
+    STAGED_FILES+=("$path")
+    add_step "transition_brief" "$path" "$found_in" "ok" ""
+}
+
 # ── Handler: handle_roadmap ───────────────────────────────────────────────────
 # Locate the feature entry referencing plan-slug, update Status and Downstream,
 # guard full ROADMAP → Done transition.
@@ -564,6 +591,7 @@ while [[ -n "$current_upstream" ]]; do
         case "$node_name" in
             DESIGN-*) artifact_type="DESIGN" ; target_status="Current" ;;
             PRD-*)    artifact_type="PRD"    ; target_status="Done" ;;
+            BRIEF-*)  artifact_type="BRIEF"  ; target_status="Done" ;;
             ROADMAP-*)artifact_type="ROADMAP"; target_status="Done" ;;
             *)        artifact_type="artifact"; target_status="target status" ;;
         esac
@@ -578,6 +606,7 @@ while [[ -n "$current_upstream" ]]; do
         case "$node_name" in
             DESIGN-*) add_step "transition_design"  "$next_path" "$found_in" "failed" "$detail" ;;
             PRD-*)    add_step "transition_prd"      "$next_path" "$found_in" "failed" "$detail" ;;
+            BRIEF-*)  add_step "transition_brief"    "$next_path" "$found_in" "failed" "$detail" ;;
             ROADMAP-*)add_step "update_roadmap_feature" "$next_path" "$found_in" "failed" "$detail" ;;
             *)        add_step "transition_design"   "$next_path" "$found_in" "failed" "$detail" ;;
         esac
@@ -600,6 +629,10 @@ while [[ -n "$current_upstream" ]]; do
             ;;
         PRD-*)
             handle_prd "$next_path" "$found_in" || true
+            current_doc="$next_path"
+            ;;
+        BRIEF-*)
+            handle_brief "$next_path" "$found_in" || true
             current_doc="$next_path"
             ;;
         ROADMAP-*)
