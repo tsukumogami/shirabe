@@ -14,7 +14,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
     detect_format, format_error, format_notice, is_notice, parse_doc, run_transition,
-    validate_file, Config, Flags, ParseError, ValidationError,
+    validate_file, walk_chain, Config, Flags, ParseError, ValidationError,
 };
 
 mod populate;
@@ -62,6 +62,9 @@ enum Commands {
     Roadmap(RoadmapArgs),
     /// Transition a shirabe doc to a new status.
     Transition(TransitionArgs),
+    /// Walk a finished PLAN's upstream chain and report the terminal action
+    /// each node would take (read-only; mutates nothing in this issue).
+    FinalizeChain(FinalizeChainArgs),
 }
 
 #[derive(clap::Args)]
@@ -96,6 +99,12 @@ struct TransitionArgs {
 }
 
 #[derive(clap::Args)]
+struct FinalizeChainArgs {
+    /// Path to the completed PLAN doc whose upstream chain to walk.
+    plan: String,
+}
+
+#[derive(clap::Args)]
 struct ValidateArgs {
     /// Files to validate.
     files: Vec<String>,
@@ -118,6 +127,7 @@ fn main() -> ExitCode {
             RoadmapCommands::Populate(p) => populate::run(&p),
         },
         Some(Commands::Transition(args)) => run_transition_cmd(&args),
+        Some(Commands::FinalizeChain(args)) => run_finalize_chain_cmd(&args),
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would
         // otherwise leave `command` as `None` and exit 0 silently.
@@ -211,6 +221,23 @@ fn run_transition_cmd(args: &TransitionArgs) -> ExitCode {
         Err(err) => {
             eprint!("{}", err.to_json());
             ExitCode::from(err.code as u8)
+        }
+    }
+}
+
+/// Runs the `finalize-chain` subcommand. On success, prints the JSON chain
+/// report to stdout and exits 0. On a walk failure, prints the error to stderr
+/// and exits 1. The richer node-aware exit-code contract lands in a later issue
+/// (this issue is the read-only walk and report only).
+fn run_finalize_chain_cmd(args: &FinalizeChainArgs) -> ExitCode {
+    match walk_chain(&args.plan) {
+        Ok(report) => {
+            print!("{}", report.to_json());
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("{}", err);
+            ExitCode::FAILURE
         }
     }
 }
