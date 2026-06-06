@@ -1037,6 +1037,560 @@ FIXTURE
     teardown
 }
 
+# ── Fixture: #156 colon-outside-bold form (canonical) ──
+# Two-issue single-pr PLAN using **Dependencies**: (colon outside bold).
+# Verifies the canonical form continues to parse with the loosened regex.
+test_single_pr_deps_colon_outside_bold() {
+    local name="single-pr **Dependencies**: colon-outside-bold parses correctly"
+    setup
+
+    cat > "$TEST_DIR/plan-outside.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Colon Outside Test"
+issue_count: 2
+---
+
+# PLAN: colon-outside
+
+## Status
+
+Draft
+
+## Scope Summary
+
+Test for **Dependencies**: (colon outside bold).
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: foundation
+
+**Goal**: Build foundation.
+
+**Acceptance Criteria**:
+- [ ] Exists
+
+**Dependencies**: None
+
+---
+
+### Issue 2: feat: extension
+
+**Goal**: Extend foundation.
+
+**Acceptance Criteria**:
+- [ ] Exists
+
+**Dependencies**: Blocked by Issue 1
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-outside.md" 2>/dev/null)
+
+    local count
+    count=$(echo "$output" | jq 'length' 2>/dev/null) || true
+    if [[ "$count" != "2" ]]; then
+        fail "$name" "expected 2 issues, got $count"
+        teardown
+        return
+    fi
+    pass "$name (array length)"
+
+    local issue1_name
+    issue1_name=$(echo "$output" | jq -r '.[0].name')
+    local issue2_waits_len
+    issue2_waits_len=$(echo "$output" | jq -r '.[1].waits_on | length')
+    if [[ "$issue2_waits_len" != "1" ]]; then
+        fail "$name" "Issue 2 waits_on length expected 1, got $issue2_waits_len"
+    else
+        pass "$name (Issue 2 has 1 waits_on edge)"
+    fi
+
+    local issue2_waits
+    issue2_waits=$(echo "$output" | jq -r '.[1].waits_on[0]')
+    if [[ "$issue2_waits" != "$issue1_name" ]]; then
+        fail "$name" "Issue 2 waits_on Issue 1's name, got: $issue2_waits"
+    else
+        pass "$name (Issue 2 waits_on Issue 1)"
+    fi
+
+    teardown
+}
+
+# ── Fixture: #156 colon-inside-bold form (silently-dropped before fix) ──
+# Same PLAN shape as colon-outside but using **Dependencies:** (colon inside bold).
+# Before the fix this form was silently dropped — waits_on edges vanished.
+# With the loosened regex it parses identically.
+test_single_pr_deps_colon_inside_bold() {
+    local name="single-pr **Dependencies:** colon-inside-bold parses correctly (#156 AC1.1)"
+    setup
+
+    cat > "$TEST_DIR/plan-inside.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Colon Inside Test"
+issue_count: 2
+---
+
+# PLAN: colon-inside
+
+## Status
+
+Draft
+
+## Scope Summary
+
+Test for **Dependencies:** (colon inside bold).
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: foundation
+
+**Goal**: Build foundation.
+
+**Acceptance Criteria**:
+- [ ] Exists
+
+**Dependencies:** None
+
+---
+
+### Issue 2: feat: extension
+
+**Goal**: Extend foundation.
+
+**Acceptance Criteria**:
+- [ ] Exists
+
+**Dependencies:** Blocked by Issue 1
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-inside.md" 2>/dev/null)
+
+    local count
+    count=$(echo "$output" | jq 'length' 2>/dev/null) || true
+    if [[ "$count" != "2" ]]; then
+        fail "$name" "expected 2 issues, got $count"
+        teardown
+        return
+    fi
+    pass "$name (array length)"
+
+    local issue1_name
+    issue1_name=$(echo "$output" | jq -r '.[0].name')
+    local issue2_waits_len
+    issue2_waits_len=$(echo "$output" | jq -r '.[1].waits_on | length')
+    if [[ "$issue2_waits_len" != "1" ]]; then
+        fail "$name" "Issue 2 waits_on length expected 1, got $issue2_waits_len (regex still dropping colon-inside form)"
+    else
+        pass "$name (Issue 2 has 1 waits_on edge — regex accepts colon-inside form)"
+    fi
+
+    local issue2_waits
+    issue2_waits=$(echo "$output" | jq -r '.[1].waits_on[0]')
+    if [[ "$issue2_waits" != "$issue1_name" ]]; then
+        fail "$name" "Issue 2 should wait on Issue 1's name, got: $issue2_waits"
+    else
+        pass "$name (Issue 2 waits_on Issue 1)"
+    fi
+
+    teardown
+}
+
+# ── Fixture: colon-outside and colon-inside produce identical JSON ──
+# Cross-check #156 AC1.1: both forms parse to byte-identical output (modulo
+# the issue title which differs across the fixtures by design — we compare
+# the structural fields, not the title-derived name).
+test_single_pr_deps_colon_both_forms_identical_structure() {
+    local name="single-pr both colon placements yield identical waits_on structure (#156 AC1.1)"
+    setup
+
+    cat > "$TEST_DIR/plan-outside-cross.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Cross-check"
+issue_count: 2
+---
+
+# PLAN: x
+
+## Status
+
+Draft
+
+## Scope Summary
+
+Cross-check.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: foundation
+
+**Goal**: G.
+
+**Acceptance Criteria**:
+- [ ] A
+
+**Dependencies**: None
+
+---
+
+### Issue 2: feat: extension
+
+**Goal**: G.
+
+**Acceptance Criteria**:
+- [ ] A
+
+**Dependencies**: Blocked by Issue 1
+FIXTURE
+
+    cat > "$TEST_DIR/plan-inside-cross.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Cross-check"
+issue_count: 2
+---
+
+# PLAN: x
+
+## Status
+
+Draft
+
+## Scope Summary
+
+Cross-check.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: foundation
+
+**Goal**: G.
+
+**Acceptance Criteria**:
+- [ ] A
+
+**Dependencies:** None
+
+---
+
+### Issue 2: feat: extension
+
+**Goal**: G.
+
+**Acceptance Criteria**:
+- [ ] A
+
+**Dependencies:** Blocked by Issue 1
+FIXTURE
+
+    local out_outside out_inside
+    out_outside=$("$PARSER_SCRIPT" "$TEST_DIR/plan-outside-cross.md" 2>/dev/null)
+    out_inside=$("$PARSER_SCRIPT" "$TEST_DIR/plan-inside-cross.md" 2>/dev/null)
+
+    if [[ "$out_outside" == "$out_inside" ]]; then
+        pass "$name (byte-identical JSON across colon placements)"
+    else
+        fail "$name" "JSON output diverges across colon placements"
+    fi
+
+    teardown
+}
+
+# ── Fixture: line 288 grep test (#156 AC1.2) ──
+# Verifies the loosened regex form is in the script body.
+test_parser_regex_loosened() {
+    local name="plan-to-tasks.sh line 288 regex accepts both colon placements (#156 AC1.2)"
+    if grep -q '\\\*\\\*Dependencies:?\\\*\\\*:?' "$PARSER_SCRIPT"; then
+        pass "$name (regex \\*\\*Dependencies:?\\*\\*:? present in script body)"
+    else
+        fail "$name" "loosened regex not found in $PARSER_SCRIPT"
+    fi
+}
+
+# ── Fixture: #156 AC2.1 asymmetric-empty-deps warning ──
+# Multi-issue single-pr PLAN where Issue 1 has populated deps (declared via
+# the section-header form to avoid the colon-line) and Issue 2 has no
+# **Dependencies** line at all. The asymmetric-empty pattern should trigger
+# the stderr warning.
+test_single_pr_asymmetric_empty_deps_warns() {
+    local name="single-pr asymmetric empty-deps triggers warning (#156 AC2.1)"
+    setup
+
+    cat > "$TEST_DIR/plan-asymmetric.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Asymmetric Empty Deps"
+issue_count: 2
+---
+
+# PLAN: asymmetric
+
+## Status
+
+Draft
+
+## Scope Summary
+
+Asymmetric empty-deps test.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: foundation
+
+**Goal**: G.
+
+**Acceptance Criteria**:
+- [ ] A
+
+**Dependencies**: None
+
+---
+
+### Issue 2: feat: extension
+
+**Goal**: Extension that should depend on Issue 1.
+
+**Acceptance Criteria**:
+- [ ] A
+FIXTURE
+
+    local stderr_out
+    stderr_out=$("$PARSER_SCRIPT" "$TEST_DIR/plan-asymmetric.md" 2>&1 >/dev/null) || true
+
+    if echo "$stderr_out" | grep -q "asymmetric empty-deps"; then
+        pass "$name (warning fired)"
+    else
+        fail "$name" "expected 'asymmetric empty-deps' in stderr, got: $stderr_out"
+    fi
+
+    # AC2.2: the warning text names BOTH colon placements as the likely cause.
+    if echo "$stderr_out" | grep -q '\*\*Dependencies\*\*:' && echo "$stderr_out" | grep -q '\*\*Dependencies:\*\*'; then
+        pass "$name (warning text names both colon placements, AC2.2)"
+    else
+        fail "$name" "warning text does not name both colon placements: $stderr_out"
+    fi
+
+    teardown
+}
+
+# ── Fixture: all-empty-deps does NOT trigger warning ──
+# Strictly-independent multi-issue set — every issue lacks a Dependencies
+# line. This is a legitimate authoring pattern that the warning must NOT
+# flag (per #156 AC: "warning does NOT fire when every issue has empty
+# deps").
+test_single_pr_all_empty_deps_no_warning() {
+    local name="single-pr all-empty-deps does not trigger warning (#156 legit-pattern suppression)"
+    setup
+
+    cat > "$TEST_DIR/plan-all-empty.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "All Empty"
+issue_count: 2
+---
+
+# PLAN: all-empty
+
+## Status
+
+Draft
+
+## Scope Summary
+
+All empty deps.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: A
+
+**Goal**: G.
+
+**Acceptance Criteria**:
+- [ ] A
+
+---
+
+### Issue 2: feat: B
+
+**Goal**: G.
+
+**Acceptance Criteria**:
+- [ ] A
+FIXTURE
+
+    local stderr_out
+    stderr_out=$("$PARSER_SCRIPT" "$TEST_DIR/plan-all-empty.md" 2>&1 >/dev/null) || true
+
+    if echo "$stderr_out" | grep -q "asymmetric empty-deps"; then
+        fail "$name" "warning fired on all-empty-deps fixture (expected suppression): $stderr_out"
+    else
+        pass "$name (no warning, as expected for symmetric all-empty)"
+    fi
+
+    teardown
+}
+
+# ── Fixture: single-issue does NOT trigger warning ──
+# The asymmetric check only applies to multi-issue PLANs (count >= 2).
+# A single-issue PLAN with no Dependencies line must not warn.
+test_single_pr_single_issue_no_warning() {
+    local name="single-pr single-issue does not trigger asymmetric warning (#156 single-issue suppression)"
+    setup
+
+    cat > "$TEST_DIR/plan-single-issue.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Single Issue"
+issue_count: 1
+---
+
+# PLAN: single
+
+## Status
+
+Draft
+
+## Scope Summary
+
+One issue.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: only
+
+**Goal**: G.
+
+**Acceptance Criteria**:
+- [ ] A
+FIXTURE
+
+    local stderr_out
+    stderr_out=$("$PARSER_SCRIPT" "$TEST_DIR/plan-single-issue.md" 2>&1 >/dev/null) || true
+
+    if echo "$stderr_out" | grep -q "asymmetric empty-deps"; then
+        fail "$name" "warning fired on single-issue fixture (expected suppression): $stderr_out"
+    else
+        pass "$name (no warning, as expected for single-issue PLAN)"
+    fi
+
+    teardown
+}
+
+# ── Fixture: ### Dependencies section-header format still parses unchanged ──
+# R3 protection: the multi-line accumulator at lines 312-339 must continue to
+# parse `### Dependencies` blocks identically. The fix only loosens the
+# single-line **Dependencies** regex; section-header parsing must be untouched.
+test_single_pr_section_header_deps_unchanged() {
+    local name="single-pr ### Dependencies section-header parses unchanged (#156 R3 protection)"
+    setup
+
+    cat > "$TEST_DIR/plan-section.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Section Format"
+issue_count: 2
+---
+
+# PLAN: section
+
+## Status
+
+Draft
+
+## Scope Summary
+
+Section format.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: A
+
+**Goal**: G.
+
+**Acceptance Criteria**:
+- [ ] A
+
+**Dependencies**: None
+
+---
+
+### Issue 2: feat: B
+
+**Goal**: G.
+
+**Acceptance Criteria**:
+- [ ] A
+
+### Dependencies
+
+Issue 1
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-section.md" 2>/dev/null)
+
+    local issue2_waits_len
+    issue2_waits_len=$(echo "$output" | jq -r '.[1].waits_on | length')
+    if [[ "$issue2_waits_len" == "1" ]]; then
+        pass "$name (### Dependencies block produces waits_on edge)"
+    else
+        fail "$name" "Issue 2 waits_on length expected 1, got $issue2_waits_len"
+    fi
+
+    teardown
+}
+
 echo "Running plan-to-tasks.sh tests..." >&2
 echo "" >&2
 
@@ -1053,6 +1607,14 @@ test_single_pr_type_annotation
 test_single_pr_missing_type
 test_single_pr_files_waits_on
 test_single_pr_type_annotation_mixed_case
+test_single_pr_deps_colon_outside_bold
+test_single_pr_deps_colon_inside_bold
+test_single_pr_deps_colon_both_forms_identical_structure
+test_parser_regex_loosened
+test_single_pr_asymmetric_empty_deps_warns
+test_single_pr_all_empty_deps_no_warning
+test_single_pr_single_issue_no_warning
+test_single_pr_section_header_deps_unchanged
 
 echo "" >&2
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed" >&2

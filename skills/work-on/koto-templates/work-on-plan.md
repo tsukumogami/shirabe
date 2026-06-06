@@ -23,10 +23,10 @@ states:
         type: string
         description: Failure reason if blocked
     transitions:
-      - target: spawn_and_await
+      - target: worktree_discipline_check
         when:
           status: completed
-      - target: spawn_and_await
+      - target: worktree_discipline_check
         when:
           status: override
       - target: done_blocked
@@ -34,6 +34,47 @@ states:
           status: blocked
         context_assignments:
           failure_reason: "orchestrator_setup blocked: ${evidence.detail}"
+
+  worktree_discipline_check:
+    gates:
+      impact_classified:
+        type: command
+        command: "test -f wip/work-on_${PLAN_SLUG}_impact.json"
+    accepts:
+      impact:
+        type: enum
+        values: [none, informational, intent-changing]
+        required: true
+      rationale:
+        type: string
+        required: false
+        description: Rationale required when impact is intent-changing
+    transitions:
+      - target: spawn_and_await
+        when:
+          impact: none
+          gates.impact_classified.exit_code: 0
+      - target: spawn_and_await
+        when:
+          impact: informational
+          gates.impact_classified.exit_code: 0
+      - target: escalate_upstream_drift
+        when:
+          impact: intent-changing
+          gates.impact_classified.exit_code: 0
+        context_assignments:
+          failure_reason: "worktree_discipline_check: upstream-drift detected (intent-changing): ${evidence.rationale}"
+
+  escalate_upstream_drift:
+    accepts:
+      rationale:
+        type: string
+        required: true
+        description: Why the upstream change invalidates the chain's intent
+    transitions:
+      - target: done_blocked
+        context_assignments:
+          failure_reason: "escalate_upstream_drift: ${evidence.rationale}"
 
   spawn_and_await:
     gates:
@@ -86,10 +127,13 @@ states:
       ci_passing:
         type: command
         command: "gh pr checks $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json state --jq '[.[] | select(.state != \"SUCCESS\")] | length == 0' | grep -q true"
+      merge_state_clean:
+        type: command
+        command: "[ \"$(gh pr view --json mergeStateStatus --jq .mergeStateStatus)\" != \"DIRTY\" ]"
     accepts:
       ci_outcome:
         type: enum
-        values: [passing, failing_fixed, failing_unresolvable]
+        values: [passing, failing_fixed, failing_unresolvable, dirty_merge_state]
         required: true
       rationale:
         type: string
@@ -99,6 +143,7 @@ states:
         when:
           ci_outcome: passing
           gates.ci_passing.exit_code: 0
+          gates.merge_state_clean.exit_code: 0
       # failing_fixed: agent pushed a follow-up commit to fix CI; gate may be stale.
       # Agent's direct observation is the authoritative signal.
       - target: plan_completion
@@ -109,6 +154,22 @@ states:
           ci_outcome: failing_unresolvable
         context_assignments:
           failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
+      - target: escalate_dirty_merge_state
+        when:
+          ci_outcome: dirty_merge_state
+        context_assignments:
+          failure_reason: "ci_monitor: PR merge state is DIRTY; checks suppressed. ${evidence.rationale}"
+
+  escalate_dirty_merge_state:
+    accepts:
+      rationale:
+        type: string
+        required: true
+        description: Conflict files or rebase instructions for the operator
+    transitions:
+      - target: done_blocked
+        context_assignments:
+          failure_reason: "escalate_dirty_merge_state: ${evidence.rationale}"
 
   plan_completion:
     accepts:
@@ -171,6 +232,20 @@ The script is idempotent — if the branch or PR already exists (e.g., after a c
 
 Submit `status: completed` after branch and draft PR exist, `status: override` if the agent is already on an appropriate branch with an existing PR (skipping branch/PR creation), or `status: blocked` with `detail` if either step fails.
 
+## worktree_discipline_check
+
+Per-child worktree-discipline check (#162). Before dispatching children, fetch origin, rebase the shared branch on main, classify the upstream impact per `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`, and write the classification to `wip/work-on_${PLAN_SLUG}_impact.json`. Read `${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/phases/phase-2.5-worktree-discipline.md` for the full per-child instruction.
+
+Submit `impact` as one of:
+
+- `none` — main has not advanced or advanced in ways the PLAN does not touch. Routes to `spawn_and_await`.
+- `informational` — main has advanced but the changes do not invalidate the PLAN's intent (e.g., docs, unrelated tests). Routes to `spawn_and_await`.
+- `intent-changing` — main has advanced in a way that invalidates the PLAN's intent (e.g., the design's referenced files were deleted, the contract the PLAN relies on was changed). Routes to `escalate_upstream_drift` with `rationale` (required).
+
+## escalate_upstream_drift
+
+A worktree-discipline check classified the upstream impact as `intent-changing` — the PLAN's foundation has changed and the operator needs to decide how to proceed (rebase the PLAN against the new main, abandon, or rescope). The terminal state routes to `done_blocked` carrying the `failure_reason` for batch-view visibility.
+
 ## spawn_and_await
 
 Spawn and coordinate per-issue work-on children from the PLAN document.
@@ -225,12 +300,20 @@ Submit `finalization_status: updated` with `pr_url` after the PR is updated and 
 
 ## ci_monitor
 
-Monitor CI on the shared branch until all checks pass.
+Monitor CI on the shared branch until all checks pass AND merge state is clean.
 
 Read `references/phases/phase-6-pr.md` for CI monitoring guidance.
 
 If the gate fails (CI not yet green), fix what you can and submit `ci_outcome: failing_fixed`.
 If failures are unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
+
+**DIRTY-handling (#162).** If `gh pr view --json mergeStateStatus --jq .mergeStateStatus` returns `DIRTY`, the PR has merge conflicts and GitHub will not create new check-runs. The `ci_passing` gate command checks `length == 0`, which evaluates to true (passing) when zero check-runs exist — the same gate fires for an actually-green PR and a DIRTY-suppressed PR. Do NOT loop on `ci_passing` when the merge state is DIRTY: the second gate `merge_state_clean` distinguishes the two cases.
+
+When `mergeStateStatus` is `DIRTY`, submit `ci_outcome: dirty_merge_state` with `rationale` naming the conflict files. The workflow routes to `escalate_dirty_merge_state` → `done_blocked` with the DIRTY-specific failure reason. The operator's recovery is to rebase the shared branch and resolve conflicts before re-running CI; the koto state machine does not retry automatically because the rebase requires judgment about which conflict resolution preserves the PLAN's intent.
+
+## escalate_dirty_merge_state
+
+The PR's merge state is DIRTY (conflicts with the target branch); GitHub has suppressed new check-runs. Submit `rationale` naming the conflict files; the workflow routes to `done_blocked` with the DIRTY-specific failure reason.
 
 ## plan_completion
 

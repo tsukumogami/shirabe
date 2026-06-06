@@ -941,7 +941,7 @@ hours), so worktree-staleness probability doubles relative to
 chains specifically.
 
 The discipline is captured at the pattern level in a new top-level
-reference `references/parent-skill-worktree-discipline.md` (per
+reference `references/worktree-discipline.md` (per
 Decision 4 below), so future parents (`/work-on` migration,
 future tactical parents) inherit the same trigger condition.
 
@@ -1343,7 +1343,7 @@ requirement that motivates them and the user story they exercise
   is resolved from artifact context (or by the parent's
   conflict-resolution sub-agent) without escalation. `[automated-eval]`
   (R21)
-- [ ] **AC28b** `references/parent-skill-worktree-discipline.md`
+- [ ] **AC28b** `references/worktree-discipline.md`
   exists at the top-level reference root and documents the
   trigger condition (before each Phase 2 child invocation), the
   rebase-then-analyze flow, the three-level impact classification
@@ -1499,7 +1499,7 @@ names the area and where the resolution should land.
 
 4. **The worktree-staleness reference's exact prose.** R21
    specifies the trigger condition and the three-option prompt;
-   `references/parent-skill-worktree-discipline.md`'s detailed
+   `references/worktree-discipline.md`'s detailed
    prose (rebase mechanics, "proceed anyway" recording semantics,
    integration with the chain-proposal prompt) is design-team
    territory.
@@ -1574,7 +1574,7 @@ shape-dependent) to four by adding Mandatory-with-auto-skip; the
 re-evaluation exit's rejection sub-shape is preserved in `/scope`
 by adding Phase-N Reject contracts to `/prd` and `/design` as
 /scope prerequisites; a new top-level reference
-`references/parent-skill-worktree-discipline.md` lands as shared
+`references/worktree-discipline.md` lands as shared
 infrastructure both `/charter` and `/scope` cite.
 
 **Alternatives considered.**
@@ -1654,7 +1654,7 @@ Options-Considered prose differ per combination.
 
 ### Decision 4: Worktree-discipline reference lands at top-level, not parent-specific
 
-**Decided.** `references/parent-skill-worktree-discipline.md`
+**Decided.** `references/worktree-discipline.md`
 lands at the top-level reference root (sibling to
 `parent-skill-pattern.md`,
 `parent-skill-state-schema.md`,
@@ -1839,7 +1839,7 @@ artifact's framing.
   vocabulary, with `/prd`'s gate as the canonical example.
 
 - **New top-level reference:
-  `references/parent-skill-worktree-discipline.md`** — captures
+  `references/worktree-discipline.md`** — captures
   the worktree-staleness trigger condition (per R21 and
   AC28b) as shared infrastructure both `/charter` and `/scope`
   cite.
@@ -1866,6 +1866,6 @@ artifact's framing.
 
 - **Follow-up reference-table addition to
   `skills/charter/SKILL.md`** — adds a citation to
-  `references/parent-skill-worktree-discipline.md` so `/charter`
+  `references/worktree-discipline.md` so `/charter`
   inherits the worktree-staleness discipline. Small back-edit
   PR.
