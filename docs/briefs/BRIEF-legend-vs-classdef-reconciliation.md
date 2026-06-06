@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   A shirabe plan or roadmap can have a perfectly self-consistent table and
   diagram -- FC07 reconciles every key, edge, and class-vs-Status pass --
@@ -26,7 +26,7 @@ upstream: docs/designs/DESIGN-roadmap-plan-standardization.md
 
 ## Status
 
-Accepted
+Done
 
 ## Problem Statement
 
