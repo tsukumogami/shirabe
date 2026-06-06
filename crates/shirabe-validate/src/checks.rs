@@ -16,6 +16,7 @@ use regex::Regex;
 
 use crate::doc::{Config, Doc, ValidationError};
 use crate::formats::FormatSpec;
+use crate::gh::{is_valid_owner_or_repo, ClientError, IssueState, IssueStateClient, PrContext};
 use crate::mermaid::{extract_diagram, find_dependency_graph_block, Diagram, Issue};
 use crate::table::{parse_issues_table, Profile, Row, RowKind, Table};
 
@@ -1231,6 +1232,536 @@ fn issue_id_from_dep(dep: &str) -> Option<String> {
         return None;
     }
     issue_id_from_key(dep)
+}
+
+/// Parse a `owner/repo#N` cross-repo dependency token. Returns the
+/// `(owner, repo, number)` triple if every component passes the
+/// validator-side character-set gate; otherwise `None`. The gate
+/// protects every notice body from echoing attacker-influenced text.
+fn parse_cross_repo_dep(dep: &str) -> Option<(String, String, u64)> {
+    let (slug, num_str) = dep.split_once('#')?;
+    let (owner, repo) = slug.split_once('/')?;
+    if !is_valid_owner_or_repo(owner) || !is_valid_owner_or_repo(repo) {
+        return None;
+    }
+    let number: u64 = num_str.parse().ok()?;
+    Some((owner.to_string(), repo.to_string(), number))
+}
+
+/// Extract the issue number from an `I<n>` diagram node id.
+fn issue_number_from_id(id: &str) -> Option<u64> {
+    id.strip_prefix('I').and_then(|n| n.parse::<u64>().ok())
+}
+
+/// Matches a `Closes`/`Fixes`/`Resolves` line in a PR body. The
+/// optional first two captures hold the cross-repo `owner` and `repo`
+/// substrings; the third capture is the issue number. Matches the set
+/// of keywords the GitHub UI itself recognises (DESIGN Decision 4 /
+/// Scope).
+static CLOSES_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:closes|fixes|resolves)\s+(?:([^\s/#]+)/([^\s#]+))?#(\d+)").unwrap()
+});
+
+/// One parsed `Closes` reference from a PR body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ClosesRef {
+    /// Same-repo reference uses the PR's owner; cross-repo uses the
+    /// parsed `owner/repo` slug.
+    owner: String,
+    repo: String,
+    number: u64,
+    /// True when the source line carried an explicit `owner/repo#N`
+    /// prefix, false when only `#N` appeared.
+    cross_repo: bool,
+    /// The exact source-text literal (e.g. `Closes #42` or
+    /// `Closes owner/repo#42`) used in the over-claims notice body.
+    literal: String,
+}
+
+/// Extract every `Closes`/`Fixes`/`Resolves` reference from the body
+/// of a pull request. Same-repo references inherit `default_owner` and
+/// `default_repo`; cross-repo references are validated against the
+/// character-set gate before being kept (DESIGN Decision 4 / Sub C
+/// cross-repo case). References failing the gate are dropped without
+/// emitting a notice.
+fn extract_closes_refs(body: &str, default_owner: &str, default_repo: &str) -> Vec<ClosesRef> {
+    let mut out = Vec::new();
+    for cap in CLOSES_LINE_RE.captures_iter(body) {
+        let number: u64 = match cap.get(3).and_then(|m| m.as_str().parse().ok()) {
+            Some(n) => n,
+            None => continue,
+        };
+        match (cap.get(1), cap.get(2)) {
+            (Some(o), Some(r)) => {
+                let owner = o.as_str();
+                let repo = r.as_str();
+                if !is_valid_owner_or_repo(owner) || !is_valid_owner_or_repo(repo) {
+                    // Drop attacker-influenced cross-repo references.
+                    continue;
+                }
+                let literal = format!("{} {}/{}#{}", &cap[0][..cap[0].find(char::is_whitespace).unwrap_or(0)],
+                    owner, repo, number);
+                out.push(ClosesRef {
+                    owner: owner.to_string(),
+                    repo: repo.to_string(),
+                    number,
+                    cross_repo: true,
+                    literal,
+                });
+            }
+            _ => {
+                let literal = format!("{} #{}", &cap[0][..cap[0].find(char::is_whitespace).unwrap_or(0)],
+                    number);
+                out.push(ClosesRef {
+                    owner: default_owner.to_string(),
+                    repo: default_repo.to_string(),
+                    number,
+                    cross_repo: false,
+                    literal,
+                });
+            }
+        }
+    }
+    out
+}
+
+/// FC09 -- doc-vs-GitHub state reconciliation.
+///
+/// The third reconciliation axis in `shirabe-validate`. FC07 reconciles
+/// the Implementation Issues table against the dependency diagram; FC08
+/// reconciles the Legend against the classDef set; FC09 reconciles the
+/// doc's claims about issue state (table strikethrough, diagram class
+/// assignments) against (a) GitHub's observed issue state and (b) the
+/// current PR's `Closes #N` body lines.
+///
+/// Three sub-checks share a single pass over the diagram's
+/// `class_assignments`:
+///
+/// - **Sub A** (doc-claims-done vs GitHub): a node carrying class `done`
+///   whose row is terminal-or-strikethrough must correspond to an
+///   actually-closed issue on GitHub. A `done`-claim against an open
+///   issue fires.
+/// - **Sub B** (doc-claims-open vs GitHub): a node carrying class
+///   `ready` or `blocked` (non-terminal) must correspond to an
+///   actually-open issue on GitHub. A non-`done` claim against a closed
+///   issue fires (catching plans the doc never updated after a parallel
+///   PR closed the issue).
+/// - **Sub C** (PR `Closes #N` vs doc): when running in PR context, the
+///   PR body's `Closes #N` lines and the doc's `done`-claims must agree
+///   in both directions. Over-claims (PR closes an N the doc shows
+///   non-done) and under-claims (doc shows N done, no matching `Closes`
+///   in the PR body) both fire.
+///
+/// The check self-disables gracefully on four conditions, each with its
+/// own skip notice in the FC05/FC06/FC07 voice (DESIGN Decision 4):
+///
+/// - **Missing credentials.** The initial probe returns
+///   `ClientError::Auth`; one skip notice, the check returns.
+/// - **Missing PR context.** `pr_ctx` is `None`; Sub-check C emits one
+///   skip notice and is skipped. Sub A and Sub B still run if
+///   `pr_ctx`-derived `(owner, repo)` is otherwise available -- in
+///   practice missing context means the validator has no same-repo
+///   `(owner, repo)` to query, so Sub A and Sub B effectively no-op too.
+/// - **Rate-limit exhausted.** First `RateLimit` triggers a 2-second
+///   back-off and a single retry; second `RateLimit` emits the skip
+///   notice and breaks the per-row loop (subsequent rows in this run
+///   are not reconciled).
+/// - **Per-row cross-repo access denied.** A row's cross-repo reference
+///   returns `Forbidden`; one per-row skip notice; subsequent rows
+///   continue.
+///
+/// The check ships at notice level via the `is_notice` membership
+/// (DESIGN Decision 6). FC09 only fires on Status-bearing classes
+/// (`done`, `ready`, `blocked`) and only on issue-keyed nodes
+/// (`^I[0-9]+$`); pipeline-stage classes and custom-mnemonic external
+/// nodes are ignored.
+///
+/// Notice bodies name only entities the doc itself already names (row
+/// keys, diagram ids, issue numbers, PR body literals). No notice
+/// quotes the GitHub token, includes a URL, or names a private repo or
+/// pre-announcement feature (PRD R17 public-cleanliness).
+pub fn check_fc09(
+    doc: &Doc,
+    spec: &FormatSpec,
+    client: &dyn IssueStateClient,
+    pr_ctx: Option<&PrContext>,
+) -> Vec<ValidationError> {
+    if spec.issues_table_columns.is_empty() {
+        return Vec::new();
+    }
+
+    let mut errs: Vec<ValidationError> = Vec::new();
+
+    // Sub-check C engages only when a PR context is available. Emit the
+    // skip notice once when missing; Sub A and Sub B still run.
+    let pr_ctx_missing = pr_ctx.is_none();
+
+    let table = match parse_issues_table(doc) {
+        Some(t) => t,
+        None => return errs,
+    };
+
+    let location = match find_dependency_graph_block(doc) {
+        Some(l) => l,
+        None => return errs,
+    };
+
+    // A MissingBlock short-circuits per-node passes (matches FC07).
+    for issue in &location.issues {
+        if let Issue::MissingBlock { .. } = issue {
+            return errs;
+        }
+    }
+
+    // Extract the body lines for the located block.
+    let body_start_idx = location.body_start.saturating_sub(1);
+    let body_end_idx = location
+        .body_end
+        .saturating_sub(1)
+        .min(doc.body.len());
+    let body_slice: Vec<&str> = doc
+        .body
+        .get(body_start_idx..body_end_idx)
+        .map(|s| s.iter().map(|x| x.as_str()).collect())
+        .unwrap_or_default();
+    let (diagram, _extract_issues) = extract_diagram(&body_slice, location.body_start);
+
+    // Build the per-profile lookup from diagram id to its parsed row,
+    // mirroring FC07's class_vs_status_pass.
+    let row_by_id: std::collections::HashMap<String, &Row> = match table.profile {
+        Profile::Plan => table
+            .rows
+            .iter()
+            .filter(|r| r.kind == RowKind::Entity)
+            .filter_map(|r| issue_id_from_key(&r.key).map(|id| (id, r)))
+            .collect(),
+        Profile::Roadmap => {
+            let issues_col_idx = table.columns.iter().position(|c| c == "Issues");
+            let mut map: std::collections::HashMap<String, &Row> =
+                std::collections::HashMap::new();
+            for row in &table.rows {
+                if row.kind != RowKind::Entity {
+                    continue;
+                }
+                let issues_cell = match issues_col_idx {
+                    Some(idx) => split_raw_row_cell(&row.raw, idx),
+                    None => String::new(),
+                };
+                for cap in ISSUE_REF_IN_CELL.captures_iter(&issues_cell) {
+                    map.insert(format!("I{}", &cap[1]), row);
+                }
+            }
+            map
+        }
+    };
+
+    // Dependencies-column index, used to resolve cross-repo references
+    // for the per-row (owner, repo, number) when reconciling Sub A/B.
+    let deps_col_idx = table.columns.iter().position(|c| c == "Dependencies");
+
+    // Build a lookup: row.key -> cross-repo (owner, repo, number) for
+    // the first cross-repo dep in that row's Dependencies cell whose
+    // numeric tail matches the row's issue number. Same-repo rows fall
+    // back to pr_ctx's (owner, repo).
+    let cross_repo_by_row_key: std::collections::HashMap<String, (String, String, u64)> = {
+        let mut map: std::collections::HashMap<String, (String, String, u64)> =
+            std::collections::HashMap::new();
+        if let Some(idx) = deps_col_idx {
+            for row in &table.rows {
+                if row.kind != RowKind::Entity {
+                    continue;
+                }
+                let cell = split_raw_row_cell(&row.raw, idx);
+                for tok in cell.split(',') {
+                    let tok = tok.trim();
+                    if let Some(triple) = parse_cross_repo_dep(tok) {
+                        map.insert(row.key.clone(), triple);
+                        break;
+                    }
+                }
+            }
+        }
+        map
+    };
+
+    // Run Sub A and Sub B in one pass. Per DESIGN: if pr_ctx is None
+    // we still skip Sub C, but Sub A/B need a same-repo (owner, repo)
+    // anchor -- when pr_ctx is None there's nothing to query, so the
+    // missing-credentials/missing-context skip messaging covers that.
+    let default_owner = pr_ctx.map(|p| p.owner.as_str()).unwrap_or("");
+    let default_repo = pr_ctx.map(|p| p.repo.as_str()).unwrap_or("");
+
+    // Track which (owner, repo, number) tuples FC09 reconciled so Sub C
+    // can compare against the doc's `done`-claims.
+    let mut done_claimed_same_repo: std::collections::HashSet<u64> =
+        std::collections::HashSet::new();
+
+    // Track which `class ready` / `class blocked` nodes the doc shows
+    // non-done; Sub C compares against `Closes #N` to fire over-claims
+    // notices. Maps issue number -> (row key, class name, class line).
+    let mut non_done_same_repo: std::collections::HashMap<u64, (String, String, usize)> =
+        std::collections::HashMap::new();
+
+    // The class assignments iteration may break early on rate-limit
+    // exhaustion; track whether we should also skip Sub C.
+    let mut rate_limit_exhausted = false;
+    // Track which rows we've already credential-probed via Auth-skip.
+    let mut auth_probed_skip = false;
+
+    'outer: for assign in &diagram.class_assignments {
+        if !STATUS_CLASSES.contains(&assign.name.as_str()) {
+            continue;
+        }
+        if !ISSUE_KEYED_NODE_ID.is_match(&assign.id) {
+            continue;
+        }
+        let row = match row_by_id.get(&assign.id) {
+            Some(r) => *r,
+            None => continue,
+        };
+        let issue_n = match issue_number_from_id(&assign.id) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        // Determine the (owner, repo, number) to query. Cross-repo rows
+        // use the row's Dependencies-cell reference; same-repo uses
+        // pr_ctx. If pr_ctx is None and the row has no cross-repo dep,
+        // skip the row (no (owner, repo) to query).
+        let (q_owner, q_repo, q_number, is_cross_repo) =
+            match cross_repo_by_row_key.get(&row.key) {
+                Some((o, r, n)) => (o.clone(), r.clone(), *n, true),
+                None => {
+                    if pr_ctx.is_none() {
+                        continue;
+                    }
+                    (default_owner.to_string(), default_repo.to_string(), issue_n, false)
+                }
+            };
+
+        // Track for Sub C reconciliation.
+        let doc_claims_done = assign.name == "done";
+        if !is_cross_repo {
+            if doc_claims_done {
+                done_claimed_same_repo.insert(issue_n);
+            } else {
+                non_done_same_repo
+                    .insert(issue_n, (row.key.clone(), assign.name.clone(), assign.line));
+            }
+        }
+
+        // Fetch with single rate-limit retry at the call site.
+        let first = client.fetch_issue_state(&q_owner, &q_repo, q_number);
+        let result = match first {
+            Err(ClientError::RateLimit) => {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                client.fetch_issue_state(&q_owner, &q_repo, q_number)
+            }
+            other => other,
+        };
+
+        match result {
+            Ok(observed) => {
+                let row_terminal = row.terminal;
+                if doc_claims_done && observed == IssueState::Open {
+                    errs.push(ValidationError {
+                        file: doc.path.clone(),
+                        line: assign.line,
+                        code: "FC09".to_string(),
+                        message: format!(
+                            "[FC09] row {:?} (node {}) claims done; GitHub observes issue #{} still open",
+                            row.key, assign.id, q_number
+                        ),
+                    });
+                } else if !doc_claims_done && observed == IssueState::Closed && !row_terminal {
+                    errs.push(ValidationError {
+                        file: doc.path.clone(),
+                        line: assign.line,
+                        code: "FC09".to_string(),
+                        message: format!(
+                            "[FC09] row {:?} (node {}) claims open with class {}; GitHub observes issue #{} closed (expected done)",
+                            row.key, assign.id, assign.name, q_number
+                        ),
+                    });
+                }
+            }
+            Err(ClientError::Auth) => {
+                if !auth_probed_skip {
+                    errs.push(ValidationError {
+                        file: doc.path.clone(),
+                        line: assign.line,
+                        code: "FC09".to_string(),
+                        message: "[FC09] skipped: no GitHub credentials available (set GITHUB_TOKEN or run `gh auth login`)".to_string(),
+                    });
+                    auth_probed_skip = true;
+                }
+                // Without credentials nothing else will succeed; break.
+                break 'outer;
+            }
+            Err(ClientError::RateLimit) => {
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line: assign.line,
+                    code: "FC09".to_string(),
+                    message: "[FC09] skipped: GitHub rate limit exhausted after one retry (subsequent rows in this run will not be reconciled)".to_string(),
+                });
+                rate_limit_exhausted = true;
+                break 'outer;
+            }
+            Err(ClientError::Forbidden) => {
+                if is_cross_repo {
+                    errs.push(ValidationError {
+                        file: doc.path.clone(),
+                        line: assign.line,
+                        code: "FC09".to_string(),
+                        message: format!(
+                            "[FC09] row {:?} (cross-repo {:?}) skipped: GitHub returned access denied (token cannot read {}/{})",
+                            row.key,
+                            format!("{}/{}#{}", q_owner, q_repo, q_number),
+                            q_owner,
+                            q_repo
+                        ),
+                    });
+                }
+                // Continue to next row.
+            }
+            Err(ClientError::NotFound) => {
+                // No per-row notice; FC09 does not reconcile rows whose
+                // issue cannot be fetched for reasons other than rate-
+                // limit or cross-repo denial (PRD R14).
+            }
+            Err(ClientError::Network) | Err(ClientError::Malformed(_)) => {
+                // No per-row notice on 5xx, malformed payloads, etc.
+                // PRD R14: the check proceeds without dropping a notice.
+            }
+        }
+    }
+
+    // Sub-check C: PR Closes reconciliation.
+    if pr_ctx_missing {
+        errs.push(ValidationError {
+            file: doc.path.clone(),
+            line: 1,
+            code: "FC09".to_string(),
+            message: "[FC09] Sub-check C skipped: no PR context (set GITHUB_REF=refs/pull/<n>/merge, GITHUB_REPOSITORY, or SHIRABE_PR_NUMBER)".to_string(),
+        });
+    } else if !rate_limit_exhausted && !auth_probed_skip {
+        // Fetch the PR body once with the same retry-then-skip discipline.
+        let pr = pr_ctx.expect("checked above");
+        let first = client.fetch_pr_body(&pr.owner, &pr.repo, pr.number);
+        let body_result = match first {
+            Err(ClientError::RateLimit) => {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                client.fetch_pr_body(&pr.owner, &pr.repo, pr.number)
+            }
+            other => other,
+        };
+
+        match body_result {
+            Ok(body) => {
+                let refs = extract_closes_refs(&body, &pr.owner, &pr.repo);
+
+                // Over-claims: PR body Closes #N where doc shows non-done.
+                for r in &refs {
+                    if r.cross_repo {
+                        // Cross-repo Closes line: check against doc's
+                        // cross-repo non-done rows.
+                        let mut hit = false;
+                        for (_k, (row_key, class_name, line)) in &non_done_same_repo {
+                            // Cross-repo case is sparse; we match by
+                            // (owner, repo, number) via cross_repo_by_row_key.
+                            if let Some(triple) = cross_repo_by_row_key.get(row_key) {
+                                if triple.0 == r.owner && triple.1 == r.repo && triple.2 == r.number {
+                                    errs.push(ValidationError {
+                                        file: doc.path.clone(),
+                                        line: *line,
+                                        code: "FC09".to_string(),
+                                        message: format!(
+                                            "[FC09] PR body line {:?} claims a cross-repo closure the doc still shows non-done (row {:?}, class {})",
+                                            format!("Closes {}/{}#{}", r.owner, r.repo, r.number),
+                                            row_key, class_name
+                                        ),
+                                    });
+                                    hit = true;
+                                }
+                            }
+                        }
+                        let _ = hit;
+                    } else if let Some((row_key, class_name, line)) = non_done_same_repo.get(&r.number) {
+                        errs.push(ValidationError {
+                            file: doc.path.clone(),
+                            line: *line,
+                            code: "FC09".to_string(),
+                            message: format!(
+                                "[FC09] PR body line {:?} claims a closure the doc still shows non-done (row {:?}, class {})",
+                                format!("Closes #{}", r.number),
+                                row_key, class_name
+                            ),
+                        });
+                    }
+                }
+
+                // Under-claims: doc shows N done but no Closes #N in body.
+                let body_same_repo_nums: std::collections::HashSet<u64> = refs
+                    .iter()
+                    .filter(|r| !r.cross_repo)
+                    .map(|r| r.number)
+                    .collect();
+                for n in &done_claimed_same_repo {
+                    if !body_same_repo_nums.contains(n) {
+                        // Find the assignment line for this done-claim.
+                        let (line, row_key) = diagram
+                            .class_assignments
+                            .iter()
+                            .find(|a| a.name == "done" && issue_number_from_id(&a.id) == Some(*n))
+                            .map(|a| {
+                                let key = row_by_id
+                                    .get(&a.id)
+                                    .map(|r| r.key.clone())
+                                    .unwrap_or_else(|| format!("#{}", n));
+                                (a.line, key)
+                            })
+                            .unwrap_or((1, format!("#{}", n)));
+                        errs.push(ValidationError {
+                            file: doc.path.clone(),
+                            line,
+                            code: "FC09".to_string(),
+                            message: format!(
+                                "[FC09] row {:?} claims done but GitHub observes issue #{} open and no \"Closes #{}\" appears in this PR",
+                                row_key, n, n
+                            ),
+                        });
+                    }
+                }
+            }
+            Err(ClientError::Auth) => {
+                if !auth_probed_skip {
+                    errs.push(ValidationError {
+                        file: doc.path.clone(),
+                        line: 1,
+                        code: "FC09".to_string(),
+                        message: "[FC09] skipped: no GitHub credentials available (set GITHUB_TOKEN or run `gh auth login`)".to_string(),
+                    });
+                }
+            }
+            Err(ClientError::RateLimit) => {
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line: 1,
+                    code: "FC09".to_string(),
+                    message: "[FC09] skipped: GitHub rate limit exhausted after one retry (subsequent rows in this run will not be reconciled)".to_string(),
+                });
+            }
+            Err(_) => {
+                // Other PR body fetch failures (NotFound, Forbidden,
+                // Network, Malformed) drop Sub C without a notice. The
+                // PRD's bounded-behavior contract treats unfetchable PR
+                // bodies as silent skip.
+            }
+        }
+    }
+
+    errs
 }
 
 #[cfg(test)]
@@ -2838,6 +3369,378 @@ mod tests {
                     "PR/issue reference {:?} in FC07 doc-comment: {:?}",
                     marker,
                     line
+                );
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // check_fc09 tests (PRD R6-R9 self-disable paths, R12 notice voice,
+    // R13 Sub C asymmetry, R14 bounded behavior). Eleven pinned fixtures
+    // per DESIGN Decision 3 (Sub A reconciled+defect, Sub B
+    // reconciled+defect, Sub C over-claims+under-claims, four
+    // self-disable paths, bounded-over-malformed-input).
+    // ------------------------------------------------------------------
+
+    use crate::gh::{ClientError, IssueState, MockIssueStateClient, PrContext};
+
+    /// A canonical, well-formed plan fixture suitable for FC09 tests.
+    /// Two entity rows: `#1` open (class ready) and `#2` open (class
+    /// blocked, depends on #1). FC07 is happy with this fixture; FC09
+    /// gates against the mock client.
+    fn fc09_plan_two_open() -> String {
+        well_formed_plan("    class I1 ready\n    class I2 blocked\n")
+    }
+
+    /// A plan fixture where row `#1` is strikethrough (terminal) with
+    /// the diagram still classing it `done`. FC07 is happy; FC09 tests
+    /// what the mock client returns for that issue.
+    fn fc09_plan_one_done() -> String {
+        "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| ~~[#1: alpha](https://example.com/1)~~ | ~~None~~ | ~~simple~~ |\n| ~~_Alpha closed._~~ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    classDef done fill:#c8e6c9\n    class I1 done\n```\n".to_string()
+    }
+
+    /// A roadmap fixture with one feature linking issue #10 (class
+    /// ready, dep none).
+    fn fc09_roadmap_one_open() -> String {
+        "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | In Progress |\n| _Alpha description._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I10[\"#10: alpha\"]\n    classDef ready fill:#bbdefb\n    class I10 ready\n```\n".to_string()
+    }
+
+    fn pr_ctx() -> PrContext {
+        PrContext {
+            owner: "tsukumogami".to_string(),
+            repo: "shirabe".to_string(),
+            number: 153,
+        }
+    }
+
+    // --- Sub A: doc-claims-done vs GitHub ---
+
+    #[test]
+    fn check_fc09_sub_a_reconciled_no_notice() {
+        // Doc claims #1 done; GitHub observes #1 closed. No notice.
+        let doc = doc_md(&fc09_plan_one_done());
+        let ctx = pr_ctx();
+        let mock = MockIssueStateClient::new()
+            .with_issue("tsukumogami", "shirabe", 1, Ok(IssueState::Closed))
+            .with_pr("tsukumogami", "shirabe", 153, Ok("Closes #1\n".to_string()));
+        let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, Some(&ctx));
+        let fc09: Vec<_> = errs.iter().filter(|e| e.code == "FC09").collect();
+        // Should be 0 FC09 notices.
+        assert_eq!(fc09.len(), 0, "expected no FC09 notices; got {:?}", fc09);
+    }
+
+    #[test]
+    fn check_fc09_sub_a_doc_done_gh_open_fires() {
+        // Doc claims #1 done; GitHub observes #1 open. Sub A fires.
+        let doc = doc_md(&fc09_plan_one_done());
+        let ctx = pr_ctx();
+        let mock = MockIssueStateClient::new()
+            .with_issue("tsukumogami", "shirabe", 1, Ok(IssueState::Open))
+            // PR body: empty so Sub C under-claims also fires.
+            .with_pr("tsukumogami", "shirabe", 153, Ok("".to_string()));
+        let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, Some(&ctx));
+        let sub_a: Vec<_> = errs
+            .iter()
+            .filter(|e| e.message.contains("claims done") && e.message.contains("still open"))
+            .collect();
+        assert_eq!(sub_a.len(), 1, "Sub A defect must fire; got {:?}", errs);
+        assert_eq!(sub_a[0].code, "FC09");
+        assert!(sub_a[0].message.contains("[FC09]"));
+        assert!(sub_a[0].message.contains("\"#1\""));
+        assert!(sub_a[0].message.contains("I1"));
+    }
+
+    // --- Sub B: doc-claims-open vs GitHub ---
+
+    #[test]
+    fn check_fc09_sub_b_reconciled_no_notice() {
+        // Doc shows #1 open (ready); GitHub observes open. No notice.
+        let doc = doc_md(&fc09_plan_two_open());
+        let ctx = pr_ctx();
+        let mock = MockIssueStateClient::new()
+            .with_issue("tsukumogami", "shirabe", 1, Ok(IssueState::Open))
+            .with_issue("tsukumogami", "shirabe", 2, Ok(IssueState::Open))
+            .with_pr("tsukumogami", "shirabe", 153, Ok("".to_string()));
+        let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, Some(&ctx));
+        let fc09: Vec<_> = errs.iter().filter(|e| e.code == "FC09").collect();
+        assert_eq!(fc09.len(), 0, "expected no FC09 notices; got {:?}", fc09);
+    }
+
+    #[test]
+    fn check_fc09_sub_b_doc_open_gh_closed_fires() {
+        // Doc shows #1 ready (open); GitHub observes #1 closed. Sub B fires.
+        let doc = doc_md(&fc09_plan_two_open());
+        let ctx = pr_ctx();
+        let mock = MockIssueStateClient::new()
+            .with_issue("tsukumogami", "shirabe", 1, Ok(IssueState::Closed))
+            .with_issue("tsukumogami", "shirabe", 2, Ok(IssueState::Open))
+            .with_pr("tsukumogami", "shirabe", 153, Ok("".to_string()));
+        let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, Some(&ctx));
+        let sub_b: Vec<_> = errs
+            .iter()
+            .filter(|e| {
+                e.message.contains("claims open with class")
+                    && e.message.contains("expected done")
+            })
+            .collect();
+        assert_eq!(sub_b.len(), 1, "Sub B defect must fire; got {:?}", errs);
+        assert!(sub_b[0].message.contains("[FC09]"));
+        assert!(sub_b[0].message.contains("\"#1\""));
+        assert!(sub_b[0].message.contains("ready"));
+    }
+
+    // --- Sub C: PR Closes vs doc ---
+
+    #[test]
+    fn check_fc09_sub_c_over_claims_same_repo_fires() {
+        // PR body says Closes #1, but doc shows #1 ready (non-done).
+        let doc = doc_md(&fc09_plan_two_open());
+        let ctx = pr_ctx();
+        let mock = MockIssueStateClient::new()
+            .with_issue("tsukumogami", "shirabe", 1, Ok(IssueState::Open))
+            .with_issue("tsukumogami", "shirabe", 2, Ok(IssueState::Open))
+            .with_pr(
+                "tsukumogami",
+                "shirabe",
+                153,
+                Ok("Closes #1\nFixes #999\n".to_string()),
+            );
+        let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, Some(&ctx));
+        let over: Vec<_> = errs
+            .iter()
+            .filter(|e| e.message.contains("PR body line") && e.message.contains("\"Closes #1\""))
+            .collect();
+        assert_eq!(over.len(), 1, "Sub C over-claims must fire; got {:?}", errs);
+        assert!(over[0].message.contains("non-done"));
+    }
+
+    #[test]
+    fn check_fc09_sub_c_under_claims_fires() {
+        // Doc claims #1 done; GitHub observes #1 open; PR body has no
+        // Closes #1.
+        let doc = doc_md(&fc09_plan_one_done());
+        let ctx = pr_ctx();
+        let mock = MockIssueStateClient::new()
+            .with_issue("tsukumogami", "shirabe", 1, Ok(IssueState::Open))
+            .with_pr(
+                "tsukumogami",
+                "shirabe",
+                153,
+                Ok("Closes #2\nFixes #3\n".to_string()),
+            );
+        let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, Some(&ctx));
+        let under: Vec<_> = errs
+            .iter()
+            .filter(|e| {
+                e.message.contains("claims done but GitHub observes")
+                    && e.message.contains("no \"Closes #")
+            })
+            .collect();
+        assert!(
+            !under.is_empty(),
+            "Sub C under-claims must fire; got {:?}",
+            errs
+        );
+    }
+
+    // --- Self-disable paths ---
+
+    #[test]
+    fn check_fc09_missing_credentials_skip_notice() {
+        // Mock returns Auth for every issue lookup. The check emits one
+        // skip notice and stops iterating.
+        let doc = doc_md(&fc09_plan_two_open());
+        let ctx = pr_ctx();
+        let mock = MockIssueStateClient::new()
+            .with_issue("tsukumogami", "shirabe", 1, Err(ClientError::Auth))
+            .with_issue("tsukumogami", "shirabe", 2, Err(ClientError::Auth));
+        let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, Some(&ctx));
+        let auth_skips: Vec<_> = errs
+            .iter()
+            .filter(|e| e.message.contains("no GitHub credentials available"))
+            .collect();
+        assert_eq!(
+            auth_skips.len(),
+            1,
+            "exactly one Auth skip notice; got {:?}",
+            errs
+        );
+        assert_eq!(auth_skips[0].code, "FC09");
+    }
+
+    #[test]
+    fn check_fc09_missing_pr_context_skip_notice() {
+        // pr_ctx is None; Sub C is skipped with a single notice.
+        let doc = doc_md(&fc09_plan_one_done());
+        let mock = MockIssueStateClient::new();
+        let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, None);
+        let ctx_skips: Vec<_> = errs
+            .iter()
+            .filter(|e| e.message.contains("Sub-check C skipped"))
+            .collect();
+        assert_eq!(
+            ctx_skips.len(),
+            1,
+            "exactly one PR-context skip notice; got {:?}",
+            errs
+        );
+        assert!(ctx_skips[0].message.contains("SHIRABE_PR_NUMBER"));
+    }
+
+    #[test]
+    fn check_fc09_rate_limit_exhausted_skip_notice() {
+        // Mock returns RateLimit on every call. After the in-call
+        // retry, the check emits the rate-limit skip notice.
+        let doc = doc_md(&fc09_plan_two_open());
+        let ctx = pr_ctx();
+        let mock = MockIssueStateClient::new()
+            .with_issue("tsukumogami", "shirabe", 1, Err(ClientError::RateLimit))
+            .with_issue("tsukumogami", "shirabe", 2, Err(ClientError::RateLimit));
+        let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, Some(&ctx));
+        let rl_skips: Vec<_> = errs
+            .iter()
+            .filter(|e| e.message.contains("rate limit exhausted"))
+            .collect();
+        assert!(
+            !rl_skips.is_empty(),
+            "rate-limit skip must fire; got {:?}",
+            errs
+        );
+        assert_eq!(rl_skips[0].code, "FC09");
+    }
+
+    #[test]
+    fn check_fc09_cross_repo_forbidden_per_row_skip() {
+        // A plan whose row has a cross-repo dep returning Forbidden.
+        let fixture = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | other/private#42 | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    classDef ready fill:#bbdefb\n    class I1 ready\n```\n";
+        let doc = doc_md(fixture);
+        let ctx = pr_ctx();
+        let mock = MockIssueStateClient::new()
+            .with_issue("other", "private", 42, Err(ClientError::Forbidden));
+        let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, Some(&ctx));
+        let cross_skips: Vec<_> = errs
+            .iter()
+            .filter(|e| e.message.contains("cross-repo") && e.message.contains("access denied"))
+            .collect();
+        assert_eq!(
+            cross_skips.len(),
+            1,
+            "exactly one cross-repo skip; got {:?}",
+            errs
+        );
+    }
+
+    // --- Bounded over malformed input ---
+
+    #[test]
+    fn check_fc09_malformed_response_no_notice_no_panic() {
+        // Mock returns Malformed for an issue. PRD R14: no per-row
+        // notice; the check proceeds without panicking.
+        let doc = doc_md(&fc09_plan_two_open());
+        let ctx = pr_ctx();
+        let mock = MockIssueStateClient::new()
+            .with_issue(
+                "tsukumogami",
+                "shirabe",
+                1,
+                Err(ClientError::Malformed("garbage".to_string())),
+            )
+            .with_issue("tsukumogami", "shirabe", 2, Ok(IssueState::Open))
+            .with_pr("tsukumogami", "shirabe", 153, Ok("".to_string()));
+        let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, Some(&ctx));
+        // Malformed payload string must not appear in any notice body.
+        for e in &errs {
+            assert!(
+                !e.message.contains("garbage"),
+                "Malformed payload must not leak into notice body: {:?}",
+                e
+            );
+        }
+    }
+
+    // --- Roadmap profile dispatch ---
+
+    #[test]
+    fn check_fc09_roadmap_profile_dispatches() {
+        let doc = doc_md(&fc09_roadmap_one_open());
+        let ctx = pr_ctx();
+        let mock = MockIssueStateClient::new()
+            .with_issue("tsukumogami", "shirabe", 10, Ok(IssueState::Closed))
+            .with_pr("tsukumogami", "shirabe", 153, Ok("".to_string()));
+        let errs = check_fc09(&doc, &spec_for("roadmap/v1"), &mock, Some(&ctx));
+        // Sub B fires: doc shows #10 ready, GH observes closed.
+        let sub_b: Vec<_> = errs
+            .iter()
+            .filter(|e| {
+                e.message.contains("claims open with class") && e.message.contains("expected done")
+            })
+            .collect();
+        assert_eq!(sub_b.len(), 1, "Sub B on roadmap must fire; got {:?}", errs);
+    }
+
+    // --- No-op paths ---
+
+    #[test]
+    fn check_fc09_noop_when_spec_has_no_issues_table() {
+        let doc = doc_md(
+            "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\n---\n",
+        );
+        let mock = MockIssueStateClient::new();
+        let errs = check_fc09(&doc, &spec_for("design/v1"), &mock, None);
+        assert_eq!(errs.len(), 0, "no-op on non-issues-table format; got {:?}", errs);
+    }
+
+    #[test]
+    fn check_fc09_missing_block_short_circuits() {
+        // A plan whose Dependency Graph section has no mermaid block.
+        let fixture = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\nNo mermaid block.\n";
+        let doc = doc_md(fixture);
+        let ctx = pr_ctx();
+        let mock = MockIssueStateClient::new();
+        let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, Some(&ctx));
+        // MissingBlock short-circuits; FC09 contributes nothing.
+        assert_eq!(
+            errs.len(),
+            0,
+            "MissingBlock short-circuits FC09; got {:?}",
+            errs
+        );
+    }
+
+    // --- Notice public-cleanliness ---
+
+    #[test]
+    fn fc09_notice_bodies_are_public_clean() {
+        // Run the check across the fixtures above and assert no notice
+        // body mentions a URL, a private repo name, or the GITHUB_TOKEN
+        // environment variable name.
+        let doc = doc_md(&fc09_plan_one_done());
+        let ctx = pr_ctx();
+        let mock = MockIssueStateClient::new()
+            .with_issue("tsukumogami", "shirabe", 1, Ok(IssueState::Open))
+            .with_pr("tsukumogami", "shirabe", 153, Ok("Closes #2\n".to_string()));
+        let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, Some(&ctx));
+        for e in &errs {
+            if e.code != "FC09" {
+                continue;
+            }
+            assert!(
+                !e.message.contains("https://"),
+                "FC09 notice contains URL: {:?}",
+                e.message
+            );
+            assert!(
+                !e.message.contains("http://"),
+                "FC09 notice contains URL: {:?}",
+                e.message
+            );
+            // Token-bytes screen: GITHUB_TOKEN names must appear only
+            // in the missing-credentials guidance form.
+            if e.message.contains("GITHUB_TOKEN") {
+                assert!(
+                    e.message.contains("no GitHub credentials available"),
+                    "GITHUB_TOKEN reference only allowed in the missing-credentials notice: {:?}",
+                    e.message
                 );
             }
         }

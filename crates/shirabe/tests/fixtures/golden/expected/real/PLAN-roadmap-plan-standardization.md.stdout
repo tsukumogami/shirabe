@@ -6,3 +6,4 @@
 ::notice file=real/PLAN-roadmap-plan-standardization.md::[FC07] node "I115" declared class "blocked", observed state "open", expected class "ready"
 ::notice file=real/PLAN-roadmap-plan-standardization.md::[FC07] node "I116" declared class "blocked", observed state "open", expected class "ready"
 ::notice file=real/PLAN-roadmap-plan-standardization.md::[FC07] node "I118" declared class "blocked", observed state "open", expected class "ready"
+::notice file=real/PLAN-roadmap-plan-standardization.md::[FC09] Sub-check C skipped: no PR context (set GITHUB_REF=refs/pull/<n>/merge, GITHUB_REPOSITORY, or SHIRABE_PR_NUMBER)

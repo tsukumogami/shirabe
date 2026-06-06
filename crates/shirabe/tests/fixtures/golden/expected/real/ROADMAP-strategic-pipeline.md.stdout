@@ -1,0 +1,1 @@
+::notice file=real/ROADMAP-strategic-pipeline.md::[FC09] Sub-check C skipped: no PR context (set GITHUB_REF=refs/pull/<n>/merge, GITHUB_REPOSITORY, or SHIRABE_PR_NUMBER)

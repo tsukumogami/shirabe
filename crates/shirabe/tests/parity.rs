@@ -38,6 +38,15 @@ fn assert_parity(rel: &str) {
     let bin = env!("CARGO_BIN_EXE_shirabe");
     let output = Command::new(bin)
         .current_dir(&corpus_dir)
+        // Clear FC09's env-var surface so the parity baselines remain
+        // deterministic regardless of whether the test runs locally or
+        // in GitHub Actions. With these unset, FC09 emits exactly the
+        // Sub-check C skip notice on plan/roadmap fixtures and nothing
+        // on schema-mismatching docs (DESIGN Decision 7).
+        .env_remove("SHIRABE_PR_NUMBER")
+        .env_remove("GITHUB_REF")
+        .env_remove("GITHUB_REPOSITORY")
+        .env_remove("GITHUB_TOKEN")
         .arg("validate")
         .arg(rel)
         .output()
