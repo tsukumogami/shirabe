@@ -284,8 +284,11 @@ process_single_pr() {
             continue
         fi
 
-        # Detect dependencies line within an issue outline
-        if [[ -n "$current_number" && "$line" =~ \*\*Dependencies\*\*:[[:space:]]*(.+)$ ]]; then
+        # Detect dependencies line within an issue outline.
+        # Accept both colon placements (#156):
+        #   **Dependencies**: ...    (canonical, colon outside bold)
+        #   **Dependencies:** ...    (colon inside bold — silently dropped before this fix)
+        if [[ -n "$current_number" && "$line" =~ \*\*Dependencies:?\*\*:?[[:space:]]*(.+)$ ]]; then
             current_deps="${BASH_REMATCH[1]}"
             # Remove trailing period
             current_deps="${current_deps%.}"
@@ -351,6 +354,30 @@ process_single_pr() {
     local count="${#issue_numbers[@]}"
     if [[ $count -eq 0 ]]; then
         die_schema "single-pr PLAN has no issue outlines in ## Issue Outlines section"
+    fi
+
+    # Asymmetric-empty-deps warning (#156, AC2.1/AC2.2):
+    # When a multi-issue single-pr PLAN has SOME issues with declared deps AND
+    # SOME with empty deps (excluding `None`), warn that the regex previously
+    # silently dropped edges authored with `**Dependencies:**` (colon inside
+    # bold). After this fix both colon placements parse identically, but the
+    # asymmetry pattern is still suspicious enough to flag for the author.
+    if [[ $count -ge 2 ]]; then
+        local empty_count=0
+        local nonempty_count=0
+        for i in "${!issue_numbers[@]}"; do
+            local d="${issue_deps_raw[$i]}"
+            # Treat literal "None" as an empty declaration (legitimate
+            # strictly-independent issue); only count truly empty as suspicious.
+            if [[ -z "$d" ]]; then
+                empty_count=$((empty_count + 1))
+            else
+                nonempty_count=$((nonempty_count + 1))
+            fi
+        done
+        if [[ $empty_count -gt 0 && $nonempty_count -gt 0 ]]; then
+            log "Warning: asymmetric empty-deps detected (${empty_count} issue(s) with no \`**Dependencies**:\` line, ${nonempty_count} issue(s) with one). Likely authoring cause: an issue outline used \`**Dependencies:**\` (colon inside bold) where \`**Dependencies**:\` (colon outside bold) was expected, or the line was omitted. Both colon placements now parse identically, but verify each outline declares dependencies explicitly (use \`**Dependencies**: None\` for strictly-independent issues)."
+        fi
     fi
 
     # Second pass: compute names with slug + collision handling
