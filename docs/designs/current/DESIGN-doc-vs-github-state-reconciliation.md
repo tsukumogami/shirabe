@@ -368,25 +368,25 @@ four self-disable notices):
 - **Sub A defect (doc claims terminal/`done`, GitHub observes open):**
 
   ```
-  [FC09] row "#42" (node I42) claims done; GitHub observes issue #42 still open
+  [FC09] row "#42" (node I42) claims done; GitHub observes issue #42 still open (expected: remove the strikethrough/done class, or land the closing PR for #42)
   ```
 
 - **Sub B defect (doc claims non-`done`, GitHub observes closed):**
 
   ```
-  [FC09] row "#42" (node I42) claims open with class ready; GitHub observes issue #42 closed (expected done)
+  [FC09] row "#42" (node I42) claims open with class ready; GitHub observes issue #42 closed (expected: change class from ready to done and apply strikethrough to the row)
   ```
 
 - **Sub C over-claims (PR body `Closes #N` for an N the doc shows non-`done`):**
 
   ```
-  [FC09] PR body line "Closes #42" claims a closure the doc still shows non-done (row "#42", node I42, class ready)
+  [FC09] PR body line "Closes #42" claims a closure the doc still shows non-done (row "#42", class ready) (expected: update the row to done in this same PR, or remove the "Closes #N" line if closure is not intended)
   ```
 
 - **Sub C over-claims, cross-repo form (PR body `Closes owner/repo#N` for an N the doc shows non-`done`):**
 
   ```
-  [FC09] PR body line "Closes owner/repo#42" claims a cross-repo closure the doc still shows non-done (row "#42", node I42, class ready)
+  [FC09] PR body line "Closes owner/repo#42" claims a cross-repo closure the doc still shows non-done (row "#42", class ready)
   ```
 
   The `owner/repo` substring is the literal that the validator-side
@@ -401,7 +401,7 @@ four self-disable notices):
 - **Sub C under-claims (`done`-claimed row, issue observed open, no matching `Closes` line):**
 
   ```
-  [FC09] row "#42" (node I42) claims done but GitHub observes issue #42 open and no "Closes #42" appears in this PR
+  [FC09] row "#42" claims done but GitHub observes issue #42 open and no "Closes #42" appears in this PR (expected: add "Closes #42" to the PR body if this PR delivers the close, or revert the row's done claim if not)
   ```
 
 - **Self-disable -- missing credentials (R6):**

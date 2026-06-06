@@ -94,6 +94,14 @@ is promoted to error once the corpus conforms.
 - Table-diagram reconciliation (FC07) is staged into a later
   increment behind a feasibility spike and ships as a notice, then is
   promoted to error after the committed-diagram corpus is reconciled.
+- Doc-vs-GitHub state reconciliation (FC09) follows the same staged
+  posture as FC07: notice-level for v1 via `is_notice` membership,
+  promoted to error through a one-line membership change once the
+  committed corpus settles against the live-GitHub signal. FC09 also
+  self-disables when its preconditions are absent (no credentials,
+  no PR context, rate limit exhausted, cross-repo access denied),
+  so a CI environment without GitHub access degrades to a skip
+  notice instead of a noisy false defect.
 - The lifecycle CI checks (L01/L02) are error-level because their
   function is to force the deletion of a Done multi-pr doc or a
   single-pr plan; a notice can't carry that forcing function.

@@ -241,10 +241,29 @@ machine-checkable subset of this reference:
   contains `#n`; rows with `Issues = None` contribute no expected
   diagram nodes. See `dependency-diagram.md` for the diagram-side
   conventions.
+- **FC09** -- doc-vs-GitHub state reconciliation. Reuses FC07's
+  Status-bearing class scope (`done`, `ready`, `blocked`) but
+  swaps the table's `row.terminal` for an `observed_state` fetched
+  from GitHub. Three sub-checks reconcile distinct directions of
+  drift: Sub A flags rows the doc claims `done` whose GitHub
+  issue is still open; Sub B flags rows the doc still claims open
+  whose GitHub issue is already closed; Sub C reconciles the PR
+  body's `Closes #N` lines against the doc's done set (over-claims
+  when the PR claims a closure the row still shows non-done,
+  under-claims when the row is done but no matching `Closes #N`
+  appears in the PR body). FC09 self-disables without emitting
+  defect notices when its preconditions are absent: no GitHub
+  credentials, no PR context (Sub C only), rate limit exhausted
+  after one retry, or per-row cross-repo access denied. Each
+  self-disable path emits exactly one skip notice naming the
+  missing precondition.
 
-FC05 and FC06 are error-level. FC07 is notice-level for v1. A doc
-that names itself a roadmap or a plan (via filename prefix `ROADMAP-`
-or `PLAN-`) must declare its schema in frontmatter (`schema:
+FC05 and FC06 are error-level. FC07 and FC09 are notice-level for
+v1; both ship at notice via membership in the `is_notice` set
+(`SCHEMA | FC07 | FC09`), and promotion to error is the same
+one-line membership change FC07/FC08 already use. A doc that names
+itself a roadmap or a plan (via filename prefix `ROADMAP-` or
+`PLAN-`) must declare its schema in frontmatter (`schema:
 roadmap/v1` or `schema: plan/v1`) for these checks to engage; the
 SCHEMA gate fires a notice on a missing or mismatched schema and
 skips the FC checks.
