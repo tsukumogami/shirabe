@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Accepted
 upstream: docs/prds/PRD-shirabe-pattern-v1-ergonomics.md
 problem: |
   PRD-shirabe-pattern-v1-ergonomics binds 32 requirements across seven clusters
@@ -8,35 +8,59 @@ problem: |
   format references (two of which don't yet exist at the canonical altitude),
   the `/design` Phase 6 jury, and the Rust validator. The PRD defers mechanism
   choice per fix-class; this design picks placement and mechanism per cluster
-  while preserving R31 backward compatibility and R32 sequencing.
+  while preserving R31 backward compatibility and R32 sequencing. Revised on
+  reconsideration at the DESIGN-Accepted boundary to apply the lazy-load
+  principle: every fix-class is preferentially resolved by the shirabe CLI
+  deterministically (tier 1), or by CLI-detection emitting a pointer to a
+  per-error reference file the agent loads only when the error fires
+  (tier 2); eager-load skill prose (tier 3) is reserved for cases where
+  tiers 1 and 2 are infeasible.
 decision: |
-  One canonical contract per fix-class at the pattern level plus per-skill
-  citations: `## Sub-Agent Dispatch Fallbacks` and a `### Child-Side Sentinel
-  Consultation Row Convention` subsection land in
-  `references/parent-skill-pattern.md`; eight child SKILLs grow `### Sub-Agent
-  Dispatch Fallback` subsections; seven child Resume Logic tables grow a
-  first-row sentinel-consultation predicate; `design-format.md` and
-  `plan-format.md` materialize at the canonical altitude with seven per-field
-  rulings across the four format references; `/design` Phase 6 grows a third
-  structural-format reviewer; `/plan` Phase 3 grows a cross-issue consistency
-  sub-step and Phase 4 grows an AC anchor-existence step and Phase 7 grows an
-  emission self-check; `/scope` Phase 0 grows slug-prefix sampling and Phase 1
-  grows cold-start projected-PRD evaluation; `references/cli-version-preflight.md`
-  is added as a new shared reference cited from each child SKILL prescribing a
-  `shirabe` subcommand; the validator gains three notice-level checks
-  (SCHEMA-MISSING extension, FC10 writing-style, FC11 plan-section-structure).
-  Implementation sequences in three batches: pattern-level upstream, per-skill
-  consumers, validator downstream.
+  Three-tier lazy-load shape across the seven fix classes. Tier 1
+  (CLI-deterministic): the validator extension surface absorbs schema-field
+  detection (SCHEMA-MISSING), writing-style banned-word detection (FC10),
+  PLAN/DESIGN field consistency (FC12), eval-fixture frontmatter-line-1
+  detection (FC13), CLAUDE.md release-notes-convention header detection
+  (FC-CONVENTIONS), slug-prefix detection extension (existing FC for /scope),
+  and the structural plan-section-structure check (FC11). Tier 2 (CLI-detects
+  + lazy-load pointer): a small set of well-known reference files at
+  `references/fixes/` carry the non-deterministic resolution prose. The set
+  is `sub-agent-dispatch.md` (covering both Decision-1 fallback shapes and
+  Decision-2 sentinel-consultation), `plan-design-field-consistency.md`,
+  `eval-fixture-frontmatter.md`, `claude-md-conventions.md`,
+  `cli-version-preflight.md`. Each child SKILL gets at most a short
+  detection-and-pointer row (Resume Logic) or a Phase-0 sentinel check
+  with a pointer; no eager-loaded per-skill fallback prose. Tier 3
+  (eager-load): only `/design` Phase 6 wip-hygiene carve-out (R25 — single
+  rule clarification in design-format.md) and `/scope` Phase 1 cold-start
+  projection (R29 — already in lazy-loaded phase-1-discovery.md). New
+  format-reference files `design-format.md` and `plan-format.md`
+  materialize at the canonical altitude; existing `brief-format.md` and
+  `prd-format.md` gain seven per-field rulings; `/design` Phase 6 grows a
+  third structural-format reviewer. Implementation sequences in four
+  batches: CLI extensions → reference files → lightweight skill edits
+  → tests.
 rationale: |
-  Composability is the load-bearing property — eight child SKILLs citing one
-  canonical fallback contract eliminates the drift surface the BRIEF named.
-  R32 sequencing falls out structurally because per-skill consumers cite
-  pattern-level statements; the three-batch ordering makes the dependency
-  direction explicit. R31 backward compatibility holds at every boundary
-  because the `parent_orchestration:` sentinel (absent under direct
-  invocation) gates every new fallback path. The validator-vs-jury split
-  places each check at its natural surface — structural in Rust, mechanical
-  in Rust, natural-language judgment in Phase 6 reviewers — closing
+  Lazy-load is the load-bearing principle. The earlier-chosen "eager-load
+  per-skill subsection" shape (8 child SKILLs each carrying 30-60 lines
+  of fallback prose; 7 children each carrying inline Resume Logic
+  sentinel prose) optimized for grep-checkability against ACs but bloated
+  agent context proactively for every possible failure regardless of
+  whether the failure ever fires. The revised shape preferences
+  CLI-deterministic detection (the agent never loads the reference unless
+  the error fires) and per-error pointer references (the agent loads
+  ~10-40 lines of resolution prose when and only when the CLI emits the
+  pointer). Composability is preserved — one canonical reference file
+  per fix class is the single source of truth, exactly as the original
+  pattern-level canonical statement was, but the consumers are pointer
+  rows rather than eager-loaded prose. R32 sequencing still falls out
+  structurally because CLI extensions and reference files land before
+  the skill-edit batch that references them. R31 backward compatibility
+  still holds at every boundary because tier-1 checks are notice-level
+  and tier-2 pointers only fire when the validator emits the FC code.
+  The validator-vs-jury split places each check at its natural surface —
+  structural and mechanical in Rust (now expanded to seven checks rather
+  than three), natural-language judgment in Phase 6 reviewers — closing
   `tsukumogami/shirabe#157` and `tsukumogami/shirabe#158` on the surfaces
   that satisfy R18 and R17/R22 in the same edit.
 ---
@@ -45,7 +69,7 @@ rationale: |
 
 ## Status
 
-Planned
+Accepted
 
 Phase 6 jury returned all-PASS as serial-self-jury under sub-agent dispatch
 from `/scope` (`parent_orchestration.invoking_child: design`,
@@ -58,6 +82,15 @@ verdict file (`wip/research/design_shirabe-pattern-v1-ergonomics_phase6_architec
 structural-format reviewer was walked under this design's own R21 contract
 ahead of R21 landing in the codebase. The dogfooding is recorded in the
 friction log.
+
+Revised on reconsideration at the DESIGN-Accepted boundary (this commit and
+the cascade commits that follow) to apply the lazy-load principle the user
+named. Decisions 1, 2, 5, and 6 each grow a `Chosen-revised` option that
+demotes the original "Chosen" to `Rejected on reconsideration` with rationale
+citing the principle (mirror of PR-151's revision pattern). The Phase 6
+jury did not catch the eager-load violation on the original pass; the
+meta-friction is recorded in the friction log alongside the original
+dogfooding entries.
 
 ## Context and Problem Statement
 
@@ -87,6 +120,8 @@ The drivers shape the mechanism choices below; they are derived from the PRD's R
 
 - **Audit-trail fidelity.** The BRIEF's User Outcome names "the chain's audit trail matches the chain's actual execution." Mechanism shapes that surface their operating context in the artifact preamble (verdict files, sentinel cleanup state, fallback-section presence) score higher than mechanism shapes that change behavior silently.
 
+- **Lazy-load over eager-load (revised driver).** Defensive mechanisms for failures that may never fire MUST NOT bloat the agent's context proactively. The three-tier preference order is: (1) the shirabe CLI detects AND fixes the problem deterministically, loading zero agent context; (2) the shirabe CLI detects and emits an FC code plus a pointer to a per-error reference file at a well-known path (`references/fixes/<class>.md`), and the agent loads that file only when the error fires; (3) eager-load skill prose is reserved for cases where (1) and (2) are infeasible. This driver is the load-bearing principle of the revised design; it demotes the original eager-load shapes named in the first pass of Decisions 1, 2, 5, and 6.
+
 - **Cross-repo public-visibility cleanliness.** The repo is Public. The design references `tsukumogami/vision#514` and `tsukumogami/vision#535` by issue number per the BRIEF's References section; no private paths, repos, or codenames appear in this document.
 
 ## Considered Options
@@ -97,13 +132,27 @@ PRD R1-R8 commits the contract that every child SKILL with a Phase-N parallel-ju
 
 Key assumptions: each child SKILL.md has a `### Critical Requirements` section that the fallback subsection can hang from (verified: `/brief` line 183, `/prd` line 116, `/design` line 181, `/plan` matching grep); the pattern reference at `references/parent-skill-pattern.md` is the right anchor (it's the existing canonical contract surface and already declares the `parent_orchestration:` sentinel mechanics at lines 181-206); the four canonical fallback shapes cover R1-R7 with R8's carve-out captured pattern-level once.
 
-#### Chosen: Pattern-level canonical section plus per-skill citations
+#### Chosen-revised: Two-layer lazy — one shared reference file plus a short Phase-0 detection-and-pointer step in each child
+
+A single reference file `references/fixes/sub-agent-dispatch.md` carries the full prose for both Decision 1 (the five canonical fallback shapes) and Decision 2 (the parent-orchestration sentinel detection and resolution). The combined file replaces the per-class shape (two files / one big section / per-skill subsections) the original pass chose. Combining the two decisions into one resolution file is the cleaner shape on inspection: sentinel detection and fallback selection are causally linked (the sentinel's presence is what tells the child it's running as a sub-agent and which fallback shape applies); a reader who lands on the file via either pointer wants the other half a sentence later.
+
+The reference file contains: (a) the five canonical fallback shapes with full prose (serial-self-jury with the verdict-preamble independence-loss caveat; parent-delegated-approval with the pre-approval-status hand-back; decision-bypass-with-inline-resolution with the two engagement conditions; inline-substitute-review with the recursion-bound carve-out; deterministic-mode-bypass with the three engagement conditions); (b) a per-skill binding table mapping each of the eight children (`/brief`, `/prd`, `/design`, `/plan`, `/vision`, `/strategy`, `/roadmap`, `/work-on`) to its applicable fallback shape(s); (c) the parent_orchestration sentinel detection convention (which fields to read: `invoking_child`, `suppress_status_aware_prompt`, `rationale`); (d) the chain-handoff and status-transition resolution per rationale (fresh-chain / revise); (e) R8's NOT-covered carve-out paragraph naming `tsukumogami/vision#535` Track B.
+
+Each child SKILL.md's Phase 0 (or earliest phase that reads state) grows a SHORT detection step (approximately three lines): "If the `parent_orchestration:` sentinel is present in the parent's state file (`wip/scope_<topic>_state.md` for tactical children, `wip/charter_<topic>_state.md` for strategic children), consult `references/fixes/sub-agent-dispatch.md` for the fallback shape applicable to this skill's phases." No per-skill `### Sub-Agent Dispatch Fallback` subsection is added; the reference file IS the canonical content. The detection lives in always-loaded skill prose (the Phase-0 line); the resolution is loaded on demand.
+
+The runtime hook is the existing dispatch contract: per the upstream DESIGN-shirabe-child-dispatch-contract (Accepted), the parent writes the sentinel into the parent's state file before invoking the child via inline Skill-tool call; the child's Phase 0 already reads the parent's state file at child startup (Resume Logic, Slot 1). The detection-and-pointer step adds one read against an existing path; no new substrate primitive.
+
+R32 sequencing still falls out structurally — the reference file lands in Batch 2 (reference files); per-skill detection-and-pointer steps land in Batch 3 (lightweight skill edits) which dereference the file. R31 backward compatibility still holds — the Phase-0 detection step short-circuits with no behavior change when the sentinel is absent (direct invocation), exactly as the original-pass shape did.
+
+#### Rejected on reconsideration: Pattern-level canonical section plus per-skill citations
 
 A new section `## Sub-Agent Dispatch Fallbacks` lands in `references/parent-skill-pattern.md` after the existing `## Team-Lead Operating Discipline` section. The section names five canonical fallback shapes — serial-self-jury (parallel-jury substitute, verdict-preamble names the operating context and the independence-loss caveat), parent-delegated-approval (approval-gate substitute, child leaves artifact at pre-approval status), decision-bypass-with-inline-resolution (per-decision-dispatch substitute when the upstream PRD enumerates alternatives and recommends a direction, conditions are PRD-names-alternatives AND reviewer-count-acceptable-inline), inline-substitute-review (nested-sub-skill substitute when recursive dispatch isn't available), deterministic-mode-bypass (koto state-machine substitute when parent supplies decomposition + cascade timing + push timing upfront). A closing paragraph names R8's NOT-covered carve-out (`tsukumogami/vision#535` Track B, nested-team spawning is not addressed).
 
 Each child SKILL.md grows a `### Sub-Agent Dispatch Fallback` subsection under its existing `### Critical Requirements` section. The subsection is 4-8 lines and cites the pattern-level reference with the skill-specific binding. The eight per-skill bindings are summarized in a binding table in the Solution Architecture below.
 
 R32 sequencing falls out structurally — the pattern-level section is the upstream change, the per-skill citations are downstream consumers. R31 backward compatibility is preserved — the section describes sub-agent behavior gated on the `parent_orchestration:` sentinel; direct-invocation paths are unchanged.
+
+*Rejected on reconsideration.* Even at 4-8 lines per child times 8 children, the per-skill subsections eager-load defensive prose for every possible failure into every agent context regardless of whether the failure ever fires. The lazy-load principle (added to the Decision Drivers during the DESIGN-Accepted re-review) names this exact failure shape — agents should load resolution prose only when the validator emits the pointer. The original pass's "composability via pattern-level canonical statement" framing was correct on the canonicalization axis but wrong on the loading axis; the revised shape preserves the canonical-source-of-truth property (one reference file is still the only source) while ditching the eager-load consumer surface. The mirror of PR-151's Option-2D demotion: the original pass undervalued the per-invocation context cost.
 
 #### Alternatives Considered
 
@@ -117,13 +166,27 @@ PRD R9 requires each child Resume Logic table to consult the `parent_orchestrati
 
 Key assumptions: every affected child has a code-fenced Resume Logic table where "row" means "line"; the pattern-level `## Conditional Feeder Invocation Shape` section is the right anchor because it already discusses the `parent_orchestration:` block at lines 181-206; the parent state file paths are `wip/scope_<topic>_state.md` for tactical-chain children and `wip/charter_<topic>_state.md` for strategic-chain children.
 
-#### Chosen: First-row sentinel-consultation in each child plus pattern-level convention subsection
+#### Chosen-revised: Single Resume-Logic pointer row per child plus merged-with-Decision-1 reference file
+
+The detection lives in each child's Resume Logic table as a single new first row whose predicate is "`parent_orchestration:` sentinel present in <state-file-path>" and whose action is "see `references/fixes/sub-agent-dispatch.md`" — no inline behavior prose, no field-list inline. The row is detection-only; the resolution (chain handoff, status transitions, fallback shapes, which subfields to read) lives in the reference file and is loaded only when the row fires.
+
+The reference file `references/fixes/sub-agent-dispatch.md` (the same file Decision 1 lands; the two decisions merge into one resolution surface) covers: the three subfields the child reads (`invoking_child`, `suppress_status_aware_prompt`, `rationale`); the routing action per rationale (`fresh-chain` vs `revise`); the per-skill state-file-path table mapping seven children to `wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md` (strategic); the fallback-shape selection per child phase; and absent-sentinel fall-through behavior.
+
+The detection-and-resolution merge across Decisions 1 and 2 was the natural shape on inspection — the sentinel is the same entity that triggers the fallback-shape selection. A reader who lands on the file via the Resume Logic row pointer wants the same content a reader who lands via the Phase-0 detection step in Decision 1 wants. One file, two entry points, one source of truth.
+
+R31 backward compatibility falls out structurally — absent sentinel falls through to the existing first row (the new row's predicate is false), behavior identical to current direct-invocation. R32 sequencing falls out structurally — the reference file lands in Batch 2 upstream of the per-skill pointer-row edits in Batch 3. Cross-skill consistency falls out by construction — every child's pointer row has the same shape (predicate + one-line pointer to the canonical file).
+
+The agent's loaded context under sub-agent dispatch is bounded by the file's ~50-line resolution prose, not by the (8 children × 30-60 lines = 240-480-line) cumulative cost of per-skill eager-loaded subsections plus inline Resume Logic prose the original-pass shape would impose.
+
+#### Rejected on reconsideration: First-row sentinel-consultation in each child plus pattern-level convention subsection
 
 Every child Resume Logic table grows a new first row (above all existing rows). The row predicate is "parent_orchestration: sentinel present in <state-file-path>"; the action is "read invoking_child, suppress_status_aware_prompt, rationale; route per rationale (fresh-chain | revise)". When the sentinel is absent, the row falls through to the existing first row and existing behavior holds. The three subfields are named in the row's prose so an AC grep finds them.
 
 The pattern-level convention lives in a new subsection `### Child-Side Sentinel Consultation Row Convention` inside `references/parent-skill-pattern.md`'s existing `## Conditional Feeder Invocation Shape` section. The subsection states the row contract and provides the canonical row template each child copies verbatim. A per-skill state-file-path table maps each child to its parent's state-file path.
 
 R31 backward compatibility falls out structurally — absent sentinel falls through to the existing first row, behavior identical to current direct-invocation. R32 sequencing falls out structurally — the pattern-level subsection edit is upstream of the seven per-skill row edits. Cross-skill consistency falls out by construction — every child copies the same canonical row template.
+
+*Rejected on reconsideration.* The original pass inlined the three subfield reads and the routing action into every child's Resume Logic row prose — seven copies of the same content, eager-loaded into every child invocation. The lazy-load principle (added to Decision Drivers during the DESIGN-Accepted re-review) names this as the failure shape: the resolution prose belongs in a reference file loaded on demand, not inline in seven SKILL.md files. The pointer-row shape preserves the grep-checkability AC2.1 commits to (the row exists in each child) while satisfying the lazy-load driver. The mirror of PR-151's Option-2D demotion applies again: pattern-level convention subsection at one canonical location was already a single source of truth, but the consumers were inline and eager. The revised consumer is a single pointer line.
 
 #### Alternatives Considered
 
@@ -181,7 +244,19 @@ PRD Cluster 5 (R23-R26) prescribes four cross-skill consistency rules: `/plan` f
 
 Key assumptions: `/plan` Phase 3 is "Decomposition" (verified at `skills/plan/SKILL.md:289`); Phase 4 is "Generation" (verified at line 292); the existing wip-hygiene rule wording is at `skills/design/references/phases/phase-6-final-review.md:104-106`; the frontmatter parser at `crates/shirabe-validate/src/frontmatter.rs` requires `---` to be the first non-blank line.
 
-#### Chosen: Four rule placements per the natural fire point of each rule
+#### Chosen-revised: Mixed tier-1 CLI-detection plus tier-2 per-error pointers; tier-3 reserved for the narrow rule clarification only
+
+R23 (PLAN/DESIGN field consistency pre-flight) lands as a validator extension — a new FC12 check that greps for field-name conflicts across the PLAN's issue ACs and the DESIGN's structural rubrics, emitting an FC12 notice with a pointer to `references/fixes/plan-design-field-consistency.md`. The non-deterministic part (which side to align to, when to rewrite vs revise, when the conflict is intentional) is the resolution prose loaded only when FC12 fires; the deterministic part (detecting field-name collisions across two artifacts) is in the validator. Pure tier-1 detection + tier-2 resolution pointer; no `/plan` Phase 3 sub-step 3.6 added.
+
+R24 (AC anchor-existence) stays in `/plan` Phase 4 agent prompt as the original pass placed it — but the placement is now justified explicitly: the check is a per-AC test at generation time, not a per-artifact check at validate time, and the validator does not have visibility into AC-generation-time intent. The Phase 4 prompt edit is a few lines (small enough to not bloat agent context); the agent already loads phase-4-agent-generation.md (lazy-loaded by /plan). Tier-3 acceptable here because tiers 1 and 2 are infeasible without a substrate primitive the workspace doesn't have.
+
+R25 (wip-hygiene carve-out) lands inline in `design-format.md` (the new format reference Decision 3 materializes) as a single rule clarification. The carve-out is a one-sentence wording extension; eager-loading a one-sentence rule clarification has near-zero context cost. Tier-3 acceptable; the rule is small enough to stay inline.
+
+R26 (eval-fixture HTML-comment marker placement) lands as a validator extension — a new FC13 check that detects frontmatter parse failure due to line-1 comment placement, emitting an FC13 notice with a pointer to `references/fixes/eval-fixture-frontmatter.md`. The deterministic part (detecting `<!--` on line 1 before `---`) is in the validator; the resolution prose (where to place the marker — inside frontmatter or after closing `---`) is in the reference file, loaded only when FC13 fires. Tier-2.
+
+The placement choices compose into the four-tier shape: R23 is tier-1+2 (CLI detects, file resolves); R24 is tier-3 (skill prose, but already lazy-loaded by phase reference); R25 is tier-3 (single-sentence rule extension); R26 is tier-1+2 (CLI detects, file resolves). Two of four checks move from eager-load skill prose to CLI-deterministic detection plus per-error pointer; the other two stay tier-3 only because tier-1/2 are infeasible, not because tier-3 was preferred.
+
+#### Rejected on reconsideration: Four rule placements per the natural fire point of each rule
 
 R23 lands as `/plan` Phase 3 sub-step 3.6 (Cross-Issue Consistency Pre-Flight). Phase 3 is where issue outlines are first drafted; folding the check into Phase 3 catches collisions at the earliest point. A separate Phase 3.5 (Option A in the decision report) adds a phase count the PRD doesn't require; Phase 7 (Option B) catches the collision after agent generation has already run against contradictory specs.
 
@@ -190,6 +265,8 @@ R24 lands as `/plan` Phase 4 agent-prompt enrichment. AC anchor-existence is per
 R25 lands as a wording extension at `skills/design/references/phases/phase-6-final-review.md:104-106`. The existing rule disallows wip/... paths in committed artifacts except for "quoted statements OF the wip-hygiene rule itself"; the extension adds "or documentation of a skill's runtime wip/ usage (i.e., a DESIGN, PRD, or BRIEF describing a skill's wip/-file contract for skill-implementation purposes)". The "skill-implementation purposes" qualifier prevents the carve-out from being abused for non-skill-implementation DESIGNs that happen to mention wip/.
 
 R26 lands as an eval-fixture authoring convention update. The conflict (HTML-comment line-1 markers vs frontmatter parser's `---`-first-non-blank-line requirement) resolves by forbidding line-1 markers; fixtures place markers either inside a frontmatter field value or after the closing `---` as the first body line. The convention lives in `skills/plan/references/templates/` (the closest existing eval-fixture authoring reference location) plus any eval-authoring SKILL prose that prescribes the marker.
+
+*Rejected on reconsideration.* The original pass placed R23 as `/plan` Phase 3.6 prose and R26 as eval-fixture authoring convention prose — both surfaces that the agent eagerly loads when running `/plan` regardless of whether the field-conflict or marker-placement failure ever fires. The lazy-load principle (added to Decision Drivers) names CLI-deterministic detection plus per-error pointer as preferred over eager-load skill prose when both are feasible; both R23 and R26 are deterministic-detection-feasible (the validator can grep field names across artifacts and detect `<!--` on line 1 mechanically). R24's tier-3 placement survives the re-review because tiers 1 and 2 are infeasible without substrate primitives the workspace lacks; the survival is justified explicitly. R25's tier-3 placement survives because the single-sentence rule clarification has near-zero context cost; eager-loading it does not violate the principle in practice.
 
 #### Alternatives Considered
 
@@ -207,7 +284,19 @@ PRD Cluster 6 (R27-R29) plus Cluster 7 (R30) prescribe four convention updates: 
 
 Key assumptions: `/scope` Phase 0 has the chain-entry slug-validation step (verified existing); CLAUDE.md is the workspace-policy surface for per-repo conventions (parallels existing `## Repo Visibility:` and `## Planning Context:` conventions); the `references/` directory at the worktree root holds shared cross-skill references (parallels existing `worktree-discipline.md`, `wip-hygiene.md`).
 
-#### Chosen: Four placements per the natural surface of each convention
+#### Chosen-revised: Four placements per the lazy-load three-tier preference order
+
+R27 (slug-prefix detection) is already principle-aligned and stays as `/scope` Phase 0 sampling step — but the sampling now lives in the shirabe CLI as a tier-1 extension. The CLI sub-command (e.g., `shirabe scope detect-prefix`, invoked by /scope Phase 0) does the sampling and prefix-extraction deterministically and returns the detected prefix (or "no convention detected"); /scope Phase 0 calls the sub-command and, when the input slug lacks the detected prefix, emits a structured pointer to the agent. If the CLI cannot be extended in this batch (the existing CLI extension surface in `crates/shirabe-validate` is validate-focused; adding a `detect-prefix` would require new module structure), the deterministic logic alternatively lands in `shirabe validate`'s existing convention-check vocabulary as a notice. Tier-1 detection; resolution (prompting the author about the prefix mismatch) is interactive and stays in /scope.
+
+R28 (release-notes convention) lands as a validator extension — a new FC-CONVENTIONS check (or a CLAUDE.md-headers sub-check folded into the existing schema/visibility check vocabulary) that detects missing or malformed `## Release Notes Convention: <path>` header in CLAUDE.md at the relevant invocations (when /prd or /design Phase 0 authoring would consult it). The detection emits a notice with a pointer to `references/fixes/claude-md-conventions.md` containing the resolution prose (the recommended header format, the per-repo default, the cross-reference to other CLAUDE.md conventions). The CLAUDE.md convention header itself is a one-line addition; the resolution prose is loaded only when the validator emits the pointer. Tier-2.
+
+R29 (cold-start projected-PRD evaluation) cannot be detected by the validator — "cold-start projection needed" is a workflow concern (does the /scope chain need to fire /design tentatively?) not a doc-state concern (is the doc shape correct?). The validator does not have visibility into chain-orchestration intent at validate time. R29 stays as Phase 1 prose in `phase-1-discovery.md` (already lazy-loaded by /scope) — but the prose is TRIMMED to the minimum the workflow logic requires (the projection-keyword list, the post-`/prd` re-evaluation gate, the framing-shift opener short-circuit). Tier-3 acceptable because tiers 1 and 2 are infeasible without a substrate primitive the workspace doesn't have; the survival is justified explicitly.
+
+R30 (CLI version-skew preflight) lands as a new shared reference `references/fixes/cli-version-preflight.md` (renamed from the original `references/cli-version-preflight.md` to live under the per-error reference directory, matching the other fixes/ files). Each child SKILL that prescribes a `shirabe` subcommand emits a structured pointer to this file when the preflight detects subcommand absence. The preflight itself is a one-line probe (`shirabe <subcommand> --help`); the resolution prose (the manual sed-edit fallback per-subcommand) is loaded only when the probe fails. Tier-2.
+
+The placement choices compose into the four-tier shape: R27 is tier-1 (CLI extends with detection); R28 is tier-1+2 (CLI detects, file resolves); R29 is tier-3 (already lazy-loaded by phase reference, prose trimmed); R30 is tier-2 (the preflight probe is the detection, the reference file is the resolution).
+
+#### Rejected on reconsideration: Four placements per the natural surface of each convention
 
 R27 lands as a `/scope` Phase 0 sampling step. The step samples `docs/briefs/BRIEF-*.md`, `docs/prds/PRD-*.md`, `docs/designs/DESIGN-*.md`, `docs/plans/PLAN-*.md` filenames; extracts the first hyphenated word after the artifact-type prefix; counts occurrences; if >50% of artifacts share a prefix, treats it as detected. When the input slug lacks the detected prefix, Phase 0 prompts the author before committing any durable artifact.
 
@@ -216,6 +305,8 @@ R28 lands as a CLAUDE.md convention `## Release Notes Convention: <path>` (e.g.,
 R29's two parts land in `/scope` Phase 1. The R6 cold-start projected-PRD evaluation: when cold-start is detected (no PRD body exists), Phase 1 projects the expected PRD content shape by inspecting upstream artifacts (BRIEF, ROADMAP) for keywords ("alternatives", "mechanism", "choices", "trade-offs") in User Journeys and Problem Statement sections; tentatively fires `/design` when matches are found. A post-`/prd` re-evaluation gate runs after `/prd` lands and re-evaluates R6 against the actual PRD body; if the PRD doesn't surface alternatives, `/design` is skipped and a `chain_revised` record is written to `/scope`'s state file. The framing-shift opener short-circuit: when topic-related child-doc discovery returns empty (cold-start), the opener is skipped and Phase 1 proceeds to the regular scope conversation.
 
 R30 lands as a new shared reference `references/cli-version-preflight.md` with per-skill citations. The reference describes a per-subcommand preflight contract (using `shirabe <subcommand> --help` as the capability detection probe). Each child SKILL.md that prescribes a `shirabe` subcommand (`shirabe transition` is the main affected one per the PRD's Known Limitations) cites the reference and names its specific subcommand and documented fallback. The sed-edit fallback (per the PRD's Known Limitations) is the documented manual operation when the preflight fails.
+
+*Rejected on reconsideration.* The original pass mixed CLI-detection (R27 slug-prefix sampling, R28 CLAUDE.md header read) with prose-only mechanisms in places where CLI-detection was actually feasible (R28 missing-header detection, R30 preflight invocation). The lazy-load principle (added to Decision Drivers) names CLI-deterministic detection as preferred over eager-load skill prose; the original-pass shape did not consistently apply this preference. R29's prose survives the re-review because the workflow-projection logic cannot be reduced to doc-state detection by the validator; the survival is justified explicitly. R27 and R30's tier-1/tier-2 shifts increase composability across the conventions — every detection at the CLI surface, every resolution in a per-error reference file at `references/fixes/`.
 
 #### Alternatives Considered
 
@@ -235,7 +326,23 @@ PRD R32 names sequencing constraints inherent to the cluster set — pattern-lev
 
 Key assumptions: the dependency-graph is structural — per-skill citations that point at non-existent pattern-level sections are broken links; validator checks that dereference canonical references (FC10 reads writing-style SKILL; FC11 reads plan-format.md) error at runtime if the references don't exist.
 
-#### Chosen: Three-batch ordering with pattern-level upstream, per-skill middle, validator downstream
+#### Chosen-revised: Four-batch ordering — CLI extensions, reference files, lightweight skill edits, tests
+
+The revision-cascade-after-the-DESIGN-Accepted-review changes Batch shape from three to four batches. The new shape isolates CLI-extension work (Batch 1), reference-file authoring (Batch 2), lightweight skill edits — pointer rows and Phase-0 detection lines (Batch 3), and tests including validator-pointer-resolution tests (Batch 4).
+
+**Batch 1 — CLI extensions.** Validator FC codes for FC10 (writing-style banned-words), FC11 (plan-section-structure), FC12 (PLAN/DESIGN field consistency), FC13 (eval-fixture frontmatter-line-1 detection), FC-CONVENTIONS (CLAUDE.md headers schema-field check), SCHEMA-MISSING extension on check_schema, plus the slug-prefix-detection CLI extension (R27, as either a new `shirabe scope detect-prefix` sub-command or as a validate-time notice). Estimated 5-7 implementation issues touching ~5 files in `crates/shirabe-validate/src/` plus a possible new module if R27 lands as a new sub-command.
+
+**Batch 2 — reference files.** Authoring of: `references/fixes/sub-agent-dispatch.md` (Decision 1 + Decision 2 combined resolution file), `references/fixes/plan-design-field-consistency.md` (Decision 5 R23 resolution), `references/fixes/eval-fixture-frontmatter.md` (Decision 5 R26 resolution), `references/fixes/claude-md-conventions.md` (Decision 6 R28 resolution), `references/fixes/cli-version-preflight.md` (Decision 6 R30 resolution). Plus the two format-reference materializations: `skills/design/references/design-format.md` (Decision 3 + R25 wip-hygiene carve-out inline) and `skills/plan/references/plan-format.md` (Decision 3 + R17 canonical Implementation Issues structure). Estimated 7 implementation issues, one per file.
+
+**Batch 3 — lightweight skill edits.** Per-skill detection-and-pointer rows (single Resume Logic row per child consulting the parent_orchestration sentinel and pointing to `references/fixes/sub-agent-dispatch.md`; single Phase-0 detection line per child) across the eight applicable children. The /scope Phase 0 slug-prefix detection step body. The brief-format.md and prd-format.md per-field clarification edits (R11/R12/R13/R14/R16). The /design Phase 6 third-reviewer addition (R21). The /plan Phase 4 AC anchor-existence prompt edit (R24). The /scope Phase 1 cold-start projection trim (R29). Estimated 10-13 implementation issues touching ~12 files.
+
+**Batch 4 — tests.** Test cases for new FCs (FC10, FC11, FC12, FC13, FC-CONVENTIONS, SCHEMA-MISSING extension). Tests for the validator-pointer-resolution flow (when the validator emits an FC code with a pointer, the agent loads the pointed-at file and applies the documented resolution). Estimated 2-3 issues touching test files in `crates/shirabe-validate/tests/`.
+
+R31 backward compatibility holds at every batch boundary because tier-1 checks are notice-level (advisory only, exit-code unchanged) and tier-2 pointers only fire when the validator emits the FC code — direct invocation under a clean artifact still falls through to existing behavior. R32 sequencing still falls out structurally: Batch 1 lands CLI infrastructure that Batch 2's reference files dereference at validate-time; Batch 3's skill edits dereference both Batch 1's FC codes and Batch 2's reference files; Batch 4 tests dereference all three upstream batches.
+
+**Expected issue count reduction.** The original-pass three-batch shape estimated 22-28 issues. The revised four-batch shape concentrates work in CLI and reference files rather than per-skill prose; per-skill consumer prose drops from ~16 issues (one per SKILL.md × 8 plus phase references) to ~6 issues (pointer-row + Phase-0-line edits). Net estimate: 15-18 issues, with more weight in Batch 1 (CLI) and Batch 2 (reference files) and less in Batch 3 (skill edits).
+
+#### Rejected on reconsideration: Three-batch ordering with pattern-level upstream, per-skill middle, validator downstream
 
 Batch 1 (pattern-level upstream) contains Decision 1's `## Sub-Agent Dispatch Fallbacks` section in `parent-skill-pattern.md`, Decision 2's `### Child-Side Sentinel Consultation Row Convention` subsection in the same file, Decision 3's format-reference materialization (`design-format.md`, `plan-format.md`) plus R11/R13/R14/R16 edits to brief-format/prd-format, Decision 5's R25 wip-hygiene carve-out wording extension, Decision 6's R28 CLAUDE.md convention addition, Decision 6's R30 new shared reference `cli-version-preflight.md`. Estimated 6-8 implementation issues touching 8 files.
 
@@ -245,6 +352,8 @@ Batch 3 (validator extensions, downstream of prose) contains Decision 4's R18 `c
 
 R31 backward compatibility holds at every batch boundary because the sentinel is the entry condition — Batch 1 adds the contract but no consumer fires; Batch 2 adds consumers that fire when the sentinel is present (absent direct-invocation calls fall through unchanged); Batch 3 adds validator notices that surface advisory warnings without breaking existing artifacts.
 
+*Rejected on reconsideration.* The original-pass three-batch shape concentrated the heaviest work in Batch 2 (per-skill consumers, 12-16 issues, 8 SKILL.md files each gaining a fallback subsection and 7 Resume Logic tables each gaining inline sentinel-consultation prose). The revised lazy-load shape rebalances by moving that work into CLI extensions and reference files (loaded on demand), reducing the per-skill consumer batch from 12-16 issues to ~10. The validator-after-prose ordering rationale (R32) is preserved by the new Batch 1 → Batch 2 → Batch 3 ordering — CLI extensions ship first because reference files dereference FC codes, and skill edits ship after because they cite both. The earlier ordering's "validator downstream of prose" property was the right idea on the dependency-direction axis but undersized the validator's expanded role in the revised shape.
+
 #### Alternatives Considered
 
 **Two-batch ordering — collapse Batches 2 and 3**: validator and skill-prose ship together. Rejected because R32 names validator-after-prose explicitly; the three-batch ordering makes the "after" branch concrete and reduces risk (if a validator extension misfires under unexpected artifact shapes, Batch 3 can be reverted independently of the prose changes).
@@ -253,98 +362,112 @@ R31 backward compatibility holds at every batch boundary because the sentinel is
 
 ## Decision Outcome
 
-**Chosen: 1-Pattern-canonical + 2-First-row-sentinel + 3-Materialize-format-refs + 4-Five-check-split + 5-Natural-fire-points + 6-Natural-surfaces + 7-Three-batch**
+**Chosen-revised: 1-Lazy-pointer + 2-Pointer-row-merged-with-1 + 3-Materialize-format-refs + 4-Five-check-split + 5-Mixed-CLI-tier1+tier2 + 6-Lazy-tier-shifts + 7-Four-batch**
+
+(The original-pass combination — `1-Pattern-canonical + 2-First-row-sentinel + 3-Materialize-format-refs + 4-Five-check-split + 5-Natural-fire-points + 6-Natural-surfaces + 7-Three-batch` — is preserved in the individual Decision sections under `Rejected on reconsideration` for revision-history legibility.)
 
 ### Summary
 
-The design lands a single composable shape across the seven pattern-v1 fix classes: one canonical contract at the pattern level, per-skill bindings that cite the canonical contract, and validator extensions that catch what skill prose cannot. Five new sections or subsections land in `references/parent-skill-pattern.md` and `references/cli-version-preflight.md`; two new format-reference files (`design-format.md`, `plan-format.md`) materialize at the canonical altitude; the existing `brief-format.md` and `prd-format.md` gain seven per-field clarifications; eight child SKILL.md files gain a `### Sub-Agent Dispatch Fallback` subsection and seven of them gain a first-row sentinel-consultation Resume Logic row; `/design` Phase 6 grows a third reviewer; `/plan` Phase 3 grows a cross-issue consistency sub-step and Phase 4 grows an AC anchor-existence step and Phase 7 grows an emission self-check; `/scope` Phase 0 grows slug-prefix sampling and Phase 1 grows cold-start projected-PRD evaluation; `crates/shirabe-validate` gains three notice-level checks (SCHEMA-MISSING extension, FC10 writing-style, FC11 plan-section-structure).
+The design lands a lazy-load shape across the seven pattern-v1 fix classes: every fix is preferentially resolved by the shirabe CLI deterministically (tier 1), or by CLI-detection emitting a pointer to a per-error reference file the agent loads only when the error fires (tier 2); eager-load skill prose (tier 3) is reserved for cases where tiers 1 and 2 are infeasible. The validator extension surface absorbs seven detection checks (SCHEMA-MISSING, FC10 writing-style, FC11 plan-section-structure, FC12 PLAN/DESIGN field consistency, FC13 eval-fixture frontmatter-line-1, FC-CONVENTIONS CLAUDE.md headers, slug-prefix detection); five reference files at `references/fixes/` carry the non-deterministic resolution prose (`sub-agent-dispatch.md` covering Decisions 1+2 merged, `plan-design-field-consistency.md`, `eval-fixture-frontmatter.md`, `claude-md-conventions.md`, `cli-version-preflight.md`). Each child SKILL gets at most a short detection-and-pointer row (single Resume Logic row pointing at `references/fixes/sub-agent-dispatch.md`) plus a one-line Phase-0 sentinel detection step; no per-skill eager-loaded fallback prose. Two new format-reference files (`design-format.md`, `plan-format.md`) materialize at the canonical altitude; the existing `brief-format.md` and `prd-format.md` gain seven per-field clarifications; `/design` Phase 6 grows a third structural-format reviewer; `/plan` Phase 4 grows the AC anchor-existence prompt; `/scope` Phase 1 trims the cold-start projected-PRD evaluation prose.
 
-The contract surface enforces operator trust at every boundary the BRIEF named — verdict-artifact preambles surface the operating context and independence-loss caveat; Resume Logic rows consult the sentinel before existing wip/-file rows; budget-vs-spec sub-rubrics catch DESIGN sections that overshoot prose-named budgets; banned-word grep surfaces writing-style violations the author missed; structural-format reviewer catches schema-field drift; slug-prefix sampling catches drift before durable artifact commit; CLI-version preflight catches subcommand absence before the skill's prescribed call fails open. Direct-invocation behavior is preserved at every boundary because the sentinel (absent under direct invocation) is the gating condition for every new fallback path.
+The contract surface enforces operator trust at every boundary the BRIEF named — verdict-artifact preambles surface the operating context and independence-loss caveat (resolution prose lives in the fixes file, loaded on demand); pointer rows consult the sentinel before existing wip/-file rows; FC notices catch DESIGN sections that overshoot prose-named budgets, banned-word usage, field consistency conflicts, CLAUDE.md convention drift, eval-fixture frontmatter placement violations; CLI-version preflight catches subcommand absence before the skill's prescribed call fails open. Direct-invocation behavior is preserved at every boundary because the sentinel (absent under direct invocation) is the gating condition for every new fallback path AND because tier-1 checks are notice-level.
 
-The implementation sequences in three batches: pattern-level upstream → per-skill consumers → validator extensions. Per-skill consumers cite pattern-level statements that exist at the moment of citation; validator extensions read canonical references that exist at the moment of validate-time dereference. R31 backward compatibility holds at every batch boundary. The total implementation is estimated at ~22-28 issues touching ~25 files across child SKILL prose, phase-reference files, format references, the pattern-level reference, shared references, and the Rust validator crate.
+The implementation sequences in four batches: CLI extensions → reference files → lightweight skill edits → tests. CLI extensions ship first because reference files dereference FC codes; reference files ship second so skill edits can cite both; tests ship last to verify the full validator-pointer-resolution flow. R31 backward compatibility holds at every batch boundary. The total implementation is estimated at ~15-18 issues touching ~17 files — fewer than the original-pass 22-28-issue estimate because per-skill consumer prose is replaced by pointer rows that the validator dereferences.
 
 ### Rationale
 
-The decisions reinforce each other through a single thesis: every silent-degradation surface the BRIEF named has a corresponding contract-surface in the design, and every contract-surface is either at the pattern level (so per-skill consumers inherit consistently) or at the natural fire point (so the check fires when the failure mode actually surfaces). Decision 1's pattern-level fallback section is the upstream that Decisions 2, 5, and 6 reference (Decision 2 cites the pattern reference for the row convention; Decision 5's R25 wording extension lives at the same Phase 6 surface; Decision 6's R30 reference parallels the pattern-level shared-reference altitude). Decision 3's format-reference materialization is the upstream that Decision 4's R21 structural-format reviewer and R22 FC11 check both depend on. Decision 7's three-batch sequencing makes these dependencies explicit in the implementation order.
+The decisions reinforce each other through the lazy-load principle: every silent-degradation surface the BRIEF named has a contract-surface either in the validator (tier 1, no agent context) or in a per-error reference file at `references/fixes/` (tier 2, loaded on demand). Decision 1 and Decision 2 merge into one resolution file (`references/fixes/sub-agent-dispatch.md`) because the sentinel triggers fallback-shape selection — the two are causally linked. Decision 3's format-reference materialization is the upstream that Decision 4's R21 structural-format reviewer and R22 FC11 check both depend on; the materialization is still required because the format references serve as the validator's truth-source-of-canonical-structure (FC11 dereferences plan-format.md at validate-time; the structural-format reviewer dereferences design-format.md at jury-time). Decision 5 and Decision 6 trade the original-pass mix of skill-prose placements for a mixed CLI-tier-1 + tier-2 placements wherever deterministic detection is feasible; tier-3 only survives where the workflow concern cannot be reduced to doc-state detection (R24 AC anchor-existence at generation time; R29 cold-start projection at chain-orchestration time).
 
-The five-check split in Decision 4 (validator for structural and mechanical, Phase 6 reviewer for natural-language judgment, both for emission/commit-time defense-in-depth on R22) reflects a sharper principle than "everything goes in the validator" or "everything goes in the jury": structural checks belong where structural parsing already lives; mechanical checks belong where mechanical scanning is cheap; natural-language checks belong where artifact context is available. The Phase 6 reviewer set growing from two to three composes with PRD D2's serial-self-jury contract — the jury becomes 3 reviewers under direct invocation or 3 sequential rubric walks under sub-agent dispatch, no new dispatch shape introduced.
+The seven-check expansion in Decision 4 (validator for structural, mechanical, and the new tier-1 detections) reflects the lazy-load principle's preference order: CLI-deterministic detection comes first because no agent context is loaded; per-error pointers come second because the agent loads only what the validator points to; eager-load skill prose is last because the agent loads the prose unconditionally. The Phase 6 reviewer set still grows from two to three because the structural-format judgment is natural-language (matching against design-format.md's content rules), not mechanical; the validator surface is wrong for natural-language judgment.
 
-The pattern-level canonical statements (Decisions 1 and 2) are the load-bearing composability win. Without them, the eight per-skill consumers of the sub-agent dispatch fallback and the seven per-skill consumers of the Resume Logic sentinel-consultation would drift over time as each skill's prose is independently edited. With them, future skill edits cite the canonical statement; drift between skills is structural impossible because there's one source of truth.
+The reference-file canonical statements (Decisions 1 + 2 merged) preserve the original-pass composability win — one source of truth across the eight children — while replacing the eager-loaded per-skill consumer surface with pointer-only rows. Future skill edits dereference the canonical file; drift between skills is structurally impossible because there's still one source of truth, and the consumer's context cost drops from cumulative-of-eight to zero-until-the-pointer-fires.
+
+The mirror of PR-151's Option-2D demotion holds across the four revised decisions: the original pass found the right canonical-location property (one source of truth) but undersized the per-invocation context cost of eager-loaded consumer surfaces.
 
 ## Solution Architecture
 
-The architecture lands in four code-level surfaces: pattern-level references (`references/`), per-skill SKILL.md and phase-reference files (`skills/<name>/`), format-reference files (`skills/<name>/references/<name>-format.md`), and the Rust validator (`crates/shirabe-validate/`). The CLAUDE.md convention surface (R28) is a fifth, separate from the four code surfaces.
+The revised architecture lands in five surfaces: the Rust validator (`crates/shirabe-validate/`), the per-error reference directory (`references/fixes/`), format-reference files (`skills/<name>/references/<name>-format.md`), per-skill SKILL.md and phase-reference files (`skills/<name>/`), and the CLAUDE.md convention surface. The shape mirrors the lazy-load tier order: tier-1 checks land in the validator, tier-2 resolution prose lands in `references/fixes/`, tier-3 prose lands in SKILL/phase references; the CLAUDE.md surface is the operator-visible convention header.
 
-### Pattern-level references
+### Rust validator changes (tier 1)
 
-`references/parent-skill-pattern.md` grows two sections. The first new section `## Sub-Agent Dispatch Fallbacks` lands after the existing `## Team-Lead Operating Discipline` section and names the five canonical fallback shapes (serial-self-jury, parent-delegated-approval, decision-bypass-with-inline-resolution, inline-substitute-review, deterministic-mode-bypass) plus R8's NOT-covered carve-out paragraph. The second new subsection `### Child-Side Sentinel Consultation Row Convention` lands inside the existing `## Conditional Feeder Invocation Shape` section (which already discusses `parent_orchestration:` mechanics at lines 181-206) and contains the canonical row template plus the per-skill state-file-path table.
+`crates/shirabe-validate/src/checks.rs` gains the following functions and extensions:
 
-`references/cli-version-preflight.md` is created as a new shared reference. It describes the per-subcommand preflight contract — using `shirabe <subcommand> --help` as the capability detection probe — and provides the documented fallback path when the preflight fails (typically a manual sed-edit equivalent for the specific subcommand).
+- **SCHEMA-MISSING extension** on the existing `check_schema` function (R18; closes `tsukumogami/shirabe#157`). When `doc.schema.is_empty()`, emit a SCHEMA-MISSING notice. The existing schema-mismatch notice path is preserved verbatim.
+- **`check_writing_style`** (FC10, R20). Reads the banned vocabulary list at validate-time from `skills/writing-style/SKILL.md` and emits notices for each match in the document body.
+- **`check_plan_section_structure`** (FC11, R22; closes `tsukumogami/shirabe#158` on the validator surface). Reconciles the emitted `## Implementation Issues` section structure against the canonical structure from `plan-format.md`.
+- **`check_plan_design_field_consistency`** (FC12, R23). Greps for field-name conflicts across the PLAN's issue ACs and the upstream DESIGN's structural rubrics; emits a notice with a pointer to `references/fixes/plan-design-field-consistency.md`.
+- **`check_eval_fixture_frontmatter`** (FC13, R26). Detects fixtures where `<!--` appears on line 1 before the `---` frontmatter opener; emits a notice with a pointer to `references/fixes/eval-fixture-frontmatter.md`.
+- **`check_claude_md_conventions`** (FC-CONVENTIONS, R28). Detects missing or malformed `## Release Notes Convention: <path>` header when the doc under validation is the per-repo CLAUDE.md or when /prd/design Phase 0 invocations would consult it; emits a notice with a pointer to `references/fixes/claude-md-conventions.md`.
+- **Slug-prefix detection** (R27). Either a new sub-command (`shirabe scope detect-prefix <slug>`) returning the detected prefix and a mismatch flag, or a validate-time notice emitted when the slug-prefix sampling detects a mismatch. The exact placement is a Batch-1 implementation detail; the lazy-load contract is the same — the deterministic part lives in the CLI.
 
-### Per-skill SKILL.md changes
+`crates/shirabe-validate/src/validate.rs` registers all new checks in the dispatch order. Notice-level discharge (per FC08/FC09 precedent) preserves the existing exit-code semantics.
 
-Eight child SKILL.md files gain a `### Sub-Agent Dispatch Fallback` subsection under their existing `### Critical Requirements` section. The per-skill bindings are:
+`crates/shirabe-validate/src/formats.rs` gains canonical-structure entries for `plan/v1`'s `## Implementation Issues` section (used by FC11) and may gain entries for `design/v1` if the structural-format reviewer's machine-checkable subset is large enough to warrant validator support.
 
-| Skill | Phase / gate | Fallback shape |
-|---|---|---|
-| `/brief` | Phase 4 two-reviewer jury | serial-self-jury |
-| `/prd` | Phase 4 three-reviewer jury | serial-self-jury |
-| `/design` | Phase 6 jury plus Phases 1-3 decision loop | serial-self-jury plus decision-bypass |
-| `/plan` | Phase 6 `/review-plan` plus Phase 3 AskUserQuestion | inline-substitute-review plus execution-mode-hint |
-| `/vision` | Phase 4 jury | serial-self-jury |
-| `/strategy` | Phase 4 jury | serial-self-jury |
-| `/roadmap` | Phase 4 jury | serial-self-jury |
-| `/work-on` | koto plan-orchestrator | deterministic-mode-bypass |
+### Per-error reference files (tier 2)
 
-Seven child SKILL.md files (`/brief`, `/prd`, `/design`, `/plan`, `/vision`, `/strategy`, `/roadmap`) gain a new first row in their Resume Logic table. The row reads the `parent_orchestration:` sentinel from the parent's state file (`wip/scope_<topic>_state.md` for tactical-chain children, `wip/charter_<topic>_state.md` for strategic-chain children) and routes per the three named subfields.
+Five new files at `references/fixes/`:
 
-`skills/design/references/phases/phase-6-final-review.md` changes in three places: step 6.1 grows a third reviewer (structural-format-reviewer) parallel to the existing architecture-reviewer and security-reviewer; step 6.2 (Process Review Feedback) extends the feedback table to three rows; step 6.4 wip-hygiene wording at lines 104-106 extends with the skill-implementation carve-out.
+- **`references/fixes/sub-agent-dispatch.md`** (Decision 1 + Decision 2 merged). The combined resolution file for sub-agent dispatch fallback selection and parent_orchestration sentinel consultation. Contents: (a) the five canonical fallback shapes with full resolution prose; (b) per-skill binding table (`/brief`, `/prd`, `/design`, `/plan`, `/vision`, `/strategy`, `/roadmap`, `/work-on`); (c) the sentinel detection convention (three subfields `invoking_child`, `suppress_status_aware_prompt`, `rationale`); (d) the chain-handoff and status-transition routing per rationale; (e) R8's NOT-covered carve-out.
+- **`references/fixes/plan-design-field-consistency.md`** (Decision 5, R23). Resolution prose for FC12: how to interpret the field-conflict notice, which side to align to, when to rewrite the AC vs revise the DESIGN, when the conflict is intentional.
+- **`references/fixes/eval-fixture-frontmatter.md`** (Decision 5, R26). Resolution prose for FC13: where to place HTML-comment markers in eval fixtures (inside frontmatter or after closing `---`, never on line 1) and why.
+- **`references/fixes/claude-md-conventions.md`** (Decision 6, R28). Resolution prose for FC-CONVENTIONS: the canonical `## Release Notes Convention: <path>` header format, the per-repo default, cross-references to other CLAUDE.md conventions.
+- **`references/fixes/cli-version-preflight.md`** (Decision 6, R30; renamed from `references/cli-version-preflight.md` to live under `references/fixes/` matching the other per-error files). Resolution prose for CLI version-skew: the per-subcommand `--help` probe, the documented manual sed-edit fallback per-subcommand, the workspace-binary version detection.
 
-`skills/plan/SKILL.md` and the corresponding phase references change in three places: Phase 3's decomposition step grows a sub-step 3.6 "Cross-Issue Field Consistency Pre-Flight"; Phase 4's agent prompt enrichment adds a per-AC anchor-existence grep step; Phase 7's emission step grows a self-check against the canonical `## Implementation Issues` structure documented in `plan-format.md`.
+Each reference file is sized to be loaded on demand — typical length ~30-80 lines, far smaller than the cumulative cost of the original-pass per-skill eager-loaded subsections.
 
-`skills/scope/SKILL.md` changes in two places: Phase 0 grows a slug-prefix sampling step; Phase 1 grows a cold-start projected-PRD evaluation step and a framing-shift opener short-circuit.
+### Format-reference files (tier 3, materialization)
 
-### Format-reference files
+`skills/design/references/design-format.md` is created. Contains the four-field frontmatter schema (status, problem, decision, rationale, with the optional `upstream:`, `spawned_from:`, and `motivating_context:` fields), the nine required-section list, the context-aware section table (Market Context, Required Tactical Designs, Upstream Design Reference), the Implementation Issues ownership convention (table owned by `/plan`, populated during Phase 7 single-pr emission), AND the R25 wip-hygiene carve-out clarification inline (single-rule extension; tier-3 acceptable per Decision 5).
 
-`skills/design/references/design-format.md` is created. It contains the four-field frontmatter schema (status, problem, decision, rationale, with the optional `upstream:`, `spawned_from:`, and `motivating_context:` fields), the nine required-section list, the context-aware section table (Market Context, Required Tactical Designs, Upstream Design Reference), and the Implementation Issues ownership convention (table owned by `/plan`, populated during Phase 7 single-pr emission).
+`skills/plan/references/plan-format.md` is created. Contains the PLAN frontmatter schema, the section list, and the canonical `## Implementation Issues` structure for single-pr emission (Issues Table with `ID | Title | Status | Notes` columns plus Mermaid dependency diagram). The validator's FC11 check dereferences this file at validate-time.
 
-`skills/plan/references/plan-format.md` is created. It contains the PLAN frontmatter schema, the section list, and the canonical `## Implementation Issues` structure for single-pr emission (Issues Table with ID/Title/Status/Notes columns plus Mermaid dependency diagram). The validator's FC08 and FC11 checks dereference this file.
+`skills/brief/references/brief-format.md` gains R11 public-vs-private issue numbers disambiguation, R12 `motivating_context:` field documentation, and R13 BRIEF Open-Questions closure surface naming.
 
-`skills/brief/references/brief-format.md` gains the R11 public-vs-private issue numbers grammar disambiguation, the R12 `motivating_context:` field documentation, and the R13 BRIEF Open-Questions closure surface naming sentence.
+`skills/prd/references/prd-format.md` gains R11 grammar disambiguation, R12 field documentation, R14 Decisions-and-Trade-offs convention statement, R16 competitive-findings vs competitive-analysis-as-artifact-type Content Boundaries distinction.
 
-`skills/prd/references/prd-format.md` gains the R11 grammar disambiguation, the R12 field documentation, the R14 Decisions-and-Trade-offs convention statement, and the R16 competitive-findings vs competitive-analysis-as-artifact-type Content Boundaries distinction.
+### Per-skill SKILL.md and phase-reference changes (tier 3, lightweight)
 
-### Rust validator changes
+Each of the eight child SKILL.md files (`/brief`, `/prd`, `/design`, `/plan`, `/vision`, `/strategy`, `/roadmap`, `/work-on`) gets:
 
-`crates/shirabe-validate/src/checks.rs` gains three changes. The existing `check_schema` function extends to emit a SCHEMA-MISSING notice when `doc.schema.is_empty()`. A new `check_writing_style` function (FC10) reads the banned vocabulary list from `skills/writing-style/SKILL.md` at validate-time and emits notices for each banned-word match in the document body. A new `check_plan_section_structure` function (FC11) reconciles the emitted `## Implementation Issues` section structure against the canonical structure from `plan-format.md`.
+- A SHORT Phase-0 (or earliest state-reading phase) detection-and-pointer step (~3 lines). Example: "If the `parent_orchestration:` sentinel is present in the parent's state file (`wip/scope_<topic>_state.md` for tactical children, `wip/charter_<topic>_state.md` for strategic children), see `references/fixes/sub-agent-dispatch.md`."
+- For the seven non-`/work-on` skills: a single new Resume Logic table row whose predicate is "sentinel present in <state-file-path>" and whose action is "see `references/fixes/sub-agent-dispatch.md`". No inline behavior prose.
 
-`crates/shirabe-validate/src/validate.rs` registers the three new checks in the check dispatch order. The notice-level discharge (per FC08/FC09 PR #169/#167 precedent) preserves the existing exit-code semantics — the validator returns non-zero only when error-level checks fail; notice-level checks emit advisory output without flipping the exit code.
+No per-skill `### Sub-Agent Dispatch Fallback` subsection is added. The reference file IS the canonical content; the detection-and-pointer is always-loaded but trivially short.
 
-`crates/shirabe-validate/src/formats.rs` gains entries for the new `design/v1` and `plan/v1` schemas if not already present; the canonical structure for plan/v1's `## Implementation Issues` section is encoded as a struct the FC11 check reads.
+`skills/design/references/phases/phase-6-final-review.md` grows a third reviewer in step 6.1 (structural-format-reviewer) parallel to architecture-reviewer and security-reviewer; step 6.2 feedback table extends to three rows.
+
+`skills/plan/references/phases/phase-4-agent-generation.md` grows the AC anchor-existence prompt step (R24, tier-3 acceptable because tiers 1-2 are infeasible at generation time).
+
+`skills/scope/SKILL.md` Phase 0 grows the slug-prefix detection step body — the actual sampling is in the CLI extension (R27); the SKILL.md prose invokes the CLI and emits the prompt when the CLI returns a mismatch.
+
+`skills/scope/references/phases/phase-1-discovery.md` (already lazy-loaded by /scope) is trimmed to carry the cold-start projected-PRD evaluation, the post-`/prd` re-evaluation gate, and the framing-shift opener short-circuit (R29).
 
 ### CLAUDE.md convention surface
 
-The workspace-policy header `## Release Notes Convention: <path>` lands in CLAUDE.md (per-repo, with `docs/guides/` for shirabe). `/prd` Phase 0 and `/design` Phase 0 read the value when authoring adopter-obligation ACs. The CLAUDE.md header parallels the existing `## Repo Visibility:` and `## Planning Context:` headers; no new mechanism is introduced.
+The per-repo `## Release Notes Convention: <path>` header lands in CLAUDE.md (with `docs/guides/` for shirabe). The validator's FC-CONVENTIONS check detects missing/malformed headers at relevant invocations and emits a pointer to `references/fixes/claude-md-conventions.md`. The header parallels existing `## Repo Visibility:` and `## Planning Context:` headers; no new mechanism is introduced.
 
 ### Component interaction
 
-The architecture has three top-level interaction surfaces. The pattern-level references are read by the SKILL.md citations and by the validator at validate-time; the SKILL.md citations are read by skill authors at edit-time and by readers at audit-time; the validator is invoked at commit-time and at PR-CI time. The interactions are read-only — references inform consumers; consumers do not feed back into references. The three batches in Decision 7's sequencing reflect this dependency direction.
+The architecture has three top-level interaction surfaces. The validator is invoked at commit-time and at PR-CI time and emits FC codes plus pointers; the per-error reference files at `references/fixes/` are read by the agent when a pointer fires; the format references and skill/phase prose are read by skill authors at edit-time and by readers at audit-time. The interactions are read-only and lazy — the validator's FC pointer is the substrate signal that causes the agent to load the resolution file; no resolution prose loads until the signal fires. The four batches in Decision 7's revised sequencing reflect this dependency direction (CLI → reference files → skill edits → tests).
 
 ## Implementation Approach
 
-Three batches, sequenced top-down. Each batch is independently shippable; R31 backward compatibility holds at every batch boundary because the `parent_orchestration:` sentinel is the gating condition for every new fallback path (absent sentinel falls through to existing behavior).
+Four batches, sequenced lazy-load-tier-first. Each batch is independently shippable; R31 backward compatibility holds at every batch boundary because tier-1 checks are notice-level (advisory only) and tier-2 pointers fire only when the validator emits the FC code.
 
-**Batch 1 — pattern-level upstream.** Files: `references/parent-skill-pattern.md` (two new sections), `references/cli-version-preflight.md` (new file), `skills/design/references/design-format.md` (new file), `skills/plan/references/plan-format.md` (new file), `skills/brief/references/brief-format.md` (R11/R12/R13 edits), `skills/prd/references/prd-format.md` (R11/R12/R14/R16 edits), `skills/design/references/phases/phase-6-final-review.md` (R25 wording extension at lines 104-106), CLAUDE.md (R28 convention header). Estimated 6-8 implementation issues touching 8 files.
+**Batch 1 — CLI extensions.** Files: `crates/shirabe-validate/src/checks.rs` (SCHEMA-MISSING extension, plus new `check_writing_style` FC10, `check_plan_section_structure` FC11, `check_plan_design_field_consistency` FC12, `check_eval_fixture_frontmatter` FC13, `check_claude_md_conventions` FC-CONVENTIONS), `crates/shirabe-validate/src/validate.rs` (dispatch registration for all new checks), `crates/shirabe-validate/src/formats.rs` (canonical structures for FC11; possible entries for FC12 field-consistency rubric). The slug-prefix-detection extension lands either as a new sub-command module or as an additional check function depending on the simpler implementation path. Estimated 5-7 implementation issues touching ~5 files.
 
-**Batch 2 — per-skill consumers.** Files: `skills/brief/SKILL.md`, `skills/prd/SKILL.md`, `skills/design/SKILL.md`, `skills/plan/SKILL.md`, `skills/vision/SKILL.md`, `skills/strategy/SKILL.md`, `skills/roadmap/SKILL.md`, `skills/work-on/SKILL.md` (sub-agent dispatch fallback subsections plus Resume Logic sentinel rows for the seven non-`/work-on` skills), `skills/scope/SKILL.md` (R27 Phase 0 sampling, R29 Phase 1 cold-start evaluation), `skills/design/references/phases/phase-6-final-review.md` (R21 third reviewer step 6.1, R19 budget rubric folded into the new reviewer), `skills/plan/SKILL.md` plus `skills/plan/references/phases/phase-3-decomposition.md` (R23 sub-step 3.6), `skills/plan/references/phases/phase-4-agent-generation.md` (R24 AC grep step), `skills/plan/references/phases/phase-7-creation.md` (R22 emission self-check), eval-fixture authoring references for R26. Estimated 12-16 implementation issues touching ~14 files.
+**Batch 2 — reference files.** Files: `references/fixes/sub-agent-dispatch.md` (new; Decision 1 + Decision 2 merged), `references/fixes/plan-design-field-consistency.md` (new), `references/fixes/eval-fixture-frontmatter.md` (new), `references/fixes/claude-md-conventions.md` (new), `references/fixes/cli-version-preflight.md` (new; renamed from `references/cli-version-preflight.md` to live under the per-error directory), `skills/design/references/design-format.md` (new; includes R25 wip-hygiene carve-out inline), `skills/plan/references/plan-format.md` (new). Estimated 7 implementation issues, one per file.
 
-**Batch 3 — validator extensions.** Files: `crates/shirabe-validate/src/checks.rs` (SCHEMA-MISSING extension, new check_writing_style FC10, new check_plan_section_structure FC11), `crates/shirabe-validate/src/validate.rs` (dispatch registration), `crates/shirabe-validate/src/formats.rs` (canonical structures). Estimated 3-4 implementation issues touching 3 files plus tests.
+**Batch 3 — lightweight skill edits.** Files: `skills/brief/SKILL.md`, `skills/prd/SKILL.md`, `skills/design/SKILL.md`, `skills/plan/SKILL.md`, `skills/vision/SKILL.md`, `skills/strategy/SKILL.md`, `skills/roadmap/SKILL.md`, `skills/work-on/SKILL.md` (pointer-row + Phase-0 detection line each; no per-skill subsection), `skills/scope/SKILL.md` (Phase 0 slug-prefix CLI invocation prose, references the cli-version-preflight reference, references the phase-1 cold-start trim), `skills/scope/references/phases/phase-1-discovery.md` (R29 cold-start projected-PRD eval + post-`/prd` re-evaluation gate + framing-shift opener short-circuit), `skills/design/references/phases/phase-6-final-review.md` (R21 third reviewer), `skills/plan/references/phases/phase-4-agent-generation.md` (R24 AC anchor-existence prompt step), `skills/brief/references/brief-format.md` (R11/R12/R13 edits), `skills/prd/references/prd-format.md` (R11/R12/R14/R16 edits), CLAUDE.md (R28 convention header). Estimated 10-13 implementation issues touching ~12 files.
 
-Total estimated implementation scope: 22-28 issues across ~25 files, distributed roughly 30% / 50% / 20% across the three batches.
+**Batch 4 — tests.** Files: `crates/shirabe-validate/tests/` (test cases for each new FC code: SCHEMA-MISSING, FC10, FC11, FC12, FC13, FC-CONVENTIONS; plus tests verifying the validator-pointer-resolution flow — when the validator emits an FC code with a pointer, the pointer dereferences to an existing reference file). Estimated 2-3 implementation issues touching test files.
+
+Total estimated implementation scope: 15-18 issues across ~17 files, distributed roughly 30% / 40% / 25% / 5% across the four batches — concentrated in CLI extensions and reference files rather than per-skill prose, mirroring the lazy-load principle's preference order.
 
 ## Security Considerations
 
-The design produces and modifies markdown documentation files and extends the existing Rust validator crate with three notice-level checks. No new external input sources, no new network endpoints, no new download/extract/execute paths, no new filesystem permissions beyond what `shirabe validate` and the existing chain workflows already require, and no new Rust crate dependencies. Each new validator check reads from already-public canonical references (`skills/writing-style/SKILL.md` for FC10, `plan-format.md` for FC11, the artifact under validation for SCHEMA-MISSING).
+The revised design produces and modifies markdown documentation files and extends the existing Rust validator crate with six notice-level checks (SCHEMA-MISSING extension, FC10, FC11, FC12, FC13, FC-CONVENTIONS) plus the slug-prefix-detection CLI extension. No new external input sources, no new network endpoints, no new download/extract/execute paths, no new filesystem permissions beyond what `shirabe validate` and the existing chain workflows already require, and no new Rust crate dependencies. Each new validator check reads from already-public canonical references (`skills/writing-style/SKILL.md` for FC10, `plan-format.md` for FC11, the artifact under validation for SCHEMA-MISSING / FC12 / FC13, CLAUDE.md for FC-CONVENTIONS).
 
 Three bounded data-handling considerations are worth naming for downstream implementers:
 
@@ -360,27 +483,29 @@ No security-dimension findings require design changes. The boundaries above are 
 
 ### Positive
 
-The pattern-level canonical contract for sub-agent dispatch fallback (Decision 1) and Resume Logic sentinel consultation (Decision 2) eliminates the drift surface the BRIEF named ("seven children with seven divergent restatements"). Future skill edits cite one canonical statement; cross-skill consistency is structural.
+The lazy-load shape eliminates context bloat from defensive mechanisms that may never fire. Under the revised design, an agent running `/brief`, `/prd`, `/design`, `/plan`, `/vision`, `/strategy`, `/roadmap`, or `/work-on` under direct invocation loads zero per-error resolution prose; under sub-agent dispatch, the same agent loads exactly one reference file (`references/fixes/sub-agent-dispatch.md`) when the Phase-0 detection step finds the sentinel. The cumulative-eight-children cost of the original-pass shape (8 × 30-60 lines = 240-480 lines eager-loaded across the chain) drops to zero in the default case and to ~50 lines when the failure fires.
 
-The format-reference materialization (Decision 3) closes the asymmetric-altitude debt across the four artifact types — `brief-format.md`, `prd-format.md`, `design-format.md`, `plan-format.md` all live at the same altitude and contain the same shape of clarifications. The validator's FC08 and FC11 checks dereference these files, so the format-reference contracts become machine-checkable.
+The reference-file canonical statements (Decisions 1 + 2 merged into `references/fixes/sub-agent-dispatch.md`) preserve the original-pass "one source of truth" composability — cross-skill consistency is still structural because there's still one canonical file — while the consumer surface drops from inline per-skill prose to pointer-only rows.
 
-The validator-vs-jury split (Decision 4) places each check at the surface where it executes most naturally — structural checks in Rust, mechanical greps in Rust, natural-language judgment in Phase 6 reviewers. The five-check coverage closes `tsukumogami/shirabe#157` (schema-field-present) and `tsukumogami/shirabe#158` (single-pr Implementation Issues drift) on the same surfaces that satisfy R18-R22.
+The format-reference materialization (Decision 3) closes the asymmetric-altitude debt across the four artifact types — `brief-format.md`, `prd-format.md`, `design-format.md`, `plan-format.md` all live at the same altitude and contain the same shape of clarifications. The validator's FC08, FC11, FC12 checks dereference these files, so the format-reference contracts become machine-checkable.
 
-The audit-trail fidelity the BRIEF named ("the chain's audit trail matches the chain's actual execution") falls out of the verdict-preamble discipline — every Phase 6 verdict file records the operating context (parallel-jury vs serial-self-jury) and the independence-loss caveat; every Resume Logic sentinel-consultation row preserves the parent's framing decision in the audit trail.
+The validator-vs-jury split (Decision 4, now expanded to seven checks) places each check at the surface where it executes most naturally — structural and mechanical checks in Rust, natural-language judgment in Phase 6 reviewers. The expanded coverage closes `tsukumogami/shirabe#157` (schema-field-present) and `tsukumogami/shirabe#158` (single-pr Implementation Issues drift) on the same surfaces that satisfy R18-R22 and adds tier-1 detection for R23/R26/R28.
+
+The audit-trail fidelity the BRIEF named ("the chain's audit trail matches the chain's actual execution") still falls out of the dispatch-fallback resolution prose — every Phase 6 verdict file records the operating context (parallel-jury vs serial-self-jury) and the independence-loss caveat per the resolution prose in `references/fixes/sub-agent-dispatch.md`; every Resume Logic pointer-row preserves the parent's framing decision by virtue of the sentinel being read into the agent's context when the row fires.
 
 ### Negative
 
-The implementation scope is large — ~25 files touched across three batches, estimated 22-28 issues. The per-skill consumer batch (Batch 2) touches eight child SKILLs symmetrically; an error in the canonical pattern would propagate to all eight before being caught. Mitigation: Batch 1 (pattern-level upstream) ships first and is reviewed independently; Batch 2's citations are mechanical (the canonical statement is the truth, citations dereference).
+The implementation scope is smaller — ~17 files touched across four batches, estimated 15-18 issues, vs the original-pass estimate of 22-28. The smaller scope is a benefit on net, but the work concentrates more in Rust (the validator gains six new checks instead of three) and the workspace's existing FC-code vocabulary expands more aggressively (FC10 → FC13 plus FC-CONVENTIONS). Mitigation: each new FC ships with tests in Batch 4; the FC-code vocabulary is documented in `references/quality/` per existing precedent.
 
-The validator's three new checks (Batch 3) add maintenance surface — when the writing-style reference's banned vocabulary list changes, the FC10 check picks up the change at validate-time (no code change required), but the canonical reference paths themselves are hardcoded in the validator's check logic; a future relocation of `skills/writing-style/SKILL.md` requires a validator code change. Mitigation: the reference paths are stable per the v0.9.x cutover; the maintenance cost is real but bounded.
+The lazy-load shape introduces an implicit contract between the validator and the agent: when the validator emits an FC code, the pointer to the resolution file must dereference to a real file at the expected path. A future relocation of any `references/fixes/<name>.md` file requires updating both the validator's notice text and the calling skill's documentation. Mitigation: Batch 4 includes a validator-pointer-resolution test that exercises every FC code's pointer at validate-time; broken pointers fail the test.
 
-The two new format-reference files (`design-format.md`, `plan-format.md`) require a one-time migration of inline SKILL.md format prose. The migration must preserve the existing SKILL.md citations without losing content; this is detail-heavy work that benefits from review at the file-creation boundary.
+The two new format-reference files (`design-format.md`, `plan-format.md`) require migration of inline SKILL.md format prose. The migration must preserve content without losing existing citations; this is detail-heavy work that benefits from review at the file-creation boundary. (Carried over from the original-pass concern.)
 
 ### Mitigations
 
-The three-batch sequencing isolates risk per layer — pattern-level edits ship and are reviewed before per-skill consumers; per-skill edits ship and are reviewed before validator extensions. Each batch can be reverted independently.
+The four-batch sequencing isolates risk per tier — CLI extensions ship and are reviewed before reference files; reference files ship before skill edits; tests ship last and verify the full pointer-resolution flow. Each batch can be reverted independently; Batch 4 specifically catches broken pointers at validate-time.
 
-The notice-level discharge for all three validator checks (SCHEMA-MISSING, FC10, FC11) preserves backward compatibility — existing artifacts that don't conform to the new checks emit advisory notices but do not flip the exit code to non-zero. The workspace policy can promote notices to errors at its own pace once authors have had a window to clean up existing violations.
+The notice-level discharge for all validator checks (SCHEMA-MISSING, FC10, FC11, FC12, FC13, FC-CONVENTIONS) preserves backward compatibility — existing artifacts that don't conform to the new checks emit advisory notices but do not flip the exit code to non-zero. The workspace policy can promote notices to errors at its own pace once authors have had a window to clean up existing violations.
 
 The `parent_orchestration:` sentinel as the gating condition for every new fallback path means R31 is structural — direct invocations (no parent dispatching, no sentinel) fall through to existing behavior at every new surface.
 
