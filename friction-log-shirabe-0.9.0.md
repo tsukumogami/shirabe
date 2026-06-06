@@ -52,3 +52,25 @@ Verified by reading `skills/plan/references/phases/phase-7-creation.md` (single-
 `head -1` of the PLAN doc confirms `schema: plan/v1` is set. `tsukumogami/shirabe#157` would silently skip if absent; the field is present.
 
 **Friction count for this /plan run: 6** (#158 contract drift, dependency marker form, Phase 6 sub-agent dispatch missing inline-review prose, CLI version-skew, wip-hygiene cleanup, FormatSpec drift confirmation).
+
+## DESIGN revision and re-/plan friction
+
+**Did /design Phase 4 jury catch the lazy-load principle violation on the original-pass DESIGN? (Meta-friction worth flagging for SE12-A's own DESIGN's Future Work.)**
+No. The DESIGN-shirabe-pattern-v1-ergonomics's Phase 6 jury (three serial-self-jury rubrics: architecture, security, structural-format) returned all-PASS on the original-pass shape that eager-loaded a `### Sub-Agent Dispatch Fallback` subsection into eight child SKILL.md files plus inline Resume Logic sentinel-consultation prose into seven children's tables. The lazy-load principle — that defensive mechanisms for failures that may never fire MUST NOT bloat the agent's context proactively — was not in any of the three rubrics' criteria. The principle was named by the user at the DESIGN-Accepted boundary and applied via revision (commits b3a2e9b and following). The meta-friction: Phase 6's existing rubrics (architecture: dependency direction, security: data-handling boundaries, structural-format: artifact-shape conformance) do not surface context-bloat-from-defensive-prose as a quality dimension. A future addition to Phase 6's reviewer set — or a fourth lazy-load reviewer specifically — would catch this class of violation. Filing as Future Work for the SE12-A DESIGN itself: the DESIGN's own Future Work section should name the lazy-load-reviewer addition as a follow-up.
+
+**Was the PR-151 revision pattern (Chosen-revised + Rejected on reconsideration) cleanly applicable to this DESIGN?**
+Yes. Decisions 1, 2, 5, and 6 each grew a `Chosen-revised` option and demoted the original `Chosen` to `Rejected on reconsideration` per the precedent (`docs/designs/current/DESIGN-shirabe-child-dispatch-contract.md` Decision 2D → 2E). The `#### Alternatives Considered` sections were preserved verbatim so the revision history is legible. Template conformance per `references/quality/considered-options-structure.md` held — `### Decision N: <Topic>` colon form, `#### Chosen-revised:` first, `#### Rejected on reconsideration:` second, then `#### Alternatives Considered` last.
+
+**Did Decisions 1 and 2 cleanly merge into one resolution file?**
+Yes. The sentinel detection (Decision 2's substrate hook) is the same entity that triggers the fallback-shape selection (Decision 1's resolution). A reader who lands on the merged file via either pointer wants the other half a sentence later. One file (`references/fixes/sub-agent-dispatch.md`), two entry points (Phase-0 detection step and Resume Logic pointer row), one source of truth. The merge reduced file count by one (vs the dispatcher's optional "merge if cleaner" prompt) and was the cleaner shape.
+
+**Did the four-batch shape produce a smaller issue count, as the dispatcher predicted?**
+Yes. Original-pass PLAN: 22 issues across three batches. Revised PLAN: 18 issues across four batches. The reduction came from consolidating eight per-skill SKILL.md pointer-row edits into one mechanical issue (Issue 14) — the original pass had eight separate issues (one per SKILL.md) because each carried a 30-60-line eager-loaded subsection; the revised pass has one issue because each child carries a ~3-line pointer that's identical across all eight.
+
+**Issue 14's "one issue spanning eight files" — does it violate the bound-blast-radius rule?**
+Possibly. The Issue 14 grouping rule (one issue per identical mechanical edit) deviates from the original-pass grouping rule (one issue per SKILL.md to bound blast radius). The trade-off: smaller issue count for the same surface area, but a single review touches eight files. Mitigation in Issue 14's body: the edit is mechanical and identical across all eight skills; a misapplication on one skill is visible against the seven others as a regression. The lazy-load principle's preference (less context loaded; consolidated reference files) reinforces the consolidation. If a reviewer prefers per-skill issues during execution, Issue 14 can be split — the AC structure tolerates the decomposition.
+
+**CLI version-skew again — applied for DESIGN-status transition.**
+The DESIGN's status was manually edited from Accepted to Planned (frontmatter + body) per the Phase 7 contract; `shirabe transition` is still absent from the v0.6.1 workspace binary. The sed-edit fallback is documented in the upstream friction log entries from the original-pass DESIGN and PLAN.
+
+**Friction count for this DESIGN-revision + re-/plan: 3** (Phase 6 jury didn't catch the lazy-load violation; Issue 14 deviates from the per-skill grouping rule; CLI version-skew workaround applied again).
