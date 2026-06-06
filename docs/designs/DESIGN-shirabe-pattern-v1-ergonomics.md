@@ -1,5 +1,44 @@
 ---
+schema: design/v1
+status: Proposed
 upstream: docs/prds/PRD-shirabe-pattern-v1-ergonomics.md
+problem: |
+  PRD-shirabe-pattern-v1-ergonomics binds 32 requirements across seven clusters
+  touching nine shirabe child SKILLs, the parent-skill-pattern reference, four
+  format references (two of which don't yet exist at the canonical altitude),
+  the `/design` Phase 6 jury, and the Rust validator. The PRD defers mechanism
+  choice per fix-class; this design picks placement and mechanism per cluster
+  while preserving R31 backward compatibility and R32 sequencing.
+decision: |
+  One canonical contract per fix-class at the pattern level plus per-skill
+  citations: `## Sub-Agent Dispatch Fallbacks` and a `### Child-Side Sentinel
+  Consultation Row Convention` subsection land in
+  `references/parent-skill-pattern.md`; eight child SKILLs grow `### Sub-Agent
+  Dispatch Fallback` subsections; seven child Resume Logic tables grow a
+  first-row sentinel-consultation predicate; `design-format.md` and
+  `plan-format.md` materialize at the canonical altitude with seven per-field
+  rulings across the four format references; `/design` Phase 6 grows a third
+  structural-format reviewer; `/plan` Phase 3 grows a cross-issue consistency
+  sub-step and Phase 4 grows an AC anchor-existence step and Phase 7 grows an
+  emission self-check; `/scope` Phase 0 grows slug-prefix sampling and Phase 1
+  grows cold-start projected-PRD evaluation; `references/cli-version-preflight.md`
+  is added as a new shared reference cited from each child SKILL prescribing a
+  `shirabe` subcommand; the validator gains three notice-level checks
+  (SCHEMA-MISSING extension, FC10 writing-style, FC11 plan-section-structure).
+  Implementation sequences in three batches: pattern-level upstream, per-skill
+  consumers, validator downstream.
+rationale: |
+  Composability is the load-bearing property — eight child SKILLs citing one
+  canonical fallback contract eliminates the drift surface the BRIEF named.
+  R32 sequencing falls out structurally because per-skill consumers cite
+  pattern-level statements; the three-batch ordering makes the dependency
+  direction explicit. R31 backward compatibility holds at every boundary
+  because the `parent_orchestration:` sentinel (absent under direct
+  invocation) gates every new fallback path. The validator-vs-jury split
+  places each check at its natural surface — structural in Rust, mechanical
+  in Rust, natural-language judgment in Phase 6 reviewers — closing
+  `tsukumogami/shirabe#157` and `tsukumogami/shirabe#158` on the surfaces
+  that satisfy R18 and R17/R22 in the same edit.
 ---
 
 # DESIGN: shirabe pattern v1 ergonomics
@@ -7,6 +46,18 @@ upstream: docs/prds/PRD-shirabe-pattern-v1-ergonomics.md
 ## Status
 
 Proposed
+
+Phase 6 jury returned all-PASS as serial-self-jury under sub-agent dispatch
+from `/scope` (`parent_orchestration.invoking_child: design`,
+`rationale: fresh-chain`); the independence-loss caveat is recorded in each
+verdict file (`wip/research/design_shirabe-pattern-v1-ergonomics_phase6_architecture-review.md`,
+`...phase6_security-review.md`,
+`...phase6_structural-format-review.md`). The Phase 6 jury runs three rubrics
+(architecture, security, structural-format); v0.9.1-dev's
+`phase-6-final-review.md` still ships only the first two reviewers, so the
+structural-format reviewer was walked under this design's own R21 contract
+ahead of R21 landing in the codebase. The dogfooding is recorded in the
+friction log.
 
 ## Context and Problem Statement
 
