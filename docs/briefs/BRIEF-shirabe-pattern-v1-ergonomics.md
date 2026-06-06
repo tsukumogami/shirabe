@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   About two dozen inside-pattern ergonomics observations have accumulated
   across the nine shirabe child skills, each surfaced when the skill ran
@@ -19,12 +19,14 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
-Phase 4 jury pending. The downstream PRD picks up the per-observation
+Phase 4 jury returned all-PASS as serial-self-jury under sub-agent
+dispatch from /scope; the independence-loss caveat is recorded in
+both verdict files. The downstream PRD picks up the per-observation
 disposition (skill-prose fix, reference-content fix, validator
-extension, or deferred-indefinitely) and the inside-pattern sequencing
-that accounts for skill-coupling.
+extension, or deferred-indefinitely) and the inside-pattern
+sequencing that accounts for skill-coupling.
 
 ## Problem Statement
 
@@ -134,8 +136,8 @@ that the validator quietly skipped a check because the schema
 field was missing.
 
 An author invoking a child skill directly — outside the
-orchestrator path — also benefits. The Resume Logic table is now
-robust against the routing field a future caller might set; the
+orchestrator path — also benefits. The Resume Logic table accounts
+for the routing field a future caller might set; the
 slug-convention prompt fires when the author's first guess didn't
 match the repo's precedent; the CLI version-skew preflight catches
 the install-skew before the skill body's prescribed subcommand
