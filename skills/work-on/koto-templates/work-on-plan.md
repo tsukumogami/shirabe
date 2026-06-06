@@ -332,33 +332,18 @@ The PR's merge state is DIRTY (conflicts with the target branch); GitHub has sup
 
 Run the completion cascade that pulls the chain to its strict-mode passing state, then mark the PR ready. The DRAFT-vs-READY discipline (#117) requires this ordering: cascade BEFORE `gh pr ready` so the CI re-run on the `ready_for_review` event sees the chain at its terminal.
 
-The state runs four steps. Each step's failure mode is named so the agent recovers without retreating to manual fix-up.
+The state runs two steps. The cascade script is the load-bearing element for the lifecycle verification — it invokes `shirabe validate --lifecycle-chain {{PLAN_DOC}} --strict` internally at the pre-cascade probe and post-cascade verification points, parses exit codes deterministically, and fails fast on unexpected outcomes. The agent does not invoke the validator directly.
 
-**Step 1: Verify the strict-mode check fails as expected.** Run `shirabe validate --lifecycle . --strict` against the current working tree. The expected outcome is a non-zero exit naming the present PLAN as a violator (plus BRIEF and PRD at Accepted if those are upstream chain members). A clean pass at this step means the chain is already at its terminal — the cascade is a no-op for this chain shape, which is the multi-pr-intermediate case. Capture the violator file paths from the output.
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}} > /tmp/cascade-result.json
-# The cascade script deletes the PLAN, transitions BRIEF/PRD/DESIGN
-# in their upstream chain, commits with message
-# "chore(cascade): post-implementation artifact transitions", and
-# pushes the commit. It is the implementation of step 2 below; the
-# pre-check above is the diagnostic that confirms work to do.
-```
-
-**Step 2: Run the cascade.** `run-cascade.sh --push` performs the atomic finalization commit: deletes the PLAN, transitions upstream BRIEF/PRD/DESIGN to their terminal states, commits, and pushes.
+**Step 1: Run the cascade.** `run-cascade.sh --push` runs the pre-cascade probe (expects a strict-mode failure naming the present PLAN), performs the atomic finalization commit (PLAN deletion + BRIEF/PRD/DESIGN transitions), pushes, and runs the post-cascade verification (expects a clean pass). All three points are inside the script.
 
 ```bash
 RESULT=$(${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}})
 CASCADE_STATUS=$(echo "$RESULT" | jq -r '.cascade_status')
 ```
 
-**Step 3: Verify the strict-mode check passes after the cascade.** Re-run `shirabe validate --lifecycle . --strict` on the new working tree (after the cascade's push lands). The expected outcome is a clean pass — the chain is now at its strict-mode passing state. A failure here is a bug in the cascade or a chain inconsistency the cascade could not fix; halt and surface the failure.
+If the pre-probe sees a clean pass — the chain is already at its strict-mode terminal — the script emits `cascade_status: skipped` with a single `lifecycle_pre_probe` step recording the no-op, exits 0, and the cascade proceeds directly to step 2 without performing any transitions. If the post-verify sees a failure, the script logs the validator's output and emits `cascade_status: partial`; halt and surface the failure.
 
-```bash
-shirabe validate --lifecycle . --strict
-```
-
-**Step 4: Mark the PR ready for review.**
+**Step 2: Mark the PR ready for review.**
 
 ```bash
 gh pr ready $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number')
@@ -366,11 +351,11 @@ gh pr ready $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number
 
 The CI workflow re-runs on the `ready_for_review` event with strict mode set, and the check should pass on the now-finalized chain.
 
-Submit `cascade_status` from the JSON output and a brief `cascade_detail` summarising what ran (which transitions, which paths, post-cascade strict check outcome).
+Submit `cascade_status` from the JSON output and a brief `cascade_detail` summarising what ran (which transitions, which paths, post-cascade verification outcome).
 
-- `cascade_status: completed` — all applicable steps ran successfully; post-cascade strict check passes
-- `cascade_status: partial` — some steps ran, some were skipped due to missing upstream links or files; post-cascade strict check may still pass or fail
-- `cascade_status: skipped` — PLAN doc had no `upstream` field, or the pre-check found the chain already at its terminal; no upstream documents to transition
+- `cascade_status: completed` — pre-probe saw the expected mid-PR failure, all applicable transitions ran successfully, post-verify saw the expected clean pass
+- `cascade_status: partial` — some steps ran but at least one failed (a transition was skipped, an upstream was missing, or the post-verify failed); inspect the `steps` array for the failure detail
+- `cascade_status: skipped` — pre-probe saw a clean pass (chain already terminal) or the PLAN doc had no `upstream` field; no transitions were performed
 
 All three values route to `ci_monitor`, which waits for the strict-mode CI run to land green on the now-ready PR.
 

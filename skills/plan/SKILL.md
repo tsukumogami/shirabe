@@ -56,13 +56,29 @@ to deletion; the cascade transitions Active -> Done immediately
 before `git rm` so the audit trail shows the Done flip atomically
 with the deletion. There is no `docs/plans/done/` directory in the
 current lifecycle model — the verify-then-delete terminal is the
-single forcing function. The chain-aware `--lifecycle` check
-(`shirabe validate --lifecycle .`) enforces this; the work-on
-cascade performs the Active -> Done -> DELETED sequence before `gh
-pr ready` fires (the DRAFT-vs-READY discipline). See
+single forcing function.
+
+The chain-aware lifecycle check has two modes that enforce this:
+
+- `shirabe validate --lifecycle <ROOT>` — whole-tree mode. Walks every
+  artifact chain in the tree under `<ROOT>` and validates each
+  member's posture. Used by the reusable CI workflow as the
+  cross-chain backstop.
+- `shirabe validate --lifecycle-chain <DOC-PATH>` — chain-targeted
+  mode. Walks only the chain containing the input doc and validates
+  only that chain. Used by the work-on cascade script for the
+  pre-cascade probe and post-cascade verification points.
+
+The work-on cascade performs the Active -> Done -> DELETED sequence
+before `gh pr ready` fires (the DRAFT-vs-READY discipline) and uses
+the chain-targeted mode internally to verify its own chain's posture
+without surfacing unrelated drift as noise. See
+`docs/decisions/DECISION-chain-targeted-lifecycle-cli-shape-2026-06-06.md`
+for the CLI shape rationale,
 `docs/decisions/DECISION-lifecycle-strict-mode-interface-2026-06-06.md`
-and `docs/decisions/DECISION-cascade-trigger-mechanism-2026-06-06.md`
-for the strict-mode CLI flag and the cascade trigger rationale.
+for the strict-mode CLI flag, and
+`docs/decisions/DECISION-cascade-trigger-mechanism-2026-06-06.md` for
+the cascade trigger rationale.
 
 ## Decomposition Strategies
 

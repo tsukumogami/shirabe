@@ -152,18 +152,18 @@ In `pr_finalization` state, read `batch_final_view` and assemble a PR descriptio
 
 The completion cascade runs BEFORE `gh pr ready` so the chain is at its strict-mode passing state when CI re-runs on the `ready_for_review` event. This is the DRAFT-vs-READY discipline: DRAFT PRs run non-strict and pass against mid-PR chain states; the cascade in this state finalizes the chain atomically; then `gh pr ready` fires; then CI re-runs in strict mode and passes on the terminal chain.
 
-The state runs four steps:
+The state runs two steps:
 
-1. **Pre-check.** Run `shirabe validate --lifecycle . --strict` and confirm the expected failure naming the present PLAN (and BRIEF/PRD at Accepted upstream). A clean pass at the pre-check means the chain is already at its terminal — the cascade is a no-op for multi-pr-intermediate PR shapes.
-2. **Cascade.** `${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}}` performs the atomic finalization commit (PLAN deletion + BRIEF/PRD/DESIGN transitions) and pushes.
-3. **Post-check.** Re-run `shirabe validate --lifecycle . --strict` and confirm a clean pass. A failure here is a cascade bug — halt and surface.
-4. **Mark ready.** `gh pr ready <pr-number>` flips the PR out of draft. CI re-runs in strict mode and should pass.
+1. **Cascade.** `${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}}` runs the chain-targeted lifecycle check before any transitions (pre-cascade probe), performs the atomic finalization commit (PLAN deletion + BRIEF/PRD/DESIGN transitions), pushes, and re-runs the chain-targeted check after the commit (post-cascade verification). All three points are inside the script — the agent does not invoke the validator directly.
+2. **Mark ready.** `gh pr ready <pr-number>` flips the PR out of draft. CI re-runs in strict mode and should pass.
 
-The cascade script walks the `upstream` frontmatter chain from the PLAN doc and applies the appropriate lifecycle transition at each node: PLAN → DELETED, DESIGN → Current, PRD → Done, BRIEF → Done, ROADMAP feature status update, and optional ROADMAP → Done when all features complete. It emits a JSON result containing `cascade_status` (`completed | partial | skipped`) and a `steps` array describing what ran.
+The cascade script is the load-bearing element: it invokes `shirabe validate --lifecycle-chain {{PLAN_DOC}} --strict` at the pre-probe (expecting failure on the present PLAN) and post-verify (expecting clean pass after the commit) points, parses exit codes deterministically, and fails fast on unexpected outcomes. If the pre-probe sees a clean pass — the chain is already at its strict-mode terminal — the script emits `cascade_status: skipped` and exits 0 without performing any transitions. If the post-verify sees a failure, the script logs the validator's output and emits `cascade_status: partial`.
+
+The cascade script walks the `upstream` frontmatter chain from the PLAN doc and applies the appropriate lifecycle transition at each node: PLAN → DELETED, DESIGN → Current, PRD → Done, BRIEF → Done, ROADMAP feature status update, and optional ROADMAP → Done when all features complete. It emits a JSON result containing `cascade_status` (`completed | partial | skipped`) and a `steps` array describing what ran — including the `lifecycle_pre_probe` and `lifecycle_post_verify` steps when those points run.
 
 Submit `cascade_status` from the JSON output. All three values route to `ci_monitor`, which waits for the strict-mode CI run to land green on the now-ready PR.
 
-See `docs/decisions/DECISION-cascade-trigger-mechanism-2026-06-06.md` for the rationale on running the cascade inline rather than as a workflow hook or new subcommand. See `docs/decisions/DECISION-lifecycle-strict-mode-interface-2026-06-06.md` for the rationale on the `--strict` CLI flag interface the cascade verifies against.
+See `docs/decisions/DECISION-chain-targeted-lifecycle-cli-shape-2026-06-06.md` for the rationale on the `--lifecycle-chain` CLI flag the cascade invokes. See `docs/decisions/DECISION-cascade-trigger-mechanism-2026-06-06.md` for the rationale on running the cascade inline rather than as a workflow hook or new subcommand. See `docs/decisions/DECISION-lifecycle-strict-mode-interface-2026-06-06.md` for the rationale on the `--strict` CLI flag interface the cascade verifies against.
 
 ---
 
