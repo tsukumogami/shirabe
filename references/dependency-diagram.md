@@ -109,7 +109,11 @@ label is not interpreted by FC07.
 Fixed palette. Never change these colors or class names. Status classes
 are the only classes FC07's class-versus-Status pass reconciles
 against; pipeline-stage classes (see next section) are recognised but
-not reconciled.
+not reconciled. FC09 reuses the same Status-bearing class scope --
+its three sub-checks act only on rows whose diagram node carries a
+`done`, `ready`, or `blocked` class -- and reconciles those rows
+against GitHub-observed state rather than against the table's
+terminal column.
 
 | Status | Class | Fill Color | Meaning |
 |--------|-------|------------|---------|
@@ -220,7 +224,10 @@ statements, and not part of the canonical palette.
 FC07's class-versus-Status pass selects the Status-bearing class
 (`done`, `ready`, or `blocked`) when present and ignores other
 classes on the same node for truth-table purposes. Pipeline-stage
-classes and overlay classes are observed but not reconciled.
+classes and overlay classes are observed but not reconciled. FC09
+inherits the same Status-bearing-class selection rule: a node
+carrying both `done` and an overlay class is reconciled by its
+`done` class only.
 
 ## Subgraphs
 

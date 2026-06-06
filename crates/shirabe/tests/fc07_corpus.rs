@@ -1,17 +1,18 @@
-//! FC07 corpus-surfacing self-check (Outline 5 AC-4).
+//! FC07 / FC09 corpus-surfacing self-check (Outline 5 AC-4).
 //!
 //! Exercises `shirabe validate --visibility=public` against the committed
 //! plans and roadmaps and asserts:
 //!
-//! 1. The validator exits 0 (FC07 ships notice-level; notices do not
-//!    contribute to the exit code).
-//! 2. FC07 notices surface on the committed docs that carry pre-existing
-//!    drift (the staged-rollout's intended outcome).
+//! 1. The validator exits 0 (FC07 and FC09 ship notice-level; notices
+//!    do not contribute to the exit code).
+//! 2. Only notice-level codes (SCHEMA, FC07, FC09) appear on the
+//!    committed docs that carry pre-existing drift (the staged-rollout's
+//!    intended outcome).
 //!
-//! The test does NOT pin the exact FC07 notice text or count -- the
+//! The test does NOT pin the exact notice text or count -- the
 //! committed corpus may drift between this PR and the cleanup PR. The
-//! pinned per-defect assertions live in the unit-level test in
-//! `shirabe-validate/src/checks.rs` (PRE_CLEANUP_REGRESSION_FIXTURE).
+//! pinned per-defect assertions live in the unit-level tests in
+//! `shirabe-validate/src/checks.rs`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -75,25 +76,25 @@ fn fc07_corpus_self_check_committed_plans_and_roadmaps() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let exit = output.status.code().unwrap_or(-1);
 
-    // AC-4.1: exit 0. FC07 is notice-level for v1; promotion to error is
-    // a one-line is_notice change in a later cleanup PR.
+    // AC-4.1: exit 0. FC07 and FC09 are notice-level for v1; promotion
+    // to error is a one-line is_notice change in a later cleanup PR.
     assert_eq!(
         exit, 0,
-        "FC07 must ship notice-level; exit {} on the committed corpus.\nstdout: {}\nstderr: {}",
+        "notice-level checks must not contribute to the exit code; got {} on the committed corpus.\nstdout: {}\nstderr: {}",
         exit,
         stdout,
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // AC-4.2: when the corpus carries drift, FC07 notices surface. We do
-    // not pin the count (the committed corpus may drift PR-by-PR) -- only
-    // that, if any notice line appears, it is an FC07 notice with the
-    // expected prefix shape.
+    // AC-4.2: when the corpus carries drift, notice-level codes surface.
+    // We do not pin the count (the committed corpus may drift PR-by-PR)
+    // -- only that, if any notice line appears, it is from the
+    // notice-level membership (SCHEMA, FC07, FC09).
     for line in stdout.lines() {
         if line.starts_with("::notice ") {
             assert!(
-                line.contains("[FC07]") || line.contains("[SCHEMA]"),
-                "notice from non-FC07/non-SCHEMA code on the committed corpus: {}",
+                line.contains("[FC07]") || line.contains("[SCHEMA]") || line.contains("[FC09]"),
+                "notice from non-notice-level code on the committed corpus: {}",
                 line
             );
         }
