@@ -297,6 +297,180 @@ two cardinality shapes separately so the parent-of-the-parent knows
 whether to materialize a single instance (reviewer) or N instances
 (worker) at team-creation time.
 
+## Dispatch Contract
+
+The dispatch contract is the single source of truth for how a parent
+skill invokes a child skill across the parent/child boundary. It is a
+contract — every parent SHALL satisfy every element verbatim and every
+child SHALL participate identically. The mechanism in v1 is the Skill
+tool, invoked inline by the parent. The contract applies symmetrically
+to both v1 parents (`/scope`, `/charter`) and all seven children
+(`/brief`, `/prd`, `/design`, `/plan`, `/vision`, `/strategy`,
+`/roadmap`); no parent or child gets a per-binding override slot in v1.
+
+The contract has five labelled elements: a dispatch mechanism, a
+pre-dispatch state, an observability surface, a hand-back contract,
+and a child team-shape declaration. The four Layer-1 elements
+(mechanism, pre-dispatch state, observability surface, hand-back)
+are substrate-agnostic — every future substrate names them. The
+specific bindings (the Skill tool, the dedicated `team.yaml` file
+path, the YAML schema, the `wip/<parent>_<topic>_state.md` path) are
+Layer 2 (substrate-bound, replaceable when the amplifier layer ships
+via the `team_primitive` substitution surface above).
+
+### Dispatch Mechanism
+
+The parent invokes the child via the **Skill tool**, called inline
+from the parent's own agent context with the child's name and the
+topic slug — the same way a user typing `/<child-name> <topic-slug>`
+would. This is the v1 binding under `team_primitive:
+single-team-per-leader-no-nested`: the parent owns no team at its
+own layer; the child runs in the parent's agent context and the
+child itself constructs whatever team it needs at the child layer.
+
+R14 child-isolation is preserved by construction: the parent reads
+only the child's durable artifact (per the hand-back contract below)
+and never inspects the child's wip/ state, the child's inbox, or any
+sub-team the child spawns. The Skill tool gives the parent no
+privileged view into the child's internals.
+
+### Pre-Dispatch State
+
+Before invoking the child, the parent SHALL have written the
+following four pre-dispatch state elements:
+
+1. **`parent_orchestration:` sentinel block** in the parent's state
+   file, with subfields `invoking_child:` (the child the parent is
+   about to invoke), `suppress_status_aware_prompt:` (the upfront
+   decision to silence the child's status-aware re-entry prompt), and
+   `rationale:` (the upfront `fresh-chain | revise` framing the child
+   reads to route its own Slot 2 behavior).
+2. **Worktree-staleness gate output** — the rebase impact
+   classification from the parent's worktree-discipline check
+   (`None | Informational | Intent-changing-resolved-in-place`).
+   The classification SHALL be resolved before dispatch; an
+   unresolved classification fails the gate and dispatch does not
+   fire.
+3. **State-file fields written before dispatch** — the parent
+   advances `planned_chain`, bumps `last_updated`, and captures
+   `pre_invocation_sha` (the HEAD commit SHA at dispatch time, used
+   by the hand-back contract's Phase-N Reject discard-commit
+   detection) BEFORE the Skill-tool call fires.
+4. **Child-side team-shape declaration glob marker** — the file
+   `skills/<name>/team.yaml` exists and parses against the schema
+   below. The marker is the contract surface; the parent does NOT
+   parse the file at dispatch time in v1 (see Child Team-Shape
+   Declaration below for the v1 read semantics).
+
+The `parent_orchestration:` block is the canonical pre-dispatch
+state element and is described as the pre-dispatch state element of
+the dispatch contract in
+[`parent-skill-state-schema.md`](parent-skill-state-schema.md).
+
+### Observability Surface
+
+The parent's observability surface for an in-flight child invocation
+is **strictly** limited to:
+
+- **Durable artifact path polling** — the parent checks for the
+  child's canonical durable artifact at the well-known per-child
+  path (e.g., `docs/briefs/BRIEF-<topic>.md`).
+- **`git log` since `pre_invocation_sha`** — the parent inspects
+  commits added during the child's run on its own worktree, for the
+  hand-back contract's Phase-N Reject discard-commit detection.
+- **The parent's own `wip/` filesystem** — the parent reads its own
+  state file, its own intermediate artifacts, and its own
+  `wip/<parent>_<topic>_state.md`. The parent does NOT read the
+  child's wip/ state.
+
+The parent SHALL NOT inspect the child's internal team coordination,
+the child's inbox, the child's `wip/` state, or any sub-team the
+child constructs. R14 child-isolation is the binding constraint:
+the parent's observability surface is the durable artifact path
+plus the parent's own worktree state, and nothing else.
+
+### Hand-Back Contract
+
+When the Skill tool returns, the parent SHALL perform the following
+hand-back steps in order:
+
+1. **R20 file-existence check** — confirm the child's canonical
+   durable artifact path exists. A returning child with no artifact
+   at the canonical path is a PASS-with-no-artifact violation
+   surface.
+2. **Frontmatter `status:` read** — read the artifact's frontmatter
+   `status:` value to learn the child's terminal exit (Accepted,
+   Done, Abandoned, etc.).
+3. **Git blob hash capture** — capture the artifact's git blob hash
+   as the content-fingerprint for the per-child snapshot dual-check
+   (per the pattern-level invariant in
+   [`parent-skill-state-schema.md`](parent-skill-state-schema.md)).
+4. **Phase-N Reject discard-commit detection** — run
+   `git log <pre_invocation_sha>..HEAD` to detect any Phase-N Reject
+   discard commits the child may have created; the commits are part
+   of the chain's audit trail.
+5. **Validator pass-through** — run `shirabe validate` against the
+   returning artifact; a validator failure is a contract violation
+   the parent surfaces to its own exit path.
+6. **`parent_orchestration:` cleanup** — clear the sentinel block
+   from the parent's state file. The block is gated on
+   in-flight-dispatch presence (invariant I-5); leaving it set after
+   the child returns is a conditional-field-gating violation.
+7. **`child_snapshots:` capture** — write the per-child snapshot
+   `{status, content_hash, commit_sha}` to the parent's state file
+   for the per-child snapshot dual-check.
+
+### Child Team-Shape Declaration
+
+Every child SHALL declare its team shape at the well-known per-skill
+path `skills/<name>/team.yaml`. The file is the contract surface for
+the child's team — its path is the glob marker, its content is the
+declaration. The schema:
+
+```yaml
+parent_layer:
+  # Peers the parent-of-the-parent materializes upfront.
+  # Empty for every child in v1 (the parent owns no team).
+  peers: []
+
+child_layer:
+  # Peers the child itself spawns during its phases.
+  # An empty list is a valid declaration meaning "no team."
+  peers:
+    - role: <kebab-case-role-name>
+      cardinality: reviewer | worker
+      upper_bound: <integer>  # required iff cardinality: worker
+      phase: <phase-slug>     # e.g., phase-4-validate
+      purpose: <one-line description>
+```
+
+The schema mirrors the Team-Shape Declarator section's
+reviewer-shaped-vs-variable-cardinality vocabulary verbatim;
+`reviewer` cardinality means one peer reviews all N work items
+(`upper_bound` omitted; one is implicit), `worker` cardinality means
+one peer per work item (`upper_bound` names the maximum N). The
+`phase:` value is a kebab-case slug matching the child's phase
+reference filename without extension (e.g., `phase-4-validate`,
+`phase-2-execution`, `phase-6-final-review`).
+
+**v1 runtime read semantics.** The parent does NOT parse
+`team.yaml` at dispatch time in v1. The substrate has no team.yaml
+parser; the inline Skill-tool dispatch mechanism passes only the
+topic-slug argument. The file is consumed in v1 by: (a) reviewers
+verifying that the declaration matches the child's actual peer
+roster, (b) the future Phase D validator extension when it ships,
+and (c) the future amplifier-layer substrate when it ships
+TeamCreate semantics under `team_primitive`'s Layer-2 substitution.
+The contract surface (file at well-known path; fixed schema;
+glob-checkable presence via `skills/*/team.yaml`) exists in v1; the
+runtime read is a v2 binding.
+
+v1 has no per-parent override slot — the contract applies verbatim
+to both parents and all seven children. The contract applies to
+chain runs initiated after the contract lands; existing in-flight
+runs are not retroactively re-shaped (R11), because their dispatch
+shape already matches what the contract codifies.
+
 ## Required SKILL.md Structural Elements
 
 Every parent skill's `skills/<name>/SKILL.md` SHALL contain seven
@@ -461,21 +635,36 @@ durable-evidence claim (no flake, no rework) while `failing_fixed`
 records that rework occurred. Downstream consumers (release notes,
 audit trails, retrospectives) treat them differently.
 
-### Binding Notes for `/charter`
+### Binding Notes for v1 Parents
 
-`/charter` v1 binds the discipline at two layers:
+Both v1 parents (`/scope` and `/charter`) bind the discipline at the
+child layer, not at the dispatch boundary. The dispatch mechanism the
+discipline binds against is named in the `## Dispatch Contract` section
+above: inline Skill-tool invocation from the parent's own agent context,
+with the child running its own team (when it has one) at the child layer.
+The discipline's content — sleep-check-nudge loop, terminal exits, timing
+table, idle-pings rule, nudge content rule, `ci_outcome` semantics — is
+unchanged; what changes is the layer the binding fires at.
 
-- **At the parent-itself layer:** the binding is vacuous in v1.
-  `/charter` runs as a single-agent skill (see `/charter`'s SKILL.md
-  Team Shape section); no peers are dispatched at the
-  `/charter`-itself layer, so the loop has zero dispatched tasks to
-  drive.
-- **At the child-skill dispatch layer:** the binding is concrete.
-  Each `/vision`, `/strategy`, and `/roadmap` invocation is a
-  dispatch in the discipline sense: the team-lead (`/charter` as the
-  parent-of-the-child) drives the dispatched child to a terminal
-  exit. The child-skill invocation task class is the implementation
-  pass class above (120s window, 10-cycle patience budget). When
-  ESCALATE fires against a child invocation, the `triggering_child:`
-  field is the same value as `triggering_teammate:` from the
-  pattern-level mapping above.
+- **At the parent-itself layer:** the binding is vacuous in v1. Both
+  parents run as single-agent skills (see each parent's SKILL.md Team
+  Shape section); no peers are dispatched at the parent-itself layer, so
+  the loop has zero dispatched tasks to drive.
+- **At the child-itself layer:** the discipline binds inside each child
+  against the child's own peers. Each child constructs its own team (when
+  it has one) per the Dispatch Contract's Child Team-Shape Declaration;
+  the child is the team-lead in the discipline sense, driving its own
+  peers' dispatched tasks to terminal exits. The child-skill invocation
+  task class is the implementation pass class above (120s window,
+  10-cycle patience budget) as seen from the parent's synchronous
+  Skill-tool wait. When ESCALATE fires inside a child invocation, the
+  escalation surfaces through the child's normal terminal artifact (a
+  partial doc with abandonment-forced state) and the child's
+  `triggering_teammate:` field; the parent learns about it via the
+  Hand-Back Contract's R20 file-existence check and frontmatter `status:`
+  read, not by inboxing a verdict from a team it does not own.
+
+| Parent | Children invoked |
+|---|---|
+| `/scope` | `/brief`, `/prd`, `/design`, `/plan` |
+| `/charter` | `/vision`, `/strategy`, `/roadmap` |

@@ -17,6 +17,8 @@ summarizes.
 
 ## /vision Invocation Rule (R4)
 
+See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
+
 `/charter` invokes `/vision` when EITHER of two signals is present.
 Both signals are independent — either one alone fires the invocation;
 both holding simultaneously also fires it (and does so exactly once).
@@ -43,6 +45,8 @@ run decides how to handle the existing artifact (revise, force-
 abandon and rewrite, etc.) per `/vision`'s own contract.
 
 ## /comp Invocation Rule (R5 + R12)
+
+See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
 
 `/charter` invokes `/comp` when ALL of the following hold (the
 three-condition gate per the Conditional Feeder Invocation Shape
@@ -104,6 +108,8 @@ contract.
 
 ## /strategy Invocation Rule (R6)
 
+See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
+
 `/charter` ALWAYS invokes `/strategy`. It is the load-bearing
 child of the chain; the chain completes either at `/strategy`'s
 exit (when no `/roadmap` is warranted) or continues to `/roadmap`
@@ -137,6 +143,8 @@ path would route `/strategy` into a lifecycle transition rather
 than into the chain-orchestration flow `/charter` is driving.
 
 ## /roadmap Invocation Rule (R7)
+
+See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
 
 `/charter` invokes `/roadmap` when ALL of the following shape gates
 hold against the just-produced STRATEGY:

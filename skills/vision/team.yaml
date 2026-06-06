@@ -1,0 +1,17 @@
+parent_layer:
+  peers: []
+
+child_layer:
+  peers:
+    - role: thesis-quality-reviewer
+      cardinality: reviewer
+      phase: phase-4-validate
+      purpose: evaluates whether the thesis is a falsifiable bet
+    - role: content-boundary-reviewer
+      cardinality: reviewer
+      phase: phase-4-validate
+      purpose: evaluates audience and value-proposition framing
+    - role: section-guidance-reviewer
+      cardinality: reviewer
+      phase: phase-4-validate
+      purpose: evaluates structural conformance to vision-format.md

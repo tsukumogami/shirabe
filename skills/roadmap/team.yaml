@@ -1,0 +1,17 @@
+parent_layer:
+  peers: []
+
+child_layer:
+  peers:
+    - role: theme-coherence-reviewer
+      cardinality: reviewer
+      phase: phase-4-validate
+      purpose: evaluates whether features belong under one theme
+    - role: sequencing-and-dependency-reviewer
+      cardinality: reviewer
+      phase: phase-4-validate
+      purpose: evaluates dependency graph between features
+    - role: annotation-and-boundary-reviewer
+      cardinality: reviewer
+      phase: phase-4-validate
+      purpose: evaluates per-feature annotations and roadmap scope boundary

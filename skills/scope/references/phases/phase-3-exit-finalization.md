@@ -10,6 +10,21 @@ written into commits, the public-history disclaimer for in-
 chain Reject, and the closed write-target set Phase 3 may
 touch.
 
+## Table of Contents
+
+- [Three Exit Paths](#three-exit-paths)
+  - [Full-Run Exit](#full-run-exit)
+  - [Re-Evaluation Exit](#re-evaluation-exit)
+  - [Abandonment-Forced Exit](#abandonment-forced-exit)
+- [R8 Tie-Break for `triggering_child:`](#r8-tie-break-for-triggering_child)
+- [HTML-Comment Marker](#html-comment-marker)
+- [R9 Hard-Finalization Check](#r9-hard-finalization-check)
+- [`git commit -F` Discipline](#git-commit--f-discipline)
+- [Public-History Disclaimer](#public-history-disclaimer)
+- [Closed Write-Target Set](#closed-write-target-set)
+- [State-File Enum Re-Validation Before Path Interpolation](#state-file-enum-re-validation-before-path-interpolation)
+- [References](#references)
+
 ## Three Exit Paths
 
 The `exit:` field at finalization SHALL be one of three values

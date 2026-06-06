@@ -1,0 +1,22 @@
+parent_layer:
+  peers: []
+
+child_layer:
+  peers:
+    - role: decision-researcher
+      cardinality: worker
+      upper_bound: 9
+      phase: phase-2-execution
+      purpose: walks the decision protocol per pending architectural question
+    - role: security-researcher
+      cardinality: reviewer
+      phase: phase-5-security
+      purpose: investigates security implications of the chosen architecture
+    - role: architecture-reviewer
+      cardinality: reviewer
+      phase: phase-6-final-review
+      purpose: evaluates structural integrity of the final DESIGN
+    - role: security-reviewer
+      cardinality: reviewer
+      phase: phase-6-final-review
+      purpose: evaluates security posture of the final DESIGN

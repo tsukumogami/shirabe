@@ -96,10 +96,8 @@ identically rather than reinventing the vocabulary.
   artifacts, future-resume detection — observe which output shape
   the chain produced without re-reading the terminal artifact.
 
-Both fields satisfy invariant I-5: each is ABSENT from the state
-file when its triggering condition does not hold, never set to null,
-empty string, or placeholder. R9 Parts 2 and 3 (see R9 Hard-
-Finalization Check Spec below) enforce this.
+Both fields are conditional per invariant I-5 (see Conditional-field
+gating below); R9 Parts 2 and 3 enforce.
 
 ## Pattern-Level Invariants
 
@@ -175,6 +173,25 @@ NOT be hijacked by a child's status-aware re-entry prompt.
 The signaling mechanism between parent and child is parent-specific; the
 invariant is that the parent decides, not the child.
 
+#### `parent_orchestration:` block
+
+The `parent_orchestration:` block is the pattern-level convention every
+parent writes and every child reads identically; the block is the
+**pre-dispatch state element of the dispatch contract** named in
+[`parent-skill-pattern.md`](parent-skill-pattern.md) under
+`## Dispatch Contract`'s Pre-Dispatch State sub-section. The parent
+writes the block to its state file immediately before invoking the
+child via the Skill tool; the child reads it at its own Phase 0 to
+route Slot 2 behavior (suppress its status-aware re-entry prompt) and
+the parent clears it on hand-back per the Dispatch Contract's
+`parent_orchestration:` cleanup step. The block's fields are fixed at
+the pattern layer (no parent extends or omits any field):
+`invoking_child:` names the child the parent is about to invoke;
+`suppress_status_aware_prompt:` carries the upfront decision to
+silence the child's status-aware re-entry; `rationale:` carries the
+`fresh-chain | revise` framing the child reads to route its own Slot 2
+behavior.
+
 ## Extension Discipline
 
 Every parent extends the 5-field minimum with parent-specific fields keyed
@@ -185,11 +202,7 @@ constrain extensions.
    parent-specific field MUST NOT shadow a pattern-level field. A field
    named `exit` is the pattern-level exit; a parent that wants a
    parent-specific exit-related field SHALL choose a distinct name.
-2. **Conditional fields satisfy I-5.** Parent-specific conditional fields
-   (fields whose presence is gated by a specific `exit:`,
-   chain-position, or other triggering value) MUST be absent when their
-   triggering condition does not hold (per invariant I-5; see
-   Conditional-field gating above).
+2. **Conditional fields satisfy I-5** (see Conditional-field gating above).
 3. **Chain-tracking fields stay together.** A parent that uses
    `planned_chain` SHALL also use `chain_ran` and `chain_skipped`
    (they form a unit). A parent that omits chain-tracking omits all three;
@@ -229,19 +242,12 @@ succeed.
    discriminator values fail R9 Part 2 the same way single-discriminator
    parents do — the multi-discriminator framing extends the rule, not
    replaces it.
-3. **Conditional fields absent when ungated.** Fields whose presence is
-   gated by a specific `exit:` or sub-shape value are ABSENT from the
-   state file when their triggering condition does not hold (invariant
-   I-5). Null, empty-string, or placeholder values fail the check.
-
-   Conditional fields whose triggering condition is chain-position
-   rather than `exit:` follow the same I-5 absent-when-ungated rule.
-   `plan_execution_mode:` (gated by `/plan` appearing in `chain_ran`)
-   is the canonical example: when `/plan` is not in `chain_ran`, the
-   field MUST be absent from the state file; null, empty-string, or
-   placeholder values fail R9 Part 3 identically to the `exit:`-gated
-   case. The chain-membership-gated framing extends the rule's reach
-   without changing its mechanics.
+3. **Conditional fields absent when ungated.** Fields gated by `exit:`,
+   sub-shape value, or chain-position are ABSENT when their triggering
+   condition does not hold (invariant I-5; see Conditional-field gating
+   above). `plan_execution_mode:` (gated on `/plan` appearing in
+   `chain_ran`) is the canonical chain-position case. Null,
+   empty-string, or placeholder values fail the check.
 
 When the check fails, the parent SHALL surface the specific violation
 (naming the offending field and the failing rule) and refuse to record

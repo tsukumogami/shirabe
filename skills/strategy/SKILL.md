@@ -228,6 +228,15 @@ After acceptance, suggest next steps:
 
 ---
 
+## Team Shape
+
+`/strategy`'s team shape is declared in [`team.yaml`](./team.yaml) as
+the machine-readable contract surface. The child layer spawns three
+reviewer peers at Phase 4 (`bet-quality-reviewer`, `altitude-reviewer`,
+`structural-format-reviewer`) to validate the drafted STRATEGY.
+
+See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
+
 ## Reference Files
 
 | File | When to load |

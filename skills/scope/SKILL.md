@@ -63,6 +63,8 @@ invocation. At the `/scope`-itself layer the binding is vacuous in
 v1 — there are no peers dispatched whose terminal exits the team-
 lead drives.
 
+See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
+
 ## Input Modes
 
 From `$ARGUMENTS`:
@@ -75,28 +77,18 @@ From `$ARGUMENTS`:
    to re-invoke `/scope <topic-slug>` with a slug that matches the
    topic-slug regex. Phase 0 then stops; there is no auto-retry
    loop.
-2. **Non-empty `$ARGUMENTS`** — treated as a freeform topic string
-   that MUST already conform to the topic-slug regex. Phase 0
-   validates `$ARGUMENTS` AS PROVIDED (byte-for-byte against the
-   regex); on match, the value becomes the topic slug verbatim; on
-   mismatch, Phase 0 rejects with a clear error naming the violated
-   pattern and stops. No normalization, no derivation, no "best
-   effort" massaging — the slug the author typed IS the slug Phase 0
-   validates and records.
+2. **Non-empty `$ARGUMENTS`** — a freeform topic string that must
+   already conform to the topic-slug regex (see Topic-Slug
+   Constraint below for the regex source-of-truth and validation
+   discipline). On match, the value becomes the topic slug verbatim;
+   on mismatch, Phase 0 rejects with a clear error and stops.
 
-`/scope` MUST NOT accept paths to durable artifacts as an input
-mode. A `$ARGUMENTS` value that looks like a path fails the regex
-(slashes, dots, and any uppercase letters from typical artifact
-prefixes break the match) and is rejected at Phase 0. Concrete
-example: `/scope docs/prds/PRD-foo.md` is rejected at the regex
-check (slashes, dots, and uppercase letters all violate
-`^[a-z0-9-]+$`); it is NOT treated as a pointer to the PRD at that
-path, and Phase 0 stops without creating any state file.
-
-Path-as-upstream is the wrong shape for `/scope`'s entry mode —
-upstream artifact references are detected during Phase 1 discovery
-by inspecting the topic-related child docs that exist in the repo,
-not by parsing them out of `$ARGUMENTS`.
+Paths to durable artifacts (e.g., `/scope docs/prds/PRD-foo.md`)
+fail the regex on slashes / dots / uppercase and are rejected at
+Phase 0; they are not treated as upstream pointers. Upstream
+artifact references are detected during Phase 1 discovery by
+inspecting topic-related child docs in the repo, not by parsing
+`$ARGUMENTS`.
 
 ## Execution-Mode Flags
 
@@ -125,27 +117,13 @@ The topic slug appears in the state-file path
 (`wip/scope_<topic>_state.md`), the Decision Record paths
 (`docs/decisions/DECISION-{prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md`),
 and downstream child wip/ paths under `wip/{brief,prd,design,plan}_<topic>_*`.
-The slug MUST match the regex `^[a-z0-9-]+$`.
-
-The regex is the pattern-level constraint sourced from
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
-(Topic-Slug Regex section); every parent skill cites it
-identically. Phase 0 validates `$ARGUMENTS` AS PROVIDED against
-this regex — byte-for-byte, no normalization, no derivation. Slugs
-failing the regex MUST be rejected at Phase 0 with a clear error
-message naming the violated pattern. `/scope` MUST NOT proceed
-silently when the slug is invalid, and MUST NOT silently normalize
-the input into a conforming slug — silent normalization hides
-input the author did not intend and breaks the contract that the
-slug recorded in state is identical to the slug the author typed.
-
-The canonical rejection-example table (whitespace, uppercase,
-underscores, dots, slashes, out-of-charset characters) lives in
-`skills/scope/references/phases/phase-0-setup.md` so the eval
-surface and Phase 0 implementation share one source of truth.
-
-The Phase 0 setup procedure is at
-`skills/scope/references/phases/phase-0-setup.md`.
+The slug MUST match the regex `^[a-z0-9-]+$` — the pattern-level
+constraint canonical in
+[`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md)
+(Topic-Slug Regex section), including the validation discipline
+(AS PROVIDED, no normalization) and the resume-time re-validation
+rule. Phase 0's rejection-example table and the slug-handling
+procedure live at `skills/scope/references/phases/phase-0-setup.md`.
 
 Slugs recovered from on-disk artifact paths during Slot 5 or Slot 6
 ladder matches are re-validated against the same regex before

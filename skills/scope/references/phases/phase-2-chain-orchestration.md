@@ -10,6 +10,21 @@ captures the child snapshot, and routes through the validator
 pass-through. Phase-N Reject from `/prd` or `/design` is
 observed via `git log` against the discard commit.
 
+## Table of Contents
+
+- [Per-Child Invocation Loop Ordering](#per-child-invocation-loop-ordering)
+- [Worktree-Staleness Check Before Each Child Invocation](#worktree-staleness-check-before-each-child-invocation)
+- [`parent_orchestration:` Sentinel Write](#parent_orchestration-sentinel-write)
+- [Child Invocation](#child-invocation)
+- [R20 Structural File-Existence Check](#r20-structural-file-existence-check)
+- [`parent_orchestration:` Cleanup](#parent_orchestration-cleanup)
+- [Child-Snapshot Capture](#child-snapshot-capture)
+- [Phase-N Reject Handling](#phase-n-reject-handling)
+- [Validator Pass-Through](#validator-pass-through)
+- [Per-Child Gates from `planned_chain:`, Not Re-Walked](#per-child-gates-from-planned_chain-not-re-walked)
+- [State-File Enum Re-Validation Before Path Interpolation](#state-file-enum-re-validation-before-path-interpolation)
+- [References](#references)
+
 ## Per-Child Invocation Loop Ordering
 
 For each child name in `planned_chain:` in order, Phase 2 runs
@@ -122,6 +137,8 @@ about whether the run is a fresh chain or a revision (read by
 the child to route its own Slot 2 behavior).
 
 ## Child Invocation
+
+See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
 
 Phase 2 invokes the child via the child's existing input mode:
 `/<child-name> <topic-slug>`. R14 child-isolation is preserved

@@ -184,6 +184,16 @@ After acceptance, suggest next steps:
 
 ---
 
+## Team Shape
+
+`/vision`'s team shape is declared in [`team.yaml`](./team.yaml) as the
+machine-readable contract surface. The child layer spawns three
+reviewer peers at Phase 4 (`thesis-quality-reviewer`,
+`content-boundary-reviewer`, `section-guidance-reviewer`) to validate
+the drafted VISION.
+
+See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
+
 ## Reference Files
 
 | File | When to load |

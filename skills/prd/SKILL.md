@@ -172,6 +172,15 @@ Final artifact: `docs/prds/PRD-<topic>.md`, transitioning from "Draft" to
 
 ---
 
+## Team Shape
+
+`/prd`'s team shape is declared in [`team.yaml`](./team.yaml) as the
+machine-readable contract surface. The child layer spawns three
+reviewer peers at Phase 4 (`completeness-reviewer`, `clarity-reviewer`,
+`testability-reviewer`) to validate the drafted PRD.
+
+See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
+
 ## Reference Files
 
 | File | When to load |

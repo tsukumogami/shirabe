@@ -306,6 +306,16 @@ what the subcommand will write before the gate is reached; under
 
 ---
 
+## Team Shape
+
+`/roadmap`'s team shape is declared in [`team.yaml`](./team.yaml) as
+the machine-readable contract surface. The child layer spawns three
+reviewer peers at Phase 4 (`theme-coherence-reviewer`,
+`sequencing-and-dependency-reviewer`,
+`annotation-and-boundary-reviewer`) to validate the drafted ROADMAP.
+
+See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
+
 ## Reference Files
 
 | File | When to load |

@@ -14,6 +14,19 @@ check lives in the exit-path orchestration (another companion outline
 owns that implementation). The spec here is the contract surface both
 runtimes bind to.
 
+## Table of Contents
+
+- [Pure YAML With `.md` Extension](#pure-yaml-with-md-extension)
+- [5-Field Minimum and Pattern-Level Invariants](#5-field-minimum-and-pattern-level-invariants)
+- [Topic-Slug Constraint](#topic-slug-constraint)
+- [Full Field Schema](#full-field-schema)
+  - [Always-Present Fields](#always-present-fields)
+  - [Conditional Fields](#conditional-fields)
+  - [Schematic YAML Example](#schematic-yaml-example)
+- [Conditional-Field Gating Discipline](#conditional-field-gating-discipline)
+- [R9 Hard Finalization Check](#r9-hard-finalization-check)
+- [Security Considerations](#security-considerations)
+
 ## Pure YAML With `.md` Extension
 
 The state file at `wip/charter_<topic>_state.md` is **pure YAML**
