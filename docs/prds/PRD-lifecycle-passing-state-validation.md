@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   shirabe's existing validator runs as a diff-scoped pass on the files
   touched by the PR under review, plus the L01 and L02 stateless lifecycle
@@ -28,7 +28,7 @@ complexity: Complex
 
 ## Status
 
-Accepted
+Done
 
 The PRD operationalizes the upstream BRIEF and the two pre-settled
 decision records named in the References section. The DESIGN that

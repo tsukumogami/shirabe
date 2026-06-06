@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   shirabe's diff-scoped validator cannot see presence-without-touch, and the
   previously codified two stateless lifecycle checks treat each doc in
@@ -22,7 +22,7 @@ upstream: docs/designs/DESIGN-roadmap-plan-standardization.md
 
 ## Status
 
-Accepted
+Done
 
 The framing is fresh; the downstream PRD will operationalize the
 requirements articulation against the two pre-settled decision records

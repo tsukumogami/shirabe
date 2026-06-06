@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-lifecycle-passing-state-validation.md
 problem: |
   shirabe's validator runs as a diff-scoped content pass plus the L01/L02
@@ -30,7 +30,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 The DESIGN is at `Planned` while the implementation is in flight. On
 chain completion the file is promoted to `docs/designs/current/` at
