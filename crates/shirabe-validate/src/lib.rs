@@ -26,7 +26,7 @@ pub mod validate;
 pub use annotation::{format_error, format_notice};
 pub use doc::{Config, Doc, FieldValue, Section, ValidationError};
 pub use features::{extract_needs_label, parse_features, strip_label_decoration, Feature};
-pub use finalize::{walk_chain, NodeAction, NodeEntry, Report, WalkError};
+pub use finalize::{walk_chain, walk_chain_mode, Mode, NodeAction, NodeEntry, Report, WalkError};
 pub use formats::{detect_format, formats, FormatSpec};
 pub use frontmatter::{parse_doc, ParseError};
 pub use table::{parse_issues_table, Profile, Row, RowKind, Table};

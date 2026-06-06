@@ -1,11 +1,23 @@
-//! Read-only completion-chain walk for `shirabe finalize-chain`.
+//! Completion-chain walk for `shirabe finalize-chain`.
 //!
-//! Issue 1 of `DESIGN-finalize-chain.md`: walk a finished PLAN's `upstream`
-//! frontmatter chain, resolve each node's format via [`crate::detect_format`],
-//! and build a typed [`Report`] describing the terminal action each node would
-//! take -- **without mutating any document**. Applying the transitions, the
-//! `## Implementation Issues` strip, the typed-error/exit-code surface, and the
-//! `run-cascade.sh` refactor are later issues.
+//! Walks a finished PLAN's `upstream` frontmatter chain, resolves each node's
+//! format via [`crate::detect_format`], and builds a typed [`Report`]. The walk
+//! has two modes ([`Mode`]):
+//!
+//! - [`Mode::Apply`] (the default for `finalize-chain <plan>`): each tactical
+//!   node's terminal transition is applied in-process via
+//!   [`crate::run_transition`] (Design->`Current`, PRD->`Done`, Brief->`Done`),
+//!   and a DESIGN node has its stale `## Implementation Issues` section stripped
+//!   first. The applied `old_status`/`new_status`/`new_path`/`moved` are recorded
+//!   on each [`NodeEntry`].
+//! - [`Mode::DryRun`] (the original read-only Issue 1 shape, exposed as
+//!   `--dry-run`): no document is modified; the report records only what each
+//!   node *would* do.
+//!
+//! The input PLAN is always reported for deletion and never transitioned
+//! (finalize-chain never deletes); the caller owns the `git rm`. ROADMAP/VISION
+//! stop the walk; an unknown prefix is a per-node error. The typed-error/exit-code
+//! surface and the `run-cascade.sh` refactor are later issues.
 //!
 //! ## Why the PLAN is a delete, not a transition
 //!
@@ -19,7 +31,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::frontmatter::{self, ParseError};
-use crate::{detect_format, transition_spec};
+use crate::{detect_format, run_transition, transition_spec, Flags};
 
 /// The terminal action a chain node would take. The variants are exactly the
 /// six dispatch outcomes plus the two walk-stopping conditions; the string
@@ -68,6 +80,18 @@ impl NodeAction {
     }
 }
 
+/// Whether the chain walk applies each tactical transition or only reports what
+/// it would do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Apply each tactical node's terminal transition in-process (the default
+    /// for `finalize-chain <plan>`). Mutates documents (and may `git mv` a
+    /// DESIGN into `current/`).
+    Apply,
+    /// Walk read-only: resolve and report, but mutate nothing (`--dry-run`).
+    DryRun,
+}
+
 /// One node in the walked chain.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeEntry {
@@ -79,10 +103,19 @@ pub struct NodeEntry {
     pub format: Option<String>,
     /// The terminal action this node would take.
     pub action: NodeAction,
-    /// The target status the action would transition to, when applicable
-    /// (`Current` for DESIGN, `Done` for PRD/BRIEF). Read-only in this issue:
-    /// recorded but not applied.
+    /// The target status the action transitions to, when applicable
+    /// (`Current` for DESIGN, `Done` for PRD/BRIEF).
     pub target_status: Option<String>,
+    /// The status the node held before the transition, populated only in
+    /// [`Mode::Apply`] for a tactical node that was actually transitioned.
+    pub old_status: Option<String>,
+    /// The status the node holds after the transition (`Mode::Apply` only).
+    pub new_status: Option<String>,
+    /// The node's path after the transition (the post-move path for a DESIGN
+    /// relocated into `current/`, equal to `path` otherwise). `Mode::Apply` only.
+    pub new_path: Option<String>,
+    /// Whether the node's file moved during the transition (`Mode::Apply` only).
+    pub moved: Option<bool>,
 }
 
 /// The ordered result of a chain walk.
@@ -96,7 +129,8 @@ impl Report {
     /// Render the report as a JSON envelope in the same 2-space-indent,
     /// trailing-newline style as [`crate::Outcome::to_json`]: a top-level
     /// `nodes` array of node objects, each with `path`, `format`, `action`,
-    /// and (when present) `target_status` / `note`.
+    /// and (when present) `target_status`, the applied `old_status` /
+    /// `new_status` / `new_path` / `moved`, and a `note`.
     pub fn to_json(&self) -> String {
         let mut out = String::from("{\n");
         out.push_str("  \"nodes\": [");
@@ -114,11 +148,24 @@ impl Report {
                 }
                 None => out.push_str("      \"format\": null,\n"),
             }
-            // `target_status` and `note` are optional; build the trailing keys
-            // so the final emitted key has no trailing comma.
+            // `target_status`, the applied result fields, and `note` are all
+            // optional; build the trailing keys so the final emitted key has no
+            // trailing comma.
             let mut tail: Vec<String> = Vec::new();
             if let Some(status) = &node.target_status {
                 tail.push(format!("      \"target_status\": {}", json_string(status)));
+            }
+            if let Some(old) = &node.old_status {
+                tail.push(format!("      \"old_status\": {}", json_string(old)));
+            }
+            if let Some(new) = &node.new_status {
+                tail.push(format!("      \"new_status\": {}", json_string(new)));
+            }
+            if let Some(new_path) = &node.new_path {
+                tail.push(format!("      \"new_path\": {}", json_string(new_path)));
+            }
+            if let Some(moved) = node.moved {
+                tail.push(format!("      \"moved\": {}", moved));
             }
             if let Some(note) = node.action.note() {
                 tail.push(format!("      \"note\": {}", json_string(note)));
@@ -157,6 +204,12 @@ pub enum WalkError {
     InvalidPlan(String),
     /// Reading or parsing a node's frontmatter failed.
     Parse(String),
+    /// Applying a tactical node's terminal transition failed. Carries the
+    /// node's path, its resolved type, the attempted target status, and the
+    /// engine's reason. The node-aware error shaping and exit-code mapping is
+    /// fleshed out in Issue 3; here it simply propagates the failure rather than
+    /// continuing the walk over a half-applied chain.
+    Transition(String),
 }
 
 impl std::fmt::Display for WalkError {
@@ -164,6 +217,7 @@ impl std::fmt::Display for WalkError {
         match self {
             WalkError::InvalidPlan(msg) => write!(f, "invalid plan: {}", msg),
             WalkError::Parse(msg) => write!(f, "parse error: {}", msg),
+            WalkError::Transition(msg) => write!(f, "transition error: {}", msg),
         }
     }
 }
@@ -177,13 +231,21 @@ impl From<ParseError> for WalkError {
 }
 
 /// Walk a finished PLAN's `upstream` chain read-only and build a typed
-/// [`Report`].
+/// [`Report`], applying nothing. Convenience wrapper for
+/// `walk_chain_mode(plan_path, Mode::DryRun)`; preserves the Issue 1 surface.
+pub fn walk_chain(plan_path: &str) -> Result<Report, WalkError> {
+    walk_chain_mode(plan_path, Mode::DryRun)
+}
+
+/// Walk a finished PLAN's `upstream` chain and build a typed [`Report`].
 ///
 /// The input PLAN is validated (within its repo work tree, a regular file) and
 /// recorded as a [`NodeAction::DeletePlan`] entry -- its format carries no
 /// `transition_spec`, so it has no terminal transition (asserted, not
-/// prefix-matched). The walk then follows each node's `upstream` frontmatter
-/// field, resolving the format with [`detect_format`] and dispatching:
+/// prefix-matched). It is reported for deletion but never transitioned or
+/// removed (finalize-chain never deletes; the caller owns the `git rm`). The
+/// walk then follows each node's `upstream` frontmatter field, resolving the
+/// format with [`detect_format`] and dispatching:
 ///
 /// - `Design` -> [`NodeAction::TransitionDesign`] (target `Current`)
 /// - `PRD` -> [`NodeAction::TransitionPrd`] (target `Done`)
@@ -194,9 +256,15 @@ impl From<ParseError> for WalkError {
 /// - a cross-repo `owner/repo:path` upstream -> [`NodeAction::Stop`] with a
 ///   note (resolution is out of scope), then stop
 ///
-/// No document is modified. The `target_status` per type is determined but not
-/// applied.
-pub fn walk_chain(plan_path: &str) -> Result<Report, WalkError> {
+/// In [`Mode::Apply`] each tactical node's terminal transition is applied via
+/// [`run_transition`] (a DESIGN has its `## Implementation Issues` section
+/// stripped first), and the resulting `old_status`/`new_status`/`new_path`/
+/// `moved` are recorded on the node. In [`Mode::DryRun`] nothing is modified and
+/// only `target_status` is recorded.
+///
+/// A DESIGN transition relocates the file into `current/`; the chain continues
+/// from that post-move path so the next node's `upstream` link still resolves.
+pub fn walk_chain_mode(plan_path: &str, mode: Mode) -> Result<Report, WalkError> {
     let plan = Path::new(plan_path);
     if !plan.is_file() {
         return Err(WalkError::InvalidPlan(format!(
@@ -223,9 +291,15 @@ pub fn walk_chain(plan_path: &str) -> Result<Report, WalkError> {
         format: plan_fmt.map(|f| f.name),
         action: NodeAction::DeletePlan,
         target_status: None,
+        old_status: None,
+        new_status: None,
+        new_path: None,
+        moved: None,
     }];
 
-    // Follow the chain from the PLAN's upstream.
+    // Follow the chain. `current_doc_path` is the on-disk path to read the next
+    // `upstream` link from; after applying a DESIGN move it becomes the post-
+    // move path so the link still resolves.
     let mut current_doc_path = plan_path.to_string();
     loop {
         let upstream = match read_upstream(&current_doc_path)? {
@@ -243,6 +317,10 @@ pub fn walk_chain(plan_path: &str) -> Result<Report, WalkError> {
                     upstream
                 )),
                 target_status: None,
+                old_status: None,
+                new_status: None,
+                new_path: None,
+                moved: None,
             });
             break;
         }
@@ -277,21 +355,116 @@ pub fn walk_chain(plan_path: &str) -> Result<Report, WalkError> {
             ),
         };
 
-        nodes.push(NodeEntry {
+        // Apply the terminal transition for a tactical node when in Apply mode.
+        // A DESIGN is stripped of its Implementation Issues section first, then
+        // transitioned (and may move). The applied result is recorded on the
+        // node; `current_doc_path` advances to the post-move path so the chain
+        // continues to resolve.
+        let mut entry = NodeEntry {
             path: upstream.clone(),
             format: format_name,
-            action,
-            target_status,
-        });
+            action: action.clone(),
+            target_status: target_status.clone(),
+            old_status: None,
+            new_status: None,
+            new_path: None,
+            moved: None,
+        };
+        let mut next_doc_path = upstream.clone();
+
+        if mode == Mode::Apply {
+            if let Some(target) = &target_status {
+                if matches!(action, NodeAction::TransitionDesign) {
+                    strip_implementation_issues(&upstream).map_err(WalkError::Transition)?;
+                }
+                let outcome = run_transition(&upstream, target, &Flags::default())
+                    .map_err(|e| WalkError::Transition(e.to_string()))?;
+                entry.old_status = Some(outcome.old_status.clone());
+                entry.new_status = Some(outcome.new_status.clone());
+                entry.new_path = Some(outcome.new_path.clone());
+                entry.moved = Some(outcome.moved);
+                // `run_transition`'s `new_path` is repo-relative after a move.
+                // To keep reading the chain, advance to the post-move location;
+                // when the input `upstream` was absolute, re-anchor the repo-
+                // relative `new_path` to the doc's work-tree root so the next
+                // `read_upstream` resolves regardless of the process cwd.
+                next_doc_path = if outcome.moved {
+                    reanchor_moved_path(&upstream, &outcome.new_path)
+                } else {
+                    upstream.clone()
+                };
+            }
+        }
+
+        nodes.push(entry);
 
         if stop {
             break;
         }
 
-        current_doc_path = upstream;
+        current_doc_path = next_doc_path;
     }
 
     Ok(Report { nodes })
+}
+
+/// Re-anchor a repo-relative post-move `new_path` to an absolute path, so the
+/// chain walk can keep reading `upstream` from the moved file no matter the
+/// process cwd. The doc's work-tree root is resolved from the *original*
+/// (pre-move) path's directory. When `original` was already repo-relative the
+/// `new_path` is returned unchanged (callers that pass repo-relative paths run
+/// from the repo root, the same convention `run_transition` assumes).
+fn reanchor_moved_path(original: &str, new_path: &str) -> String {
+    let orig = Path::new(original);
+    if !orig.is_absolute() {
+        return new_path.to_string();
+    }
+    // `repo_root_for` anchors on the path's parent directory, matching how the
+    // transition engine resolves a doc's work tree.
+    let root = repo_root_for(orig);
+    root.join(new_path).to_string_lossy().into_owned()
+}
+
+/// Port of `run-cascade.sh`'s `strip_implementation_issues` (awk, lines
+/// 182-200): idempotently remove the `## Implementation Issues` section from a
+/// DESIGN doc, from that heading to (but not including) the next `## ` heading
+/// or EOF. A no-op when the section is absent. Writes the result back in place,
+/// preserving the file's trailing-newline state.
+fn strip_implementation_issues(doc_path: &str) -> Result<(), String> {
+    let original = std::fs::read_to_string(doc_path)
+        .map_err(|e| format!("failed to read {}: {}", doc_path, e))?;
+
+    // Fast path / idempotency guard: nothing to strip when the heading is
+    // absent (matching the bash `grep -q` check). Avoids a needless rewrite.
+    if !original.lines().any(|l| l == "## Implementation Issues") {
+        return Ok(());
+    }
+
+    let has_trailing_newline = original.ends_with('\n');
+    let mut out_lines: Vec<&str> = Vec::new();
+    let mut skip = false;
+    for line in original.split('\n') {
+        // awk: `/^## Implementation Issues$/ { skip=1; next }`
+        if line == "## Implementation Issues" {
+            skip = true;
+            continue;
+        }
+        // awk: `skip && /^## / { skip=0 }` -- the next `## ` heading ends the
+        // skipped section and is itself kept.
+        if skip && line.starts_with("## ") {
+            skip = false;
+        }
+        if !skip {
+            out_lines.push(line);
+        }
+    }
+
+    let mut joined = out_lines.join("\n");
+    if has_trailing_newline && !joined.ends_with('\n') {
+        joined.push('\n');
+    }
+    std::fs::write(doc_path, joined).map_err(|e| format!("failed to write {}: {}", doc_path, e))?;
+    Ok(())
 }
 
 /// Read a node's `upstream` frontmatter field, or `None` when absent.
@@ -571,5 +744,242 @@ mod tests {
         assert!(is_cross_repo_ref("owner/repo:docs/DESIGN-x.md"));
         assert!(!is_cross_repo_ref("docs/designs/DESIGN-x.md"));
         assert!(!is_cross_repo_ref("DESIGN-x.md"));
+    }
+
+    // ---- Apply mode (mutating; isolated to temp git repos) ----
+
+    /// Create a fresh temp git repo and return its root. Apply-mode transitions
+    /// `git mv` a DESIGN, so the docs must live in a real work tree that is
+    /// entirely disposable -- never the real repo's `docs/`.
+    fn fresh_git_repo() -> PathBuf {
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let root = std::env::temp_dir().join(format!(
+            "shirabe-finalize-repo-{}-{}",
+            std::process::id(),
+            n
+        ));
+        fs::create_dir_all(&root).expect("mkdir repo");
+        run_git(&root, &["init", "-q"]);
+        run_git(&root, &["config", "user.email", "t@t"]);
+        run_git(&root, &["config", "user.name", "t"]);
+        root
+    }
+
+    fn run_git(root: &Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .status()
+            .expect("run git");
+        assert!(status.success(), "git {:?} failed", args);
+    }
+
+    /// Write a doc at `rel_path` inside the repo (creating parent dirs) with the
+    /// given starting `status`, an optional absolute `upstream` link, `git add`
+    /// it so `git mv` can track it, and return its absolute path. `extra_body` is
+    /// appended after the Status section (used to inject an `## Implementation
+    /// Issues` section).
+    ///
+    /// `status` matters because BRIEF transitions on a graph (Draft -> Accepted
+    /// -> Done): a finalized chain's BRIEF is already `Accepted` when its
+    /// downstream completes, so `Done` is a legal edge.
+    fn write_repo_doc(
+        root: &Path,
+        rel_path: &str,
+        status: &str,
+        upstream: Option<&str>,
+        extra_body: &str,
+    ) -> String {
+        let fm = match upstream {
+            Some(u) => format!(
+                "---\nschema: x/v1\nstatus: {0}\nupstream: {1}\n---\n\n## Status\n\n{0}\n{2}",
+                status, u, extra_body
+            ),
+            None => format!(
+                "---\nschema: x/v1\nstatus: {0}\n---\n\n## Status\n\n{0}\n{1}",
+                status, extra_body
+            ),
+        };
+        let path = root.join(rel_path);
+        fs::create_dir_all(path.parent().unwrap()).expect("mkdir doc dir");
+        fs::write(&path, fm).expect("write doc");
+        run_git(root, &["add", rel_path]);
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn apply_full_chain_transitions_and_moves_design() {
+        let root = fresh_git_repo();
+        // Build leaf-first so upstream values are absolute paths into the repo.
+        // A finalized chain's BRIEF is already Accepted (Done is a legal edge);
+        // PRD/DESIGN are membership-only, so any starting status transitions.
+        let brief = write_repo_doc(&root, "docs/briefs/BRIEF-feat.md", "Accepted", None, "");
+        let prd = write_repo_doc(&root, "docs/prds/PRD-feat.md", "Draft", Some(&brief), "");
+        let design = write_repo_doc(
+            &root,
+            "docs/designs/DESIGN-feat.md",
+            "Draft",
+            Some(&prd),
+            "",
+        );
+        let plan = write_repo_doc(&root, "docs/plans/PLAN-feat.md", "Draft", Some(&design), "");
+
+        let report = walk_chain_mode(&plan, Mode::Apply).expect("apply ok");
+
+        let actions: Vec<&str> = report.nodes.iter().map(|n| n.action.as_str()).collect();
+        assert_eq!(
+            actions,
+            vec![
+                "delete_plan",
+                "transition_design",
+                "transition_prd",
+                "transition_brief"
+            ]
+        );
+
+        // DESIGN: Draft -> Current, moved into docs/designs/current/.
+        let d = &report.nodes[1];
+        assert_eq!(d.old_status.as_deref(), Some("Draft"));
+        assert_eq!(d.new_status.as_deref(), Some("Current"));
+        assert_eq!(d.moved, Some(true));
+        assert_eq!(
+            d.new_path.as_deref(),
+            Some("docs/designs/current/DESIGN-feat.md")
+        );
+        // The file physically moved into current/ and the old path is gone.
+        assert!(root.join("docs/designs/current/DESIGN-feat.md").is_file());
+        assert!(!root.join("docs/designs/DESIGN-feat.md").exists());
+
+        // PRD + BRIEF: Draft -> Done, no move.
+        let p = &report.nodes[2];
+        assert_eq!(p.old_status.as_deref(), Some("Draft"));
+        assert_eq!(p.new_status.as_deref(), Some("Done"));
+        assert_eq!(p.moved, Some(false));
+        let b = &report.nodes[3];
+        assert_eq!(b.old_status.as_deref(), Some("Accepted"));
+        assert_eq!(b.new_status.as_deref(), Some("Done"));
+        assert_eq!(b.moved, Some(false));
+
+        // On-disk status assertions for the non-moving docs.
+        assert!(fs::read_to_string(&prd).unwrap().contains("status: Done"));
+        assert!(fs::read_to_string(&brief).unwrap().contains("status: Done"));
+        // The moved design holds Current at its new location.
+        let moved_design = fs::read_to_string(root.join("docs/designs/current/DESIGN-feat.md"))
+            .expect("read moved design");
+        assert!(moved_design.contains("status: Current"));
+
+        // The PLAN is reported for deletion only -- never transitioned, never
+        // removed.
+        assert_eq!(report.nodes[0].action, NodeAction::DeletePlan);
+        assert!(report.nodes[0].old_status.is_none());
+        assert!(root.join("docs/plans/PLAN-feat.md").is_file());
+    }
+
+    #[test]
+    fn apply_strips_implementation_issues_before_design_transition() {
+        let root = fresh_git_repo();
+        // DESIGN with an Implementation Issues section followed by another `##`.
+        let extra = "\n## Implementation Issues\n\n- issue 1\n- issue 2\n\n## References\n\nfoo\n";
+        let design = write_repo_doc(&root, "docs/designs/DESIGN-strip.md", "Draft", None, extra);
+        let plan = write_repo_doc(
+            &root,
+            "docs/plans/PLAN-strip.md",
+            "Draft",
+            Some(&design),
+            "",
+        );
+
+        let report = walk_chain_mode(&plan, Mode::Apply).expect("apply ok");
+        assert_eq!(report.nodes[1].new_status.as_deref(), Some("Current"));
+
+        let moved = fs::read_to_string(root.join("docs/designs/current/DESIGN-strip.md"))
+            .expect("read moved design");
+        // The Implementation Issues section is gone; the following `## References`
+        // section is preserved.
+        assert!(!moved.contains("## Implementation Issues"));
+        assert!(!moved.contains("- issue 1"));
+        assert!(moved.contains("## References"));
+        assert!(moved.contains("foo"));
+    }
+
+    #[test]
+    fn strip_implementation_issues_is_idempotent() {
+        let root = fresh_git_repo();
+        // No Implementation Issues section: strip is a no-op (bytes unchanged).
+        let design = write_repo_doc(
+            &root,
+            "docs/designs/DESIGN-noimpl.md",
+            "Draft",
+            None,
+            "body\n",
+        );
+        let before = fs::read_to_string(&design).unwrap();
+        strip_implementation_issues(&design).expect("strip ok");
+        assert_eq!(fs::read_to_string(&design).unwrap(), before);
+
+        // With a section, the first strip removes it and a second strip is a
+        // no-op.
+        let extra = "\n## Implementation Issues\n\n- x\n\n## Next\n\ny\n";
+        let design2 = write_repo_doc(&root, "docs/designs/DESIGN-impl.md", "Draft", None, extra);
+        strip_implementation_issues(&design2).expect("strip ok");
+        let after_first = fs::read_to_string(&design2).unwrap();
+        assert!(!after_first.contains("## Implementation Issues"));
+        strip_implementation_issues(&design2).expect("strip idempotent");
+        assert_eq!(fs::read_to_string(&design2).unwrap(), after_first);
+    }
+
+    #[test]
+    fn apply_reports_plan_delete_without_mutating_it() {
+        let root = fresh_git_repo();
+        let prd = write_repo_doc(&root, "docs/prds/PRD-keep.md", "Draft", None, "");
+        let plan = write_repo_doc(&root, "docs/plans/PLAN-keep.md", "Draft", Some(&prd), "");
+        let plan_before = fs::read_to_string(&plan).unwrap();
+
+        let report = walk_chain_mode(&plan, Mode::Apply).expect("apply ok");
+
+        // PLAN node: delete action, no applied transition fields, file intact.
+        assert_eq!(report.nodes[0].action, NodeAction::DeletePlan);
+        assert!(report.nodes[0].old_status.is_none());
+        assert!(report.nodes[0].new_status.is_none());
+        assert!(report.nodes[0].moved.is_none());
+        assert_eq!(fs::read_to_string(&plan).unwrap(), plan_before);
+        assert!(root.join("docs/plans/PLAN-keep.md").is_file());
+
+        // The PRD was transitioned.
+        assert_eq!(report.nodes[1].new_status.as_deref(), Some("Done"));
+    }
+
+    #[test]
+    fn dry_run_mutates_nothing() {
+        let root = fresh_git_repo();
+        let prd = write_repo_doc(&root, "docs/prds/PRD-dry.md", "Draft", None, "");
+        let design = write_repo_doc(&root, "docs/designs/DESIGN-dry.md", "Draft", Some(&prd), "");
+        let plan = write_repo_doc(&root, "docs/plans/PLAN-dry.md", "Draft", Some(&design), "");
+        let prd_before = fs::read_to_string(&prd).unwrap();
+        let design_before = fs::read_to_string(&design).unwrap();
+
+        let report = walk_chain_mode(&plan, Mode::DryRun).expect("dry-run ok");
+        // No applied result fields, files untouched, design not moved.
+        assert!(report.nodes[1].new_status.is_none());
+        assert!(report.nodes[1].moved.is_none());
+        assert_eq!(fs::read_to_string(&prd).unwrap(), prd_before);
+        assert_eq!(fs::read_to_string(&design).unwrap(), design_before);
+        assert!(root.join("docs/designs/DESIGN-dry.md").is_file());
+        assert!(!root.join("docs/designs/current/DESIGN-dry.md").exists());
+    }
+
+    #[test]
+    fn apply_json_includes_applied_fields() {
+        let root = fresh_git_repo();
+        let prd = write_repo_doc(&root, "docs/prds/PRD-json.md", "Draft", None, "");
+        let plan = write_repo_doc(&root, "docs/plans/PLAN-json.md", "Draft", Some(&prd), "");
+        let json = walk_chain_mode(&plan, Mode::Apply)
+            .expect("apply ok")
+            .to_json();
+        assert!(json.contains("\"old_status\": \"Draft\""));
+        assert!(json.contains("\"new_status\": \"Done\""));
+        assert!(json.contains("\"new_path\""));
+        assert!(json.contains("\"moved\": false"));
     }
 }

@@ -14,7 +14,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
     detect_format, format_error, format_notice, is_notice, parse_doc, run_transition,
-    validate_file, walk_chain, Config, Flags, ParseError, ValidationError,
+    validate_file, walk_chain_mode, Config, Flags, Mode, ParseError, ValidationError,
 };
 
 mod populate;
@@ -62,8 +62,10 @@ enum Commands {
     Roadmap(RoadmapArgs),
     /// Transition a shirabe doc to a new status.
     Transition(TransitionArgs),
-    /// Walk a finished PLAN's upstream chain and report the terminal action
-    /// each node would take (read-only; mutates nothing in this issue).
+    /// Walk a finished PLAN's upstream chain and apply each tactical node's
+    /// terminal transition (Design->Current, PRD->Done, Brief->Done), stripping
+    /// a DESIGN's Implementation Issues section first. Use `--dry-run` to report
+    /// without mutating. The PLAN is reported for deletion, never removed.
     FinalizeChain(FinalizeChainArgs),
 }
 
@@ -102,6 +104,11 @@ struct TransitionArgs {
 struct FinalizeChainArgs {
     /// Path to the completed PLAN doc whose upstream chain to walk.
     plan: String,
+
+    /// Report the terminal action each node would take without mutating any
+    /// document. The default (omitted) applies each tactical transition.
+    #[arg(long)]
+    dry_run: bool,
 }
 
 #[derive(clap::Args)]
@@ -225,12 +232,19 @@ fn run_transition_cmd(args: &TransitionArgs) -> ExitCode {
     }
 }
 
-/// Runs the `finalize-chain` subcommand. On success, prints the JSON chain
-/// report to stdout and exits 0. On a walk failure, prints the error to stderr
-/// and exits 1. The richer node-aware exit-code contract lands in a later issue
-/// (this issue is the read-only walk and report only).
+/// Runs the `finalize-chain` subcommand. By default it applies each tactical
+/// node's terminal transition in-process (stripping a DESIGN's Implementation
+/// Issues section first); `--dry-run` walks read-only. On success, prints the
+/// JSON chain report to stdout and exits 0. On a walk or transition failure,
+/// prints the error to stderr and exits 1. The richer node-aware exit-code
+/// contract lands in a later issue.
 fn run_finalize_chain_cmd(args: &FinalizeChainArgs) -> ExitCode {
-    match walk_chain(&args.plan) {
+    let mode = if args.dry_run {
+        Mode::DryRun
+    } else {
+        Mode::Apply
+    };
+    match walk_chain_mode(&args.plan, mode) {
         Ok(report) => {
             print!("{}", report.to_json());
             ExitCode::SUCCESS
