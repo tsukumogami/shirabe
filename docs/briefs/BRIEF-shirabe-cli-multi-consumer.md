@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   The shirabe CLI was shaped for one caller, CI: a single GitHub Actions
   annotation output mode, no way to select an individual check, and a
@@ -17,7 +17,7 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
 Drafted under the tactical chain. The downstream PRD owns the
 requirements; the DESIGN owns the flag grammar, the machine-output
