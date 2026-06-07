@@ -403,18 +403,28 @@ mechanically symmetric.
 
 ## Validator Pass-Through
 
-Phase 2 runs `shirabe validate --visibility=<repo-visibility>`
-against each child's intermediate after the child returns and
-before invoking the next child. The validator is the same binary
-shirabe ships at `cmd/shirabe/`; the visibility flag inherits the
-visibility detection result (see Visibility Detection above).
+Phase 2 runs `shirabe validate --format json
+--visibility=<repo-visibility>` against each child's intermediate
+after the child returns and before invoking the next child. The
+validator is the same binary shirabe ships at `cmd/shirabe/`; the
+visibility flag inherits the visibility detection result (see
+Visibility Detection above).
 
-A failed validation halts the chain immediately and routes via
-R8's bail-handling. `/scope` does NOT auto-fix validator failures
-— the author is the validator-failure resolver, and the chain
-remains halted until the author addresses the failure and
-re-invokes `/scope`. The per-phase mechanism (which validator
-flag, which intermediate path) lives in the Phase 2 reference at
+Phase 2 parses the `shirabe-validate/v1` JSON envelope and
+branches on the multi-level exit code: **0 (clean)** advances to
+the next child; **2 (violations)** halts the chain and routes via
+R8's bail-handling, surfacing each error-severity finding as
+`[<code>] <message> (<file>:<line>)` so the author sees which
+check failed in plain terms; **1 (tool-error)** is a validator
+failure DISTINCT from a content violation (the validator could
+not run) and halts without reporting a document violation.
+`/scope` does NOT auto-fix validator failures and does NOT
+re-implement the validator's checks — only the consumption
+mechanism changed (JSON parse plus multi-level exit code). The
+author is the validator-failure resolver, and the chain remains
+halted until the author addresses the failure and re-invokes
+`/scope`. The per-phase mechanism (which validator flag, which
+intermediate path) lives in the Phase 2 reference at
 `skills/scope/references/phases/phase-2-chain-orchestration.md`.
 
 ## Phase-N Reject In-Chain Integration

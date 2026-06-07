@@ -44,8 +44,10 @@ seven steps in sequence:
    block from the state file (regardless of child outcome).
 6. **Child-snapshot capture.** Record the child's status +
    content-hash dual-check pair in `child_snapshots:`.
-7. **Validator pass-through.** Run `shirabe validate` against
-   the new intermediate; failed validation halts the chain.
+7. **Validator pass-through.** Run `shirabe validate --format
+   json` against the new intermediate, parse the envelope, and
+   branch on the multi-level exit code; a `violations` or
+   tool-error result halts the chain.
 
 The seven-step ordering is the contract. Steps that depend on
 the state file (write/clear of `parent_orchestration:`, child-
@@ -278,22 +280,40 @@ mechanically symmetric.
 ## Validator Pass-Through
 
 After the structural check passes, Phase 2 runs
-`shirabe validate --visibility=<repo-visibility>` against the
-new intermediate. The `<repo-visibility>` value is the one
-detected in Phase 0 from CLAUDE.md's `## Repo Visibility:`
+`shirabe validate --format json --visibility=<repo-visibility>`
+against the new intermediate. The `<repo-visibility>` value is
+the one detected in Phase 0 from CLAUDE.md's `## Repo Visibility:`
 header (default Private if absent).
 
 The validator runs the `shirabe` binary at `cmd/shirabe/` —
-the same binary humans invoke for ad-hoc validation. A passing
-validator clears the iteration; the loop advances to the next
-child in `planned_chain:`. A failing validator halts the chain
-immediately and routes to R8's bail-handling.
+the same binary humans invoke for ad-hoc validation. Phase 2
+parses the `shirabe-validate/v1` JSON envelope from stdout and
+branches on the multi-level exit code (the contract shared with
+`transition` and `finalize-chain`; see
+`docs/guides/multi-consumer-cli-contract.md`):
 
-`/scope` does NOT auto-fix validator failures. The author is
-the validator-failure resolver; the chain remains halted until
-the author addresses the failure (typically by re-running the
-child with corrections, or by re-invoking `/scope` from the
-beginning with a re-framed topic).
+- **0 (clean)** — the iteration clears; the loop advances to the
+  next child in `planned_chain:`.
+- **2 (violations)** — the validator completed and found at least
+  one error-level result. Halt the chain immediately and route to
+  R8's bail-handling. Surface the parsed `findings` readably: for
+  each error-severity finding, show
+  `[<code>] <message> (<file>:<line>)` rather than dumping the raw
+  annotation text — the author sees *which* check failed in plain
+  terms.
+- **1 (tool-error)** — the validator could not run (bad
+  invocation, an unreadable or unparseable intermediate, an
+  envelope that does not parse). Treat this as a tool failure
+  DISTINCT from a content violation — surface it as such and halt;
+  do NOT report it as a document violation.
+
+`/scope` does NOT auto-fix validator failures, and only the
+consumption mechanism changed (JSON parse plus multi-level exit
+code) — `/scope` still does not re-implement the validator's
+checks. The author is the validator-failure resolver; the chain
+remains halted until the author addresses the failure (typically
+by re-running the child with corrections, or by re-invoking
+`/scope` from the beginning with a re-framed topic).
 
 ## Per-Child Gates from `planned_chain:`, Not Re-Walked
 
