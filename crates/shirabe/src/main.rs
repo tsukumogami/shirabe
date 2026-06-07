@@ -13,10 +13,10 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
-    check_slug_prefix, detect_format, format_error, format_notice, is_notice, parse_doc,
-    render_human, render_json, run_lifecycle_chain_check, run_lifecycle_check, run_transition,
-    validate_file, walk_chain_mode, Config, Flags, Mode, ParseError, SlugPrefixCheck,
-    ValidationError,
+    check_slug_prefix, detect_format, format_error, format_notice, is_known_check_code, is_notice,
+    parse_doc, render_human, render_json, run_lifecycle_chain_check, run_lifecycle_check,
+    run_transition, validate_file, walk_chain_mode, Config, Flags, Mode, ParseError,
+    SlugPrefixCheck, ValidationError,
 };
 
 mod populate;
@@ -155,6 +155,14 @@ struct ValidateArgs {
     /// `annotation` so existing CI invocations are unchanged.
     #[arg(long, value_enum, default_value_t = Format::Annotation)]
     format: Format,
+
+    /// Run only the named check(s) instead of the full applicable pass.
+    /// Repeatable and comma-splittable (e.g. `--check FC01 --check R7` or
+    /// `--check FC01,R7`). Codes are the per-file checks: `SCHEMA`,
+    /// `FC01`-`FC13`, `FC-CONVENTIONS`, `R6`-`R9`. An unknown code is a tool
+    /// error. A valid but format-inapplicable code is a clean no-op.
+    #[arg(long, value_delimiter = ',')]
+    check: Vec<String>,
 
     /// Visibility context; only 'private' bypasses public-repo checks
     /// (unset is treated as public).
@@ -310,6 +318,19 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         return ValidateOutcome::ToolError.exit();
     }
 
+    // Reject an unknown --check code up front: a typo like `FC1` must be a
+    // tool error, not a silent clean pass. A valid but format-inapplicable
+    // code is allowed here (it becomes a clean no-op once filtering runs).
+    for code in &args.check {
+        if !is_known_check_code(code) {
+            eprintln!(
+                "unknown --check code {:?}; valid codes: SCHEMA, FC01-FC13, FC-CONVENTIONS, R6-R9",
+                code
+            );
+            return ValidateOutcome::ToolError.exit();
+        }
+    }
+
     if let Some(root) = args.lifecycle.as_deref() {
         return run_lifecycle(root, &args.visibility, args.strict);
     }
@@ -365,6 +386,14 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         };
 
         for ve in validate_file(&doc, &spec, &cfg) {
+            // When --check selects a subset, skip any finding whose code was
+            // not requested: it is neither reported nor counted toward the
+            // outcome (so selecting only a check that passes is a clean run,
+            // even if an unselected check would have failed). The IO/parse
+            // tool-error above is orthogonal and always surfaces.
+            if !args.check.is_empty() && !args.check.iter().any(|c| c == &ve.code) {
+                continue;
+            }
             if !is_notice(&ve) {
                 worst = worst.merge(ValidateOutcome::Violations);
             }
@@ -754,6 +783,25 @@ mod tests {
         match cli.command {
             Some(Commands::Validate(args)) => {
                 assert!(matches!(args.format, Format::Annotation));
+            }
+            _ => panic!("expected the validate subcommand"),
+        }
+    }
+
+    #[test]
+    fn validate_check_is_repeatable_and_comma_split() {
+        let cli = Cli::parse_from([
+            "shirabe",
+            "validate",
+            "--check",
+            "FC01,FC03",
+            "--check",
+            "R7",
+            "x.md",
+        ]);
+        match cli.command {
+            Some(Commands::Validate(args)) => {
+                assert_eq!(args.check, vec!["FC01", "FC03", "R7"]);
             }
             _ => panic!("expected the validate subcommand"),
         }

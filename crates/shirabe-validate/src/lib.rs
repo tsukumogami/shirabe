@@ -41,4 +41,4 @@ pub use transition::{
     run_transition, transition_spec, transition_table, BodyTemplate, ExtraInput, Flags, Moves,
     Outcome, Precondition, ResultFields, Rule, TransitionError, TransitionSpec,
 };
-pub use validate::{is_notice, validate_file};
+pub use validate::{is_known_check_code, is_notice, validate_file};
