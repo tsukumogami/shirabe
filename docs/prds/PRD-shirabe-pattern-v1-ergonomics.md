@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 upstream: docs/briefs/BRIEF-shirabe-pattern-v1-ergonomics.md
 problem: |
   Shirabe's parent-skill pattern v1 — the contract letting `/scope`,
@@ -26,7 +26,7 @@ goals: |
 
 ## Status
 
-Accepted
+Done
 
 Phase 4 jury returned all-PASS as serial-self-jury under
 sub-agent dispatch from `/scope`

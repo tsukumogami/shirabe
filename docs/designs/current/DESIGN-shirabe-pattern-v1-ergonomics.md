@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-shirabe-pattern-v1-ergonomics.md
 problem: |
   PRD-shirabe-pattern-v1-ergonomics binds 32 requirements across seven clusters
@@ -69,7 +69,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 Phase 6 jury returned all-PASS as serial-self-jury under sub-agent dispatch
 from `/scope` (`parent_orchestration.invoking_child: design`,

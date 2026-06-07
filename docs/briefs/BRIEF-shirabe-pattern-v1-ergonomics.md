@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   About two dozen inside-pattern ergonomics observations have accumulated
   across the nine shirabe child skills, each surfaced when the skill ran
@@ -19,7 +19,7 @@ outcome: |
 
 ## Status
 
-Accepted
+Done
 
 Phase 4 jury returned all-PASS as serial-self-jury under sub-agent
 dispatch from /scope; the independence-loss caveat is recorded in
