@@ -22,16 +22,20 @@
 //! ## Why the PLAN is a delete, not a transition
 //!
 //! The input PLAN's filename resolves through `detect_format` to the `Plan`
-//! format, and `transition_spec("Plan")` returns `None` -- the `Plan` format
-//! carries no transition behavior. A format with no `transition_spec` has no
-//! terminal transition to apply, so it routes to the delete/handoff path. This
-//! is asserted in [`walk_chain`] rather than hardcoded against the `"PLAN-"`
-//! filename prefix.
+//! format. The PLAN's terminal lifecycle is `Active -> Done -> DELETED`: the
+//! Active -> Done flip is an ephemeral in-process marker that bridges to the
+//! deletion, and the caller (`run-cascade.sh`) owns both the flip and the
+//! subsequent `git rm`. finalize-chain therefore reports the PLAN as a
+//! delete node and applies no transition to it in-process — keeping the
+//! ephemeral flip + delete co-located in the cascade script preserves the
+//! atomic-commit shape the lifecycle check enforces. This is asserted in
+//! [`walk_chain`] by checking the format is `Plan` (the only valid input
+//! type), rather than hardcoded against the `"PLAN-"` filename prefix.
 
 use std::path::{Path, PathBuf};
 
 use crate::frontmatter::{self, ParseError};
-use crate::{detect_format, run_transition, transition_spec, Flags, TransitionError};
+use crate::{detect_format, run_transition, Flags, TransitionError};
 
 /// The terminal action a chain node would take. The variants are exactly the
 /// six dispatch outcomes plus the two walk-stopping conditions; the string
@@ -357,15 +361,18 @@ pub fn walk_chain_mode(plan_path: &str, mode: Mode) -> Result<Report, WalkError>
     let repo_root = repo_root_for(plan);
     validate_node_path(plan_path, &repo_root).map_err(WalkError::invalid_plan)?;
 
-    // The input PLAN is a delete node: its format must carry no transition
-    // spec. Assert that, rather than hardcoding the "PLAN-" prefix.
+    // The input PLAN is a delete node: its format must be `Plan` (the only
+    // valid input type for finalize-chain). The cascade script owns the
+    // PLAN's Active -> Done -> DELETED sequence; finalize-chain neither
+    // transitions nor deletes the PLAN. Assert against the format name
+    // rather than hardcoding the "PLAN-" prefix.
     let plan_fmt = detect_format(basename(plan_path));
     debug_assert!(
         plan_fmt
             .as_ref()
-            .map(|f| transition_spec(&f.name).is_none())
+            .map(|f| f.name == "Plan")
             .unwrap_or(true),
-        "input PLAN's format must carry no transition_spec (delete, not transition)"
+        "input PLAN's format must be `Plan` (delete, not transition); cascade owns Active -> Done"
     );
 
     let mut nodes = vec![NodeEntry {
@@ -728,6 +735,7 @@ fn json_string(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transition_spec;
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -838,13 +846,20 @@ mod tests {
 
     #[test]
     fn plan_is_classified_delete_not_transition() {
-        // The PLAN format must carry no transition_spec; that is exactly why it
-        // is delete-not-transition.
+        // The PLAN format is the delete-target input type: finalize-chain
+        // reports it but never applies its Active -> Done transition. The
+        // cascade script owns the on-disk Active -> Done flip immediately
+        // before the git rm, keeping the ephemeral marker co-located with
+        // the deletion.
         let plan_fmt = detect_format("PLAN-x.md").expect("PLAN- resolves to a format");
         assert_eq!(plan_fmt.name, "Plan");
+        // Plan now carries a transition_spec (Draft -> Active -> Done)
+        // for direct use via `shirabe transition`. finalize-chain still
+        // treats Plan as a delete node — it does not apply the
+        // Active -> Done transition itself; the cascade does.
         assert!(
-            transition_spec(&plan_fmt.name).is_none(),
-            "Plan must carry no transition_spec"
+            transition_spec(&plan_fmt.name).is_some(),
+            "Plan carries a transition_spec under the unified lifecycle"
         );
 
         let dir = fresh_dir();

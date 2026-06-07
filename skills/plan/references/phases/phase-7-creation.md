@@ -231,12 +231,18 @@ No GitHub milestone or issues are created in single-pr mode.
 
 Create `docs/plans/PLAN-<topic>.md` with the following structure.
 
+Single-pr PLANs are authored directly at `status: Active` (no
+multi-pr-style approval gate fires; the Draft -> Active transition
+auto-fires as authoring completes under the unified PLAN lifecycle).
+A committed single-pr PLAN that lands on a branch at `status: Draft`
+is a violation — the chain-aware `--lifecycle` check fails on it.
+
 **Frontmatter:**
 
 ```yaml
 ---
 schema: plan/v1
-status: Draft
+status: Active
 execution_mode: single-pr
 upstream: <design-doc-path>
 milestone: "<Milestone Name>"
@@ -246,7 +252,7 @@ issue_count: <N>
 
 **Required sections** (in order):
 
-1. **Status** -- `Draft`
+1. **Status** -- `Active`
 2. **Scope Summary** -- from `wip/plan_<topic>_analysis.md`
 3. **Decomposition Strategy** -- from `wip/plan_<topic>_decomposition.md` (walking skeleton, horizontal, or feature-by-feature planning, with rationale)
 4. **Issue Outlines** -- read from body files (`wip/plan_<topic>_issue_<id>_body.md`), format as structured outlines with these subsections per issue:

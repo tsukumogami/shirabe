@@ -30,8 +30,19 @@
 //! Posture detection follows
 //! `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`:
 //! the PLAN's frontmatter `status:` field is the posture signal.
-//! Present at `Active` is in-flight; present at `Done` is work-
-//! completing-but-not-yet-deleted (L01 fires); absent is at-merge.
+//! PLAN docs use a unified four-state lifecycle —
+//! Draft -> Active -> Done -> DELETED — identical for single-pr and
+//! multi-pr execution. The only branch is the Draft -> Active gate:
+//! multi-pr requires human approval (GitHub issues + milestone are
+//! created on the transition); single-pr auto-transitions when
+//! `/shirabe:plan` finishes authoring, so a single-pr PLAN that
+//! reaches a committed branch is already at `Active`. Consequently
+//! the posture rules are: present at `Active` is in-flight (single-pr
+//! mid-PR or multi-pr in-flight); present at `Done` is work-
+//! completing-but-not-yet-deleted (L01 fires); present at `Draft` on
+//! a committed PLAN is a violation (the author landed a single-pr
+//! PLAN without its auto-transition firing, or a multi-pr PLAN whose
+//! human approval gate never ran); absent is at-merge.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
@@ -69,7 +80,11 @@ pub enum Posture {
     MultiPrWorkCompleting,
     /// Multi-pr chain at merge time: PLAN absent.
     MultiPrAtMerge,
-    /// Single-pr chain mid-PR: PLAN present at `Draft`.
+    /// Single-pr chain mid-PR: PLAN present at `Active`. A single-pr
+    /// PLAN's Draft -> Active gate auto-fires when `/shirabe:plan`
+    /// finishes authoring, so the only on-disk state for a committed
+    /// single-pr PLAN is `Active`. A committed single-pr PLAN at
+    /// `Draft` is a violation (L01 fires).
     SinglePrMidPR,
     /// Single-pr chain at merge: PLAN absent.
     SinglePrAtMerge,
@@ -526,6 +541,16 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
 }
 
 /// Infer the posture from the root doc's frontmatter.
+///
+/// PLAN docs use a unified Draft -> Active -> Done -> DELETED
+/// lifecycle. Only the Draft -> Active gate differs between modes
+/// (human-approved for multi-pr, auto-fired for single-pr), so the
+/// in-flight on-disk state is `Active` for both. A committed PLAN
+/// at `Draft` is therefore a violation in either mode — the chain
+/// posture maps it to its mode's in-flight bucket so the per-member
+/// `(Plan, ...) = Status("Active")` rule fires L01 against the
+/// member; the posture name in the error message tells the author
+/// which gate did not run.
 fn infer_posture_from(root: &IndexedDoc) -> Posture {
     if root.format == "Roadmap" {
         // ROADMAPs are multi-pr by definition. ROADMAP present at
@@ -540,12 +565,24 @@ fn infer_posture_from(root: &IndexedDoc) -> Posture {
     if root.execution_mode == "multi-pr" {
         return match root.status.as_str() {
             "Done" => Posture::MultiPrWorkCompleting,
+            // Active or Draft both bucket to in-flight; the
+            // per-member rule for (Plan, MultiPrInFlight) is
+            // Status("Active"), so a Draft PLAN fails L01 against
+            // that expectation.
             _ => Posture::MultiPrInFlight,
         };
     }
     // single-pr or unspecified — treat as single-pr.
     match root.status.as_str() {
-        "Done" => Posture::SinglePrAtMerge, // unusual; PLAN should be deleted by now
+        // Unusual; PLAN should already be deleted at Done. The
+        // at-merge passing-state row treats (Plan, ...) as Deleted,
+        // so a present Done single-pr PLAN fails L01 (matching the
+        // multi-pr work-completing forcing function).
+        "Done" => Posture::SinglePrAtMerge,
+        // Active is the on-disk mid-PR state; Draft buckets here too
+        // so the (Plan, SinglePrMidPR) = Status("Active") rule fires
+        // L01 against a Draft single-pr PLAN (the auto-transition
+        // didn't run).
         _ => Posture::SinglePrMidPR,
     }
 }
@@ -587,11 +624,15 @@ fn compute_passing_state(role: ChainRole, posture: Posture) -> PassingState {
         (Plan, MultiPrAtMerge) => PassingState::Deleted,
         (Roadmap, MultiPrAtMerge) => PassingState::Deleted,
 
-        // Single-pr mid-PR.
+        // Single-pr mid-PR. The PLAN is at `Active`: a single-pr
+        // PLAN's Draft -> Active gate auto-fires when /shirabe:plan
+        // finishes authoring, so the only valid on-disk state for a
+        // committed single-pr PLAN is `Active`. A Draft single-pr
+        // PLAN fails L01 against this rule.
         (Brief, SinglePrMidPR) => PassingState::Status("Accepted"),
         (Prd, SinglePrMidPR) => PassingState::Status("Accepted"),
         (Design, SinglePrMidPR) => PassingState::DesignPlannedOrCurrent,
-        (Plan, SinglePrMidPR) => PassingState::Status("Draft"),
+        (Plan, SinglePrMidPR) => PassingState::Status("Active"),
         (Roadmap, SinglePrMidPR) => PassingState::Status("Active"),
 
         // Single-pr at-merge (PLAN absent; this branch is mostly for
@@ -669,7 +710,24 @@ fn check_orphan(
 /// Returns an empty vec when every chain member is at its passing
 /// state and every orphan doc honors the orphan-rule. Otherwise
 /// returns one or more `ValidationError`s carrying `Lnn` codes.
-pub fn run_lifecycle_check(root: &Path, _cfg: &Config) -> Vec<ValidationError> {
+///
+/// The `strict` flag controls the DRAFT-vs-READY discipline for
+/// single-pr chains. When false (the default), `Posture::SinglePrMidPR`
+/// is a passing posture — BRIEF/PRD at Accepted, DESIGN at
+/// Planned/Current, PLAN at Draft is healthy iteration. When true,
+/// `Posture::SinglePrMidPR` is re-targeted to the
+/// `Posture::SinglePrAtMerge` passing-state row at check time, so a
+/// present single-pr PLAN fails and single-pr BRIEF/PRD at Accepted
+/// fail. Multi-pr postures are unchanged by the strict flag.
+///
+/// The CI workflow sets `strict=true` when the PR is ready-for-review
+/// (`github.event.pull_request.draft == false`) and `strict=false`
+/// when the PR is draft.
+pub fn run_lifecycle_check(
+    root: &Path,
+    _cfg: &Config,
+    strict: bool,
+) -> Vec<ValidationError> {
     let (idx, mut errors) = build_doc_index(root);
     let _inv = build_inverse_upstream(&idx);
     let (chains, chain_errors) = discover_chains(&idx);
@@ -686,8 +744,18 @@ pub fn run_lifecycle_check(root: &Path, _cfg: &Config) -> Vec<ValidationError> {
 
     // Per-chain passing-state check.
     for chain in &chains {
+        // Apply the strict-mode posture re-target. When strict is set
+        // and the chain's posture is single-pr-mid-PR, the
+        // passing-state computation uses the single-pr at-merge row
+        // (PLAN deleted, BRIEF/PRD Done, DESIGN Current) instead of
+        // the mid-PR exemption. Multi-pr postures are unchanged.
+        let effective_posture = if strict && chain.posture == Posture::SinglePrMidPR {
+            Posture::SinglePrAtMerge
+        } else {
+            chain.posture
+        };
         for member in &chain.members {
-            let passing = compute_passing_state(member.role, chain.posture);
+            let passing = compute_passing_state(member.role, effective_posture);
             // The chain root is present in the tree by definition (we
             // discovered it by walking the index). If its passing
             // state is Deleted, that's the work-completing posture's
@@ -710,7 +778,7 @@ pub fn run_lifecycle_check(root: &Path, _cfg: &Config) -> Vec<ValidationError> {
                         member.role.as_str(),
                         member.status,
                         passing.describe(),
-                        chain.posture.name()
+                        effective_posture.name()
                     ),
                 ));
             }
@@ -736,6 +804,230 @@ pub fn run_lifecycle_check(root: &Path, _cfg: &Config) -> Vec<ValidationError> {
     });
     errors.dedup();
     errors
+}
+
+// ---------- chain-targeted entry point ----------
+
+/// Run the chain-aware passing-state lifecycle check against the
+/// single chain containing `doc_path`.
+///
+/// The whole-tree mode (`run_lifecycle_check`) walks every chain in
+/// the tree; this chain-targeted mode walks only the chain whose
+/// members include `doc_path`. The cascade script in
+/// `skills/work-on/scripts/run-cascade.sh` uses this mode to verify
+/// its own chain's posture without surfacing unrelated drift as noise.
+///
+/// The `doc_path` argument may name any chain member: PLAN, DESIGN,
+/// PRD, BRIEF, or ROADMAP. The function canonicalizes the path,
+/// derives the implied root by stripping the matching `docs/...`
+/// suffix, builds the doc index against that root, and filters the
+/// discovered chains to the one containing the canonicalized path.
+///
+/// Returns an empty vec on a clean pass. Returns one or more
+/// `ValidationError`s otherwise. A non-doc-path input, a path with
+/// an unrecognized artifact prefix, or a path that does not resolve
+/// inside the indexed doc directories all produce a single L05
+/// error naming the expected location set.
+///
+/// The `strict` flag has the same shape as `run_lifecycle_check`'s
+/// strict flag — when set and the matched chain's posture is
+/// `Posture::SinglePrMidPR`, the chain re-targets to
+/// `Posture::SinglePrAtMerge`. Multi-pr postures are unchanged by
+/// the strict flag.
+pub fn run_lifecycle_chain_check(
+    doc_path: &Path,
+    _cfg: &Config,
+    strict: bool,
+) -> Vec<ValidationError> {
+    // Resolve the input path to an absolute canonical form. A
+    // missing file or a path outside the filesystem produces a
+    // single L05 error.
+    let canon_doc = match fs::canonicalize(doc_path) {
+        Ok(p) => p,
+        Err(_) => {
+            return vec![error(
+                doc_path.display().to_string(),
+                "L05",
+                &format!(
+                    "doc path not found or not resolvable: {} (expected a doc under docs/{{briefs,prds,designs,designs/current,plans,roadmaps}}/)",
+                    doc_path.display()
+                ),
+            )];
+        }
+    };
+
+    // The basename must carry one of the recognized artifact
+    // prefixes so the lifecycle module can identify the artifact
+    // type. A path inside docs/ that names a non-artifact file (e.g.
+    // README.md) is rejected here.
+    let basename = match canon_doc.file_name().and_then(|s| s.to_str()) {
+        Some(n) => n,
+        None => {
+            return vec![error(
+                doc_path.display().to_string(),
+                "L05",
+                "doc path has no filename component",
+            )];
+        }
+    };
+    if !(basename.starts_with("BRIEF-")
+        || basename.starts_with("PRD-")
+        || basename.starts_with("DESIGN-")
+        || basename.starts_with("PLAN-")
+        || basename.starts_with("ROADMAP-"))
+    {
+        return vec![error(
+            doc_path.display().to_string(),
+            "L05",
+            &format!(
+                "doc path '{}' has an unrecognized artifact prefix (expected BRIEF-/PRD-/DESIGN-/PLAN-/ROADMAP-)",
+                basename
+            ),
+        )];
+    }
+
+    // Derive the implied root by stripping the matching docs/...
+    // suffix from the canonicalized path. The lifecycle module's
+    // indexed directories are
+    // docs/{briefs,prds,designs,designs/current,plans,roadmaps}; the
+    // input doc must sit directly inside one of them.
+    let root = match derive_chain_root(&canon_doc) {
+        Some(r) => r,
+        None => {
+            return vec![error(
+                doc_path.display().to_string(),
+                "L05",
+                &format!(
+                    "doc path '{}' is not inside docs/{{briefs,prds,designs,designs/current,plans,roadmaps}}/",
+                    canon_doc.display()
+                ),
+            )];
+        }
+    };
+
+    let (idx, mut errors) = build_doc_index(&root);
+
+    // The doc must appear in the index we just built. If it does
+    // not, the index-building step rejected it (e.g. frontmatter
+    // parse failure) and the error is already in `errors`. Return
+    // those errors as-is.
+    if !idx.contains_key(&canon_doc) {
+        if errors.is_empty() {
+            errors.push(error(
+                rel_path_lossy(&canon_doc),
+                "L05",
+                "doc not found in lifecycle index (frontmatter parse failure or non-standard placement)",
+            ));
+        }
+        return errors;
+    }
+
+    let (chains, chain_errors) = discover_chains(&idx);
+    errors.extend(chain_errors);
+
+    // Find the chain whose members include the input doc.
+    let matched_chain = chains
+        .iter()
+        .find(|c| c.members.iter().any(|m| m.path == canon_doc));
+
+    if let Some(chain) = matched_chain {
+        let effective_posture = if strict && chain.posture == Posture::SinglePrMidPR {
+            Posture::SinglePrAtMerge
+        } else {
+            chain.posture
+        };
+        for member in &chain.members {
+            let passing = compute_passing_state(member.role, effective_posture);
+            let mismatch = match &passing {
+                PassingState::Deleted => true,
+                _ => !passing.matches(&member.status),
+            };
+            if mismatch {
+                errors.push(error_path(
+                    member.path.clone(),
+                    "L01",
+                    &format!(
+                        "{} at status '{}' (expected {} for {} posture)",
+                        member.role.as_str(),
+                        member.status,
+                        passing.describe(),
+                        effective_posture.name()
+                    ),
+                ));
+            }
+        }
+    } else {
+        // The doc is an orphan — not a member of any discovered
+        // chain. Apply the orphan rule to it directly.
+        if let Some(orphan_doc) = idx.get(&canon_doc) {
+            if let Some(err) = check_orphan(orphan_doc, &idx) {
+                errors.push(err);
+            }
+        }
+    }
+
+    // Stable error ordering: by file, then by code, then by message.
+    errors.sort_by(|a, b| {
+        a.file
+            .cmp(&b.file)
+            .then(a.code.cmp(&b.code))
+            .then(a.message.cmp(&b.message))
+    });
+    errors.dedup();
+    errors
+}
+
+/// Walk up from `doc_path` to find the implied lifecycle root — the
+/// directory that contains a `docs/` subdirectory matching one of
+/// the indexed locations. Returns `None` if the path does not sit
+/// inside one of the recognized doc dirs.
+fn derive_chain_root(doc_path: &Path) -> Option<PathBuf> {
+    // The doc must live in one of these directories (relative to
+    // the lifecycle root). We walk the path components from leaf to
+    // root, accumulating segments until we identify the matching
+    // suffix and return the prefix.
+    //
+    // Example: /repo/docs/plans/PLAN-foo.md
+    //   parent = /repo/docs/plans
+    //   parent matches "docs/plans" suffix -> root = /repo
+    //
+    // Example: /repo/docs/designs/current/DESIGN-foo.md
+    //   parent = /repo/docs/designs/current
+    //   parent matches "docs/designs/current" suffix -> root = /repo
+    let parent = doc_path.parent()?;
+
+    let suffixes: &[&str] = &[
+        "docs/designs/current",
+        "docs/briefs",
+        "docs/prds",
+        "docs/designs",
+        "docs/plans",
+        "docs/roadmaps",
+    ];
+
+    for suffix in suffixes {
+        if let Some(root) = strip_suffix_path(parent, suffix) {
+            return Some(root);
+        }
+    }
+    None
+}
+
+/// Strip a multi-component path suffix from `path`. Returns the
+/// prefix on success. Uses string-form comparison to handle the
+/// multi-segment suffixes (e.g. "docs/designs/current").
+fn strip_suffix_path(path: &Path, suffix: &str) -> Option<PathBuf> {
+    let path_s = path.to_str()?;
+    // Match either an exact suffix at the end or a "/<suffix>" tail.
+    let needle = format!("/{}", suffix);
+    if path_s.ends_with(&needle) {
+        let prefix_len = path_s.len() - needle.len();
+        return Some(PathBuf::from(&path_s[..prefix_len]));
+    }
+    if path_s == suffix {
+        return Some(PathBuf::from(""));
+    }
+    None
 }
 
 // ---------- helpers ----------
@@ -933,7 +1225,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
     }
 
@@ -961,7 +1253,7 @@ mod tests {
                 &plan_body("Done"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         // PLAN at Done in tree should fail L01 with the deletion forcing message.
         assert!(
             errors.iter().any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md") && e.message.contains("DELETED")),
@@ -972,6 +1264,40 @@ mod tests {
 
     #[test]
     fn single_pr_mid_pr_passes() {
+        // Single-pr mid-PR: PLAN at Active (the auto-transition fired
+        // when /shirabe:plan finished authoring).
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "single-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        assert!(errors.is_empty(), "expected pass, got {:?}", errors);
+    }
+
+    #[test]
+    fn single_pr_committed_draft_plan_fails() {
+        // A committed single-pr PLAN at Draft is a violation: the
+        // auto-transition from Draft to Active didn't fire when
+        // /shirabe:plan finished. L01 names the (Plan, single-pr
+        // mid-PR) rule's expectation of `status: Active`.
         let root = build_tree(&[
             (
                 "docs/briefs/BRIEF-foo.md",
@@ -994,8 +1320,12 @@ mod tests {
                 &plan_body("Draft"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
-        assert!(errors.is_empty(), "expected pass, got {:?}", errors);
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        assert!(
+            errors.iter().any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
+            "expected L01 on Draft single-pr PLAN, got {:?}",
+            errors
+        );
     }
 
     #[test]
@@ -1021,7 +1351,7 @@ mod tests {
                 &design_body("Current"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
     }
 
@@ -1049,7 +1379,7 @@ mod tests {
                 &plan_body("Draft"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(
             errors.iter().any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
             "expected L01 on Draft multi-pr PLAN, got {:?}",
@@ -1082,7 +1412,7 @@ mod tests {
                 &plan_body("Done"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(
             errors.iter().any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
             "expected L01 on present-Done single-pr PLAN, got {:?}",
@@ -1115,7 +1445,7 @@ mod tests {
                 &plan_body("Done"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         // BRIEF at Accepted expected Done (work-completing posture).
         assert!(
             errors.iter().any(|e| e.code == "L01" && e.file.contains("BRIEF-foo.md")),
@@ -1132,7 +1462,7 @@ mod tests {
             &make_brief("Done", ""),
             &body_for("BRIEF", "Done"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
     }
 
@@ -1144,7 +1474,7 @@ mod tests {
             &make_brief("Accepted", ""),
             &body_for("BRIEF", "Accepted"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(
             errors.iter().any(|e| e.code == "L02" && e.file.contains("BRIEF-foo.md")),
             "expected L02 on orphan Accepted BRIEF, got {:?}",
@@ -1166,7 +1496,7 @@ mod tests {
                 &prd_body("Accepted"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         // The PRD is a chain member (chain rooted at the ROADMAP), so
         // it goes through the chain check (Accepted is the in-flight
         // passing state for a multi-pr posture).
@@ -1184,7 +1514,7 @@ mod tests {
             &make_design("Current", ""),
             &design_body("Current"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
     }
 
@@ -1208,7 +1538,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(
             errors.iter().any(|e| e.code == "L03"),
             "expected L03 cycle, got {:?}",
@@ -1223,7 +1553,7 @@ mod tests {
             &make_plan("Active", "multi-pr", "docs/designs/DESIGN-missing.md"),
             &plan_body("Active"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(
             errors.iter().any(|e| e.code == "L04"),
             "expected L04 missing member, got {:?}",
@@ -1241,7 +1571,7 @@ mod tests {
             "---\nschema: brief/v1\nstatus: Draft\nproblem: |\n  unclosed\noutcome: |\n  outcome\nupstream: [unclosed list\n---\n\n# BRIEF: bad\n\n## Status\n\nDraft\n",
         )
         .unwrap();
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         // The parse failure should be reported as L05, not a panic.
         assert!(
             errors.iter().any(|e| e.code == "L05"),
@@ -1287,7 +1617,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass (DESIGN at Planned during in-flight), got {:?}", errors);
     }
 
@@ -1317,7 +1647,7 @@ mod tests {
                 &plan_body("Done"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         // DESIGN at Planned during work-completing should fail
         // (expected Current).
         assert!(
@@ -1358,14 +1688,658 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass (PRD at In Progress in-flight), got {:?}", errors);
     }
 
     #[test]
     fn empty_tree_passes() {
         let root = build_tree(&[]);
-        let errors = run_lifecycle_check(&root, &Config::default());
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass on empty tree, got {:?}", errors);
+    }
+
+    // ---- strict-mode tests for the DRAFT-vs-READY discipline ----
+    //
+    // These tests cover the six shapes named in
+    // docs/prds/PRD-lifecycle-draft-ready-discipline.md (R12) plus the
+    // strict-flag-threading verification. The shape parity with the
+    // non-strict counterparts above is intentional — each strict test
+    // reuses the same fixture as a sibling non-strict test and the
+    // assertion is the toggled-by-flag bit.
+
+    #[test]
+    fn single_pr_mid_pr_passes_in_non_strict_mode() {
+        // Same fixture as single_pr_mid_pr_passes; explicit
+        // non-strict assertion documents that DRAFT-mode equivalent
+        // CI runs preserve the upstream non-strict behavior.
+        // single-pr-mid-PR uses Active (not Draft) under the unified
+        // PLAN lifecycle.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "single-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        assert!(
+            errors.is_empty(),
+            "expected single-pr mid-PR pass in non-strict mode, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn single_pr_mid_pr_fails_in_strict_mode_on_present_plan() {
+        // READY-mode equivalent: the same single-pr-mid-PR fixture
+        // (PLAN at Active per the unified lifecycle) fails strict
+        // mode because the PLAN is present in the tree.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "single-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), true);
+        // Three L01 errors expected: PLAN must be DELETED, BRIEF must
+        // be Done, PRD must be Done. The posture name in the message
+        // is the re-targeted "single-pr at-merge" not "single-pr mid-PR".
+        assert!(
+            errors.iter().any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
+            "expected L01 on present PLAN in strict mode, got {:?}",
+            errors
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "L01" && e.file.contains("BRIEF-foo.md")),
+            "expected L01 on BRIEF Accepted in strict mode, got {:?}",
+            errors
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "L01" && e.file.contains("PRD-foo.md")),
+            "expected L01 on PRD Accepted in strict mode, got {:?}",
+            errors
+        );
+        // All L01 messages name the re-targeted at-merge posture, not
+        // the chain's literal SinglePrMidPR posture.
+        for err in errors.iter().filter(|e| e.code == "L01") {
+            assert!(
+                err.message.contains("single-pr at-merge"),
+                "expected re-targeted posture name in error message, got {:?}",
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn single_pr_at_merge_passes_in_strict_mode() {
+        // The chain is at single-pr at-merge: PLAN absent, BRIEF/PRD
+        // at Done, DESIGN at Current. Strict and non-strict both pass.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Done", ""),
+                &body_for("BRIEF", "Done"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Done", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Done"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), true);
+        assert!(
+            errors.is_empty(),
+            "expected single-pr at-merge pass in strict mode, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn multi_pr_in_flight_passes_in_strict_mode() {
+        // Multi-pr in-flight is a legitimate passing state on a READY
+        // PR (intermediate multi-pr PR shape). Strict and non-strict
+        // both pass.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "multi-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), true);
+        assert!(
+            errors.is_empty(),
+            "expected multi-pr in-flight pass in strict mode, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn multi_pr_work_completing_fails_in_both_modes() {
+        // Multi-pr work-completing (PLAN at Done in the tree) is the
+        // forcing-function failure that exists independent of strict
+        // mode. Both modes fail.
+        let root_nonstrict = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Done", ""),
+                &body_for("BRIEF", "Done"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Done", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Done"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Done", "multi-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Done"),
+            ),
+        ]);
+        let errors_nonstrict =
+            run_lifecycle_check(&root_nonstrict, &Config::default(), false);
+        assert!(
+            errors_nonstrict
+                .iter()
+                .any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
+            "expected L01 on multi-pr work-completing PLAN in non-strict mode, got {:?}",
+            errors_nonstrict
+        );
+        let root_strict = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Done", ""),
+                &body_for("BRIEF", "Done"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Done", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Done"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Done", "multi-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Done"),
+            ),
+        ]);
+        let errors_strict =
+            run_lifecycle_check(&root_strict, &Config::default(), true);
+        assert!(
+            errors_strict
+                .iter()
+                .any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
+            "expected L01 on multi-pr work-completing PLAN in strict mode, got {:?}",
+            errors_strict
+        );
+    }
+
+    #[test]
+    fn multi_pr_mid_transition_fails_in_strict_mode() {
+        // Multi-pr mid-transition: PLAN at Done (work-completing) but
+        // BRIEF/PRD still at Accepted. Both modes fail — the
+        // work-completing forcing function fires on the PLAN, the
+        // BRIEF/PRD-Done passing state fires on the framing docs.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Done", "multi-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Done"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), true);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "L01" && e.file.contains("BRIEF-foo.md")),
+            "expected L01 on BRIEF stuck at Accepted in strict mode, got {:?}",
+            errors
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "L01" && e.file.contains("PRD-foo.md")),
+            "expected L01 on PRD stuck at Accepted in strict mode, got {:?}",
+            errors
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
+            "expected L01 on PLAN Done in strict mode, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn strict_flag_threads_through_call_chain() {
+        // Threading verification: two identical fixtures (PLAN at
+        // Active per the unified lifecycle), one called with
+        // strict=true, the other with strict=false. The result must
+        // differ — confirming the flag actually reaches the posture
+        // re-target inside the chain-iteration loop rather than being
+        // silently dropped.
+        let root_a = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "single-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let errors_nonstrict = run_lifecycle_check(&root_a, &Config::default(), false);
+        let root_b = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "single-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let errors_strict = run_lifecycle_check(&root_b, &Config::default(), true);
+        assert!(
+            errors_nonstrict.is_empty(),
+            "non-strict expected to pass, got {:?}",
+            errors_nonstrict
+        );
+        assert!(
+            !errors_strict.is_empty(),
+            "strict expected to fail on present PLAN, got empty errors"
+        );
+    }
+
+    // ---- chain-targeted mode (run_lifecycle_chain_check) ----
+
+    #[test]
+    fn chain_targeted_single_pr_mid_pr_strict_fails() {
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", "docs/prds/PRD-foo.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "single-pr", "docs/designs/DESIGN-foo.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), true);
+        assert!(
+            !errors.is_empty(),
+            "strict mode expected to fail on present single-pr PLAN, got empty"
+        );
+        // The failures should name PLAN, BRIEF, or PRD members. No
+        // L02 orphan errors should fire — every doc is a chain
+        // member.
+        let codes: Vec<&str> = errors.iter().map(|e| e.code.as_str()).collect();
+        assert!(
+            codes.iter().all(|c| *c == "L01"),
+            "expected only L01 errors, got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn chain_targeted_single_pr_at_terminal_strict_passes() {
+        // The PLAN is absent; the chain root is the DESIGN at
+        // Current. The chain-walker discovers chains rooted at PLAN
+        // or ROADMAP; without one, no chain exists and the docs are
+        // orphans. The orphan rule passes for terminal-state orphans
+        // (DESIGN at Current's target is Current; BRIEF at Done is
+        // terminal; PRD at Done is terminal).
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Done", ""),
+                &body_for("BRIEF", "Done"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Done", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Done"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+        ]);
+        let brief_path = root.join("docs/briefs/BRIEF-foo.md");
+        let errors = run_lifecycle_chain_check(&brief_path, &Config::default(), true);
+        assert!(
+            errors.is_empty(),
+            "single-pr at-terminal chain expected to pass; got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn chain_targeted_single_pr_mid_pr_nonstrict_passes() {
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", "docs/prds/PRD-foo.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "single-pr", "docs/designs/DESIGN-foo.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), false);
+        assert!(
+            errors.is_empty(),
+            "single-pr mid-PR with strict=false should pass; got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn chain_targeted_multi_pr_in_flight_strict_passes() {
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "multi-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), true);
+        assert!(
+            errors.is_empty(),
+            "multi-pr in-flight with strict=true should pass; got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn chain_targeted_non_existent_path_rejects() {
+        let path = std::path::Path::new("/tmp/does-not-exist-shirabe-test.md");
+        let errors = run_lifecycle_chain_check(path, &Config::default(), false);
+        assert_eq!(errors.len(), 1, "expected one error; got: {:?}", errors);
+        assert_eq!(errors[0].code, "L05");
+        assert!(
+            errors[0].message.contains("not found"),
+            "error should name missing path; got: {}",
+            errors[0].message
+        );
+    }
+
+    #[test]
+    fn chain_targeted_unrecognized_prefix_rejects() {
+        // A file inside docs/briefs but with a non-artifact name
+        // (e.g. README.md). The file must exist for the
+        // canonicalize step to succeed.
+        let root = build_tree(&[(
+            "docs/briefs/README.md",
+            "schema: brief/v1\nstatus: Draft\n",
+            "# README",
+        )]);
+        let readme_path = root.join("docs/briefs/README.md");
+        let errors = run_lifecycle_chain_check(&readme_path, &Config::default(), false);
+        assert_eq!(errors.len(), 1, "expected one error; got: {:?}", errors);
+        assert_eq!(errors[0].code, "L05");
+        assert!(
+            errors[0].message.contains("unrecognized artifact prefix"),
+            "error should name the prefix mismatch; got: {}",
+            errors[0].message
+        );
+    }
+
+    #[test]
+    fn chain_targeted_path_outside_docs_rejects() {
+        // The file must exist for canonicalize to succeed, but it
+        // must live outside docs/. Use a temp directory with a
+        // BRIEF-prefix name but no docs/ ancestor.
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let outside = std::env::temp_dir().join(format!(
+            "shirabe-lifecycle-outside-{}-{}",
+            std::process::id(),
+            n
+        ));
+        let _ = fs::remove_dir_all(&outside);
+        fs::create_dir_all(&outside).unwrap();
+        let path = outside.join("BRIEF-foo.md");
+        fs::write(&path, "---\nschema: brief/v1\nstatus: Accepted\n---\n\n# BRIEF\n").unwrap();
+        let errors = run_lifecycle_chain_check(&path, &Config::default(), false);
+        assert_eq!(errors.len(), 1, "expected one error; got: {:?}", errors);
+        assert_eq!(errors[0].code, "L05");
+        assert!(
+            errors[0].message.contains("is not inside"),
+            "error should name the docs/ requirement; got: {}",
+            errors[0].message
+        );
+    }
+
+    #[test]
+    fn chain_targeted_orphan_at_terminal_passes() {
+        // A BRIEF at Done with no downstream references and no
+        // upstream is an orphan; the orphan rule passes because the
+        // BRIEF is at its terminal state.
+        let root = build_tree(&[(
+            "docs/briefs/BRIEF-orphan.md",
+            &make_brief("Done", ""),
+            &body_for("BRIEF", "Done"),
+        )]);
+        let path = root.join("docs/briefs/BRIEF-orphan.md");
+        let errors = run_lifecycle_chain_check(&path, &Config::default(), false);
+        assert!(
+            errors.is_empty(),
+            "orphan at terminal should pass via orphan rule; got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn chain_targeted_orphan_at_non_terminal_fails() {
+        // A BRIEF at Accepted (not terminal) with no chain
+        // participation is an orphan; the orphan rule fails with
+        // L02.
+        let root = build_tree(&[(
+            "docs/briefs/BRIEF-orphan.md",
+            &make_brief("Accepted", ""),
+            &body_for("BRIEF", "Accepted"),
+        )]);
+        let path = root.join("docs/briefs/BRIEF-orphan.md");
+        let errors = run_lifecycle_chain_check(&path, &Config::default(), false);
+        assert!(
+            !errors.is_empty(),
+            "orphan at non-terminal should fail; got empty errors"
+        );
+        assert!(
+            errors.iter().any(|e| e.code == "L02"),
+            "expected L02 error; got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn chain_targeted_from_design_node_walks_full_chain() {
+        // Verify the chain-targeted mode can start from any node in
+        // the chain, not just the PLAN. Pointing at the DESIGN
+        // should walk the same chain as pointing at the PLAN.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", "docs/prds/PRD-foo.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "single-pr", "docs/designs/DESIGN-foo.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let design_path = root.join("docs/designs/DESIGN-foo.md");
+        let errors = run_lifecycle_chain_check(&design_path, &Config::default(), true);
+        assert!(
+            !errors.is_empty(),
+            "strict mode from DESIGN should still surface the chain's failure"
+        );
+        // The errors should reference chain members by their
+        // relative paths; specifically, the PLAN must surface.
+        let has_plan_error = errors.iter().any(|e| e.file.contains("PLAN-foo.md"));
+        assert!(
+            has_plan_error,
+            "expected at least one error to reference PLAN-foo.md; got: {:?}",
+            errors
+        );
     }
 }

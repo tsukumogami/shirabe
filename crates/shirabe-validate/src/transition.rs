@@ -251,9 +251,14 @@ fn rejections(triples: &[(&str, &str, &str)]) -> Vec<(String, String, String)> {
 /// Return the [`TransitionSpec`] for a format name (`FormatSpec.name`), or
 /// `None` if the format has no transition behavior.
 ///
-/// The PLAN type is intentionally absent: it is not one of the seven artifact
-/// types the scripts cover, and its Done gate needs external GitHub state
-/// (out of scope per the design's Boundary note).
+/// The PLAN type is included under the unified PLAN lifecycle
+/// (Draft -> Active -> Done -> DELETED): the subcommand accepts the
+/// in-tree transitions (Draft -> Active and Active -> Done) without
+/// any GitHub-side effects. The Draft -> Active gate is purely a
+/// frontmatter edit here; the gate difference between modes (auto
+/// for single-pr, human-approval for multi-pr) is enforced out-of-
+/// band by the calling skill, not by this subcommand. Deletion at
+/// Done is performed by the cascade (`git rm`), not by `transition`.
 pub fn transition_spec(format_name: &str) -> Option<TransitionSpec> {
     transition_table()
         .into_iter()
@@ -451,6 +456,38 @@ pub fn transition_table() -> Vec<TransitionSpec> {
             },
             body_template: BodyTemplate::SupersededBy,
             result_fields: ResultFields::WithPath,
+        },
+        TransitionSpec {
+            format_name: "Plan".to_string(),
+            statuses: s(&["Draft", "Active", "Done"]),
+            // Unified PLAN lifecycle: Draft -> Active -> Done. The
+            // gate difference between single-pr (auto-transition on
+            // /shirabe:plan completion) and multi-pr (human approval
+            // gate that also creates GitHub issues + milestone) is
+            // enforced by the calling skill out-of-band; this
+            // subcommand only edits the on-disk status. Done is the
+            // ephemeral marker that bridges to deletion (`git rm` is
+            // performed by the cascade, not by `transition`).
+            rule: Rule::Graph(Graph {
+                edges: edges(&[("Draft", "Active"), ("Active", "Done")]),
+                terminal: "Done".to_string(),
+                terminal_message:
+                    "Done is a terminal status; the PLAN file is deleted from the tree at this point"
+                        .to_string(),
+                rejections: rejections(&[
+                    (
+                        "Draft",
+                        "Done",
+                        "Draft cannot transition directly to Done; must go through Active first",
+                    ),
+                    ("Active", "Draft", "Active cannot regress to Draft"),
+                ]),
+            }),
+            precondition: Precondition::None,
+            moves: Moves::default(),
+            extra_input: ExtraInput::None,
+            body_template: BodyTemplate::BareStatus,
+            result_fields: ResultFields::Base,
         },
     ]
 }
@@ -1851,11 +1888,83 @@ mod tests {
     }
 
     #[test]
-    fn table_has_seven_types() {
-        assert_eq!(transition_table().len(), 7);
+    fn table_has_eight_types() {
+        assert_eq!(transition_table().len(), 8);
         assert!(transition_spec("PRD").is_some());
         assert!(transition_spec("Comp").is_some());
-        assert!(transition_spec("Plan").is_none());
+        // Plan is now covered by the unified PLAN lifecycle
+        // (Draft -> Active -> Done). The cascade performs the
+        // deletion (`git rm`) separately from the Active -> Done
+        // transition; this subcommand only edits frontmatter.
+        assert!(transition_spec("Plan").is_some());
+    }
+
+    // ---- plan (graph, no move; mirrors the unified PLAN lifecycle) ----
+
+    #[test]
+    fn plan_draft_to_active_succeeds() {
+        // The Draft -> Active gate: single-pr execution auto-fires
+        // this when /shirabe:plan finishes authoring; multi-pr
+        // execution fires it under human approval. The subcommand
+        // performs the on-disk edit in both cases.
+        let doc = "---\nschema: plan/v1\nstatus: Draft\nexecution_mode: single-pr\nmilestone: m\nissue_count: 1\n---\n\n## Status\n\nDraft\n";
+        let path = write_doc("PLAN-foo.md", doc);
+        let outcome = run_transition(&path, "Active", &Flags::default()).expect("ok");
+        assert_eq!(outcome.old_status, "Draft");
+        assert_eq!(outcome.new_status, "Active");
+        assert_eq!(outcome.result_fields, ResultFields::Base);
+        let updated = fs::read_to_string(&path).unwrap();
+        assert!(updated.contains("status: Active"));
+        assert!(updated.contains("\n## Status\n\nActive\n"));
+    }
+
+    #[test]
+    fn plan_active_to_done_succeeds() {
+        // The Active -> Done ephemeral flip that bridges to
+        // deletion; the cascade `git rm`s the PLAN immediately
+        // after.
+        let doc = "---\nstatus: Active\nexecution_mode: single-pr\nmilestone: m\nissue_count: 1\n---\n\n## Status\n\nActive\n";
+        let path = write_doc("PLAN-bar.md", doc);
+        let outcome = run_transition(&path, "Done", &Flags::default()).expect("ok");
+        assert_eq!(outcome.new_status, "Done");
+        let updated = fs::read_to_string(&path).unwrap();
+        assert!(updated.contains("status: Done"));
+    }
+
+    #[test]
+    fn plan_draft_to_done_skips_active_exits_2() {
+        let doc = "---\nstatus: Draft\nexecution_mode: single-pr\nmilestone: m\nissue_count: 1\n---\n\n## Status\n\nDraft\n";
+        let path = write_doc("PLAN-skip.md", doc);
+        let err = run_transition(&path, "Done", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert_eq!(
+            err.message,
+            "Draft cannot transition directly to Done; must go through Active first"
+        );
+    }
+
+    #[test]
+    fn plan_regression_to_draft_exits_2() {
+        let doc = "---\nstatus: Active\nexecution_mode: multi-pr\nmilestone: m\nissue_count: 1\n---\n\n## Status\n\nActive\n";
+        let path = write_doc("PLAN-regress.md", doc);
+        let err = run_transition(&path, "Draft", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert_eq!(err.message, "Active cannot regress to Draft");
+    }
+
+    #[test]
+    fn plan_draft_to_active_for_multi_pr_succeeds_without_gh_side_effects() {
+        // The transition subcommand accepts Draft -> Active for
+        // multi-pr PLANs the same way it does for single-pr: the
+        // subcommand only edits frontmatter. The human-approval +
+        // GitHub-issue-creation gate is enforced out-of-band by the
+        // calling skill, not by this subcommand.
+        let doc = "---\nschema: plan/v1\nstatus: Draft\nexecution_mode: multi-pr\nmilestone: m\nissue_count: 3\n---\n\n## Status\n\nDraft\n";
+        let path = write_doc("PLAN-multi.md", doc);
+        let outcome = run_transition(&path, "Active", &Flags::default()).expect("ok");
+        assert_eq!(outcome.new_status, "Active");
+        let updated = fs::read_to_string(&path).unwrap();
+        assert!(updated.contains("status: Active"));
     }
 
     // ---- comp (graph, no move; brief-shaped plus the Draft -> Done shortcut) ----

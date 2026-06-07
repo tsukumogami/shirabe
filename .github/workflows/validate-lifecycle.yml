@@ -1,0 +1,24 @@
+name: Validate shirabe lifecycle
+
+# Self-caller: exercises the reusable lifecycle.yml against shirabe's
+# own repo so the PR that ships the workflow has CI signal on its own
+# diff. Downstream repos use
+# `tsukumogami/shirabe/.github/workflows/lifecycle.yml@v0.10.0` (or
+# whichever release tag they choose to pin). This self-caller uses the
+# local relative path so the PR exercises its own pre-release code.
+#
+# No `paths:` filter — the chain-aware check is whole-tree by design.
+# A typo fix in a single doc can still expose drift in chains the
+# diff does not touch, and the whole-tree scan is the point.
+#
+# `types:` includes ready_for_review and converted_to_draft so the
+# strictness branch is re-evaluated on every draft-to-ready and
+# ready-to-draft transition.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+
+jobs:
+  lifecycle:
+    uses: ./.github/workflows/lifecycle.yml

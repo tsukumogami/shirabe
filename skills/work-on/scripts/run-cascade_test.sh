@@ -207,11 +207,14 @@ EOF
 
 # Run cascade and return the JSON output. SHIRABE_BIN points the cascade at the
 # real release binary (built once by build_shirabe_binary) so each scenario gets
-# genuine finalize-chain transitions in its temp git repo.
+# genuine finalize-chain transitions in its temp git repo. Scenarios that need
+# to control `validate --lifecycle-chain --strict` exit codes deterministically
+# can set CASCADE_SHIRABE_BIN_OVERRIDE to a wrapper path (see setup_shirabe_stub).
 run_cascade() {
     local plan_doc="$1"
     shift
-    SHIRABE_BIN="$SHIRABE_BIN_PATH" bash "$CASCADE_SCRIPT" "$@" "$plan_doc" 2>/dev/null || true
+    local bin="${CASCADE_SHIRABE_BIN_OVERRIDE:-$SHIRABE_BIN_PATH}"
+    SHIRABE_BIN="$bin" bash "$CASCADE_SCRIPT" "$@" "$plan_doc" 2>/dev/null || true
 }
 
 # Assert a jq expression evaluates to "true" on the JSON
@@ -266,6 +269,47 @@ build_shirabe_binary() {
         echo "Error: built binary not found or not executable: $SHIRABE_BIN_PATH" >&2
         exit 1
     fi
+}
+
+# Create a thin wrapper around the real shirabe binary that lets scenarios
+# pin the `validate --lifecycle-chain ... --strict` exit code via a file
+# under the wrapper's dir. The pre-probe scenarios (8 and 9) use the
+# wrapper to deterministically control whether the chain looks at-terminal
+# (override 0) or mid-PR (override 1). All other subcommands (transition,
+# finalize-chain) pass through to the real binary unchanged.
+setup_shirabe_stub() {
+    local repo_dir="$1"
+    local stub="$repo_dir/.cascade-stub/shirabe"
+    mkdir -p "$(dirname "$stub")"
+
+    cat > "$stub" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+REAL_BIN="$SHIRABE_BIN_PATH"
+STUB_DIR="\$(dirname "\$0")"
+OVERRIDE_FILE="\$STUB_DIR/validate-exits.txt"
+
+if [[ "\${1:-}" == "validate" ]]; then
+    # Only intercept --lifecycle-chain ... --strict invocations.
+    for arg in "\$@"; do
+        if [[ "\$arg" == "--lifecycle-chain" ]]; then
+            if [[ -f "\$OVERRIDE_FILE" ]]; then
+                EXIT_CODE=\$(head -1 "\$OVERRIDE_FILE" 2>/dev/null || echo "0")
+                tail -n +2 "\$OVERRIDE_FILE" > "\$OVERRIDE_FILE.tmp" 2>/dev/null && mv "\$OVERRIDE_FILE.tmp" "\$OVERRIDE_FILE"
+                if [[ -z "\$EXIT_CODE" ]]; then
+                    EXIT_CODE=0
+                fi
+                exit "\$EXIT_CODE"
+            fi
+            break
+        fi
+    done
+fi
+
+exec "\$REAL_BIN" "\$@"
+EOF
+    chmod +x "$stub"
+    SHIRABE_STUB="$stub"
 }
 
 # Commit all files in the repo
@@ -608,6 +652,115 @@ scenario_brief_no_upstream() {
     cd "$SCRIPT_DIR"
 }
 
+# ── Scenario 8: Pre-cascade probe — chain already terminal ────────────────────
+# When the chain is already at its strict-mode passing state at the
+# pre-probe, the cascade is a no-op. The script logs the early-exit and
+# emits cascade_status: skipped with a single lifecycle_pre_probe step.
+scenario_pre_probe_already_terminal() {
+    local scenario="Scenario 8: Pre-probe — chain already terminal"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    setup_shirabe_stub "$repo"
+
+    # Build the chain — the validate stub will return exit 0 because we
+    # pin the override file to "0" (chain already at terminal).
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+    commit_all
+
+    # Pin the validate stub's pre-probe exit code to 0 (clean pass — chain
+    # already at terminal).
+    echo "0" > "$(dirname "$SHIRABE_STUB")/validate-exits.txt"
+
+    local output
+    export CASCADE_SHIRABE_BIN_OVERRIDE="$SHIRABE_STUB"
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md")
+    unset CASCADE_SHIRABE_BIN_OVERRIDE
+
+    local ok=true
+
+    assert_json "$scenario" "$output" '.cascade_status == "skipped"' \
+        "cascade_status is skipped (chain already terminal)" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_pre_probe")] | length == 1' \
+        "lifecycle_pre_probe step present" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_pre_probe")] | .[0].status == "skipped"' \
+        "lifecycle_pre_probe status is skipped" || ok=false
+
+    # No transitions performed.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_plan" or .action == "transition_design" or .action == "transition_prd")] | length == 0' \
+        "no transitions performed when chain already terminal" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Scenario 9: Pre-cascade probe — expected mid-PR failure ──────────────────
+# When the chain is at single-pr-mid-PR (PLAN present, DESIGN Planned),
+# the pre-probe sees the expected failure and the cascade proceeds.
+# The lifecycle_pre_probe step is recorded as ok.
+scenario_pre_probe_mid_pr() {
+    local scenario="Scenario 9: Pre-probe — expected mid-PR failure"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    setup_shirabe_stub "$repo"
+
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+    commit_all
+
+    # Pin the validate stub's pre-probe exit code to 1 (mid-PR failure).
+    # No post-verify in dry-run mode, so only one override line needed.
+    echo "1" > "$(dirname "$SHIRABE_STUB")/validate-exits.txt"
+
+    local output
+    export CASCADE_SHIRABE_BIN_OVERRIDE="$SHIRABE_STUB"
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md")
+    unset CASCADE_SHIRABE_BIN_OVERRIDE
+
+    local ok=true
+
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "cascade_status is completed" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_pre_probe")] | length == 1' \
+        "lifecycle_pre_probe step present" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_pre_probe")] | .[0].status == "ok"' \
+        "lifecycle_pre_probe status is ok" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_plan" and .status == "ok")] | length == 1' \
+        "delete_plan ran after pre-probe" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 # Check prerequisites
@@ -653,6 +806,12 @@ scenario_brief_with_upstream
 cd "$ORIG_DIR"
 
 scenario_brief_no_upstream
+cd "$ORIG_DIR"
+
+scenario_pre_probe_already_terminal
+cd "$ORIG_DIR"
+
+scenario_pre_probe_mid_pr
 cd "$ORIG_DIR"
 
 echo ""

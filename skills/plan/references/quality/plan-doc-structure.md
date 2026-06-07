@@ -46,8 +46,15 @@ and roadmap workflows:
 
 ## File Location
 
-PLAN artifacts live at `docs/plans/PLAN-<topic>.md`. When a PLAN
-reaches Done status, move it to `docs/plans/done/PLAN-<topic>.md`.
+PLAN artifacts live at `docs/plans/PLAN-<topic>.md`. PLANs are
+ephemeral: when the work completes, the PLAN file is deleted from
+the tree in the same commit set that transitions the upstream
+BRIEF, PRD, and DESIGN to their terminal states. The
+verify-then-delete terminal is the single forcing function that
+pulls the chain across the line — there is no `docs/plans/done/`
+directory in the new model. The chain-aware `--lifecycle` check
+enforces the deletion; the work-on cascade performs it atomically
+before `gh pr ready` fires (the DRAFT-vs-READY discipline).
 
 ## Frontmatter
 
@@ -73,11 +80,22 @@ unit) but GitHub milestone creation only happens in multi-pr mode.
 
 ## Lifecycle
 
+PLAN docs use a unified Draft -> Active -> Done -> DELETED lifecycle,
+identical for single-pr and multi-pr. Only the Draft -> Active gate
+differs: multi-pr requires human approval (and creates GitHub issues
++ milestone on transition); single-pr auto-transitions when /plan
+finishes authoring (no human gate, no GitHub side effects).
+
 | Status | Meaning | Trigger |
 |--------|---------|---------|
-| Draft | Plan being written during /plan phases | /plan creates the PLAN artifact |
-| Active | Implementation underway | multi-pr: GitHub issues created; single-pr: /work-on starts |
-| Done | Implementation complete, move to `docs/plans/done/` | multi-pr: all issues closed; single-pr: PR merged |
+| Draft | Plan being written during /plan phases (in-process; never lands on a committed branch) | /plan creates the PLAN artifact |
+| Active | Implementation underway | multi-pr: human approval gate fires, GitHub issues + milestone created; single-pr: /plan finalizes authoring (auto-transition) |
+| Done | Ephemeral marker bridging to deletion; PLAN file is deleted in the same commit set that transitions upstream BRIEF/PRD to Done | multi-pr: all issues closed and the work-completing PR runs the cascade; single-pr: /work-on cascade ran before the PR flipped to ready |
+
+A committed PLAN at `status: Draft` is a violation in either mode:
+the auto-transition for single-pr didn't fire, or the human-approval
+gate for multi-pr never ran. The chain-aware `--lifecycle` check
+fails L01 against this state.
 
 **Coordinated lifecycle with design docs:**
 

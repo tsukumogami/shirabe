@@ -154,6 +154,60 @@ check_issue_closed() {
     [[ "$state" == "CLOSED" ]]
 }
 
+# ── Inline utility: lifecycle_probe ──────────────────────────────────────────
+# Run the chain-targeted lifecycle check in strict mode against the cascade's
+# PLAN doc. Two modes:
+#
+#   pre:  expects exit code non-zero (chain at single-pr-Active mid-PR;
+#         --strict forces a failure naming the present PLAN at Active).
+#         Returns 0 if the expected failure was observed; returns 1 (signal:
+#         skip cascade entirely) when the validator reports a clean pass —
+#         the chain is already at its terminal and the cascade would be a
+#         no-op.
+#
+#   post: expects exit code 0 (cascade has finalized the chain). Returns 0
+#         on the expected clean pass; returns 1 on cascade-bug failure.
+#         On failure, the validator's stderr is logged for diagnosis.
+#
+# The probe captures the validator's combined output so the script can log
+# stderr on unexpected outcomes. Control flow follows the exit code only —
+# no JSON parsing or stderr regex.
+#
+# Usage: lifecycle_probe <pre|post>
+# Side effect: sets LIFECYCLE_PROBE_OUTPUT to the validator's combined output.
+
+LIFECYCLE_PROBE_OUTPUT=""
+
+lifecycle_probe() {
+    local mode="$1"
+    local exit_code=0
+    LIFECYCLE_PROBE_OUTPUT=$("$SHIRABE_BIN" validate \
+        --lifecycle-chain "$PLAN_DOC" \
+        --strict 2>&1) || exit_code=$?
+
+    if [[ "$mode" == "pre" ]]; then
+        if [[ "$exit_code" -eq 0 ]]; then
+            log_info "Pre-cascade probe: chain already at strict-mode passing state — cascade is a no-op"
+            return 1
+        fi
+        log_info "Pre-cascade probe: expected failure observed (chain at single-pr-Active mid-PR)"
+        return 0
+    elif [[ "$mode" == "post" ]]; then
+        if [[ "$exit_code" -ne 0 ]]; then
+            log_warn "Post-cascade verification failed (cascade bug):"
+            while IFS= read -r line; do
+                log_warn "$line"
+            done <<< "$LIFECYCLE_PROBE_OUTPUT"
+            return 1
+        fi
+        log_info "Post-cascade verification: chain at strict-mode passing state"
+        return 0
+    else
+        log_warn "lifecycle_probe called with unknown mode: $mode"
+        return 1
+    fi
+}
+
 # ── JSON helpers ──────────────────────────────────────────────────────────────
 
 # Append a step to STEPS_JSON
@@ -416,6 +470,31 @@ if ! validate_upstream_path "$PLAN_DOC"; then
     exit 1
 fi
 
+# ── Pre-cascade lifecycle probe ───────────────────────────────────────────────
+#
+# Run the chain-targeted lifecycle check in strict mode BEFORE any
+# transitions are applied. The chain is at single-pr-Active mid-PR; in
+# --strict mode the validator surfaces a failure naming the present PLAN
+# and its non-terminal BRIEF/PRD upstreams, signaling that the cascade
+# must fire. A clean pass at this point means the chain is already at its
+# strict-mode terminal — the cascade is a no-op and the script exits 0
+# with cascade_status: skipped, no transitions performed.
+#
+# The post-cascade verification re-runs the same probe after the commit;
+# the pre/post pair pins the cascade's behavior end to end without the
+# agent having to interpret the validator's output.
+
+if ! lifecycle_probe "pre"; then
+    add_step "lifecycle_pre_probe" "$PLAN_DOC" "null" "skipped" \
+        "chain at strict-mode passing state — cascade is a no-op"
+    emit_result "skipped"
+    exit 0
+fi
+add_step "lifecycle_pre_probe" "$PLAN_DOC" "null" "ok" ""
+
+# ── Read PLAN metadata before deletion ────────────────────────────────────────
+
+
 # Derive plan slug from PLAN doc filename for ROADMAP feature lookup
 PLAN_SLUG=$(basename "$PLAN_DOC" .md | sed 's/^PLAN-//')
 
@@ -440,6 +519,26 @@ FINALIZE_ERR_FILE=$(mktemp)
 FINALIZE_OUT=$("$SHIRABE_BIN" finalize-chain "$PLAN_DOC" 2>"$FINALIZE_ERR_FILE") || FINALIZE_RC=$?
 FINALIZE_ERR=$(cat "$FINALIZE_ERR_FILE")
 rm -f "$FINALIZE_ERR_FILE"
+
+# PLAN docs use a unified Draft -> Active -> Done -> DELETED lifecycle. The
+# Active -> Done flip is an ephemeral marker that bridges to deletion: the
+# cascade transitions the PLAN's on-disk frontmatter to Done immediately
+# before `git rm` so the audit trail at HEAD shows the Done flip atomically
+# with the deletion. finalize-chain owns the tactical chain (DESIGN/PRD/
+# BRIEF transitions); the cascade owns the PLAN's Active -> Done -> DELETED
+# step. Both modes (single-pr, multi-pr) follow this sequence.
+#
+# Idempotent: `shirabe transition <plan> Done` is a no-op on a Done doc.
+if [[ -f "$PLAN_DOC" ]]; then
+    log_info "Transitioning PLAN: $PLAN_DOC Active -> Done (ephemeral, in-process)"
+    if ! "$SHIRABE_BIN" transition "$PLAN_DOC" Done >/dev/null 2>&1; then
+        # Non-fatal: a PLAN at Draft (auto-transition didn't fire) or other
+        # unexpected current status can land here. Log a warning and proceed
+        # to the deletion regardless — the deletion is the forcing function,
+        # the Done flip is the audit-trail marker.
+        log_warn "shirabe transition $PLAN_DOC Done failed (PLAN may already be Done or at an unexpected status); proceeding to git rm"
+    fi
+fi
 
 # ── Step 2: Translate the finalize-chain report into the cascade contract ─────
 #
@@ -548,9 +647,17 @@ fi
 #
 # finalize-chain never deletes the PLAN; the script owns the git rm. This runs
 # after finalize-chain so the subcommand could read the PLAN's upstream first.
+# The PLAN's Active -> Done frontmatter flip (Step 1's transition call above)
+# was applied just before this delete so the resulting commit carries the
+# ephemeral Done marker atomically with the file removal.
 
 log_info "Deleting PLAN doc: $PLAN_DOC"
-if git rm "$PLAN_DOC" > /dev/null 2>&1; then
+# `git rm -f` so the deletion succeeds even when the PLAN's
+# frontmatter was just edited (the Active -> Done step above leaves
+# the file modified-in-worktree until this delete lands). The
+# Active -> Done frontmatter change is ephemeral by design: it
+# exists only in the commit that also deletes the file.
+if git rm -f "$PLAN_DOC" > /dev/null 2>&1; then
     add_step "delete_plan" "$PLAN_DOC" "null" "ok" ""
 else
     ANY_FAILED=true
@@ -569,6 +676,28 @@ elif [[ "$PUSH" == "false" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
     for f in "${STAGED_FILES[@]}"; do
         log_info "  $f"
     done
+fi
+
+# ── Post-cascade lifecycle verification ───────────────────────────────────────
+#
+# Run the chain-targeted check in strict mode AFTER the commit. We expect
+# a clean pass — the cascade should have pulled the chain to its
+# at-merge passing state (PLAN deleted, BRIEF/PRD Done, DESIGN Current).
+# Failure here is a cascade bug; log the validator's stderr and emit a
+# partial result.
+#
+# In dry-run mode (PUSH=false), the transitions are staged but not
+# committed, so the chain has not actually finalized — skip the
+# verification.
+
+if [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
+    if ! lifecycle_probe "post"; then
+        ANY_FAILED=true
+        add_step "lifecycle_post_verify" "$PLAN_DOC" "null" "failed" \
+            "post-cascade lifecycle check failed in strict mode (cascade bug): $LIFECYCLE_PROBE_OUTPUT"
+    else
+        add_step "lifecycle_post_verify" "$PLAN_DOC" "null" "ok" ""
+    fi
 fi
 
 # ── Emit result ────────────────────────────────────────────────────────────────

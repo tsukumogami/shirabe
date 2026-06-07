@@ -41,6 +41,45 @@ Frontmatter includes `schema: plan/v1`, `status`, `execution_mode` (single-pr or
 multi-pr), `milestone`, and `issue_count`. Optional `upstream` links to the source
 document (design doc, PRD, or roadmap).
 
+PLAN docs use a unified Draft -> Active -> Done -> DELETED lifecycle,
+identical for single-pr and multi-pr. Only the Draft -> Active gate
+differs: multi-pr requires human approval (GitHub issues + milestone
+are created on the transition); single-pr auto-fires when /plan
+finishes authoring (no human gate, no GitHub side effects). A
+committed PLAN at `status: Draft` is a violation in either mode.
+
+PLANs are ephemeral: when the work completes, the PLAN file is
+deleted from the tree in the same commit set that transitions the
+upstream BRIEF, PRD, and DESIGN to their terminal states. The
+Active -> Done flip is an in-process ephemeral marker that bridges
+to deletion; the cascade transitions Active -> Done immediately
+before `git rm` so the audit trail shows the Done flip atomically
+with the deletion. There is no `docs/plans/done/` directory in the
+current lifecycle model — the verify-then-delete terminal is the
+single forcing function.
+
+The chain-aware lifecycle check has two modes that enforce this:
+
+- `shirabe validate --lifecycle <ROOT>` — whole-tree mode. Walks every
+  artifact chain in the tree under `<ROOT>` and validates each
+  member's posture. Used by the reusable CI workflow as the
+  cross-chain backstop.
+- `shirabe validate --lifecycle-chain <DOC-PATH>` — chain-targeted
+  mode. Walks only the chain containing the input doc and validates
+  only that chain. Used by the work-on cascade script for the
+  pre-cascade probe and post-cascade verification points.
+
+The work-on cascade performs the Active -> Done -> DELETED sequence
+before `gh pr ready` fires (the DRAFT-vs-READY discipline) and uses
+the chain-targeted mode internally to verify its own chain's posture
+without surfacing unrelated drift as noise. See
+`docs/decisions/DECISION-chain-targeted-lifecycle-cli-shape-2026-06-06.md`
+for the CLI shape rationale,
+`docs/decisions/DECISION-lifecycle-strict-mode-interface-2026-06-06.md`
+for the strict-mode CLI flag, and
+`docs/decisions/DECISION-cascade-trigger-mechanism-2026-06-06.md` for
+the cascade trigger rationale.
+
 ## Decomposition Strategies
 
 ### Walking Skeleton

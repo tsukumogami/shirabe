@@ -2,8 +2,8 @@
 stateDiagram-v2
     direction LR
     [*] --> orchestrator_setup
-    ci_monitor --> plan_completion : ci_outcome: passing, gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 0
-    ci_monitor --> plan_completion : ci_outcome: failing_fixed
+    ci_monitor --> done : ci_outcome: passing, gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 0
+    ci_monitor --> done : ci_outcome: failing_fixed
     ci_monitor --> done_blocked : ci_outcome: failing_unresolvable
     ci_monitor --> escalate_dirty_merge_state : ci_outcome: dirty_merge_state
     escalate --> done_blocked
@@ -12,10 +12,10 @@ stateDiagram-v2
     orchestrator_setup --> worktree_discipline_check : status: completed
     orchestrator_setup --> worktree_discipline_check : status: override
     orchestrator_setup --> done_blocked : status: blocked
-    plan_completion --> done : cascade_status: completed
-    plan_completion --> done : cascade_status: partial
-    plan_completion --> done : cascade_status: skipped
-    pr_finalization --> ci_monitor : finalization_status: updated
+    plan_completion --> ci_monitor : cascade_status: completed
+    plan_completion --> ci_monitor : cascade_status: partial
+    plan_completion --> ci_monitor : cascade_status: skipped
+    pr_finalization --> plan_completion : finalization_status: updated
     pr_finalization --> done_blocked : finalization_status: update_failed
     spawn_and_await --> pr_finalization : batch_outcome: all_success, gates.batch_done.all_complete: true
     spawn_and_await --> escalate : batch_outcome: needs_attention, gates.batch_done.all_complete: true
