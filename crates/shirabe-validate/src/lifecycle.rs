@@ -30,8 +30,19 @@
 //! Posture detection follows
 //! `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`:
 //! the PLAN's frontmatter `status:` field is the posture signal.
-//! Present at `Active` is in-flight; present at `Done` is work-
-//! completing-but-not-yet-deleted (L01 fires); absent is at-merge.
+//! PLAN docs use a unified four-state lifecycle —
+//! Draft -> Active -> Done -> DELETED — identical for single-pr and
+//! multi-pr execution. The only branch is the Draft -> Active gate:
+//! multi-pr requires human approval (GitHub issues + milestone are
+//! created on the transition); single-pr auto-transitions when
+//! `/shirabe:plan` finishes authoring, so a single-pr PLAN that
+//! reaches a committed branch is already at `Active`. Consequently
+//! the posture rules are: present at `Active` is in-flight (single-pr
+//! mid-PR or multi-pr in-flight); present at `Done` is work-
+//! completing-but-not-yet-deleted (L01 fires); present at `Draft` on
+//! a committed PLAN is a violation (the author landed a single-pr
+//! PLAN without its auto-transition firing, or a multi-pr PLAN whose
+//! human approval gate never ran); absent is at-merge.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
@@ -69,7 +80,11 @@ pub enum Posture {
     MultiPrWorkCompleting,
     /// Multi-pr chain at merge time: PLAN absent.
     MultiPrAtMerge,
-    /// Single-pr chain mid-PR: PLAN present at `Draft`.
+    /// Single-pr chain mid-PR: PLAN present at `Active`. A single-pr
+    /// PLAN's Draft -> Active gate auto-fires when `/shirabe:plan`
+    /// finishes authoring, so the only on-disk state for a committed
+    /// single-pr PLAN is `Active`. A committed single-pr PLAN at
+    /// `Draft` is a violation (L01 fires).
     SinglePrMidPR,
     /// Single-pr chain at merge: PLAN absent.
     SinglePrAtMerge,
@@ -526,6 +541,16 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
 }
 
 /// Infer the posture from the root doc's frontmatter.
+///
+/// PLAN docs use a unified Draft -> Active -> Done -> DELETED
+/// lifecycle. Only the Draft -> Active gate differs between modes
+/// (human-approved for multi-pr, auto-fired for single-pr), so the
+/// in-flight on-disk state is `Active` for both. A committed PLAN
+/// at `Draft` is therefore a violation in either mode — the chain
+/// posture maps it to its mode's in-flight bucket so the per-member
+/// `(Plan, ...) = Status("Active")` rule fires L01 against the
+/// member; the posture name in the error message tells the author
+/// which gate did not run.
 fn infer_posture_from(root: &IndexedDoc) -> Posture {
     if root.format == "Roadmap" {
         // ROADMAPs are multi-pr by definition. ROADMAP present at
@@ -540,12 +565,24 @@ fn infer_posture_from(root: &IndexedDoc) -> Posture {
     if root.execution_mode == "multi-pr" {
         return match root.status.as_str() {
             "Done" => Posture::MultiPrWorkCompleting,
+            // Active or Draft both bucket to in-flight; the
+            // per-member rule for (Plan, MultiPrInFlight) is
+            // Status("Active"), so a Draft PLAN fails L01 against
+            // that expectation.
             _ => Posture::MultiPrInFlight,
         };
     }
     // single-pr or unspecified — treat as single-pr.
     match root.status.as_str() {
-        "Done" => Posture::SinglePrAtMerge, // unusual; PLAN should be deleted by now
+        // Unusual; PLAN should already be deleted at Done. The
+        // at-merge passing-state row treats (Plan, ...) as Deleted,
+        // so a present Done single-pr PLAN fails L01 (matching the
+        // multi-pr work-completing forcing function).
+        "Done" => Posture::SinglePrAtMerge,
+        // Active is the on-disk mid-PR state; Draft buckets here too
+        // so the (Plan, SinglePrMidPR) = Status("Active") rule fires
+        // L01 against a Draft single-pr PLAN (the auto-transition
+        // didn't run).
         _ => Posture::SinglePrMidPR,
     }
 }
@@ -587,11 +624,15 @@ fn compute_passing_state(role: ChainRole, posture: Posture) -> PassingState {
         (Plan, MultiPrAtMerge) => PassingState::Deleted,
         (Roadmap, MultiPrAtMerge) => PassingState::Deleted,
 
-        // Single-pr mid-PR.
+        // Single-pr mid-PR. The PLAN is at `Active`: a single-pr
+        // PLAN's Draft -> Active gate auto-fires when /shirabe:plan
+        // finishes authoring, so the only valid on-disk state for a
+        // committed single-pr PLAN is `Active`. A Draft single-pr
+        // PLAN fails L01 against this rule.
         (Brief, SinglePrMidPR) => PassingState::Status("Accepted"),
         (Prd, SinglePrMidPR) => PassingState::Status("Accepted"),
         (Design, SinglePrMidPR) => PassingState::DesignPlannedOrCurrent,
-        (Plan, SinglePrMidPR) => PassingState::Status("Draft"),
+        (Plan, SinglePrMidPR) => PassingState::Status("Active"),
         (Roadmap, SinglePrMidPR) => PassingState::Status("Active"),
 
         // Single-pr at-merge (PLAN absent; this branch is mostly for
@@ -999,6 +1040,40 @@ mod tests {
 
     #[test]
     fn single_pr_mid_pr_passes() {
+        // Single-pr mid-PR: PLAN at Active (the auto-transition fired
+        // when /shirabe:plan finished authoring).
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "single-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        assert!(errors.is_empty(), "expected pass, got {:?}", errors);
+    }
+
+    #[test]
+    fn single_pr_committed_draft_plan_fails() {
+        // A committed single-pr PLAN at Draft is a violation: the
+        // auto-transition from Draft to Active didn't fire when
+        // /shirabe:plan finished. L01 names the (Plan, single-pr
+        // mid-PR) rule's expectation of `status: Active`.
         let root = build_tree(&[
             (
                 "docs/briefs/BRIEF-foo.md",
@@ -1022,7 +1097,11 @@ mod tests {
             ),
         ]);
         let errors = run_lifecycle_check(&root, &Config::default(), false);
-        assert!(errors.is_empty(), "expected pass, got {:?}", errors);
+        assert!(
+            errors.iter().any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
+            "expected L01 on Draft single-pr PLAN, got {:?}",
+            errors
+        );
     }
 
     #[test]
@@ -1410,6 +1489,8 @@ mod tests {
         // Same fixture as single_pr_mid_pr_passes; explicit
         // non-strict assertion documents that DRAFT-mode equivalent
         // CI runs preserve the upstream non-strict behavior.
+        // single-pr-mid-PR uses Active (not Draft) under the unified
+        // PLAN lifecycle.
         let root = build_tree(&[
             (
                 "docs/briefs/BRIEF-foo.md",
@@ -1428,8 +1509,8 @@ mod tests {
             ),
             (
                 "docs/plans/PLAN-foo.md",
-                &make_plan("Draft", "single-pr", "docs/designs/current/DESIGN-foo.md"),
-                &plan_body("Draft"),
+                &make_plan("Active", "single-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Active"),
             ),
         ]);
         let errors = run_lifecycle_check(&root, &Config::default(), false);
@@ -1443,7 +1524,8 @@ mod tests {
     #[test]
     fn single_pr_mid_pr_fails_in_strict_mode_on_present_plan() {
         // READY-mode equivalent: the same single-pr-mid-PR fixture
-        // fails strict mode because the PLAN is present in the tree.
+        // (PLAN at Active per the unified lifecycle) fails strict
+        // mode because the PLAN is present in the tree.
         let root = build_tree(&[
             (
                 "docs/briefs/BRIEF-foo.md",
@@ -1462,8 +1544,8 @@ mod tests {
             ),
             (
                 "docs/plans/PLAN-foo.md",
-                &make_plan("Draft", "single-pr", "docs/designs/current/DESIGN-foo.md"),
-                &plan_body("Draft"),
+                &make_plan("Active", "single-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Active"),
             ),
         ]);
         let errors = run_lifecycle_check(&root, &Config::default(), true);
@@ -1687,11 +1769,12 @@ mod tests {
 
     #[test]
     fn strict_flag_threads_through_call_chain() {
-        // Threading verification: two identical fixtures, one called
-        // with strict=true, the other with strict=false. The result
-        // must differ — confirming the flag actually reaches the
-        // posture re-target inside the chain-iteration loop rather
-        // than being silently dropped.
+        // Threading verification: two identical fixtures (PLAN at
+        // Active per the unified lifecycle), one called with
+        // strict=true, the other with strict=false. The result must
+        // differ — confirming the flag actually reaches the posture
+        // re-target inside the chain-iteration loop rather than being
+        // silently dropped.
         let root_a = build_tree(&[
             (
                 "docs/briefs/BRIEF-foo.md",
@@ -1710,8 +1793,8 @@ mod tests {
             ),
             (
                 "docs/plans/PLAN-foo.md",
-                &make_plan("Draft", "single-pr", "docs/designs/current/DESIGN-foo.md"),
-                &plan_body("Draft"),
+                &make_plan("Active", "single-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Active"),
             ),
         ]);
         let errors_nonstrict = run_lifecycle_check(&root_a, &Config::default(), false);
@@ -1733,8 +1816,8 @@ mod tests {
             ),
             (
                 "docs/plans/PLAN-foo.md",
-                &make_plan("Draft", "single-pr", "docs/designs/current/DESIGN-foo.md"),
-                &plan_body("Draft"),
+                &make_plan("Active", "single-pr", "docs/designs/current/DESIGN-foo.md"),
+                &plan_body("Active"),
             ),
         ]);
         let errors_strict = run_lifecycle_check(&root_b, &Config::default(), true);

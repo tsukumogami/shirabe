@@ -339,11 +339,15 @@ work-on completes implementation
   -> detect chain posture (single-pr | multi-pr work-completing | multi-pr intermediate)
   -> if single-pr or multi-pr work-completing:
        run shirabe validate --lifecycle . --strict  (expect failure naming PLAN+BRIEF+PRD)
-       perform atomic finalization:
-         git rm docs/plans/PLAN-<topic>.md
+       perform atomic finalization (PLAN Active -> Done is an
+       ephemeral in-memory flip that bridges to deletion; both modes
+       follow the same Active -> Done -> DELETED sequence under the
+       unified PLAN lifecycle):
+         shirabe transition docs/plans/PLAN-<topic>.md Done    (Active -> Done; in-process)
+         git rm docs/plans/PLAN-<topic>.md                      (Done -> DELETED)
          shirabe transition docs/briefs/BRIEF-<topic>.md Done  (if BRIEF exists)
          shirabe transition docs/prds/PRD-<topic>.md Done       (if PRD exists)
-       git commit -m "docs: finalize chain (PLAN deleted, BRIEF/PRD Done)"
+       git commit -m "docs: finalize chain (PLAN Active -> Done -> deleted, BRIEF/PRD Done)"
        git push
        run shirabe validate --lifecycle . --strict  (expect pass)
        gh pr ready
@@ -354,11 +358,15 @@ work-on completes implementation
 ### Strict-mode passing-state table (extension of upstream)
 
 The strict-mode flag only affects the single-pr postures. Multi-pr
-postures are unchanged.
+postures are unchanged. PLAN docs use a unified Draft -> Active ->
+Done -> DELETED lifecycle, identical for single-pr and multi-pr; the
+on-disk passing state for a committed mid-PR PLAN is `Active` in
+both modes (the Draft -> Active gate auto-fires for single-pr and is
+human-approved for multi-pr).
 
 | Posture | Strict | BRIEF passing | PRD passing | DESIGN passing | PLAN passing |
 |---------|--------|---------------|-------------|----------------|--------------|
-| SinglePrMidPR | off | Accepted | Accepted | Planned/Current | Draft |
+| SinglePrMidPR | off | Accepted | Accepted | Planned/Current | Active |
 | SinglePrMidPR | on | Done | Done | Current | Deleted |
 | SinglePrAtMerge | off or on | Done | Done | Current | Deleted |
 | MultiPrInFlight | off or on | Accepted | Accepted/In Progress | Planned/Current | Active |

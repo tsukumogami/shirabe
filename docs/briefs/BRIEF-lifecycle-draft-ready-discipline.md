@@ -34,9 +34,12 @@ toggle, the reusable CI workflow, and the work-on cascade wiring.
 The chain-aware `--lifecycle` check that landed in the previous increment
 walks every artifact chain in the tree and verifies each member is at its
 passing state for the chain's posture. The check accepts single-pr-mid-PR
-as a passing state — a PLAN at Draft on the branch, with the upstream
+as a passing state — a PLAN at Active on the branch, with the upstream
 BRIEF and PRD at Accepted — because that is the correct shape while an
-author iterates on the work.
+author iterates on the work. PLAN docs use a unified Draft -> Active ->
+Done -> DELETED lifecycle; the Draft -> Active gate auto-fires for
+single-pr execution as /shirabe:plan finishes authoring, so a committed
+single-pr PLAN is always at Active.
 
 What the check cannot distinguish is when an author is still iterating
 versus when the work is finished and the PR is being marked ready for
@@ -58,7 +61,7 @@ reads as written in the parent PRD but does not hold on the corpus.
 ## User Outcome
 
 A contributor working through a single-pr chain via the work-on skill
-opens a draft PR, iterates against the chain mid-PR — PLAN at Draft,
+opens a draft PR, iterates against the chain mid-PR — PLAN at Active,
 BRIEF and PRD at Accepted — and CI runs the lifecycle check against that
 mid-PR state in non-strict mode and passes. The contributor then marks
 the PR ready for review; the work-on cascade detects the draft-to-ready
@@ -96,7 +99,7 @@ A contributor invokes `/shirabe:work-on` against a PLAN whose
 draft PR, and iterates through implementation. CI runs the lifecycle
 workflow on every push; while the PR is draft, the workflow invokes the
 chain-aware check in non-strict mode, and the chain at single-pr-mid-PR
-(BRIEF Accepted, PRD Accepted, DESIGN Current, PLAN Draft) passes. When
+(BRIEF Accepted, PRD Accepted, DESIGN Current, PLAN Active) passes. When
 implementation is complete, the contributor instructs work-on to
 finalize. The cascade runs the chain-aware check in strict mode locally
 first — which fails on the PLAN-still-present condition — then performs

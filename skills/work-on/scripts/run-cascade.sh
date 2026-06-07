@@ -441,6 +441,26 @@ FINALIZE_OUT=$("$SHIRABE_BIN" finalize-chain "$PLAN_DOC" 2>"$FINALIZE_ERR_FILE")
 FINALIZE_ERR=$(cat "$FINALIZE_ERR_FILE")
 rm -f "$FINALIZE_ERR_FILE"
 
+# PLAN docs use a unified Draft -> Active -> Done -> DELETED lifecycle. The
+# Active -> Done flip is an ephemeral marker that bridges to deletion: the
+# cascade transitions the PLAN's on-disk frontmatter to Done immediately
+# before `git rm` so the audit trail at HEAD shows the Done flip atomically
+# with the deletion. finalize-chain owns the tactical chain (DESIGN/PRD/
+# BRIEF transitions); the cascade owns the PLAN's Active -> Done -> DELETED
+# step. Both modes (single-pr, multi-pr) follow this sequence.
+#
+# Idempotent: `shirabe transition <plan> Done` is a no-op on a Done doc.
+if [[ -f "$PLAN_DOC" ]]; then
+    log_info "Transitioning PLAN: $PLAN_DOC Active -> Done (ephemeral, in-process)"
+    if ! "$SHIRABE_BIN" transition "$PLAN_DOC" Done >/dev/null 2>&1; then
+        # Non-fatal: a PLAN at Draft (auto-transition didn't fire) or other
+        # unexpected current status can land here. Log a warning and proceed
+        # to the deletion regardless — the deletion is the forcing function,
+        # the Done flip is the audit-trail marker.
+        log_warn "shirabe transition $PLAN_DOC Done failed (PLAN may already be Done or at an unexpected status); proceeding to git rm"
+    fi
+fi
+
 # ── Step 2: Translate the finalize-chain report into the cascade contract ─────
 #
 # On success (rc 0) finalize-chain emits a `{nodes:[...]}` report on stdout. We
@@ -548,9 +568,17 @@ fi
 #
 # finalize-chain never deletes the PLAN; the script owns the git rm. This runs
 # after finalize-chain so the subcommand could read the PLAN's upstream first.
+# The PLAN's Active -> Done frontmatter flip (Step 1's transition call above)
+# was applied just before this delete so the resulting commit carries the
+# ephemeral Done marker atomically with the file removal.
 
 log_info "Deleting PLAN doc: $PLAN_DOC"
-if git rm "$PLAN_DOC" > /dev/null 2>&1; then
+# `git rm -f` so the deletion succeeds even when the PLAN's
+# frontmatter was just edited (the Active -> Done step above leaves
+# the file modified-in-worktree until this delete lands). The
+# Active -> Done frontmatter change is ephemeral by design: it
+# exists only in the commit that also deletes the file.
+if git rm -f "$PLAN_DOC" > /dev/null 2>&1; then
     add_step "delete_plan" "$PLAN_DOC" "null" "ok" ""
 else
     ANY_FAILED=true

@@ -43,11 +43,13 @@ a chain-aware passing-state check that walks every artifact chain in
 the tree and verifies each member is at its passing state for the
 chain's posture. The check accepts single-pr-mid-PR as a passing state
 because that is the correct shape while an author iterates: PLAN at
-Draft on the branch, BRIEF and PRD at Accepted upstream, DESIGN at
-Planned or Current. The chain settles into its terminal — PLAN deleted,
-BRIEF and PRD at Done, DESIGN at Current — only at PR-merge time, and
-the verify-then-delete commit that performs the transitions is the
-single forcing function that pulls the chain across the line.
+Active on the branch (the Draft -> Active gate auto-fires for single-pr
+execution as /shirabe:plan finishes authoring), BRIEF and PRD at
+Accepted upstream, DESIGN at Planned or Current. The chain settles into
+its terminal — PLAN deleted, BRIEF and PRD at Done, DESIGN at Current —
+only at PR-merge time, and the verify-then-delete commit that performs
+the transitions is the single forcing function that pulls the chain
+across the line.
 
 What the check cannot distinguish today is when an author is still
 iterating versus when the work is finished and the PR is being marked
@@ -163,9 +165,13 @@ or the work-on skill intercepting `gh pr ready` and performing the
 finalization inline. The trigger MUST cover the three chain-shape
 cases:
 
-  - **single-pr chain.** PLAN deleted, BRIEF and PRD transitioned
-    Accepted to Done atomically in the same commit before `gh pr
-    ready` fires.
+  - **single-pr chain.** PLAN transitioned Active to Done to deleted,
+    BRIEF and PRD transitioned Accepted to Done atomically in the
+    same commit before `gh pr ready` fires. The Active to Done flip
+    is symmetric with the multi-pr work-completing gesture under the
+    unified PLAN lifecycle; the only mode-specific difference is the
+    Draft to Active gate (auto for single-pr, human-approved for
+    multi-pr) which already fired earlier in the workflow.
   - **multi-pr chain in the work-completing PR.** PLAN transitioned
     Active to Done to deleted, BRIEF and PRD transitioned Accepted
     to Done in the same commit before `gh pr ready` fires.
