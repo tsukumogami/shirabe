@@ -167,6 +167,8 @@ Phase 0: SETUP --> Phase 1: DECOMPOSE --> Phase 2: EXECUTE --> Phase 3: CROSS-VA
 ### Resume Logic
 
 ```
+parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
+                                                          → see references/fixes/sub-agent-dispatch.md
 Design doc status "Accepted"                              → Offer to revise or start fresh
 Design doc status "Proposed"                              → Offer to continue
 wip/research/design_<topic>_phase5_security.md            → Resume at Phase 6
@@ -177,6 +179,12 @@ wip/design_<topic>_coordination.json (some pending)       → Resume at Phase 2
 wip/design_<topic>_summary.md exists, no coordination     → Resume at Phase 1
 On topic branch, no artifacts                             → Resume at Phase 0
 ```
+
+Phase 0 detection: if the parent-chain sentinel is present in
+`wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
+(strategic), see `references/fixes/sub-agent-dispatch.md` for the
+fallback shape that applies. Behavior under direct invocation is
+unchanged when the sentinel is absent.
 
 ### Critical Requirements
 

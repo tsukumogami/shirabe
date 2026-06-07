@@ -254,6 +254,8 @@ document filename: `DESIGN-foo-bar.md` produces topic `foo-bar`, `ROADMAP-foo-ba
 produces topic `foo-bar`.
 
 ```
+parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
+                                              -> see references/fixes/sub-agent-dispatch.md
 if GitHub issues exist for this design        -> Resume at Phase 7 (verify/complete)
 if wip/plan_<topic>_review.md exists          -> Resume at Phase 7
 if wip/plan_<topic>_dependencies.md exists    -> Resume at Phase 6
@@ -263,6 +265,12 @@ if wip/plan_<topic>_milestones.md exists      -> Resume at Phase 3
 if wip/plan_<topic>_analysis.md exists        -> Resume at Phase 2
 else                                          -> Start at Phase 1
 ```
+
+Phase 0 detection: if the parent-chain sentinel is present in
+`wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
+(strategic), see `references/fixes/sub-agent-dispatch.md` for the
+fallback shape that applies. Behavior under direct invocation is
+unchanged when the sentinel is absent.
 
 To check for existing GitHub issues:
 ```bash

@@ -43,6 +43,36 @@ SHALL use):
   are detected during Phase 1 discovery, not parsed from
   `$ARGUMENTS`.
 
+## Slug-Prefix Convention Check (CLI invocation)
+
+After the topic-slug regex validation passes, Phase 0 invokes the
+shirabe-validate slug-prefix detection CLI to surface a
+recommendation when the candidate slug does not conform to the
+workspace's prevailing prefix convention:
+
+```bash
+shirabe slug-prefix-detect <slug> --docs-root docs
+```
+
+The CLI samples `docs/{briefs,prds,designs,plans}/` filenames,
+extracts the most common first hyphen-delimited word after the
+artifact-type prefix, and emits one of three outcomes:
+
+- `no-prevailing-prefix: ...` — the docs corpus did not produce a
+  >50% prefix majority. Phase 0 proceeds without a recommendation.
+- `matches: ...` — the candidate slug already starts with the
+  detected prefix. Phase 0 proceeds.
+- `mismatch: ...` — a prevailing prefix was detected and the
+  candidate slug does NOT start with it. Phase 0 surfaces the CLI
+  output verbatim as an informational prompt, recommending the
+  prefix-prepended form, then continues. The recommendation does
+  not block the run -- the author may proceed with the original
+  slug.
+
+The deterministic sampling logic lives in the CLI per the
+lazy-load principle. Phase 0 does NOT duplicate the
+docs-directory walk or the >50% threshold in SKILL prose.
+
 ## Visibility Detection
 
 Phase 0 reads `CLAUDE.md` for the `## Repo Visibility:` header.

@@ -25,6 +25,7 @@ pub mod validate;
 // surface (DESIGN §"crates/shirabe-validate (library)"). Every export is
 // internal-shaped and unstable; see the crate-level doc comment above.
 pub use annotation::{format_error, format_notice};
+pub use checks::{check_slug_prefix, detect_slug_prefix, SlugPrefixCheck};
 pub use doc::{Config, Doc, FieldValue, Section, ValidationError};
 pub use features::{extract_needs_label, parse_features, strip_label_decoration, Feature};
 pub use finalize::{walk_chain, walk_chain_mode, Mode, NodeAction, NodeEntry, Report, WalkError};

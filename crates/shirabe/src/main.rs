@@ -13,9 +13,9 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
-    detect_format, format_error, format_notice, is_notice, parse_doc, run_lifecycle_check,
-    run_transition, validate_file, walk_chain_mode, Config, Flags, Mode, ParseError,
-    ValidationError,
+    check_slug_prefix, detect_format, format_error, format_notice, is_notice, parse_doc,
+    run_lifecycle_check, run_transition, validate_file, walk_chain_mode, Config, Flags, Mode,
+    ParseError, SlugPrefixCheck, ValidationError,
 };
 
 mod populate;
@@ -68,6 +68,11 @@ enum Commands {
     /// a DESIGN's Implementation Issues section first. Use `--dry-run` to report
     /// without mutating. The PLAN is reported for deletion, never removed.
     FinalizeChain(FinalizeChainArgs),
+    /// Detect whether a candidate slug conforms to the workspace's
+    /// existing slug-prefix convention. Samples `docs/{briefs,prds,designs,plans}/`
+    /// filenames, extracts the most common first hyphen-delimited word
+    /// after the artifact-type prefix, and reports the result.
+    SlugPrefixDetect(SlugPrefixDetectArgs),
 }
 
 #[derive(clap::Args)]
@@ -113,6 +118,18 @@ struct FinalizeChainArgs {
 }
 
 #[derive(clap::Args)]
+struct SlugPrefixDetectArgs {
+    /// The candidate slug to check (e.g. `pattern-v1-ergonomics`).
+    slug: String,
+
+    /// The docs directory root to sample (default: `docs`). The sampler
+    /// reads `<docs-root>/{briefs,prds,designs,plans}/` for existing
+    /// artifact filenames.
+    #[arg(long, default_value = "docs")]
+    docs_root: String,
+}
+
+#[derive(clap::Args)]
 struct ValidateArgs {
     /// Files to validate.
     files: Vec<String>,
@@ -144,6 +161,7 @@ fn main() -> ExitCode {
         },
         Some(Commands::Transition(args)) => run_transition_cmd(&args),
         Some(Commands::FinalizeChain(args)) => run_finalize_chain_cmd(&args),
+        Some(Commands::SlugPrefixDetect(args)) => run_slug_prefix_detect(&args),
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would
         // otherwise leave `command` as `None` and exit 0 silently.
@@ -261,6 +279,39 @@ fn run_lifecycle(root: &str, visibility: &str) -> ExitCode {
     } else {
         ExitCode::SUCCESS
     }
+}
+
+/// Runs the `slug-prefix-detect` subcommand. Samples the docs corpus
+/// for existing artifact filenames and reports whether the candidate
+/// slug conforms to the prevailing prefix convention. Used by /scope
+/// Phase 0 to surface a slug-shape recommendation before authoring.
+///
+/// Output is a single line on stdout describing the result; exit code
+/// is 0 in every non-error case (mismatch is informational, not a
+/// failure). The advisory shape mirrors FC07/FC08/FC09 notice-level
+/// behavior: the validator names the drift but does not block.
+fn run_slug_prefix_detect(args: &SlugPrefixDetectArgs) -> ExitCode {
+    match check_slug_prefix(&args.docs_root, &args.slug) {
+        SlugPrefixCheck::NoPrevailingPrefix => {
+            println!(
+                "no-prevailing-prefix: sampled docs corpus under {:?} did not produce a >50% prefix majority",
+                args.docs_root
+            );
+        }
+        SlugPrefixCheck::Matches { prefix } => {
+            println!(
+                "matches: candidate slug {:?} starts with the detected prefix {:?}",
+                args.slug, prefix
+            );
+        }
+        SlugPrefixCheck::Mismatch { prefix, slug } => {
+            println!(
+                "mismatch: candidate slug {:?} does not start with the detected prefix {:?}; consider {}-{}",
+                slug, prefix, prefix, slug
+            );
+        }
+    }
+    ExitCode::SUCCESS
 }
 
 /// Runs the `transition` subcommand. On success, prints the per-type JSON
