@@ -2078,8 +2078,8 @@ mod tests {
             ),
             (
                 "docs/plans/PLAN-foo.md",
-                &make_plan("Draft", "single-pr", "docs/designs/DESIGN-foo.md"),
-                &plan_body("Draft"),
+                &make_plan("Active", "single-pr", "docs/designs/DESIGN-foo.md"),
+                &plan_body("Active"),
             ),
         ]);
         let plan_path = root.join("docs/plans/PLAN-foo.md");
@@ -2153,8 +2153,8 @@ mod tests {
             ),
             (
                 "docs/plans/PLAN-foo.md",
-                &make_plan("Draft", "single-pr", "docs/designs/DESIGN-foo.md"),
-                &plan_body("Draft"),
+                &make_plan("Active", "single-pr", "docs/designs/DESIGN-foo.md"),
+                &plan_body("Active"),
             ),
         ]);
         let plan_path = root.join("docs/plans/PLAN-foo.md");
@@ -2323,8 +2323,8 @@ mod tests {
             ),
             (
                 "docs/plans/PLAN-foo.md",
-                &make_plan("Draft", "single-pr", "docs/designs/DESIGN-foo.md"),
-                &plan_body("Draft"),
+                &make_plan("Active", "single-pr", "docs/designs/DESIGN-foo.md"),
+                &plan_body("Active"),
             ),
         ]);
         let design_path = root.join("docs/designs/DESIGN-foo.md");
