@@ -368,6 +368,42 @@ it replaces.
 5. **Mechanized prose (`skills/**`).** Runtime steps invoke `validate --check
    <CODE>`; reference docs cite the code and drop the duplicated enumeration.
 
+### Disposition table
+
+The authoritative scope list. Each deterministic check candidate gets one row,
+classified by the input-provenance rubric (Decision 1): **A** = pure over the
+document's own bytes; **B** = pure over the document plus orchestrator-injected
+external state; **C** = deterministic but dependency-heavy (cost-deferred); **D**
+= judgment-dependent (kept out). The disposition names whether the check is
+absorbed into an existing engine check (reconcile), a new code, or an FC
+extension; checks already subsumed by an existing engine check are marked
+*already absorbed*. The plan decomposes against this table, so no candidate is
+silently skipped.
+
+| Check | Family | Category | Disposition | Engine code | Rationale |
+|-------|--------|----------|-------------|-------------|-----------|
+| Required frontmatter fields present | frontmatter | A | Absorb (reconcile) | FC01 | Pure over doc bytes; engine already enforces it at near-parity. |
+| Status value is in the allowed set | frontmatter | A | Absorb (reconcile) | FC02 | Pure enum check; already an engine check. |
+| Frontmatter status matches body status | frontmatter | A | Absorb (reconcile) | FC03 | Pure cross-field check; already an engine check. |
+| Required sections present | sections | A | Absorb (reconcile) | FC04 | Pure presence check; already an engine check. |
+| Required section order | sections | A | Absorb (new code) | new (section-order) | Pure, but genuinely new behavior — FC04 checks presence only, so order takes the next free code, not an FC04 tweak. |
+| Issues-table dependency-link format `[#N](url)` | issues table | A | Absorb (extend) | FC05 | Pure; strict superset of FC05's existing row-shape validation. |
+| Issues-table complexity-value enum | issues table | A | Absorb (extend) | FC05 | Pure; strict superset of FC05 row shape. |
+| Issues-table child-design reference link | issues table | A | Absorb (extend) | FC05 | Pure; strict superset of FC05 row shape. |
+| Table-vs-diagram node reconciliation | diagram | A | Already absorbed | FC07 | The engine's FC07 already subsumes the external mermaid reconciliation; out of this reconciliation. |
+| Strikethrough consistency (per document) | strikethrough | A | Already absorbed | FC08 | The engine's FC08 already subsumes the external per-doc strikethrough check. |
+| Corpus-wide strikethrough state | strikethrough | A | Absorb (traversal) | new (out of `--check`) | Pure, but spans all docs at once — not a single-`validate_file` check; routes through the lifecycle-style traversal, code kept out of the per-file registry like the L-family. |
+| Document location vs status | location | A | Absorb (traversal) | new (out of `--check`) | Pure over path + status, but needs the path, not just the parsed document; same traversal entry, code out of the per-file registry. |
+| GitHub issue status | github state | B | Absorb (extend) | FC09 | Pure over the document plus orchestrator-injected state; extends FC09's existing injected-state path, no new fetch site. |
+| Topic-slug regex | slug | A | Absorb (new code) | new (slug-regex) | Pure boolean gate; the existing slug-prefix recommender is advisory, not a gate, so this is new behavior. |
+| Diagram structural validator | diagram | C | Cost-defer | (none) | Absorbing it would pull a diagram grammar/parser into the offline binary — dependency weight, not line count, is the cost. Left on the external mechanism; recorded as a deferral. |
+
+The `wip/` path-hygiene rule is **out of the rubric's scope** rather than a
+keep-out row: it turns on a human judgment (distinguishing a path-shaped
+reference from rule-stating prose), so it is a category-D judgment rule handled
+by the prose layer (Decision 5 keeps it as prose with its reviewer-grep backing),
+not a deterministic check the engine absorbs.
+
 ### Data flow (per absorbed check)
 
 ```
