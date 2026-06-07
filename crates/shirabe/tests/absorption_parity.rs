@@ -297,4 +297,12 @@ parity_tests! {
     // corresponding external rule and engine FC05.
     issues_table_complexity_bad => "issues-table-complexity-bad",
     issues_table_dep_format_bad => "issues-table-dep-format-bad",
+
+    // github-status (engine FC09). FC09 already implements the full
+    // doc-vs-GitHub reconciliation; offline (no injected PR context, which the
+    // harness clears) it surfaces a deterministic skip notice where the
+    // external check silently no-ops, recorded as an engine_only divergence.
+    // The live reconciliation needs network and is covered by FC09's own unit
+    // tests, not this offline harness.
+    github_status_no_context   => "github-status-no-context",
 }

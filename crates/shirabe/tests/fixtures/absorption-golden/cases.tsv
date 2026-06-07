@@ -17,3 +17,4 @@ section-order-clean	docs/prds/PRD-x.md	FC15
 section-order-violation	docs/prds/PRD-x.md	FC15
 issues-table-complexity-bad	docs/plans/PLAN-x.md	FC05
 issues-table-dep-format-bad	docs/plans/PLAN-x.md	FC05
+github-status-no-context	docs/plans/PLAN-x.md	FC09

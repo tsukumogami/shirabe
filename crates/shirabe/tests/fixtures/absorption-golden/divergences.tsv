@@ -18,3 +18,4 @@
 # reconciliation (e.g. FC05's section-order superset) adds an engine_only row.
 #
 # case_id	token	direction	reason
+github-status-no-context	FC09	engine_only	FC09 surfaces a deterministic skip notice when no PR context is injected; the external github-status check silently no-ops offline, so the engine is intentionally stricter (it tells the operator why the reconciliation was skipped).
