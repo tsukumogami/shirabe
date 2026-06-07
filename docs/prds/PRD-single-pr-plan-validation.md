@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   shirabe coordinators authoring single-pr plans get no structural validation.
   The Plan profile's required-sections list and every content check is shaped
@@ -22,7 +22,7 @@ source_issue: 154
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
