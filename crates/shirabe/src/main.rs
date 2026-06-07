@@ -14,8 +14,8 @@ use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
     check_slug_prefix, detect_format, format_error, format_notice, is_notice, parse_doc,
-    run_lifecycle_chain_check, run_lifecycle_check, run_transition, validate_file,
-    walk_chain_mode, Config, Flags, Mode, ParseError, SlugPrefixCheck, ValidationError,
+    run_lifecycle_chain_check, run_lifecycle_check, run_transition, validate_file, walk_chain_mode,
+    Config, Flags, Mode, ParseError, SlugPrefixCheck, ValidationError,
 };
 
 mod populate;
@@ -195,31 +195,87 @@ fn main() -> ExitCode {
     }
 }
 
-/// Runs the `validate` subcommand. Returns `ExitCode::FAILURE` (1) if any
-/// error-level annotation was emitted or a flag was invalid, else
-/// `ExitCode::SUCCESS` (0).
+/// The outcome of a `validate` run, mapped to the multi-level exit-code
+/// contract shared with `transition` and `finalize-chain`: `0` clean,
+/// `1` tool-error, `2` violations found, `3` I/O error.
+///
+/// Severity ordering (used for most-severe-wins across multiple documents)
+/// is deliberately distinct from the exit integer: a tool-error outranks a
+/// violation in severity yet maps to the lower exit code `1`, exactly as the
+/// sibling commands do. This keeps one exit-code vocabulary across the CLI
+/// while letting a multi-document run report its worst outcome.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ValidateOutcome {
+    Clean,
+    Violations,
+    ToolError,
+    /// Exit code `3`. Reserved to complete the shared contract with
+    /// `transition`/`finalize-chain`; `validate` only reads files and prints,
+    /// so it does not currently emit an I/O failure, but the variant keeps the
+    /// vocabulary identical across commands.
+    #[allow(dead_code)]
+    Io,
+}
+
+impl ValidateOutcome {
+    /// Higher rank = more severe. Tool-error and I/O (the run could not
+    /// complete) outrank a violation (the run completed but the rules said
+    /// no), which outranks clean.
+    fn severity_rank(self) -> u8 {
+        match self {
+            ValidateOutcome::Clean => 0,
+            ValidateOutcome::Violations => 1,
+            ValidateOutcome::ToolError => 2,
+            ValidateOutcome::Io => 3,
+        }
+    }
+
+    /// The exit integer, mirroring the `transition`/`finalize-chain` scheme.
+    fn exit_code(self) -> u8 {
+        match self {
+            ValidateOutcome::Clean => 0,
+            ValidateOutcome::ToolError => 1,
+            ValidateOutcome::Violations => 2,
+            ValidateOutcome::Io => 3,
+        }
+    }
+
+    /// Keep whichever outcome is more severe.
+    fn merge(self, other: ValidateOutcome) -> ValidateOutcome {
+        if other.severity_rank() > self.severity_rank() {
+            other
+        } else {
+            self
+        }
+    }
+
+    fn exit(self) -> ExitCode {
+        ExitCode::from(self.exit_code())
+    }
+}
+
+/// Runs the `validate` subcommand. Returns the multi-level exit code per
+/// the `ValidateOutcome` contract: `0` clean, `1` tool-error (bad
+/// invocation, unreadable or unparseable file), `2` violations found
+/// (any error-level result), `3` I/O. Notice-level results never make a
+/// run non-clean. Across multiple documents the most-severe outcome wins.
+/// The annotation output bytes are unchanged from the prior behavior.
 fn run_validate(args: &ValidateArgs) -> ExitCode {
     // The two lifecycle modes (whole-tree `--lifecycle <ROOT>` and
     // chain-targeted `--lifecycle-chain <DOC>`) and the per-file mode
     // (positional files) are mutually exclusive across the three
     // combinations.
     if args.lifecycle.is_some() && !args.files.is_empty() {
-        eprintln!(
-            "--lifecycle is mutually exclusive with positional file arguments"
-        );
-        return ExitCode::FAILURE;
+        eprintln!("--lifecycle is mutually exclusive with positional file arguments");
+        return ValidateOutcome::ToolError.exit();
     }
     if args.lifecycle_chain.is_some() && !args.files.is_empty() {
-        eprintln!(
-            "--lifecycle-chain is mutually exclusive with positional file arguments"
-        );
-        return ExitCode::FAILURE;
+        eprintln!("--lifecycle-chain is mutually exclusive with positional file arguments");
+        return ValidateOutcome::ToolError.exit();
     }
     if args.lifecycle.is_some() && args.lifecycle_chain.is_some() {
-        eprintln!(
-            "--lifecycle and --lifecycle-chain are mutually exclusive"
-        );
-        return ExitCode::FAILURE;
+        eprintln!("--lifecycle and --lifecycle-chain are mutually exclusive");
+        return ValidateOutcome::ToolError.exit();
     }
 
     if let Some(root) = args.lifecycle.as_deref() {
@@ -231,14 +287,14 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     }
 
     if args.files.is_empty() {
-        return ExitCode::SUCCESS;
+        return ValidateOutcome::Clean.exit();
     }
 
     let custom_statuses = match parse_custom_statuses(&args.custom_statuses) {
         Ok(map) => map,
         Err(msg) => {
             eprintln!("{}", msg);
-            return ExitCode::FAILURE;
+            return ValidateOutcome::ToolError.exit();
         }
     };
 
@@ -247,7 +303,7 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         visibility: args.visibility.clone(),
     };
 
-    let mut has_errors = false;
+    let mut worst = ValidateOutcome::Clean;
     for path in &args.files {
         let spec = match detect_format(basename(path)) {
             Some(s) => s,
@@ -257,6 +313,9 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         let doc = match parse_doc(path) {
             Ok(d) => d,
             Err(err) => {
+                // An unreadable or unparseable input is a tool error: the
+                // run could not complete for this file. Exit code 1, not a
+                // violation.
                 println!(
                     "{}",
                     format_error(&ValidationError {
@@ -266,7 +325,7 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
                         message: format!("could not read file: {}", io_error_text(&err)),
                     })
                 );
-                has_errors = true;
+                worst = worst.merge(ValidateOutcome::ToolError);
                 continue;
             }
         };
@@ -277,16 +336,12 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
                 println!("{}", format_notice(&ve.file, &ve.message));
             } else {
                 println!("{}", format_error(ve));
-                has_errors = true;
+                worst = worst.merge(ValidateOutcome::Violations);
             }
         }
     }
 
-    if has_errors {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    }
+    worst.exit()
 }
 
 /// Runs the chain-aware passing-state lifecycle check against `root`.
@@ -305,23 +360,19 @@ fn run_lifecycle(root: &str, visibility: &str, strict: bool) -> ExitCode {
     let root_path = std::path::Path::new(root);
     if !root_path.exists() {
         eprintln!("--lifecycle root {} does not exist", root);
-        return ExitCode::FAILURE;
+        return ValidateOutcome::ToolError.exit();
     }
     let errors = run_lifecycle_check(root_path, &cfg, strict);
-    let mut has_errors = false;
+    let mut worst = ValidateOutcome::Clean;
     for ve in &errors {
         if is_notice(ve) {
             println!("{}", format_notice(&ve.file, &ve.message));
         } else {
             println!("{}", format_error(ve));
-            has_errors = true;
+            worst = worst.merge(ValidateOutcome::Violations);
         }
     }
-    if has_errors {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    }
+    worst.exit()
 }
 
 /// Runs the `slug-prefix-detect` subcommand. Samples the docs corpus
@@ -381,20 +432,16 @@ fn run_lifecycle_chain(doc_path: &str, visibility: &str, strict: bool) -> ExitCo
     // leaves the rejection to the module so the error includes the
     // expected-location-set guidance.
     let errors = run_lifecycle_chain_check(path, &cfg, strict);
-    let mut has_errors = false;
+    let mut worst = ValidateOutcome::Clean;
     for ve in &errors {
         if is_notice(ve) {
             println!("{}", format_notice(&ve.file, &ve.message));
         } else {
             println!("{}", format_error(ve));
-            has_errors = true;
+            worst = worst.merge(ValidateOutcome::Violations);
         }
     }
-    if has_errors {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    }
+    worst.exit()
 }
 
 /// Runs the `transition` subcommand. On success, prints the per-type JSON
@@ -592,5 +639,65 @@ mod tests {
     fn basename_trailing_slash() {
         assert_eq!(basename("docs/"), "docs");
         assert_eq!(basename("/"), "/");
+    }
+
+    #[test]
+    fn validate_outcome_exit_codes_mirror_sibling_scheme() {
+        // 0 clean, 1 tool-error, 2 violations, 3 I/O -- the same scheme
+        // transition and finalize-chain use.
+        assert_eq!(ValidateOutcome::Clean.exit_code(), 0);
+        assert_eq!(ValidateOutcome::ToolError.exit_code(), 1);
+        assert_eq!(ValidateOutcome::Violations.exit_code(), 2);
+        assert_eq!(ValidateOutcome::Io.exit_code(), 3);
+    }
+
+    #[test]
+    fn validate_outcome_clean_is_zero_everything_else_nonzero() {
+        // Existing zero/non-zero CI gates keep working.
+        assert_eq!(ValidateOutcome::Clean.exit_code(), 0);
+        for o in [
+            ValidateOutcome::ToolError,
+            ValidateOutcome::Violations,
+            ValidateOutcome::Io,
+        ] {
+            assert_ne!(o.exit_code(), 0);
+        }
+    }
+
+    #[test]
+    fn validate_outcome_tool_error_outranks_violations() {
+        // Severity ordering is distinct from the exit integer: tool-error
+        // (exit 1) is more severe than a violation (exit 2).
+        assert!(
+            ValidateOutcome::ToolError.severity_rank()
+                > ValidateOutcome::Violations.severity_rank()
+        );
+        assert!(
+            ValidateOutcome::Violations.severity_rank() > ValidateOutcome::Clean.severity_rank()
+        );
+        assert!(ValidateOutcome::Io.severity_rank() > ValidateOutcome::ToolError.severity_rank());
+    }
+
+    #[test]
+    fn validate_outcome_merge_keeps_most_severe() {
+        // A clean run that then finds a violation -> violations (exit 2).
+        let r = ValidateOutcome::Clean.merge(ValidateOutcome::Violations);
+        assert_eq!(r.exit_code(), 2);
+
+        // {clean, violations} accumulated, then a tool error (unreadable
+        // file): tool-error wins -> exit 1, even though it appears last and
+        // its integer is lower.
+        let r = ValidateOutcome::Clean
+            .merge(ValidateOutcome::Violations)
+            .merge(ValidateOutcome::ToolError);
+        assert_eq!(r.exit_code(), 1);
+
+        // Order-independent: a tool error first, then a violation, still 1.
+        let r = ValidateOutcome::ToolError.merge(ValidateOutcome::Violations);
+        assert_eq!(r.exit_code(), 1);
+
+        // All-clean stays clean.
+        let r = ValidateOutcome::Clean.merge(ValidateOutcome::Clean);
+        assert_eq!(r.exit_code(), 0);
     }
 }
