@@ -233,7 +233,7 @@ mod tests {
                 code
             );
         }
-        for code in ["FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "R6", "R7", "R8", "R9"] {
+        for code in ["FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "L01", "L02", "L03", "L04", "L05", "L06", "R6", "R7", "R8", "R9"] {
             assert!(
                 !is_notice(&ValidationError {
                     file: String::new(),
