@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   shirabe's validator reconciles plan and roadmap docs along two axes today --
   intra-document (FC07 table-vs-diagram, FC08 Legend-vs-classDef) and
@@ -31,7 +31,7 @@ upstream: docs/briefs/BRIEF-doc-vs-github-state-reconciliation.md
 
 ## Status
 
-Accepted
+Done
 
 This PRD picks up the requirements work scoped by
 `docs/briefs/BRIEF-doc-vs-github-state-reconciliation.md`. It owns the

@@ -6,4 +6,10 @@
 ::notice file=real/PLAN-roadmap-plan-standardization.md::[FC07] node "I115" declared class "blocked", observed state "open", expected class "ready"
 ::notice file=real/PLAN-roadmap-plan-standardization.md::[FC07] node "I116" declared class "blocked", observed state "open", expected class "ready"
 ::notice file=real/PLAN-roadmap-plan-standardization.md::[FC07] node "I118" declared class "blocked", observed state "open", expected class "ready"
+::notice file=real/PLAN-roadmap-plan-standardization.md::[FC08] Diagram declares `classDef needsDecision` outside the canonical Status palette but the Legend does not name it
+::notice file=real/PLAN-roadmap-plan-standardization.md::[FC08] Diagram declares `classDef needsPrd` outside the canonical Status palette but the Legend does not name it
+::notice file=real/PLAN-roadmap-plan-standardization.md::[FC08] Diagram declares `classDef needsSpike` outside the canonical Status palette but the Legend does not name it
+::notice file=real/PLAN-roadmap-plan-standardization.md::[FC08] Legend names class `needs-design` but the diagram declares `classDef needsDesign`; use the camelCase form `needsDesign` to match the codebase convention
+::notice file=real/PLAN-roadmap-plan-standardization.md::[FC08] Legend names class `tracks-design` but the diagram declares `classDef tracksDesign`; use the camelCase form `tracksDesign` to match the codebase convention
+::notice file=real/PLAN-roadmap-plan-standardization.md::[FC08] Legend names class `tracks-plan` but the diagram declares `classDef tracksPlan`; use the camelCase form `tracksPlan` to match the codebase convention
 ::notice file=real/PLAN-roadmap-plan-standardization.md::[FC09] Sub-check C skipped: no PR context (set GITHUB_REF=refs/pull/<n>/merge, GITHUB_REPOSITORY, or SHIRABE_PR_NUMBER)

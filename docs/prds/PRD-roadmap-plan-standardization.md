@@ -392,42 +392,65 @@ it retires the stale move-to-`docs/plans/done/` archive wording.
 own PR branch and is verified and deleted before that PR merges, so it
 never reaches main.
 
-**R17: CI lifecycle enforcement surface.** The two stateless lifecycle
-checks run as a **whole-tree scan on the PR**, alongside (not replacing)
-the existing changed-files doc-validator:
+**R17: CI lifecycle enforcement surface.** The lifecycle enforcement
+runs as a **chain-aware whole-tree scan on the PR**, alongside (not
+replacing) the existing changed-files doc-validator. The scan walks
+the doc tree, identifies each artifact chain by inverting the
+frontmatter `upstream:` edge from each PLAN and ROADMAP root, infers
+the chain's posture from the PLAN's `execution_mode` and `status`,
+and verifies every chain member is at the **passing state** for the
+chain's posture. The `Lnn` check-code family carries the failures.
 
-- **Check A — a present multi-pr doc must be Active.** The scan reads the
-  frontmatter status of every roadmap and multi-pr plan in the checked-out
-  tree and fails if any is present with a status other than `Active`. A
-  present Draft fails (issues not yet created, no approval). A present
-  `Done` fails too: Done must coincide with the doc's deletion in the same
-  PR (R15), so a present Done means the author marked the work complete but
-  did not delete the doc — Check A failing on that state is the forcing
-  function that drives the deletion into the verify-delete PR. At merge a
-  multi-pr doc is therefore either present-and-Active (work still landing)
-  or absent (verified and deleted); present-and-Done is never a valid merge
-  state. A whole-tree scan is required because a changed-files diff cannot
-  see a doc the PR does not touch.
-- **Check B — single-pr absent-at-merge.** The scan fails if any PLAN doc
-  with `execution_mode: single-pr` exists in the tree, and passes once it
-  is deleted — the stateless presence test the brief specifies, with no
-  need to identify the merge commit. A changed-files diff cannot carry
-  this check because presence-without-touch is invisible to a diff.
+The five postures the scan distinguishes:
+
+| Posture | Detection signal | BRIEF | PRD | DESIGN | PLAN |
+|---------|------------------|-------|-----|--------|------|
+| Multi-pr in-flight | multi-pr PLAN at Active | Accepted | Accepted or In Progress | Planned or Current | Active |
+| Multi-pr work-completing | multi-pr PLAN at Done, still present | Done | Done | Current | DELETED (fails until git rm) |
+| Multi-pr at-merge | multi-pr PLAN absent | Done | Done | Current | (absent) |
+| Single-pr mid-PR | single-pr PLAN at Draft | Accepted | Accepted | Planned or Current | Draft |
+| Single-pr at-merge | single-pr PLAN absent | Done | Done | Current | (absent) |
+
+L01 fires whenever a chain member's status differs from the
+passing state for the chain's posture. The two previous stateless
+checks (a present multi-pr doc at non-Active; a present single-pr
+PLAN at merge) are degenerate cases of L01 — both are "doc not at
+passing state for this chain's posture" with posture-specific error
+messages. A whole-tree scan is required because the model relates
+docs the PR does not touch to docs it does touch through the chain
+graph; a changed-files diff cannot see a doc the PR does not
+modify.
+
+The orphan-doc rule (an orphan BRIEF/PRD/DESIGN at its target state
+passes; an orphan at non-terminal status whose own `upstream:`
+points at an Active ROADMAP passes; every other orphan fails L02)
+is settled in
+`docs/decisions/DECISION-orphan-doc-passing-state-rule-2026-06-06.md`.
+The multi-pr posture-detection mechanism (read the PLAN's
+frontmatter `status:` field) is settled in
+`docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`.
+Additional `Lnn` codes cover orphan-rule violations (L02), upstream
+cycles (L03), missing chain members (L04), and defensive parsing
+fallbacks (L05).
 
 The existing changed-files validators keep running for content and
-frontmatter checks; the lifecycle gate is a separate concern that needs
-whole-tree visibility.
+frontmatter checks; the lifecycle gate is a separate concern that
+needs whole-tree visibility.
 
 **R18: Verified deletion is a human act CI never performs but demands
-indirectly.** CI never performs the deletion of a completed multi-pr doc.
-But it does demand the deletion indirectly: once the doc is Done, Check A
-fails while it is present, forcing the author to include the deletion in
-that same PR. This parallels Check B for single-pr plans (fail-while-
-present), making the two doc modes symmetric — a multi-pr doc at Done and
-a single-pr plan are both ephemeral and both CI-forced-absent at merge.
-The verification of the delivered work remains the human's act (CI cannot
-judge it); CI's role is to make the resulting deletion non-optional by
-failing any present non-Active (Done or Draft) multi-pr doc.
+indirectly.** CI never performs the deletion of a completed multi-pr
+doc. But it does demand the deletion indirectly: the moment the
+author transitions the PLAN to Done, L01 fires under the multi-pr
+work-completing posture (PLAN passing state is DELETED), forcing the
+author to include the deletion in that same PR. The same forcing
+function fails any present single-pr PLAN at chain-completion time
+under the single-pr at-merge posture. The two doc modes are
+symmetric — a multi-pr doc at Done and a single-pr plan are both
+ephemeral and both CI-forced-absent at merge. The verification of
+the delivered work remains the human's act (CI cannot judge it);
+CI's role is to make the resulting deletion non-optional by failing
+the chain-aware passing-state check whenever the PLAN is present in
+a posture whose passing state is DELETED.
 
 ### Non-Functional Requirements
 

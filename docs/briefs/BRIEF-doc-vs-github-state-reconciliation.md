@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   A shirabe plan or roadmap can be perfectly self-consistent -- the table
   strikethrough agrees with the diagram class, the Legend agrees with the
@@ -24,7 +24,7 @@ outcome: |
 
 ## Status
 
-Accepted
+Done
 
 ## Problem Statement
 
