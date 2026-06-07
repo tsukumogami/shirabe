@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 upstream: docs/plans/PLAN-roadmap-plan-standardization.md
 problem: |
   shirabe's validator treats single-pr and multi-pr plans identically. The Plan
@@ -21,12 +21,12 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
-Phase 4 jury returned all-PASS. Awaiting Phase 5 explicit approval for the
-Draft -> Accepted transition. The downstream PRD will pick up the framing
-captured here and translate the acceptance-criteria set from the upstream
-issue into formal requirements.
+Phase 4 jury returned all-PASS; Phase 5 approval recorded under the parent
+`/scope --auto` chain. The downstream PRD picks up the framing captured here
+and translates the acceptance-criteria set from the upstream issue into formal
+requirements.
 
 ## Problem Statement
 
