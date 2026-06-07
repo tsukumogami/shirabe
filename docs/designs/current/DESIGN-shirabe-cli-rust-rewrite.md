@@ -1,5 +1,5 @@
 ---
-status: Planned
+status: Current
 problem: |
   shirabe's deterministic surface (`shirabe validate` CLI, the line-number-aware
   YAML frontmatter parser, the ten validation rules, the GHA annotation
@@ -39,7 +39,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
