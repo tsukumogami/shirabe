@@ -26,6 +26,10 @@ goals: |
   1 paragraph: what success looks like at a high level.
 upstream: docs/roadmaps/ROADMAP-<name>.md  # optional
 source_issue: 123  # optional, GitHub issue number that triggered this PRD
+motivating_context: |                       # optional
+  1 paragraph: why this PRD exists -- the situation or signal
+  that triggered it. Distinct from `problem` (the gap) and from
+  `goals` (the success shape).
 ---
 ```
 
@@ -34,7 +38,12 @@ parent artifact when this PRD is part of a larger effort; for cross-repo
 upstream references and the visibility-direction rules, see
 `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` -- Phase 3
 step 3.1 validates this value),
-`source_issue` (GitHub issue number that triggered this PRD). Each
+`source_issue` (GitHub issue number that triggered this PRD; for a
+public PRD, only public issue numbers belong here -- private repos'
+issue numbers stay out of public PRD frontmatter),
+`motivating_context` (1 paragraph naming the situation or signal
+that triggered the PRD; reach for it when `problem` alone does not
+convey why the PRD is being written now). Each
 field should be 1 paragraph using YAML literal block scalars (`|`). Frontmatter
 status must match the Status section in the body -- agent workflows parse
 frontmatter to determine lifecycle state, so divergence causes silent errors.
@@ -74,7 +83,10 @@ Include when relevant:
   during drafting. Each entry captures what was decided, what alternatives
   existed, and why the chosen option won. Gives downstream consumers (design
   docs, plans) the reasoning behind requirements so they don't re-litigate
-  settled questions.
+  settled questions. **This section is also the conventional closure
+  surface for an upstream BRIEF's Open Questions section** -- each
+  deferred-to-PRD question lands as a recorded decision (or as an
+  acknowledged remaining unknown) under Decisions and Trade-offs.
 - **Downstream Artifacts** -- added when downstream work starts. Links to design
   docs, plans, issues, or PRs that implement this PRD.
 
@@ -85,7 +97,19 @@ A PRD does NOT contain:
 - Implementation approach or task breakdown (that's a plan)
 - Code examples or API specifications (that's a design doc)
 - Security analysis (that's a design doc)
-- Competitive analysis (that's a separate artifact)
+- Competitive analysis **as an artifact type** (that's a separate
+  COMP artifact, private-only -- the structured market survey,
+  competitor inventory, and comparative matrix belong in a
+  COMP-*.md doc, not a PRD)
+
+A PRD MAY briefly cite **competitive findings** (one or two
+sentences) where they motivate a goal or constrain a requirement
+-- e.g. "competitor X ships feature Y, which sets a floor on
+discoverability". The distinction is altitude: a citation that
+informs the WHAT belongs in the PRD; the structured analysis that
+produces the citation belongs in a COMP. Public PRDs may cite
+public findings; private competitive content stays in private
+COMP docs.
 
 If you find yourself writing "how" instead of "what," the content probably
 belongs in a downstream design doc.

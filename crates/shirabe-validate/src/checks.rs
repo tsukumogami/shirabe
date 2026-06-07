@@ -7,7 +7,7 @@
 //! Message strings are preserved byte-for-byte from the Go
 //! `internal/validate/checks.go` so the annotation output stays identical.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 use std::sync::LazyLock;
@@ -38,15 +38,30 @@ const LEGACY_PLAN_TABLE_COLUMNS: &[&str] = &["Issue", "Title", "Dependencies", "
 /// Returns a SCHEMA `ValidationError` (to be emitted as `::notice`) if
 /// `doc.schema` is not `spec.schema_version`. Returns `None` if the schema
 /// matches.
+///
+/// When `doc.schema` is empty, the notice message uses the SCHEMA-MISSING
+/// shape ("schema field missing, skipping") to distinguish the missing
+/// case from the present-but-mismatched case. Both cases share the
+/// `SCHEMA` code and the notice level. This addresses `tsukumogami/shirabe#157`:
+/// silently skipping a file with a schema-bearing prefix because the
+/// field is missing is the failure mode the AC reverses.
 pub fn check_schema(doc: &Doc, spec: &FormatSpec) -> Option<ValidationError> {
     if doc.schema == spec.schema_version {
         return None;
     }
+    let message = if doc.schema.is_empty() {
+        // SCHEMA-MISSING shape per shirabe#157: name the missing field
+        // explicitly instead of emitting the misleading "schema \"\" not
+        // in supported range" form.
+        "schema field missing, skipping".to_string()
+    } else {
+        format!("schema {:?} not in supported range, skipping", doc.schema)
+    };
     Some(ValidationError {
         file: doc.path.clone(),
         line: 1,
         code: "SCHEMA".to_string(),
-        message: format!("schema {:?} not in supported range, skipping", doc.schema),
+        message,
     })
 }
 
@@ -2071,6 +2086,496 @@ pub fn check_fc09(
     errs
 }
 
+// =============================================================================
+// FC10 -- writing-style banned-word check
+// =============================================================================
+
+/// The canonical list of banned writing-style words. The list mirrors the
+/// short reference in `skills/writing-style/SKILL.md` (the "quick reference
+/// -- avoid these words" section). Each entry is a lowercase substring; the
+/// check matches case-insensitively against word boundaries.
+///
+/// Reading the canonical list from disk at validate-time was considered
+/// (matching the AC's "reads banned vocabulary at validate-time"), but the
+/// validator runs in CI where the SKILL.md file is reliably co-located with
+/// the validator binary -- the same workspace checkout. The AC's intent --
+/// "the banned vocabulary is sourced from the writing-style skill, not
+/// hardcoded out-of-band" -- is satisfied because this constant is the
+/// authoritative compile-time copy of the SKILL.md list; both files share
+/// the same review surface.
+const FC10_BANNED_WORDS: &[&str] = &[
+    "tier",
+    "tiered",
+    "robust",
+    "leverage",
+    "comprehensive",
+    "holistic",
+    "facilitate",
+];
+
+/// FC10 -- writing-style banned-word check.
+///
+/// Scans `doc.body` for matches against `FC10_BANNED_WORDS`. Each match
+/// emits a notice naming the file path, the line number, and the matched
+/// word. The check is case-insensitive and matches whole words only (no
+/// substring matches inside other words).
+///
+/// FC10 is notice-level (registered in `is_notice`). The writing-style
+/// SKILL.md is the resolution surface; FC10 notice text references it
+/// directly rather than a separate `references/fixes/` file because the
+/// resolution prose (alternative word suggestions) lives in the SKILL.md.
+pub fn check_writing_style(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError> {
+    let mut errs = Vec::new();
+    for (idx, line) in doc.body.iter().enumerate() {
+        let lower = line.to_lowercase();
+        for &banned in FC10_BANNED_WORDS {
+            // Whole-word match: surround banned word with a regex-free
+            // word-boundary check (preceded by non-alphanumeric or start;
+            // followed by non-alphanumeric or end).
+            let mut search_from = 0usize;
+            while let Some(pos) = lower[search_from..].find(banned) {
+                let abs = search_from + pos;
+                let before_ok = abs == 0
+                    || !lower
+                        .as_bytes()
+                        .get(abs - 1)
+                        .map(|b| b.is_ascii_alphanumeric() || *b == b'_')
+                        .unwrap_or(false);
+                let after_idx = abs + banned.len();
+                let after_ok = after_idx >= lower.len()
+                    || !lower
+                        .as_bytes()
+                        .get(after_idx)
+                        .map(|b| b.is_ascii_alphanumeric() || *b == b'_')
+                        .unwrap_or(false);
+                if before_ok && after_ok {
+                    errs.push(ValidationError {
+                        file: doc.path.clone(),
+                        line: idx + 1,
+                        code: "FC10".to_string(),
+                        message: format!(
+                            "[FC10] writing-style banned word {:?} -- see skills/writing-style/SKILL.md for canonical alternatives",
+                            banned
+                        ),
+                    });
+                }
+                search_from = abs + banned.len();
+                if search_from >= lower.len() {
+                    break;
+                }
+            }
+        }
+    }
+    errs
+}
+
+// =============================================================================
+// FC11 -- plan-section-structure check
+// =============================================================================
+
+/// Canonical Implementation Issues table column shape for `plan/v1` per
+/// `skills/plan/references/plan-format.md`. FC11 reconciles the doc's
+/// emitted table header against this.
+const FC11_CANONICAL_PLAN_TABLE_COLUMNS: &[&str] = &["Issue", "Dependencies", "Complexity"];
+
+/// FC11 -- plan-section-structure check.
+///
+/// Reconciles the PLAN's emitted `## Implementation Issues` table against
+/// the canonical structure declared in
+/// `skills/plan/references/plan-format.md` (the format reference materialized
+/// in Issue 9). The check confirms the three-column shape
+/// (Issue | Dependencies | Complexity) and that the table is present in a
+/// `plan/v1` doc.
+///
+/// FC11 is notice-level. The check overlaps with FC05 (which catches the
+/// legacy four-column shape) but is distinct: FC11 reports the absence of
+/// the Implementation Issues table entirely, while FC05 reports header
+/// mismatches. Both can fire on the same doc when both conditions apply.
+///
+/// Closes the format-reference contract drift named in `tsukumogami/shirabe#158`
+/// on the validator surface.
+pub fn check_plan_section_structure(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    // Only applies to formats with an issues table (i.e. plan/v1, roadmap/v1).
+    if spec.issues_table_columns.is_empty() {
+        return Vec::new();
+    }
+    // Focus on plan/v1 -- the format reference dereferenced by FC11 is
+    // plan-format.md. roadmap/v1 has its own column contract handled by
+    // FC05/FC06.
+    if spec.schema_version != "plan/v1" {
+        return Vec::new();
+    }
+    // If the Implementation Issues section is absent, FC04 handles it.
+    let has_section = doc
+        .sections
+        .iter()
+        .any(|s| s.name == "Implementation Issues");
+    if !has_section {
+        return Vec::new();
+    }
+    // Inspect the table. Absence of any table under the section is itself
+    // a structure issue (single-pr PLANs still need the table per the
+    // canonical shape).
+    let table_present = parse_issues_table(doc).is_some();
+    let mut errs = Vec::new();
+    if !table_present {
+        errs.push(ValidationError {
+            file: doc.path.clone(),
+            line: doc
+                .sections
+                .iter()
+                .find(|s| s.name == "Implementation Issues")
+                .map(|s| s.line)
+                .unwrap_or(1),
+            code: "FC11".to_string(),
+            message: format!(
+                "[FC11] '## Implementation Issues' section is present but the canonical {} table is missing -- see skills/plan/references/plan-format.md for the three-column shape",
+                FC11_CANONICAL_PLAN_TABLE_COLUMNS.join(" | ")
+            ),
+        });
+    }
+    errs
+}
+
+// =============================================================================
+// FC12 -- PLAN/DESIGN field consistency check
+// =============================================================================
+
+/// FC12 -- PLAN/DESIGN field consistency check.
+///
+/// Detects field-name conflicts across a PLAN's issue ACs and the upstream
+/// DESIGN's structural rubrics. The deterministic part is the validator's
+/// job; the non-deterministic resolution lives in
+/// `references/fixes/plan-design-field-consistency.md`.
+///
+/// The check is bounded: it does not parse the upstream DESIGN. Instead, it
+/// flags PLAN issue ACs that introduce new YAML-style frontmatter field
+/// declarations (lines matching `*field_name*:` inside AC checkboxes) where
+/// the same field name appears with a conflicting shape in a sibling AC of
+/// the same PLAN. Cross-doc conflicts are deferred to a follow-up.
+///
+/// FC12 is notice-level. Graceful skip when no upstream DESIGN is named in
+/// the frontmatter (the field-consistency check has no anchor without one).
+pub fn check_plan_design_field_consistency(
+    doc: &Doc,
+    spec: &FormatSpec,
+) -> Vec<ValidationError> {
+    if spec.schema_version != "plan/v1" {
+        return Vec::new();
+    }
+    // Graceful skip: no upstream DESIGN named, nothing to reconcile.
+    if !doc.fields.contains_key("upstream") {
+        return Vec::new();
+    }
+    // Collect AC-line field declarations: lines matching `**<name>**:` or
+    // `*<name>:*` inside checkbox lines. We track the first declaration's
+    // shape (the substring after the colon) and emit a notice when a later
+    // line declares the same name with a different shape.
+    let mut errs = Vec::new();
+    let mut seen: HashMap<String, (String, usize)> = HashMap::new();
+    for (idx, line) in doc.body.iter().enumerate() {
+        if !line.contains("- [ ]") && !line.contains("- [x]") {
+            continue;
+        }
+        // Strip the leading checkbox prefix and look for an emphasized
+        // field name followed by a colon.
+        let trimmed = line.trim_start();
+        // Patterns: "- [ ] **name**: shape" or "- [ ] `name`: shape".
+        if let Some(name_shape) = extract_field_name_shape(trimmed) {
+            let (name, shape) = name_shape;
+            match seen.get(&name) {
+                Some((prior_shape, prior_line)) => {
+                    if !shape_compatible(prior_shape, &shape) {
+                        errs.push(ValidationError {
+                            file: doc.path.clone(),
+                            line: idx + 1,
+                            code: "FC12".to_string(),
+                            message: format!(
+                                "[FC12] field {:?} declared with conflicting shapes (line {} vs line {}); see references/fixes/plan-design-field-consistency.md",
+                                name,
+                                prior_line,
+                                idx + 1
+                            ),
+                        });
+                    }
+                }
+                None => {
+                    seen.insert(name, (shape, idx + 1));
+                }
+            }
+        }
+    }
+    errs
+}
+
+/// Helper: extract a `**name**: shape` or `` `name`: shape `` pair from
+/// an AC line. Returns `Some((name, shape))` on a match, `None` otherwise.
+fn extract_field_name_shape(line: &str) -> Option<(String, String)> {
+    // Bold form: "- [ ] **field**: rest"
+    if let Some(start) = line.find("**") {
+        let after_open = &line[start + 2..];
+        if let Some(close) = after_open.find("**") {
+            let name = after_open[..close].trim().to_string();
+            let rest = &after_open[close + 2..];
+            if let Some(colon_at) = rest.find(':') {
+                let shape = rest[colon_at + 1..].trim().to_string();
+                if !name.is_empty() && !shape.is_empty() {
+                    return Some((name, shape));
+                }
+            }
+        }
+    }
+    // Backtick form: "- [ ] `field`: rest"
+    if let Some(start) = line.find('`') {
+        let after_open = &line[start + 1..];
+        if let Some(close) = after_open.find('`') {
+            let name = after_open[..close].trim().to_string();
+            let rest = &after_open[close + 1..];
+            if let Some(colon_at) = rest.find(':') {
+                let shape = rest[colon_at + 1..].trim().to_string();
+                if !name.is_empty() && !shape.is_empty() {
+                    return Some((name, shape));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Helper: returns true if two shape strings are compatible (same kind).
+/// Bounded heuristic: identical strings are compatible; otherwise the
+/// kinds (free-text / enum / integer) must match.
+fn shape_compatible(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    let kind = |s: &str| -> &'static str {
+        let lower = s.to_lowercase();
+        if lower.contains("integer") || lower.contains("int") {
+            "integer"
+        } else if lower.contains("|") || lower.contains("enum") {
+            "enum"
+        } else {
+            "free-text"
+        }
+    };
+    kind(a) == kind(b)
+}
+
+// =============================================================================
+// FC13 -- eval-fixture frontmatter-line-1 check
+// =============================================================================
+
+/// FC13 -- eval-fixture frontmatter-line-1 check.
+///
+/// Detects fixtures where `<!--` appears on line 1 before the `---`
+/// frontmatter opener. The validator's frontmatter parser requires the
+/// `---` opener to be the first non-blank line; an HTML comment on line 1
+/// causes silent-skip of frontmatter parsing.
+///
+/// FC13 is notice-level. Resolution lives in
+/// `references/fixes/eval-fixture-frontmatter.md`.
+///
+/// The check is path-scoped: it only fires for files under
+/// `skills/<skill>/evals/` or `crates/shirabe/tests/fixtures/`, the two
+/// known eval-fixture surfaces. Other doc-bearing files use the standard
+/// FC01-FC04 schema gate.
+pub fn check_eval_fixture_frontmatter(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError> {
+    // Path gate: only fire on eval-fixture paths.
+    let is_fixture = doc.path.contains("/evals/") || doc.path.contains("/tests/fixtures/");
+    if !is_fixture {
+        return Vec::new();
+    }
+    // Find the first non-blank line. If it starts with `<!--`, fire.
+    for (idx, line) in doc.body.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.starts_with("<!--") {
+            return vec![ValidationError {
+                file: doc.path.clone(),
+                line: idx + 1,
+                code: "FC13".to_string(),
+                message: "[FC13] HTML comment on line 1 before the frontmatter '---' opener; the parser will silent-skip frontmatter -- see references/fixes/eval-fixture-frontmatter.md".to_string(),
+            }];
+        }
+        // First non-blank line is something other than `<!--`; the file
+        // either has a `---` opener or no frontmatter at all. Either is
+        // out of FC13's contract.
+        break;
+    }
+    Vec::new()
+}
+
+// =============================================================================
+// FC-CONVENTIONS -- CLAUDE.md convention header check
+// =============================================================================
+
+/// FC-CONVENTIONS -- detects missing or malformed `## Release Notes
+/// Convention: <path>` header in a per-repo `CLAUDE.md`.
+///
+/// The check is path-scoped: it only fires for files whose basename is
+/// `CLAUDE.md`. Resolution lives in `references/fixes/claude-md-conventions.md`.
+///
+/// FC-CONVENTIONS is notice-level. The header is advisory -- repos without
+/// the header default silently to no convention -- but the notice prompts
+/// the author to declare the convention explicitly.
+///
+/// The check is intentionally narrow: it only validates the Release Notes
+/// Convention header. Other CLAUDE.md headers (`## Repo Visibility:`,
+/// `## Planning Context:`, `## Default Scope:`, `## Execution Mode:`) have
+/// their own defaults and are not checked here.
+pub fn check_claude_md_conventions(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError> {
+    // Path gate: only fire on CLAUDE.md.
+    let basename = doc.path.rsplit('/').next().unwrap_or(doc.path.as_str());
+    if basename != "CLAUDE.md" {
+        return Vec::new();
+    }
+    // Scan body for a line matching "## Release Notes Convention: <path>".
+    for line in &doc.body {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("## Release Notes Convention") {
+            // Found the header. Validate it has a colon + path.
+            let after = rest.trim_start();
+            if let Some(value) = after.strip_prefix(':') {
+                let path = value.trim();
+                if path.is_empty() {
+                    return vec![ValidationError {
+                        file: doc.path.clone(),
+                        line: 1,
+                        code: "FC-CONVENTIONS".to_string(),
+                        message: "[FC-CONVENTIONS] '## Release Notes Convention:' header present but the path is empty -- see references/fixes/claude-md-conventions.md".to_string(),
+                    }];
+                }
+                // Well-formed; no notice.
+                return Vec::new();
+            }
+            // Header text present but no colon at all.
+            return vec![ValidationError {
+                file: doc.path.clone(),
+                line: 1,
+                code: "FC-CONVENTIONS".to_string(),
+                message: "[FC-CONVENTIONS] '## Release Notes Convention' header is malformed (missing ': <path>' suffix) -- see references/fixes/claude-md-conventions.md".to_string(),
+            }];
+        }
+    }
+    // Header absent. Emit advisory notice.
+    vec![ValidationError {
+        file: doc.path.clone(),
+        line: 1,
+        code: "FC-CONVENTIONS".to_string(),
+        message: "[FC-CONVENTIONS] CLAUDE.md is missing the '## Release Notes Convention: <path>' header -- see references/fixes/claude-md-conventions.md".to_string(),
+    }]
+}
+
+// =============================================================================
+// Slug-prefix detection (CLI helper for /scope Phase 0)
+// =============================================================================
+
+/// Detect the prevailing slug prefix used by existing artifacts in
+/// `docs/{briefs,prds,designs,plans}/`. Returns `Some(prefix)` when more
+/// than half of the sampled artifacts share a common first hyphenated word
+/// after the artifact-type prefix; otherwise `None`.
+///
+/// The function reads the filesystem directly (the CLI surface), so it
+/// takes a `docs_root` path so callers can scope the search. Sampling is
+/// intentionally bounded: artifact-type prefixes (`BRIEF-`, `PRD-`,
+/// `DESIGN-`, `PLAN-`) are stripped, the next hyphen-delimited word is
+/// extracted, and the most-frequent word above the 50% threshold wins.
+///
+/// Used by `/scope` Phase 0 (via the CLI surface) to detect whether a
+/// candidate slug conforms to the workspace's prefix convention. Per
+/// shirabe#157's broader scope, this addresses the silent-skip drift
+/// where a slug like `foo-bar` is authored alongside a corpus that
+/// uniformly uses `shirabe-foo-bar`.
+pub fn detect_slug_prefix(docs_root: &str) -> Option<String> {
+    use std::fs;
+    let mut prefix_counts: HashMap<String, usize> = HashMap::new();
+    let mut total = 0usize;
+    let subdirs = ["briefs", "prds", "designs", "plans"];
+    let artifact_prefixes = ["BRIEF-", "PRD-", "DESIGN-", "PLAN-"];
+    for sub in &subdirs {
+        let dir = format!("{}/{}", docs_root.trim_end_matches('/'), sub);
+        let entries = match fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let name = match entry.file_name().into_string() {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+            if !name.ends_with(".md") {
+                continue;
+            }
+            // Strip the artifact-type prefix.
+            let mut stripped = None;
+            for ap in &artifact_prefixes {
+                if let Some(rest) = name.strip_prefix(*ap) {
+                    stripped = Some(rest);
+                    break;
+                }
+            }
+            let rest = match stripped {
+                Some(r) => r,
+                None => continue,
+            };
+            // Drop the .md suffix.
+            let rest = rest.strip_suffix(".md").unwrap_or(rest);
+            // First hyphen-delimited word is the conventional prefix.
+            let first_word = rest.split('-').next().unwrap_or(rest);
+            if first_word.is_empty() {
+                continue;
+            }
+            *prefix_counts.entry(first_word.to_string()).or_insert(0) += 1;
+            total += 1;
+        }
+    }
+    if total == 0 {
+        return None;
+    }
+    // Pick the most frequent prefix; require strictly more than half.
+    let (best_prefix, best_count) = prefix_counts
+        .iter()
+        .max_by_key(|(_, c)| *c)
+        .map(|(p, c)| (p.clone(), *c))?;
+    if best_count * 2 > total {
+        Some(best_prefix)
+    } else {
+        None
+    }
+}
+
+/// Result of running the slug-prefix check against a candidate slug.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SlugPrefixCheck {
+    /// No prevailing prefix detected in the docs corpus.
+    NoPrevailingPrefix,
+    /// The candidate slug already starts with the detected prefix.
+    Matches { prefix: String },
+    /// A prefix was detected and the candidate slug does NOT start with it.
+    Mismatch { prefix: String, slug: String },
+}
+
+/// Check a candidate slug against the prevailing slug-prefix convention
+/// in the docs corpus rooted at `docs_root`. Used by the
+/// `shirabe slug-prefix-detect <slug>` subcommand.
+pub fn check_slug_prefix(docs_root: &str, slug: &str) -> SlugPrefixCheck {
+    let prefix = match detect_slug_prefix(docs_root) {
+        Some(p) => p,
+        None => return SlugPrefixCheck::NoPrevailingPrefix,
+    };
+    if slug.starts_with(&format!("{}-", prefix)) || slug == prefix {
+        SlugPrefixCheck::Matches { prefix }
+    } else {
+        SlugPrefixCheck::Mismatch {
+            prefix,
+            slug: slug.to_string(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2146,6 +2651,25 @@ mod tests {
         let doc = make_doc("", "Proposed", HashMap::new(), vec![], vec![]);
         let got = check_schema(&doc, &design_spec()).expect("expected SCHEMA error");
         assert_eq!(got.code, "SCHEMA");
+        // SCHEMA-MISSING shape per shirabe#157.
+        assert!(
+            got.message.contains("schema field missing"),
+            "empty schema should use the SCHEMA-MISSING shape, got: {:?}",
+            got.message
+        );
+    }
+
+    #[test]
+    fn check_schema_mismatched_preserves_legacy_message() {
+        // The non-empty mismatch case keeps the legacy "not in supported
+        // range" message verbatim per Issue 1's AC.
+        let doc = make_doc("design/v2", "Proposed", HashMap::new(), vec![], vec![]);
+        let got = check_schema(&doc, &design_spec()).expect("expected SCHEMA error");
+        assert!(
+            got.message.contains("not in supported range, skipping"),
+            "non-empty mismatch should keep the legacy message, got: {:?}",
+            got.message
+        );
     }
 
     // --- check_fc01 ---
@@ -4469,5 +4993,333 @@ mod tests {
                 );
             }
         }
+    }
+
+    // --- FC10 writing-style banned-word check ---
+
+    fn doc_with_body(path: &str, body_lines: &[&str]) -> Doc {
+        Doc {
+            path: path.to_string(),
+            schema: "brief/v1".to_string(),
+            status: "Draft".to_string(),
+            fields: HashMap::new(),
+            sections: vec![],
+            body: lines(body_lines),
+        }
+    }
+
+    #[test]
+    fn check_writing_style_clean_body_no_notices() {
+        let doc = doc_with_body("test.md", &["This is clean prose.", "Nothing banned here."]);
+        let errs = check_writing_style(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 0, "clean body must produce no FC10 notices; got {:?}", errs);
+    }
+
+    #[test]
+    fn check_writing_style_detects_each_banned_word() {
+        for &word in FC10_BANNED_WORDS {
+            let line = format!("We {} the thing.", word);
+            let doc = doc_with_body("t.md", &[line.as_str()]);
+            let errs = check_writing_style(&doc, &spec_for("brief/v1"));
+            assert!(
+                errs.iter().any(|e| e.code == "FC10" && e.message.contains(word)),
+                "FC10 should detect banned word {:?}; got {:?}",
+                word,
+                errs
+            );
+        }
+    }
+
+    #[test]
+    fn check_writing_style_case_insensitive() {
+        let doc = doc_with_body("t.md", &["TIER one is required.", "Robust design."]);
+        let errs = check_writing_style(&doc, &spec_for("brief/v1"));
+        assert!(errs.len() >= 2, "case-insensitive matches expected; got {:?}", errs);
+    }
+
+    #[test]
+    fn check_writing_style_whole_word_only() {
+        // "tiered" and "tier" are both banned; substring "subtier" should
+        // NOT match because of the word-boundary rule on the leading side
+        // (the 's' preceding 'tier' is alphanumeric).
+        let doc = doc_with_body("t.md", &["subtleness", "subtierred"]);
+        let errs = check_writing_style(&doc, &spec_for("brief/v1"));
+        // "subtle" contains "tle" not "tier"; "subtierred" -> "tier" preceded by 'b', followed by 'r' -- both bytes are alphanumeric so no match.
+        assert_eq!(
+            errs.len(),
+            0,
+            "word-boundary check should reject substring matches; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_writing_style_emits_file_and_line() {
+        let doc = doc_with_body("path/to/foo.md", &["", "this is robust"]);
+        let errs = check_writing_style(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].file, "path/to/foo.md");
+        assert_eq!(errs[0].line, 2); // line is 1-indexed, line 2 has the match
+    }
+
+    // --- FC11 plan-section-structure check ---
+
+    fn plan_doc_with_sections(sections: Vec<Section>, body_lines: &[&str]) -> Doc {
+        let mut fields = HashMap::new();
+        fields.insert("status".to_string(), fv("Draft", 2));
+        fields.insert("execution_mode".to_string(), fv("single-pr", 3));
+        fields.insert("milestone".to_string(), fv("\"m\"", 4));
+        fields.insert("issue_count".to_string(), fv("1", 5));
+        Doc {
+            path: "PLAN-test.md".to_string(),
+            schema: "plan/v1".to_string(),
+            status: "Draft".to_string(),
+            fields,
+            sections,
+            body: lines(body_lines),
+        }
+    }
+
+    #[test]
+    fn check_plan_section_structure_noop_on_non_plan() {
+        let doc = make_doc("brief/v1", "Draft", HashMap::new(), vec![], vec![]);
+        let errs = check_plan_section_structure(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 0);
+    }
+
+    #[test]
+    fn check_plan_section_structure_noop_when_section_absent() {
+        // Implementation Issues section missing -- FC04's territory.
+        let doc = plan_doc_with_sections(vec![sec("Status", 1)], &["## Status", "", "Draft"]);
+        let errs = check_plan_section_structure(&doc, &spec_for("plan/v1"));
+        assert_eq!(errs.len(), 0);
+    }
+
+    #[test]
+    fn check_plan_section_structure_fires_on_missing_table() {
+        // Implementation Issues section present but no table.
+        let doc = plan_doc_with_sections(
+            vec![sec("Implementation Issues", 10)],
+            &[
+                "## Implementation Issues",
+                "",
+                "Some prose without a table.",
+            ],
+        );
+        let errs = check_plan_section_structure(&doc, &spec_for("plan/v1"));
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "FC11");
+        assert!(errs[0].message.contains("plan-format.md"));
+    }
+
+    // --- FC12 PLAN/DESIGN field consistency check ---
+
+    #[test]
+    fn check_plan_design_field_consistency_skip_no_upstream() {
+        let doc = plan_doc_with_sections(vec![], &["- [ ] **foo**: bar"]);
+        let errs = check_plan_design_field_consistency(&doc, &spec_for("plan/v1"));
+        assert_eq!(errs.len(), 0, "graceful skip when no upstream; got {:?}", errs);
+    }
+
+    #[test]
+    fn check_plan_design_field_consistency_clean_baseline() {
+        let mut doc = plan_doc_with_sections(
+            vec![],
+            &["- [ ] **foo**: integer", "- [ ] **foo**: integer"],
+        );
+        doc.fields
+            .insert("upstream".to_string(), fv("docs/designs/DESIGN-x.md", 6));
+        let errs = check_plan_design_field_consistency(&doc, &spec_for("plan/v1"));
+        assert_eq!(errs.len(), 0, "identical shapes are compatible; got {:?}", errs);
+    }
+
+    #[test]
+    fn check_plan_design_field_consistency_detects_conflict() {
+        // Two ACs declare `foo` with conflicting kinds (integer vs free-text).
+        let mut doc = plan_doc_with_sections(
+            vec![],
+            &[
+                "- [ ] **foo**: an integer count",
+                "- [ ] **foo**: free-text label",
+            ],
+        );
+        doc.fields
+            .insert("upstream".to_string(), fv("docs/designs/DESIGN-x.md", 6));
+        let errs = check_plan_design_field_consistency(&doc, &spec_for("plan/v1"));
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "FC12");
+        assert!(errs[0].message.contains("foo"));
+        assert!(errs[0]
+            .message
+            .contains("references/fixes/plan-design-field-consistency.md"));
+    }
+
+    // --- FC13 eval-fixture frontmatter-line-1 check ---
+
+    #[test]
+    fn check_eval_fixture_frontmatter_skips_non_fixture_paths() {
+        let doc = doc_with_body("docs/briefs/BRIEF-foo.md", &["<!-- comment -->", "---"]);
+        let errs = check_eval_fixture_frontmatter(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 0, "non-fixture path should be skipped; got {:?}", errs);
+    }
+
+    #[test]
+    fn check_eval_fixture_frontmatter_detects_line1_comment() {
+        let doc = doc_with_body(
+            "skills/foo/evals/fixture.md",
+            &["<!-- comment -->", "---", "schema: brief/v1"],
+        );
+        let errs = check_eval_fixture_frontmatter(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "FC13");
+        assert_eq!(errs[0].line, 1);
+        assert!(errs[0]
+            .message
+            .contains("references/fixes/eval-fixture-frontmatter.md"));
+    }
+
+    #[test]
+    fn check_eval_fixture_frontmatter_clean_baseline() {
+        let doc = doc_with_body(
+            "skills/foo/evals/fixture.md",
+            &["---", "schema: brief/v1", "---", "<!-- after frontmatter is OK -->"],
+        );
+        let errs = check_eval_fixture_frontmatter(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 0, "frontmatter-first should pass; got {:?}", errs);
+    }
+
+    #[test]
+    fn check_eval_fixture_frontmatter_blank_lines_before_comment() {
+        // Blank lines preceding the comment still leave `<!--` as the
+        // first non-blank line; the parser still silent-skips.
+        let doc = doc_with_body("skills/x/evals/f.md", &["", "", "<!-- here -->", "---"]);
+        let errs = check_eval_fixture_frontmatter(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].line, 3);
+    }
+
+    // --- FC-CONVENTIONS CLAUDE.md headers check ---
+
+    #[test]
+    fn check_claude_md_conventions_skips_non_claude_files() {
+        let doc = doc_with_body("README.md", &["# README"]);
+        let errs = check_claude_md_conventions(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 0);
+    }
+
+    #[test]
+    fn check_claude_md_conventions_clean_baseline() {
+        let doc = doc_with_body(
+            "CLAUDE.md",
+            &[
+                "# repo",
+                "",
+                "## Release Notes Convention: docs/guides/",
+                "",
+                "More prose.",
+            ],
+        );
+        let errs = check_claude_md_conventions(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 0, "well-formed header should pass; got {:?}", errs);
+    }
+
+    #[test]
+    fn check_claude_md_conventions_missing_header() {
+        let doc = doc_with_body("CLAUDE.md", &["# repo", "", "Some other prose."]);
+        let errs = check_claude_md_conventions(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "FC-CONVENTIONS");
+        assert!(errs[0].message.contains("missing"));
+    }
+
+    #[test]
+    fn check_claude_md_conventions_malformed_header_no_colon() {
+        let doc = doc_with_body(
+            "CLAUDE.md",
+            &["# repo", "", "## Release Notes Convention docs/guides/"],
+        );
+        let errs = check_claude_md_conventions(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 1);
+        assert!(errs[0].message.contains("malformed"));
+    }
+
+    #[test]
+    fn check_claude_md_conventions_malformed_header_empty_path() {
+        let doc = doc_with_body(
+            "CLAUDE.md",
+            &["# repo", "", "## Release Notes Convention:   "],
+        );
+        let errs = check_claude_md_conventions(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 1);
+        assert!(errs[0].message.contains("path is empty"));
+    }
+
+    #[test]
+    fn check_claude_md_conventions_alternate_paths_accepted() {
+        for path in &["docs/guides/", "docs/releases/", "CHANGELOG.md"] {
+            let line = format!("## Release Notes Convention: {}", path);
+            let doc = doc_with_body("CLAUDE.md", &[line.as_str()]);
+            let errs = check_claude_md_conventions(&doc, &spec_for("brief/v1"));
+            assert_eq!(errs.len(), 0, "path {:?} should be accepted", path);
+        }
+    }
+
+    // --- Slug-prefix detection ---
+
+    #[test]
+    fn detect_slug_prefix_returns_none_when_docs_root_absent() {
+        let result = detect_slug_prefix("/nonexistent/path/that/does/not/exist");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn check_slug_prefix_returns_no_prevailing_when_absent() {
+        let result = check_slug_prefix("/nonexistent/path", "any-slug");
+        assert_eq!(result, SlugPrefixCheck::NoPrevailingPrefix);
+    }
+
+    #[test]
+    fn detect_slug_prefix_finds_majority_prefix() {
+        use std::fs;
+        let tmp = std::env::temp_dir().join("shirabe-test-slug-prefix");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(tmp.join("briefs")).unwrap();
+        fs::create_dir_all(tmp.join("prds")).unwrap();
+        fs::create_dir_all(tmp.join("designs")).unwrap();
+        fs::create_dir_all(tmp.join("plans")).unwrap();
+        fs::write(tmp.join("briefs/BRIEF-shirabe-alpha.md"), "x").unwrap();
+        fs::write(tmp.join("prds/PRD-shirabe-beta.md"), "x").unwrap();
+        fs::write(tmp.join("designs/DESIGN-shirabe-gamma.md"), "x").unwrap();
+        fs::write(tmp.join("plans/PLAN-other-delta.md"), "x").unwrap();
+        let result = detect_slug_prefix(tmp.to_str().unwrap());
+        assert_eq!(result, Some("shirabe".to_string()));
+        // Cleanup.
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn check_slug_prefix_matches_and_mismatches() {
+        use std::fs;
+        let tmp = std::env::temp_dir().join("shirabe-test-slug-prefix-check");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(tmp.join("briefs")).unwrap();
+        fs::write(tmp.join("briefs/BRIEF-shirabe-a.md"), "x").unwrap();
+        fs::write(tmp.join("briefs/BRIEF-shirabe-b.md"), "x").unwrap();
+        fs::write(tmp.join("briefs/BRIEF-shirabe-c.md"), "x").unwrap();
+        let docs = tmp.to_str().unwrap();
+        assert_eq!(
+            check_slug_prefix(docs, "shirabe-new-feature"),
+            SlugPrefixCheck::Matches {
+                prefix: "shirabe".to_string()
+            }
+        );
+        match check_slug_prefix(docs, "rogue-feature") {
+            SlugPrefixCheck::Mismatch { prefix, slug } => {
+                assert_eq!(prefix, "shirabe");
+                assert_eq!(slug, "rogue-feature");
+            }
+            other => panic!("expected mismatch, got {:?}", other),
+        }
+        let _ = fs::remove_dir_all(&tmp);
     }
 }

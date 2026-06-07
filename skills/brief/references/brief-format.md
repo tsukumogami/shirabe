@@ -29,10 +29,17 @@ outcome: |
   2-4 line summary of the outcome a user should experience. Same content
   the User Outcome section elaborates in prose.
 upstream: docs/roadmaps/ROADMAP-<parent>.md  # optional
+motivating_context: |                          # optional
+  Why this brief exists -- the situation, signal, or
+  conversation that triggered the framing. Distinct from `problem`
+  (the gap the feature solves) and from `outcome` (what's different
+  for the user). Reach for it when the problem statement alone
+  does not convey why the brief is being written now.
 ---
 ```
 
-Required fields: `status`, `problem`, `outcome`. Optional: `upstream`.
+Required fields: `status`, `problem`, `outcome`. Optional:
+`upstream`, `motivating_context`.
 
 - **schema** -- `brief/v1`. Pins the artifact-type contract. `schema`
   is the map key the validator routes on, not a checked field.
@@ -132,7 +139,10 @@ Include when relevant:
   unresolved questions the brief defers to the downstream PRD. Each
   question genuinely defers a framing detail, not a blocker that should
   stop the brief. Must be empty or removed before the Draft -> Accepted
-  transition.
+  transition. The canonical closure surface is **the downstream PRD's
+  Decisions and Trade-offs section** -- each open question resolves
+  into a recorded decision (or its absence is itself recorded as a
+  remaining unknown the PRD owns).
 - **Downstream Artifacts** -- typed link list of the PRD and design
   documents that pick up the brief. Each entry is a durable repo-
   relative path (not `wip/...`) plus a one-sentence description.
@@ -308,7 +318,12 @@ paragraph below it untouched.
 - Status is `Draft`
 - Open Questions section may contain unresolved items
 - No `private/` paths, private repos, private filenames, internal
-  codenames, or issue numbers (public-visibility cleanliness)
+  codenames, or private issue numbers (public-visibility
+  cleanliness). The qualifier "private" matters: public GitHub
+  issue numbers from the same repo are routinely cited and not in
+  scope of this restriction. Only issue numbers from private repos
+  (`tsukumogami/vision#NN`, `tsukumogami/coding-tools#NN`, etc.)
+  are forbidden in a public BRIEF.
 
 ### During /brief finalization (approval)
 

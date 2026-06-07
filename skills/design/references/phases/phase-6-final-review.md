@@ -20,7 +20,7 @@ If the design doc has YAML frontmatter with status "Proposed", skip to step 6.5
 
 ### 6.1 Launch Review Agents
 
-Launch two review agents in parallel using the Agent tool with `run_in_background: true`.
+Launch three review agents in parallel using the Agent tool with `run_in_background: true`.
 
 **Architecture reviewer:**
 ```
@@ -54,14 +54,59 @@ Write full analysis to wip/research/design_<topic>_phase6_security-review.md.
 Return only key findings and recommendations.
 ```
 
+**Structural-format reviewer:**
+```
+Review the design document's artifact-shape conformance against the
+canonical DESIGN format reference.
+
+Reference: skills/design/references/design-format.md.
+
+Questions covering the four named items:
+1. Section presence and order: do all nine required sections appear
+   in the canonical order (Status, Context and Problem Statement,
+   Decision Drivers, Considered Options, Decision Outcome, Solution
+   Architecture, Implementation Approach, Security Considerations,
+   Consequences)?
+2. Frontmatter field order: are the four required fields (status,
+   problem, decision, rationale) declared in the canonical order with
+   the documented YAML literal block scalar shape? Are optional
+   fields (upstream, spawned_from, motivating_context) placed
+   consistently with the format reference?
+3. Section-altitude conformance: does each section contain the
+   altitude of content the reference prescribes (no PRD-altitude
+   requirements, no PLAN-altitude atomic issues)?
+4. R19 budget-vs-spec: heuristic check on section length. If any
+   section's prose exceeds the reference's documented budget by
+   more than 50%, flag the overshoot and ask whether content
+   belongs at a different altitude. The >50% threshold avoids
+   flagging healthy detail and surfaces only meaningful overshoot.
+
+The reviewer dereferences references/fixes/sub-agent-dispatch.md
+when the parent_orchestration sentinel is present in
+wip/scope_<topic>_state.md (serial-self-jury fallback applies when
+parallel spawn is not available).
+
+[Include all nine required sections plus the frontmatter]
+
+Write full analysis to wip/research/design_<topic>_phase6_structural-format-review.md.
+Return only key findings and recommendations.
+```
+
+The structural-format reviewer is "in addition to" the existing
+architecture and security reviewers (per AC4.4). Reach for it on
+every design; the reviewer's checks are mechanically applicable
+against the format reference and surface drift the discretionary
+reviewers do not catch.
+
 ### 6.2 Process Review Feedback
 
-After both agents complete, consolidate feedback:
+After all three agents complete, consolidate feedback:
 
 | Source | Feedback | Action | Applied |
 |--------|----------|--------|---------|
 | Architecture | <finding> | <action> | [ ] |
 | Security | <finding> | <action> | [ ] |
+| Structural-Format | <finding> | <action> | [ ] |
 
 Apply changes to the design doc. If a review finding requires significant rework,
 discuss with the user before making changes.

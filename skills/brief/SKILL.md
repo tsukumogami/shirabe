@@ -170,7 +170,9 @@ a brief frames one feature, so there is no altitude band to police.
 ### Resume Logic
 
 ```
-BRIEF exists with status "Accepted" or "Done"           -> Offer to revise or start fresh
+parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
+                                                         -> see references/fixes/sub-agent-dispatch.md
+BRIEF exists with status "Accepted" or "Done"            -> Offer to revise or start fresh
 BRIEF exists with status "Draft"                         -> Offer to continue from Phase 2 or 3
 wip/research/brief_<topic>_phase4_*.md files exist       -> Resume at Phase 4 (aggregate)
 BRIEF has User Journeys section with real content        -> Resume at Phase 4
@@ -179,6 +181,12 @@ wip/brief_<topic>_discover.md exists                     -> Resume at Phase 2
 wip/brief_<topic>_context.md exists                      -> Resume at Phase 1
 On main or unrelated branch                              -> Start at Phase 0
 ```
+
+Phase 0 detection: if the parent-chain sentinel is present in
+`wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
+(strategic), see `references/fixes/sub-agent-dispatch.md` for the
+fallback shape that applies. Behavior under direct invocation is
+unchanged when the sentinel is absent.
 
 ### Critical Requirements
 

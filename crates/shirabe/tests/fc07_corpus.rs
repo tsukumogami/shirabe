@@ -89,14 +89,19 @@ fn fc07_corpus_self_check_committed_plans_and_roadmaps() {
     // AC-4.2: when the corpus carries drift, notice-level codes surface.
     // We do not pin the count (the committed corpus may drift PR-by-PR)
     // -- only that, if any notice line appears, it is from the
-    // notice-level membership (SCHEMA, FC07, FC08, FC09).
+    // notice-level membership (SCHEMA, FC07-FC13, FC-CONVENTIONS).
     for line in stdout.lines() {
         if line.starts_with("::notice ") {
             assert!(
                 line.contains("[FC07]")
                     || line.contains("[FC08]")
-                    || line.contains("[SCHEMA]")
-                    || line.contains("[FC09]"),
+                    || line.contains("[FC09]")
+                    || line.contains("[FC10]")
+                    || line.contains("[FC11]")
+                    || line.contains("[FC12]")
+                    || line.contains("[FC13]")
+                    || line.contains("[FC-CONVENTIONS]")
+                    || line.contains("[SCHEMA]"),
                 "notice from non-notice-level code on the committed corpus: {}",
                 line
             );

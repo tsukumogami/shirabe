@@ -14,6 +14,17 @@ When running /explore or /plan here:
 - Issues represent implementation-level work items
 - Designs are scoped to this repo
 
+## Release Notes Convention: docs/guides/
+
+Release notes for shirabe land under `docs/guides/`. The release
+workflow targets that directory when emitting per-version notes
+and adopter-facing migration guides; the header parallels the
+other CLAUDE.md convention headers (Repo Visibility, Planning
+Context) so the validator's FC-CONVENTIONS check can find it. See
+`references/fixes/claude-md-conventions.md` for the canonical
+header format and the cross-references to the other convention
+headers.
+
 ## Artifact Types and When to Use Them
 
 shirabe recognizes seven artifact types across two altitude bands.

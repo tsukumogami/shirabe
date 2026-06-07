@@ -32,6 +32,39 @@ BRIEF exists at the canonical path (the framing shift overrides
 the upstream-exists signal). The full literal prompt text is
 captured here for eval-grep checking against the contract.
 
+## Cold-Start Projected-PRD Evaluation
+
+On a cold-start invocation (no `wip/scope_<topic>_state.md` and
+no on-disk artifacts at the canonical paths), Phase 1 projects
+what the downstream PRD's shape will likely be from the
+$ARGUMENTS topic-slug alone. The projection is keyword-driven:
+inspect the slug for the projection keywords (`feature`, `fix`,
+`migration`, `rollout`, `consolidation`) and emit a one-line
+projection naming the most likely PRD-altitude work shape. The
+projection feeds the discovery-prompt framing (it does NOT
+override the author's answer).
+
+When the cold-start discovery yields empty results — no on-disk
+artifacts AND the author answers the framing-shift question with
+"no signal yet" — Phase 1 short-circuits the rest of the
+discovery walk. The state file records `phase-1: empty-cold-start`
+and the chain proposal opens with `/brief` as the entry child
+(the framing-shift answer is deferred to the BRIEF authoring
+conversation).
+
+## Post-`/prd` Re-evaluation Gate
+
+After `/prd` returns Accepted, Phase 1 re-evaluates whether the
+chain's R6 shape predicates still hold. If the PRD's accepted
+shape changed any of P1/P2/P3 verdicts vs the pre-PRD projection,
+the gate writes `chain_revised: true` into the state file and
+re-narrates the planned chain. The author confirms the revised
+chain before Phase 2 proceeds.
+
+When the post-PRD predicates match the pre-PRD projection,
+`chain_revised:` stays unset and the chain proceeds without
+re-narration.
+
 ## R4 EITHER-Signal Evaluation for `/brief`
 
 The `/brief` invocation gate is an EITHER-signal gate per the
