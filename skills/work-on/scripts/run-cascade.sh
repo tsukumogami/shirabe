@@ -158,8 +158,11 @@ check_issue_closed() {
 # Log the validator's findings on an unexpected probe outcome. The probe runs
 # in `--format json`, so the combined output is the `shirabe-validate/v1`
 # envelope. Parse it with jq and log one readable line per finding —
-# `[<code>] <message> (<file>:<line>)` — so the cascade names which L-code
-# failed rather than dumping raw annotation text.
+# `<message> (<file>:<line>)` — so the cascade names which L-code failed
+# rather than dumping raw annotation text. The engine already embeds the
+# check code in the message (e.g. `[L05] doc path not found ...`), so the
+# code is NOT prepended again; this mirrors the human renderer's choice in
+# crates/shirabe-validate/src/report.rs.
 #
 # Degrades gracefully: if the output is not a parseable envelope with at least
 # one finding (e.g. an empty capture from a stubbed validator, or stderr noise
@@ -185,13 +188,14 @@ log_lifecycle_findings() {
         return 0
     fi
 
-    # Structured per-finding logging: code, message, and file:line. A null
-    # line renders as the file alone (no `:line` suffix), matching the
-    # envelope's null-line sentinel.
+    # Structured per-finding logging: message and file:line. The message
+    # already carries the check code, so it is not prepended. A null line
+    # renders as the file alone (no `:line` suffix), matching the envelope's
+    # null-line sentinel.
     local lines
     lines=$(jq -r '
         .findings[]
-        | "[" + .code + "] " + .message
+        | .message
           + " (" + .file + (if .line == null then "" else ":" + (.line|tostring) end) + ")"
     ' <<< "$output" 2>/dev/null) || lines=""
 
@@ -212,9 +216,9 @@ log_lifecycle_findings() {
 # ── Inline utility: lifecycle_findings_summary ───────────────────────────────
 # Render the probe's findings as a single-line, `; `-joined summary suitable
 # for a step's `detail` field (which is one JSON string). Each finding becomes
-# `[<code>] <message> (<file>:<line>)`. Degrades to the raw combined output,
-# newlines collapsed to spaces, when the input is not a parseable envelope
-# with findings.
+# `<message> (<file>:<line>)` — the message already carries the check code, so
+# it is not prepended. Degrades to the raw combined output, newlines collapsed
+# to spaces, when the input is not a parseable envelope with findings.
 #
 # Usage: lifecycle_findings_summary <combined-output>
 # Echoes the summary string to stdout.
@@ -229,7 +233,7 @@ lifecycle_findings_summary() {
         local summary
         summary=$(jq -r '
             [ .findings[]
-              | "[" + .code + "] " + .message
+              | .message
                 + " (" + .file + (if .line == null then "" else ":" + (.line|tostring) end) + ")"
             ] | join("; ")
         ' <<< "$output" 2>/dev/null) || summary=""
