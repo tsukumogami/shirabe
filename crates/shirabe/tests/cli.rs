@@ -209,3 +209,21 @@ fn lifecycle_chain_annotation_default_is_unchanged() {
         .failure()
         .stdout(expected);
 }
+
+#[test]
+fn allow_untracked_acs_flag_is_accepted() {
+    // The CLI must accept --allow-untracked-acs as a boolean flag without
+    // it being mutually exclusive with any other flag. The flag exists on
+    // the validate subcommand; passing it with an unresolvable
+    // --lifecycle-chain doc still emits L05 (the lifecycle layer's
+    // canonical missing-doc error). The contract here is that the flag
+    // parses cleanly and does not suppress unrelated errors.
+    shirabe()
+        .arg("validate")
+        .arg("--lifecycle-chain")
+        .arg("/tmp/shirabe-cli-nonexistent-doc.md")
+        .arg("--allow-untracked-acs")
+        .assert()
+        .failure()
+        .stdout(contains("[L05]"));
+}

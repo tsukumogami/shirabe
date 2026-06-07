@@ -298,6 +298,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "public".to_string(),
+            allow_untracked_acs: false,
         };
         let doc = make_doc(
             "brief/v1",
@@ -318,6 +319,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "public".to_string(),
+            allow_untracked_acs: false,
         };
         let mut sections = brief_sections("");
         sections.push(sec("Competitive Considerations", 99));
@@ -375,6 +377,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "private".to_string(),
+            allow_untracked_acs: false,
         };
         let doc = make_doc(
             "comp/v1",
@@ -393,6 +396,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "public".to_string(),
+            allow_untracked_acs: false,
         };
         let doc = make_doc(
             "comp/v1",

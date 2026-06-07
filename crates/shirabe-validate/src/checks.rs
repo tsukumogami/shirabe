@@ -3054,6 +3054,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: custom,
             visibility: String::new(),
+            allow_untracked_acs: false,
         };
         // "Proposed" is in canonical but not in custom -- should fail.
         let mut fields = HashMap::new();
@@ -3074,6 +3075,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: custom,
             visibility: String::new(),
+            allow_untracked_acs: false,
         };
         let mut fields = HashMap::new();
         fields.insert("status".to_string(), fv("CustomDraft", 2));
@@ -3258,6 +3260,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "private".to_string(),
+            allow_untracked_acs: false,
         };
         let sections = vec![
             sec("Competitive Positioning", 10),
@@ -3272,6 +3275,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "public".to_string(),
+            allow_untracked_acs: false,
         };
         let sections = vec![sec("Thesis", 5), sec("Competitive Positioning", 12)];
         let doc = make_doc("vision/v1", "Draft", HashMap::new(), sections, vec![]);
@@ -3297,6 +3301,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "public".to_string(),
+            allow_untracked_acs: false,
         };
         let sections = vec![
             sec("Thesis", 5),
@@ -3312,6 +3317,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "public".to_string(),
+            allow_untracked_acs: false,
         };
         let sections = vec![
             sec("Competitive Positioning", 10),
@@ -3332,6 +3338,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "private".to_string(),
+            allow_untracked_acs: false,
         };
         let sections = vec![sec("Competitive Considerations", 10)];
         let doc = make_doc("strategy/v1", "Draft", HashMap::new(), sections, vec![]);
@@ -3343,6 +3350,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "public".to_string(),
+            allow_untracked_acs: false,
         };
         let sections = vec![
             sec("Defensibility Thesis", 5),
@@ -3371,6 +3379,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "public".to_string(),
+            allow_untracked_acs: false,
         };
         let sections = vec![
             sec("Defensibility Thesis", 5),
@@ -3406,6 +3415,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "public".to_string(),
+            allow_untracked_acs: false,
         };
         let mut fields = HashMap::new();
         fields.insert("status".to_string(), fv("Published", 2));
@@ -3574,6 +3584,7 @@ mod tests {
         Config {
             custom_statuses: HashMap::new(),
             visibility: visibility.to_string(),
+            allow_untracked_acs: false,
         }
     }
 

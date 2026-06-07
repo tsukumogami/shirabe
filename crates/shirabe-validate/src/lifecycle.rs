@@ -827,8 +827,11 @@ pub fn run_lifecycle_check(
 fn check_l06_outline_acs(
     chain: &Chain,
     idx: &DocIndex,
-    _cfg: &Config,
+    cfg: &Config,
 ) -> Vec<ValidationError> {
+    if cfg.allow_untracked_acs {
+        return Vec::new();
+    }
     let mut errors: Vec<ValidationError> = Vec::new();
     for member in &chain.members {
         if member.role != ChainRole::Plan {
@@ -2455,6 +2458,42 @@ mod tests {
         assert!(combined.contains("'alpha'"), "message should quote AC text alpha: {}", combined);
         assert!(combined.contains("'gamma'"), "message should quote AC text gamma: {}", combined);
         assert!(!combined.contains("'beta'"), "ticked AC should not appear: {}", combined);
+    }
+
+    #[test]
+    fn l06_suppressed_when_allow_untracked_acs_set() {
+        let root = build_single_pr_chain("- [ ] alpha\n- [ ] beta\n");
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let mut cfg = Config::default();
+        cfg.allow_untracked_acs = true;
+        let errors = run_lifecycle_chain_check(&plan_path, &cfg, false);
+        let l06s: Vec<_> = errors.iter().filter(|e| e.code == "L06").collect();
+        assert!(
+            l06s.is_empty(),
+            "expected no L06 errors when allow_untracked_acs is set; got {:?}",
+            l06s
+        );
+        // L01-L05 must still be active under the flag; the single-pr-mid-PR
+        // posture should still pass the chain shape since PLAN is at Draft.
+        // We do not assert specific L01 outcomes; we only assert that the
+        // suppression is L06-only and not a global silence.
+    }
+
+    #[test]
+    fn l06_suppressed_under_strict_lifecycle_check_too() {
+        // Whole-tree mode honors allow_untracked_acs identically to the
+        // chain-targeted mode (the dispatch path is shared via
+        // check_l06_outline_acs).
+        let root = build_single_pr_chain("- [ ] open\n");
+        let mut cfg = Config::default();
+        cfg.allow_untracked_acs = true;
+        let errors = run_lifecycle_check(&root, &cfg, true);
+        let l06s: Vec<_> = errors.iter().filter(|e| e.code == "L06").collect();
+        assert!(
+            l06s.is_empty(),
+            "whole-tree mode should honor allow_untracked_acs too; got {:?}",
+            l06s
+        );
     }
 
     #[test]
