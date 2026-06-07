@@ -85,8 +85,8 @@ with the spike-to-reconciliation merge gate as a second independent justificatio
 | ~~_Adds `checkFC08` reconciling the Dependency Graph Legend prose against the diagram's `classDef` declarations and the canonical class palette. Ships as a notice via `is_notice` so unupdated Legends do not redden CI, with a one-line path to error-level promotion after corpus reconciliation. Surfaces the drift surface FC07 explicitly does not cover._~~ | | |
 | ~~[#153: feat(validate): add fc09 doc-vs-github state reconciliation as a notice](https://github.com/tsukumogami/shirabe/issues/153)~~ | ~~[#119](https://github.com/tsukumogami/shirabe/issues/119)~~ | ~~testable~~ |
 | ~~_Adds `checkFC09` reconciling the doc's claims about issue state (table strikethrough, diagram class assignments) against GitHub's actual issue state plus the current PR's `Closes #N` body lines. First network-dependent check; self-disables offline. Three sub-checks: doc-claims-done vs GH, doc-claims-open vs GH, and PR Closes consistency. The third pillar of consistency alongside FC07's intra-doc and R6's cross-doc checks._~~ | | |
-| [#154: feat(validate): add fc10 single-pr plan validation (issue outlines + execution-mode-aware sections)](https://github.com/tsukumogami/shirabe/issues/154) | [#119](https://github.com/tsukumogami/shirabe/issues/119) | testable |
-| _Adds `checkFC10` and refactors `FormatSpec` to be `execution_mode`-aware so single-pr plans validate against their own structural contract: required sections branch on mode, Issue Outlines get structural enforcement, outline-to-outline deps resolve locally, issue_count matches outline count, and populated-wrong-section is flagged. Closes the gap where single-pr plans pass validation vacuously._ | | |
+| ~~[#154: feat(validate): add fc10 single-pr plan validation (issue outlines + execution-mode-aware sections)](https://github.com/tsukumogami/shirabe/issues/154)~~ | ~~[#119](https://github.com/tsukumogami/shirabe/issues/119)~~ | ~~testable~~ |
+| ~~_Shipped as `checkFC14` -- the `FC10` slot is owned by the writing-style banned-word check and FC10-FC13 were all claimed when this work landed. Refactors `FormatSpec` to be `execution_mode`-aware so single-pr plans validate against their own structural contract: required sections branch on mode, Issue Outlines get structural enforcement, outline-to-outline deps resolve locally, issue_count matches outline count, and populated-wrong-section is flagged. Closes the gap where single-pr plans pass validation vacuously._~~ | | |
 | ~~[#175: feat(skills): bake chain-targeted lifecycle check into work-on cascade for deterministic enforcement](https://github.com/tsukumogami/shirabe/issues/175)~~ | ~~[#117](https://github.com/tsukumogami/shirabe/issues/117)~~ | ~~testable~~ |
 | ~~_Adds the `--lifecycle-chain <doc-path>` CLI mode and bakes its invocation into `skills/work-on/scripts/run-cascade.sh` at the pre-probe and post-verify points. Repos using the shirabe plugin's `/work-on` skill get deterministic lifecycle enforcement on every cascade run regardless of CI integration._~~ | | |
 | [#177: feat(skills): cascade should verify outline-AC completeness before plan deletion](https://github.com/tsukumogami/shirabe/issues/177) | [#175](https://github.com/tsukumogami/shirabe/issues/175) | testable |
@@ -107,7 +107,7 @@ graph TD
     I119["#119: mermaid extractor + FC07 notice"]
     I152["#152: legend-vs-classdef FC08 notice"]
     I153["#153: doc-vs-github state FC09 notice"]
-    I154["#154: single-pr plan validation FC10 notice"]
+    I154["#154: single-pr plan validation (FC14)"]
     I175["#175: cascade-baked chain-targeted lifecycle check"]
     I177["#177: cascade verify outline-AC completeness"]
 
@@ -136,8 +136,8 @@ graph TD
     classDef tracksDesign fill:#FFE0B2,stroke:#F57C00,color:#000
     classDef tracksPlan fill:#FFE0B2,stroke:#F57C00,color:#000
 
-    class I111,I112,I113,I114,I115,I116,I117,I118,I119,I152,I153,I175 done
-    class I154,I177 ready
+    class I111,I112,I113,I114,I115,I116,I117,I118,I119,I152,I153,I154,I175 done
+    class I177 ready
 ```
 
 **Legend**: Green = done, Blue = ready, Yellow = blocked, Purple = needsDesign, Light blue = needsPrd, Pink = needsSpike, Lilac = needsDecision, Orange = tracksDesign, Orange = tracksPlan
