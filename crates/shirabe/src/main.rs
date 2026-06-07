@@ -346,11 +346,11 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     }
 
     if let Some(root) = args.lifecycle.as_deref() {
-        return run_lifecycle(root, &args.visibility, args.strict);
+        return run_lifecycle(root, &args.visibility, args.strict, args.format);
     }
 
     if let Some(doc) = args.lifecycle_chain.as_deref() {
-        return run_lifecycle_chain(doc, &args.visibility, args.strict);
+        return run_lifecycle_chain(doc, &args.visibility, args.strict, args.format);
     }
 
     if args.files.is_empty() {
@@ -440,7 +440,10 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
 /// a single-pr PLAN present in the tree fails (regardless of its
 /// `status:` value) and single-pr BRIEF/PRD at Accepted fail.
 /// Multi-pr postures are unchanged by the strict flag.
-fn run_lifecycle(root: &str, visibility: &str, strict: bool) -> ExitCode {
+///
+/// The findings are collected into a `Vec` and rendered once by
+/// [`render_lifecycle`] per the chosen [`Format`], mirroring `run_validate`.
+fn run_lifecycle(root: &str, visibility: &str, strict: bool, format: Format) -> ExitCode {
     let cfg = Config {
         custom_statuses: HashMap::new(),
         visibility: visibility.to_string(),
@@ -450,16 +453,41 @@ fn run_lifecycle(root: &str, visibility: &str, strict: bool) -> ExitCode {
         eprintln!("--lifecycle root {} does not exist", root);
         return ValidateOutcome::ToolError.exit();
     }
-    let errors = run_lifecycle_check(root_path, &cfg, strict);
+    let findings = run_lifecycle_check(root_path, &cfg, strict);
+    render_lifecycle(&findings, format)
+}
+
+/// Render a lifecycle mode's collected findings once by `format` and return
+/// the run's exit code. Shared by [`run_lifecycle`] and
+/// [`run_lifecycle_chain`]; factored out so the two modes render identically.
+///
+/// The `worst` outcome is accumulated the same way the streaming code did:
+/// a notice (per [`is_notice`]) never bumps the run to `Violations`, so a
+/// run carrying only notices stays clean (exit 0). In `Annotation` mode the
+/// per-finding `format_error`/`format_notice` loop runs in the original
+/// finding order, so its output bytes are unchanged.
+fn render_lifecycle(findings: &[ValidationError], format: Format) -> ExitCode {
     let mut worst = ValidateOutcome::Clean;
-    for ve in &errors {
-        if is_notice(ve) {
-            println!("{}", format_notice(&ve.file, &ve.message));
-        } else {
-            println!("{}", format_error(ve));
+    for ve in findings {
+        if !is_notice(ve) {
             worst = worst.merge(ValidateOutcome::Violations);
         }
     }
+
+    match format {
+        Format::Annotation => {
+            for ve in findings {
+                if is_notice(ve) {
+                    println!("{}", format_notice(&ve.file, &ve.message));
+                } else {
+                    println!("{}", format_error(ve));
+                }
+            }
+        }
+        Format::Json => print!("{}", render_json(findings, worst.label())),
+        Format::Human => print!("{}", render_human(findings, worst.label())),
+    }
+
     worst.exit()
 }
 
@@ -508,7 +536,10 @@ fn run_slug_prefix_detect(args: &SlugPrefixDetectArgs) -> ExitCode {
 /// Used by the work-on cascade script in
 /// `skills/work-on/scripts/run-cascade.sh` for the pre-cascade probe
 /// and post-cascade verification points.
-fn run_lifecycle_chain(doc_path: &str, visibility: &str, strict: bool) -> ExitCode {
+///
+/// The findings are collected into a `Vec` and rendered once by
+/// [`render_lifecycle`] per the chosen [`Format`], mirroring `run_validate`.
+fn run_lifecycle_chain(doc_path: &str, visibility: &str, strict: bool, format: Format) -> ExitCode {
     let cfg = Config {
         custom_statuses: HashMap::new(),
         visibility: visibility.to_string(),
@@ -519,17 +550,8 @@ fn run_lifecycle_chain(doc_path: &str, visibility: &str, strict: bool) -> ExitCo
     // entry guard rejects on missing roots; the chain-targeted mode
     // leaves the rejection to the module so the error includes the
     // expected-location-set guidance.
-    let errors = run_lifecycle_chain_check(path, &cfg, strict);
-    let mut worst = ValidateOutcome::Clean;
-    for ve in &errors {
-        if is_notice(ve) {
-            println!("{}", format_notice(&ve.file, &ve.message));
-        } else {
-            println!("{}", format_error(ve));
-            worst = worst.merge(ValidateOutcome::Violations);
-        }
-    }
-    worst.exit()
+    let findings = run_lifecycle_chain_check(path, &cfg, strict);
+    render_lifecycle(&findings, format)
 }
 
 /// Runs the `transition` subcommand. On success, prints the per-type JSON
