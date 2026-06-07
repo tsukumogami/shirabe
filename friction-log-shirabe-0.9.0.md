@@ -74,3 +74,22 @@ Possibly. The Issue 14 grouping rule (one issue per identical mechanical edit) d
 The DESIGN's status was manually edited from Accepted to Planned (frontmatter + body) per the Phase 7 contract; `shirabe transition` is still absent from the v0.6.1 workspace binary. The sed-edit fallback is documented in the upstream friction log entries from the original-pass DESIGN and PLAN.
 
 **Friction count for this DESIGN-revision + re-/plan: 3** (Phase 6 jury didn't catch the lazy-load violation; Issue 14 deviates from the per-skill grouping rule; CLI version-skew workaround applied again).
+
+## /work-on implementation pass (PR-172, all 18 issues, single-pr mode)
+
+**Meta-irony watch: did the work catch its own friction?**
+Two meta-ironies surfaced during implementation. (1) FC10 fired on the PLAN doc itself — the validator flagged "tier" usage on 7+ lines of `PLAN-shirabe-pattern-v1-ergonomics.md` because the lazy-load DESIGN repeatedly uses "tier-1/tier-2/tier-3" as nomenclature for the load tiers. The implementation we just shipped catches the writing-style drift in the very document that motivated the writing-style check. We did NOT clean the PLAN — single-pr mode deletes it during the cascade anyway, but the irony is recorded. (2) The DESIGN doc also fires FC10 on "tier" several times. Same pattern. The cleanup is downstream work; the validator's notice-level discipline (advisory, not blocking) prevents this from creating a chicken-and-egg PR-blocker.
+
+**koto orchestrator overhead in deterministic single-pr mode.**
+The /work-on skill's koto template is parameterized for plan-orchestrator mode with shared branch + draft PR + per-child workflow spawns. For single-pr mode with an existing branch and PR, the orchestrator overhead (init, plan-to-tasks, spawn-and-await per child, escalation handling) is wasted motion — the work is sequential, the branch is fixed, and child agents would just commit linearly to the same branch. The dispatcher correctly anticipated this and instructed direct implementation against the existing branch. Each of the 18 issues mapped to a single Edit/Write + commit cycle; no koto state machine needed.
+
+**No CLI version-skew this pass.**
+The workspace `shirabe` binary in this worktree IS the locally-built binary (the artifact we just modified). `shirabe transition` worked first-shot for all three cascade transitions (BRIEF Accepted->Done, PRD Accepted->Done, DESIGN Planned->Current). No sed-edit fallback was needed. The CLI version-preflight reference file we shipped (Issue 12) is for future runs from older workspace binaries; this pass benefited from being its own implementation.
+
+**Anti-fabrication discipline held.**
+Per the dispatcher's instructions, every file path and line number was confirmed before editing. The FC08 implementation file (checks.rs:1495) was read before adding the new FC checks; the validate.rs is_notice match (validate.rs:34-46) was inspected before extending; the Phase 6 review file (phase-6-final-review.md:21-55) was read before adding the structural-format reviewer; the brief-format.md lines 310-311 were confirmed before the private-issue-numbers disambiguation. No fabricated reviewer roles, no fabricated line numbers.
+
+**Go-parity divergence at SCHEMA-MISSING (shirabe#157 closure).**
+Issue 1's "Existing schema-mismatch notice path preserved verbatim" AC plus "check_schema emits a SCHEMA-MISSING notice when doc.schema.is_empty()" forced an intentional divergence from the Go-parity baseline. Three Go-parity golden files (DESIGN-missing-frontmatter.md.stdout, real/DESIGN-gha-doc-validation.md.stdout, real/PRD-roadmap-skill.md.stdout) had to be updated from `schema "" not in supported range, skipping` to `schema field missing, skipping`. The Go binary still emits the old form; the Rust binary now diverges intentionally. This is the right call (the new shape names the actual failure) but the parity contract took a step backward.
+
+**Friction count for this /work-on implementation pass: 2** (meta-irony of FC10 firing on its own motivating documents; Go-parity divergence at SCHEMA-MISSING).
