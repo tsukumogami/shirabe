@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   The same deterministic doc checks are implemented in more than one place
   -- the shirabe validate engine, external CI shell scripts, and rules
@@ -18,7 +18,7 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
 Drafted under the tactical chain. The downstream PRD owns the requirements;
 the DESIGN owns the per-check absorb/defer/keep decisions, the
