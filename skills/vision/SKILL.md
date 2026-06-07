@@ -129,13 +129,21 @@ Does org fit explain why HERE and not elsewhere? Are non-goals about identity
 ### Resume Logic
 
 ```
-VISION exists with status "Accepted" or "Active"       -> Offer to revise or start fresh
+parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
+                                                        -> see references/fixes/sub-agent-dispatch.md
+VISION exists with status "Accepted" or "Active"        -> Offer to revise or start fresh
 VISION exists with status "Draft"                       -> Offer to continue from Phase 3
 wip/research/vision_<topic>_phase2_*.md files exist     -> Resume at Phase 3
 wip/vision_<topic>_scope.md exists                      -> Resume at Phase 2
 On a branch related to the topic                        -> Resume at Phase 1
 On main or unrelated branch                             -> Start at Phase 0
 ```
+
+Phase 0 detection: if the parent-chain sentinel is present in
+`wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
+(strategic), see `references/fixes/sub-agent-dispatch.md` for the
+fallback shape that applies. Behavior under direct invocation is
+unchanged when the sentinel is absent.
 
 ### Critical Requirements
 

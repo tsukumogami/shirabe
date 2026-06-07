@@ -227,6 +227,14 @@ Read `references/review-panel-orchestration.md` for details (panel states: `scru
 2. If found, `koto next <WF>`
 3. If none, `koto init` fresh
 
+Phase 0 detection: if the parent-chain sentinel is present in
+`wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
+(strategic), see `references/fixes/sub-agent-dispatch.md` for the
+fallback shape that applies. Behavior under direct invocation is
+unchanged when the sentinel is absent. (Per R9, /work-on does not
+add a Resume Logic row -- the sentinel detection is scoped to the
+seven authoring children.)
+
 ### Decision Capture
 
 During analysis and implementation, record non-obvious decisions:

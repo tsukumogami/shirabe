@@ -159,7 +159,9 @@ All three must PASS before Phase 5 begins.
 ### Resume Logic
 
 ```
-STRATEGY exists with status "Accepted" or "Active"      -> Offer to revise or start fresh
+parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
+                                                         -> see references/fixes/sub-agent-dispatch.md
+STRATEGY exists with status "Accepted" or "Active"       -> Offer to revise or start fresh
 STRATEGY exists with status "Draft"                      -> Offer to continue from Phase 2 or 3
 wip/research/strategy_<topic>_phase4_*.md files exist    -> Resume at Phase 4 (aggregate)
 STRATEGY has Building Blocks section                     -> Resume at Phase 4
@@ -168,6 +170,12 @@ wip/strategy_<topic>_scope.md exists                     -> Resume at Phase 2
 On a branch related to the topic                         -> Resume at Phase 1
 On main or unrelated branch                              -> Start at Phase 0
 ```
+
+Phase 0 detection: if the parent-chain sentinel is present in
+`wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
+(strategic), see `references/fixes/sub-agent-dispatch.md` for the
+fallback shape that applies. Behavior under direct invocation is
+unchanged when the sentinel is absent.
 
 ### Critical Requirements
 
