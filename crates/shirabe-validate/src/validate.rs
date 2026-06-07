@@ -7,9 +7,11 @@
 //! `validate::{Config, validate_file, is_notice}`.
 
 use crate::checks::{
-    check_fc01, check_fc02, check_fc03, check_fc04, check_fc05, check_fc06, check_fc07,
-    check_fc08, check_fc09, check_plan_upstream, check_private_only, check_schema,
-    check_strategy_public, check_vision_public,
+    check_claude_md_conventions, check_eval_fixture_frontmatter, check_fc01, check_fc02,
+    check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09,
+    check_plan_design_field_consistency, check_plan_section_structure, check_plan_upstream,
+    check_private_only, check_schema, check_strategy_public, check_vision_public,
+    check_writing_style,
 };
 use crate::doc::{Doc, ValidationError};
 use crate::formats::FormatSpec;
@@ -20,19 +22,29 @@ pub use crate::doc::Config;
 /// Reports whether a [`ValidationError`] should be emitted as a GHA
 /// `::notice` annotation rather than a `::error`.
 ///
-/// **Promotion seam.** FC07, FC08, and FC09 ship notice-level for v1;
-/// remove the corresponding arm from this match to promote the check
+/// **Promotion seam.** FC07-FC13 and FC-CONVENTIONS ship notice-level for
+/// v1; remove the corresponding arm from this match to promote the check
 /// from notice to error in a single-line diff. The match expression is
 /// the one place that drives the notice-vs-error split; the
-/// corresponding test in this module
-/// (`is_notice_only_schema_fc07_fc08_fc09`) tracks the membership.
+/// corresponding test in this module tracks the membership.
 ///
 /// All other codes (`FC01`-`FC06`, `R6`-`R9`) are errors that contribute
-/// to a non-zero exit. `SCHEMA` is the long-standing notice; `FC07`,
-/// `FC08`, and `FC09` are notice-level additions pending their
-/// respective corpus-cleanup PRs.
+/// to a non-zero exit. `SCHEMA` is the long-standing notice; `FC07`
+/// through `FC13` and `FC-CONVENTIONS` are notice-level additions pending
+/// their respective corpus-cleanup PRs.
 pub fn is_notice(err: &ValidationError) -> bool {
-    matches!(err.code.as_str(), "SCHEMA" | "FC07" | "FC08" | "FC09")
+    matches!(
+        err.code.as_str(),
+        "SCHEMA"
+            | "FC07"
+            | "FC08"
+            | "FC09"
+            | "FC10"
+            | "FC11"
+            | "FC12"
+            | "FC13"
+            | "FC-CONVENTIONS"
+    )
 }
 
 /// Runs all checks for a given doc against its format spec. Returns a
@@ -60,6 +72,13 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
     errs.extend(check_fc03(doc, spec));
     errs.extend(check_fc04(doc, spec));
 
+    // 2a. Cross-format notice-level checks (FC10 writing-style, FC13
+    // eval-fixture frontmatter, FC-CONVENTIONS CLAUDE.md headers).
+    // These ride alongside the per-format checks and are notice-level.
+    errs.extend(check_writing_style(doc, spec));
+    errs.extend(check_eval_fixture_frontmatter(doc, spec));
+    errs.extend(check_claude_md_conventions(doc, spec));
+
     // 3. Format-specific checks dispatched by spec.name.
     // Casing is intentional per the formats-map entries -- existing names
     // mix conventions ("VISION" all-caps, "Roadmap" / "Strategy" / "Plan" /
@@ -79,6 +98,9 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
             let fc09_client = GhSubprocessClient::new();
             let fc09_ctx = detect_pr_context();
             errs.extend(check_fc09(doc, spec, &fc09_client, fc09_ctx.as_ref()));
+            // FC11/FC12 are plan/v1-specific structural checks.
+            errs.extend(check_plan_section_structure(doc, spec));
+            errs.extend(check_plan_design_field_consistency(doc, spec));
         }
         "Roadmap" => {
             errs.extend(check_fc05(doc, spec));
@@ -149,35 +171,33 @@ mod tests {
     // --- is_notice (ported from TestIsNotice) ---
 
     #[test]
-    fn is_notice_only_schema_fc07_fc08_fc09() {
-        // SCHEMA, FC07, FC08, and FC09 are the notice-level codes for
-        // v1. FC07, FC08, and FC09 all ship notice-level pending their
-        // respective corpus-cleanup PRs; removing any arm from is_notice
-        // promotes the corresponding check to error in a one-line diff.
-        assert!(is_notice(&ValidationError {
-            file: String::new(),
-            line: 0,
-            code: "SCHEMA".to_string(),
-            message: String::new(),
-        }));
-        assert!(is_notice(&ValidationError {
-            file: String::new(),
-            line: 0,
-            code: "FC07".to_string(),
-            message: String::new(),
-        }));
-        assert!(is_notice(&ValidationError {
-            file: String::new(),
-            line: 0,
-            code: "FC08".to_string(),
-            message: String::new(),
-        }));
-        assert!(is_notice(&ValidationError {
-            file: String::new(),
-            line: 0,
-            code: "FC09".to_string(),
-            message: String::new(),
-        }));
+    fn is_notice_only_schema_and_fc_advisory_codes() {
+        // SCHEMA, FC07-FC13, and FC-CONVENTIONS are the notice-level
+        // codes for v1. Each ships notice-level pending its respective
+        // corpus-cleanup PR; removing any arm from is_notice promotes
+        // the corresponding check to error in a one-line diff.
+        for code in [
+            "SCHEMA",
+            "FC07",
+            "FC08",
+            "FC09",
+            "FC10",
+            "FC11",
+            "FC12",
+            "FC13",
+            "FC-CONVENTIONS",
+        ] {
+            assert!(
+                is_notice(&ValidationError {
+                    file: String::new(),
+                    line: 0,
+                    code: code.to_string(),
+                    message: String::new(),
+                }),
+                "{} should be a notice",
+                code
+            );
+        }
         for code in ["FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "R6", "R7", "R8", "R9"] {
             assert!(
                 !is_notice(&ValidationError {
