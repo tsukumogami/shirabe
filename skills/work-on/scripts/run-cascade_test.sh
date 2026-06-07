@@ -21,9 +21,15 @@ fi
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 CASCADE_SCRIPT="$SCRIPT_DIR/run-cascade.sh"
 
-# Path to the stub shirabe binary the cascade calls for status transitions.
-# Set per-test by setup_shirabe_stub and injected via SHIRABE_BIN.
-SHIRABE_STUB=""
+# Repo root (the shirabe checkout) — used to locate the cargo workspace and the
+# built release binary. run-cascade_test.sh lives at skills/work-on/scripts/.
+REPO_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
+
+# Path to the REAL shirabe binary the cascade calls for finalize-chain and
+# ROADMAP transitions. Built once by build_shirabe_binary and injected via
+# SHIRABE_BIN so each scenario's temp git repo gets genuine transitions rather
+# than a hand-rolled emulation of finalize-chain's behavior.
+SHIRABE_BIN_PATH=""
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -199,13 +205,13 @@ EOF
 
 # ── Scenario runner ───────────────────────────────────────────────────────────
 
-# Run cascade and return the JSON output. SHIRABE_BIN points the cascade at
-# the stub binary (set by setup_shirabe_stub) so transitions are deterministic
-# and offline.
+# Run cascade and return the JSON output. SHIRABE_BIN points the cascade at the
+# real release binary (built once by build_shirabe_binary) so each scenario gets
+# genuine finalize-chain transitions in its temp git repo.
 run_cascade() {
     local plan_doc="$1"
     shift
-    SHIRABE_BIN="$SHIRABE_STUB" bash "$CASCADE_SCRIPT" "$@" "$plan_doc" 2>/dev/null || true
+    SHIRABE_BIN="$SHIRABE_BIN_PATH" bash "$CASCADE_SCRIPT" "$@" "$plan_doc" 2>/dev/null || true
 }
 
 # Assert a jq expression evaluates to "true" on the JSON
@@ -241,80 +247,25 @@ setup_test_repo() {
     mkdir -p "$bare_dir"
     git init --bare "$bare_dir" > /dev/null 2>&1
     git remote add origin "$bare_dir"
-    mkdir -p skills/work-on/scripts
 }
 
-# Create a single stub `shirabe` binary the cascade invokes via SHIRABE_BIN.
-# It reproduces the per-type behavior the cascade depends on:
-#   - DESIGN-*  → Current: rewrites status, git mv into <dir>/current/, emits
-#                 new_path/moved:true (the cascade parses .new_path to continue)
-#   - PRD-*     → Done: rewrites frontmatter + body ## Status in place
-#   - ROADMAP-* → Done: rewrites frontmatter status in place
-# The stub dispatches on the `transition` subcommand and the doc's basename
-# prefix, mirroring the deleted per-skill scripts' combined behavior.
-setup_shirabe_stub() {
-    local repo_dir="$1"
-    local stub="$repo_dir/skills/work-on/scripts/shirabe-stub.sh"
-
-    cat > "$stub" <<'EOF'
-#!/usr/bin/env bash
-# Stub shirabe binary for the cascade test harness. Only `transition` is used.
-set -euo pipefail
-
-SUB="${1:-}"
-if [[ "$SUB" != "transition" ]]; then
-    echo "stub shirabe: unsupported subcommand: $SUB" >&2
-    exit 1
-fi
-DOC="${2:-}"
-TARGET="${3:-}"
-
-base=$(basename "$DOC")
-
-# Rewrite frontmatter status in place (sed -i.bak is portable GNU/BSD).
-if grep -q '^status:' "$DOC"; then
-    sed -i.bak "s/^status:.*/status: $TARGET/" "$DOC" && rm -f "${DOC}.bak"
-fi
-
-case "$base" in
-    DESIGN-*)
-        # design → Current moves into <dir>/current/
-        if [[ "$TARGET" == "Current" ]]; then
-            mkdir -p "$(dirname "$DOC")/current"
-            NEW_PATH="$(dirname "$DOC")/current/$base"
-            mv "$DOC" "$NEW_PATH"
-            jq -n --arg p "$DOC" --arg np "$NEW_PATH" --arg ns "$TARGET" \
-                '{success: true, doc_path: $p, old_status: "Planned", new_status: $ns, new_path: $np, moved: true}'
-        else
-            jq -n --arg p "$DOC" --arg ns "$TARGET" \
-                '{success: true, doc_path: $p, old_status: "Planned", new_status: $ns, new_path: $p, moved: false}'
-        fi
-        ;;
-    PRD-*)
-        if grep -q '^## Status' "$DOC"; then
-            # Update body status (BSD sed requires semicolon before closing brace)
-            sed -i.bak '/^## Status/{n;s/.*/'"$TARGET"'/;}' "$DOC" 2>/dev/null; rm -f "${DOC}.bak" 2>/dev/null || true
-        fi
-        jq -n --arg p "$DOC" --arg ns "$TARGET" \
-            '{success: true, doc_path: $p, old_status: "Accepted", new_status: $ns}'
-        ;;
-    BRIEF-*)
-        if grep -q '^## Status' "$DOC"; then
-            # Update body status (BSD sed requires semicolon before closing brace)
-            sed -i.bak '/^## Status/{n;s/.*/'"$TARGET"'/;}' "$DOC" 2>/dev/null; rm -f "${DOC}.bak" 2>/dev/null || true
-        fi
-        jq -n --arg p "$DOC" --arg ns "$TARGET" \
-            '{success: true, doc_path: $p, old_status: "Accepted", new_status: $ns}'
-        ;;
-    *)
-        # ROADMAP-* and any other in-place type
-        jq -n --arg p "$DOC" --arg ns "$TARGET" \
-            '{success: true, doc_path: $p, old_status: "Active", new_status: $ns}'
-        ;;
-esac
-EOF
-    chmod +x "$stub"
-    SHIRABE_STUB="$stub"
+# Build the real shirabe release binary once and record its path in
+# SHIRABE_BIN_PATH. The cascade calls this binary's `finalize-chain` (chain walk
+# + tactical transitions + DESIGN move) and `transition` (ROADMAP -> Done)
+# subcommands, so the parity harness exercises the genuine integration point
+# rather than emulating finalize-chain's report in bash. Each scenario's temp
+# git repo therefore gets real transitions.
+build_shirabe_binary() {
+    echo "Building shirabe release binary (cargo build --release -p shirabe)..."
+    if ! ( cd "$REPO_ROOT" && cargo build --release -p shirabe ) >&2; then
+        echo "Error: failed to build the shirabe release binary" >&2
+        exit 1
+    fi
+    SHIRABE_BIN_PATH="$REPO_ROOT/target/release/shirabe"
+    if [[ ! -x "$SHIRABE_BIN_PATH" ]]; then
+        echo "Error: built binary not found or not executable: $SHIRABE_BIN_PATH" >&2
+        exit 1
+    fi
 }
 
 # Commit all files in the repo
@@ -332,7 +283,6 @@ scenario_design_roadmap() {
     tmpdir=$(mktemp -d)
     local repo="$tmpdir/repo"
     setup_test_repo "$repo"
-    setup_shirabe_stub "$repo"
 
     # Create fixtures
     write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
@@ -391,7 +341,6 @@ scenario_design_prd_roadmap() {
     tmpdir=$(mktemp -d)
     local repo="$tmpdir/repo"
     setup_test_repo "$repo"
-    setup_shirabe_stub "$repo"
 
     write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
     write_prd "$repo/docs/prds/PRD-cascade-test-full.md" \
@@ -442,7 +391,6 @@ scenario_idempotency() {
     tmpdir=$(mktemp -d)
     local repo="$tmpdir/repo"
     setup_test_repo "$repo"
-    setup_shirabe_stub "$repo"
 
     write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
     write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
@@ -458,7 +406,7 @@ scenario_idempotency() {
     # Second run: PLAN is already deleted; test that the script handles this gracefully
     # Since PLAN doc is gone, expect exit 1 with an error (not a crash)
     local exit_code=0
-    SHIRABE_BIN="$SHIRABE_STUB" bash "$CASCADE_SCRIPT" "docs/plans/PLAN-cascade-test-short.md" 2>/dev/null || exit_code=$?
+    SHIRABE_BIN="$SHIRABE_BIN_PATH" bash "$CASCADE_SCRIPT" "docs/plans/PLAN-cascade-test-short.md" 2>/dev/null || exit_code=$?
 
     if [[ "$exit_code" -eq 1 ]]; then
         pass "$scenario (exit 1 on missing PLAN — idempotent error handling)"
@@ -481,7 +429,6 @@ scenario_missing_upstream() {
     tmpdir=$(mktemp -d)
     local repo="$tmpdir/repo"
     setup_test_repo "$repo"
-    setup_shirabe_stub "$repo"
 
     # PLAN with no upstream field
     mkdir -p "$repo/docs/plans"
@@ -527,7 +474,6 @@ scenario_partial_chain() {
     tmpdir=$(mktemp -d)
     local repo="$tmpdir/repo"
     setup_test_repo "$repo"
-    setup_shirabe_stub "$repo"
 
     # PLAN points to a DESIGN that doesn't exist
     mkdir -p "$repo/docs/plans"
@@ -582,7 +528,6 @@ scenario_brief_with_upstream() {
     tmpdir=$(mktemp -d)
     local repo="$tmpdir/repo"
     setup_test_repo "$repo"
-    setup_shirabe_stub "$repo"
 
     write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
     write_brief "$repo/docs/briefs/BRIEF-cascade-test-full.md" \
@@ -628,7 +573,6 @@ scenario_brief_no_upstream() {
     tmpdir=$(mktemp -d)
     local repo="$tmpdir/repo"
     setup_test_repo "$repo"
-    setup_shirabe_stub "$repo"
 
     # BRIEF with no upstream field — head of the chain
     write_brief "$repo/docs/briefs/BRIEF-cascade-test-headless.md"
@@ -677,8 +621,16 @@ if [[ ! -x "$CASCADE_SCRIPT" ]]; then
     exit 1
 fi
 
+if ! command -v cargo &>/dev/null; then
+    echo "Error: cargo is required (the harness builds the real shirabe binary)" >&2
+    exit 1
+fi
+
 echo "=== run-cascade.sh test harness ==="
 echo ""
+
+# Build the real shirabe binary once; every scenario reuses it via SHIRABE_BIN.
+build_shirabe_binary
 
 ORIG_DIR=$(pwd)
 

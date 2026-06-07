@@ -14,8 +14,8 @@ use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
     check_slug_prefix, detect_format, format_error, format_notice, is_notice, parse_doc,
-    run_lifecycle_check, run_transition, validate_file, Config, Flags, ParseError,
-    SlugPrefixCheck, ValidationError,
+    run_lifecycle_check, run_transition, validate_file, walk_chain_mode, Config, Flags, Mode,
+    ParseError, SlugPrefixCheck, ValidationError,
 };
 
 mod populate;
@@ -63,6 +63,11 @@ enum Commands {
     Roadmap(RoadmapArgs),
     /// Transition a shirabe doc to a new status.
     Transition(TransitionArgs),
+    /// Walk a finished PLAN's upstream chain and apply each tactical node's
+    /// terminal transition (Design->Current, PRD->Done, Brief->Done), stripping
+    /// a DESIGN's Implementation Issues section first. Use `--dry-run` to report
+    /// without mutating. The PLAN is reported for deletion, never removed.
+    FinalizeChain(FinalizeChainArgs),
     /// Detect whether a candidate slug conforms to the workspace's
     /// existing slug-prefix convention. Samples `docs/{briefs,prds,designs,plans}/`
     /// filenames, extracts the most common first hyphen-delimited word
@@ -99,6 +104,17 @@ struct TransitionArgs {
     /// Free-text reason for a sunset (strategy Sunset).
     #[arg(long)]
     reason: Option<String>,
+}
+
+#[derive(clap::Args)]
+struct FinalizeChainArgs {
+    /// Path to the completed PLAN doc whose upstream chain to walk.
+    plan: String,
+
+    /// Report the terminal action each node would take without mutating any
+    /// document. The default (omitted) applies each tactical transition.
+    #[arg(long)]
+    dry_run: bool,
 }
 
 #[derive(clap::Args)]
@@ -144,6 +160,7 @@ fn main() -> ExitCode {
             RoadmapCommands::Populate(p) => populate::run(&p),
         },
         Some(Commands::Transition(args)) => run_transition_cmd(&args),
+        Some(Commands::FinalizeChain(args)) => run_finalize_chain_cmd(&args),
         Some(Commands::SlugPrefixDetect(args)) => run_slug_prefix_detect(&args),
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would
@@ -313,6 +330,33 @@ fn run_transition_cmd(args: &TransitionArgs) -> ExitCode {
         Err(err) => {
             eprint!("{}", err.to_json());
             ExitCode::from(err.code as u8)
+        }
+    }
+}
+
+/// Runs the `finalize-chain` subcommand. By default it applies each tactical
+/// node's terminal transition in-process (stripping a DESIGN's Implementation
+/// Issues section first); `--dry-run` walks read-only. On success, prints the
+/// JSON chain report to stdout and exits 0. On a walk or transition failure,
+/// prints the node-and-type-aware error JSON
+/// (`{ "success": false, "error": <message>, "code": <n> }`) to stderr and
+/// exits with the chain's aggregated exit code, mirroring `run_transition_cmd`:
+/// 2 lifecycle violation, 1 tool error, 3 I/O error. The exit code is the first
+/// failing node's, since the walk stops there.
+fn run_finalize_chain_cmd(args: &FinalizeChainArgs) -> ExitCode {
+    let mode = if args.dry_run {
+        Mode::DryRun
+    } else {
+        Mode::Apply
+    };
+    match walk_chain_mode(&args.plan, mode) {
+        Ok(report) => {
+            print!("{}", report.to_json());
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprint!("{}", err.to_json());
+            ExitCode::from(err.code() as u8)
         }
     }
 }

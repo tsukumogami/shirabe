@@ -2,9 +2,12 @@
 # run-cascade.sh — Post-implementation artifact lifecycle cascade
 # Part of the work-on skill
 #
-# Walks the upstream frontmatter chain from a completed PLAN doc and applies
-# the appropriate lifecycle transition at each node (DESIGN → Current,
-# PRD → Done, ROADMAP feature update + optional ROADMAP → Done).
+# Walks the upstream frontmatter chain from a completed PLAN doc and brings each
+# node to its terminal lifecycle state. The tactical chain walk and per-node
+# transition decision are owned by the `shirabe finalize-chain` subcommand; this
+# script orchestrates git (rm/add/commit/push), runs the ROADMAP handler on any
+# roadmap node finalize-chain hands off, and translates finalize-chain's typed
+# report into the cascade's preserved external contract.
 #
 # Usage: run-cascade.sh [--push] <plan-doc-path>
 #
@@ -19,7 +22,8 @@
 #     "steps": [
 #       {
 #         "action": "delete_plan | transition_design | transition_prd |
-#                    update_roadmap_feature | transition_roadmap",
+#                    transition_brief | update_roadmap_feature |
+#                    transition_roadmap",
 #         "target": "<path being acted on>",
 #         "found_in": "<path where reference was discovered>",
 #         "status": "ok | skipped | failed",
@@ -30,7 +34,8 @@
 #
 # Exit codes:
 #   0 — cascade ran (completed, partial, or skipped)
-#   1 — PLAN doc not found or initial path validation failed
+#   1 — PLAN doc not found, path validation failed, not a git repo, or the
+#       shirabe binary could not be resolved (setup/precondition failures only)
 
 set -euo pipefail
 
@@ -49,8 +54,7 @@ REPO_ROOT=""
 STEPS_JSON=""      # accumulates JSON step objects, comma-separated
 ANY_FAILED=false
 STAGED_FILES=()    # files staged for commit
-HANDLE_DESIGN_NEW_PATH=""  # return value from handle_design (avoids subshell capture)
-CASCADE_DESIGN_PATH=""     # path to the DESIGN doc after transition (set in main loop for use by handle_roadmap)
+CASCADE_DESIGN_PATH=""     # post-transition path to the DESIGN doc (from the report's new_path), used by handle_roadmap for the Downstream rewrite
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -60,30 +64,6 @@ log_warn() {
 
 log_info() {
     echo "[cascade] $*" >&2
-}
-
-# ── Inline utility: get_frontmatter_field ────────────────────────────────────
-# Reads YAML frontmatter (between first --- pair), extracts named field value.
-# Outputs the value or empty string. Never exits non-zero.
-# Usage: get_frontmatter_field <field-name> <doc-path>
-
-get_frontmatter_field() {
-    local field="$1"
-    local doc="$2"
-    # Use index() for literal prefix match — avoids regex injection when field
-    # names contain metacharacters (e.g. dots, plus signs).
-    awk -v field="$field" '
-        /^---$/ { count++; next }
-        count == 2 { exit }
-        count == 1 && index($0, field ": ") == 1 {
-            val = substr($0, length(field ": ") + 1)
-            # Strip surrounding quotes if present
-            gsub(/^'"'"'|'"'"'$/, "", val)
-            gsub(/^"|"$/, "", val)
-            print val
-            exit
-        }
-    ' "$doc" 2>/dev/null || true
 }
 
 # ── Inline utility: validate_upstream_path ───────────────────────────────────
@@ -174,31 +154,6 @@ check_issue_closed() {
     [[ "$state" == "CLOSED" ]]
 }
 
-# ── Inline utility: strip_implementation_issues ──────────────────────────────
-# Idempotently removes the ## Implementation Issues section from a DESIGN doc.
-# No-op if the section is absent. Writes result back to the same file.
-# Usage: strip_implementation_issues <doc-path>
-
-strip_implementation_issues() {
-    local doc="$1"
-
-    # Check section exists before modifying
-    if ! grep -q '^## Implementation Issues' "$doc"; then
-        return 0
-    fi
-
-    # Strip from ## Implementation Issues heading to (but not including) the next
-    # ## heading, or end of file if none follows.
-    local tmp
-    tmp=$(mktemp)
-    awk '
-        /^## Implementation Issues$/ { skip=1; next }
-        skip && /^## / { skip=0 }
-        !skip { print }
-    ' "$doc" > "$tmp"
-    mv "$tmp" "$doc"
-}
-
 # ── JSON helpers ──────────────────────────────────────────────────────────────
 
 # Append a step to STEPS_JSON
@@ -245,101 +200,11 @@ emit_result() {
         '{cascade_status: $cs, steps: $steps}'
 }
 
-# ── Handler: handle_design ────────────────────────────────────────────────────
-# Strip Implementation Issues, then transition design to Current.
-# Usage: handle_design <design-path> <found-in>
-
-handle_design() {
-    local path="$1"
-    local found_in="$2"
-
-    log_info "Transitioning DESIGN: $path → Current"
-    HANDLE_DESIGN_NEW_PATH="$path"  # default: unchanged path
-
-    # Strip Implementation Issues section
-    strip_implementation_issues "$path"
-
-    # Transition to Current
-    local result
-    if ! result=$("$SHIRABE_BIN" transition "$path" Current 2>&1); then
-        local errmsg
-        errmsg=$(echo "$result" | head -1)
-        ANY_FAILED=true
-        add_step "transition_design" "$path" "$found_in" "failed" \
-            "attempted to transition $path to Current (referenced in $found_in), but shirabe transition exited with: $errmsg"
-        return 1
-    fi
-
-    # Extract new path from transition result (design may have moved)
-    local new_path
-    new_path=$(echo "$result" | jq -r '.new_path // empty' 2>/dev/null) || new_path="$path"
-    if [[ -z "$new_path" ]]; then
-        new_path="$path"
-    fi
-
-    git add "$new_path" 2>/dev/null || git add "$path" 2>/dev/null || true
-    STAGED_FILES+=("$new_path")
-    add_step "transition_design" "$path" "$found_in" "ok" ""
-
-    # Set global return value so caller can continue chain from new path without a subshell
-    HANDLE_DESIGN_NEW_PATH="$new_path"
-}
-
-# ── Handler: handle_prd ───────────────────────────────────────────────────────
-# Transition PRD to Done.
-# Usage: handle_prd <prd-path> <found-in>
-
-handle_prd() {
-    local path="$1"
-    local found_in="$2"
-
-    log_info "Transitioning PRD: $path → Done"
-
-    local result
-    if ! result=$("$SHIRABE_BIN" transition "$path" Done 2>&1); then
-        local errmsg
-        errmsg=$(echo "$result" | head -1)
-        ANY_FAILED=true
-        add_step "transition_prd" "$path" "$found_in" "failed" \
-            "attempted to transition $path to Done (referenced in $found_in), but shirabe transition exited with: $errmsg"
-        return 1
-    fi
-
-    git add "$path" || true
-    STAGED_FILES+=("$path")
-    add_step "transition_prd" "$path" "$found_in" "ok" ""
-}
-
-# ── Handler: handle_brief ─────────────────────────────────────────────────────
-# Transition BRIEF to Done. Mirrors handle_prd: a BRIEF transitions in place to
-# a terminal Done with no directory move, so the handler carries no move-path
-# state.
-# Usage: handle_brief <brief-path> <found-in>
-
-handle_brief() {
-    local path="$1"
-    local found_in="$2"
-
-    log_info "Transitioning BRIEF: $path → Done"
-
-    local result
-    if ! result=$("$SHIRABE_BIN" transition "$path" Done 2>&1); then
-        local errmsg
-        errmsg=$(echo "$result" | head -1)
-        ANY_FAILED=true
-        add_step "transition_brief" "$path" "$found_in" "failed" \
-            "attempted to transition $path to Done (referenced in $found_in), but shirabe transition exited with: $errmsg"
-        return 1
-    fi
-
-    git add "$path" || true
-    STAGED_FILES+=("$path")
-    add_step "transition_brief" "$path" "$found_in" "ok" ""
-}
-
 # ── Handler: handle_roadmap ───────────────────────────────────────────────────
 # Locate the feature entry referencing plan-slug, update Status and Downstream,
-# guard full ROADMAP → Done transition.
+# guard full ROADMAP → Done transition. Runs on the roadmap node finalize-chain
+# hands off; external-state-dependent (gh) and out of finalize-chain's scope, so
+# it stays in bash.
 # Usage: handle_roadmap <roadmap-path> <found-in> <plan-slug>
 
 handle_roadmap() {
@@ -446,7 +311,8 @@ handle_roadmap() {
             local result
             if ! result=$("$SHIRABE_BIN" transition "$path" Done 2>&1); then
                 local errmsg
-                errmsg=$(echo "$result" | head -1)
+                errmsg=$(echo "$result" | jq -r '.error // empty' 2>/dev/null) || errmsg=""
+                [[ -z "$errmsg" ]] && errmsg=$(echo "$result" | head -1)
                 ANY_FAILED=true
                 add_step "transition_roadmap" "$path" "$found_in" "failed" \
                     "attempted to transition $path to Done (referenced in $found_in), but shirabe transition exited with: $errmsg"
@@ -477,7 +343,8 @@ Output: JSON to stdout describing each step and the overall cascade_status.
 
 Exit codes:
   0 — cascade ran (completed, partial, or skipped)
-  1 — PLAN doc not found or path validation failed at the PLAN level
+  1 — setup/precondition failure (PLAN missing, path validation, not a git
+      repo, or shirabe binary unresolvable)
 EOF
     exit 1
 }
@@ -549,15 +416,138 @@ if ! validate_upstream_path "$PLAN_DOC"; then
     exit 1
 fi
 
-# ── Read PLAN metadata before deletion ────────────────────────────────────────
-
 # Derive plan slug from PLAN doc filename for ROADMAP feature lookup
 PLAN_SLUG=$(basename "$PLAN_DOC" .md | sed 's/^PLAN-//')
 
-# Read upstream chain before deleting the file
-UPSTREAM=$(get_frontmatter_field "upstream" "$PLAN_DOC") || true
+# ── Step 1: finalize-chain (before git rm — it must read the PLAN's upstream) ──
+#
+# finalize-chain walks the PLAN's upstream chain, applies each tactical node's
+# terminal transition (DESIGN→Current incl. the git mv into current/ and the
+# Implementation-Issues strip; PRD→Done; BRIEF→Done), reports the PLAN as a
+# delete node (never deletes it), and stops at a ROADMAP/VISION node, reporting
+# the roadmap as a handoff. On a refused transition it exits nonzero (1/2/3) and
+# emits a structured error on stderr; we capture both without letting `set -e`
+# abort, and translate a node failure into status:failed + cascade_status:partial
+# while run-cascade STILL exits 0 (the cascade ran).
 
-# ── Step 1: Delete PLAN doc ────────────────────────────────────────────────────
+log_info "Running finalize-chain on PLAN: $PLAN_DOC"
+
+FINALIZE_OUT=""
+FINALIZE_ERR=""
+FINALIZE_RC=0
+# Capture stdout and stderr separately; do not let a nonzero exit abort the script.
+FINALIZE_ERR_FILE=$(mktemp)
+FINALIZE_OUT=$("$SHIRABE_BIN" finalize-chain "$PLAN_DOC" 2>"$FINALIZE_ERR_FILE") || FINALIZE_RC=$?
+FINALIZE_ERR=$(cat "$FINALIZE_ERR_FILE")
+rm -f "$FINALIZE_ERR_FILE"
+
+# ── Step 2: Translate the finalize-chain report into the cascade contract ─────
+#
+# On success (rc 0) finalize-chain emits a `{nodes:[...]}` report on stdout. We
+# walk those nodes in order. Each node's found_in is the previous node's path
+# (its post-move new_path when the previous node was a moved DESIGN); the PLAN's
+# found_in is null. We stage every transitioned path (new_path for a moved
+# DESIGN) and translate each node into a steps[] entry with the preserved action
+# names. A ROADMAP handoff is handed to handle_roadmap (bash).
+#
+# On a node failure (rc != 0) finalize-chain emits the structured error on
+# stderr. Because the report's stdout is then absent, we cannot reconstruct the
+# successful prefix of the walk; we record a single failed step carrying the
+# engine's node-and-type-aware message and mark the cascade partial. The PLAN was
+# never deleted by finalize-chain, so we still git rm it below — the cascade ran.
+
+ROADMAP_PATH=""
+ROADMAP_FOUND_IN=""
+
+if [[ "$FINALIZE_RC" -eq 0 ]]; then
+    # Parse the report. Walk nodes in order, tracking the previous node's
+    # effective path to populate found_in.
+    node_count=$(jq -r '.nodes | length' <<< "$FINALIZE_OUT")
+    prev_path="null"   # PLAN's found_in is null
+    i=0
+    while [[ "$i" -lt "$node_count" ]]; do
+        action=$(jq -r ".nodes[$i].action" <<< "$FINALIZE_OUT")
+        target=$(jq -r ".nodes[$i].path" <<< "$FINALIZE_OUT")
+        new_path=$(jq -r ".nodes[$i].new_path // empty" <<< "$FINALIZE_OUT")
+        note=$(jq -r ".nodes[$i].note // empty" <<< "$FINALIZE_OUT")
+
+        # The effective on-disk path after this node (post-move for a DESIGN).
+        effective_path="$target"
+        if [[ -n "$new_path" ]]; then
+            effective_path="$new_path"
+        fi
+
+        case "$action" in
+            delete_plan)
+                # Reported, not emitted as a step yet — the git rm below emits it.
+                ;;
+            transition_design)
+                git add "$new_path" 2>/dev/null || git add "$target" 2>/dev/null || true
+                STAGED_FILES+=("$effective_path")
+                CASCADE_DESIGN_PATH="$effective_path"
+                add_step "transition_design" "$target" "$prev_path" "ok" ""
+                ;;
+            transition_prd)
+                git add "$target" 2>/dev/null || true
+                STAGED_FILES+=("$target")
+                add_step "transition_prd" "$target" "$prev_path" "ok" ""
+                ;;
+            transition_brief)
+                git add "$target" 2>/dev/null || true
+                STAGED_FILES+=("$target")
+                add_step "transition_brief" "$target" "$prev_path" "ok" ""
+                ;;
+            roadmap_handoff)
+                # Defer the roadmap handler until after the design path is known
+                # (it is — the design precedes the roadmap in the chain). Run it
+                # now: CASCADE_DESIGN_PATH is set from any earlier design node.
+                ROADMAP_PATH="$target"
+                ROADMAP_FOUND_IN="$prev_path"
+                ;;
+            stop)
+                # VISION node or cross-repo reference: no action, walk stopped.
+                log_info "finalize-chain stopped: ${note:-no further action}"
+                ;;
+            error)
+                # Unrecognized prefix mid-walk: finalize-chain reported it as a
+                # per-node error entry but still exited 0. Surface it as a failed
+                # step and mark the cascade partial.
+                ANY_FAILED=true
+                add_step "transition_design" "$target" "$prev_path" "failed" \
+                    "${note:-finalize-chain reported an unrecognized node and stopped the chain walk}"
+                ;;
+            *)
+                ANY_FAILED=true
+                add_step "transition_design" "$target" "$prev_path" "failed" \
+                    "finalize-chain reported an unknown action '$action' for $target"
+                ;;
+        esac
+
+        prev_path="$effective_path"
+        i=$((i + 1))
+    done
+
+    # Run the ROADMAP handler (bash) on any handed-off roadmap node, using the
+    # report's DESIGN new_path (CASCADE_DESIGN_PATH) for the Downstream rewrite.
+    if [[ -n "$ROADMAP_PATH" ]]; then
+        handle_roadmap "$ROADMAP_PATH" "$ROADMAP_FOUND_IN" "$PLAN_SLUG" || true
+    fi
+else
+    # finalize-chain refused a node (exit 1/2/3). Its structured error is on
+    # stderr as {success,error,code}; extract the node-and-type-aware message.
+    ANY_FAILED=true
+    errmsg=$(echo "$FINALIZE_ERR" | jq -r '.error // empty' 2>/dev/null) || errmsg=""
+    if [[ -z "$errmsg" ]]; then
+        errmsg=$(echo "$FINALIZE_ERR" | head -1)
+    fi
+    add_step "transition_design" "$PLAN_DOC" "null" "failed" \
+        "finalize-chain exited $FINALIZE_RC while walking the upstream chain of $PLAN_DOC: ${errmsg:-no error detail}"
+fi
+
+# ── Step 3: git rm the PLAN (per the report's delete entry) ────────────────────
+#
+# finalize-chain never deletes the PLAN; the script owns the git rm. This runs
+# after finalize-chain so the subcommand could read the PLAN's upstream first.
 
 log_info "Deleting PLAN doc: $PLAN_DOC"
 if git rm "$PLAN_DOC" > /dev/null 2>&1; then
@@ -568,95 +558,7 @@ else
         "attempted to git rm $PLAN_DOC but the operation failed"
 fi
 
-# ── Step 2: Walk upstream chain ────────────────────────────────────────────────
-
-if [[ -z "$UPSTREAM" ]]; then
-    log_info "No upstream field in PLAN doc — cascade complete (skipped)"
-    emit_result "skipped"
-    exit 0
-fi
-
-current_doc="$PLAN_DOC"
-current_upstream="$UPSTREAM"
-
-while [[ -n "$current_upstream" ]]; do
-    next_path="$current_upstream"
-    found_in="$current_doc"
-
-    # Validate the upstream path before acting
-    if ! validate_upstream_path "$next_path"; then
-        ANY_FAILED=true
-        node_name=$(basename "$next_path")
-        # Determine artifact type for error message
-        case "$node_name" in
-            DESIGN-*) artifact_type="DESIGN" ; target_status="Current" ;;
-            PRD-*)    artifact_type="PRD"    ; target_status="Done" ;;
-            BRIEF-*)  artifact_type="BRIEF"  ; target_status="Done" ;;
-            ROADMAP-*)artifact_type="ROADMAP"; target_status="Done" ;;
-            *)        artifact_type="artifact"; target_status="target status" ;;
-        esac
-
-        if [[ ! -f "$next_path" ]]; then
-            detail="upstream field in $found_in references $next_path, but that file does not exist — cannot transition $artifact_type to $target_status"
-        else
-            # File exists but validate_upstream_path rejected it (symlink, outside repo, or untracked)
-            detail="upstream field in $found_in references $next_path, but that file is not tracked by git — it may be a new uncommitted file, a symlink, or a typo in the upstream field"
-        fi
-
-        case "$node_name" in
-            DESIGN-*) add_step "transition_design"  "$next_path" "$found_in" "failed" "$detail" ;;
-            PRD-*)    add_step "transition_prd"      "$next_path" "$found_in" "failed" "$detail" ;;
-            BRIEF-*)  add_step "transition_brief"    "$next_path" "$found_in" "failed" "$detail" ;;
-            ROADMAP-*)add_step "update_roadmap_feature" "$next_path" "$found_in" "failed" "$detail" ;;
-            *)        add_step "transition_design"   "$next_path" "$found_in" "failed" "$detail" ;;
-        esac
-        break
-    fi
-
-    # Dispatch by filename prefix
-    node_basename=$(basename "$next_path")
-    case "$node_basename" in
-        DESIGN-*)
-            handle_design "$next_path" "$found_in" || true
-            # Continue chain from the (possibly moved) design doc
-            if [[ -n "$HANDLE_DESIGN_NEW_PATH" ]] && [[ -f "$HANDLE_DESIGN_NEW_PATH" ]]; then
-                current_doc="$HANDLE_DESIGN_NEW_PATH"
-                CASCADE_DESIGN_PATH="$HANDLE_DESIGN_NEW_PATH"
-            else
-                current_doc="$next_path"
-                CASCADE_DESIGN_PATH="$next_path"
-            fi
-            ;;
-        PRD-*)
-            handle_prd "$next_path" "$found_in" || true
-            current_doc="$next_path"
-            ;;
-        BRIEF-*)
-            handle_brief "$next_path" "$found_in" || true
-            current_doc="$next_path"
-            ;;
-        ROADMAP-*)
-            handle_roadmap "$next_path" "$found_in" "$PLAN_SLUG" || true
-            # ROADMAP is terminal — stop chain walk
-            break
-            ;;
-        VISION-*)
-            log_info "VISION node encountered — stopping chain walk (no action)"
-            break
-            ;;
-        *)
-            ANY_FAILED=true
-            add_step "transition_design" "$next_path" "$found_in" "failed" \
-                "upstream field in $found_in references $next_path, which has an unrecognized filename prefix — expected DESIGN-*, PRD-*, ROADMAP-*, or VISION-*; stopping chain walk here"
-            break
-            ;;
-    esac
-
-    # Get upstream of current node for next iteration
-    current_upstream=$(get_frontmatter_field "upstream" "$current_doc") || true
-done
-
-# ── Step 3: Commit and push (if --push) ───────────────────────────────────────
+# ── Step 4: Commit and push (if --push) ───────────────────────────────────────
 
 if [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
     log_info "Committing and pushing staged changes"
@@ -670,9 +572,29 @@ elif [[ "$PUSH" == "false" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
 fi
 
 # ── Emit result ────────────────────────────────────────────────────────────────
+#
+# cascade_status:
+#   skipped   — the PLAN had no upstream chain (only the delete step ran)
+#   partial   — a node failed (finalize-chain refused, an error node, or git rm
+#               failed); the cascade still RAN, so the script exits 0
+#   completed — every node transitioned cleanly
+# The script exits 0 whenever the cascade ran; exit 1 is reserved for the
+# setup/precondition failures handled above (before this point).
+
+# A "skipped" cascade is one where finalize-chain reported only the PLAN delete
+# node (no upstream chain). Detect it from the successful report.
+CASCADE_SKIPPED=false
+if [[ "$FINALIZE_RC" -eq 0 ]]; then
+    fc_node_count=$(jq -r '.nodes | length' <<< "$FINALIZE_OUT")
+    if [[ "$fc_node_count" -eq 1 ]]; then
+        CASCADE_SKIPPED=true
+    fi
+fi
 
 if [[ "$ANY_FAILED" == "true" ]]; then
     emit_result "partial"
+elif [[ "$CASCADE_SKIPPED" == "true" ]]; then
+    emit_result "skipped"
 else
     emit_result "completed"
 fi
