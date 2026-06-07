@@ -160,7 +160,7 @@ enforces order -- so order is absorbed as new behavior (Decision 3 makes it a
 new code, since it is genuinely new, not an FC04 tweak). The issues-table
 family has three gaps, all strict supersets the engine absorbs by extending
 its row-shape validation: the dependency-link **format** (`[#N](url)`), the
-**tier-value enum**, and the **child-design reference link**. The external
+**complexity-value enum**, and the **child-design reference link**. The external
 diagram and strikethrough checks are already subsumed by the engine's FC07
 (table-vs-diagram reconciliation) and FC08 (strikethrough consistency), so
 those sub-families are already consolidated and out of this reconciliation.
@@ -172,7 +172,7 @@ defined verdict.
 **Alternatives rejected:**
 
 - **Engine-wins by default.** Guarantees the named failure mode on the four
-  confirmed gaps -- section order, dependency-link format, tier enum, and
+  confirmed gaps -- section order, dependency-link format, complexity enum, and
   child link would all silently vanish. Survives only as one possible
   *adjudicated* outcome for a specific edge, never as the default.
 - **Bash-wins by default.** Inverts the consolidation: the engine would chase
@@ -348,7 +348,7 @@ it replaces.
 2. **Absorbed checks (`crates/shirabe-validate/src/checks.rs`).** New
    `check_*` functions wired into `validate_file`, and extensions to existing
    functions where a reconciliation tightens an existing check (FC05 row shape
-   gains dependency-link format, tier enum, and child-link; FC04's family
+   gains dependency-link format, complexity enum, and child-link; FC04's family
    gains a new section-order code; FC09 gains the github-status edge). Each new
    per-file code is registered in `is_known_check_code`.
 
@@ -406,7 +406,7 @@ self-contained landing that leaves the suite green:
    `transition_parity.rs` shape, with one already-absorbed check (a
    near-parity frontmatter rule) as the first case to prove the harness.
 3. **Absorb the overlapping families, reconciled.** Extend FC05 (link format,
-   tier enum, child link) and add the section-order code; for each, the parity
+   complexity enum, child link) and add the section-order code; for each, the parity
    diff drives the adjudication, the divergence manifest records any
    deliberate edge, and the external copy is deleted in the same change.
 4. **Absorb the non-overlapping per-file checks.** The github-status edge
