@@ -979,9 +979,12 @@ EOF
 
     local ok=true
 
-    # No l06_suppressed marker on lifecycle_pre_probe's detail.
+    # No l06_suppressed marker on lifecycle_pre_probe's detail. The
+    # detail is null when the env is unset (add_step writes null for
+    # empty string); coerce null -> "" before testing for the marker so
+    # the jq expression is null-safe across runners.
     assert_json "$scenario" "$output" \
-        '[.steps[] | select(.action == "lifecycle_pre_probe")] | .[0].detail | contains("l06_suppressed") | not' \
+        '[.steps[] | select(.action == "lifecycle_pre_probe")] | (.[0].detail // "") | contains("l06_suppressed") | not' \
         "lifecycle_pre_probe detail must not carry l06_suppressed marker" || ok=false
 
     # The captured argv must NOT contain --allow-untracked-acs.

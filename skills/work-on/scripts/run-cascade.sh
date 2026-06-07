@@ -288,11 +288,15 @@ LIFECYCLE_PROBE_OUTPUT=""
 lifecycle_probe() {
     local mode="$1"
     local exit_code=0
+    # bash 3.2 (macOS) errors on `"${arr[@]}"` when arr is empty under
+    # `set -u`; the `${arr[@]:+...}` guard expands to nothing when the
+    # array is empty and to the spread otherwise. Safe across bash 3.2+
+    # and bash 5.x.
     LIFECYCLE_PROBE_OUTPUT=$("$SHIRABE_BIN" validate \
         --lifecycle-chain "$PLAN_DOC" \
         --format json \
         --strict \
-        "${ALLOW_UNTRACKED_ACS_ARGS[@]}" 2>&1) || exit_code=$?
+        ${ALLOW_UNTRACKED_ACS_ARGS[@]:+"${ALLOW_UNTRACKED_ACS_ARGS[@]}"} 2>&1) || exit_code=$?
 
     if [[ "$mode" == "pre" ]]; then
         if [[ "$exit_code" -eq 0 ]]; then
