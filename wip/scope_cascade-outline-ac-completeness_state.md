@@ -7,8 +7,8 @@ exit: UNSET
 parent_orchestration:
   parent_skill: scope
   parent_state_file: wip/scope_cascade-outline-ac-completeness_state.md
-  current_child: brief
-  invoked_at: 2026-06-07T20:14:00Z
+  current_child: design
+  invoked_at: 2026-06-07T20:35:00Z
 exit_artifacts: []
 planned_chain:
   - brief
@@ -16,12 +16,22 @@ planned_chain:
   - design
   - plan
 chain_skipped: []
-chain_ran: []
+chain_ran:
+  - brief
+  - prd
 visibility: Public
 execution_mode: auto
 max_rounds: 5
 source_issue: 177
-child_snapshots: {}
+child_snapshots:
+  brief:
+    status: Accepted
+    content_hash: 702e730f4d8219f84e5e1e85c2f5b4df74bf53d7
+    captured_at: 2026-06-07T20:25:00Z
+  prd:
+    status: Accepted
+    content_hash: ca8e139aaf18e3ea221133b3fe4ab8728c94a9d9
+    captured_at: 2026-06-07T20:35:00Z
 r6_predicates:
   p1: fires
   p1_reason: "Two candidate shapes named in #177 (pure-doc AC check vs diff-aware AC check) — open architectural alternative"
