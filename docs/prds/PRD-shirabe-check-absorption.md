@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   Deterministic document checks are implemented in more than one place --
   the shirabe validate engine, external CI shell scripts copied across
@@ -21,7 +21,7 @@ upstream: docs/briefs/BRIEF-shirabe-check-absorption.md
 
 ## Status
 
-Accepted
+In Progress
 
 ## Problem Statement
 
