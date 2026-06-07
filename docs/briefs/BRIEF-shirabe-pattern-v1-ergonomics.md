@@ -243,8 +243,8 @@ operator knows to revise before the DESIGN is consumed by
 
 **OUT of scope:**
 
-- The amplifier-layer mandate refinement work tracked in
-  `tsukumogami/vision#535`. Those observations require
+- The amplifier-layer mandate refinement work (tracked
+  separately as a forward-looking effort). Those observations require
   substrate primitives (durable team state as source of truth,
   idle-notification filtering at the substrate level, structured
   team-shape declarator, live team query, nested teams,
@@ -279,11 +279,11 @@ operator knows to revise before the DESIGN is consumed by
 
 ## References
 
-- `tsukumogami/vision#514` — narrowed Track A scope: the
-  consolidated set of ~24 inside-pattern observations, the
-  17-theme dogfooding comment, and the original SE12 framing.
-- `tsukumogami/vision#535` — Track B: amplifier-layer mandate
-  refinement, explicitly out of scope here.
+- Track A scope (this work) — the consolidated set of ~24
+  inside-pattern observations, the 17-theme dogfooding comment,
+  and the original inside-pattern ergonomics framing.
+- Track B (amplifier-layer mandate refinement) — explicitly out
+  of scope here, tracked separately as a forward-looking effort.
 - `friction-log-shirabe-0.9.0.md` — workspace-level friction
   log from the v0.9.0/v0.9.1-dev dogfooding round that confirmed
   the v0.7.0-era observations on the post-Rust-cutover codebase

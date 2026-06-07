@@ -80,11 +80,13 @@ with "unknown command". Each individual failure recovers via
 operator improvisation, but every chain pays the same tax.
 
 This PRD scopes the inside-pattern fix surface. The
-amplifier-layer substrate work (`tsukumogami/vision#535`, Track B
-of the SE12 split) is out of scope here — those observations
-require koto composability extensions and live in the post-SE2
-substrate. Standalone shirabe BUG-class issues that don't fit the
-pattern-ergonomics frame stay open as their own work streams.
+amplifier-layer substrate work (Track B of the inside-pattern
+ergonomics split) is out of scope here — those observations
+require koto composability extensions and live in the
+post-amplifier-layer-substrate work, tracked separately as a
+forward-looking effort. Standalone shirabe BUG-class issues that
+don't fit the pattern-ergonomics frame stay open as their own
+work streams.
 
 ## Goals
 
@@ -214,8 +216,9 @@ the bypass prose is eager-loaded into the SKILL body.
 
 **R8** — Each fallback path R1-R7 prescribes SHALL state
 explicitly what is NOT covered — specifically, that nested-team
-spawning remains Track B (`tsukumogami/vision#535`) and is not
-addressed by inside-pattern fallbacks.
+spawning remains Track B (amplifier-layer mandate work, tracked
+separately as a forward-looking effort) and is not addressed by
+inside-pattern fallbacks.
 
 ### Cluster 2 — Resume Logic sentinel-awareness
 
@@ -448,8 +451,8 @@ by a developer who didn't write the PRD.
   deterministic-mode bypass for the koto state machine.
 - [ ] **AC1.9** — Every fallback section AC1.1-AC1.8 names
   reaches contains an explicit "NOT covered: nested-team
-  spawning (Track B, `tsukumogami/vision#535`)" or equivalent
-  carve-out.
+  spawning (Track B, amplifier-layer mandate, tracked separately
+  as a forward-looking effort)" or equivalent carve-out.
 
 ### Cluster 2 — Resume Logic sentinel-awareness
 
@@ -572,9 +575,9 @@ by a developer who didn't write the PRD.
 
 ## Out of Scope
 
-- The amplifier-layer mandate refinement work tracked in
-  `tsukumogami/vision#535` (Track B). Those observations
-  require substrate primitives (durable team state,
+- The amplifier-layer mandate refinement work (Track B,
+  tracked separately as a forward-looking effort). Those
+  observations require substrate primitives (durable team state,
   cross-team messaging, structured team-shape declarator,
   live-team-query, nested teams, coordinator-side lazy
   spawning, idle-notification filtering at substrate level,
@@ -686,12 +689,11 @@ v0.9.0-dogfooding evidence depends on it.
 - `docs/briefs/BRIEF-shirabe-pattern-v1-ergonomics.md` —
   upstream BRIEF (Accepted 2026-06-06). Frames the six
   fix-surface clusters and named user journeys.
-- `tsukumogami/vision#514` — narrowed Track A scope; the
-  consolidated set of ~24 inside-pattern observations, the
-  17-theme dogfooding comment, and the original SE12
-  framing.
-- `tsukumogami/vision#535` — Track B amplifier-layer mandate
-  refinement, explicitly out of scope here.
+- Track A scope (this work) — the consolidated set of ~24
+  inside-pattern observations, the 17-theme dogfooding comment,
+  and the original inside-pattern ergonomics framing.
+- Track B (amplifier-layer mandate refinement) — explicitly out
+  of scope here, tracked separately as a forward-looking effort.
 - `tsukumogami/shirabe#157` — validator schema silent-skip
   bug; intersects R18.
 - `tsukumogami/shirabe#158` — `/plan` single-pr
