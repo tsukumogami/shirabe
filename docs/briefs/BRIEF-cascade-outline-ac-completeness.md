@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   The work-on cascade performs the atomic finalization commit at the
   draft -> ready transition — deletes the PLAN, transitions BRIEF/PRD
@@ -20,7 +20,7 @@ upstream: docs/plans/PLAN-roadmap-plan-standardization.md
 
 ## Status
 
-Accepted
+Done
 
 This brief frames a leaf feature on the parent PLAN
 `PLAN-roadmap-plan-standardization.md` (the last open row, #177).

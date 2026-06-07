@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Current
 upstream: docs/prds/PRD-cascade-outline-ac-completeness.md
 problem: |
   The work-on cascade satisfies every chain-posture rule (L01-L05) and
@@ -41,7 +41,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Current
 
 This design settles the four implementation questions the PRD left
 open: which candidate shape (R7), the Lnn code number (R5), parser

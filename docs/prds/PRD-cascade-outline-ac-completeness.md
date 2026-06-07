@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   The work-on cascade transitions BRIEF/PRD/DESIGN and deletes the
   PLAN at the atomic finalization commit, but does not verify the
@@ -25,7 +25,7 @@ source_issue: 177
 
 ## Status
 
-Accepted
+Done
 
 This PRD captures requirements for the third gap on the cascade-
 discipline axis. The upstream BRIEF
