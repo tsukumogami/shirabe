@@ -41,6 +41,12 @@ visibility-gated section, and the Sunset lifecycle state.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
+## Artifact Lifecycle
+
+**Lifecycle:** Durable. Stays in `docs/briefs/` after completion.
+
+BRIEF is durable because the framing of a feature — the problem, outcome, journeys, and scope boundary — stays in the audit trail. Future readers tracing why a feature was scoped need the BRIEF to remain in place even after the feature ships.
+
 ## Brief Format
 
 See `references/brief-format.md` for the full format specification:

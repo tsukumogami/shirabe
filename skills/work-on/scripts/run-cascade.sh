@@ -23,7 +23,7 @@
 #       {
 #         "action": "delete_plan | transition_design | transition_prd |
 #                    transition_brief | update_roadmap_feature |
-#                    transition_roadmap",
+#                    delete_roadmap",
 #         "target": "<path being acted on>",
 #         "found_in": "<path where reference was discovered>",
 #         "status": "ok | skipped | failed",
@@ -342,42 +342,102 @@ handle_roadmap() {
     done <<< "$feature_statuses"
 
     if [[ "$all_done" == "true" ]]; then
-        log_info "All ROADMAP features Done. Checking all issue URLs in ROADMAP before transitioning."
-
-        # Check all GitHub issue URLs in the entire ROADMAP file (not just the current feature)
-        local open_issues=false
-        local open_issue_url=""
-        local issue_urls
-        issue_urls=$(grep -oE 'https://github\.com/[^/]+/[^/]+/issues/[0-9]+' "$path" || true)
-        while IFS= read -r issue_url; do
-            [[ -z "$issue_url" ]] && continue
-            if ! check_issue_closed "$issue_url"; then
-                open_issues=true
-                open_issue_url="$issue_url"
-                break
-            fi
-        done <<< "$issue_urls"
-
-        if [[ "$open_issues" == "true" ]]; then
-            add_step "transition_roadmap" "$path" "$found_in" "skipped" \
-                "$path references issue $open_issue_url which is still open — not transitioning $path to Done; close the issue first or run the cascade again after it closes"
-        else
-            local result
-            if ! result=$("$SHIRABE_BIN" transition "$path" Done 2>&1); then
-                local errmsg
-                errmsg=$(echo "$result" | jq -r '.error // empty' 2>/dev/null) || errmsg=""
-                [[ -z "$errmsg" ]] && errmsg=$(echo "$result" | head -1)
-                ANY_FAILED=true
-                add_step "transition_roadmap" "$path" "$found_in" "failed" \
-                    "attempted to transition $path to Done (referenced in $found_in), but shirabe transition exited with: $errmsg"
-            else
-                add_step "transition_roadmap" "$path" "$found_in" "ok" ""
-            fi
-        fi
+        log_info "All ROADMAP features Done. Delegating to handle_roadmap_deletion for completion check + delete."
+        handle_roadmap_deletion "$path" "$found_in"
     fi
 
-    git add "$path" || true
-    STAGED_FILES+=("$path")
+    # Stage the Status/Downstream feature edit. When handle_roadmap_deletion
+    # has already removed the file (git rm), this `git add` is a no-op; the
+    # staged deletion stays. When the deletion path didn't fire (open issues,
+    # not all features Done, or the all_done branch was never reached), this
+    # stages the feature Status/Downstream rewrite.
+    if [[ -f "$path" ]]; then
+        git add "$path" || true
+        STAGED_FILES+=("$path")
+    fi
+}
+
+# ── Handler: handle_roadmap_deletion ──────────────────────────────────────────
+# Idempotent check + delete for working-lifecycle ROADMAPs. When the existing
+# handle_roadmap() has verified all features are at status Done, this function
+# re-verifies the condition, confirms every referenced GitHub issue is CLOSED,
+# transitions the ROADMAP Active -> Done, and `git rm`s the file in the same
+# staged commit set.
+#
+# Idempotent at every negative branch:
+#   - Missing file returns 0 with no side effects (already deleted).
+#   - Any non-Done feature returns 0 with no side effects.
+#   - Any open issue records a "delete_roadmap" "skipped" step naming the URL.
+#
+# On success: records "delete_roadmap" "ok", appends path to STAGED_FILES.
+# On git rm failure: sets ANY_FAILED=true and records the step as "failed".
+#
+# Usage: handle_roadmap_deletion <roadmap-path> <found-in>
+
+handle_roadmap_deletion() {
+    local path="$1"
+    local found_in="$2"
+
+    # Idempotency guard: missing file is a no-op (already deleted on a prior run).
+    if [[ ! -f "$path" ]]; then
+        return 0
+    fi
+
+    # Re-verify all features are at status Done. The caller in handle_roadmap()
+    # already checked, but a direct re-invocation must also be safe.
+    local all_done=true
+    local feature_statuses
+    feature_statuses=$(grep "^\*\*Status:\*\*" "$path" \
+        | sed 's/\*\*Status:\*\*[[:space:]]*//')
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        if [[ "$line" != "Done" ]]; then
+            all_done=false
+            break
+        fi
+    done <<< "$feature_statuses"
+
+    if [[ "$all_done" != "true" ]]; then
+        # Some feature is not Done; the ROADMAP stays.
+        return 0
+    fi
+
+    # Confirm all referenced GitHub issues are CLOSED. Reuses check_issue_closed
+    # which validates owner/repo against the origin remote.
+    local all_closed=true
+    local open_issue_url=""
+    local issue_urls
+    issue_urls=$(grep -oE \
+        'https://github\.com/[^/]+/[^/]+/issues/[0-9]+' "$path" || true)
+    while IFS= read -r issue_url; do
+        [[ -z "$issue_url" ]] && continue
+        if ! check_issue_closed "$issue_url"; then
+            all_closed=false
+            open_issue_url="$issue_url"
+            break
+        fi
+    done <<< "$issue_urls"
+
+    if [[ "$all_closed" != "true" ]]; then
+        add_step "delete_roadmap" "$path" "$found_in" "skipped" \
+            "$path references issue $open_issue_url which is still open — not deleting $path; close the issue first or run the cascade again after it closes"
+        return 0
+    fi
+
+    # Active -> Done flip (ephemeral, in-process audit-trail marker).
+    if ! "$SHIRABE_BIN" transition "$path" Done > /dev/null 2>&1; then
+        log_warn "shirabe transition $path Done failed; proceeding to git rm"
+    fi
+
+    # Done -> DELETED via git rm in the same staged commit set.
+    if git rm -f "$path" > /dev/null 2>&1; then
+        add_step "delete_roadmap" "$path" "$found_in" "ok" ""
+        STAGED_FILES+=("$path")
+    else
+        ANY_FAILED=true
+        add_step "delete_roadmap" "$path" "$found_in" "failed" \
+            "attempted to git rm $path but the operation failed"
+    fi
 }
 
 # ── Usage ─────────────────────────────────────────────────────────────────────

@@ -24,6 +24,12 @@ that justifies writing requirements in the first place.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
+## Artifact Lifecycle
+
+**Lifecycle:** Durable. Stays in `docs/visions/` after completion.
+
+VISION is durable because the long-term thesis a project commits to stays in the audit trail. Future readers asking why a project exists at all need the VISION to remain in place even as the project evolves.
+
 ## Vision Format
 
 See `references/vision-format.md` for the full format specification: frontmatter

@@ -27,6 +27,21 @@ upstream of PRDs (which define individual features in detail).
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
+## Artifact Lifecycle
+
+**Lifecycle:** Working. Completion condition: all features on the ROADMAP are at status Done AND all referenced GitHub issues are closed.
+
+The lifecycle states are `Draft -> Active -> Done -> DELETED`,
+mirroring the working-artifact lifecycle template established in
+`docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md`.
+
+**Deleted by:** the work-on cascade's handle_roadmap_deletion step.
+
+
+The handle_roadmap_deletion step is the new cascade extension shipped
+alongside this contract. It runs after the existing PLAN finalization
+step, inside the same cascade window the work-on flow already uses.
+
 ## Roadmap Format
 
 See `references/roadmap-format.md` for the full format specification:
@@ -215,19 +230,27 @@ After activation, suggest next steps:
 
 ## Lifecycle Management
 
-Roadmaps use a linear lifecycle: Draft -> Active -> Done.
+Roadmaps use the four-state working lifecycle: Draft -> Active -> Done -> DELETED.
 
 | Transition | Verb | Precondition |
 |------------|------|-------------|
 | Draft -> Active | `activate` | Feature list complete, human approval |
 | Active -> Done | `done` | All features terminal (delivered or dropped) |
+| Done -> DELETED | `cascade` | All features Done AND all referenced issues closed, triggered by work-on cascade |
 
-**Forbidden transitions:** Done -> any (permanent record), Active -> Draft
-(no regression), Draft -> Done (can't skip Active).
+**Forbidden transitions:** Active -> Draft (no regression), Draft -> Done
+(can't skip Active). Done -> DELETED is cascade-only -- it runs from the
+work-on cascade's `handle_roadmap_deletion` step and is not human-invokable;
+no `shirabe transition <path> DELETED` form exists.
 
 Done roadmaps retain all content: features, sequencing rationale, progress,
 and any Implementation Issues table or Mermaid dependency graph added by
-/plan. Nothing is stripped. Done roadmaps are historical artifacts.
+/plan. Nothing is stripped. Done roadmaps are historical artifacts that
+remain on disk until the cascade deletes them.
+
+The four-state machinery here mirrors the working-artifact lifecycle template
+established in `docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md`,
+matching the contract recorded in the `## Artifact Lifecycle` section above.
 
 Lifecycle verbs are invoked as:
 ```
@@ -235,7 +258,8 @@ Lifecycle verbs are invoked as:
 /roadmap done docs/roadmaps/ROADMAP-<topic>.md
 ```
 
-Both delegate to `shirabe transition`.
+Both delegate to `shirabe transition`. The cascade-only DELETED transition
+has no `/roadmap` verb form.
 
 ### Chain CI Gate (DRAFT-vs-READY Discipline)
 
