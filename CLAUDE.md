@@ -25,6 +25,19 @@ Context) so the validator's FC-CONVENTIONS check can find it. See
 header format and the cross-references to the other convention
 headers.
 
+## Artifact Lifecycle: per-skill
+
+shirabe artifacts follow a three-rule lifecycle model. Durable
+artifacts stay in `docs/` after completion and serve as the audit
+trail (BRIEF, PRD, DESIGN, VISION, STRATEGY, COMP). Working
+artifacts retire on completion — they exist while their job is in
+flight and the cascade deletes them when a documented completion
+condition holds (PLAN, ROADMAP). Each working-artifact skill names
+its completion condition in its own SKILL.md `## Artifact Lifecycle`
+section, which is the authoritative source for the rule. See the
+per-skill sections (`skills/<name>/SKILL.md`) for the contract
+each artifact type binds to.
+
 ## Artifact Types and When to Use Them
 
 shirabe recognizes seven artifact types across two altitude bands.

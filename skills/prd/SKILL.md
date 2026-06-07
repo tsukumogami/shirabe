@@ -22,6 +22,12 @@ are the input for /design (which produces technical architecture).
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
+## Artifact Lifecycle
+
+**Lifecycle:** Durable. Stays in `docs/prds/` after completion.
+
+PRD is durable because the requirements captured at PRD-Accepted time are the audit trail of what was promised. Future readers checking whether a shipped feature met its requirements need the PRD to remain in place.
+
 ## PRD Format
 
 See `references/prd-format.md` for PRD structure, frontmatter, lifecycle states,

@@ -33,6 +33,14 @@ don't yet know which artifact you need.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
+## Artifact Lifecycle
+
+**Lifecycle:** Durable. Stays in `docs/competitive/` after completion.
+
+COMP is durable because the competitive analysis captured at survey time stays in the audit trail. Future readers tracing why a competitive decision was made need the COMP to remain in place.
+
+COMP is private-only; the lifecycle contract does not loosen that constraint.
+
 ## Comp Format
 
 See `references/comp-format.md` for the full format specification:

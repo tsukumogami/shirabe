@@ -21,6 +21,12 @@ and are the input for /plan (which breaks designs into issues).
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
+## Artifact Lifecycle
+
+**Lifecycle:** Durable. Stays in `docs/designs/` after completion.
+
+DESIGN is durable because the architectural decisions captured at DESIGN-Accepted time are the audit trail of how the implementation was chosen. Future readers asking why a particular architecture was selected need the DESIGN to remain in place; Current-state designs move to docs/designs/current/ but stay on disk.
+
 ## Structure
 
 ### Frontmatter

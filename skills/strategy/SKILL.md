@@ -33,6 +33,12 @@ conditions so the team can recognize when the bet has been wrong.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
+## Artifact Lifecycle
+
+**Lifecycle:** Durable. Stays in `docs/strategies/` after completion.
+
+STRATEGY is durable because the medium-term bet — the falsifiable claim a project pursues — stays in the audit trail. Future readers reviewing which strategic direction was taken need the STRATEGY to remain in place.
+
 ## Strategy Format
 
 See `references/strategy-format.md` for the full format specification:

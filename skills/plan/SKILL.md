@@ -22,6 +22,20 @@ strategy, issue sequencing, and dependency graph that guide implementation throu
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
+## Artifact Lifecycle
+
+**Lifecycle:** Working. Completion condition: the work-on cascade verifies the PLAN-Active state's terminal contract and finalizes the chain.
+
+The lifecycle states are `Draft -> Active -> Done -> DELETED`,
+mirroring the working-artifact lifecycle template established in
+`docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md`.
+
+**Deleted by:** the work-on cascade's PLAN deletion step.
+
+
+The PLAN file is removed from disk in the same atomic finalization
+commit that transitions BRIEF/PRD to Done and DESIGN to Current.
+
 ## PLAN Doc Structure
 
 Plans live at `docs/plans/PLAN-<topic>.md`. See the full specification at

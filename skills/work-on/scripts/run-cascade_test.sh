@@ -214,7 +214,11 @@ run_cascade() {
     local plan_doc="$1"
     shift
     local bin="${CASCADE_SHIRABE_BIN_OVERRIDE:-$SHIRABE_BIN_PATH}"
-    SHIRABE_BIN="$bin" bash "$CASCADE_SCRIPT" "$@" "$plan_doc" 2>/dev/null || true
+    local effective_path="$PATH"
+    if [[ -n "${GH_STUB_DIR:-}" ]]; then
+        effective_path="$GH_STUB_DIR:$PATH"
+    fi
+    PATH="$effective_path" SHIRABE_BIN="$bin" bash "$CASCADE_SCRIPT" "$@" "$plan_doc" 2>/dev/null || true
 }
 
 # Assert a jq expression evaluates to "true" on the JSON
@@ -310,6 +314,102 @@ exec "\$REAL_BIN" "\$@"
 EOF
     chmod +x "$stub"
     SHIRABE_STUB="$stub"
+}
+
+# Write a single-feature ROADMAP fixture for the deletion scenarios. Features
+# start at status Done so handle_roadmap's all_done branch fires after the
+# Downstream/Status idempotent rewrite for the cascade's PLAN.
+# Optional third arg is a list of GitHub issue URLs (space-separated) to embed
+# in the Features prose so handle_roadmap_deletion's check_issue_closed loop
+# has something to evaluate.
+write_roadmap_done_single() {
+    local path="$1"
+    local plan_filename="$2"
+    local issue_urls="${3:-}"
+    mkdir -p "$(dirname "$path")"
+
+    local issue_lines=""
+    if [[ -n "$issue_urls" ]]; then
+        local url
+        for url in $issue_urls; do
+            issue_lines+="- $url"$'\n'
+        done
+    fi
+
+    cat > "$path" <<EOF
+---
+status: Active
+---
+
+# ROADMAP: Cascade Deletion Test
+
+## Status
+
+Active
+
+## Theme
+
+Single-feature roadmap whose feature is already Done; used to exercise the
+all-features-Done -> handle_roadmap_deletion branch.
+
+## Features
+
+### Feature 1: Done Feature
+
+**Status:** Done
+**Downstream:** ${plan_filename}
+
+Tracked work:
+${issue_lines}
+EOF
+}
+
+# Install a gh stub that overrides PATH for the cascade. The stub responds to
+# `gh issue view <N> --repo <slug> --json state --jq .state` by reading an
+# override file under the stub dir. The override file's first line is the
+# state to return ("CLOSED" or "OPEN"); subsequent lines are consumed on
+# successive calls so a single scenario can sequence multiple issue states.
+# Returns 0 for CLOSED, 1 for OPEN (matching how check_issue_closed treats the
+# state output).
+setup_gh_stub() {
+    local repo_dir="$1"
+    local stub_dir="$repo_dir/.gh-stub"
+    mkdir -p "$stub_dir"
+    local stub="$stub_dir/gh"
+
+    cat > "$stub" <<'EOF'
+#!/usr/bin/env bash
+# Minimal gh stub for cascade tests. Only `gh issue view ... --json state
+# --jq .state` is supported; other gh subcommands are no-ops returning 0.
+set -euo pipefail
+STUB_DIR="$(dirname "$0")"
+OVERRIDE_FILE="$STUB_DIR/issue-states.txt"
+
+if [[ "${1:-}" == "issue" ]] && [[ "${2:-}" == "view" ]]; then
+    state="CLOSED"
+    if [[ -f "$OVERRIDE_FILE" ]]; then
+        state=$(head -1 "$OVERRIDE_FILE" 2>/dev/null || echo "CLOSED")
+        tail -n +2 "$OVERRIDE_FILE" > "$OVERRIDE_FILE.tmp" 2>/dev/null && mv "$OVERRIDE_FILE.tmp" "$OVERRIDE_FILE"
+        [[ -z "$state" ]] && state="CLOSED"
+    fi
+    echo "$state"
+    exit 0
+fi
+
+exit 0
+EOF
+    chmod +x "$stub"
+    GH_STUB_DIR="$stub_dir"
+}
+
+# Configure the test git repo's origin so the cascade's check_issue_closed
+# helper sees an owner/repo slug it can match against issue URLs of the form
+# https://github.com/<owner>/<repo>/issues/<N>. The origin URL is set
+# without the trailing .git so the cascade's slug normalization (which only
+# strips .git on the ssh branch) matches the issue URL exactly.
+set_github_origin() {
+    local slug="$1"
+    git remote set-url origin "https://github.com/${slug}"
 }
 
 # Commit all files in the repo
@@ -761,6 +861,272 @@ scenario_pre_probe_mid_pr() {
     cd "$SCRIPT_DIR"
 }
 
+# ── Scenario 10: handle_roadmap_deletion — no-ROADMAP regression ──────────────
+# When the cascade walks a chain with no ROADMAP at the head (BRIEF without
+# upstream), no ROADMAP handler runs, no delete_roadmap step is emitted, and
+# the post-cascade chain remains consistent. Regression check that the new
+# function's presence doesn't affect the no-ROADMAP path.
+scenario_deletion_no_roadmap_regression() {
+    local scenario="Scenario 10: deletion — no-ROADMAP regression"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    # BRIEF without upstream — the chain has no ROADMAP at the head.
+    write_brief "$repo/docs/briefs/BRIEF-cascade-no-roadmap.md"
+    write_prd "$repo/docs/prds/PRD-cascade-no-roadmap.md" \
+        "docs/briefs/BRIEF-cascade-no-roadmap.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-no-roadmap.md" \
+        "docs/prds/PRD-cascade-no-roadmap.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-no-roadmap.md" \
+        "docs/designs/DESIGN-cascade-no-roadmap.md"
+
+    commit_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-no-roadmap.md")
+
+    local ok=true
+
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "cascade_status is completed" || ok=false
+
+    # No ROADMAP -> no delete_roadmap step, no update_roadmap_feature step.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_roadmap")] | length == 0' \
+        "no delete_roadmap step emitted" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "update_roadmap_feature")] | length == 0' \
+        "no update_roadmap_feature step emitted" || ok=false
+
+    # The tactical chain still finalizes cleanly.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_design" and .status == "ok")] | length == 1' \
+        "transition_design ok" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_plan" and .status == "ok")] | length == 1' \
+        "delete_plan ok" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Scenario 11: handle_roadmap_deletion — all features Done + all issues closed ──
+# A single-feature ROADMAP starts at all-features-Done. The cascade walks
+# PLAN -> DESIGN -> ROADMAP, handle_roadmap finds all features Done, and
+# handle_roadmap_deletion verifies every referenced issue is CLOSED (via the
+# gh stub), transitions the ROADMAP to Done, and `git rm`s the file in the
+# same staged commit set.
+scenario_deletion_all_done_all_closed() {
+    local scenario="Scenario 11: deletion — all features Done + all issues closed"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    set_github_origin "test-owner/test-repo"
+    setup_gh_stub "$repo"
+
+    # Pin every gh issue view response to CLOSED.
+    printf 'CLOSED\nCLOSED\n' > "$GH_STUB_DIR/issue-states.txt"
+
+    write_roadmap_done_single "$repo/docs/roadmaps/ROADMAP-cascade-deletion.md" \
+        "PLAN-cascade-deletion.md" \
+        "https://github.com/test-owner/test-repo/issues/1 https://github.com/test-owner/test-repo/issues/2"
+    write_design "$repo/docs/designs/DESIGN-cascade-deletion.md" \
+        "docs/roadmaps/ROADMAP-cascade-deletion.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-deletion.md" \
+        "docs/designs/DESIGN-cascade-deletion.md"
+
+    commit_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-deletion.md")
+
+    local ok=true
+
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "cascade_status is completed" || ok=false
+
+    # The deletion step fired with status ok.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_roadmap" and .status == "ok")] | length == 1' \
+        "delete_roadmap ok" || ok=false
+
+    # The old transition_roadmap step name must be gone.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_roadmap")] | length == 0' \
+        "transition_roadmap step name no longer emitted" || ok=false
+
+    # The ROADMAP file is git-rm'd (staged for deletion) in the working tree.
+    local roadmap_status
+    roadmap_status=$(cd "$repo" && git status --porcelain "docs/roadmaps/ROADMAP-cascade-deletion.md")
+    if [[ "$roadmap_status" == "D "* ]] || [[ "$roadmap_status" == "DD"* ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo "  ✓ ROADMAP staged for deletion"
+    else
+        fail "$scenario: ROADMAP file is not staged for deletion (status: '$roadmap_status')"
+        ok=false
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Scenario 12: handle_roadmap_deletion — open issue produces skip ───────────
+# All features are Done but at least one referenced GitHub issue is still
+# open. handle_roadmap_deletion records a "delete_roadmap" "skipped" step
+# naming the open URL and leaves the ROADMAP file in place.
+scenario_deletion_open_issue_skip() {
+    local scenario="Scenario 12: deletion — open issue produces skip"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    set_github_origin "test-owner/test-repo"
+    setup_gh_stub "$repo"
+
+    # First issue check returns OPEN -> the loop short-circuits on the first URL.
+    printf 'OPEN\n' > "$GH_STUB_DIR/issue-states.txt"
+
+    write_roadmap_done_single "$repo/docs/roadmaps/ROADMAP-cascade-open.md" \
+        "PLAN-cascade-open.md" \
+        "https://github.com/test-owner/test-repo/issues/42"
+    write_design "$repo/docs/designs/DESIGN-cascade-open.md" \
+        "docs/roadmaps/ROADMAP-cascade-open.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-open.md" \
+        "docs/designs/DESIGN-cascade-open.md"
+
+    commit_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-open.md")
+
+    local ok=true
+
+    # The cascade still completes for the tactical chain; the deletion is just
+    # deferred to a later cascade run.
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "cascade_status is completed" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_roadmap" and .status == "skipped")] | length == 1' \
+        "delete_roadmap skipped" || ok=false
+
+    # The skip message must name the open URL.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_roadmap" and .status == "skipped")] | .[0].detail | test("issues/42")' \
+        "skip detail names the open issue URL" || ok=false
+
+    # No ok delete_roadmap step.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_roadmap" and .status == "ok")] | length == 0' \
+        "no ok delete_roadmap step when an issue is open" || ok=false
+
+    # The ROADMAP file must still exist in the working tree.
+    if [[ -f "$repo/docs/roadmaps/ROADMAP-cascade-open.md" ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo "  ✓ ROADMAP file preserved"
+    else
+        fail "$scenario: ROADMAP file was deleted despite open issue"
+        ok=false
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Scenario 13: handle_roadmap_deletion — direct re-invocation idempotent ────
+# Calling handle_roadmap_deletion directly on a path that no longer exists
+# returns 0 with no side effects and emits no JSON step. Probes the
+# function-level idempotency contract: the same call repeated after the
+# ROADMAP was deleted on a prior cascade run is harmless.
+scenario_deletion_idempotent_reinvoke() {
+    local scenario="Scenario 13: deletion — direct re-invocation idempotent"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    # No fixtures — we only need a git repo so the function's guard runs.
+    cd "$repo"
+    git commit --allow-empty -m "init" > /dev/null 2>&1
+
+    # Invoke handle_roadmap_deletion in a subshell that sources the cascade
+    # script's helpers. The function should detect the missing file and
+    # return 0 without touching state.
+    local out
+    out=$(bash -c "
+        set -euo pipefail
+        # Stub the globals the function expects to exist in the cascade scope.
+        STEPS_JSON=''
+        STAGED_FILES=()
+        ANY_FAILED=false
+        SHIRABE_BIN='$SHIRABE_BIN_PATH'
+        REPO_ROOT='$repo'
+        # Source the cascade script's function definitions without executing
+        # the trailing setup/argparse. The cleanest approach: extract the
+        # function body and define it inline.
+        $(awk '/^handle_roadmap_deletion\(\) \{/,/^\}/' "$CASCADE_SCRIPT")
+        # Define minimal versions of the helpers the function calls.
+        log_warn() { :; }
+        add_step() { STEPS_JSON=\"\$STEPS_JSON|step:\$1\"; }
+        check_issue_closed() { return 0; }
+        # Call the function on a non-existent path.
+        handle_roadmap_deletion '/does/not/exist/ROADMAP-missing.md' 'null'
+        echo \"RC=\$?\"
+        echo \"STEPS_JSON='\$STEPS_JSON'\"
+        echo \"ANY_FAILED='\$ANY_FAILED'\"
+    " 2>&1)
+
+    local rc_line steps_line failed_line
+    rc_line=$(echo "$out" | grep -E '^RC=' | head -1)
+    steps_line=$(echo "$out" | grep -E "^STEPS_JSON=" | head -1)
+    failed_line=$(echo "$out" | grep -E "^ANY_FAILED=" | head -1)
+
+    local ok=true
+
+    if [[ "$rc_line" == "RC=0" ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo "  ✓ function returned 0 on missing file"
+    else
+        fail "$scenario: expected RC=0 on missing file, got '$rc_line'"
+        [[ "$VERBOSE" == "true" ]] && echo "    Full output: $out"
+        ok=false
+    fi
+
+    if [[ "$steps_line" == "STEPS_JSON=''" ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo "  ✓ no step recorded on missing file"
+    else
+        fail "$scenario: expected no step recorded, got '$steps_line'"
+        ok=false
+    fi
+
+    if [[ "$failed_line" == "ANY_FAILED='false'" ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo "  ✓ ANY_FAILED unchanged"
+    else
+        fail "$scenario: expected ANY_FAILED=false, got '$failed_line'"
+        ok=false
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 # Check prerequisites
@@ -812,6 +1178,18 @@ scenario_pre_probe_already_terminal
 cd "$ORIG_DIR"
 
 scenario_pre_probe_mid_pr
+cd "$ORIG_DIR"
+
+scenario_deletion_no_roadmap_regression
+cd "$ORIG_DIR"
+
+scenario_deletion_all_done_all_closed
+cd "$ORIG_DIR"
+
+scenario_deletion_open_issue_skip
+cd "$ORIG_DIR"
+
+scenario_deletion_idempotent_reinvoke
 cd "$ORIG_DIR"
 
 echo ""
