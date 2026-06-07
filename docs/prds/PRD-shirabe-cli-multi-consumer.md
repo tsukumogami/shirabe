@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   The shirabe `validate` command serves CI and only CI: it emits GitHub
   Actions annotations as its sole output, runs every applicable check as
@@ -25,7 +25,7 @@ upstream: docs/briefs/BRIEF-shirabe-cli-multi-consumer.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
