@@ -12,7 +12,7 @@ problem: |
 decision: |
   Adopt the pure-doc shape (PRD R7a) under check code L06. Land a
   pure parser `parse_outline_acs` in shirabe-validate that walks the
-  PLAN's `## Implementation Issues` section, finds every `- [ ]`
+  PLAN's `## Issue Outlines` section, finds every `- [ ]`
   checkbox line under each `### Issue N` outline, and returns the
   unticked set. Wire L06 into the existing `validate --lifecycle-chain`
   mode behind a flag `--allow-untracked-acs` (default off). The
@@ -48,6 +48,15 @@ open: which candidate shape (R7), the Lnn code number (R5), parser
 tolerance (R8), and the escape-hatch flag name (R4). The downstream
 PLAN decomposes this design into atomic implementation issues.
 
+**In-place correction (Accepted)**: this DESIGN originally referenced
+the outline-bearing PLAN section as `## Implementation Issues`. The
+correct section name for single-pr PLANs (per FC14's per-mode
+required-sections shape) is `## Issue Outlines`; multi-pr PLANs use
+`## Implementation Issues` and carry an issues table without per-AC
+checkboxes. The rename was applied in-place. The AC-completeness
+check therefore applies to single-pr PLANs only; multi-pr PLANs
+return an empty unticked-set from the parser.
+
 ## Context and Problem Statement
 
 The cascade script `skills/work-on/scripts/run-cascade.sh` invokes
@@ -58,7 +67,7 @@ currently runs checks L01-L05 (chain-posture mismatch, orphan docs,
 upstream cycles, missing chain members, defensive parsing fallbacks).
 The exit code gates whether the cascade proceeds.
 
-A PLAN's `## Implementation Issues` section enumerates per-outline
+A PLAN's `## Issue Outlines` section enumerates per-outline
 acceptance criteria as `- [ ]` Markdown checkboxes. The
 lifecycle-chain mode does not parse these. An author can satisfy
 every chain-posture rule (BRIEF at Accepted, PRD at Accepted, DESIGN
@@ -101,7 +110,7 @@ Four drivers shape the decision space.
 
 **Chosen: Pure-doc AC-completeness check (PRD R7a).**
 
-Parser walks the PLAN's `## Implementation Issues` section, finds
+Parser walks the PLAN's `## Issue Outlines` section, finds
 every `- [ ]` checkbox under each `### Issue N` outline, and returns
 the unticked set. A non-empty unticked set fires L06. The check is
 strictly textual; no diff inspection, no symbol parsing, no
@@ -275,7 +284,7 @@ Three surfaces change.
   outline heading), `ac_text: String` (the verbatim checkbox-line
   text minus the `- [ ]` / `- [x]` prefix), `ticked: bool`,
   `line: usize`. Operates on the body slice between the
-  `## Implementation Issues` heading and the next `##` heading,
+  `## Issue Outlines` heading and the next `##` heading,
   walking each `### Issue N` block.
 
 - **`check_l06(doc: &Doc, cfg: &Config) -> Vec<ValidationError>`**
@@ -313,7 +322,7 @@ Three surfaces change.
 
 - **`parse_outline_acs(doc: &Doc) -> Vec<OutlineAc>`** — pure
   function over the parsed `Doc` IR. No I/O. Returns empty
-  vector when the doc has no `## Implementation Issues`
+  vector when the doc has no `## Issue Outlines`
   section or no `### Issue N` blocks.
 
 - **`check_l06(doc: &Doc, cfg: &Config) -> Vec<ValidationError>`**
@@ -366,7 +375,7 @@ Inside the validator:
 ### Phase 1: Parser + check function
 
 Add `OutlineAc` struct and `parse_outline_acs` to `table.rs`.
-Walk the body between `## Implementation Issues` and the next
+Walk the body between `## Issue Outlines` and the next
 `##` heading; for each `### Issue N` block, scan its lines for
 `- [ ]` / `- [x]` / `- [X]` prefixes; emit one `OutlineAc` per
 match. Unit tests cover: zero outlines (empty section); one

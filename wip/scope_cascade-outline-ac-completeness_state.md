@@ -2,13 +2,9 @@
 topic: cascade-outline-ac-completeness
 chain_started: 2026-06-07T20:10:45Z
 last_updated: 2026-06-07T20:12:00Z
-phase_pointer: phase-2
+phase_pointer: phase-3
 exit: UNSET
-parent_orchestration:
-  parent_skill: scope
-  parent_state_file: wip/scope_cascade-outline-ac-completeness_state.md
-  current_child: plan
-  invoked_at: 2026-06-07T20:50:00Z
+plan_execution_mode: single-pr
 exit_artifacts: []
 planned_chain:
   - brief
@@ -20,6 +16,7 @@ chain_ran:
   - brief
   - prd
   - design
+  - plan
 visibility: Public
 execution_mode: auto
 max_rounds: 5
@@ -37,6 +34,11 @@ child_snapshots:
     status: Accepted
     content_hash: d3f27dff2427f2f5de9eff16f4a5f7d07b1ac817
     captured_at: 2026-06-07T20:50:00Z
+  plan:
+    status: Active
+    content_hash: 3299a55d1ec8a7e068b24c6f8d7d1a78bcfcc5b0
+    captured_at: 2026-06-07T21:05:00Z
+    execution_mode: single-pr
 r6_predicates:
   p1: fires
   p1_reason: "Two candidate shapes named in #177 (pure-doc AC check vs diff-aware AC check) — open architectural alternative"

@@ -34,6 +34,17 @@ PRD pins the requirements contract; the downstream DESIGN settles the
 implementation shape — specifically the pure-doc vs diff-aware
 candidate-shape decision named in BRIEF Open Question 1.
 
+**In-place correction (Accepted)**: this PRD originally referenced the
+outline-bearing PLAN section as `## Implementation Issues`. The
+correct section name for single-pr PLANs (per FC14's per-mode
+required-sections shape) is `## Issue Outlines`; multi-pr PLANs use
+`## Implementation Issues` and carry an issues table without per-AC
+checkboxes. The rename was applied in-place so the chain stays
+internally consistent without forcing a re-accept cycle. The
+substantive scope is unchanged: the AC-completeness check applies to
+the section that carries `### Issue N` outlines with `- [ ]`
+acceptance criteria, i.e. single-pr PLANs.
+
 ## Problem Statement
 
 The work-on cascade (`skills/work-on/scripts/run-cascade.sh`)
@@ -46,7 +57,7 @@ docs (L02), upstream cycles (L03), missing chain members (L04), and
 defensive parsing fallbacks (L05).
 
 The lifecycle scan never reads the PLAN's per-outline acceptance
-criteria. A PLAN's `## Implementation Issues` section enumerates per-
+criteria. A PLAN's `## Issue Outlines` section enumerates per-
 issue ACs as `- [ ]` checkboxes. An author flipping a PR to ready-
 for-review with unticked outline ACs satisfies every chain-posture
 rule and the cascade still deletes the PLAN, transitions BRIEF/PRD/
@@ -211,7 +222,7 @@ private paths, or pre-announcement features.
 ## Acceptance Criteria
 
 - [ ] The cascade's pre-probe step parses the PLAN's
-  `## Implementation Issues` section and refuses the finalization
+  `## Issue Outlines` section and refuses the finalization
   commit when any `- [ ]` checkbox remains unticked.
 - [ ] Error output from R1's refusal names the specific PLAN path
   and every open AC's outline identifier + verbatim checkbox text.
