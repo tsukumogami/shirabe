@@ -154,6 +154,99 @@ check_issue_closed() {
     [[ "$state" == "CLOSED" ]]
 }
 
+# ── Inline utility: log_lifecycle_findings ───────────────────────────────────
+# Log the validator's findings on an unexpected probe outcome. The probe runs
+# in `--format json`, so the combined output is the `shirabe-validate/v1`
+# envelope. Parse it with jq and log one readable line per finding —
+# `<message> (<file>:<line>)` — so the cascade names which L-code failed
+# rather than dumping raw annotation text. The engine already embeds the
+# check code in the message (e.g. `[L05] doc path not found ...`), so the
+# code is NOT prepended again; this mirrors the human renderer's choice in
+# crates/shirabe-validate/src/report.rs.
+#
+# Degrades gracefully: if the output is not a parseable envelope with at least
+# one finding (e.g. an empty capture from a stubbed validator, or stderr noise
+# preceding the JSON), fall back to logging the raw combined output verbatim so
+# no diagnostic is lost.
+#
+# Usage: log_lifecycle_findings <combined-output>
+
+log_lifecycle_findings() {
+    local output="$1"
+
+    # Count the findings the envelope carries. A non-envelope or empty input
+    # yields an empty/0 count via jq's `-e`-less default; guard both.
+    local finding_count
+    finding_count=$(jq -r '.findings | length' <<< "$output" 2>/dev/null) || finding_count=""
+
+    if [[ -z "$finding_count" || "$finding_count" == "null" || "$finding_count" -eq 0 ]]; then
+        # Not a parseable envelope (or no findings): preserve the raw output.
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            log_warn "$line"
+        done <<< "$output"
+        return 0
+    fi
+
+    # Structured per-finding logging: message and file:line. The message
+    # already carries the check code, so it is not prepended. A null line
+    # renders as the file alone (no `:line` suffix), matching the envelope's
+    # null-line sentinel.
+    local lines
+    lines=$(jq -r '
+        .findings[]
+        | .message
+          + " (" + .file + (if .line == null then "" else ":" + (.line|tostring) end) + ")"
+    ' <<< "$output" 2>/dev/null) || lines=""
+
+    if [[ -z "$lines" ]]; then
+        # jq parsed a count but the render failed; fall back to raw output.
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            log_warn "$line"
+        done <<< "$output"
+        return 0
+    fi
+
+    while IFS= read -r line; do
+        log_warn "$line"
+    done <<< "$lines"
+}
+
+# ── Inline utility: lifecycle_findings_summary ───────────────────────────────
+# Render the probe's findings as a single-line, `; `-joined summary suitable
+# for a step's `detail` field (which is one JSON string). Each finding becomes
+# `<message> (<file>:<line>)` — the message already carries the check code, so
+# it is not prepended. Degrades to the raw combined output, newlines collapsed
+# to spaces, when the input is not a parseable envelope with findings.
+#
+# Usage: lifecycle_findings_summary <combined-output>
+# Echoes the summary string to stdout.
+
+lifecycle_findings_summary() {
+    local output="$1"
+
+    local finding_count
+    finding_count=$(jq -r '.findings | length' <<< "$output" 2>/dev/null) || finding_count=""
+
+    if [[ -n "$finding_count" && "$finding_count" != "null" && "$finding_count" -gt 0 ]]; then
+        local summary
+        summary=$(jq -r '
+            [ .findings[]
+              | .message
+                + " (" + .file + (if .line == null then "" else ":" + (.line|tostring) end) + ")"
+            ] | join("; ")
+        ' <<< "$output" 2>/dev/null) || summary=""
+        if [[ -n "$summary" ]]; then
+            printf '%s' "$summary"
+            return 0
+        fi
+    fi
+
+    # Fallback: the raw output with newlines collapsed to spaces.
+    printf '%s' "$output" | tr '\n' ' '
+}
+
 # ── Inline utility: lifecycle_probe ──────────────────────────────────────────
 # Run the chain-targeted lifecycle check in strict mode against the cascade's
 # PLAN doc. Two modes:
@@ -167,14 +260,16 @@ check_issue_closed() {
 #
 #   post: expects exit code 0 (cascade has finalized the chain). Returns 0
 #         on the expected clean pass; returns 1 on cascade-bug failure.
-#         On failure, the validator's stderr is logged for diagnosis.
+#         On failure, the validator's findings are logged for diagnosis.
 #
-# The probe captures the validator's combined output so the script can log
-# stderr on unexpected outcomes. Control flow follows the exit code only —
-# no JSON parsing or stderr regex.
+# The probe runs the validator in `--format json` and captures its combined
+# output so log_lifecycle_findings can surface the structured L-code findings
+# on an unexpected outcome. Control flow still follows the exit code only —
+# the JSON is consumed for diagnostic logging, never for branching.
 #
 # Usage: lifecycle_probe <pre|post>
-# Side effect: sets LIFECYCLE_PROBE_OUTPUT to the validator's combined output.
+# Side effect: sets LIFECYCLE_PROBE_OUTPUT to the validator's combined output
+# (the JSON envelope on stdout; any stderr noise is included too).
 
 LIFECYCLE_PROBE_OUTPUT=""
 
@@ -183,6 +278,7 @@ lifecycle_probe() {
     local exit_code=0
     LIFECYCLE_PROBE_OUTPUT=$("$SHIRABE_BIN" validate \
         --lifecycle-chain "$PLAN_DOC" \
+        --format json \
         --strict 2>&1) || exit_code=$?
 
     if [[ "$mode" == "pre" ]]; then
@@ -195,9 +291,7 @@ lifecycle_probe() {
     elif [[ "$mode" == "post" ]]; then
         if [[ "$exit_code" -ne 0 ]]; then
             log_warn "Post-cascade verification failed (cascade bug):"
-            while IFS= read -r line; do
-                log_warn "$line"
-            done <<< "$LIFECYCLE_PROBE_OUTPUT"
+            log_lifecycle_findings "$LIFECYCLE_PROBE_OUTPUT"
             return 1
         fi
         log_info "Post-cascade verification: chain at strict-mode passing state"
@@ -743,8 +837,8 @@ fi
 # Run the chain-targeted check in strict mode AFTER the commit. We expect
 # a clean pass — the cascade should have pulled the chain to its
 # at-merge passing state (PLAN deleted, BRIEF/PRD Done, DESIGN Current).
-# Failure here is a cascade bug; log the validator's stderr and emit a
-# partial result.
+# Failure here is a cascade bug; the validator's structured findings are
+# logged (lifecycle_probe) and summarized into the step's detail field.
 #
 # In dry-run mode (PUSH=false), the transitions are staged but not
 # committed, so the chain has not actually finalized — skip the
@@ -754,7 +848,7 @@ if [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
     if ! lifecycle_probe "post"; then
         ANY_FAILED=true
         add_step "lifecycle_post_verify" "$PLAN_DOC" "null" "failed" \
-            "post-cascade lifecycle check failed in strict mode (cascade bug): $LIFECYCLE_PROBE_OUTPUT"
+            "post-cascade lifecycle check failed in strict mode (cascade bug): $(lifecycle_findings_summary "$LIFECYCLE_PROBE_OUTPUT")"
     else
         add_step "lifecycle_post_verify" "$PLAN_DOC" "null" "ok" ""
     fi

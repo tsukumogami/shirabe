@@ -124,12 +124,13 @@ check) makes any of these fields' presence a contract violation under
 ### Draft STRATEGY Validation Pass-Through (AC24)
 
 Before declaring full-run success, `/charter` MUST invoke
-`shirabe validate --visibility=<repo-visibility>` as a sub-process
-against the Draft STRATEGY produced by the chain. The pass-through
-is the chain-level enforcement gate that catches visibility-gated
-content `/strategy` did not catch — `/charter` does NOT re-implement
-`shirabe validate`'s checks; it invokes the validator as a sub-process
-and surfaces its result.
+`shirabe validate --format json --visibility=<repo-visibility>` as a
+sub-process against the Draft STRATEGY produced by the chain. The
+pass-through is the chain-level enforcement gate that catches
+visibility-gated content `/strategy` did not catch — `/charter` does
+NOT re-implement `shirabe validate`'s checks; it invokes the validator
+as a sub-process, parses its `shirabe-validate/v1` JSON envelope, and
+respects its verdict.
 
 Procedure:
 
@@ -150,40 +151,64 @@ Procedure:
    in the detection prose — the detection records the visibility
    in its source convention; the validator invocation translates
    to the validator's expected convention.
-3. Invoke `shirabe validate --visibility=<repo-visibility>` as a
-   sub-process against the Draft STRATEGY at
+3. Invoke `shirabe validate --format json --visibility=<repo-visibility>`
+   as a sub-process against the Draft STRATEGY at
    `docs/strategies/STRATEGY-<topic>.md`, substituting the
    lowercased visibility value (`public` or `private`) into the
    flag.
-4. On the validator's exit code:
-   - **0 (pass)** — proceed to write the Exit 1 state-field
+4. Parse the `shirabe-validate/v1` JSON envelope from stdout and
+   branch on the validator's multi-level exit code (the contract
+   shared with `transition` and `finalize-chain`; see
+   `docs/guides/multi-consumer-cli-contract.md`):
+   - **0 (clean)** — proceed to write the Exit 1 state-field
      assignments and declare full-run success.
-   - **non-zero (fail)** — surface the validator's error message
-     **verbatim** (not absorbed, not paraphrased, not summarized).
-     Block chain finalization until the violation is resolved; do
-     NOT write `exit: full-run` to the state file. The chain
-     remains in progress (the state file's `exit:` field stays
-     UNSET) and the author addresses the violation in the Draft
-     STRATEGY before re-invoking `/charter` to retry finalization.
+   - **2 (violations)** — the validator completed and found at
+     least one error-level result. Block chain finalization until
+     the violation is resolved; do NOT write `exit: full-run` to
+     the state file. Surface the parsed `findings` readably: for
+     each error-severity finding, show
+     `<message> (<file>:<line>)` rather than dumping the raw
+     annotation text — the gate names *which* check failed in
+     plain terms. The `message` field already embeds the check
+     code (e.g. `[R8] ...`), so do NOT prepend `[<code>]` again;
+     read the `code` field for any branching logic, not for the
+     human-facing line. The chain remains in progress (the state
+     file's
+     `exit:` field stays UNSET) and the author addresses the
+     violation in the Draft STRATEGY before re-invoking `/charter`
+     to retry finalization.
+   - **1 (tool-error)** — the validator could not run (bad
+     invocation, an unreadable or unparseable file, an envelope
+     that does not parse). This is a tool failure DISTINCT from a
+     content violation, not a verdict on the Draft. Halt and
+     surface it as a tool failure (do NOT report it as a STRATEGY
+     violation); the `exit:` field stays UNSET and the author
+     resolves the invocation problem before retrying finalization.
 
 The pass-through is NOT a re-implementation of `shirabe validate`.
 `/charter` does not duplicate the validator's checks, does not
 parse the Draft STRATEGY structurally, and does not maintain its
-own visibility-rule list. The validator is the single source of
-truth for visibility-gated content rules; `/charter` only invokes
-it at chain-level and respects its verdict.
+own visibility-rule list. Only the consumption mechanism changed —
+`/charter` reads the JSON envelope and branches on the multi-level
+exit code rather than the old "exit 0 vs non-zero, surface stdout
+verbatim" shape — not the division of responsibility. The validator
+remains the single source of truth for visibility-gated content
+rules; `/charter` only invokes it at chain-level, parses its
+envelope, and respects its verdict.
 
 **Canonical example violation.** A public-repo Draft STRATEGY
 containing a `## Competitive Considerations` section fails the
 validator's R8 check (the visibility-gated-section rule for
-public-visibility STRATEGYs). `shirabe validate
---visibility=public` returns non-zero with an error message naming
-the offending section; `/charter` surfaces that message verbatim
-and blocks finalization. The author either removes the
-Competitive Considerations section from the public-repo Draft or
-re-declares the repo visibility (in the latter case, the validator
-re-passes on next invocation when invoked with
-`--visibility=private`).
+public-visibility STRATEGYs). `shirabe validate --format json
+--visibility=public` returns exit code 2 with a `violations`
+envelope carrying an error-severity finding for the offending
+section; `/charter` surfaces that finding's `message` (which
+already opens with `[R8]`) as
+`[R8] <message> (docs/strategies/STRATEGY-<topic>.md:<line>)` and
+blocks finalization. The author either removes the Competitive
+Considerations section from the public-repo Draft or re-declares
+the repo visibility (in the latter case, the validator re-passes
+on next invocation when invoked with `--visibility=private`).
 
 The pass-through fires only for Exit 1 (full-run); re-evaluation
 and abandonment-forced exits produce different artifacts (Decision

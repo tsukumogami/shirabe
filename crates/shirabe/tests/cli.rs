@@ -5,6 +5,7 @@
 //! -format exit behavior.
 
 use assert_cmd::Command;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 
 /// Resolve the binary under test. The `[[bin]]` target is named
@@ -163,4 +164,48 @@ fn lifecycle_chain_missing_path_emits_l05() {
         .failure()
         .stdout(contains("[L05]"))
         .stdout(contains("not found or not resolvable"));
+}
+
+#[test]
+fn lifecycle_chain_format_json_emits_envelope_with_l_codes() {
+    // `--lifecycle-chain --format json` must render the versioned
+    // `shirabe-validate/v1` envelope (not the annotation lines), carrying
+    // the L-family finding for a path that does not resolve. The exit code
+    // stays 2 (violations) -- the format flag changes only the rendering,
+    // not the outcome contract.
+    shirabe()
+        .arg("validate")
+        .arg("--lifecycle-chain")
+        .arg("/tmp/shirabe-cli-nonexistent-doc.md")
+        .arg("--format")
+        .arg("json")
+        .assert()
+        .failure()
+        // A well-formed v1 envelope: the schema tag, a violations summary
+        // with one error and no notices, and the L05 finding rendered as an
+        // error-level entry (L-codes are never notices).
+        .stdout(contains("\"schema_version\": \"shirabe-validate/v1\""))
+        .stdout(contains("\"outcome\": \"violations\""))
+        .stdout(contains("\"errors\": 1"))
+        .stdout(contains("\"notices\": 0"))
+        .stdout(contains("\"code\": \"L05\""))
+        .stdout(contains("\"severity\": \"error\""))
+        // The annotation workflow-command syntax must NOT leak into JSON mode.
+        .stdout(contains("::error").not());
+}
+
+#[test]
+fn lifecycle_chain_annotation_default_is_unchanged() {
+    // Annotation mode is the default and its bytes are frozen for CI
+    // parity. The refactor that added --format must leave the default
+    // annotation output byte-identical: a single L05 workflow-command line
+    // with no JSON/human framing.
+    let expected = "::error file=/tmp/shirabe-cli-nonexistent-doc.md,line=1::[L05] doc path not found or not resolvable: /tmp/shirabe-cli-nonexistent-doc.md (expected a doc under docs/{briefs,prds,designs,designs/current,plans,roadmaps}/)\n";
+    shirabe()
+        .arg("validate")
+        .arg("--lifecycle-chain")
+        .arg("/tmp/shirabe-cli-nonexistent-doc.md")
+        .assert()
+        .failure()
+        .stdout(expected);
 }
