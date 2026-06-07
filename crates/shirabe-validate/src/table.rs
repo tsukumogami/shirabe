@@ -267,7 +267,7 @@ fn is_separator_row(trimmed: &str) -> bool {
 /// Split a raw GFM pipe row into its cells. Surrounding pipes are removed
 /// and each cell is whitespace-trimmed. Empty trailing cells from
 /// `| a | | |` are preserved.
-fn split_row(raw: &str) -> Vec<String> {
+pub(crate) fn split_row(raw: &str) -> Vec<String> {
     let trimmed = raw.trim();
     if !trimmed.starts_with('|') {
         return Vec::new();
@@ -435,7 +435,7 @@ fn normalize_feature_ref(s: &str) -> String {
 
 /// Remove `~~..~~` markers so a struck-through cell classifies the same as
 /// an open cell.
-fn strip_strikethrough(s: &str) -> String {
+pub(crate) fn strip_strikethrough(s: &str) -> String {
     STRIKETHROUGH_PATTERN.replace_all(s, "$1").into_owned()
 }
 

@@ -13,3 +13,7 @@
 # case_id	doc_relpath	check_codes
 frontmatter-fields-clean	docs/briefs/BRIEF-x.md	FC01
 frontmatter-fields-missing	docs/briefs/BRIEF-x.md	FC01
+section-order-clean	docs/prds/PRD-x.md	FC15
+section-order-violation	docs/prds/PRD-x.md	FC15
+issues-table-complexity-bad	docs/plans/PLAN-x.md	FC05
+issues-table-dep-format-bad	docs/plans/PLAN-x.md	FC05

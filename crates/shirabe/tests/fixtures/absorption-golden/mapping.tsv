@@ -11,3 +11,6 @@
 #
 # external_rule	engine_code
 frontmatter-missing-field	FC01
+section-order	FC15
+issues-table-complexity-enum	FC05
+issues-table-dep-link-format	FC05

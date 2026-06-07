@@ -283,4 +283,18 @@ parity_tests! {
     // `frontmatter-missing-field` rule and engine FC01 (mapped equivalent).
     frontmatter_fields_clean   => "frontmatter-fields-clean",
     frontmatter_fields_missing => "frontmatter-fields-missing",
+
+    // Section order (engine FC15) at parity with the external section-order
+    // check: a PRD with sections in canonical order fires nothing; a PRD with
+    // Acceptance Criteria before Requirements fires the external section-order
+    // rule and engine FC15.
+    section_order_clean        => "section-order-clean",
+    section_order_violation    => "section-order-violation",
+
+    // Issues-table row-content (engine FC05) at parity with the external
+    // issues-table check: a plan row with an out-of-enum Complexity value and a
+    // plan row with a bare (non-link) dependency token each fire the
+    // corresponding external rule and engine FC05.
+    issues_table_complexity_bad => "issues-table-complexity-bad",
+    issues_table_dep_format_bad => "issues-table-dep-format-bad",
 }
