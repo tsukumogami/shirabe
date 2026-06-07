@@ -1,6 +1,6 @@
 ---
 schema: plan/v1
-status: Draft
+status: Active
 execution_mode: single-pr
 upstream: docs/designs/DESIGN-skill-cascade-lifecycle-check.md
 milestone: "roadmap-plan-standardization"
@@ -11,12 +11,16 @@ issue_count: 4
 
 ## Status
 
-Draft
+Active
 
-The plan sequences the work for a single ephemeral PR. The doc is
-ephemeral — /work-on drives the outlines to completion and deletes
-this file in the same PR per the single-pr at-merge posture defined
-by the parent DESIGN.
+The plan sequences the work for a single ephemeral PR. PLAN docs use
+a unified Draft -> Active -> Done -> DELETED lifecycle; the Draft ->
+Active gate auto-fires for single-pr execution when /shirabe:plan
+finishes authoring, so the on-disk state for a committed single-pr
+PLAN is Active. The doc is ephemeral — /work-on drives the outlines
+to completion, then the cascade transitions Active -> Done and
+deletes the file in the same PR per the single-pr at-merge posture
+defined by the parent DESIGN.
 
 ## Scope Summary
 
