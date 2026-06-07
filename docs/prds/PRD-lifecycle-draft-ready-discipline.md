@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   The chain-aware `shirabe validate --lifecycle` mode accepts
   single-pr-mid-PR as a passing chain state, which is correct while an
@@ -27,7 +27,7 @@ complexity: Complex
 
 ## Status
 
-Accepted
+Done
 
 The PRD operationalizes the upstream BRIEF's framing for the
 DRAFT-vs-READY discipline. Two architectural choices are left open for

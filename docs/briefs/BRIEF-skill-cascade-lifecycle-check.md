@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   Lifecycle enforcement today has two distribution paths, both with gaps.
   The reusable CI workflow at `.github/workflows/lifecycle.yml` only
@@ -28,7 +28,7 @@ upstream: docs/briefs/BRIEF-lifecycle-draft-ready-discipline.md
 
 ## Status
 
-Accepted
+Done
 
 The framing closes the script-side gap left after the DRAFT-vs-READY
 discipline landed. The downstream PRD operationalizes the requirements

@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-skill-cascade-lifecycle-check.md
 problem: |
   The work-on cascade today drives the chain to its strict-mode passing
@@ -37,7 +37,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 The DESIGN consumes the PRD's requirements and the chosen CLI shape
 from `DECISION-chain-targeted-lifecycle-cli-shape-2026-06-06`. One

@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   `shirabe validate --lifecycle` accepts single-pr-mid-PR as a passing chain
   state, which is correct while an author iterates on a DRAFT pull request
@@ -22,7 +22,7 @@ upstream: docs/briefs/BRIEF-lifecycle-passing-state-validation.md
 
 ## Status
 
-Accepted
+Done
 
 The framing layers the DRAFT-vs-READY discipline on top of the chain-aware
 passing-state model already landed by the upstream BRIEF. The downstream

@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   Lifecycle enforcement today has two distribution paths, both with gaps.
   The reusable CI workflow only protects opted-in repos; the work-on skill
@@ -31,7 +31,7 @@ complexity: Complex
 
 ## Status
 
-Accepted
+Done
 
 The PRD operationalizes the upstream BRIEF's framing. One architectural
 choice is settled by a separate Decision Record:

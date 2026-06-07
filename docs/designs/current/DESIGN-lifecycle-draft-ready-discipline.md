@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-lifecycle-draft-ready-discipline.md
 problem: |
   The chain-aware lifecycle check landed in the previous increment but
@@ -32,7 +32,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 The DESIGN is at Planned while the implementation lands. On chain
 completion the file promotes to `docs/designs/current/` at status
