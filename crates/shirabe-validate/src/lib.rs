@@ -17,6 +17,7 @@ pub mod frontmatter;
 pub mod gh;
 pub mod lifecycle;
 pub mod mermaid;
+pub mod report;
 pub mod table;
 pub mod transition;
 pub mod validate;
@@ -34,9 +35,10 @@ pub use frontmatter::{parse_doc, ParseError};
 pub use lifecycle::{
     run_lifecycle_chain_check, run_lifecycle_check, target_state_for, Posture, TargetState,
 };
+pub use report::{render_human, render_json};
 pub use table::{parse_issues_table, Profile, Row, RowKind, Table};
 pub use transition::{
     run_transition, transition_spec, transition_table, BodyTemplate, ExtraInput, Flags, Moves,
     Outcome, Precondition, ResultFields, Rule, TransitionError, TransitionSpec,
 };
-pub use validate::{is_notice, validate_file};
+pub use validate::{is_known_check_code, is_notice, validate_file};

@@ -77,6 +77,11 @@ jobs:
           install -m 0755 .shirabe-src/target/release/shirabe /usr/local/bin/shirabe
 
       - name: Validate changed docs
+        # Per-consumer contract (see docs/guides/multi-consumer-cli-contract.md):
+        # CI uses the default annotation output mode (no --format), reads the
+        # exit code as a zero/non-zero pass-fail gate, and owns path selection
+        # -- this workflow computes the changed-file set with git diff and
+        # passes the paths positionally. The CLI never discovers files itself.
         env:
           CUSTOM_STATUSES: ${{ inputs.custom-statuses }}
         run: |

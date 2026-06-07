@@ -47,6 +47,36 @@ pub fn is_notice(err: &ValidationError) -> bool {
     )
 }
 
+/// Reports whether `code` is a known per-file check code that the `--check`
+/// selector can address. The set is the codes the per-file validation pass
+/// can emit: `SCHEMA`, `FC01`-`FC13`, `FC-CONVENTIONS`, and `R6`-`R9`. The
+/// lifecycle codes (`L01`-`L05`) are produced by the `--lifecycle` traversal
+/// modes, not the per-file pass, so they are not selectable here.
+pub fn is_known_check_code(code: &str) -> bool {
+    matches!(
+        code,
+        "SCHEMA"
+            | "FC01"
+            | "FC02"
+            | "FC03"
+            | "FC04"
+            | "FC05"
+            | "FC06"
+            | "FC07"
+            | "FC08"
+            | "FC09"
+            | "FC10"
+            | "FC11"
+            | "FC12"
+            | "FC13"
+            | "FC-CONVENTIONS"
+            | "R6"
+            | "R7"
+            | "R8"
+            | "R9"
+    )
+}
+
 /// Runs all checks for a given doc against its format spec. Returns a
 /// SCHEMA notice (non-error) if the schema gate fires; otherwise returns
 /// the FC01-FC06 / R6-R8 errors. Callers must use [`is_notice`] to
@@ -207,6 +237,28 @@ mod tests {
                     message: String::new(),
                 }),
                 "{} should not be a notice",
+                code
+            );
+        }
+    }
+
+    #[test]
+    fn is_known_check_code_covers_per_file_codes_only() {
+        for code in [
+            "SCHEMA", "FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "FC07", "FC08", "FC09",
+            "FC10", "FC11", "FC12", "FC13", "FC-CONVENTIONS", "R6", "R7", "R8", "R9",
+        ] {
+            assert!(
+                is_known_check_code(code),
+                "{} should be a known check code",
+                code
+            );
+        }
+        // Lifecycle codes are not per-file-selectable; typos and non-codes reject.
+        for code in ["L01", "L05", "FC1", "FC99", "R5", "IO", "fc01", ""] {
+            assert!(
+                !is_known_check_code(code),
+                "{} should not be a known check code",
                 code
             );
         }

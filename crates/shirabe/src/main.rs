@@ -13,9 +13,10 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
-    check_slug_prefix, detect_format, format_error, format_notice, is_notice, parse_doc,
-    run_lifecycle_chain_check, run_lifecycle_check, run_transition, validate_file,
-    walk_chain_mode, Config, Flags, Mode, ParseError, SlugPrefixCheck, ValidationError,
+    check_slug_prefix, detect_format, format_error, format_notice, is_known_check_code, is_notice,
+    parse_doc, render_human, render_json, run_lifecycle_chain_check, run_lifecycle_check,
+    run_transition, validate_file, walk_chain_mode, Config, Flags, Mode, ParseError,
+    SlugPrefixCheck, ValidationError,
 };
 
 mod populate;
@@ -73,6 +74,11 @@ enum Commands {
     /// filenames, extracts the most common first hyphen-delimited word
     /// after the artifact-type prefix, and reports the result.
     SlugPrefixDetect(SlugPrefixDetectArgs),
+    /// Install a local git pre-commit hook that runs `shirabe validate` over
+    /// the staged documents at commit time. Safe by default: an existing
+    /// pre-commit hook is left untouched and reported unless `--force` is
+    /// given.
+    InstallHooks(InstallHooksArgs),
 }
 
 #[derive(clap::Args)]
@@ -130,9 +136,46 @@ struct SlugPrefixDetectArgs {
 }
 
 #[derive(clap::Args)]
+struct InstallHooksArgs {
+    /// Overwrite an existing pre-commit hook instead of leaving it in place
+    /// and reporting the collision.
+    #[arg(long)]
+    force: bool,
+}
+
+/// The output mode for `validate` results.
+///
+/// `annotation` is the default and its bytes are frozen for CI parity; it
+/// is the GitHub Actions workflow-command format the reusable CI workflow
+/// already consumes. `json` emits the versioned `shirabe-validate/v1`
+/// envelope for programmatic consumers (the skills). `human` emits a
+/// terminal-shaped summary.
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum Format {
+    Annotation,
+    Json,
+    Human,
+}
+
+#[derive(clap::Args)]
 struct ValidateArgs {
     /// Files to validate.
     files: Vec<String>,
+
+    /// Output mode: `annotation` (default; GitHub Actions workflow commands,
+    /// byte-stable for CI), `json` (the versioned `shirabe-validate/v1`
+    /// envelope), or `human` (terminal-shaped summary). The default is
+    /// `annotation` so existing CI invocations are unchanged.
+    #[arg(long, value_enum, default_value_t = Format::Annotation)]
+    format: Format,
+
+    /// Run only the named check(s) instead of the full applicable pass.
+    /// Repeatable and comma-splittable (e.g. `--check FC01 --check R7` or
+    /// `--check FC01,R7`). Codes are the per-file checks: `SCHEMA`,
+    /// `FC01`-`FC13`, `FC-CONVENTIONS`, `R6`-`R9`. An unknown code is a tool
+    /// error. A valid but format-inapplicable code is a clean no-op.
+    #[arg(long, value_delimiter = ',')]
+    check: Vec<String>,
 
     /// Visibility context; only 'private' bypasses public-repo checks
     /// (unset is treated as public).
@@ -181,6 +224,7 @@ fn main() -> ExitCode {
         Some(Commands::Transition(args)) => run_transition_cmd(&args),
         Some(Commands::FinalizeChain(args)) => run_finalize_chain_cmd(&args),
         Some(Commands::SlugPrefixDetect(args)) => run_slug_prefix_detect(&args),
+        Some(Commands::InstallHooks(args)) => run_install_hooks_cmd(&args),
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would
         // otherwise leave `command` as `None` and exit 0 silently.
@@ -195,31 +239,110 @@ fn main() -> ExitCode {
     }
 }
 
-/// Runs the `validate` subcommand. Returns `ExitCode::FAILURE` (1) if any
-/// error-level annotation was emitted or a flag was invalid, else
-/// `ExitCode::SUCCESS` (0).
+/// The outcome of a `validate` run, mapped to the multi-level exit-code
+/// contract shared with `transition` and `finalize-chain`: `0` clean,
+/// `1` tool-error, `2` violations found, `3` I/O error.
+///
+/// Severity ordering (used for most-severe-wins across multiple documents)
+/// is deliberately distinct from the exit integer: a tool-error outranks a
+/// violation in severity yet maps to the lower exit code `1`, exactly as the
+/// sibling commands do. This keeps one exit-code vocabulary across the CLI
+/// while letting a multi-document run report its worst outcome.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ValidateOutcome {
+    Clean,
+    Violations,
+    ToolError,
+    /// Exit code `3`. Reserved to complete the shared contract with
+    /// `transition`/`finalize-chain`; `validate` only reads files and prints,
+    /// so it does not currently emit an I/O failure, but the variant keeps the
+    /// vocabulary identical across commands.
+    #[allow(dead_code)]
+    Io,
+}
+
+impl ValidateOutcome {
+    /// Higher rank = more severe. Tool-error and I/O (the run could not
+    /// complete) outrank a violation (the run completed but the rules said
+    /// no), which outranks clean.
+    fn severity_rank(self) -> u8 {
+        match self {
+            ValidateOutcome::Clean => 0,
+            ValidateOutcome::Violations => 1,
+            ValidateOutcome::ToolError => 2,
+            ValidateOutcome::Io => 3,
+        }
+    }
+
+    /// The exit integer, mirroring the `transition`/`finalize-chain` scheme.
+    fn exit_code(self) -> u8 {
+        match self {
+            ValidateOutcome::Clean => 0,
+            ValidateOutcome::ToolError => 1,
+            ValidateOutcome::Violations => 2,
+            ValidateOutcome::Io => 3,
+        }
+    }
+
+    /// Keep whichever outcome is more severe.
+    fn merge(self, other: ValidateOutcome) -> ValidateOutcome {
+        if other.severity_rank() > self.severity_rank() {
+            other
+        } else {
+            self
+        }
+    }
+
+    fn exit(self) -> ExitCode {
+        ExitCode::from(self.exit_code())
+    }
+
+    /// The outcome label used in the `json` and `human` summaries.
+    fn label(self) -> &'static str {
+        match self {
+            ValidateOutcome::Clean => "clean",
+            ValidateOutcome::Violations => "violations",
+            ValidateOutcome::ToolError => "tool-error",
+            ValidateOutcome::Io => "io",
+        }
+    }
+}
+
+/// Runs the `validate` subcommand. Returns the multi-level exit code per
+/// the `ValidateOutcome` contract: `0` clean, `1` tool-error (bad
+/// invocation, unreadable or unparseable file), `2` violations found
+/// (any error-level result), `3` I/O. Notice-level results never make a
+/// run non-clean. Across multiple documents the most-severe outcome wins.
+/// The annotation output bytes are unchanged from the prior behavior.
 fn run_validate(args: &ValidateArgs) -> ExitCode {
     // The two lifecycle modes (whole-tree `--lifecycle <ROOT>` and
     // chain-targeted `--lifecycle-chain <DOC>`) and the per-file mode
     // (positional files) are mutually exclusive across the three
     // combinations.
     if args.lifecycle.is_some() && !args.files.is_empty() {
-        eprintln!(
-            "--lifecycle is mutually exclusive with positional file arguments"
-        );
-        return ExitCode::FAILURE;
+        eprintln!("--lifecycle is mutually exclusive with positional file arguments");
+        return ValidateOutcome::ToolError.exit();
     }
     if args.lifecycle_chain.is_some() && !args.files.is_empty() {
-        eprintln!(
-            "--lifecycle-chain is mutually exclusive with positional file arguments"
-        );
-        return ExitCode::FAILURE;
+        eprintln!("--lifecycle-chain is mutually exclusive with positional file arguments");
+        return ValidateOutcome::ToolError.exit();
     }
     if args.lifecycle.is_some() && args.lifecycle_chain.is_some() {
-        eprintln!(
-            "--lifecycle and --lifecycle-chain are mutually exclusive"
-        );
-        return ExitCode::FAILURE;
+        eprintln!("--lifecycle and --lifecycle-chain are mutually exclusive");
+        return ValidateOutcome::ToolError.exit();
+    }
+
+    // Reject an unknown --check code up front: a typo like `FC1` must be a
+    // tool error, not a silent clean pass. A valid but format-inapplicable
+    // code is allowed here (it becomes a clean no-op once filtering runs).
+    for code in &args.check {
+        if !is_known_check_code(code) {
+            eprintln!(
+                "unknown --check code {:?}; valid codes: SCHEMA, FC01-FC13, FC-CONVENTIONS, R6-R9",
+                code
+            );
+            return ValidateOutcome::ToolError.exit();
+        }
     }
 
     if let Some(root) = args.lifecycle.as_deref() {
@@ -231,14 +354,14 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     }
 
     if args.files.is_empty() {
-        return ExitCode::SUCCESS;
+        return ValidateOutcome::Clean.exit();
     }
 
     let custom_statuses = match parse_custom_statuses(&args.custom_statuses) {
         Ok(map) => map,
         Err(msg) => {
             eprintln!("{}", msg);
-            return ExitCode::FAILURE;
+            return ValidateOutcome::ToolError.exit();
         }
     };
 
@@ -247,7 +370,12 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         visibility: args.visibility.clone(),
     };
 
-    let mut has_errors = false;
+    // Collect every emitted finding across all files first, then render
+    // once according to the chosen format. Annotation mode iterates the
+    // findings in the same file-then-finding order the prior streaming code
+    // used, so its output bytes are unchanged.
+    let mut worst = ValidateOutcome::Clean;
+    let mut findings: Vec<ValidationError> = Vec::new();
     for path in &args.files {
         let spec = match detect_format(basename(path)) {
             Some(s) => s,
@@ -257,36 +385,51 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         let doc = match parse_doc(path) {
             Ok(d) => d,
             Err(err) => {
-                println!(
-                    "{}",
-                    format_error(&ValidationError {
-                        file: path.clone(),
-                        line: 1,
-                        code: "IO".to_string(),
-                        message: format!("could not read file: {}", io_error_text(&err)),
-                    })
-                );
-                has_errors = true;
+                // An unreadable or unparseable input is a tool error: the
+                // run could not complete for this file. Exit code 1, not a
+                // violation.
+                findings.push(ValidationError {
+                    file: path.clone(),
+                    line: 1,
+                    code: "IO".to_string(),
+                    message: format!("could not read file: {}", io_error_text(&err)),
+                });
+                worst = worst.merge(ValidateOutcome::ToolError);
                 continue;
             }
         };
 
-        let errs = validate_file(&doc, &spec, &cfg);
-        for ve in &errs {
-            if is_notice(ve) {
-                println!("{}", format_notice(&ve.file, &ve.message));
-            } else {
-                println!("{}", format_error(ve));
-                has_errors = true;
+        for ve in validate_file(&doc, &spec, &cfg) {
+            // When --check selects a subset, skip any finding whose code was
+            // not requested: it is neither reported nor counted toward the
+            // outcome (so selecting only a check that passes is a clean run,
+            // even if an unselected check would have failed). The IO/parse
+            // tool-error above is orthogonal and always surfaces.
+            if !args.check.is_empty() && !args.check.iter().any(|c| c == &ve.code) {
+                continue;
             }
+            if !is_notice(&ve) {
+                worst = worst.merge(ValidateOutcome::Violations);
+            }
+            findings.push(ve);
         }
     }
 
-    if has_errors {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
+    match args.format {
+        Format::Annotation => {
+            for ve in &findings {
+                if is_notice(ve) {
+                    println!("{}", format_notice(&ve.file, &ve.message));
+                } else {
+                    println!("{}", format_error(ve));
+                }
+            }
+        }
+        Format::Json => print!("{}", render_json(&findings, worst.label())),
+        Format::Human => print!("{}", render_human(&findings, worst.label())),
     }
+
+    worst.exit()
 }
 
 /// Runs the chain-aware passing-state lifecycle check against `root`.
@@ -305,23 +448,19 @@ fn run_lifecycle(root: &str, visibility: &str, strict: bool) -> ExitCode {
     let root_path = std::path::Path::new(root);
     if !root_path.exists() {
         eprintln!("--lifecycle root {} does not exist", root);
-        return ExitCode::FAILURE;
+        return ValidateOutcome::ToolError.exit();
     }
     let errors = run_lifecycle_check(root_path, &cfg, strict);
-    let mut has_errors = false;
+    let mut worst = ValidateOutcome::Clean;
     for ve in &errors {
         if is_notice(ve) {
             println!("{}", format_notice(&ve.file, &ve.message));
         } else {
             println!("{}", format_error(ve));
-            has_errors = true;
+            worst = worst.merge(ValidateOutcome::Violations);
         }
     }
-    if has_errors {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    }
+    worst.exit()
 }
 
 /// Runs the `slug-prefix-detect` subcommand. Samples the docs corpus
@@ -381,20 +520,16 @@ fn run_lifecycle_chain(doc_path: &str, visibility: &str, strict: bool) -> ExitCo
     // leaves the rejection to the module so the error includes the
     // expected-location-set guidance.
     let errors = run_lifecycle_chain_check(path, &cfg, strict);
-    let mut has_errors = false;
+    let mut worst = ValidateOutcome::Clean;
     for ve in &errors {
         if is_notice(ve) {
             println!("{}", format_notice(&ve.file, &ve.message));
         } else {
             println!("{}", format_error(ve));
-            has_errors = true;
+            worst = worst.merge(ValidateOutcome::Violations);
         }
     }
-    if has_errors {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    }
+    worst.exit()
 }
 
 /// Runs the `transition` subcommand. On success, prints the per-type JSON
@@ -440,6 +575,177 @@ fn run_finalize_chain_cmd(args: &FinalizeChainArgs) -> ExitCode {
         Err(err) => {
             eprint!("{}", err.to_json());
             ExitCode::from(err.code() as u8)
+        }
+    }
+}
+
+/// The static pre-commit hook script written by `install-hooks`.
+///
+/// It is fully tool-authored: no repo-derived or user-derived string is
+/// interpolated into it. Staged paths are collected NUL-delimited (`git
+/// diff --cached -z`) and read with `read -r -d ''` so filenames containing
+/// spaces, newlines, glob metacharacters, or leading dashes cannot split
+/// arguments or smuggle options; paths are passed to `validate` after a
+/// `--` end-of-options separator. The hook is fail-closed: `exec` hands the
+/// validator's exit code straight back to git, so any non-zero result
+/// blocks the commit. `bash` is used (not strict POSIX `sh`) because
+/// `read -r -d ''` is the clean primitive for the NUL-safe handling the
+/// security model requires.
+const PRE_COMMIT_HOOK: &str = r#"#!/usr/bin/env bash
+# shirabe pre-commit hook -- generated by `shirabe install-hooks`.
+# Runs `shirabe validate` over the staged shirabe documents at commit time.
+# Fail-closed: any non-zero validate exit blocks the commit.
+set -euo pipefail
+
+if ! command -v shirabe >/dev/null 2>&1; then
+  echo "shirabe pre-commit: 'shirabe' not found on PATH; skipping doc validation." >&2
+  exit 0
+fi
+
+# Collect staged files NUL-delimited so a filename with spaces, newlines,
+# glob characters, or a leading dash cannot split arguments or smuggle
+# options. Narrow to Markdown; shirabe's own format detection skips any
+# non-artifact .md file.
+docs=()
+while IFS= read -r -d '' file; do
+  case "$file" in
+    *.md) docs+=("$file") ;;
+  esac
+done < <(git diff --cached -z --name-only --diff-filter=ACMR)
+
+if [ ${#docs[@]} -eq 0 ]; then
+  exit 0
+fi
+
+# Pass paths after `--` so a file named like a flag is treated as a path.
+exec shirabe validate --format human -- "${docs[@]}"
+"#;
+
+/// The kind of pre-commit hook already present at the target path.
+#[derive(Debug, PartialEq, Eq)]
+enum ExistingHook {
+    /// A hook this command previously installed (carries the shirabe marker).
+    Ours,
+    /// A hook managed by the pre-commit framework (pre-commit.com).
+    Framework,
+    /// Any other pre-existing hook.
+    Other,
+}
+
+/// Classify the content of an existing `pre-commit` hook so the installer
+/// can report it accurately and avoid clobbering a framework-managed hook.
+fn classify_existing_hook(content: &str) -> ExistingHook {
+    if content.contains("shirabe install-hooks") {
+        ExistingHook::Ours
+    } else if content.contains("pre-commit.com") || content.contains("generated by pre-commit") {
+        ExistingHook::Framework
+    } else {
+        ExistingHook::Other
+    }
+}
+
+/// The result of attempting to install the hook into a hooks directory.
+#[derive(Debug, PartialEq, Eq)]
+enum InstallOutcome {
+    /// The hook was written (fresh install or `--force` overwrite).
+    Installed,
+    /// An existing hook was left byte-unchanged; the variant says what it was.
+    Preserved(ExistingHook),
+}
+
+/// Install the pre-commit hook into `hooks_dir`. When a `pre-commit` hook is
+/// already present and `force` is false, it is left byte-unchanged and the
+/// classified kind is returned; otherwise the static hook is written at mode
+/// `0755`. This is the filesystem core, factored out of
+/// `run_install_hooks_cmd` so it can be tested against a temp directory
+/// without depending on the process working directory or a real git repo.
+fn install_hook_at(hooks_dir: &std::path::Path, force: bool) -> std::io::Result<InstallOutcome> {
+    let hook_path = hooks_dir.join("pre-commit");
+
+    if hook_path.exists() && !force {
+        let existing = std::fs::read_to_string(&hook_path).unwrap_or_default();
+        return Ok(InstallOutcome::Preserved(classify_existing_hook(&existing)));
+    }
+
+    std::fs::create_dir_all(hooks_dir)?;
+    std::fs::write(&hook_path, PRE_COMMIT_HOOK)?;
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&hook_path, std::fs::Permissions::from_mode(0o755))?;
+    Ok(InstallOutcome::Installed)
+}
+
+/// Runs the `install-hooks` subcommand. Resolves the repo's hooks directory
+/// (via `git rev-parse --git-path hooks`, which is correct for worktrees and
+/// submodules where `.git` is a file), then writes the static pre-commit
+/// hook via [`install_hook_at`]. An existing hook is left byte-unchanged and
+/// reported unless `--force` is given. Exit `0` on success or a reported
+/// no-op; `1` on a tool error (not a git repo, write failure).
+fn run_install_hooks_cmd(args: &InstallHooksArgs) -> ExitCode {
+    use std::process::Command;
+
+    let hooks_dir = match Command::new("git")
+        .args(["rev-parse", "--git-path", "hooks"])
+        .output()
+    {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        _ => {
+            eprintln!(
+                "install-hooks: not a git repository (could not resolve the hooks directory)"
+            );
+            return ExitCode::from(1);
+        }
+    };
+    let hooks_dir = std::path::Path::new(&hooks_dir);
+    let hook_path = hooks_dir.join("pre-commit");
+
+    match install_hook_at(hooks_dir, args.force) {
+        Ok(InstallOutcome::Preserved(kind)) => {
+            match kind {
+                ExistingHook::Ours => println!(
+                    "install-hooks: a shirabe pre-commit hook is already installed at {} (unchanged). Pass --force to refresh it.",
+                    hook_path.display()
+                ),
+                ExistingHook::Framework => println!(
+                    "install-hooks: a pre-commit-framework hook is present at {} (unchanged). Add shirabe to your .pre-commit-config.yaml instead of installing a raw hook, or pass --force to replace it.",
+                    hook_path.display()
+                ),
+                ExistingHook::Other => println!(
+                    "install-hooks: an existing pre-commit hook is present at {} (unchanged). Pass --force to overwrite it.",
+                    hook_path.display()
+                ),
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(InstallOutcome::Installed) => {
+            let resolved = Command::new("sh")
+                .args(["-c", "command -v shirabe"])
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .filter(|s| !s.is_empty());
+            println!(
+                "install-hooks: installed pre-commit hook at {}",
+                hook_path.display()
+            );
+            match resolved {
+                Some(path) => println!(
+                    "install-hooks: the hook runs `shirabe` resolved on PATH (currently {}).",
+                    path
+                ),
+                None => println!(
+                    "install-hooks: note -- `shirabe` is not currently on PATH; the hook resolves it on PATH at commit time, so install shirabe for the checks to run."
+                ),
+            }
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!(
+                "install-hooks: could not write the hook under {}: {}",
+                hooks_dir.display(),
+                err
+            );
+            ExitCode::from(1)
         }
     }
 }
@@ -592,5 +898,168 @@ mod tests {
     fn basename_trailing_slash() {
         assert_eq!(basename("docs/"), "docs");
         assert_eq!(basename("/"), "/");
+    }
+
+    #[test]
+    fn validate_outcome_exit_codes_mirror_sibling_scheme() {
+        // 0 clean, 1 tool-error, 2 violations, 3 I/O -- the same scheme
+        // transition and finalize-chain use.
+        assert_eq!(ValidateOutcome::Clean.exit_code(), 0);
+        assert_eq!(ValidateOutcome::ToolError.exit_code(), 1);
+        assert_eq!(ValidateOutcome::Violations.exit_code(), 2);
+        assert_eq!(ValidateOutcome::Io.exit_code(), 3);
+    }
+
+    #[test]
+    fn validate_outcome_clean_is_zero_everything_else_nonzero() {
+        // Existing zero/non-zero CI gates keep working.
+        assert_eq!(ValidateOutcome::Clean.exit_code(), 0);
+        for o in [
+            ValidateOutcome::ToolError,
+            ValidateOutcome::Violations,
+            ValidateOutcome::Io,
+        ] {
+            assert_ne!(o.exit_code(), 0);
+        }
+    }
+
+    #[test]
+    fn validate_outcome_tool_error_outranks_violations() {
+        // Severity ordering is distinct from the exit integer: tool-error
+        // (exit 1) is more severe than a violation (exit 2).
+        assert!(
+            ValidateOutcome::ToolError.severity_rank()
+                > ValidateOutcome::Violations.severity_rank()
+        );
+        assert!(
+            ValidateOutcome::Violations.severity_rank() > ValidateOutcome::Clean.severity_rank()
+        );
+        assert!(ValidateOutcome::Io.severity_rank() > ValidateOutcome::ToolError.severity_rank());
+    }
+
+    #[test]
+    fn validate_outcome_merge_keeps_most_severe() {
+        // A clean run that then finds a violation -> violations (exit 2).
+        let r = ValidateOutcome::Clean.merge(ValidateOutcome::Violations);
+        assert_eq!(r.exit_code(), 2);
+
+        // {clean, violations} accumulated, then a tool error (unreadable
+        // file): tool-error wins -> exit 1, even though it appears last and
+        // its integer is lower.
+        let r = ValidateOutcome::Clean
+            .merge(ValidateOutcome::Violations)
+            .merge(ValidateOutcome::ToolError);
+        assert_eq!(r.exit_code(), 1);
+
+        // Order-independent: a tool error first, then a violation, still 1.
+        let r = ValidateOutcome::ToolError.merge(ValidateOutcome::Violations);
+        assert_eq!(r.exit_code(), 1);
+
+        // All-clean stays clean.
+        let r = ValidateOutcome::Clean.merge(ValidateOutcome::Clean);
+        assert_eq!(r.exit_code(), 0);
+    }
+
+    #[test]
+    fn validate_format_defaults_to_annotation() {
+        // An invocation with no --format must default to annotation so
+        // existing CI invocations are byte-unchanged.
+        let cli = Cli::parse_from(["shirabe", "validate", "x.md"]);
+        match cli.command {
+            Some(Commands::Validate(args)) => {
+                assert!(matches!(args.format, Format::Annotation));
+            }
+            _ => panic!("expected the validate subcommand"),
+        }
+    }
+
+    #[test]
+    fn validate_check_is_repeatable_and_comma_split() {
+        let cli = Cli::parse_from([
+            "shirabe",
+            "validate",
+            "--check",
+            "FC01,FC03",
+            "--check",
+            "R7",
+            "x.md",
+        ]);
+        match cli.command {
+            Some(Commands::Validate(args)) => {
+                assert_eq!(args.check, vec!["FC01", "FC03", "R7"]);
+            }
+            _ => panic!("expected the validate subcommand"),
+        }
+    }
+
+    #[test]
+    fn classify_existing_hook_distinguishes_kinds() {
+        assert_eq!(classify_existing_hook(PRE_COMMIT_HOOK), ExistingHook::Ours);
+        assert_eq!(
+            classify_existing_hook("#!/bin/sh\n# File generated by pre-commit.com\n"),
+            ExistingHook::Framework
+        );
+        assert_eq!(
+            classify_existing_hook("#!/bin/sh\nmake lint\n"),
+            ExistingHook::Other
+        );
+    }
+
+    #[test]
+    fn pre_commit_hook_has_security_critical_pieces() {
+        // NUL-delimited staged-file collection (no arg-splitting on bad names).
+        assert!(PRE_COMMIT_HOOK.contains("git diff --cached -z --name-only --diff-filter=ACMR"));
+        assert!(PRE_COMMIT_HOOK.contains("read -r -d ''"));
+        // Paths passed after the end-of-options separator.
+        assert!(PRE_COMMIT_HOOK.contains("-- \"${docs[@]}\""));
+        // Fail-closed: exec hands validate's exit code back to git.
+        assert!(PRE_COMMIT_HOOK.contains("exec shirabe validate --format human"));
+        // Carries the marker used to recognize our own hook on re-install.
+        assert!(PRE_COMMIT_HOOK.contains("shirabe install-hooks"));
+    }
+
+    #[test]
+    fn install_hook_at_writes_preserves_and_forces() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // A unique temp hooks dir (no git, no CWD dependency).
+        let base = std::env::temp_dir().join(format!(
+            "shirabe-hooktest-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let hooks = base.join("hooks");
+        let _ = std::fs::remove_dir_all(&base);
+
+        // Fresh install: writes the hook at mode 0755.
+        assert_eq!(
+            install_hook_at(&hooks, false).unwrap(),
+            InstallOutcome::Installed
+        );
+        let hook = hooks.join("pre-commit");
+        assert!(hook.exists());
+        let mode = std::fs::metadata(&hook).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o755);
+        assert_eq!(std::fs::read_to_string(&hook).unwrap(), PRE_COMMIT_HOOK);
+
+        // A foreign hook is preserved byte-unchanged without --force.
+        std::fs::write(&hook, "#!/bin/sh\nmake lint\n").unwrap();
+        assert_eq!(
+            install_hook_at(&hooks, false).unwrap(),
+            InstallOutcome::Preserved(ExistingHook::Other)
+        );
+        assert_eq!(
+            std::fs::read_to_string(&hook).unwrap(),
+            "#!/bin/sh\nmake lint\n"
+        );
+
+        // --force overwrites with our hook.
+        assert_eq!(
+            install_hook_at(&hooks, true).unwrap(),
+            InstallOutcome::Installed
+        );
+        assert_eq!(std::fs::read_to_string(&hook).unwrap(), PRE_COMMIT_HOOK);
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
