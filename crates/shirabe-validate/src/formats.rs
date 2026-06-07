@@ -1,5 +1,7 @@
 //! Per-format structural contracts for shirabe doc types.
 
+use std::collections::HashMap;
+
 /// Structural contract for a single shirabe doc format.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatSpec {
@@ -19,10 +21,51 @@ pub struct FormatSpec {
     /// visibility is not exactly `"private"`, failing closed on the
     /// empty-visibility default.
     pub private: bool,
+    /// Optional per-`execution_mode` required-sections override. When
+    /// `Some(map)` and the doc's frontmatter carries an `execution_mode`
+    /// value that maps in `map`, FC04 consults `map[execution_mode]`
+    /// instead of `required_sections`. When `None` (the default for every
+    /// format except Plan), FC04 uses `required_sections` as before. Plan
+    /// profile populates this with `single-pr` and `multi-pr` lists so the
+    /// Plan profile's required-sections check branches on execution mode
+    /// without affecting any other profile.
+    pub execution_mode_required_sections: Option<HashMap<String, Vec<String>>>,
 }
 
 fn s(values: &[&str]) -> Vec<String> {
     values.iter().map(|v| (*v).to_string()).collect()
+}
+
+/// Build the Plan profile's per-`execution_mode` required-sections map.
+///
+/// Returns a map with `"single-pr"` and `"multi-pr"` keys. FC04 consults
+/// this map for Plan profile docs when their frontmatter carries an
+/// `execution_mode` value; on a hit, the per-mode list replaces the flat
+/// `required_sections` for that doc.
+fn plan_execution_mode_sections() -> HashMap<String, Vec<String>> {
+    let mut m = HashMap::new();
+    m.insert(
+        "single-pr".to_string(),
+        s(&[
+            "Status",
+            "Scope Summary",
+            "Decomposition Strategy",
+            "Issue Outlines",
+            "Implementation Sequence",
+        ]),
+    );
+    m.insert(
+        "multi-pr".to_string(),
+        s(&[
+            "Status",
+            "Scope Summary",
+            "Decomposition Strategy",
+            "Implementation Issues",
+            "Dependency Graph",
+            "Implementation Sequence",
+        ]),
+    );
+    m
 }
 
 /// Return the canonical list of all known formats.
@@ -48,6 +91,7 @@ pub fn formats() -> Vec<FormatSpec> {
             ]),
             issues_table_columns: vec![],
             private: true,
+            execution_mode_required_sections: None,
         },
         FormatSpec {
             name: "Design".to_string(),
@@ -68,6 +112,7 @@ pub fn formats() -> Vec<FormatSpec> {
             ]),
             issues_table_columns: vec![],
             private: false,
+            execution_mode_required_sections: None,
         },
         FormatSpec {
             name: "PRD".to_string(),
@@ -86,6 +131,7 @@ pub fn formats() -> Vec<FormatSpec> {
             ]),
             issues_table_columns: vec![],
             private: false,
+            execution_mode_required_sections: None,
         },
         FormatSpec {
             name: "VISION".to_string(),
@@ -104,6 +150,7 @@ pub fn formats() -> Vec<FormatSpec> {
             ]),
             issues_table_columns: vec![],
             private: false,
+            execution_mode_required_sections: None,
         },
         FormatSpec {
             name: "Roadmap".to_string(),
@@ -122,6 +169,7 @@ pub fn formats() -> Vec<FormatSpec> {
             ]),
             issues_table_columns: s(&["Feature", "Issues", "Dependencies", "Status"]),
             private: false,
+            execution_mode_required_sections: None,
         },
         FormatSpec {
             name: "Plan".to_string(),
@@ -139,6 +187,7 @@ pub fn formats() -> Vec<FormatSpec> {
             ]),
             issues_table_columns: s(&["Issue", "Dependencies", "Complexity"]),
             private: false,
+            execution_mode_required_sections: Some(plan_execution_mode_sections()),
         },
         FormatSpec {
             name: "Strategy".to_string(),
@@ -158,6 +207,7 @@ pub fn formats() -> Vec<FormatSpec> {
             ]),
             issues_table_columns: vec![],
             private: false,
+            execution_mode_required_sections: None,
         },
         FormatSpec {
             name: "Brief".to_string(),
@@ -174,6 +224,7 @@ pub fn formats() -> Vec<FormatSpec> {
             ]),
             issues_table_columns: vec![],
             private: false,
+            execution_mode_required_sections: None,
         },
     ]
 }

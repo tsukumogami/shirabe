@@ -18,7 +18,7 @@ use crate::doc::{Config, Doc, ValidationError};
 use crate::formats::FormatSpec;
 use crate::gh::{is_valid_owner_or_repo, ClientError, IssueState, IssueStateClient, PrContext};
 use crate::mermaid::{extract_diagram, find_dependency_graph_block, Diagram, Issue};
-use crate::table::{parse_issues_table, Profile, Row, RowKind, Table};
+use crate::table::{parse_issue_outlines, parse_issues_table, Profile, Row, RowKind, Table};
 
 /// Section names that `vision/v1` docs must not contain in public repos.
 /// See DESIGN-gha-doc-validation.md (R7).
@@ -172,13 +172,31 @@ pub fn check_fc03(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError> {
 /// `doc.sections`. Line is 1 (section absent, no specific line).
 pub fn check_fc04(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     let mut errs = Vec::new();
-    for required in &spec.required_sections {
-        if !doc.sections.iter().any(|sec| sec.name == *required) {
+    // If the format declares a per-execution_mode required-sections override
+    // and the doc's frontmatter carries an execution_mode that maps in the
+    // override, FC04 consults the per-mode list instead of the flat one.
+    // Otherwise FC04 falls back to spec.required_sections (the pre-existing
+    // behavior for every non-Plan format).
+    let required: Vec<String> = if let Some(map) = &spec.execution_mode_required_sections {
+        if let Some(mode_field) = doc.fields.get("execution_mode") {
+            if let Some(per_mode) = map.get(&mode_field.value) {
+                per_mode.clone()
+            } else {
+                spec.required_sections.clone()
+            }
+        } else {
+            spec.required_sections.clone()
+        }
+    } else {
+        spec.required_sections.clone()
+    };
+    for req in &required {
+        if !doc.sections.iter().any(|sec| sec.name == *req) {
             errs.push(ValidationError {
                 file: doc.path.clone(),
                 line: 1,
                 code: "FC04".to_string(),
-                message: format!("[FC04] missing required section '## {}'", required),
+                message: format!("[FC04] missing required section '## {}'", req),
             });
         }
     }
@@ -2406,6 +2424,285 @@ pub fn check_eval_fixture_frontmatter(doc: &Doc, _spec: &FormatSpec) -> Vec<Vali
         break;
     }
     Vec::new()
+}
+
+// =============================================================================
+// FC14 -- single-pr plan structural validation
+// =============================================================================
+
+/// FC14 -- single-pr plan structural validation.
+///
+/// Brings single-pr plans up to parity with multi-pr plans on structural
+/// validation. The Plan profile's `execution_mode` frontmatter value drives
+/// which structural contract applies; FC04's required-sections check is the
+/// execution-mode-aware Sub-check A (FC04 emits the notice for a missing
+/// `## Issue Outlines` section under single-pr per the per-mode list in the
+/// `FormatSpec`). FC14 itself covers Sub-checks B-E:
+///
+/// - Sub-check B: each outline block under `## Issue Outlines` declares a
+///   `**Goal**:` paragraph, an `**Acceptance Criteria**:` block, and a
+///   `**Dependencies**:` declaration. Per-defect notices name the outline
+///   key and the missing field.
+/// - Sub-check C: each dependency token names a sibling outline in the same
+///   section (matched by key) or is the literal `None`. Unresolved tokens
+///   produce a per-defect notice naming the token verbatim and the offending
+///   outline key.
+/// - Sub-check D: the frontmatter `issue_count` matches the count of outline
+///   blocks (single-pr) or entity rows in `## Implementation Issues`
+///   (multi-pr). Mismatch produces a notice naming declared vs observed.
+/// - Sub-check E: mutual exclusion. A single-pr plan with populated
+///   `## Implementation Issues` (non-empty table) OR populated
+///   `## Dependency Graph` (any non-trivial body) produces a notice naming
+///   both halves of the inconsistency; a multi-pr plan with a populated
+///   `## Issue Outlines` section produces a symmetric notice.
+///
+/// FC14 is notice-level (registered in `is_notice`). Promotion to error is
+/// a one-line change (remove the `FC14` arm from the match expression in
+/// `validate::is_notice`).
+///
+/// The check is Plan-profile only. The Roadmap arm of `validate_file` does
+/// NOT invoke `check_fc14`; roadmaps have no single-pr / multi-pr
+/// distinction at the plan-format level.
+pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    if spec.name != "Plan" {
+        return Vec::new();
+    }
+    let mode = match doc.fields.get("execution_mode") {
+        Some(f) => f.value.clone(),
+        // No execution_mode at all is an FC01 / FC02 concern, not FC14's.
+        None => return Vec::new(),
+    };
+    if mode != "single-pr" && mode != "multi-pr" {
+        return Vec::new();
+    }
+
+    let mut errs = Vec::new();
+    let outlines = parse_issue_outlines(doc);
+
+    // Sub-check B + C apply only to single-pr (multi-pr's authoritative
+    // content is the Implementation Issues table, covered by FC05/FC06).
+    if mode == "single-pr" {
+        // Sub-check B: per-block structural fields.
+        for block in &outlines {
+            if block.goal.is_none() {
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line: block.line,
+                    code: "FC14".to_string(),
+                    message: format!(
+                        "[FC14] outline '{}' is missing '**Goal**:' declaration",
+                        block.key
+                    ),
+                });
+            }
+            if block.acceptance_criteria.is_none() {
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line: block.line,
+                    code: "FC14".to_string(),
+                    message: format!(
+                        "[FC14] outline '{}' is missing '**Acceptance Criteria**:' block",
+                        block.key
+                    ),
+                });
+            }
+            if !block.has_dependencies_line {
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line: block.line,
+                    code: "FC14".to_string(),
+                    message: format!(
+                        "[FC14] outline '{}' is missing '**Dependencies**:' declaration (use 'None' if there are no dependencies)",
+                        block.key
+                    ),
+                });
+            }
+        }
+
+        // Sub-check C: outline-to-outline dependency resolution.
+        // Build the set of known outline keys plus their `<<ISSUE:N>>`
+        // placeholder forms so dependency tokens written as either the
+        // free-form key or the placeholder resolve correctly.
+        use std::collections::HashSet;
+        let mut known: HashSet<String> = HashSet::new();
+        for (idx, b) in outlines.iter().enumerate() {
+            known.insert(b.key.clone());
+            // Heading shape "Issue N: ..." maps to placeholder <<ISSUE:N>>.
+            known.insert(format!("<<ISSUE:{}>>", idx + 1));
+            // Also a bare numeric form `N` for legacy refs.
+            known.insert(format!("Issue {}", idx + 1));
+        }
+        for block in &outlines {
+            if block.dependencies_is_none {
+                continue;
+            }
+            for token in &block.dependencies {
+                if token.is_empty() {
+                    continue;
+                }
+                if known.contains(token) {
+                    continue;
+                }
+                // Also accept a substring match against any known key: an
+                // outline whose key starts with "Issue 1: feat(...)"
+                // matched by a dep written as "Issue 1" should resolve.
+                let resolved = known
+                    .iter()
+                    .any(|k| k.starts_with(token) || token.starts_with(k));
+                if resolved {
+                    continue;
+                }
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line: block.line,
+                    code: "FC14".to_string(),
+                    message: format!(
+                        "[FC14] outline '{}' declares unresolved dependency '{}' (no sibling outline matches; use 'None' or a sibling outline key / <<ISSUE:N>> placeholder)",
+                        block.key, token
+                    ),
+                });
+            }
+        }
+    }
+
+    // Sub-check D: issue_count consistency.
+    if let Some(ic_field) = doc.fields.get("issue_count") {
+        if let Ok(declared) = ic_field.value.trim().parse::<usize>() {
+            let observed: usize = if mode == "single-pr" {
+                outlines.len()
+            } else {
+                // multi-pr: count entity rows in Implementation Issues table.
+                use crate::table::{parse_issues_table, RowKind};
+                parse_issues_table(doc)
+                    .map(|t| t.rows.iter().filter(|r| r.kind == RowKind::Entity).count())
+                    .unwrap_or(0)
+            };
+            if declared != observed {
+                let section_name = if mode == "single-pr" {
+                    "## Issue Outlines"
+                } else {
+                    "## Implementation Issues"
+                };
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line: ic_field.line,
+                    code: "FC14".to_string(),
+                    message: format!(
+                        "[FC14] frontmatter 'issue_count: {}' does not match observed count {} in {}",
+                        declared, observed, section_name
+                    ),
+                });
+            }
+        }
+    }
+
+    // Sub-check E: mutual exclusion of populated execution-mode-specific
+    // sections. A single-pr plan with a populated Implementation Issues or
+    // Dependency Graph fires; a multi-pr plan with a populated Issue
+    // Outlines section fires.
+    if mode == "single-pr" {
+        if has_populated_implementation_issues(doc) {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: 1,
+                code: "FC14".to_string(),
+                message: "[FC14] execution_mode is 'single-pr' but '## Implementation Issues' is populated -- switch the frontmatter to 'multi-pr' or move the content to '## Issue Outlines'".to_string(),
+            });
+        }
+        if has_populated_dependency_graph(doc) {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: 1,
+                code: "FC14".to_string(),
+                message: "[FC14] execution_mode is 'single-pr' but '## Dependency Graph' is populated -- switch the frontmatter to 'multi-pr' or remove the diagram body".to_string(),
+            });
+        }
+    } else {
+        // multi-pr
+        if !outlines.is_empty() {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: 1,
+                code: "FC14".to_string(),
+                message: "[FC14] execution_mode is 'multi-pr' but '## Issue Outlines' is populated -- switch the frontmatter to 'single-pr' or move the content to '## Implementation Issues'".to_string(),
+            });
+        }
+    }
+
+    errs
+}
+
+/// Helper: returns true if `## Implementation Issues` carries a populated
+/// GFM pipe table (header + separator + at least one entity row).
+fn has_populated_implementation_issues(doc: &Doc) -> bool {
+    use crate::table::{parse_issues_table, RowKind};
+    parse_issues_table(doc)
+        .map(|t| t.rows.iter().any(|r| r.kind == RowKind::Entity))
+        .unwrap_or(false)
+}
+
+/// Helper: returns true if `## Dependency Graph` has any non-comment body
+/// content (a mermaid diagram block being the canonical example).
+fn has_populated_dependency_graph(doc: &Doc) -> bool {
+    // Locate the section.
+    let mut start: Option<usize> = None;
+    for (i, line) in doc.body.iter().enumerate() {
+        if line.trim() == "## Dependency Graph" {
+            start = Some(i + 1);
+            break;
+        }
+    }
+    let start = match start {
+        Some(s) => s,
+        None => return false,
+    };
+    // Walk until next `## ` heading.
+    let mut end = doc.body.len();
+    for (j, line) in doc.body.iter().enumerate().skip(start) {
+        let t = line.trim_start();
+        if t.starts_with("## ") && !t.starts_with("### ") {
+            end = j;
+            break;
+        }
+    }
+    // Populated = any non-blank, non-italic-placeholder line, OR an
+    // actual mermaid fence (```mermaid ... ```).
+    let mut in_fence = false;
+    for line in &doc.body[start..end] {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.starts_with("```mermaid") || trimmed.starts_with("```dot") {
+            in_fence = true;
+            continue;
+        }
+        if trimmed == "```" {
+            if in_fence {
+                // Closed an empty fence; if no non-blank line appeared
+                // inside, treat as not populated.
+                in_fence = false;
+                continue;
+            }
+            continue;
+        }
+        if in_fence {
+            // Any non-blank line inside the diagram fence counts as
+            // populated.
+            return true;
+        }
+        // Outside any fence: italic placeholder prose (`_..._`) is treated
+        // as not-populated; anything else is.
+        if trimmed.starts_with('_') && trimmed.ends_with('_') {
+            continue;
+        }
+        // HTML comments are not populated.
+        if trimmed.starts_with("<!--") {
+            continue;
+        }
+        return true;
+    }
+    false
 }
 
 // =============================================================================
@@ -5321,5 +5618,321 @@ mod tests {
             other => panic!("expected mismatch, got {:?}", other),
         }
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // =========================================================================
+    // FC14 -- single-pr plan structural validation
+    // =========================================================================
+
+    fn plan_spec() -> FormatSpec {
+        spec_for("plan/v1")
+    }
+
+    /// Builds a Plan-profile Doc populated with the given execution_mode and
+    /// body lines. Sections are derived from `## ` lines in `body`.
+    fn make_plan_doc(execution_mode: &str, issue_count: usize, body: Vec<String>) -> Doc {
+        let mut fields = HashMap::new();
+        fields.insert("execution_mode".to_string(), fv(execution_mode, 1));
+        fields.insert("issue_count".to_string(), fv(&issue_count.to_string(), 1));
+        let sections: Vec<Section> = body
+            .iter()
+            .enumerate()
+            .filter_map(|(i, line)| {
+                let t = line.trim_start();
+                if t.starts_with("## ") && !t.starts_with("### ") {
+                    Some(sec(t.trim_start_matches("## "), i + 1))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        Doc {
+            path: "docs/plans/PLAN-test.md".to_string(),
+            schema: "plan/v1".to_string(),
+            status: "Active".to_string(),
+            fields,
+            sections,
+            body,
+        }
+    }
+
+    fn well_formed_single_pr_body() -> Vec<String> {
+        vec![
+            "# PLAN: test".to_string(),
+            "## Status".to_string(),
+            "Active".to_string(),
+            "## Scope Summary".to_string(),
+            "demo".to_string(),
+            "## Decomposition Strategy".to_string(),
+            "horizontal".to_string(),
+            "## Issue Outlines".to_string(),
+            "### Issue 1: feat(x): first".to_string(),
+            "**Goal**: do the first thing.".to_string(),
+            "**Acceptance Criteria**:".to_string(),
+            "- [ ] first AC".to_string(),
+            "**Dependencies**: None".to_string(),
+            "### Issue 2: feat(x): second".to_string(),
+            "**Goal**: do the second thing.".to_string(),
+            "**Acceptance Criteria**:".to_string(),
+            "- [ ] second AC".to_string(),
+            "**Dependencies**: Blocked by <<ISSUE:1>>".to_string(),
+            "## Implementation Sequence".to_string(),
+            "outline 1, then outline 2".to_string(),
+        ]
+    }
+
+    fn well_formed_multi_pr_body() -> Vec<String> {
+        vec![
+            "# PLAN: test".to_string(),
+            "## Status".to_string(),
+            "Active".to_string(),
+            "## Scope Summary".to_string(),
+            "demo".to_string(),
+            "## Decomposition Strategy".to_string(),
+            "horizontal".to_string(),
+            "## Implementation Issues".to_string(),
+            "".to_string(),
+            "| Issue | Dependencies | Complexity |".to_string(),
+            "| ----- | ------------ | ---------- |".to_string(),
+            "| [#1](http://x/1) | None | simple |".to_string(),
+            "| [#2](http://x/2) | [#1](http://x/1) | testable |".to_string(),
+            "## Dependency Graph".to_string(),
+            "```mermaid".to_string(),
+            "graph TD".to_string(),
+            "  I1[\"#1\"] --> I2[\"#2\"]".to_string(),
+            "```".to_string(),
+            "## Implementation Sequence".to_string(),
+            "1 then 2".to_string(),
+        ]
+    }
+
+    #[test]
+    fn check_fc14_well_formed_single_pr_no_notice() {
+        let doc = make_plan_doc("single-pr", 2, well_formed_single_pr_body());
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.is_empty(),
+            "well-formed single-pr should produce no FC14 notice; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc14_well_formed_multi_pr_no_notice() {
+        let doc = make_plan_doc("multi-pr", 2, well_formed_multi_pr_body());
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.is_empty(),
+            "well-formed multi-pr should produce no FC14 notice; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc14_only_runs_on_plan_profile() {
+        // A BRIEF doc should never trigger FC14 even when constructed
+        // with a Plan-looking body.
+        let body = well_formed_single_pr_body();
+        let mut fields = HashMap::new();
+        fields.insert("execution_mode".to_string(), fv("single-pr", 1));
+        let doc = Doc {
+            path: "docs/briefs/BRIEF-test.md".to_string(),
+            schema: "brief/v1".to_string(),
+            status: "Accepted".to_string(),
+            fields,
+            sections: vec![],
+            body,
+        };
+        let brief_spec = spec_for("brief/v1");
+        assert!(check_fc14(&doc, &brief_spec).is_empty());
+    }
+
+    #[test]
+    fn check_fc14_sub_b_outline_missing_goal_fires() {
+        let mut body = well_formed_single_pr_body();
+        // Remove the **Goal**: line of Issue 1 (index 9 in well_formed body).
+        body.remove(9);
+        let doc = make_plan_doc("single-pr", 2, body);
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.iter().any(|e| e.code == "FC14"
+                && e.message.contains("missing '**Goal**:'")
+                && e.message.contains("Issue 1")),
+            "expected FC14 notice for missing goal on Issue 1; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc14_sub_b_outline_missing_ac_fires() {
+        let mut body = well_formed_single_pr_body();
+        // Remove the **Acceptance Criteria**: line + bullet for Issue 1.
+        body.remove(10); // bullet
+        body.remove(9); // header (now line 9 after first removal)
+        // Wait, ordering: original body[9]="**Goal**: ..."; body[10]="**AC**:";
+        // body[11]="- [ ] first AC". So we need to remove the AC header and bullet.
+        // Let me redo carefully — instead remove by content.
+        let mut body = well_formed_single_pr_body();
+        body.retain(|l| !l.starts_with("**Acceptance Criteria**:"));
+        body.retain(|l| !l.starts_with("- [ ] first AC"));
+        let doc = make_plan_doc("single-pr", 2, body);
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.iter().any(|e| e.code == "FC14"
+                && e.message.contains("missing '**Acceptance Criteria**:'")
+                && e.message.contains("Issue 1")),
+            "expected FC14 notice for missing AC on Issue 1; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc14_sub_b_outline_missing_dependencies_fires() {
+        let mut body = well_formed_single_pr_body();
+        body.retain(|l| !l.starts_with("**Dependencies**:"));
+        let doc = make_plan_doc("single-pr", 2, body);
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.iter().any(|e| e.code == "FC14"
+                && e.message.contains("missing '**Dependencies**:'")
+                && e.message.contains("Issue 1")),
+            "expected FC14 notice for missing Dependencies on Issue 1; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc14_sub_c_unresolved_dependency_fires() {
+        let mut body = well_formed_single_pr_body();
+        // Swap Issue 2's deps to reference a non-existent sibling.
+        for line in body.iter_mut() {
+            if line.starts_with("**Dependencies**: Blocked by <<ISSUE:1>>") {
+                *line = "**Dependencies**: Blocked by Issue 42".to_string();
+            }
+        }
+        let doc = make_plan_doc("single-pr", 2, body);
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.iter().any(|e| e.code == "FC14"
+                && e.message.contains("unresolved dependency")
+                && e.message.contains("Issue 42")),
+            "expected FC14 notice for unresolved dep 'Issue 42'; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc14_sub_c_none_dep_does_not_fire() {
+        let doc = make_plan_doc("single-pr", 2, well_formed_single_pr_body());
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            !errs
+                .iter()
+                .any(|e| e.code == "FC14" && e.message.contains("unresolved")),
+            "Issue 1 with Dependencies: None should not fire unresolved; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc14_sub_d_issue_count_mismatch_fires() {
+        let doc = make_plan_doc("single-pr", 5, well_formed_single_pr_body());
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.iter().any(|e| e.code == "FC14"
+                && e.message.contains("issue_count: 5")
+                && e.message.contains("observed count 2")),
+            "expected FC14 notice for issue_count mismatch (5 vs 2); got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc14_sub_d_issue_count_match_no_notice() {
+        let doc = make_plan_doc("single-pr", 2, well_formed_single_pr_body());
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            !errs
+                .iter()
+                .any(|e| e.code == "FC14" && e.message.contains("issue_count")),
+            "issue_count: 2 matching 2 outlines should not fire; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc14_sub_e_single_pr_with_populated_implementation_issues_fires() {
+        let mut body = well_formed_single_pr_body();
+        // Append a populated Implementation Issues table after the existing
+        // sections. The Implementation Sequence section needs to follow.
+        // Replace the last "## Implementation Sequence" position to insert
+        // the table just before it.
+        let pos = body
+            .iter()
+            .position(|l| l.starts_with("## Implementation Sequence"))
+            .unwrap();
+        let table = vec![
+            "## Implementation Issues".to_string(),
+            "".to_string(),
+            "| Issue | Dependencies | Complexity |".to_string(),
+            "| ----- | ------------ | ---------- |".to_string(),
+            "| [#1](http://x/1) | None | simple |".to_string(),
+        ];
+        for (i, line) in table.into_iter().enumerate() {
+            body.insert(pos + i, line);
+        }
+        let doc = make_plan_doc("single-pr", 2, body);
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.iter().any(|e| e.code == "FC14"
+                && e.message.contains("execution_mode is 'single-pr'")
+                && e.message.contains("Implementation Issues")),
+            "expected FC14 mutual-exclusion notice; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc14_sub_e_multi_pr_with_populated_issue_outlines_fires() {
+        // Multi-pr plan that also populates Issue Outlines.
+        let mut body = well_formed_multi_pr_body();
+        let pos = body
+            .iter()
+            .position(|l| l.starts_with("## Implementation Sequence"))
+            .unwrap();
+        let outlines = vec![
+            "## Issue Outlines".to_string(),
+            "### Issue 1: feat(x): leftover".to_string(),
+            "**Goal**: leftover".to_string(),
+            "**Acceptance Criteria**:".to_string(),
+            "- [ ] leftover".to_string(),
+            "**Dependencies**: None".to_string(),
+        ];
+        for (i, line) in outlines.into_iter().enumerate() {
+            body.insert(pos + i, line);
+        }
+        let doc = make_plan_doc("multi-pr", 2, body);
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.iter().any(|e| e.code == "FC14"
+                && e.message.contains("execution_mode is 'multi-pr'")
+                && e.message.contains("Issue Outlines")),
+            "expected FC14 multi-pr mutual-exclusion notice; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc14_promotion_seam_one_line() {
+        // FC14 must appear in is_notice. Removing it from the match arm
+        // should be the only edit required to promote to error.
+        use crate::validate::is_notice;
+        let e = ValidationError {
+            file: "x".to_string(),
+            line: 1,
+            code: "FC14".to_string(),
+            message: "test".to_string(),
+        };
+        assert!(is_notice(&e), "FC14 should be notice-level in is_notice");
     }
 }

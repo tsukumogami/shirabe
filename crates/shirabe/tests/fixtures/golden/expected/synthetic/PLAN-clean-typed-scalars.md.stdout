@@ -1,1 +1,2 @@
 ::notice file=synthetic/PLAN-clean-typed-scalars.md::[FC07] no mermaid block under ## Dependency Graph (skipping per-node checks)
+::notice file=synthetic/PLAN-clean-typed-scalars.md::[FC14] frontmatter 'issue_count: 8' does not match observed count 1 in ## Implementation Issues

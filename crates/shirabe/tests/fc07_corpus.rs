@@ -100,6 +100,7 @@ fn fc07_corpus_self_check_committed_plans_and_roadmaps() {
                     || line.contains("[FC11]")
                     || line.contains("[FC12]")
                     || line.contains("[FC13]")
+                    || line.contains("[FC14]")
                     || line.contains("[FC-CONVENTIONS]")
                     || line.contains("[SCHEMA]"),
                 "notice from non-notice-level code on the committed corpus: {}",
