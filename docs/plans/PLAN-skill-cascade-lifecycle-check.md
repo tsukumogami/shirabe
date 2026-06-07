@@ -61,27 +61,27 @@ proceeds.
 enumerates.
 
 **Acceptance Criteria**:
-- [ ] New public function `run_lifecycle_chain_check(doc_path:
+- [x] New public function `run_lifecycle_chain_check(doc_path:
       &Path, cfg: &Config, strict: bool) -> Vec<ValidationError>`
       in `crates/shirabe-validate/src/lifecycle.rs`.
-- [ ] The function canonicalizes the doc-path, derives the implied
+- [x] The function canonicalizes the doc-path, derives the implied
       root by stripping the matching `docs/{...}/` suffix, builds
       the doc index against that root, looks up the doc in the
       index, and filters discovered chains to those containing the
       doc.
-- [ ] Non-doc-path inputs (missing file, unrecognized prefix, path
+- [x] Non-doc-path inputs (missing file, unrecognized prefix, path
       outside docs/) produce a single L05 error with a clear message
       naming the expected location set.
-- [ ] An orphan doc (no chain participation, no inverse-upstream
+- [x] An orphan doc (no chain participation, no inverse-upstream
       reference) is checked via `check_orphan`; pass-state and
       fail-state both behave the same as the whole-tree mode's
       orphan handling.
-- [ ] When `strict` is set and the matched chain has posture
+- [x] When `strict` is set and the matched chain has posture
       `SinglePrMidPR`, the chain re-targets to `SinglePrAtMerge` —
       same shape as the whole-tree mode's strict-mode re-target.
-- [ ] Multi-pr postures are unchanged regardless of strict mode.
-- [ ] `lib.rs` re-exports `run_lifecycle_chain_check`.
-- [ ] Unit tests cover seven shapes:
+- [x] Multi-pr postures are unchanged regardless of strict mode.
+- [x] `lib.rs` re-exports `run_lifecycle_chain_check`.
+- [x] Unit tests cover seven shapes:
       - Single-pr chain mid-PR with strict=true: fails on the
         present PLAN.
       - Single-pr chain at terminal (PLAN absent, BRIEF/PRD Done,
@@ -96,8 +96,8 @@ enumerates.
         `docs/briefs/`): returns a single L05 error.
       - Orphan doc at target state: passes.
       - Orphan doc at non-target state: fails with L02.
-- [ ] `cargo build --release` passes.
-- [ ] `cargo test -p shirabe-validate` passes.
+- [x] `cargo build --release` passes.
+- [x] `cargo test -p shirabe-validate` passes.
 
 **Dependencies**: None (foundational change).
 
@@ -112,22 +112,22 @@ that mirrors `run_lifecycle` but calls
 `run_lifecycle_chain_check`.
 
 **Acceptance Criteria**:
-- [ ] `ValidateArgs` in `crates/shirabe/src/main.rs` gains
+- [x] `ValidateArgs` in `crates/shirabe/src/main.rs` gains
       `#[arg(long, value_name = "DOC")] lifecycle_chain: Option<String>`.
-- [ ] The `--help` output includes the new flag's description
+- [x] The `--help` output includes the new flag's description
       naming the chain-targeted scope and its mutual-exclusion
       with `--lifecycle` and positional files.
-- [ ] `run_validate`'s mutual-exclusion check extends:
+- [x] `run_validate`'s mutual-exclusion check extends:
       - `--lifecycle-chain` plus `--lifecycle` => clear error.
       - `--lifecycle-chain` plus positional files => clear error.
       - `--lifecycle-chain` plus `--strict` => allowed (passes
         through to the function).
-- [ ] A new dispatch arm calls `run_lifecycle_chain(doc, &args.visibility, args.strict)`.
-- [ ] `run_lifecycle_chain` matches `run_lifecycle`'s shape:
+- [x] A new dispatch arm calls `run_lifecycle_chain(doc, &args.visibility, args.strict)`.
+- [x] `run_lifecycle_chain` matches `run_lifecycle`'s shape:
       validates the input path exists, builds the Config, calls
       the new function, formats annotations to stdout, returns the
       exit code.
-- [ ] Integration tests cover the CLI surface:
+- [x] Integration tests cover the CLI surface:
       - `shirabe validate --lifecycle-chain docs/plans/PLAN-foo.md
         --strict` exits non-zero on a mid-PR chain.
       - `shirabe validate --lifecycle-chain docs/plans/PLAN-foo.md
@@ -135,8 +135,8 @@ that mirrors `run_lifecycle` but calls
         exclusion error.
       - `shirabe validate --lifecycle-chain /tmp/not-in-docs.md`
         exits non-zero with the path-not-in-docs error.
-- [ ] `cargo build --release` passes.
-- [ ] `cargo test` passes (full workspace).
+- [x] `cargo build --release` passes.
+- [x] `cargo test` passes (full workspace).
 
 **Dependencies**: Issue 1 (the new lifecycle-module function must
 exist before the CLI can call it).
@@ -153,26 +153,26 @@ final commit and exits the script non-zero if it sees a failure
 (cascade bug).
 
 **Acceptance Criteria**:
-- [ ] `skills/work-on/scripts/run-cascade.sh` gains a
+- [x] `skills/work-on/scripts/run-cascade.sh` gains a
       `lifecycle_probe` function that invokes
       `"$SHIRABE_BIN" validate --lifecycle-chain "$PLAN_DOC"
       --strict`, captures the exit code, and returns the
       caller-appropriate signal (pre-probe: 0 on expected failure,
       1 on early-exit; post-verify: 0 on expected pass, 1 on
       cascade bug).
-- [ ] The pre-probe runs immediately after the setup block (after
+- [x] The pre-probe runs immediately after the setup block (after
       `SHIRABE_BIN` and `PLAN_DOC` are resolved) and before the
       `git rm $PLAN_DOC` step. On early-exit (clean pass at
       pre-probe), the script emits `cascade_status: skipped` with
       a step naming the already-terminal state and exits 0.
-- [ ] The post-verify runs immediately after the `git commit` when
+- [x] The post-verify runs immediately after the `git commit` when
       `--push` is set. On unexpected failure, the script logs the
       validator's stderr, emits `cascade_status: partial` with a
       step naming the verification failure, and exits non-zero.
-- [ ] When `--push` is not set (dry-run), the post-verify is
+- [x] When `--push` is not set (dry-run), the post-verify is
       skipped — the transitions have not been committed, so the
       chain has not actually finalized. The pre-probe still runs.
-- [ ] The shell test harness `run-cascade_test.sh` gains scenarios:
+- [x] The shell test harness `run-cascade_test.sh` gains scenarios:
       - Mid-PR chain: pre-probe fails (expected), cascade runs,
         post-verify passes (with `--push`). Exit 0.
       - Already-terminal chain: pre-probe passes (early-exit
@@ -182,11 +182,11 @@ final commit and exits the script non-zero if it sees a failure
         runs but leaves the chain in a bad state (the test mocks
         the transitions to a known-bad outcome), post-verify
         fails. Exit non-zero, `cascade_status: partial`.
-- [ ] The shell tests use the existing stub-shirabe pattern but
+- [x] The shell tests use the existing stub-shirabe pattern but
       with a real shirabe binary built from this PR for the
       `validate --lifecycle-chain` invocation. The test sets
       `SHIRABE_BIN` to the locally-built binary path.
-- [ ] `bash skills/work-on/scripts/run-cascade_test.sh` passes.
+- [x] `bash skills/work-on/scripts/run-cascade_test.sh` passes.
 
 **Dependencies**: Issues 1 and 2 (the CLI flag must work end-to-end
 before the script can invoke it).
@@ -202,26 +202,26 @@ describe both whole-tree and chain-targeted modes. Add a cross-link
 to the new Decision Record.
 
 **Acceptance Criteria**:
-- [ ] `skills/work-on/SKILL.md` Completion Cascade section is
+- [x] `skills/work-on/SKILL.md` Completion Cascade section is
       rewritten. The four-step sequence becomes a two-step
       sequence: (1) invoke the cascade script with `--push`, (2)
       `gh pr ready`. The agent-directed
       `shirabe validate --lifecycle . --strict` invocations are
       removed.
-- [ ] The new prose names the script as the load-bearing element
+- [x] The new prose names the script as the load-bearing element
       and explains that the script runs the pre-probe internally
       (before transitions) and the post-verify internally (after
       the commit).
-- [ ] The new prose names the cascade behavior on an already-
+- [x] The new prose names the cascade behavior on an already-
       terminal chain: `cascade_status: skipped`, the agent
       proceeds to `gh pr ready` without re-running the cascade.
-- [ ] `skills/plan/SKILL.md`'s lifecycle reference mentions both
+- [x] `skills/plan/SKILL.md`'s lifecycle reference mentions both
       `--lifecycle <ROOT>` (whole-tree, CI backstop) and
       `--lifecycle-chain <DOC>` (chain-targeted, cascade-bundled).
-- [ ] At least one cross-link points readers at
+- [x] At least one cross-link points readers at
       `DECISION-chain-targeted-lifecycle-cli-shape-2026-06-06.md`
       so future readers can find the CLI-shape rationale.
-- [ ] `grep -rn 'shirabe validate --lifecycle \. --strict' skills/`
+- [x] `grep -rn 'shirabe validate --lifecycle \. --strict' skills/`
       returns no matches in agent-directed prose contexts
       (matches inside Decision Record cross-links or reference
       examples are allowed).

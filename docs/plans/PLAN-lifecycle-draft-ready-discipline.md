@@ -58,20 +58,20 @@ single-pr posture's passing-state computation to the at-merge shape
 when strict mode is set.
 
 **Acceptance Criteria**:
-- [ ] `ValidateArgs` in `crates/shirabe/src/main.rs` gains
+- [x] `ValidateArgs` in `crates/shirabe/src/main.rs` gains
       `#[arg(long, default_value_t = false)] strict: bool`.
-- [ ] `run_lifecycle` passes `args.strict` through to a new third
+- [x] `run_lifecycle` passes `args.strict` through to a new third
       parameter on `run_lifecycle_check(root, cfg, strict)` in
       `crates/shirabe-validate/src/lifecycle.rs`.
-- [ ] `compute_passing_state` (or the chain-iteration loop in
+- [x] `compute_passing_state` (or the chain-iteration loop in
       `run_lifecycle_check`) consumes the strict flag: when strict
       is set, `Posture::SinglePrMidPR` re-targets to the
       `SinglePrAtMerge` passing-state row (BRIEF Done, PRD Done,
       DESIGN Current, PLAN Deleted).
-- [ ] Multi-pr postures are unchanged in both strict and non-strict.
-- [ ] `lib.rs` re-exports the updated `run_lifecycle_check`
+- [x] Multi-pr postures are unchanged in both strict and non-strict.
+- [x] `lib.rs` re-exports the updated `run_lifecycle_check`
       signature.
-- [ ] Unit tests cover six shapes:
+- [x] Unit tests cover six shapes:
       - DRAFT-mode-equivalent: SinglePrMidPR + strict=false passes
         (current behavior preserved).
       - READY-mode equivalent: SinglePrMidPR + strict=true fails on
@@ -82,8 +82,8 @@ when strict mode is set.
         preserved).
       - Multi-pr mid-transition (PLAN Done, BRIEF Accepted) +
         strict=true fails.
-- [ ] `cargo build --release` passes.
-- [ ] `cargo test -p shirabe-validate` passes.
+- [x] `cargo build --release` passes.
+- [x] `cargo test -p shirabe-validate` passes.
 
 **Dependencies**: None (foundational change).
 
@@ -99,30 +99,30 @@ strict mode set conditional on the PR's draft state. SHA-pinned
 actions throughout.
 
 **Acceptance Criteria**:
-- [ ] `.github/workflows/lifecycle.yml` declares
+- [x] `.github/workflows/lifecycle.yml` declares
       `on: workflow_call:` with no required inputs.
-- [ ] The reusable workflow's `permissions:` block grants only
+- [x] The reusable workflow's `permissions:` block grants only
       `contents: read`.
-- [ ] The reusable workflow checks out the caller repo at full
+- [x] The reusable workflow checks out the caller repo at full
       history, checks out shirabe at `job.workflow_sha`, installs
       the Rust toolchain via `dtolnay/rust-toolchain` pinned to a
       commit SHA, caches Cargo, builds the shirabe binary, and runs
       `shirabe validate --lifecycle .` with the strict flag
       templated via a shell conditional reading
       `github.event.pull_request.draft`.
-- [ ] All actions use commit-SHA pins. The SHAs match those in the
+- [x] All actions use commit-SHA pins. The SHAs match those in the
       existing `validate-docs.yml` where the action overlaps
       (`actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd`,
       `actions/cache@5a3ec84eff668545956fd18022155c47e93e2684`,
       `dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8`).
-- [ ] The shell conditional reads `${{ github.event.pull_request.draft }}`
+- [x] The shell conditional reads `${{ github.event.pull_request.draft }}`
       and sets `STRICT_FLAG="--strict"` when the value is `false`,
       empty otherwise. The check is invoked as `shirabe validate
       --lifecycle . $STRICT_FLAG`.
-- [ ] The workflow's "Check PR context" guard exits 0 (with a
+- [x] The workflow's "Check PR context" guard exits 0 (with a
       `::notice::` log) when `github.base_ref` is empty, matching
       the `validate-docs.yml` precedent.
-- [ ] `.github/workflows/validate-lifecycle.yml` is the self-caller
+- [x] `.github/workflows/validate-lifecycle.yml` is the self-caller
       that triggers on `pull_request` events with
       `types: [opened, synchronize, reopened, ready_for_review,
       converted_to_draft]` and no `paths:` filter. It invokes the
@@ -142,19 +142,19 @@ multi-pr work-completing, multi-pr intermediate) and performs the
 right transitions atomically.
 
 **Acceptance Criteria**:
-- [ ] `skills/work-on/SKILL.md` documents the cascade step: detect
+- [x] `skills/work-on/SKILL.md` documents the cascade step: detect
       posture, run strict-mode check (expect a specific failure),
       perform the atomic finalization commit, push, re-run the
       strict-mode check (expect pass), then `gh pr ready`.
-- [ ] The relevant koto template (`work-on-plan.md` or `work-on.md`,
+- [x] The relevant koto template (`work-on-plan.md` or `work-on.md`,
       whichever drives `gh pr ready`) has the cascade step in the
       pr_finalization state directive.
-- [ ] The cascade's posture detection reads the PLAN's
+- [x] The cascade's posture detection reads the PLAN's
       `execution_mode` and `status:` frontmatter fields via shell-
       level grep (the existing template pattern), distinguishing
       single-pr from multi-pr work-completing from multi-pr
       intermediate.
-- [ ] The finalization commit performs:
+- [x] The finalization commit performs:
       - single-pr: `git rm` the PLAN, `shirabe transition` BRIEF
         and PRD to Done (skipping any chain member absent from the
         tree), single commit.
@@ -165,7 +165,7 @@ right transitions atomically.
       - multi-pr intermediate: no-op; the cascade logs "Multi-pr
         chain in flight; no finalization needed" and proceeds to
         `gh pr ready`.
-- [ ] The template guards the cascade behind a check that the
+- [x] The template guards the cascade behind a check that the
       strict-mode validator is available (the shirabe binary in
       use must support `--strict`); a missing flag triggers a
       diagnostic, not a silent skip.
@@ -182,15 +182,15 @@ cascade can invoke it).
 sections carry the stale wording today.
 
 **Acceptance Criteria**:
-- [ ] Line 50's prose no longer references `docs/plans/done/`. The
+- [x] Line 50's prose no longer references `docs/plans/done/`. The
       surrounding sentence is reworded to describe the
       verify-then-delete terminal: when a PLAN reaches Done, it is
       deleted from `docs/plans/` in the same commit set the work
       ships in.
-- [ ] Line 80's state-table row for Done no longer references
+- [x] Line 80's state-table row for Done no longer references
       `docs/plans/done/`. The cell is reworded to describe the
       delete-on-Done discipline.
-- [ ] `grep -rn 'docs/plans/done' skills/` returns no matches.
+- [x] `grep -rn 'docs/plans/done' skills/` returns no matches.
 
 **Dependencies**: None (independent documentation edit).
 
@@ -204,20 +204,20 @@ whole-tree CI gate, and the DRAFT-vs-READY discipline. The
 updates align the prose with the implemented mechanism.
 
 **Acceptance Criteria**:
-- [ ] `skills/roadmap/SKILL.md` (or the relevant reference file)
+- [x] `skills/roadmap/SKILL.md` (or the relevant reference file)
       mentions the whole-tree CI gate by name (the lifecycle
       workflow) and the DRAFT-vs-READY discipline in the context
       of roadmap-driven multi-pr chains.
-- [ ] `skills/plan/SKILL.md` and any plan-skill reference that
+- [x] `skills/plan/SKILL.md` and any plan-skill reference that
       describes PLAN lifecycle includes the verify-then-delete
       terminal and the DRAFT-vs-READY discipline. Stale references
       implying a PLAN move to `docs/plans/done/` are removed.
-- [ ] At least one cross-link points readers at the
+- [x] At least one cross-link points readers at the
       `DECISION-lifecycle-strict-mode-interface-2026-06-06.md` and
       `DECISION-cascade-trigger-mechanism-2026-06-06.md` Decision
       Records so future readers can find the rationale for the
       mechanism.
-- [ ] `grep -rn 'docs/plans/done' skills/` returns no matches after
+- [x] `grep -rn 'docs/plans/done' skills/` returns no matches after
       this issue and issue 4 land together.
 
 **Dependencies**: Issue 4 (the wording removal in
