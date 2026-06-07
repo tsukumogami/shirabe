@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-shirabe-cli-multi-consumer.md
 problem: |
   The `validate` command emits GitHub Actions annotations only, runs every
@@ -24,7 +24,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
