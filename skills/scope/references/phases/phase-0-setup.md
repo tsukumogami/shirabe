@@ -78,8 +78,8 @@ docs-directory walk or the >50% threshold in SKILL prose.
 Phase 0 reads `CLAUDE.md` for the `## Repo Visibility:` header.
 Accepted values: `Public` or `Private`. The detected value is
 recorded in the state file and consumed by Phase 2's validator
-pass-through (`shirabe validate --format json --visibility=<value>`).
-When the
+pass-through
+(`shirabe validate --format json --visibility=<value>`). When the
 header is absent, `/scope` defaults to `Private` and surfaces a
 warning containing the literal phrasing "Default to Private if
 unknown" naming the missing header. The warning is informational;

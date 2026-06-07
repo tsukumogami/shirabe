@@ -298,9 +298,12 @@ branches on the multi-level exit code (the contract shared with
   one error-level result. Halt the chain immediately and route to
   R8's bail-handling. Surface the parsed `findings` readably: for
   each error-severity finding, show
-  `[<code>] <message> (<file>:<line>)` rather than dumping the raw
+  `<message> (<file>:<line>)` rather than dumping the raw
   annotation text — the author sees *which* check failed in plain
-  terms.
+  terms. The `message` field already embeds the check code (e.g.
+  `[L05] ...`), so do NOT prepend `[<code>]` again; read the
+  `code` field for any branching logic, not for the human-facing
+  line.
 - **1 (tool-error)** — the validator could not run (bad
   invocation, an unreadable or unparseable intermediate, an
   envelope that does not parse). Treat this as a tool failure

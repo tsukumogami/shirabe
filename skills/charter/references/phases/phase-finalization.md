@@ -167,9 +167,13 @@ Procedure:
      the violation is resolved; do NOT write `exit: full-run` to
      the state file. Surface the parsed `findings` readably: for
      each error-severity finding, show
-     `[<code>] <message> (<file>:<line>)` rather than dumping the
-     raw annotation text — the gate names *which* check failed in
-     plain terms. The chain remains in progress (the state file's
+     `<message> (<file>:<line>)` rather than dumping the raw
+     annotation text — the gate names *which* check failed in
+     plain terms. The `message` field already embeds the check
+     code (e.g. `[R8] ...`), so do NOT prepend `[<code>]` again;
+     read the `code` field for any branching logic, not for the
+     human-facing line. The chain remains in progress (the state
+     file's
      `exit:` field stays UNSET) and the author addresses the
      violation in the Draft STRATEGY before re-invoking `/charter`
      to retry finalization.
@@ -198,7 +202,8 @@ validator's R8 check (the visibility-gated-section rule for
 public-visibility STRATEGYs). `shirabe validate --format json
 --visibility=public` returns exit code 2 with a `violations`
 envelope carrying an error-severity finding for the offending
-section; `/charter` surfaces that finding as
+section; `/charter` surfaces that finding's `message` (which
+already opens with `[R8]`) as
 `[R8] <message> (docs/strategies/STRATEGY-<topic>.md:<line>)` and
 blocks finalization. The author either removes the Competitive
 Considerations section from the public-repo Draft or re-declares

@@ -414,7 +414,8 @@ Phase 2 parses the `shirabe-validate/v1` JSON envelope and
 branches on the multi-level exit code: **0 (clean)** advances to
 the next child; **2 (violations)** halts the chain and routes via
 R8's bail-handling, surfacing each error-severity finding as
-`[<code>] <message> (<file>:<line>)` so the author sees which
+`<message> (<file>:<line>)` (the `message` already embeds the
+check code, so it is not prepended again) so the author sees which
 check failed in plain terms; **1 (tool-error)** is a validator
 failure DISTINCT from a content violation (the validator could
 not run) and halts without reporting a document violation.
