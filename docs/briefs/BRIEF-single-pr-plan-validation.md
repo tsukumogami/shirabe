@@ -28,6 +28,16 @@ Phase 4 jury returned all-PASS; Phase 5 approval recorded under the parent
 and translates the acceptance-criteria set from the upstream issue into formal
 requirements.
 
+**In-place correction 2026-06-07 (post-PRD-research grounding):** the new
+check's code was originally written as `FC10` in this brief, matching the
+upstream issue title. Inline research during the downstream PRD's Phase 2
+revealed that `FC10` is already claimed by the writing-style banned-word
+check, and FC10-FC13 are all taken. The next free code is `FC14`, and this
+brief has been updated to reference `FC14` throughout. The upstream issue
+title's "fc10" working name is left as-is; the implementation code is
+`FC14`. No framing change; the discovery, problem statement, outcome, and
+journeys are unaffected.
+
 ## Problem Statement
 
 shirabe today has two plan execution modes. A multi-pr plan decomposes a milestone
@@ -74,11 +84,11 @@ review time when a peer has to spot the structural break in prose, and not at
 `/work-on` time when the cascade tries to consume a malformed outline and
 falls over.
 
-The new check, named FC10 to extend the FC07-FC09 notice family already in
+The new check, named FC14 to extend the FC07-FC09 notice family already in
 place on multi-pr plans, delivers feedback in that same shape: notices, not
 errors, in this first release, so an unmigrated corpus does not redden CI;
 promotion to error is a one-line change after the corpus stabilizes. A
-reviewer scanning a CI rollup sees `[FC10]` annotations alongside the existing
+reviewer scanning a CI rollup sees `[FC14]` annotations alongside the existing
 notice family, each annotation naming the specific defect (the outline key,
 the missing field, the unresolved dependency name) so the fix is mechanical.
 
@@ -88,7 +98,7 @@ the missing field, the unresolved dependency name) so the fix is mechanical.
 
 A coordinator running `/plan` for a small, bounded feature picks `single-pr` at
 the value-confirmation guard, drafts the Issue Outlines section, and triggers
-`shirabe validate` from their editor or from a pre-push hook. FC10 fires on any
+`shirabe validate` from their editor or from a pre-push hook. FC14 fires on any
 structural defect -- a missing required section that single-pr expects, an
 outline block missing its goal or acceptance-criteria block, an outline naming a
 dependency that does not resolve to a sibling outline, an `issue_count` that
@@ -99,18 +109,18 @@ validate` until the notice clears, before opening the PR for review.
 ### Journey 2: Reviewer scanning a single-pr PLAN PR in CI
 
 A reviewer opens the PR page for an open single-pr PLAN PR and reads the
-Validate Docs job's annotations. Any FC10 notice surfaces alongside the existing
+Validate Docs job's annotations. Any FC14 notice surfaces alongside the existing
 FC07 / FC08 / FC09 notices in the same CI rollup, formatted identically, naming
 the specific defect verbatim (the outline key, the missing field, the
 unresolved dependency name). The reviewer marks the PR Changes Requested with a
-one-line note pointing at the FC10 notice; the author's fix is mechanical.
+one-line note pointing at the FC14 notice; the author's fix is mechanical.
 
 ### Journey 3: Coordinator running `/work-on` on the resulting single-pr PLAN
 
 A coordinator runs `/work-on` on a single-pr PLAN that already passed CI. The
 cascade reads `## Issue Outlines` to drive its outline-by-outline implementation
 loop and consumes the outline-to-outline dependency graph to schedule work. A
-coordinator running `/work-on` against a FC10-clean PLAN gets a deterministic
+coordinator running `/work-on` against a FC14-clean PLAN gets a deterministic
 outline-by-outline traversal because the upstream PR gate caught the structural
 defects -- they never reach the coordinator's `/work-on` session. The cascade
 doesn't have to defend against malformed outlines at runtime, and the
@@ -121,7 +131,7 @@ structural break the validator should have caught two steps earlier.
 
 A coordinator declares `execution_mode: single-pr` in their PLAN frontmatter but
 authors the body as if it were multi-pr -- populating `## Implementation Issues`
-with a table and leaving `## Issue Outlines` absent. FC10 Sub-check E fires a
+with a table and leaving `## Issue Outlines` absent. FC14 Sub-check E fires a
 notice on the populated-wrong-section condition, recommending either changing
 the frontmatter to `execution_mode: multi-pr` or moving the content into
 `## Issue Outlines`. The notice surfaces both halves of the inconsistency in
@@ -131,7 +141,7 @@ one place; the coordinator picks a side and re-runs.
 
 **In-scope:**
 
-- A new check, FC10, added to the validator's Plan arm alongside FC05-FC09.
+- A new check, FC14, added to the validator's Plan arm alongside FC05-FC09.
   The Roadmap arm is unchanged.
 - Five behavioural sub-checks: (A) `execution_mode`-aware required-sections
   dispatch so single-pr and multi-pr each validate against their own section
@@ -163,7 +173,7 @@ one place; the coordinator picks a side and re-runs.
 
 **Out-of-scope:**
 
-- **Promotion of FC10 to error severity.** That ships separately as a one-line
+- **Promotion of FC14 to error severity.** That ships separately as a one-line
   `is_notice` membership change after the corpus has stabilized, mirroring how
   FC07 / FC08 / FC09 carry their own promotion path. This work delivers the
   check at notice severity.
@@ -174,21 +184,21 @@ one place; the coordinator picks a side and re-runs.
   adds enforcement; corpus migration is implicit in the notice-severity ship
   pattern and any necessary corpus edits land in their own follow-ups.
 - **Single-pr PLAN format authoring guidance.** The format spec already lives
-  at `skills/plan/references/quality/plan-doc-structure.md`; FC10 enforces
+  at `skills/plan/references/quality/plan-doc-structure.md`; FC14 enforces
   that spec, it does not author or revise it.
 - **Changes to the `/plan` skill itself.** The skill's existing authoring flow
-  is unchanged; FC10 adds validator behavior, not skill behavior.
-- **CI workflow changes.** FC10 runs inside the existing Validate Docs job;
+  is unchanged; FC14 adds validator behavior, not skill behavior.
+- **CI workflow changes.** FC14 runs inside the existing Validate Docs job;
   no new workflow file, no new job entry.
 
 ## References
 
 - `skills/plan/references/quality/plan-doc-structure.md` -- the format spec
-  FC10 enforces; defines the per-outline structural contract (goal, acceptance
+  FC14 enforces; defines the per-outline structural contract (goal, acceptance
   criteria, dependencies) and the single-pr vs multi-pr section distinction.
 - `docs/designs/current/DESIGN-table-diagram-reconciliation.md` -- the sibling
   DESIGN that introduced the row-terminality and profile-dispatch precedent
-  FC10 extends to execution-mode awareness.
+  FC14 extends to execution-mode awareness.
 - `docs/briefs/BRIEF-doc-vs-github-state-reconciliation.md` -- the FC09 BRIEF
   that this brief mirrors in shape: single-check follow-up, ships at notice
   severity, one-line promotion path to error.
