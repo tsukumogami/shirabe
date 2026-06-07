@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-shirabe-check-absorption.md
 problem: |
   Deterministic document checks are implemented in more than one place -- the
@@ -27,7 +27,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
