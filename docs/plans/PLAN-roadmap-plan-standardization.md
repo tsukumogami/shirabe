@@ -4,7 +4,7 @@ status: Active
 execution_mode: multi-pr
 upstream: docs/designs/DESIGN-roadmap-plan-standardization.md
 milestone: "roadmap-plan-standardization"
-issue_count: 12
+issue_count: 14
 ---
 
 # PLAN: roadmap-plan-standardization
@@ -73,20 +73,24 @@ with the spike-to-reconciliation merge gate as a second independent justificatio
 | ~~_Lifts the single-pr/multi-pr rule onto the plan SKILL surface anchored on the usable-value principle, de-conflated from work-slicing, and adds a value-confirmation step that can fail and records-and-proceeds under `--auto`. Shares the record-and-proceed gate shape with #115's approval gate._~~ | | |
 | ~~[#115: feat(roadmap): add native populate-issues-table script reusing create-issues-batch](https://github.com/tsukumogami/shirabe/issues/115)~~ | ~~[#111](https://github.com/tsukumogami/shirabe/issues/111)~~ | ~~testable~~ |
 | ~~_Adds `populate-issues-table.sh` that builds a per-feature manifest, reuses the generic `create-issues-batch.sh`, and writes the reserved sections by structural replacement, with issue creation routed through the R14 approval gate. Retires the plan re-entry's prose string surgery for the roadmap case._~~ | | |
-| [#116: feat(validate): add whole-tree --lifecycle mode with L01 and L02 checks](https://github.com/tsukumogami/shirabe/issues/116) | [#112](https://github.com/tsukumogami/shirabe/issues/112) | testable |
-| _Adds a `--lifecycle <root>` mode that walks the doc tree and runs Check A (L01: a present roadmap or multi-pr plan must be Active) and Check B (L02: no single-pr plan may exist), reusing the Doc IR and frontmatter parsing #112 exercises._ | | |
-| [#117: ci(lifecycle): add reusable lifecycle workflow and wire the verify-then-delete terminal](https://github.com/tsukumogami/shirabe/issues/117) | [#116](https://github.com/tsukumogami/shirabe/issues/116) | testable |
-| _Adds the reusable lifecycle workflow plus self-caller (no `paths:` filter, read-only) running the `--lifecycle` mode on every PR, wires the verify-then-delete terminal into the cascade, and removes the stale move-to-done wording. Completes the lifecycle enforcement Slice D began._ | | |
+| ~~[#116: feat(validate): add whole-tree --lifecycle mode with L01 and L02 checks](https://github.com/tsukumogami/shirabe/issues/116)~~ | ~~[#112](https://github.com/tsukumogami/shirabe/issues/112)~~ | ~~testable~~ |
+| ~~_Adds a `--lifecycle <root>` mode that walks the doc tree and runs Check A (L01: a present roadmap or multi-pr plan must be Active) and Check B (L02: no single-pr plan may exist), reusing the Doc IR and frontmatter parsing #112 exercises._~~ | | |
+| ~~[#117: ci(lifecycle): wire draft-aware reusable workflow and verify-then-delete cascade](https://github.com/tsukumogami/shirabe/issues/117)~~ | ~~[#116](https://github.com/tsukumogami/shirabe/issues/116)~~ | ~~testable~~ |
+| ~~_Adds the reusable lifecycle workflow plus self-caller (no `paths:` filter, read-only) running the `--lifecycle` mode on every PR, wires the verify-then-delete terminal into the cascade, and removes the stale move-to-done wording. Completes the lifecycle enforcement Slice D began._~~ | | |
 | ~~[#118: docs(spike): mermaid-parser feasibility spike for table-diagram reconciliation](https://github.com/tsukumogami/shirabe/issues/118)~~ | ~~[#111](https://github.com/tsukumogami/shirabe/issues/111)~~ | ~~simple~~ |
 | ~~_Writes the spike investigating the mermaid graph subset the corpus uses, a line-oriented extraction approach with no external dependency, and the reconciliation strictness. The explicit upstream that gates the reconciliation increment._~~ | | |
 | ~~[#119: feat(validate): add mermaid extractor and checkFC07 table-diagram reconciliation as a notice](https://github.com/tsukumogami/shirabe/issues/119)~~ | ~~[#112](https://github.com/tsukumogami/shirabe/issues/112), [#118](https://github.com/tsukumogami/shirabe/issues/118)~~ | ~~testable~~ |
 | ~~_Adds `mermaid.go` and `checkFC07` reconciling the parsed `Table` against the extracted diagram, shipped as a notice via `IsNotice` so an unreconciled committed diagram does not redden CI, with a one-line path to error-level promotion after corpus reconciliation. The final, spike-gated increment._~~ | | |
-| [#152: feat(validate): add fc08 legend-vs-classdef reconciliation as a notice](https://github.com/tsukumogami/shirabe/issues/152) | [#119](https://github.com/tsukumogami/shirabe/issues/119) | testable |
-| _Adds `checkFC08` reconciling the Dependency Graph Legend prose against the diagram's `classDef` declarations and the canonical class palette. Ships as a notice via `is_notice` so unupdated Legends do not redden CI, with a one-line path to error-level promotion after corpus reconciliation. Surfaces the drift surface FC07 explicitly does not cover._ | | |
+| ~~[#152: feat(validate): add fc08 legend-vs-classdef reconciliation as a notice](https://github.com/tsukumogami/shirabe/issues/152)~~ | ~~[#119](https://github.com/tsukumogami/shirabe/issues/119)~~ | ~~testable~~ |
+| ~~_Adds `checkFC08` reconciling the Dependency Graph Legend prose against the diagram's `classDef` declarations and the canonical class palette. Ships as a notice via `is_notice` so unupdated Legends do not redden CI, with a one-line path to error-level promotion after corpus reconciliation. Surfaces the drift surface FC07 explicitly does not cover._~~ | | |
 | ~~[#153: feat(validate): add fc09 doc-vs-github state reconciliation as a notice](https://github.com/tsukumogami/shirabe/issues/153)~~ | ~~[#119](https://github.com/tsukumogami/shirabe/issues/119)~~ | ~~testable~~ |
 | ~~_Adds `checkFC09` reconciling the doc's claims about issue state (table strikethrough, diagram class assignments) against GitHub's actual issue state plus the current PR's `Closes #N` body lines. First network-dependent check; self-disables offline. Three sub-checks: doc-claims-done vs GH, doc-claims-open vs GH, and PR Closes consistency. The third pillar of consistency alongside FC07's intra-doc and R6's cross-doc checks._~~ | | |
 | [#154: feat(validate): add fc10 single-pr plan validation (issue outlines + execution-mode-aware sections)](https://github.com/tsukumogami/shirabe/issues/154) | [#119](https://github.com/tsukumogami/shirabe/issues/119) | testable |
 | _Adds `checkFC10` and refactors `FormatSpec` to be `execution_mode`-aware so single-pr plans validate against their own structural contract: required sections branch on mode, Issue Outlines get structural enforcement, outline-to-outline deps resolve locally, issue_count matches outline count, and populated-wrong-section is flagged. Closes the gap where single-pr plans pass validation vacuously._ | | |
+| ~~[#175: feat(skills): bake chain-targeted lifecycle check into work-on cascade for deterministic enforcement](https://github.com/tsukumogami/shirabe/issues/175)~~ | ~~[#117](https://github.com/tsukumogami/shirabe/issues/117)~~ | ~~testable~~ |
+| ~~_Adds the `--lifecycle-chain <doc-path>` CLI mode and bakes its invocation into `skills/work-on/scripts/run-cascade.sh` at the pre-probe and post-verify points. Repos using the shirabe plugin's `/work-on` skill get deterministic lifecycle enforcement on every cascade run regardless of CI integration._~~ | | |
+| [#177: feat(skills): cascade should verify outline-AC completeness before plan deletion](https://github.com/tsukumogami/shirabe/issues/177) | [#175](https://github.com/tsukumogami/shirabe/issues/175) | testable |
+| _Adds a cascade pre-probe check that the PLAN's outline acceptance-criteria checkboxes are all ticked before the work-completing finalization commit. Closes the discipline gap where the cascade deletes the PLAN without verifying the work the PLAN promised is actually committed._ | | |
 
 ## Dependency Graph
 
@@ -104,6 +108,8 @@ graph TD
     I152["#152: legend-vs-classdef FC08 notice"]
     I153["#153: doc-vs-github state FC09 notice"]
     I154["#154: single-pr plan validation FC10 notice"]
+    I175["#175: cascade-baked chain-targeted lifecycle check"]
+    I177["#177: cascade verify outline-AC completeness"]
 
     I111 --> I112
     I111 --> I114
@@ -113,10 +119,12 @@ graph TD
     I112 --> I116
     I112 --> I119
     I116 --> I117
+    I117 --> I175
     I118 --> I119
     I119 --> I152
     I119 --> I153
     I119 --> I154
+    I175 --> I177
 
     classDef done fill:#c8e6c9
     classDef ready fill:#bbdefb
@@ -128,12 +136,11 @@ graph TD
     classDef tracksDesign fill:#FFE0B2,stroke:#F57C00,color:#000
     classDef tracksPlan fill:#FFE0B2,stroke:#F57C00,color:#000
 
-    class I111,I112,I113,I114,I115,I118,I119,I153 done
-    class I116,I152,I154 ready
-    class I117 blocked
+    class I111,I112,I113,I114,I115,I116,I117,I118,I119,I152,I153,I175 done
+    class I154,I177 ready
 ```
 
-**Legend**: Green = done, Blue = ready, Yellow = blocked, Purple = needs-design, Orange = tracks-design/tracks-plan
+**Legend**: Green = done, Blue = ready, Yellow = blocked, Purple = needsDesign, Light blue = needsPrd, Pink = needsSpike, Lilac = needsDecision, Orange = tracksDesign, Orange = tracksPlan
 
 ## Implementation Sequence
 
