@@ -48,6 +48,18 @@ _realpath_m() { python3 -c "import os,sys; print(os.path.abspath(sys.argv[1]))" 
 PUSH=false
 PLAN_DOC=""
 REPO_ROOT=""
+
+# Outline-AC completeness suppression. When WORK_ON_ALLOW_UNTRACKED_ACS=1 is
+# set in the environment, the validator's --allow-untracked-acs flag is added
+# to every lifecycle invocation in this script; L01-L05 stay active, only
+# L06 is suppressed. The flag's use surfaces in the pre/post probe log lines
+# and in the add_step l06_suppressed marker so reviewers can grep for it.
+ALLOW_UNTRACKED_ACS_ARGS=()
+L06_SUPPRESSED_DETAIL=""
+if [[ "${WORK_ON_ALLOW_UNTRACKED_ACS:-}" == "1" ]]; then
+    ALLOW_UNTRACKED_ACS_ARGS=(--allow-untracked-acs)
+    L06_SUPPRESSED_DETAIL="l06_suppressed=1"
+fi
 # SHIRABE_BIN may be set in the environment (e.g. by the test harness) to point
 # at a specific shirabe binary; it is resolved during setup below. It is
 # deliberately NOT reset here, so an inherited value survives.
@@ -279,7 +291,8 @@ lifecycle_probe() {
     LIFECYCLE_PROBE_OUTPUT=$("$SHIRABE_BIN" validate \
         --lifecycle-chain "$PLAN_DOC" \
         --format json \
-        --strict 2>&1) || exit_code=$?
+        --strict \
+        "${ALLOW_UNTRACKED_ACS_ARGS[@]}" 2>&1) || exit_code=$?
 
     if [[ "$mode" == "pre" ]]; then
         if [[ "$exit_code" -eq 0 ]]; then
@@ -624,6 +637,14 @@ if ! validate_upstream_path "$PLAN_DOC"; then
     exit 1
 fi
 
+# Surface the L06 suppression once at the start so reviewers grepping the
+# cascade's CI log see the marker before any validator output. The literal
+# substring matches what reviewer scripts can grep for: the env var name
+# is canonical and stable across releases.
+if [[ ${#ALLOW_UNTRACKED_ACS_ARGS[@]} -gt 0 ]]; then
+    log_info "[L06-suppressed via WORK_ON_ALLOW_UNTRACKED_ACS=1]"
+fi
+
 # ── Pre-cascade lifecycle probe ───────────────────────────────────────────────
 #
 # Run the chain-targeted lifecycle check in strict mode BEFORE any
@@ -640,11 +661,11 @@ fi
 
 if ! lifecycle_probe "pre"; then
     add_step "lifecycle_pre_probe" "$PLAN_DOC" "null" "skipped" \
-        "chain at strict-mode passing state — cascade is a no-op"
+        "chain at strict-mode passing state — cascade is a no-op${L06_SUPPRESSED_DETAIL:+ ($L06_SUPPRESSED_DETAIL)}"
     emit_result "skipped"
     exit 0
 fi
-add_step "lifecycle_pre_probe" "$PLAN_DOC" "null" "ok" ""
+add_step "lifecycle_pre_probe" "$PLAN_DOC" "null" "ok" "$L06_SUPPRESSED_DETAIL"
 
 # ── Read PLAN metadata before deletion ────────────────────────────────────────
 
@@ -848,9 +869,9 @@ if [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
     if ! lifecycle_probe "post"; then
         ANY_FAILED=true
         add_step "lifecycle_post_verify" "$PLAN_DOC" "null" "failed" \
-            "post-cascade lifecycle check failed in strict mode (cascade bug): $(lifecycle_findings_summary "$LIFECYCLE_PROBE_OUTPUT")"
+            "post-cascade lifecycle check failed in strict mode (cascade bug): $(lifecycle_findings_summary "$LIFECYCLE_PROBE_OUTPUT")${L06_SUPPRESSED_DETAIL:+ ($L06_SUPPRESSED_DETAIL)}"
     else
-        add_step "lifecycle_post_verify" "$PLAN_DOC" "null" "ok" ""
+        add_step "lifecycle_post_verify" "$PLAN_DOC" "null" "ok" "$L06_SUPPRESSED_DETAIL"
     fi
 fi
 
