@@ -16,9 +16,12 @@
 //!   BRIEFs stuck at Accepted while their PLAN is Done, and every
 //!   other state-vs-posture mismatch. The message names the posture
 //!   so the author can read the rule directly.
-//! - **L02**: an orphan doc (no downstream `upstream:` reference) at
-//!   non-terminal status whose own `upstream:` does not point at an
-//!   Active ROADMAP. The orphan-rule violation per
+//! - **L02**: an orphan doc at non-terminal status that is neither
+//!   rooted at an Active ROADMAP (its own `upstream:`) nor linked into a
+//!   coherent multi-member tactical chain (a downstream child points at
+//!   it, or its own `upstream:` resolves to another BRIEF/PRD/DESIGN/PLAN
+//!   in the tree). A lone stuck doc is drift; a linked in-flight chain
+//!   with no ROADMAP root is active work. The orphan-rule violation per
 //!   `docs/decisions/DECISION-orphan-doc-passing-state-rule-2026-06-06.md`.
 //! - **L03**: a cycle detected in the upstream graph. The message
 //!   names every doc participating in the cycle.
@@ -630,7 +633,11 @@ fn compute_passing_state(role: ChainRole, posture: Posture) -> PassingState {
         // committed single-pr PLAN is `Active`. A Draft single-pr
         // PLAN fails L01 against this rule.
         (Brief, SinglePrMidPR) => PassingState::Status("Accepted"),
-        (Prd, SinglePrMidPR) => PassingState::Status("Accepted"),
+        // The PRD sits at `Accepted` until /shirabe:design starts, which
+        // bumps it to `In Progress`; a single-pr chain carries the PRD,
+        // DESIGN, and PLAN together, so mid-PR the PRD is legitimately at
+        // either state (mirrors the multi-pr in-flight row).
+        (Prd, SinglePrMidPR) => PassingState::PrdAcceptedOrInProgress,
         (Design, SinglePrMidPR) => PassingState::DesignPlannedOrCurrent,
         (Plan, SinglePrMidPR) => PassingState::Status("Active"),
         (Roadmap, SinglePrMidPR) => PassingState::Status("Active"),
@@ -653,12 +660,16 @@ fn compute_passing_state(role: ChainRole, posture: Posture) -> PassingState {
 // In short: an orphan doc (no inverse-upstream reference from any
 // other doc) at its artifact's target state passes; an orphan at non-
 // terminal status whose own upstream points at an Active ROADMAP
-// passes (ROADMAP-rooted in-flight case); every other orphan fails
-// with L02.
+// passes (ROADMAP-rooted in-flight case); an orphan that is a member
+// of a coherent multi-member tactical chain (linked to another
+// BRIEF/PRD/DESIGN/PLAN by `upstream:`) passes (the pre-PLAN in-flight
+// case — a standalone chain with no ROADMAP root, exactly what /scope
+// produces); every other orphan fails with L02.
 
 fn check_orphan(
     doc: &IndexedDoc,
     idx: &DocIndex,
+    inv: &InverseGraph,
 ) -> Option<ValidationError> {
     // Plans and roadmaps are the chain roots — they are never
     // "orphan" in this sense; their own lifecycle posture is what
@@ -684,6 +695,42 @@ fn check_orphan(
         }
     }
 
+    // In-flight tactical chain: a non-terminal doc that is linked to at
+    // least one other tactical-chain artifact — it has a downstream
+    // child pointing at it via `upstream:`, or its own `upstream:`
+    // resolves to a BRIEF/PRD/DESIGN/PLAN present in the tree — is a
+    // member of a coherent, progressing chain, not a lone stuck doc.
+    // The drift this rule targets is a single isolated artifact (the
+    // reason the orphan-permissive option was rejected); a linked
+    // multi-member chain with no ROADMAP root is active work. A public
+    // repo whose roadmap is private can never satisfy the active-ROADMAP
+    // exception above, so this linkage signal is the only one available
+    // to it mid-flight. (See the chain-aware refinement recorded in
+    // DECISION-orphan-doc-passing-state-rule-2026-06-06.md.)
+    //
+    // This linkage signal is deliberately single-hop and looser than
+    // `discover_chains`' membership edge (which only roots at a PLAN/
+    // ROADMAP and treats a BRIEF's upstream as a cross-chain reference):
+    // here any inbound or outbound tactical edge is enough to mark the
+    // doc as part of active work. Do not try to unify the two traversals.
+    //
+    // The downstream side is intentionally unfiltered — any doc pointing
+    // at this one via `upstream:` means someone is building on it. The
+    // upstream side is filtered to the tactical artifact types and
+    // intentionally EXCLUDES "Roadmap": a ROADMAP upstream passes only
+    // when Active, via the separate branch above. Admitting "Roadmap"
+    // here would let a non-Active (aged-out) ROADMAP upstream suppress
+    // drift, reintroducing exactly the hole the DECISION doc books as an
+    // accepted, deferred trade-off. Do not add "Roadmap" to this match.
+    let has_downstream_child = inv.get(&doc.path).is_some_and(|kids| !kids.is_empty());
+    let has_tactical_upstream = doc.upstreams.iter().any(|p| {
+        idx.get(p)
+            .is_some_and(|parent| matches!(parent.format.as_str(), "Brief" | "PRD" | "Design" | "Plan"))
+    });
+    if has_downstream_child || has_tactical_upstream {
+        return None;
+    }
+
     // Every other orphan fails L02.
     let expected = match target {
         TargetState::Status(s) => format!("status '{}'", s),
@@ -695,7 +742,7 @@ fn check_orphan(
         rel,
         "L02",
         &format!(
-            "orphan {} at status '{}' (expected {} or an Active ROADMAP upstream)",
+            "orphan {} at status '{}' (expected {}, an Active ROADMAP upstream, or a tactical upstream/downstream chain link)",
             doc.format.to_uppercase(),
             doc.status,
             expected
@@ -729,7 +776,7 @@ pub fn run_lifecycle_check(
     strict: bool,
 ) -> Vec<ValidationError> {
     let (idx, mut errors) = build_doc_index(root);
-    let _inv = build_inverse_upstream(&idx);
+    let inv = build_inverse_upstream(&idx);
     let (chains, chain_errors) = discover_chains(&idx);
     errors.extend(chain_errors);
 
@@ -790,7 +837,7 @@ pub fn run_lifecycle_check(
         if chain_participants.contains(path) {
             continue;
         }
-        if let Some(err) = check_orphan(doc, &idx) {
+        if let Some(err) = check_orphan(doc, &idx, &inv) {
             errors.push(err);
         }
     }
@@ -922,6 +969,7 @@ pub fn run_lifecycle_chain_check(
         return errors;
     }
 
+    let inv = build_inverse_upstream(&idx);
     let (chains, chain_errors) = discover_chains(&idx);
     errors.extend(chain_errors);
 
@@ -960,7 +1008,7 @@ pub fn run_lifecycle_chain_check(
         // The doc is an orphan — not a member of any discovered
         // chain. Apply the orphan rule to it directly.
         if let Some(orphan_doc) = idx.get(&canon_doc) {
-            if let Some(err) = check_orphan(orphan_doc, &idx) {
+            if let Some(err) = check_orphan(orphan_doc, &idx, &inv) {
                 errors.push(err);
             }
         }
@@ -1516,6 +1564,129 @@ mod tests {
         )]);
         let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
+    }
+
+    #[test]
+    fn in_flight_tactical_chain_without_roadmap_passes() {
+        // A coherent BRIEF<-PRD<-DESIGN chain linked by `upstream:` with
+        // no ROADMAP root and no PLAN yet — the exact mid-flight posture
+        // /scope produces when paused after the design. Each member is a
+        // non-terminal orphan (no chain is discovered without a PLAN/
+        // ROADMAP root), but the chain linkage marks it as in-flight, not
+        // drift. Regression for shirabe#188.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("In Progress", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("In Progress"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Accepted", "docs/prds/PRD-foo.md"),
+                &design_body("Accepted"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        assert!(
+            !errors.iter().any(|e| e.code == "L02"),
+            "expected no L02 on an in-flight roadmap-less chain, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn single_pr_chain_prd_at_in_progress_passes() {
+        // A single-pr chain whose PRD is at `In Progress` (because
+        // /shirabe:design bumped it) mid-PR. The PLAN roots the chain, so
+        // members go through the L01 posture check; the PRD must be
+        // accepted at either `Accepted` or `In Progress` mid-PR, the same
+        // as the multi-pr in-flight row. Regression for the single-pr
+        // /scope chain posture.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("In Progress", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("In Progress"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", "docs/prds/PRD-foo.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "single-pr", "docs/designs/DESIGN-foo.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        assert!(
+            !errors.iter().any(|e| e.code == "L01" && e.file.contains("PRD-foo.md")),
+            "expected no L01 on a single-pr PRD at In Progress, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn two_unrelated_non_terminal_docs_both_fail() {
+        // Two indexed docs where neither points at the other and neither
+        // has an Active-ROADMAP upstream: both are isolated drift, not a
+        // chain. The linkage pass requires a real `upstream:` edge between
+        // members, so both still fail L02. Locks the drift-detection
+        // boundary against the chain-linkage refinement.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-bar.md",
+                &make_design("Accepted", ""),
+                &design_body("Accepted"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        assert!(
+            errors.iter().any(|e| e.code == "L02" && e.file.contains("BRIEF-foo.md")),
+            "expected L02 on the unrelated BRIEF, got {:?}",
+            errors
+        );
+        assert!(
+            errors.iter().any(|e| e.code == "L02" && e.file.contains("DESIGN-bar.md")),
+            "expected L02 on the unrelated DESIGN, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn lone_design_with_dangling_upstream_still_fails() {
+        // A single non-terminal DESIGN whose `upstream:` points at a PRD
+        // that does not exist in the tree, with nothing downstream. It is
+        // not linked to any real tactical artifact, so it is drift — the
+        // case the orphan rule must keep catching. Connectivity must
+        // resolve to an indexed BRIEF/PRD/DESIGN/PLAN, not a dangling path.
+        let root = build_tree(&[(
+            "docs/designs/DESIGN-foo.md",
+            &make_design("Accepted", "docs/prds/PRD-missing.md"),
+            &design_body("Accepted"),
+        )]);
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        assert!(
+            errors.iter().any(|e| e.code == "L02" && e.file.contains("DESIGN-foo.md")),
+            "expected L02 on a lone DESIGN with a dangling upstream, got {:?}",
+            errors
+        );
     }
 
     #[test]

@@ -36,6 +36,7 @@ An orphan BRIEF, PRD, or DESIGN has its passing state defined by its target stat
 
 - If the orphan's current status equals its artifact-type target state — BRIEF `Done`, PRD `Done`, DESIGN `Current` (a DESIGN is at terminal state when it lives in `docs/designs/current/`) — the orphan passes. This is the post-completion healthy case.
 - If the orphan's current status is non-terminal AND its own `upstream:` points at an Active ROADMAP, the orphan passes. This is the in-flight ROADMAP-rooted case where the ROADMAP is the chain root and per-PRD downstream lag is allowed.
+- If the orphan's current status is non-terminal AND it is linked into a coherent multi-member tactical chain — a downstream child points at it via `upstream:`, or its own `upstream:` resolves to another BRIEF/PRD/DESIGN/PLAN present in the tree — the orphan passes. This is the pre-PLAN in-flight case (a standalone chain with no ROADMAP root). See the refinement below.
 - Every other orphan fails the check, with an `Lnn` error naming the file, its current state, and the expected passing state.
 
 ## Options Considered
@@ -78,6 +79,14 @@ What becomes harder:
 
 Accepted trade-off:
 - The ROADMAP-root exception creates a small loophole: an orphan PRD whose upstream ROADMAP ages out without ever transitioning to Done sits silently. That case is a ROADMAP-level lifecycle question, not an orphan-rule question, and is left to future work.
+
+## Refinement: in-flight tactical-chain exception (shirabe#188)
+
+The terminal-aware rule above gave a non-terminal orphan exactly one way to pass: its own `upstream:` points at an Active ROADMAP. That escape is unavailable to a legitimate, in-flight tactical chain that has no ROADMAP root — exactly the shape the `/scope` parent skill produces when a BRIEF, PRD, and DESIGN are linked by `upstream:` but no PLAN exists yet (the documented pause-after-design state), and exactly the shape a public repo whose roadmap lives in a private repo must use, since public-clean forbids a public `upstream:` to a private artifact. Such a chain has no PLAN/ROADMAP root, so chain discovery finds no chain and every member falls to the orphan rule, which failed all of them mid-flight.
+
+The refinement adds a third passing condition: a non-terminal orphan passes when it is **linked into a coherent multi-member tactical chain** — it has a downstream child (some doc points at it via `upstream:`) or its own `upstream:` resolves to another BRIEF/PRD/DESIGN/PLAN present in the tree. The drift the rule targets is a *single* isolated artifact (the reason Option 1, orphan-permissive, was rejected); a linked, progressing chain is active work, not drift. A lone non-terminal doc with nothing downstream and no resolvable tactical upstream still fails L02, so the drift-catching value is preserved. The linkage must resolve to an indexed tactical artifact, so a doc whose `upstream:` dangles at a missing path is still treated as drift.
+
+This refinement also surfaced a paired over-strictness in the single-pr posture table: a single-pr chain carries its PRD, DESIGN, and PLAN together, and `/design` bumps the PRD `Accepted -> In Progress`, so mid-PR the PRD is legitimately at `In Progress`. The single-pr mid-PR passing state for the PRD is widened to accept `Accepted` or `In Progress` (mirroring the multi-pr in-flight row) so the chain passes once its PLAN is present.
 
 ## Encoding the rule downstream
 
