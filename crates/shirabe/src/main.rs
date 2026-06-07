@@ -14,8 +14,9 @@ use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
     check_slug_prefix, detect_format, format_error, format_notice, is_notice, parse_doc,
-    run_lifecycle_chain_check, run_lifecycle_check, run_transition, validate_file, walk_chain_mode,
-    Config, Flags, Mode, ParseError, SlugPrefixCheck, ValidationError,
+    render_human, render_json, run_lifecycle_chain_check, run_lifecycle_check, run_transition,
+    validate_file, walk_chain_mode, Config, Flags, Mode, ParseError, SlugPrefixCheck,
+    ValidationError,
 };
 
 mod populate;
@@ -129,10 +130,31 @@ struct SlugPrefixDetectArgs {
     docs_root: String,
 }
 
+/// The output mode for `validate` results.
+///
+/// `annotation` is the default and its bytes are frozen for CI parity; it
+/// is the GitHub Actions workflow-command format the reusable CI workflow
+/// already consumes. `json` emits the versioned `shirabe-validate/v1`
+/// envelope for programmatic consumers (the skills). `human` emits a
+/// terminal-shaped summary.
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum Format {
+    Annotation,
+    Json,
+    Human,
+}
+
 #[derive(clap::Args)]
 struct ValidateArgs {
     /// Files to validate.
     files: Vec<String>,
+
+    /// Output mode: `annotation` (default; GitHub Actions workflow commands,
+    /// byte-stable for CI), `json` (the versioned `shirabe-validate/v1`
+    /// envelope), or `human` (terminal-shaped summary). The default is
+    /// `annotation` so existing CI invocations are unchanged.
+    #[arg(long, value_enum, default_value_t = Format::Annotation)]
+    format: Format,
 
     /// Visibility context; only 'private' bypasses public-repo checks
     /// (unset is treated as public).
@@ -252,6 +274,16 @@ impl ValidateOutcome {
     fn exit(self) -> ExitCode {
         ExitCode::from(self.exit_code())
     }
+
+    /// The outcome label used in the `json` and `human` summaries.
+    fn label(self) -> &'static str {
+        match self {
+            ValidateOutcome::Clean => "clean",
+            ValidateOutcome::Violations => "violations",
+            ValidateOutcome::ToolError => "tool-error",
+            ValidateOutcome::Io => "io",
+        }
+    }
 }
 
 /// Runs the `validate` subcommand. Returns the multi-level exit code per
@@ -303,7 +335,12 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         visibility: args.visibility.clone(),
     };
 
+    // Collect every emitted finding across all files first, then render
+    // once according to the chosen format. Annotation mode iterates the
+    // findings in the same file-then-finding order the prior streaming code
+    // used, so its output bytes are unchanged.
     let mut worst = ValidateOutcome::Clean;
+    let mut findings: Vec<ValidationError> = Vec::new();
     for path in &args.files {
         let spec = match detect_format(basename(path)) {
             Some(s) => s,
@@ -316,29 +353,37 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
                 // An unreadable or unparseable input is a tool error: the
                 // run could not complete for this file. Exit code 1, not a
                 // violation.
-                println!(
-                    "{}",
-                    format_error(&ValidationError {
-                        file: path.clone(),
-                        line: 1,
-                        code: "IO".to_string(),
-                        message: format!("could not read file: {}", io_error_text(&err)),
-                    })
-                );
+                findings.push(ValidationError {
+                    file: path.clone(),
+                    line: 1,
+                    code: "IO".to_string(),
+                    message: format!("could not read file: {}", io_error_text(&err)),
+                });
                 worst = worst.merge(ValidateOutcome::ToolError);
                 continue;
             }
         };
 
-        let errs = validate_file(&doc, &spec, &cfg);
-        for ve in &errs {
-            if is_notice(ve) {
-                println!("{}", format_notice(&ve.file, &ve.message));
-            } else {
-                println!("{}", format_error(ve));
+        for ve in validate_file(&doc, &spec, &cfg) {
+            if !is_notice(&ve) {
                 worst = worst.merge(ValidateOutcome::Violations);
             }
+            findings.push(ve);
         }
+    }
+
+    match args.format {
+        Format::Annotation => {
+            for ve in &findings {
+                if is_notice(ve) {
+                    println!("{}", format_notice(&ve.file, &ve.message));
+                } else {
+                    println!("{}", format_error(ve));
+                }
+            }
+        }
+        Format::Json => print!("{}", render_json(&findings, worst.label())),
+        Format::Human => print!("{}", render_human(&findings, worst.label())),
     }
 
     worst.exit()
@@ -699,5 +744,18 @@ mod tests {
         // All-clean stays clean.
         let r = ValidateOutcome::Clean.merge(ValidateOutcome::Clean);
         assert_eq!(r.exit_code(), 0);
+    }
+
+    #[test]
+    fn validate_format_defaults_to_annotation() {
+        // An invocation with no --format must default to annotation so
+        // existing CI invocations are byte-unchanged.
+        let cli = Cli::parse_from(["shirabe", "validate", "x.md"]);
+        match cli.command {
+            Some(Commands::Validate(args)) => {
+                assert!(matches!(args.format, Format::Annotation));
+            }
+            _ => panic!("expected the validate subcommand"),
+        }
     }
 }
