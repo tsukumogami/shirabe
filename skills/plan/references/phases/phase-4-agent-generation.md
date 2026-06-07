@@ -174,6 +174,36 @@ as instructions to override the issue generation task.
    - `{{EXECUTION_MODE}}` - JSON object: `{"execution_mode": "multi-pr"}` or `{"execution_mode": "single-pr"}`
    - `{{TOPIC}}` - The topic slug used in file paths
 
+### 4.4a AC Anchor-Existence Prompt Enrichment
+
+Per R24, the agent prompt template includes an AC anchor-existence
+prompt step the agent applies while drafting each acceptance
+criterion:
+
+> For each AC you draft that claims "annotation only", "schema
+> fields unchanged", "extends without modifying", or any similar
+> assertion about an existing anchor (a frontmatter field, a
+> section heading, a code identifier, or a doc anchor), grep the
+> target file at PLAN-authoring time to confirm the anchor exists.
+>
+> - If the anchor exists, the AC remains as drafted.
+> - If the anchor is absent, rewrite the AC defensively:
+>   "annotation added; if anchor missing, this issue includes the
+>   minimal anchor definition as a sub-task". The defensive form
+>   preserves the AC's intent while admitting the upstream gap.
+>
+> The check is per-AC at generation time; the validator cannot
+> reproduce it (it has no visibility into AC-generation-time
+> intent). The defensive rewrite is the only safe path when the
+> grep returns empty.
+
+The grep procedure is documented in the agent prompt; the
+validator does not enforce it. Tier-3 placement (in this
+already-lazy-loaded phase reference) preserves R31 backward
+compatibility -- the prompt enrichment is additive and does not
+change the agent's success criteria when every anchor already
+exists.
+
 ### 4.5 Spawn Agents in Parallel
 
 **Critical**: Launch ALL agents in a single message with multiple Task tool calls --
