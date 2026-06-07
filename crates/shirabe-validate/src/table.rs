@@ -463,6 +463,245 @@ fn rest_empty(tail: &[String]) -> bool {
         .all(|c| strip_strikethrough(c).trim().is_empty())
 }
 
+// ---------------------------------------------------------------------------
+// Issue Outlines parser (consumed by FC14)
+// ---------------------------------------------------------------------------
+
+/// A parsed outline block from a single-pr plan's `## Issue Outlines`
+/// section.
+///
+/// Each block corresponds to a `### Issue N: <title>` heading and carries
+/// the structured fields the format reference requires (goal, acceptance
+/// criteria, dependencies). The parser is total over arbitrary input: any
+/// field that is absent or malformed surfaces as `None` (or `Vec::new()`
+/// for `dependencies`) so the downstream check (`check_fc14`) reports a
+/// per-defect notice without the parser ever panicking.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutlineBlock {
+    /// The outline's heading text, captured verbatim from
+    /// `### Issue N: <title>`. The full heading line (e.g.
+    /// "Issue 1: feat(validate): extend FormatSpec") is the key; FC14's
+    /// dependency-resolution check matches dependency tokens against
+    /// these keys.
+    pub key: String,
+    /// 1-indexed absolute line number of the outline's `###` heading.
+    pub line: usize,
+    /// The block's `**Goal**:` paragraph, when present. `None` indicates
+    /// the goal declaration is absent.
+    pub goal: Option<String>,
+    /// The bullet list inside the block's `**Acceptance Criteria**:`
+    /// section, when present. Each entry is one bullet (with the
+    /// leading `- ` or `- [ ]` marker stripped). `None` indicates the
+    /// acceptance-criteria block is absent.
+    pub acceptance_criteria: Option<Vec<String>>,
+    /// The dependency tokens parsed from the block's `**Dependencies**:`
+    /// line. Tokens are extracted from `<<ISSUE:N>>` placeholders (the
+    /// canonical format) AND from comma-separated outline keys (a free-
+    /// form fallback). An empty `Vec` indicates either a missing
+    /// `**Dependencies**:` declaration OR an unparseable declaration;
+    /// FC14 distinguishes the two via `has_dependencies_line`.
+    pub dependencies: Vec<String>,
+    /// Whether the block declared a `**Dependencies**:` line at all.
+    /// Distinguishes "missing dependencies declaration" (false) from
+    /// "dependencies: None" (true, with `dependencies: Vec::new()`).
+    pub has_dependencies_line: bool,
+    /// Whether the `**Dependencies**:` line carries the literal `None`
+    /// value. When true, FC14 treats the empty `dependencies` vector as
+    /// intentional rather than as a missing-tokens defect.
+    pub dependencies_is_none: bool,
+}
+
+/// Locate the `## Issue Outlines` section and parse its contents into a
+/// sequence of `OutlineBlock` entries.
+///
+/// Returns `Vec::new()` when the section is absent. The parser is total
+/// over arbitrary input -- malformed headers, missing fields, and
+/// unterminated blocks never panic. Callers (FC14 in `checks.rs`) inspect
+/// the returned `OutlineBlock` fields to emit per-defect notices.
+pub fn parse_issue_outlines(doc: &Doc) -> Vec<OutlineBlock> {
+    // Locate the `## Issue Outlines` section. Returns Vec::new() if absent.
+    let mut start_idx: Option<usize> = None;
+    let mut start_line: usize = 0;
+    for (i, line) in doc.body.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed == "## Issue Outlines" {
+            start_idx = Some(i + 1);
+            start_line = i + 1;
+            break;
+        }
+    }
+    let start = match start_idx {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+
+    // End of section: next `## ` heading at the same level. `### Issue N`
+    // headings stay inside.
+    let mut end_idx = doc.body.len();
+    for (j, line) in doc.body.iter().enumerate().skip(start) {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("## ") && !trimmed.starts_with("### ") {
+            end_idx = j;
+            break;
+        }
+    }
+
+    let mut blocks: Vec<OutlineBlock> = Vec::new();
+    let mut current: Option<OutlineBlock> = None;
+    let mut current_field: CurrentField = CurrentField::None;
+
+    // Place into `let _ = start_line;` to silence the unused-warning when
+    // tests do not consult it; line is set per-block from the `###` heading.
+    let _ = start_line;
+
+    for (j, raw_line) in doc.body[start..end_idx].iter().enumerate() {
+        let absolute_line = start + j + 1; // 1-indexed
+        let line = raw_line;
+        let trimmed = line.trim();
+
+        // Detect `### Issue N: <title>` (or just `### <heading>`) — both
+        // open a new outline block. The parser uses any `###` heading
+        // inside `## Issue Outlines` as a block boundary; FC14's
+        // structural sub-check inspects the `key` text to decide whether
+        // the heading shape itself is canonical.
+        if trimmed.starts_with("### ") {
+            if let Some(prev) = current.take() {
+                blocks.push(prev);
+            }
+            // Strip "### " prefix; the remainder is the outline key.
+            let key = trimmed.trim_start_matches("### ").to_string();
+            current = Some(OutlineBlock {
+                key,
+                line: absolute_line,
+                goal: None,
+                acceptance_criteria: None,
+                dependencies: Vec::new(),
+                has_dependencies_line: false,
+                dependencies_is_none: false,
+            });
+            current_field = CurrentField::None;
+            continue;
+        }
+
+        let block = match current.as_mut() {
+            Some(b) => b,
+            None => continue, // Lines before the first ### are pre-block
+        };
+
+        // Detect inline `**Goal**: ...`
+        if let Some(rest) = strip_label(trimmed, "**Goal**:") {
+            block.goal = Some(rest.to_string());
+            current_field = CurrentField::None;
+            continue;
+        }
+
+        // Detect inline `**Acceptance Criteria**:` (the bullets follow on
+        // subsequent lines).
+        if strip_label(trimmed, "**Acceptance Criteria**:").is_some() {
+            block.acceptance_criteria = Some(Vec::new());
+            current_field = CurrentField::AcceptanceCriteria;
+            continue;
+        }
+
+        // Detect inline `**Dependencies**: ...`
+        if let Some(rest) = strip_label(trimmed, "**Dependencies**:") {
+            block.has_dependencies_line = true;
+            let value = rest.trim();
+            // Literal `None` means no deps (intentional).
+            if value.eq_ignore_ascii_case("None") {
+                block.dependencies_is_none = true;
+            } else {
+                block.dependencies = parse_dependency_tokens(value);
+            }
+            current_field = CurrentField::None;
+            continue;
+        }
+
+        // Accumulate acceptance-criteria bullets while inside that field.
+        if current_field == CurrentField::AcceptanceCriteria {
+            if let Some(bullet) = strip_ac_bullet(trimmed) {
+                if let Some(ac) = block.acceptance_criteria.as_mut() {
+                    ac.push(bullet.to_string());
+                }
+                continue;
+            }
+            // Blank line stays inside the AC block; any other non-blank
+            // non-bullet line ends the AC accumulation.
+            if !trimmed.is_empty() {
+                current_field = CurrentField::None;
+            }
+        }
+    }
+
+    // Save the last in-flight block (eof closure; unterminated is fine).
+    if let Some(prev) = current.take() {
+        blocks.push(prev);
+    }
+
+    blocks
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CurrentField {
+    None,
+    AcceptanceCriteria,
+}
+
+/// Strip a `**Label**:` prefix from `line`, returning the trimmed remainder
+/// when the prefix matches. Returns `None` on no match.
+fn strip_label<'a>(line: &'a str, label: &str) -> Option<&'a str> {
+    let rest = line.strip_prefix(label)?;
+    Some(rest.trim_start())
+}
+
+/// Strip a single acceptance-criteria bullet marker (`- [ ]`, `- [x]`,
+/// `- [X]`, or just `- `). Returns the bullet text on match, `None`
+/// otherwise.
+fn strip_ac_bullet(line: &str) -> Option<&str> {
+    for marker in ["- [ ] ", "- [x] ", "- [X] ", "- "] {
+        if let Some(rest) = line.strip_prefix(marker) {
+            return Some(rest);
+        }
+    }
+    None
+}
+
+/// Parse the dependency-tokens portion of a `**Dependencies**:` line.
+///
+/// Recognises two shapes:
+/// - `<<ISSUE:N>>` placeholders (the canonical /plan-generated form).
+/// - Free-form outline keys separated by commas, with optional
+///   "Blocked by " prefix words stripped.
+///
+/// Returns the list of tokens in order. Returns `Vec::new()` for an
+/// empty value.
+fn parse_dependency_tokens(value: &str) -> Vec<String> {
+    let cleaned = value
+        .replace("Blocked by", ",")
+        .replace("blocked by", ",")
+        .trim()
+        .trim_start_matches(',')
+        .trim()
+        .to_string();
+
+    let placeholder_re: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"<<ISSUE:\d+>>").unwrap());
+
+    let placeholders: Vec<String> = placeholder_re
+        .find_iter(&cleaned)
+        .map(|m| m.as_str().to_string())
+        .collect();
+    if !placeholders.is_empty() {
+        return placeholders;
+    }
+
+    cleaned
+        .split(',')
+        .map(|t| t.trim().trim_end_matches('.').to_string())
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

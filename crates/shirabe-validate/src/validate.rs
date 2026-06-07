@@ -9,9 +9,9 @@
 use crate::checks::{
     check_claude_md_conventions, check_eval_fixture_frontmatter, check_fc01, check_fc02,
     check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09,
-    check_plan_design_field_consistency, check_plan_section_structure, check_plan_upstream,
-    check_private_only, check_schema, check_strategy_public, check_vision_public,
-    check_writing_style,
+    check_fc14, check_plan_design_field_consistency, check_plan_section_structure,
+    check_plan_upstream, check_private_only, check_schema, check_strategy_public,
+    check_vision_public, check_writing_style,
 };
 use crate::doc::{Doc, ValidationError};
 use crate::formats::FormatSpec;
@@ -43,6 +43,7 @@ pub fn is_notice(err: &ValidationError) -> bool {
             | "FC11"
             | "FC12"
             | "FC13"
+            | "FC14"
             | "FC-CONVENTIONS"
     )
 }
@@ -101,6 +102,9 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
             // FC11/FC12 are plan/v1-specific structural checks.
             errs.extend(check_plan_section_structure(doc, spec));
             errs.extend(check_plan_design_field_consistency(doc, spec));
+            // FC14: single-pr plan structural validation (issue outlines +
+            // execution_mode-aware mutual-exclusion + issue_count parity).
+            errs.extend(check_fc14(doc, spec));
         }
         "Roadmap" => {
             errs.extend(check_fc05(doc, spec));
@@ -185,6 +189,7 @@ mod tests {
             "FC11",
             "FC12",
             "FC13",
+            "FC14",
             "FC-CONVENTIONS",
         ] {
             assert!(

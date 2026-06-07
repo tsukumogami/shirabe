@@ -103,22 +103,6 @@ in one merge.
 **Type**: code
 **Files**: `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/validate.rs`
 
-## Implementation Issues
-
-_Empty under `execution_mode: single-pr`; the authoritative content lives in
-`## Issue Outlines` above. This stub satisfies the current validator's FC04
-required-sections check; once FC14 (this PLAN's own work) lands, single-pr
-plans no longer need to carry this section at all._
-
-## Dependency Graph
-
-_Empty under `execution_mode: single-pr`; the outline-to-outline dependency
-expression is declared inline in each outline's `Dependencies:` line above
-(`Issue 1`, `Issue 2`, `Issue 3` -- see Issue 3's deps for the
-`Issue 1, Issue 2` declaration). This stub satisfies the current
-validator's FC04 required-sections check; once FC14 lands, single-pr plans
-no longer need to carry this section at all._
-
 ## Implementation Sequence
 
 **Critical path:** Issue 1 || Issue 2 -> Issue 3. Outlines 1 and 2 are
