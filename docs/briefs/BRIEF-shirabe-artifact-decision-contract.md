@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   shirabe produces multiple artifact types, but whether each one stays
   durable in docs/ or gets deleted once its job is done is decided
@@ -19,7 +19,7 @@ outcome: |
 
 ## Status
 
-Accepted
+Done
 
 The downstream PRD picks up the requirements: which existing skills
 restate their contract in prose, the exact wording of the durable

@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 complexity: Complex
 upstream: docs/briefs/BRIEF-shirabe-artifact-decision-contract.md
 problem: |
@@ -28,7 +28,7 @@ goals: |
 
 ## Status
 
-Accepted
+Done
 
 This PRD lifts the implicit durable-versus-working decision into per-skill
 prose, flips ROADMAP from durable to working, and extends the work-on

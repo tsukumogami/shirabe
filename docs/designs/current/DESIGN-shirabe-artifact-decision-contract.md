@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 complexity: Complex
 upstream: docs/prds/PRD-shirabe-artifact-decision-contract.md
 decision_provenance: inline-resolved
@@ -39,7 +39,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 This DESIGN ships the per-skill durable-vs-working contract, flips ROADMAP
 from durable to working, and extends the work-on cascade with a
