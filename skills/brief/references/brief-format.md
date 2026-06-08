@@ -314,7 +314,7 @@ paragraph below it untouched.
 - Frontmatter has `schema`, `status`, `problem`, `outcome` fields
 - `schema` is `brief/v1`
 - Frontmatter `status` matches the body `## Status` first line (FC03)
-- All five required sections present and in order
+- All five required sections present (FC04) and in canonical order (FC15)
 - Status is `Draft`
 - Open Questions section may contain unresolved items
 - No `private/` paths, private repos, private filenames, internal

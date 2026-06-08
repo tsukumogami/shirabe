@@ -80,7 +80,10 @@ absent; the hard-stop fires. The "silent auto-promote on direct
 invocation" failure mode cannot reach this code path because the
 sentinel is the explicit signal.
 
-**STOP and inform user if status is not "Accepted":**
+**STOP and inform user if status is not "Accepted".** The consumable-status
+rule is owned by the chain-status lifecycle check (`shirabe validate
+--lifecycle-chain <design-path>`); the messages below are the per-status
+guidance shown when that gate stops, not a second copy of the rule:
 
 | Status | Error Message |
 |--------|--------------|

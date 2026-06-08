@@ -234,6 +234,7 @@ The validator-side contracts:
 - **FC03** -- frontmatter status matches body `## Status` first
   line.
 - **FC04** -- all nine required sections present.
+- **FC15** -- the required sections appear in the canonical order above.
 
 Phase 6 jury reviewers add discretionary rubric coverage:
 
