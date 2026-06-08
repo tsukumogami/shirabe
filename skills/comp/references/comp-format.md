@@ -139,7 +139,9 @@ visibility gate:
 - **FC02** -- `status` is one of `Draft`, `Accepted`, `Done`.
 - **FC03** -- frontmatter `status` matches the first non-blank line
   under the body `## Status` heading.
-- **FC04** -- all seven required sections are present in order.
+- **FC04** -- all seven required sections are present.
+- **FC15** -- the required sections appear in the canonical order above
+  (`shirabe validate` owns the order rule; this list does not restate it).
 - **R9 (private-only gate)** -- because `comp/v1` is marked private,
   `shirabe validate` rejects a COMP document whenever visibility is not
   exactly `private`. The check fails closed: public visibility and unset

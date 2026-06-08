@@ -168,28 +168,26 @@ pub fn check_fc03(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError> {
     }]
 }
 
+/// The required-sections list that applies to `doc` under `spec`, in canonical
+/// order. When the format declares a per-`execution_mode` override and the doc
+/// carries a mapped `execution_mode`, the per-mode list is used; otherwise the
+/// flat `spec.required_sections`. Shared by FC04 (presence) and FC15 (order).
+fn required_sections_for(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
+    if let Some(map) = &spec.execution_mode_required_sections {
+        if let Some(mode_field) = doc.fields.get("execution_mode") {
+            if let Some(per_mode) = map.get(&mode_field.value) {
+                return per_mode.clone();
+            }
+        }
+    }
+    spec.required_sections.clone()
+}
+
 /// Returns a `ValidationError` for each required section missing from
 /// `doc.sections`. Line is 1 (section absent, no specific line).
 pub fn check_fc04(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     let mut errs = Vec::new();
-    // If the format declares a per-execution_mode required-sections override
-    // and the doc's frontmatter carries an execution_mode that maps in the
-    // override, FC04 consults the per-mode list instead of the flat one.
-    // Otherwise FC04 falls back to spec.required_sections (the pre-existing
-    // behavior for every non-Plan format).
-    let required: Vec<String> = if let Some(map) = &spec.execution_mode_required_sections {
-        if let Some(mode_field) = doc.fields.get("execution_mode") {
-            if let Some(per_mode) = map.get(&mode_field.value) {
-                per_mode.clone()
-            } else {
-                spec.required_sections.clone()
-            }
-        } else {
-            spec.required_sections.clone()
-        }
-    } else {
-        spec.required_sections.clone()
-    };
+    let required = required_sections_for(doc, spec);
     for req in &required {
         if !doc.sections.iter().any(|sec| sec.name == *req) {
             errs.push(ValidationError {
@@ -201,6 +199,84 @@ pub fn check_fc04(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
         }
     }
     errs
+}
+
+/// FC15 -- required sections appear in the format's canonical order.
+///
+/// FC04 checks that each required section is *present*; FC15 checks that the
+/// required sections which are present appear in the same relative order the
+/// format declares. Sections the format does not require may appear anywhere
+/// between them, and a missing required section is FC04's concern, not FC15's --
+/// FC15 only compares the order of the required sections actually present.
+///
+/// This absorbs the external section-order check as new behavior (DESIGN
+/// Decision 3): FC04 is presence-only, so order takes the next free code rather
+/// than overloading FC04. FC15 ships notice-level (registered in `is_notice`),
+/// matching the FC07-FC14 promotion-seam convention: the current corpus carries
+/// genuine order drift the check surfaces, so it detects without breaking the
+/// build until a corpus-cleanup PR fixes those docs and promotes FC15 to error
+/// (a one-line change: remove its arm from `is_notice`). The fired-rule SET is
+/// the same at either severity, so the absorption's parity is unaffected.
+pub fn check_fc15(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    let required = required_sections_for(doc, spec);
+    if required.is_empty() {
+        return Vec::new();
+    }
+
+    // Required sections in the order they appear in the document (first
+    // occurrence only, so a duplicate section is FC04/structure's concern, not
+    // a spurious order failure).
+    let mut seen = std::collections::HashSet::new();
+    let present_in_doc_order: Vec<&String> = doc
+        .sections
+        .iter()
+        .filter_map(|sec| required.iter().find(|r| **r == sec.name))
+        .filter(|r| seen.insert((*r).clone()))
+        .collect();
+
+    // The same present sections in the format's canonical order.
+    let canonical_order: Vec<&String> = required
+        .iter()
+        .filter(|r| doc.sections.iter().any(|sec| sec.name == **r))
+        .collect();
+
+    if present_in_doc_order == canonical_order {
+        return Vec::new();
+    }
+
+    // Name the first section that breaks the canonical order, and the line it
+    // sits on, so the author can find it.
+    let first_out = present_in_doc_order
+        .iter()
+        .zip(canonical_order.iter())
+        .find(|(got, want)| got != want)
+        .map(|(got, _)| (*got).clone())
+        .unwrap_or_else(|| {
+            present_in_doc_order
+                .last()
+                .map(|s| (*s).clone())
+                .unwrap_or_default()
+        });
+    let line = doc
+        .sections
+        .iter()
+        .find(|sec| sec.name == first_out)
+        .map(|sec| sec.line)
+        .unwrap_or(1);
+    let expected = canonical_order
+        .iter()
+        .map(|s| format!("## {}", s))
+        .collect::<Vec<_>>()
+        .join(", ");
+    vec![ValidationError {
+        file: doc.path.clone(),
+        line,
+        code: "FC15".to_string(),
+        message: format!(
+            "[FC15] section '## {}' is out of order; required sections must appear in the order: {}",
+            first_out, expected
+        ),
+    }]
 }
 
 /// Validates that the Implementation Issues table header matches the
@@ -249,9 +325,49 @@ pub fn check_fc05(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     }]
 }
 
+/// Allowed values for the plan-profile Complexity column (the plan skill's
+/// complexity classification). Absorbed from the external issues-table check
+/// (DESIGN Decision 2) as a strict superset of FC05's existing row-shape rule.
+const PLAN_COMPLEXITY_VALUES: [&str; 3] = ["simple", "testable", "critical"];
+
+/// Split a raw table row (`| a | b | c |`) into its trimmed cell values, with
+/// strikethrough unwrapped first.
+///
+/// The row-content rules below need the raw cell text, not the parsed
+/// `Row.deps`: `deps` keeps only the resolved dependency targets and discards
+/// the link *format* this check exists to validate, so the cell is re-split
+/// here. Both the strikethrough strip and the pipe split reuse the table
+/// parser's own helpers (`table::strip_strikethrough`, `table::split_row`) so
+/// the two layers cannot disagree on any input, malformed markers included; a
+/// terminal (done) row therefore validates on its inner value (`~~simple~~` is
+/// the same complexity as `simple`).
+fn row_cells(raw: &str) -> Vec<String> {
+    crate::table::split_row(&crate::table::strip_strikethrough(raw))
+}
+
+/// Reports whether `s` contains a markdown inline link `[..](..)`.
+fn has_markdown_link(s: &str) -> bool {
+    if let Some(open) = s.find('[') {
+        if let Some(close_brkt) = s[open..].find("](") {
+            let after = &s[open + close_brkt + 2..];
+            return after.contains(')');
+        }
+    }
+    false
+}
+
 /// Checks that table rows are well-formed. Every entity row must be
 /// followed by an italic description row; a child reference row may sit
 /// between them.
+///
+/// For the plan profile, three strict-superset row-content rules are absorbed
+/// from the external issues-table check (DESIGN Decision 2), all under FC05's
+/// existing code (they are the same concern -- row shape -- so they reconcile
+/// into FC05 rather than taking new codes):
+///   - the Dependencies cell is either `None` or a comma-separated list of
+///     markdown links (`[#N](url)`), never a bare token;
+///   - the Complexity cell is one of `simple` / `testable` / `critical`;
+///   - a child reference row carries a markdown link to the child artifact.
 fn validate_row_shape(doc: &Doc, table: &Table) -> Vec<ValidationError> {
     let mut errs = Vec::new();
 
@@ -276,6 +392,70 @@ fn validate_row_shape(doc: &Doc, table: &Table) -> Vec<ValidationError> {
                     row.line
                 ),
             });
+        }
+    }
+
+    // Plan-profile row-content rules (absorbed; see the doc comment).
+    if table.profile == Profile::Plan {
+        for row in &table.rows {
+            match row.kind {
+                RowKind::Entity => {
+                    let cells = row_cells(&row.raw);
+                    // cells: [issue, dependencies, complexity]. These fixed
+                    // indices are safe because `check_fc05` only reaches
+                    // `validate_row_shape` after `table.columns ==
+                    // spec.issues_table_columns` holds, so the plan profile's
+                    // three-column order is guaranteed at this point. A future
+                    // plan-column change must revisit these indices.
+                    if let Some(deps_cell) = cells.get(1) {
+                        let deps = deps_cell.trim();
+                        if !deps.is_empty() && !deps.eq_ignore_ascii_case("none") {
+                            for part in deps.split(',') {
+                                let part = part.trim();
+                                if !part.is_empty() && !has_markdown_link(part) {
+                                    errs.push(ValidationError {
+                                        file: doc.path.clone(),
+                                        line: row.line,
+                                        code: "FC05".to_string(),
+                                        message: format!(
+                                            "[FC05] dependency {:?} in row at line {} is not a markdown link (expected `[#N](url)` or `None`)",
+                                            part, row.line
+                                        ),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    if let Some(complexity) = cells.get(2) {
+                        let c = complexity.trim();
+                        if !c.is_empty() && !PLAN_COMPLEXITY_VALUES.contains(&c) {
+                            errs.push(ValidationError {
+                                file: doc.path.clone(),
+                                line: row.line,
+                                code: "FC05".to_string(),
+                                message: format!(
+                                    "[FC05] complexity {:?} in row at line {} is not one of {:?}",
+                                    c, row.line, PLAN_COMPLEXITY_VALUES
+                                ),
+                            });
+                        }
+                    }
+                }
+                RowKind::Child => {
+                    if !has_markdown_link(&row.raw) {
+                        errs.push(ValidationError {
+                            file: doc.path.clone(),
+                            line: row.line,
+                            code: "FC05".to_string(),
+                            message: format!(
+                                "[FC05] child reference row at line {} has no markdown link to the child artifact",
+                                row.line
+                            ),
+                        });
+                    }
+                }
+                RowKind::Description => {}
+            }
         }
     }
 
@@ -3441,6 +3621,108 @@ mod tests {
         );
         let errs = check_fc05(&doc, &spec_for("plan/v1"));
         assert_eq!(errs.len(), 0, "expected no FC05 errors, got {:?}", errs);
+    }
+
+    // --- check_fc15 (section order) ---
+
+    #[test]
+    fn check_fc15_sections_in_order_passes() {
+        let spec = design_spec();
+        let sections: Vec<Section> = spec
+            .required_sections
+            .iter()
+            .enumerate()
+            .map(|(i, name)| sec(name, (i + 1) * 10))
+            .collect();
+        let doc = make_doc("design/v1", "Proposed", HashMap::new(), sections, vec![]);
+        assert!(
+            check_fc15(&doc, &spec).is_empty(),
+            "expected no FC15 on in-order sections"
+        );
+    }
+
+    #[test]
+    fn check_fc15_out_of_order_fires() {
+        let spec = design_spec();
+        // Canonical order with the last two required sections swapped.
+        let mut names: Vec<String> = spec.required_sections.clone();
+        let n = names.len();
+        names.swap(n - 2, n - 1);
+        let sections: Vec<Section> = names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| sec(name, (i + 1) * 10))
+            .collect();
+        let doc = make_doc("design/v1", "Proposed", HashMap::new(), sections, vec![]);
+        let errs = check_fc15(&doc, &spec);
+        assert_eq!(errs.len(), 1, "expected one FC15, got {:?}", errs);
+        assert_eq!(errs[0].code, "FC15");
+        assert!(errs[0].message.contains("out of order"));
+    }
+
+    #[test]
+    fn check_fc15_missing_section_is_not_an_order_error() {
+        // A required section absent is FC04's concern; the present sections are
+        // still in canonical order, so FC15 stays silent.
+        let spec = design_spec();
+        let sections: Vec<Section> = spec
+            .required_sections
+            .iter()
+            .skip(1) // drop one required section
+            .enumerate()
+            .map(|(i, name)| sec(name, (i + 1) * 10))
+            .collect();
+        let doc = make_doc("design/v1", "Proposed", HashMap::new(), sections, vec![]);
+        assert!(
+            check_fc15(&doc, &spec).is_empty(),
+            "FC15 must not fire on a missing-but-otherwise-ordered section set"
+        );
+    }
+
+    // --- check_fc05 plan-profile row-content extensions ---
+
+    #[test]
+    fn check_fc05_bad_complexity_value_fires() {
+        let doc = doc_md(
+            "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | enormous |\n| _Alpha description._ | | |\n",
+        );
+        let errs = check_fc05(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "FC05" && e.message.contains("complexity")),
+            "expected an FC05 complexity error, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc05_bare_dependency_token_fires() {
+        let doc = doc_md(
+            "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | #2 | simple |\n| _Alpha description._ | | |\n",
+        );
+        let errs = check_fc05(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "FC05" && e.message.contains("markdown link")),
+            "expected an FC05 dependency-link error, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc05_struck_done_row_content_passes() {
+        // A terminal (done) row is strikethrough-wrapped; its inner values are
+        // valid and must not trip the complexity/dep-format checks.
+        let doc = doc_md(
+            "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| ~~[#1: alpha](https://example.com/1)~~ | ~~None~~ | ~~simple~~ |\n| _Alpha description._ | | |\n",
+        );
+        let errs = check_fc05(&doc, &spec_for("plan/v1"));
+        assert_eq!(
+            errs.len(),
+            0,
+            "struck done row must pass FC05, got {:?}",
+            errs
+        );
     }
 
     #[test]

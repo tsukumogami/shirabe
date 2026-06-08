@@ -266,9 +266,12 @@ The validator-side contracts:
 - **FC03** -- frontmatter status matches body `## Status` first
   line.
 - **FC04** -- all required sections present.
+- **FC15** -- the required sections appear in the canonical order above.
 - **FC05** -- Implementation Issues table header matches the
   canonical three-column shape (legacy four-column shape emits a
-  migration hint).
+  migration hint), and each row's content is well-formed: dependencies
+  are `None` or markdown links, the complexity value is in the allowed
+  set, and a child reference row links its child artifact.
 - **FC06** -- table rows have the expected cell count and shape.
 - **FC07** -- table rows reconcile against Dependency Graph nodes.
 - **FC08** -- Legend reconciles against the `classDef` set.

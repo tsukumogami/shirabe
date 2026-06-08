@@ -1,0 +1,2 @@
+# external github-status check, run offline (no injected PR context): it cannot
+# query GitHub, so it no-ops and fires no rule.

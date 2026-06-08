@@ -26,7 +26,11 @@ If already on a `docs/<topic>` branch, skip branch creation. Otherwise:
 
 Read the PRD file from the path provided in `$ARGUMENTS`. Verify:
 - File exists and is a valid PRD (`docs/prds/PRD-*.md`)
-- Status is "Accepted"
+- The PRD is at a consumable status for this step (Accepted). The
+  per-status stop rule is owned by the chain-status lifecycle check;
+  `shirabe validate --lifecycle-chain <prd-path>` is the single authority
+  for whether the upstream chain is at a consumable posture, rather than a
+  status comparison restated here.
 
 #### Parent-orchestration auto-transition (sentinel-gated)
 

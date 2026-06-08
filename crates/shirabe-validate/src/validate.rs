@@ -8,8 +8,8 @@
 
 use crate::checks::{
     check_claude_md_conventions, check_eval_fixture_frontmatter, check_fc01, check_fc02,
-    check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09,
-    check_fc14, check_plan_design_field_consistency, check_plan_section_structure,
+    check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09, check_fc14,
+    check_fc15, check_plan_design_field_consistency, check_plan_section_structure,
     check_plan_upstream, check_private_only, check_schema, check_strategy_public,
     check_vision_public, check_writing_style,
 };
@@ -44,13 +44,14 @@ pub fn is_notice(err: &ValidationError) -> bool {
             | "FC12"
             | "FC13"
             | "FC14"
+            | "FC15"
             | "FC-CONVENTIONS"
     )
 }
 
 /// Reports whether `code` is a known per-file check code that the `--check`
 /// selector can address. The set is the codes the per-file validation pass
-/// can emit: `SCHEMA`, `FC01`-`FC13`, `FC-CONVENTIONS`, and `R6`-`R9`. The
+/// can emit: `SCHEMA`, `FC01`-`FC15`, `FC-CONVENTIONS`, and `R6`-`R9`. The
 /// lifecycle codes (`L01`-`L05`) are produced by the `--lifecycle` traversal
 /// modes, not the per-file pass, so they are not selectable here.
 pub fn is_known_check_code(code: &str) -> bool {
@@ -70,6 +71,8 @@ pub fn is_known_check_code(code: &str) -> bool {
             | "FC11"
             | "FC12"
             | "FC13"
+            | "FC14"
+            | "FC15"
             | "FC-CONVENTIONS"
             | "R6"
             | "R7"
@@ -102,6 +105,7 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
     errs.extend(check_fc02(doc, spec, cfg));
     errs.extend(check_fc03(doc, spec));
     errs.extend(check_fc04(doc, spec));
+    errs.extend(check_fc15(doc, spec));
 
     // 2a. Cross-format notice-level checks (FC10 writing-style, FC13
     // eval-fixture frontmatter, FC-CONVENTIONS CLAUDE.md headers).
@@ -220,6 +224,7 @@ mod tests {
             "FC12",
             "FC13",
             "FC14",
+            "FC15",
             "FC-CONVENTIONS",
         ] {
             assert!(
@@ -233,7 +238,10 @@ mod tests {
                 code
             );
         }
-        for code in ["FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "L01", "L02", "L03", "L04", "L05", "L06", "R6", "R7", "R8", "R9"] {
+        for code in [
+            "FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "L01", "L02", "L03", "L04", "L05",
+            "L06", "L07", "R6", "R7", "R8", "R9",
+        ] {
             assert!(
                 !is_notice(&ValidationError {
                     file: String::new(),
@@ -250,8 +258,27 @@ mod tests {
     #[test]
     fn is_known_check_code_covers_per_file_codes_only() {
         for code in [
-            "SCHEMA", "FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "FC07", "FC08", "FC09",
-            "FC10", "FC11", "FC12", "FC13", "FC-CONVENTIONS", "R6", "R7", "R8", "R9",
+            "SCHEMA",
+            "FC01",
+            "FC02",
+            "FC03",
+            "FC04",
+            "FC05",
+            "FC06",
+            "FC07",
+            "FC08",
+            "FC09",
+            "FC10",
+            "FC11",
+            "FC12",
+            "FC13",
+            "FC14",
+            "FC15",
+            "FC-CONVENTIONS",
+            "R6",
+            "R7",
+            "R8",
+            "R9",
         ] {
             assert!(
                 is_known_check_code(code),
@@ -387,7 +414,12 @@ mod tests {
             vec!["## Status".to_string(), String::new(), "Draft".to_string()],
         );
         let errs = validate_file(&doc, &spec_for("comp/v1"), &cfg);
-        assert_eq!(errs.len(), 0, "expected no errors under private, got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "expected no errors under private, got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -406,7 +438,12 @@ mod tests {
             vec!["## Status".to_string(), String::new(), "Draft".to_string()],
         );
         let errs = validate_file(&doc, &spec_for("comp/v1"), &cfg);
-        assert_eq!(errs.len(), 1, "expected exactly one R9 error, got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            1,
+            "expected exactly one R9 error, got {:?}",
+            errs
+        );
         assert_eq!(errs[0].code, "R9", "R9 must fire before FC checks");
     }
 }

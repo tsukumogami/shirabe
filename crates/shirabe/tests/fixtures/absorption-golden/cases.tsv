@@ -1,0 +1,20 @@
+# Absorption parity corpus manifest. One row per case.
+#
+# Columns (tab-separated):
+#   case_id        directory name under corpus/ and expected/
+#   doc_relpath    the document under corpus/<case_id>/ to validate
+#   check_codes    comma-separated engine --check codes to run for this case's
+#                  family (the absorbed check(s) whose parity this case proves)
+#
+# A case proves that, over its document, the engine's fired-rule SET matches the
+# external check's captured fired-rule SET (translated via mapping.tsv), modulo
+# any deliberate divergence recorded in divergences.tsv.
+#
+# case_id	doc_relpath	check_codes
+frontmatter-fields-clean	docs/briefs/BRIEF-x.md	FC01
+frontmatter-fields-missing	docs/briefs/BRIEF-x.md	FC01
+section-order-clean	docs/prds/PRD-x.md	FC15
+section-order-violation	docs/prds/PRD-x.md	FC15
+issues-table-complexity-bad	docs/plans/PLAN-x.md	FC05
+issues-table-dep-format-bad	docs/plans/PLAN-x.md	FC05
+github-status-no-context	docs/plans/PLAN-x.md	FC09

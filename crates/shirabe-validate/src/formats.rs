@@ -10,6 +10,11 @@ pub struct FormatSpec {
     pub schema_version: String,
     pub required_fields: Vec<String>,
     pub valid_statuses: Vec<String>,
+    /// The required section headings. **Element order is significant:** FC04
+    /// checks presence, and FC15 checks that the present required sections
+    /// appear in this order. Reordering entries changes the canonical order
+    /// FC15 enforces (it would surface an FC15 notice on docs written to the
+    /// old order), so treat the sequence as a contract, not a decorative list.
     pub required_sections: Vec<String>,
     /// Ordered list of required column headers for the doc's Implementation
     /// Issues table, per the canonical issues-table profile. Empty for

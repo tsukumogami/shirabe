@@ -216,7 +216,7 @@ directory movement based on status -- all roadmaps stay in
 
 - Frontmatter has `schema`, `status`, `theme`, `scope` fields
 - Frontmatter status matches Status section in body
-- All 5 required sections present and in order
+- All 5 required sections present (FC04) and in canonical order (FC15)
 - Both reserved sections present (may be empty)
 - Status is "Draft"
 - At least 2 features listed (single-feature work doesn't need a

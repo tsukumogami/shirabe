@@ -1,0 +1,16 @@
+# External-rule -> engine-code equivalence map.
+#
+# Each row declares that an external check's rule and an engine check code are
+# the SAME verdict: the external rule fires exactly when the engine code fires.
+# The harness uses this to translate a case's captured external fired-rule set
+# into the engine's code vocabulary before diffing it against the engine's live
+# fired-rule set.
+#
+# Rules that are NOT the same verdict (a deliberate divergence) do not belong
+# here -- they are recorded per case in divergences.tsv instead.
+#
+# external_rule	engine_code
+frontmatter-missing-field	FC01
+section-order	FC15
+issues-table-complexity-enum	FC05
+issues-table-dep-link-format	FC05

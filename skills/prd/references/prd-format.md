@@ -143,10 +143,15 @@ and mark the old one as Done (with a note that it was replaced).
 
 ## Validation Rules
 
+These rules are mechanized: `shirabe validate` is the single authority and
+this list references each check by code rather than restating it, so there is
+one definition of each rule and nothing to drift. Run `shirabe validate
+--check <CODE>` to evaluate one in isolation.
+
 ### During /prd (drafting)
-- Frontmatter has `status`, `problem`, `goals` fields
-- Frontmatter status matches Status section in body
-- All 7 required sections present and in order
+- Required frontmatter fields are present (`FC01`)
+- Frontmatter status matches the body Status section (`FC03`)
+- Required sections are all present (`FC04`) and in canonical order (`FC15`)
 - Status is "Draft"
 - If Open Questions section exists, it may contain unresolved items
 - If Decisions and Trade-offs section exists, it captures decisions from
@@ -160,8 +165,11 @@ and mark the old one as Done (with a note that it was replaced).
 - Status transitions to "Accepted" on human approval
 
 ### When referenced by /design or /plan
-- Status must be "Accepted" or "In Progress"
-- If status is "Draft": STOP and inform user the PRD needs approval first
+- The PRD's chain posture is valid for the consuming step. The per-status
+  stop table is enforced by the chain-status lifecycle check (`shirabe
+  validate --lifecycle-chain <doc>`), which is the single authority for
+  whether an upstream artifact is at a consumable status -- a Draft PRD that
+  must be approved first surfaces there rather than being restated here.
 
 ## Quality Guidance
 

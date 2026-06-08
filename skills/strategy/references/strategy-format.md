@@ -270,7 +270,7 @@ under one upstream VISION when they make distinct bets.
 - `schema` is `strategy/v1`
 - `scope` is `project` or `org`
 - Frontmatter `status` matches the Status section in the body
-- All 8 required sections present and in order
+- All 8 required sections present (FC04) and in canonical order (FC15)
 - Status is `Draft`
 - Open Questions section may contain unresolved items
 - If `Competitive Considerations` is present, repo visibility must be
