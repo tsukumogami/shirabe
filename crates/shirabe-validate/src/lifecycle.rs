@@ -29,6 +29,9 @@
 //!   does not exist in the index.
 //! - **L05**: defensive parsing fallback — the walker could not
 //!   extract `upstream:` or `status:` from a chain-participating doc.
+//! - **L06**: a DESIGN's directory disagrees with its status — a
+//!   `Current` design outside `docs/designs/current/`, or a
+//!   non-`Current` design inside it.
 //!
 //! Posture detection follows
 //! `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`:
@@ -750,6 +753,46 @@ fn check_orphan(
     ))
 }
 
+// ---------- document-location-vs-status rule ----------
+//
+// L06: a DESIGN's on-disk directory must agree with its status. The DESIGN
+// is the one artifact type whose lifecycle moves it between directories:
+// `Proposed`/`Accepted`/`Planned` live in `docs/designs/`, and `Current`
+// (the terminal post-promotion state) lives in `docs/designs/current/`. A
+// `Current` DESIGN still sitting in `docs/designs/` -- or a non-`Current`
+// DESIGN already in `docs/designs/current/` -- is drift the chain check does
+// not catch (it validates status against posture, not status against path).
+// This is a corpus-wide, path-dependent check, so it runs through the
+// lifecycle traversal rather than the per-file `validate_file` pass, and its
+// code stays out of the per-file `--check` registry like the rest of the
+// L-family.
+
+fn check_location(doc: &IndexedDoc) -> Option<ValidationError> {
+    if doc.format != "Design" {
+        return None;
+    }
+    let in_current = doc.path.to_string_lossy().contains("/designs/current/");
+    let rel = rel_path_lossy(&doc.path);
+    if in_current && doc.status != "Current" {
+        return Some(error(
+            rel,
+            "L06",
+            &format!(
+                "DESIGN at status '{}' is in docs/designs/current/ (that directory is for status 'Current' only)",
+                doc.status
+            ),
+        ));
+    }
+    if !in_current && doc.status == "Current" {
+        return Some(error(
+            rel,
+            "L06",
+            "DESIGN at status 'Current' must live in docs/designs/current/, not docs/designs/",
+        ));
+    }
+    None
+}
+
 // ---------- public entry point ----------
 
 /// Run the chain-aware passing-state lifecycle check against `root`.
@@ -838,6 +881,15 @@ pub fn run_lifecycle_check(
             continue;
         }
         if let Some(err) = check_orphan(doc, &idx, &inv) {
+            errors.push(err);
+        }
+    }
+
+    // L06 location-vs-status rule, over every indexed doc (chain member or
+    // not -- a Current design is terminal and orphan, but its directory must
+    // still agree with its status).
+    for doc in idx.values() {
+        if let Some(err) = check_location(doc) {
             errors.push(err);
         }
     }
@@ -1564,6 +1616,52 @@ mod tests {
         )]);
         let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
+    }
+
+    #[test]
+    fn l06_current_design_outside_current_dir_fails() {
+        // A DESIGN at status Current sitting in docs/designs/ (not current/).
+        let root = build_tree(&[(
+            "docs/designs/DESIGN-foo.md",
+            &make_design("Current", ""),
+            &design_body("Current"),
+        )]);
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        assert!(
+            errors.iter().any(|e| e.code == "L06" && e.file.contains("DESIGN-foo.md")),
+            "expected L06 on a Current design outside current/, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn l06_current_design_in_current_dir_passes() {
+        let root = build_tree(&[(
+            "docs/designs/current/DESIGN-foo.md",
+            &make_design("Current", ""),
+            &design_body("Current"),
+        )]);
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        assert!(
+            !errors.iter().any(|e| e.code == "L06"),
+            "expected no L06 on a Current design in current/, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn l06_non_current_design_in_current_dir_fails() {
+        let root = build_tree(&[(
+            "docs/designs/current/DESIGN-foo.md",
+            &make_design("Accepted", ""),
+            &design_body("Accepted"),
+        )]);
+        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        assert!(
+            errors.iter().any(|e| e.code == "L06" && e.file.contains("DESIGN-foo.md")),
+            "expected L06 on an Accepted design inside current/, got {:?}",
+            errors
+        );
     }
 
     #[test]
