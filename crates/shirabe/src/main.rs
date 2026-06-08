@@ -212,6 +212,16 @@ struct ValidateArgs {
     /// posture without surfacing unrelated drift as noise.
     #[arg(long, value_name = "DOC")]
     lifecycle_chain: Option<String>,
+
+    /// Suppress the L06 outline-AC completeness check. Default off.
+    /// Applies to both `--lifecycle` and `--lifecycle-chain` modes.
+    /// L01-L05 are unaffected — only L06 honors this flag. Use when an
+    /// outline AC is satisfied by upstream work not in this PR and the
+    /// author has signed off on the gap. The work-on cascade script
+    /// forwards the env var `WORK_ON_ALLOW_UNTRACKED_ACS=1` by adding
+    /// this flag to its validator invocations.
+    #[arg(long, default_value_t = false)]
+    allow_untracked_acs: bool,
 }
 
 fn main() -> ExitCode {
@@ -346,11 +356,11 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     }
 
     if let Some(root) = args.lifecycle.as_deref() {
-        return run_lifecycle(root, &args.visibility, args.strict, args.format);
+        return run_lifecycle(root, &args.visibility, args.strict, args.allow_untracked_acs, args.format);
     }
 
     if let Some(doc) = args.lifecycle_chain.as_deref() {
-        return run_lifecycle_chain(doc, &args.visibility, args.strict, args.format);
+        return run_lifecycle_chain(doc, &args.visibility, args.strict, args.allow_untracked_acs, args.format);
     }
 
     if args.files.is_empty() {
@@ -368,6 +378,7 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     let cfg = Config {
         custom_statuses,
         visibility: args.visibility.clone(),
+        allow_untracked_acs: args.allow_untracked_acs,
     };
 
     // Collect every emitted finding across all files first, then render
@@ -443,10 +454,17 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
 ///
 /// The findings are collected into a `Vec` and rendered once by
 /// [`render_lifecycle`] per the chosen [`Format`], mirroring `run_validate`.
-fn run_lifecycle(root: &str, visibility: &str, strict: bool, format: Format) -> ExitCode {
+fn run_lifecycle(
+    root: &str,
+    visibility: &str,
+    strict: bool,
+    allow_untracked_acs: bool,
+    format: Format,
+) -> ExitCode {
     let cfg = Config {
         custom_statuses: HashMap::new(),
         visibility: visibility.to_string(),
+        allow_untracked_acs,
     };
     let root_path = std::path::Path::new(root);
     if !root_path.exists() {
@@ -539,10 +557,17 @@ fn run_slug_prefix_detect(args: &SlugPrefixDetectArgs) -> ExitCode {
 ///
 /// The findings are collected into a `Vec` and rendered once by
 /// [`render_lifecycle`] per the chosen [`Format`], mirroring `run_validate`.
-fn run_lifecycle_chain(doc_path: &str, visibility: &str, strict: bool, format: Format) -> ExitCode {
+fn run_lifecycle_chain(
+    doc_path: &str,
+    visibility: &str,
+    strict: bool,
+    allow_untracked_acs: bool,
+    format: Format,
+) -> ExitCode {
     let cfg = Config {
         custom_statuses: HashMap::new(),
         visibility: visibility.to_string(),
+        allow_untracked_acs,
     };
     let path = std::path::Path::new(doc_path);
     // The path may not exist — let the lifecycle module surface the

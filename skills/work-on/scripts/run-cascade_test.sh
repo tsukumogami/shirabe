@@ -861,6 +861,146 @@ scenario_pre_probe_mid_pr() {
     cd "$SCRIPT_DIR"
 }
 
+# ── Scenario 9b: WORK_ON_ALLOW_UNTRACKED_ACS=1 forwards --allow-untracked-acs ─
+# When the env var is set to "1", the cascade script appends the
+# --allow-untracked-acs flag to every validator invocation, emits the
+# documented suppression log line once at start, and tags the add_step
+# instrumentation with `l06_suppressed=1`. The other behaviors (cascade
+# proceeds when pre-probe fails, skips when pre-probe passes) are unchanged.
+scenario_allow_untracked_acs_env_forwarded() {
+    local scenario="Scenario 9b: WORK_ON_ALLOW_UNTRACKED_ACS=1 forwards flag"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    setup_shirabe_stub "$repo"
+
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+    commit_all
+
+    # Replace the stub with one that captures argv to a file so the test can
+    # assert the flag is forwarded. The captured argv is appended one
+    # invocation per line.
+    cat > "$SHIRABE_STUB" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+echo "\$*" >> "$(dirname "$SHIRABE_STUB")/argv.log"
+REAL_BIN="$SHIRABE_BIN_PATH"
+if [[ "\${1:-}" == "validate" ]]; then
+    for arg in "\$@"; do
+        if [[ "\$arg" == "--lifecycle-chain" ]]; then
+            # Pin to 0 (clean pre-probe) so the cascade skips and we only
+            # capture one validator invocation.
+            exit 0
+        fi
+    done
+fi
+exec "\$REAL_BIN" "\$@"
+EOF
+    chmod +x "$SHIRABE_STUB"
+
+    local output
+    export CASCADE_SHIRABE_BIN_OVERRIDE="$SHIRABE_STUB"
+    export WORK_ON_ALLOW_UNTRACKED_ACS=1
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md")
+    unset CASCADE_SHIRABE_BIN_OVERRIDE
+    unset WORK_ON_ALLOW_UNTRACKED_ACS
+
+    local ok=true
+
+    assert_json "$scenario" "$output" '.cascade_status == "skipped"' \
+        "cascade_status is skipped (clean pre-probe)" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_pre_probe")] | .[0].detail | contains("l06_suppressed=1")' \
+        "lifecycle_pre_probe detail carries l06_suppressed=1 marker" || ok=false
+
+    # The captured argv must contain --allow-untracked-acs on the validate
+    # invocation.
+    local argv
+    argv=$(cat "$(dirname "$SHIRABE_STUB")/argv.log" 2>/dev/null || echo "")
+    if [[ "$argv" != *"--allow-untracked-acs"* ]]; then
+        fail "$scenario: expected --allow-untracked-acs in captured argv; got: $argv"
+        ok=false
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── Scenario 9c: env unset — no flag forwarding, no suppression marker ─────────
+scenario_allow_untracked_acs_default_off() {
+    local scenario="Scenario 9c: env unset — no flag forwarding"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    setup_shirabe_stub "$repo"
+
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+    commit_all
+
+    cat > "$SHIRABE_STUB" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+echo "\$*" >> "$(dirname "$SHIRABE_STUB")/argv.log"
+REAL_BIN="$SHIRABE_BIN_PATH"
+if [[ "\${1:-}" == "validate" ]]; then
+    for arg in "\$@"; do
+        if [[ "\$arg" == "--lifecycle-chain" ]]; then
+            exit 0
+        fi
+    done
+fi
+exec "\$REAL_BIN" "\$@"
+EOF
+    chmod +x "$SHIRABE_STUB"
+
+    local output
+    export CASCADE_SHIRABE_BIN_OVERRIDE="$SHIRABE_STUB"
+    # Explicitly NOT setting WORK_ON_ALLOW_UNTRACKED_ACS.
+    unset WORK_ON_ALLOW_UNTRACKED_ACS 2>/dev/null || true
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md")
+    unset CASCADE_SHIRABE_BIN_OVERRIDE
+
+    local ok=true
+
+    # No l06_suppressed marker on lifecycle_pre_probe's detail. The
+    # detail is null when the env is unset (add_step writes null for
+    # empty string); coerce null -> "" before testing for the marker so
+    # the jq expression is null-safe across runners.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_pre_probe")] | (.[0].detail // "") | contains("l06_suppressed") | not' \
+        "lifecycle_pre_probe detail must not carry l06_suppressed marker" || ok=false
+
+    # The captured argv must NOT contain --allow-untracked-acs.
+    local argv
+    argv=$(cat "$(dirname "$SHIRABE_STUB")/argv.log" 2>/dev/null || echo "")
+    if [[ "$argv" == *"--allow-untracked-acs"* ]]; then
+        fail "$scenario: did not expect --allow-untracked-acs in captured argv; got: $argv"
+        ok=false
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 # ── Scenario 10: handle_roadmap_deletion — no-ROADMAP regression ──────────────
 # When the cascade walks a chain with no ROADMAP at the head (BRIEF without
 # upstream), no ROADMAP handler runs, no delete_roadmap step is emitted, and
@@ -1178,6 +1318,12 @@ scenario_pre_probe_already_terminal
 cd "$ORIG_DIR"
 
 scenario_pre_probe_mid_pr
+cd "$ORIG_DIR"
+
+scenario_allow_untracked_acs_env_forwarded
+cd "$ORIG_DIR"
+
+scenario_allow_untracked_acs_default_off
 cd "$ORIG_DIR"
 
 scenario_deletion_no_roadmap_regression

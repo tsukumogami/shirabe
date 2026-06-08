@@ -233,7 +233,7 @@ mod tests {
                 code
             );
         }
-        for code in ["FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "R6", "R7", "R8", "R9"] {
+        for code in ["FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "L01", "L02", "L03", "L04", "L05", "L06", "R6", "R7", "R8", "R9"] {
             assert!(
                 !is_notice(&ValidationError {
                     file: String::new(),
@@ -298,6 +298,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "public".to_string(),
+            allow_untracked_acs: false,
         };
         let doc = make_doc(
             "brief/v1",
@@ -318,6 +319,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "public".to_string(),
+            allow_untracked_acs: false,
         };
         let mut sections = brief_sections("");
         sections.push(sec("Competitive Considerations", 99));
@@ -375,6 +377,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "private".to_string(),
+            allow_untracked_acs: false,
         };
         let doc = make_doc(
             "comp/v1",
@@ -393,6 +396,7 @@ mod tests {
         let cfg = Config {
             custom_statuses: HashMap::new(),
             visibility: "public".to_string(),
+            allow_untracked_acs: false,
         };
         let doc = make_doc(
             "comp/v1",
