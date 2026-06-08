@@ -29,7 +29,9 @@
 //!   does not exist in the index.
 //! - **L05**: defensive parsing fallback — the walker could not
 //!   extract `upstream:` or `status:` from a chain-participating doc.
-//! - **L06**: a DESIGN's directory disagrees with its status — a
+//! - **L06**: an outline-AC checkbox on a single-pr PLAN member is
+//!   left unticked (outline-AC completeness).
+//! - **L07**: a DESIGN's directory disagrees with its status — a
 //!   `Current` design outside `docs/designs/current/`, or a
 //!   non-`Current` design inside it.
 //!
@@ -56,6 +58,7 @@ use std::path::{Path, PathBuf};
 
 use crate::doc::{Config, Doc, ValidationError};
 use crate::frontmatter::parse_doc;
+use crate::table::parse_outline_acs;
 
 // ---------- public data types ----------
 
@@ -755,7 +758,7 @@ fn check_orphan(
 
 // ---------- document-location-vs-status rule ----------
 //
-// L06: a DESIGN's on-disk directory must agree with its status. The DESIGN
+// L07: a DESIGN's on-disk directory must agree with its status. The DESIGN
 // is the one artifact type whose lifecycle moves it between directories:
 // `Proposed`/`Accepted`/`Planned` live in `docs/designs/`, and `Current`
 // (the terminal post-promotion state) lives in `docs/designs/current/`. A
@@ -776,7 +779,7 @@ fn check_location(doc: &IndexedDoc) -> Option<ValidationError> {
     if in_current && doc.status != "Current" {
         return Some(error(
             rel,
-            "L06",
+            "L07",
             &format!(
                 "DESIGN at status '{}' is in docs/designs/current/ (that directory is for status 'Current' only)",
                 doc.status
@@ -786,7 +789,7 @@ fn check_location(doc: &IndexedDoc) -> Option<ValidationError> {
     if !in_current && doc.status == "Current" {
         return Some(error(
             rel,
-            "L06",
+            "L07",
             "DESIGN at status 'Current' must live in docs/designs/current/, not docs/designs/",
         ));
     }
@@ -815,7 +818,7 @@ fn check_location(doc: &IndexedDoc) -> Option<ValidationError> {
 /// when the PR is draft.
 pub fn run_lifecycle_check(
     root: &Path,
-    _cfg: &Config,
+    cfg: &Config,
     strict: bool,
 ) -> Vec<ValidationError> {
     let (idx, mut errors) = build_doc_index(root);
@@ -873,6 +876,9 @@ pub fn run_lifecycle_check(
                 ));
             }
         }
+
+        // L06: outline-AC completeness on single-pr PLAN members.
+        errors.extend(check_l06_outline_acs(chain, &idx, cfg));
     }
 
     // Orphan rule for non-chain-participating docs.
@@ -885,7 +891,7 @@ pub fn run_lifecycle_check(
         }
     }
 
-    // L06 location-vs-status rule, over every indexed doc (chain member or
+    // L07 location-vs-status rule, over every indexed doc (chain member or
     // not -- a Current design is terminal and orphan, but its directory must
     // still agree with its status).
     for doc in idx.values() {
@@ -902,6 +908,71 @@ pub fn run_lifecycle_check(
             .then(a.message.cmp(&b.message))
     });
     errors.dedup();
+    errors
+}
+
+// ---------- L06: outline-AC completeness ----------
+
+/// Check that every `- [ ]` / `- [x]` / `- [X]` outline-AC checkbox on
+/// the chain's PLAN is ticked.
+///
+/// Fires only when the chain has a single-pr PLAN present in the tree:
+/// multi-pr PLANs carry their issues in the `## Implementation Issues`
+/// table without per-AC checkboxes, so the parser returns an empty
+/// vector for them and L06 cannot trigger. Non-PLAN-rooted chains
+/// (ROADMAP roots) likewise carry no outline ACs.
+///
+/// One L06 error per unticked AC. The message names the outline-key,
+/// the verbatim AC text, and the 1-indexed line number so the author
+/// can navigate to the offending box directly.
+fn check_l06_outline_acs(
+    chain: &Chain,
+    idx: &DocIndex,
+    cfg: &Config,
+) -> Vec<ValidationError> {
+    if cfg.allow_untracked_acs {
+        return Vec::new();
+    }
+    let mut errors: Vec<ValidationError> = Vec::new();
+    for member in &chain.members {
+        if member.role != ChainRole::Plan {
+            continue;
+        }
+        let indexed = match idx.get(&member.path) {
+            Some(d) => d,
+            None => continue,
+        };
+        if indexed.execution_mode != "single-pr" {
+            continue;
+        }
+        // Re-parse the PLAN body. The doc index carries only the
+        // frontmatter-derived metadata; L06 needs the body to find
+        // the AC checkboxes. The cost is one file read per cascade
+        // invocation, which is negligible against the cascade's
+        // existing validator surface.
+        let doc = match parse_doc(&member.path) {
+            Ok(d) => d,
+            Err(_) => {
+                // A frontmatter parse failure is already surfaced as
+                // L05 by `index_doc`; the L06 check has nothing to
+                // contribute on a doc whose body cannot be reached.
+                continue;
+            }
+        };
+        for ac in parse_outline_acs(&doc) {
+            if ac.ticked {
+                continue;
+            }
+            errors.push(error_path(
+                member.path.clone(),
+                "L06",
+                &format!(
+                    "outline '{}' has unticked acceptance criterion: '{}' (line {})",
+                    ac.outline_key, ac.ac_text, ac.line
+                ),
+            ));
+        }
+    }
     errors
 }
 
@@ -935,7 +1006,7 @@ pub fn run_lifecycle_check(
 /// the strict flag.
 pub fn run_lifecycle_chain_check(
     doc_path: &Path,
-    _cfg: &Config,
+    cfg: &Config,
     strict: bool,
 ) -> Vec<ValidationError> {
     // Resolve the input path to an absolute canonical form. A
@@ -1056,6 +1127,9 @@ pub fn run_lifecycle_chain_check(
                 ));
             }
         }
+
+        // L06: outline-AC completeness on single-pr PLAN members.
+        errors.extend(check_l06_outline_acs(chain, &idx, cfg));
     } else {
         // The doc is an orphan — not a member of any discovered
         // chain. Apply the orphan rule to it directly.
@@ -1619,7 +1693,7 @@ mod tests {
     }
 
     #[test]
-    fn l06_current_design_outside_current_dir_fails() {
+    fn l07_current_design_outside_current_dir_fails() {
         // A DESIGN at status Current sitting in docs/designs/ (not current/).
         let root = build_tree(&[(
             "docs/designs/DESIGN-foo.md",
@@ -1628,14 +1702,14 @@ mod tests {
         )]);
         let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(
-            errors.iter().any(|e| e.code == "L06" && e.file.contains("DESIGN-foo.md")),
-            "expected L06 on a Current design outside current/, got {:?}",
+            errors.iter().any(|e| e.code == "L07" && e.file.contains("DESIGN-foo.md")),
+            "expected L07 on a Current design outside current/, got {:?}",
             errors
         );
     }
 
     #[test]
-    fn l06_current_design_in_current_dir_passes() {
+    fn l07_current_design_in_current_dir_passes() {
         let root = build_tree(&[(
             "docs/designs/current/DESIGN-foo.md",
             &make_design("Current", ""),
@@ -1643,14 +1717,14 @@ mod tests {
         )]);
         let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(
-            !errors.iter().any(|e| e.code == "L06"),
-            "expected no L06 on a Current design in current/, got {:?}",
+            !errors.iter().any(|e| e.code == "L07"),
+            "expected no L07 on a Current design in current/, got {:?}",
             errors
         );
     }
 
     #[test]
-    fn l06_non_current_design_in_current_dir_fails() {
+    fn l07_non_current_design_in_current_dir_fails() {
         let root = build_tree(&[(
             "docs/designs/current/DESIGN-foo.md",
             &make_design("Accepted", ""),
@@ -1658,8 +1732,8 @@ mod tests {
         )]);
         let errors = run_lifecycle_check(&root, &Config::default(), false);
         assert!(
-            errors.iter().any(|e| e.code == "L06" && e.file.contains("DESIGN-foo.md")),
-            "expected L06 on an Accepted design inside current/, got {:?}",
+            errors.iter().any(|e| e.code == "L07" && e.file.contains("DESIGN-foo.md")),
+            "expected L07 on an Accepted design inside current/, got {:?}",
             errors
         );
     }
@@ -2609,6 +2683,109 @@ mod tests {
             has_plan_error,
             "expected at least one error to reference PLAN-foo.md; got: {:?}",
             errors
+        );
+    }
+
+    // ---- L06 outline-AC completeness ----
+
+    fn single_pr_plan_body(acs: &str) -> String {
+        format!(
+            "# PLAN: t\n\n## Status\n\nDraft\n\n## Scope Summary\n\nS.\n\n## Decomposition Strategy\n\nD.\n\n## Issue Outlines\n\n### Issue 1: first\n\n**Goal**: do it.\n\n**Acceptance Criteria**:\n{}\n**Dependencies**: None\n\n## Implementation Sequence\n\nSeq.\n",
+            acs,
+        )
+    }
+
+    fn build_single_pr_chain(acs: &str) -> PathBuf {
+        build_tree(&[
+            ("docs/briefs/BRIEF-foo.md", &make_brief("Accepted", ""), &body_for("BRIEF", "Accepted")),
+            ("docs/prds/PRD-foo.md", &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"), &prd_body("Accepted")),
+            ("docs/designs/DESIGN-foo.md", &make_design("Planned", "docs/prds/PRD-foo.md"), &design_body("Planned")),
+            ("docs/plans/PLAN-foo.md", &make_plan("Draft", "single-pr", "docs/designs/DESIGN-foo.md"), &single_pr_plan_body(acs)),
+        ])
+    }
+
+    #[test]
+    fn l06_passes_when_all_acs_ticked() {
+        let root = build_single_pr_chain("- [x] one\n- [X] two\n");
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), false);
+        let l06s: Vec<_> = errors.iter().filter(|e| e.code == "L06").collect();
+        assert!(
+            l06s.is_empty(),
+            "expected no L06 errors when all AC boxes are ticked; got {:?}",
+            l06s
+        );
+    }
+
+    #[test]
+    fn l06_fires_per_unticked_ac_with_message_naming_outline_and_text() {
+        let root = build_single_pr_chain("- [ ] alpha\n- [x] beta\n- [ ] gamma\n");
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), false);
+        let l06s: Vec<_> = errors.iter().filter(|e| e.code == "L06").collect();
+        assert_eq!(l06s.len(), 2, "expected 2 L06 errors; got {:?}", l06s);
+        let combined: String = l06s.iter().map(|e| e.message.as_str()).collect::<Vec<_>>().join(" | ");
+        assert!(combined.contains("Issue 1: first"), "message should name the outline: {}", combined);
+        assert!(combined.contains("'alpha'"), "message should quote AC text alpha: {}", combined);
+        assert!(combined.contains("'gamma'"), "message should quote AC text gamma: {}", combined);
+        assert!(!combined.contains("'beta'"), "ticked AC should not appear: {}", combined);
+    }
+
+    #[test]
+    fn l06_suppressed_when_allow_untracked_acs_set() {
+        let root = build_single_pr_chain("- [ ] alpha\n- [ ] beta\n");
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let mut cfg = Config::default();
+        cfg.allow_untracked_acs = true;
+        let errors = run_lifecycle_chain_check(&plan_path, &cfg, false);
+        let l06s: Vec<_> = errors.iter().filter(|e| e.code == "L06").collect();
+        assert!(
+            l06s.is_empty(),
+            "expected no L06 errors when allow_untracked_acs is set; got {:?}",
+            l06s
+        );
+        // L01-L05 must still be active under the flag; the single-pr-mid-PR
+        // posture should still pass the chain shape since PLAN is at Draft.
+        // We do not assert specific L01 outcomes; we only assert that the
+        // suppression is L06-only and not a global silence.
+    }
+
+    #[test]
+    fn l06_suppressed_under_strict_lifecycle_check_too() {
+        // Whole-tree mode honors allow_untracked_acs identically to the
+        // chain-targeted mode (the dispatch path is shared via
+        // check_l06_outline_acs).
+        let root = build_single_pr_chain("- [ ] open\n");
+        let mut cfg = Config::default();
+        cfg.allow_untracked_acs = true;
+        let errors = run_lifecycle_check(&root, &cfg, true);
+        let l06s: Vec<_> = errors.iter().filter(|e| e.code == "L06").collect();
+        assert!(
+            l06s.is_empty(),
+            "whole-tree mode should honor allow_untracked_acs too; got {:?}",
+            l06s
+        );
+    }
+
+    #[test]
+    fn l06_does_not_fire_on_multi_pr_plan() {
+        // Build a multi-pr chain whose PLAN uses the existing multi-pr
+        // plan_body (which has no `## Issue Outlines` section). L06
+        // should not fire even though the multi-pr posture has unticked
+        // boxes elsewhere in the doc.
+        let root = build_tree(&[
+            ("docs/briefs/BRIEF-foo.md", &make_brief("Accepted", ""), &body_for("BRIEF", "Accepted")),
+            ("docs/prds/PRD-foo.md", &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"), &prd_body("Accepted")),
+            ("docs/designs/DESIGN-foo.md", &make_design("Planned", "docs/prds/PRD-foo.md"), &design_body("Planned")),
+            ("docs/plans/PLAN-foo.md", &make_plan("Active", "multi-pr", "docs/designs/DESIGN-foo.md"), &plan_body("Active")),
+        ]);
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), false);
+        let l06s: Vec<_> = errors.iter().filter(|e| e.code == "L06").collect();
+        assert!(
+            l06s.is_empty(),
+            "expected no L06 errors on multi-pr PLAN; got {:?}",
+            l06s
         );
     }
 }

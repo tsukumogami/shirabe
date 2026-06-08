@@ -16,6 +16,12 @@ pub struct Config {
     /// `"public"` | `"private"` | `""`. Visibility-gated checks (R7/R8)
     /// are bypassed only when this is exactly `"private"`.
     pub visibility: String,
+    /// When `true`, the chain-aware L06 outline-AC completeness check
+    /// is suppressed (returns no findings). Default `false`. The
+    /// `--allow-untracked-acs` CLI flag sets this; the cascade script
+    /// forwards `WORK_ON_ALLOW_UNTRACKED_ACS=1` by passing the flag.
+    /// L01-L05 are unaffected — only L06 honors this setting.
+    pub allow_untracked_acs: bool,
 }
 
 /// Intermediate representation of a parsed shirabe doc file.

@@ -666,6 +666,152 @@ fn strip_ac_bullet(line: &str) -> Option<&str> {
     None
 }
 
+// ---------------------------------------------------------------------------
+// Outline AC parser (consumed by check_l06)
+// ---------------------------------------------------------------------------
+
+/// A single outline acceptance criterion parsed from a single-pr plan's
+/// `## Issue Outlines` section.
+///
+/// Each `OutlineAc` corresponds to one canonical `- [ ]` / `- [x]` /
+/// `- [X]` checkbox line inside an outline block's
+/// `**Acceptance Criteria**:` bullet list. The `ticked` field carries the
+/// box state. Non-canonical bullet shapes (bare `- `, indented sub-
+/// bullets, ACs written as bare sentences) are ignored by the parser per
+/// the strict-tolerance contract in DESIGN-cascade-outline-ac-completeness
+/// Decision 3 — they do not contribute to the returned vector and
+/// therefore never fire L06.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutlineAc {
+    /// The outline's heading text, captured verbatim from the
+    /// `### <heading>` line that opens the block. Matches the
+    /// `OutlineBlock::key` shape so callers can correlate AC entries
+    /// with outline blocks.
+    pub outline_key: String,
+    /// The AC's checkbox-line text with the leading `- [ ]` / `- [x]` /
+    /// `- [X]` marker stripped. Trailing whitespace is preserved.
+    pub ac_text: String,
+    /// Whether the box is ticked. `true` for `- [x]` or `- [X]`; `false`
+    /// for `- [ ]`.
+    pub ticked: bool,
+    /// 1-indexed absolute line number of the AC's checkbox line.
+    pub line: usize,
+}
+
+/// Locate the `## Issue Outlines` section and parse every canonical
+/// `- [ ]` / `- [x]` / `- [X]` AC checkbox line into a flat
+/// `Vec<OutlineAc>`.
+///
+/// Returns `Vec::new()` when the section is absent, when no outline
+/// blocks declare a `**Acceptance Criteria**:` bullet list, or when
+/// every AC bullet uses a non-canonical shape. The parser is total over
+/// arbitrary input.
+///
+/// `check_l06` consumes the returned vector: any `OutlineAc` with
+/// `ticked == false` becomes one L06 error naming the outline, the AC
+/// text, and the line number.
+///
+/// Multi-pr plans do not have outline-AC checkboxes (their issues live
+/// in the `## Implementation Issues` table); callers should gate on
+/// the doc's `execution_mode` before invoking this parser. The parser
+/// itself does not inspect frontmatter — it returns `Vec::new()` for
+/// docs whose body lacks `## Issue Outlines`, which is the common
+/// outcome for non-single-pr plans.
+pub fn parse_outline_acs(doc: &Doc) -> Vec<OutlineAc> {
+    // Locate the `## Issue Outlines` section.
+    let mut start_idx: Option<usize> = None;
+    for (i, line) in doc.body.iter().enumerate() {
+        if line.trim() == "## Issue Outlines" {
+            start_idx = Some(i + 1);
+            break;
+        }
+    }
+    let start = match start_idx {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+
+    // End of section: next `## ` heading at the same level. `### Issue N`
+    // headings stay inside.
+    let mut end_idx = doc.body.len();
+    for (j, line) in doc.body.iter().enumerate().skip(start) {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("## ") && !trimmed.starts_with("### ") {
+            end_idx = j;
+            break;
+        }
+    }
+
+    let mut acs: Vec<OutlineAc> = Vec::new();
+    let mut current_key: Option<String> = None;
+    let mut in_ac_block = false;
+
+    for (j, raw_line) in doc.body[start..end_idx].iter().enumerate() {
+        let absolute_line = start + j + 1; // 1-indexed
+        let trimmed = raw_line.trim();
+
+        // `### Issue N: <title>` opens a new outline block and resets
+        // the AC-bullet-list tracking flag.
+        if trimmed.starts_with("### ") {
+            current_key = Some(trimmed.trim_start_matches("### ").to_string());
+            in_ac_block = false;
+            continue;
+        }
+
+        // `**Acceptance Criteria**:` enters the AC bullet-list state.
+        // Any other `**Label**:` line (e.g. `**Goal**:`,
+        // `**Dependencies**:`) leaves it.
+        if trimmed.starts_with("**Acceptance Criteria**:") {
+            in_ac_block = true;
+            continue;
+        }
+        if trimmed.starts_with("**Goal**:")
+            || trimmed.starts_with("**Dependencies**:")
+            || trimmed.starts_with("**Type**:")
+            || trimmed.starts_with("**Files**:")
+        {
+            in_ac_block = false;
+            continue;
+        }
+
+        if !in_ac_block {
+            continue;
+        }
+
+        // Strict tolerance: only the three canonical checkbox shapes
+        // count. A bare `- ` bullet, an indented sub-bullet, or a
+        // non-canonical bracket spacing is silently dropped without
+        // terminating the AC block — the block stays in flight until a
+        // `**Label**:`, `###`, or `##` line surfaces. This preserves
+        // counting on subsequent canonical lines that follow a non-
+        // canonical sibling, matching what the strict-tolerance
+        // contract in DESIGN-cascade-outline-ac-completeness Decision
+        // 3 promises.
+        let (ticked, ac_text) = if let Some(rest) = trimmed.strip_prefix("- [ ] ") {
+            (false, rest.to_string())
+        } else if let Some(rest) = trimmed.strip_prefix("- [x] ") {
+            (true, rest.to_string())
+        } else if let Some(rest) = trimmed.strip_prefix("- [X] ") {
+            (true, rest.to_string())
+        } else {
+            continue;
+        };
+
+        let key = match &current_key {
+            Some(k) => k.clone(),
+            None => continue, // AC line before the first ### is dropped
+        };
+        acs.push(OutlineAc {
+            outline_key: key,
+            ac_text,
+            ticked,
+            line: absolute_line,
+        });
+    }
+
+    acs
+}
+
 /// Parse the dependency-tokens portion of a `**Dependencies**:` line.
 ///
 /// Recognises two shapes:
@@ -983,5 +1129,86 @@ mod tests {
         assert_eq!(table.rows[1].kind, RowKind::Description);
         assert!(!table.rows[1].terminal);
         assert_eq!(table.rows[1].status, None);
+    }
+
+    // --- parse_outline_acs ---
+
+    fn single_pr_plan(body: &str) -> Doc {
+        let md = format!(
+            "---\nschema: plan/v1\nstatus: Draft\nexecution_mode: single-pr\nupstream: docs/designs/DESIGN-x.md\nmilestone: \"x\"\nissue_count: 1\n---\n\n# PLAN: x\n\n## Status\n\nDraft\n\n## Scope Summary\n\nfoo.\n\n## Decomposition Strategy\n\nbar.\n\n{}\n\n## Implementation Sequence\n\nbaz.\n",
+            body
+        );
+        doc_from_markdown(&md)
+    }
+
+    #[test]
+    fn parse_outline_acs_returns_empty_when_section_absent() {
+        let doc = doc_from_markdown(
+            "---\nschema: plan/v1\nstatus: Draft\nexecution_mode: single-pr\n---\n\n# PLAN: x\n\n## Status\n\nDraft\n\n## Scope Summary\n\nfoo.\n",
+        );
+        assert!(parse_outline_acs(&doc).is_empty());
+    }
+
+    #[test]
+    fn parse_outline_acs_collects_canonical_unticked_and_ticked() {
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: first\n\n**Goal**: do x.\n\n**Acceptance Criteria**:\n- [ ] open box\n- [x] lowercase ticked\n- [X] uppercase ticked\n\n**Dependencies**: None\n",
+        );
+        let acs = parse_outline_acs(&doc);
+        assert_eq!(acs.len(), 3);
+        assert_eq!(acs[0].outline_key, "Issue 1: first");
+        assert_eq!(acs[0].ac_text, "open box");
+        assert!(!acs[0].ticked);
+        assert!(acs[1].ticked);
+        assert!(acs[2].ticked);
+    }
+
+    #[test]
+    fn parse_outline_acs_ignores_noncanonical_shapes() {
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: first\n\n**Acceptance Criteria**:\n- bare bullet, no bracket\n-[] no space before bracket\n- [  ] wide brackets\n- [ ] canonical\n\n**Dependencies**: None\n",
+        );
+        let acs = parse_outline_acs(&doc);
+        // Only the canonical `- [ ] canonical` line counts; the three
+        // non-canonical shapes above it are silently dropped per the
+        // strict-tolerance contract.
+        assert_eq!(acs.len(), 1);
+        assert_eq!(acs[0].ac_text, "canonical");
+        assert!(!acs[0].ticked);
+    }
+
+    #[test]
+    fn parse_outline_acs_correlates_acs_with_outline_keys() {
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: first\n\n**Acceptance Criteria**:\n- [ ] one\n- [x] two\n\n**Dependencies**: None\n\n### Issue 2: second\n\n**Acceptance Criteria**:\n- [ ] three\n\n**Dependencies**: None\n",
+        );
+        let acs = parse_outline_acs(&doc);
+        assert_eq!(acs.len(), 3);
+        assert_eq!(acs[0].outline_key, "Issue 1: first");
+        assert_eq!(acs[1].outline_key, "Issue 1: first");
+        assert_eq!(acs[2].outline_key, "Issue 2: second");
+        assert_eq!(acs[2].ac_text, "three");
+    }
+
+    #[test]
+    fn parse_outline_acs_dependencies_block_does_not_consume_ac_bullets() {
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: first\n\n**Acceptance Criteria**:\n- [ ] before deps\n\n**Dependencies**: None\n\n- [ ] this is outside any AC block\n",
+        );
+        let acs = parse_outline_acs(&doc);
+        // Only the first checkbox (inside the AC block) counts; the
+        // post-Dependencies bullet is outside the AC scope and dropped.
+        assert_eq!(acs.len(), 1);
+        assert_eq!(acs[0].ac_text, "before deps");
+    }
+
+    #[test]
+    fn parse_outline_acs_line_numbers_are_one_indexed_absolute() {
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: first\n\n**Acceptance Criteria**:\n- [ ] target\n",
+        );
+        let acs = parse_outline_acs(&doc);
+        assert_eq!(acs.len(), 1);
+        assert!(acs[0].line > 0, "line numbers are 1-indexed");
     }
 }
