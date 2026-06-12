@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   shirabe's roadmap and plan workflows are procedure-rich but
   principle-poor. The issues table has several drifting schemas, the
@@ -30,7 +30,7 @@ upstream: docs/briefs/BRIEF-roadmap-plan-standardization.md
 
 ## Status
 
-In Progress
+Done
 
 This PRD picks up the requirements work scoped by
 `docs/briefs/BRIEF-roadmap-plan-standardization.md`. It owns the
