@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-roadmap-plan-standardization.md
 problem: |
   The roadmap and plan workflows share an issues table, a dependency
@@ -41,7 +41,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
