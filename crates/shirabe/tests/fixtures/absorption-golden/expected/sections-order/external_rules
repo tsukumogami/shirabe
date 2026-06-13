@@ -1,0 +1,4 @@
+# external fired-rule set for sections-order (captured ahead of time).
+# source: sections.sh over corpus/sections-order/docs/designs/DESIGN-x.md
+# regenerate: capture-absorption-baseline.sh --manifest <manifest> <golden-dir>
+SC02

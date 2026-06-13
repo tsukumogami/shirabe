@@ -1,0 +1,4 @@
+# external fired-rule set for frontmatter-missing-field (captured ahead of time).
+# source: frontmatter.sh over corpus/frontmatter-missing-field/docs/designs/DESIGN-x.md
+# regenerate: capture-absorption-baseline.sh --manifest <manifest> <golden-dir>
+FM01

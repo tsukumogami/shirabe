@@ -1,0 +1,4 @@
+# external fired-rule set for sections-missing (captured ahead of time).
+# source: sections.sh over corpus/sections-missing/docs/designs/DESIGN-x.md
+# regenerate: capture-absorption-baseline.sh --manifest <manifest> <golden-dir>
+SC01

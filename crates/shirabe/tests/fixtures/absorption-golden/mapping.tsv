@@ -9,8 +9,21 @@
 # Rules that are NOT the same verdict (a deliberate divergence) do not belong
 # here -- they are recorded per case in divergences.tsv instead.
 #
+# The keys are the rule codes the external checks actually emit, captured ahead
+# of time (see CAPTURE.md): the frontmatter check emits FM01-03, the sections
+# check emits SC01-03, the status-directory check emits SD01-02.
+#
 # external_rule	engine_code
-frontmatter-missing-field	FC01
-section-order	FC15
+# frontmatter.sh (design frontmatter) -> FC01/FC02/FC03
+FM01	FC01
+FM02	FC02
+FM03	FC03
+# sections.sh (design sections) -> FC04 (presence) / FC15 (order)
+SC01	FC04
+SC02	FC15
+# status-directory.sh (design status-vs-directory) -> L07 (lifecycle mode)
+SD01	L07
+# implementation-issues.sh row content -> FC05 (legacy-case baselines, hand-authored;
+# these cases retire with the legacy check in Outline 4)
 issues-table-complexity-enum	FC05
 issues-table-dep-link-format	FC05

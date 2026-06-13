@@ -1,3 +1,0 @@
-# external fired-rule set for frontmatter-fields-missing (captured ahead of time).
-# The BRIEF omits required fields; the external frontmatter check fires:
-frontmatter-missing-field
