@@ -14,8 +14,6 @@
 #                               deliberately does not (an edge left unabsorbed).
 #   reason     one-line rationale, traceable to a Decision 2 verdict
 #
-# The proving frontmatter cases are at parity, so there are no rows yet. A real
-# reconciliation (e.g. FC05's section-order superset) adds an engine_only row.
-#
 # case_id	token	direction	reason
 github-status-no-context	FC09	engine_only	FC09 surfaces a deterministic skip notice when no PR context is injected; the external github-status check silently no-ops offline, so the engine is intentionally stricter (it tells the operator why the reconciliation was skipped).
+sections-security-empty	SC03	external_only	sections.sh SC03 rejects an empty/N-A Security Considerations section; the engine absorbs section presence (FC04) and order (FC15) but deliberately does not absorb a section-content non-emptiness check, so the engine fires nothing where the external check fires SC03.

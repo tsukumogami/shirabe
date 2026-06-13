@@ -2,19 +2,38 @@
 #
 # Columns (tab-separated):
 #   case_id        directory name under corpus/ and expected/
-#   doc_relpath    the document under corpus/<case_id>/ to validate
-#   check_codes    comma-separated engine --check codes to run for this case's
-#                  family (the absorbed check(s) whose parity this case proves)
+#   doc_relpath    the document under corpus/<case_id>/ to validate (and the
+#                  document the external check was captured over)
+#   check_codes    comma-separated engine codes to run for this case's family
+#                  (the absorbed check(s) whose parity this case proves)
+#   mode           optional invocation mode, default "check":
+#                    check     -- run `shirabe validate --check <code>...` over
+#                                 the case's document (per-file checks).
+#                    lifecycle -- run `shirabe validate --lifecycle <corpus/case>`
+#                                 over the case's tree and collect lifecycle
+#                                 codes (L-codes are not per-file --check
+#                                 selectable, so status-directory parity, which
+#                                 the engine absorbs as L07, runs this way).
 #
 # A case proves that, over its document, the engine's fired-rule SET matches the
 # external check's captured fired-rule SET (translated via mapping.tsv), modulo
 # any deliberate divergence recorded in divergences.tsv.
 #
-# case_id	doc_relpath	check_codes
-frontmatter-fields-clean	docs/briefs/BRIEF-x.md	FC01
-frontmatter-fields-missing	docs/briefs/BRIEF-x.md	FC01
-section-order-clean	docs/prds/PRD-x.md	FC15
-section-order-violation	docs/prds/PRD-x.md	FC15
-issues-table-complexity-bad	docs/plans/PLAN-x.md	FC05
-issues-table-dep-format-bad	docs/plans/PLAN-x.md	FC05
-github-status-no-context	docs/plans/PLAN-x.md	FC09
+# The frontmatter/sections/status-directory cases use design documents because
+# the external frontmatter/sections/status-directory checks are design-document
+# validators; their baselines are real captures from those checks (see
+# CAPTURE.md for the capture procedure).
+#
+# case_id	doc_relpath	check_codes	mode
+frontmatter-clean	docs/designs/DESIGN-x.md	FC01,FC02,FC03	check
+frontmatter-missing-field	docs/designs/DESIGN-x.md	FC01,FC02,FC03	check
+frontmatter-invalid-status	docs/designs/DESIGN-x.md	FC01,FC02,FC03	check
+frontmatter-status-mismatch	docs/designs/DESIGN-x.md	FC01,FC02,FC03	check
+sections-clean	docs/designs/DESIGN-x.md	FC04,FC15	check
+sections-missing	docs/designs/DESIGN-x.md	FC04,FC15	check
+sections-order	docs/designs/DESIGN-x.md	FC04,FC15	check
+sections-security-empty	docs/designs/DESIGN-x.md	FC04,FC15	check
+status-directory-misplaced	docs/designs/DESIGN-x.md	L07	lifecycle
+issues-table-complexity-bad	docs/plans/PLAN-x.md	FC05	check
+issues-table-dep-format-bad	docs/plans/PLAN-x.md	FC05	check
+github-status-no-context	docs/plans/PLAN-x.md	FC09	check

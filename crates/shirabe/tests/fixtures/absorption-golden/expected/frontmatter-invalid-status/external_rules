@@ -1,0 +1,4 @@
+# external fired-rule set for frontmatter-invalid-status (captured ahead of time).
+# source: frontmatter.sh over corpus/frontmatter-invalid-status/docs/designs/DESIGN-x.md
+# regenerate: capture-absorption-baseline.sh --manifest <manifest> <golden-dir>
+FM02

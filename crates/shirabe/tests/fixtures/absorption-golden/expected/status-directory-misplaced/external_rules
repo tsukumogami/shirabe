@@ -1,0 +1,4 @@
+# external fired-rule set for status-directory-misplaced (captured ahead of time).
+# source: status-directory.sh over corpus/status-directory-misplaced/docs/designs/DESIGN-x.md
+# regenerate: capture-absorption-baseline.sh --manifest <manifest> <golden-dir>
+SD01

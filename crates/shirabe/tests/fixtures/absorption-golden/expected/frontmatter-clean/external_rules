@@ -1,0 +1,3 @@
+# external fired-rule set for frontmatter-clean (captured ahead of time).
+# source: frontmatter.sh over corpus/frontmatter-clean/docs/designs/DESIGN-x.md
+# regenerate: capture-absorption-baseline.sh --manifest <manifest> <golden-dir>

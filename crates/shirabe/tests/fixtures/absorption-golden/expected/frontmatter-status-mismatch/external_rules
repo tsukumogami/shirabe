@@ -1,0 +1,4 @@
+# external fired-rule set for frontmatter-status-mismatch (captured ahead of time).
+# source: frontmatter.sh over corpus/frontmatter-status-mismatch/docs/designs/DESIGN-x.md
+# regenerate: capture-absorption-baseline.sh --manifest <manifest> <golden-dir>
+FM03

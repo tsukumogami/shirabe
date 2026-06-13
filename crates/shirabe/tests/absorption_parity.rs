@@ -71,21 +71,23 @@ struct Case {
     id: String,
     doc_relpath: String,
     check_codes: Vec<String>,
+    /// `check` (per-file `--check`) or `lifecycle` (whole-tree `--lifecycle`).
+    mode: String,
 }
 
 fn read_cases() -> Vec<Case> {
     read_rows(&golden_dir().join("cases.tsv"))
         .into_iter()
         .map(|cols| {
-            assert_eq!(
-                cols.len(),
-                3,
-                "cases.tsv row must have 3 tab-separated columns, got {cols:?}"
+            assert!(
+                cols.len() == 3 || cols.len() == 4,
+                "cases.tsv row must have 3 or 4 tab-separated columns, got {cols:?}"
             );
             Case {
                 id: cols[0].clone(),
                 doc_relpath: cols[1].clone(),
                 check_codes: cols[2].split(',').map(|s| s.trim().to_string()).collect(),
+                mode: cols.get(3).cloned().unwrap_or_else(|| "check".to_string()),
             }
         })
         .collect()
@@ -175,6 +177,26 @@ fn engine_rule_set(doc: &Path, check_codes: &[String]) -> BTreeSet<String> {
     parse_codes(&stdout)
 }
 
+/// Run the engine in whole-tree lifecycle mode over a corpus root and collect
+/// the SET of fired codes. Status-directory parity is captured this way: the
+/// engine absorbs status-vs-directory as the lifecycle check L07, and L-codes
+/// are not per-file `--check` selectable (they are whole-tree checks), so the
+/// `--check` path above cannot exercise them. This runs the same offline,
+/// network-free validate the per-file path does, just over the case's tree.
+fn engine_lifecycle_set(corpus_root: &Path) -> BTreeSet<String> {
+    let bin = env!("CARGO_BIN_EXE_shirabe");
+    let out = Command::new(bin)
+        .arg("validate")
+        .arg("--format")
+        .arg("json")
+        .arg("--lifecycle")
+        .arg(corpus_root)
+        .output()
+        .expect("run shirabe validate --lifecycle");
+    let stdout = String::from_utf8(out.stdout).expect("validate stdout is UTF-8");
+    parse_codes(&stdout)
+}
+
 /// Extract the set of `"code": "..."` values from the validate JSON envelope
 /// without pulling a JSON dependency into the test crate (the sibling parity
 /// harnesses likewise avoid serde, comparing captured text directly).
@@ -240,17 +262,19 @@ fn expected_engine_set(case_id: &str, external: &BTreeSet<String>) -> BTreeSet<S
 /// The single per-case assertion: live engine set vs translated external set.
 fn assert_parity(case_id: &str) {
     let c = case(case_id);
-    let doc = golden_dir()
-        .join("corpus")
-        .join(case_id)
-        .join(&c.doc_relpath);
+    let corpus_root = golden_dir().join("corpus").join(case_id);
+    let doc = corpus_root.join(&c.doc_relpath);
     assert!(
         doc.is_file(),
         "corpus document for {case_id} not found at {}",
         doc.display()
     );
 
-    let engine = engine_rule_set(&doc, &c.check_codes);
+    let engine = match c.mode.as_str() {
+        "check" => engine_rule_set(&doc, &c.check_codes),
+        "lifecycle" => engine_lifecycle_set(&corpus_root),
+        other => panic!("case {case_id}: unknown mode {other:?} (expected check|lifecycle)"),
+    };
     let external = external_rule_set(case_id);
     let expected = expected_engine_set(case_id, &external);
 
@@ -277,24 +301,34 @@ macro_rules! parity_tests {
 }
 
 parity_tests! {
-    // Proving cases: the frontmatter required-fields check (engine FC01) at
-    // parity with the external frontmatter check. A clean BRIEF fires nothing
-    // on either side; a BRIEF missing required fields fires the external
-    // `frontmatter-missing-field` rule and engine FC01 (mapped equivalent).
-    frontmatter_fields_clean   => "frontmatter-fields-clean",
-    frontmatter_fields_missing => "frontmatter-fields-missing",
+    // frontmatter.sh (design frontmatter) at parity with engine FC01/FC02/FC03,
+    // captured from the real script over design documents. A clean design fires
+    // nothing on either side; a missing required field fires FM01/FC01, an
+    // invalid status value FM02/FC02, and a frontmatter-vs-body status mismatch
+    // FM03/FC03.
+    frontmatter_clean           => "frontmatter-clean",
+    frontmatter_missing_field   => "frontmatter-missing-field",
+    frontmatter_invalid_status  => "frontmatter-invalid-status",
+    frontmatter_status_mismatch => "frontmatter-status-mismatch",
 
-    // Section order (engine FC15) at parity with the external section-order
-    // check: a PRD with sections in canonical order fires nothing; a PRD with
-    // Acceptance Criteria before Requirements fires the external section-order
-    // rule and engine FC15.
-    section_order_clean        => "section-order-clean",
-    section_order_violation    => "section-order-violation",
+    // sections.sh (design sections) at parity with engine FC04 (presence) and
+    // FC15 (order). A clean design fires nothing; a missing section fires
+    // SC01/FC04; an out-of-order section fires SC02/FC15. An empty Security
+    // Considerations section fires SC03, which the engine deliberately does not
+    // absorb (recorded as an external_only divergence).
+    sections_clean              => "sections-clean",
+    sections_missing            => "sections-missing",
+    sections_order              => "sections-order",
+    sections_security_empty     => "sections-security-empty",
 
-    // Issues-table row-content (engine FC05) at parity with the external
-    // issues-table check: a plan row with an out-of-enum Complexity value and a
-    // plan row with a bare (non-link) dependency token each fire the
-    // corresponding external rule and engine FC05.
+    // status-directory.sh (design status-vs-directory) at parity with engine
+    // L07, run in lifecycle mode: a Current design outside docs/designs/current/
+    // fires SD01/L07.
+    status_directory_misplaced  => "status-directory-misplaced",
+
+    // Issues-table row-content (engine FC05) hand-authored cases retained from
+    // the engine-side absorption; these retire with the legacy
+    // implementation-issues.sh check (Outline 4), not captured here.
     issues_table_complexity_bad => "issues-table-complexity-bad",
     issues_table_dep_format_bad => "issues-table-dep-format-bad",
 
