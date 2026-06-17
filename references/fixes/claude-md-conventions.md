@@ -61,6 +61,12 @@ convention headers shirabe uses:
 - **`## Execution Mode: auto|interactive`** -- whether skills
   default to autonomous decision-making or prompt at each decision
   point.
+- **`## Roadmap Issues: optional|required`** -- whether `shirabe
+  roadmap populate` creates one GitHub issue per feature
+  (`required`) or renders the reserved sections from feature
+  context with no issues (`optional`). Default `required` when the
+  header is absent. Read by the roadmap skill, not the validator,
+  the same way `## Execution Mode:` is read.
 - **`## Release Notes Convention: <path>`** -- the directory or
   file path the release-notes skill targets when emitting
   release-notes prose.
