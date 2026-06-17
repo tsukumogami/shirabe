@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Planned
 problem: |
   shirabe's roadmap workflow assumes the Implementation Issues table and
   Dependency Graph are filled by creating one GitHub issue per feature. An
@@ -33,11 +33,11 @@ motivating_context: |
 
 ## Status
 
-Proposed
+Planned
 
-Authored via the tactical chain (`/scope`), BRIEF and PRD skipped (the framing
-and the requirement were settled during the upstream `/explore` run). Pending
-human review before `shirabe transition <path> Accepted`.
+Accepted after human review. Authored via the tactical chain (`/scope`), BRIEF
+and PRD skipped (the framing and the requirement were settled during the
+upstream `/explore` run). A PLAN has been authored against this design.
 
 ## Context and Problem Statement
 
