@@ -20,7 +20,9 @@
       "name": "explore-handoff-detection",
       "prompt": "/roadmap release-automation",
       "expected_output": "Detects existing handoff artifact at wip/roadmap_release-automation_scope.md. Skips Phase 1 (scope) and resumes at Phase 2 (discover). Uses the handoff artifact's theme statement and candidate features as input.",
-      "files": ["wip/roadmap_release-automation_scope.md"],
+      "files": [
+        "wip/roadmap_release-automation_scope.md"
+      ],
       "expectations": [
         "Transcript checks for and detects existing handoff artifact at wip/roadmap_release-automation_scope.md",
         "Transcript explicitly skips Phase 1 (scope) because the handoff artifact exists",
@@ -33,7 +35,9 @@
       "name": "lifecycle-activate",
       "prompt": "/roadmap activate docs/roadmaps/ROADMAP-release-automation.md",
       "expected_output": "Detects 'activate' as a lifecycle verb. Validates at least 2 features exist. Runs shirabe transition to transition from Draft to Active. Reports success.",
-      "files": ["docs/roadmaps/ROADMAP-release-automation.md"],
+      "files": [
+        "docs/roadmaps/ROADMAP-release-automation.md"
+      ],
       "expectations": [
         "Transcript identifies 'activate' as a lifecycle verb from the arguments",
         "Transcript plans to validate that at least 2 features exist in the roadmap",
@@ -46,7 +50,9 @@
       "name": "lifecycle-done",
       "prompt": "/roadmap done docs/roadmaps/ROADMAP-release-automation.md",
       "expected_output": "Detects 'done' as a lifecycle verb. Validates all features have terminal status. Runs shirabe transition to transition from Active to Done. Roadmap stays in docs/roadmaps/ (no directory movement).",
-      "files": ["docs/roadmaps/ROADMAP-release-automation.md"],
+      "files": [
+        "docs/roadmaps/ROADMAP-release-automation.md"
+      ],
       "expectations": [
         "Transcript identifies 'done' as a lifecycle verb from the arguments",
         "Transcript plans to validate that all features have terminal status (delivered or dropped)",
@@ -123,13 +129,31 @@
       "name": "populate-issues-table",
       "prompt": "/roadmap populate docs/roadmaps/ROADMAP-release-automation.md",
       "expected_output": "Detects 'populate' as the input mode. Presents the features that will be turned into issues for the author's approval (R14 gate). On approval, invokes the `shirabe roadmap populate` subcommand on the shirabe CLI, which reads the Features section via the shared shirabe-validate parser, creates one GitHub issue per feature with discrete `gh issue create` args, and writes the Implementation Issues table and Dependency Graph into the reserved sections by structural section replacement. Does not rewrite the roadmap by prose substitution.",
-      "files": ["docs/roadmaps/ROADMAP-release-automation.md"],
+      "files": [
+        "docs/roadmaps/ROADMAP-release-automation.md"
+      ],
       "expectations": [
         "Transcript identifies 'populate' as the input mode from the arguments",
         "Transcript stops for R14 approval before invoking the subcommand in an interactive run (or records an assumed approval decision block under --auto)",
         "Transcript plans to run the `shirabe roadmap populate` subcommand against the named roadmap",
         "Transcript describes invoking gh as a primitive with discrete arguments (not re-driving the plan workflow)",
         "Transcript describes structural section replacement for the Implementation Issues and Dependency Graph sections (not prose string substitution)"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "populate-issues-table-issueless",
+      "prompt": "/roadmap populate docs/roadmaps/ROADMAP-release-automation.md   (this repo's CLAUDE.md sets `## Roadmap Issues: optional`)",
+      "expected_output": "Resolves the `## Roadmap Issues:` preference to `optional` and takes the issueless populate path. Invokes `shirabe roadmap populate --no-issues`, which creates no GitHub issues (no `gh issue create` runs) and renders a feature-keyed Implementation Issues table (the feature's `needs-*` label in the Issues column) and an `F`-node Dependency Graph from the Features section, written by structural section replacement. Does not present the R14 approval gate, because no issues are created. Dependencies cells are bare feature keys.",
+      "files": [
+        "docs/roadmaps/ROADMAP-release-automation.md"
+      ],
+      "expectations": [
+        "Transcript resolves the `## Roadmap Issues:` preference to `optional` (and would default to `required` if the header were absent)",
+        "Transcript invokes `shirabe roadmap populate` with the `--no-issues` flag",
+        "Transcript states that no GitHub issues are created and no `gh issue create` runs in this mode",
+        "Transcript does not present or wait on the R14 approval gate, noting R14 gates issue creation which does not occur here",
+        "Transcript describes a feature-keyed table and `F`-node dependency diagram with bare-key dependency cells, written by structural section replacement"
       ]
     }
   ]

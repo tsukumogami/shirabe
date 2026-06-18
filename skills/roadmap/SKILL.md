@@ -82,7 +82,11 @@ From `$ARGUMENTS`:
    Issues and Dependency Graph sections by invoking the
    `shirabe roadmap populate` subcommand on the shirabe CLI. Native to the
    roadmap; replaces the plan re-entry path that rewrote these sections by
-   prose substitution. See [Populating the Issues Table](#populating-the-issues-table)
+   prose substitution. Two modes, selected by the `## Roadmap Issues:`
+   preference: under `required` (or absent header) the subcommand creates
+   one GitHub issue per feature and the table/diagram key on those issues;
+   under `optional` it renders the sections from feature context with no
+   issues created. See [Populating the Issues Table](#populating-the-issues-table)
    below.
 4. **Anything else** -- use as the starting topic for Phase 1 scoping
 
@@ -107,6 +111,17 @@ Also parse `--max-rounds=N` (default: 2 for roadmap's discover loop). In
 --auto mode, follow decision-protocol conventions -- make decisions based on
 evidence rather than blocking on user input. Create
 `wip/roadmap_<topic>_decisions.md` to track decisions.
+
+**Roadmap issues preference:** read CLAUDE.md's `## Roadmap Issues:`
+header the same way `## Execution Mode:` is read -- grep the header,
+take the value after the colon. Resolve to `required` when the header
+is absent or the value is anything other than `optional` (fail-closed
+toward the issue-creating, human-gated path). Record the resolved
+value (`optional` or `required`) in the run's context so the populate
+phase can branch on it. The validator never reads this header; it's a
+skill-only preference. See
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/claude-md-conventions.md` for
+the header format.
 
 **Upstream:** check `$ARGUMENTS` for `--upstream <path>`. If present, the
 path is stored and written to frontmatter during Phase 3 (draft). Typically
@@ -289,12 +304,26 @@ The roadmap's reserved Implementation Issues and Dependency Graph sections
 are populated by the `shirabe roadmap populate` subcommand on the
 `shirabe` CLI. This is a roadmap-native path: the subcommand reads the
 Features section using the shared `shirabe-validate` parser, builds a
-per-feature manifest, creates one GitHub issue per feature (one
-`gh issue create` invocation per feature, discrete args), then renders the
-canonical feature-keyed table and dependency diagram and writes both into
-the reserved sections by **structural section replacement** (the body
-between each section's heading and the next `##` heading is replaced; the
-heading itself is preserved).
+per-feature manifest, then renders the canonical table and dependency
+diagram and writes both into the reserved sections by **structural section
+replacement** (the body between each section's heading and the next `##`
+heading is replaced; the heading itself is preserved).
+
+The subcommand runs in one of two modes, selected by the `## Roadmap
+Issues:` preference resolved during setup ([Context
+Resolution](#context-resolution)):
+
+- **`required` (or absent header) -- issue-creating mode.** The default,
+  and behaviorally unchanged from before this preference existed. The
+  subcommand creates one GitHub issue per feature (one `gh issue create`
+  invocation per feature, discrete args), then renders an issue-keyed
+  table and diagram. This path goes through the R14 approval gate below.
+- **`optional` -- issueless mode.** Invoke the subcommand with
+  `--no-issues`. It creates no issues -- no `gh issue create` runs -- and
+  renders the sections from feature context: a feature-keyed table (the
+  feature's `needs-*` label in the Issues column) and an `F<n>`-node
+  diagram, with Dependencies cells as bare feature keys. The R14 gate is
+  skipped, since there are no issues to approve (see below).
 
 The roadmap profile shape (`Feature | Issues | Dependencies | Status`) and
 the dependency-diagram convention come from
@@ -307,7 +336,8 @@ the dependency-diagram convention come from
 /roadmap populate <path>
 ```
 
-Or, equivalently, invoking the CLI directly from the project root:
+Or, equivalently, invoking the CLI directly from the project root. The
+issue-creating form (`## Roadmap Issues: required`):
 
 ```bash
 shirabe roadmap populate <roadmap-path> \
@@ -316,12 +346,23 @@ shirabe roadmap populate <roadmap-path> \
     --output-map "<mapping-output-path>"
 ```
 
+The issueless form (`## Roadmap Issues: optional`) drops the milestone and
+mapping flags -- no issues are created, so there's nothing to file under a
+milestone or map:
+
+```bash
+shirabe roadmap populate <roadmap-path> --no-issues
+```
+
 Options:
 - `--milestone <name>` -- milestone for the created issues
 - `--milestone-description <desc>` -- milestone description
 - `--mapping <file>` -- pre-existing id->github_number mapping (re-render only)
 - `--output-map <file>` -- write the final id->github_number mapping
 - `--repo <owner/repo>` -- override the repo used when rendering issue links
+- `--no-issues` -- issueless mode: create no issues and render the reserved
+  sections feature-keyed from the Features section. Set by the skill when
+  `## Roadmap Issues:` resolves to `optional`.
 - `--dry-run` -- skip `gh` invocations; synthesize a deterministic mapping
 - `-h, --help` -- print help
 
@@ -330,6 +371,17 @@ Options:
 Issue creation is the gated step (R14 in the requirements). The gate lives
 in this skill phase, NOT in the subcommand. The subcommand is a primitive
 that creates issues when invoked.
+
+**R14 gates issue creation, so it applies only in issue-creating mode.**
+Under `## Roadmap Issues: required` (or an absent header), present the gate
+as described below before invoking the subcommand. Under `## Roadmap
+Issues: optional`, the subcommand runs with `--no-issues` and creates no
+issues -- there is nothing to approve, so skip the gate entirely. Skipping
+it removes a gate over an action that does not occur; it does not bypass
+approval over any side effect.
+
+The rest of this section describes the gate as it applies in
+issue-creating mode.
 
 **Interactive runs.** Before invoking the subcommand without `--dry-run`,
 present a summary of the features that will be turned into issues (count,

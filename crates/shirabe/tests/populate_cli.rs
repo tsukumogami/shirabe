@@ -270,11 +270,7 @@ fn dry_run_never_invokes_gh() {
     let stub_dir = dir.join("stub-bin");
     fs::create_dir_all(&stub_dir).unwrap();
     let stub_path = stub_dir.join("gh");
-    fs::write(
-        &stub_path,
-        "#!/usr/bin/env bash\nexit 99\n",
-    )
-    .unwrap();
+    fs::write(&stub_path, "#!/usr/bin/env bash\nexit 99\n").unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -368,12 +364,7 @@ fn output_map_writes_parseable_mapping() {
     shirabe()
         .args(["roadmap", "populate"])
         .arg(&path)
-        .args([
-            "--dry-run",
-            "--repo",
-            "example/repo",
-            "--output-map",
-        ])
+        .args(["--dry-run", "--repo", "example/repo", "--output-map"])
         .arg(&map_path)
         .assert()
         .success();
@@ -522,7 +513,12 @@ fn binary_runs_without_external_shell_dependency() {
         .arg("--version")
         .output()
         .map(|_| ())
-        .map(|_| std::path::PathBuf::from(env!("CARGO_BIN_EXE_shirabe")).parent().unwrap().to_path_buf())
+        .map(|_| {
+            std::path::PathBuf::from(env!("CARGO_BIN_EXE_shirabe"))
+                .parent()
+                .unwrap()
+                .to_path_buf()
+        })
         .unwrap_or_else(|_| std::env::temp_dir());
 
     shirabe()

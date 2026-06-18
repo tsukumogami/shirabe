@@ -90,7 +90,9 @@ struct RoadmapArgs {
 #[derive(Subcommand)]
 enum RoadmapCommands {
     /// Populate a roadmap's reserved Implementation Issues and Dependency
-    /// Graph sections, creating one GitHub issue per feature.
+    /// Graph sections, creating one GitHub issue per feature. Pass
+    /// `--no-issues` for the issueless render mode (feature-keyed table and
+    /// `F<n>` diagram from feature context, no GitHub calls).
     Populate(populate::PopulateArgs),
 }
 
@@ -356,11 +358,23 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     }
 
     if let Some(root) = args.lifecycle.as_deref() {
-        return run_lifecycle(root, &args.visibility, args.strict, args.allow_untracked_acs, args.format);
+        return run_lifecycle(
+            root,
+            &args.visibility,
+            args.strict,
+            args.allow_untracked_acs,
+            args.format,
+        );
     }
 
     if let Some(doc) = args.lifecycle_chain.as_deref() {
-        return run_lifecycle_chain(doc, &args.visibility, args.strict, args.allow_untracked_acs, args.format);
+        return run_lifecycle_chain(
+            doc,
+            &args.visibility,
+            args.strict,
+            args.allow_untracked_acs,
+            args.format,
+        );
     }
 
     if args.files.is_empty() {

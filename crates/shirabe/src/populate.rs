@@ -66,6 +66,14 @@ pub struct PopulateArgs {
     /// rendering. Used by the calling skill phase to preview and by tests.
     #[arg(long = "dry-run")]
     pub dry_run: bool,
+
+    /// Issueless render mode. Skips `gh issue create` entirely (no GitHub
+    /// calls) and renders both reserved sections from feature context: a
+    /// feature-keyed Implementation Issues table (rows keyed `F1`, `F2`,
+    /// ...) and an `F<n>`-node Dependency Graph. Set by the roadmap skill
+    /// when the repo declares `## Roadmap Issues: optional`.
+    #[arg(long = "no-issues")]
+    pub no_issues: bool,
 }
 
 /// Entry point used by `main.rs`. Returns an `ExitCode` so the binary can
@@ -101,6 +109,15 @@ fn run_inner(args: &PopulateArgs) -> Result<(), String> {
     require_section(&doc, "Implementation Issues")?;
     require_section(&doc, "Dependency Graph")?;
 
+    // Issueless mode renders both sections from feature context and makes
+    // no GitHub calls. It shares the section-replacement writer and the
+    // Features parser with the issue-creating path; only issue creation and
+    // the table/diagram keying differ. The R14 approval gate (in the calling
+    // skill phase) is irrelevant here -- nothing is created to approve.
+    if args.no_issues {
+        return run_issueless(args, &roadmap, &features);
+    }
+
     let mapping = obtain_mapping(args, &features)?;
     let owner_repo = resolve_owner_repo(args)?;
 
@@ -122,6 +139,140 @@ fn run_inner(args: &PopulateArgs) -> Result<(), String> {
     println!("{}", summary);
 
     Ok(())
+}
+
+/// Issueless render path: fills both reserved sections from feature context
+/// with no `gh` invocations. The Implementation Issues table is feature-keyed
+/// (each row keyed `F1`, `F2`, ... so the bare-key Dependencies cells
+/// reconcile under FC06), and the Dependency Graph uses `F<n>` nodes labeled
+/// with the feature names. Writes via the same structural section-replacement
+/// writer the issue-creating path uses.
+fn run_issueless(args: &PopulateArgs, roadmap: &Path, features: &[Feature]) -> Result<(), String> {
+    let table = render_issueless_table(features, &args.milestone);
+    let diagram = render_issueless_diagram(features);
+
+    let table_body = wrap_section_body(&table);
+    let diagram_body = wrap_section_body(&diagram);
+
+    replace_section(roadmap, "## Implementation Issues", &table_body)?;
+    replace_section(roadmap, "## Dependency Graph", &diagram_body)?;
+
+    // Issueless mode creates no issues, so the mapping is empty; emit the
+    // same summary shape the issue-creating path does for caller-state
+    // parity (an empty `mapping` object signals the issueless run).
+    let mapping = IssueMap::new();
+    if !args.output_map.is_empty() {
+        write_mapping_json(&PathBuf::from(&args.output_map), &mapping)?;
+    }
+    let summary = format_summary_json(&args.roadmap_path, args.dry_run, &mapping);
+    println!("{}", summary);
+
+    Ok(())
+}
+
+/// Render the feature-keyed Implementation Issues table for issueless mode.
+///
+/// The roadmap profile (`Feature | Issues | Dependencies | Status`) is
+/// preserved so the validator selects the roadmap branch. The first column
+/// carries the feature key (`F1`, `F2`, ...) so the row key equals the bare
+/// dependency token a depending feature references; the Issues column carries
+/// the feature's `needs-*` label (or `None` when absent); the Dependencies
+/// column holds bare feature keys with NO parenthetical annotations (those
+/// trip FC06); the Status column comes from the feature's `**Status:**`. Each
+/// entity row is followed by an italic description row, matching the
+/// issue-creating renderer and FC05's row-shape requirement.
+pub fn render_issueless_table(features: &[Feature], milestone: &str) -> String {
+    let mut s = String::new();
+    if !milestone.is_empty() {
+        s.push_str("### Milestone: ");
+        s.push_str(milestone);
+        s.push_str("\n\n");
+    }
+    s.push_str("| Feature | Issues | Dependencies | Status |\n");
+    s.push_str("|---------|--------|--------------|--------|\n");
+    for f in features {
+        let key = format!("F{}", f.id);
+        let issue_cell = match extract_needs_label(&f.needs) {
+            Some(label) => label,
+            None => "None".to_string(),
+        };
+        let deps_cell = bare_feature_deps(&f.dependencies);
+        let status_cell = pick_status_cell(f);
+        s.push_str(&format!(
+            "| {} | {} | {} | {} |\n",
+            key, issue_cell, deps_cell, status_cell
+        ));
+        s.push_str(&format!("| _{}_ | | | |\n", f.description));
+    }
+    s
+}
+
+/// Render the `F<n>`-node Dependency Graph for issueless mode.
+///
+/// Nodes are `F<n>` labeled with the (truncated) feature name; edges derive
+/// from each feature's stated dependencies (`F1 --> F2`). The status-class
+/// palette and Legend mirror the issue-creating diagram so a reader sees the
+/// same `needs-*` coloring in both modes.
+pub fn render_issueless_diagram(features: &[Feature]) -> String {
+    let mut s = String::new();
+    s.push_str("```mermaid\n");
+    s.push_str("graph TD\n");
+
+    for f in features {
+        let clean = strip_label_decoration(&f.label);
+        s.push_str(&format!("    F{}[\"{}\"]\n", f.id, truncate_label(&clean)));
+    }
+
+    s.push('\n');
+    for f in features {
+        if f.dependencies.is_empty() || f.dependencies == "None" {
+            continue;
+        }
+        for n in feature_refs_in(&f.dependencies) {
+            s.push_str(&format!("    F{} --> F{}\n", n, f.id));
+        }
+    }
+
+    s.push('\n');
+    s.push_str("    classDef done fill:#c8e6c9\n");
+    s.push_str("    classDef ready fill:#bbdefb\n");
+    s.push_str("    classDef blocked fill:#fff9c4\n");
+    s.push_str("    classDef needsDesign fill:#e1bee7\n");
+    s.push_str("    classDef needsPrd fill:#b3e5fc\n");
+    s.push_str("    classDef needsSpike fill:#ffcdd2\n");
+    s.push_str("    classDef needsDecision fill:#d1c4e9\n");
+    s.push_str("    classDef tracksDesign fill:#FFE0B2,stroke:#F57C00,color:#000\n");
+    s.push_str("    classDef tracksPlan fill:#FFE0B2,stroke:#F57C00,color:#000\n");
+
+    s.push('\n');
+    for f in features {
+        let class_name = pick_class(f);
+        s.push_str(&format!("    class F{} {}\n", f.id, class_name));
+    }
+
+    s.push_str("```\n\n");
+    s.push_str("**Legend**: Green = done, Blue = ready, Yellow = blocked, Purple = needs-design, Orange = tracks-design/tracks-plan\n");
+    s
+}
+
+/// Convert a feature's raw Dependencies value into a bare-key cell.
+///
+/// `Feature 1` -> `F1`, `Feature 1, Feature 2` -> `F1, F2`, `None`/empty ->
+/// `None`. NO parenthetical annotations are emitted -- `F1 (soft)` and
+/// `None (ext: ...)` trip the validator's FC06 check, so the soft/hard and
+/// external nuance stays in the feature prose, not the cell. Cross-repo refs
+/// in the source (e.g. `tsukumogami/koto#65`) carry no `Feature N` token and
+/// so contribute no bare key; when a feature lists only such refs the cell
+/// collapses to `None`.
+fn bare_feature_deps(deps: &str) -> String {
+    let refs = feature_refs_in(deps);
+    if refs.is_empty() {
+        return "None".to_string();
+    }
+    refs.iter()
+        .map(|n| format!("F{}", n))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// One entry in the per-feature manifest, in the shape
@@ -230,8 +381,12 @@ pub fn parse_mapping_json(raw: &str) -> Result<IssueMap, String> {
     if s.is_empty() || s == "{}" {
         return Ok(map);
     }
-    let s = s.strip_prefix('{').ok_or("mapping JSON must start with `{`")?;
-    let s = s.strip_suffix('}').ok_or("mapping JSON must end with `}`")?;
+    let s = s
+        .strip_prefix('{')
+        .ok_or("mapping JSON must start with `{`")?;
+    let s = s
+        .strip_suffix('}')
+        .ok_or("mapping JSON must end with `}`")?;
     for pair in s.split(',') {
         let pair = pair.trim();
         if pair.is_empty() {
@@ -323,7 +478,11 @@ pub fn extract_issue_number(stdout: &str) -> Option<u64> {
 
 fn resolve_owner_repo(args: &PopulateArgs) -> Result<String, String> {
     if !args.repo.is_empty() {
-        return Ok(args.repo.strip_prefix("https://github.com/").unwrap_or(&args.repo).to_string());
+        return Ok(args
+            .repo
+            .strip_prefix("https://github.com/")
+            .unwrap_or(&args.repo)
+            .to_string());
     }
     if args.dry_run {
         // Best-effort gh lookup, tolerate failure for sandboxed dry-runs.
@@ -334,7 +493,14 @@ fn resolve_owner_repo(args: &PopulateArgs) -> Result<String, String> {
 
 fn gh_repo_owner_repo() -> Result<String, String> {
     let output = Command::new("gh")
-        .args(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"])
+        .args([
+            "repo",
+            "view",
+            "--json",
+            "nameWithOwner",
+            "--jq",
+            ".nameWithOwner",
+        ])
         .output()
         .map_err(|e| format!("invoke gh repo view: {}", e))?;
     if !output.status.success() {
@@ -415,7 +581,11 @@ pub fn render_diagram(features: &[Feature], mapping: &IssueMap) -> String {
             Some(n) => format!("#{}: {}", n, clean),
             None => clean,
         };
-        s.push_str(&format!("    F{}[\"{}\"]\n", f.id, truncate_label(&label_text)));
+        s.push_str(&format!(
+            "    F{}[\"{}\"]\n",
+            f.id,
+            truncate_label(&label_text)
+        ));
     }
 
     s.push('\n');
@@ -479,12 +649,15 @@ fn pick_class(f: &Feature) -> &'static str {
 /// Truncate a node label to 40 chars at the last word boundary, replacing
 /// `[`/`]` with `(`/`)` per the diagram convention.
 fn truncate_label(label: &str) -> String {
-    let cleaned: String = label.chars().map(|c| match c {
-        '[' => '(',
-        ']' => ')',
-        '`' => ' ',
-        _ => c,
-    }).collect();
+    let cleaned: String = label
+        .chars()
+        .map(|c| match c {
+            '[' => '(',
+            ']' => ')',
+            '`' => ' ',
+            _ => c,
+        })
+        .collect();
     if cleaned.chars().count() <= 40 {
         return cleaned;
     }
@@ -513,7 +686,10 @@ fn feature_refs_in(deps: &str) -> Vec<usize> {
                 end += 1;
             }
             if end > start {
-                if let Ok(n) = std::str::from_utf8(&bytes[start..end]).unwrap().parse::<usize>() {
+                if let Ok(n) = std::str::from_utf8(&bytes[start..end])
+                    .unwrap()
+                    .parse::<usize>()
+                {
                     out.push(n);
                 }
                 i = end;
@@ -549,8 +725,8 @@ fn require_section(doc: &shirabe_validate::Doc, name: &str) -> Result<(), String
 /// renders into a temp file in the same parent directory, then renames over
 /// the original.
 pub fn replace_section(file: &Path, heading: &str, new_body: &str) -> Result<(), String> {
-    let original = fs::read_to_string(file)
-        .map_err(|e| format!("read {}: {}", file.display(), e))?;
+    let original =
+        fs::read_to_string(file).map_err(|e| format!("read {}: {}", file.display(), e))?;
 
     let mut rendered = String::with_capacity(original.len() + new_body.len());
     let mut state = ReplaceState::Before;
@@ -617,7 +793,12 @@ fn atomic_write(target: &Path, contents: &str) -> Result<(), String> {
     fs::rename(&temp_path, target).map_err(|e| {
         // Clean up temp on rename failure.
         let _ = fs::remove_file(&temp_path);
-        format!("atomic rename {} -> {}: {}", temp_path.display(), target.display(), e)
+        format!(
+            "atomic rename {} -> {}: {}",
+            temp_path.display(),
+            target.display(),
+            e
+        )
     })
 }
 
@@ -676,7 +857,14 @@ mod tests {
     use super::*;
     use shirabe_validate::doc::Section;
 
-    fn make_feature(id: usize, label: &str, needs: &str, deps: &str, status: &str, desc: &str) -> Feature {
+    fn make_feature(
+        id: usize,
+        label: &str,
+        needs: &str,
+        deps: &str,
+        status: &str,
+        desc: &str,
+    ) -> Feature {
         Feature {
             id,
             label: label.to_string(),
@@ -724,8 +912,22 @@ mod tests {
     #[test]
     fn render_table_emits_canonical_shape() {
         let features = vec![
-            make_feature(1, "Foundation", "`needs-design`", "None", "Not started", "Foundation."),
-            make_feature(2, "Caching", "`needs-spike`", "Feature 1", "Not started", "Caching."),
+            make_feature(
+                1,
+                "Foundation",
+                "`needs-design`",
+                "None",
+                "Not started",
+                "Foundation.",
+            ),
+            make_feature(
+                2,
+                "Caching",
+                "`needs-spike`",
+                "Feature 1",
+                "Not started",
+                "Caching.",
+            ),
         ];
         let map = synthesize_mapping(&features);
         let table = render_table(&features, &map, "owner/repo", "M1");
@@ -743,8 +945,22 @@ mod tests {
     #[test]
     fn render_diagram_emits_full_palette_and_edges() {
         let features = vec![
-            make_feature(1, "Foundation", "`needs-design`", "None", "Not started", "x."),
-            make_feature(2, "Caching", "`needs-spike`", "Feature 1", "Not started", "x."),
+            make_feature(
+                1,
+                "Foundation",
+                "`needs-design`",
+                "None",
+                "Not started",
+                "x.",
+            ),
+            make_feature(
+                2,
+                "Caching",
+                "`needs-spike`",
+                "Feature 1",
+                "Not started",
+                "x.",
+            ),
             make_feature(3, "Done thing", "None", "Feature 1", "Done", "x."),
         ];
         let map = synthesize_mapping(&features);
@@ -759,6 +975,259 @@ mod tests {
         assert!(diagram.contains("class F2 needsSpike"));
         assert!(diagram.contains("class F3 done"));
         assert!(diagram.contains("**Legend**:"));
+    }
+
+    #[test]
+    fn bare_feature_deps_strips_to_keys_or_none() {
+        assert_eq!(bare_feature_deps("None"), "None");
+        assert_eq!(bare_feature_deps(""), "None");
+        assert_eq!(bare_feature_deps("Feature 1"), "F1");
+        assert_eq!(bare_feature_deps("Feature 1, Feature 2"), "F1, F2");
+        // A cross-repo-only dependency carries no `Feature N` token, so the
+        // cell collapses to `None` (the nuance lives in feature prose).
+        assert_eq!(bare_feature_deps("tsukumogami/koto#65"), "None");
+        // Mixed: only the local feature tokens survive as bare keys.
+        assert_eq!(bare_feature_deps("tsukumogami/koto#65, Feature 1"), "F1");
+    }
+
+    #[test]
+    fn render_issueless_table_is_feature_keyed_with_bare_deps() {
+        let features = vec![
+            make_feature(
+                1,
+                "Foundation",
+                "`needs-design` -- pending",
+                "None",
+                "Not started",
+                "Foundation.",
+            ),
+            make_feature(
+                2,
+                "Caching",
+                "`needs-spike`",
+                "Feature 1",
+                "Not started",
+                "Caching.",
+            ),
+        ];
+        let table = render_issueless_table(&features, "M1");
+        assert!(table.contains("### Milestone: M1"));
+        assert!(table.contains("| Feature | Issues | Dependencies | Status |"));
+        // Rows are keyed F1/F2 (NOT the feature name, NOT an issue link), the
+        // Issues column carries the needs-* label, deps are bare keys.
+        assert!(table.contains("| F1 | needs-design | None | needs-design |"));
+        assert!(table.contains("| _Foundation._ | | | |"));
+        assert!(table.contains("| F2 | needs-spike | F1 | needs-spike |"));
+        assert!(table.contains("| _Caching._ | | | |"));
+        // No GitHub issue links leak into the issueless table.
+        assert!(!table.contains("https://github.com"));
+        assert!(!table.contains("[#"));
+    }
+
+    #[test]
+    fn render_issueless_table_no_needs_label_renders_none_issue_cell() {
+        let features = vec![make_feature(
+            1,
+            "Plain",
+            "None",
+            "None",
+            "In Progress",
+            "Plain feature.",
+        )];
+        let table = render_issueless_table(&features, "");
+        // No `### Milestone:` line when the milestone is empty.
+        assert!(!table.contains("### Milestone"));
+        // A feature with no needs-* label gets a `None` Issues cell and keeps
+        // its declared Status.
+        assert!(table.contains("| F1 | None | None | In Progress |"));
+    }
+
+    #[test]
+    fn render_issueless_diagram_uses_feature_nodes_and_edges() {
+        let features = vec![
+            make_feature(
+                1,
+                "Foundation",
+                "`needs-design`",
+                "None",
+                "Not started",
+                "x.",
+            ),
+            make_feature(
+                2,
+                "Caching",
+                "`needs-spike`",
+                "Feature 1",
+                "Not started",
+                "x.",
+            ),
+            make_feature(3, "Done thing", "None", "Feature 1", "Done", "x."),
+        ];
+        let diagram = render_issueless_diagram(&features);
+        assert!(diagram.contains("graph TD"));
+        // F<n> nodes labeled with the feature name (no `#<issue>:` prefix).
+        assert!(diagram.contains("F1[\"Foundation\"]"));
+        assert!(diagram.contains("F2[\"Caching\"]"));
+        assert!(!diagram.contains("#1001"));
+        // Edges derive from the feature deps.
+        assert!(diagram.contains("F1 --> F2"));
+        assert!(diagram.contains("F1 --> F3"));
+        assert!(diagram.contains("classDef needsSpike fill:#ffcdd2"));
+        assert!(diagram.contains("class F1 needsDesign"));
+        assert!(diagram.contains("class F2 needsSpike"));
+        assert!(diagram.contains("class F3 done"));
+        assert!(diagram.contains("**Legend**:"));
+    }
+
+    #[test]
+    fn no_issues_flag_parses() {
+        use clap::Parser;
+        // Parse through the binary's clap surface to confirm the flag wires
+        // up. A minimal standalone parser mirroring the subcommand shape.
+        #[derive(Parser)]
+        struct Probe {
+            #[command(flatten)]
+            args: PopulateArgs,
+        }
+        let p = Probe::parse_from(["x", "ROADMAP.md", "--no-issues"]);
+        assert!(p.args.no_issues);
+        let p = Probe::parse_from(["x", "ROADMAP.md"]);
+        assert!(!p.args.no_issues);
+    }
+
+    #[test]
+    fn run_issueless_writes_sections_and_makes_no_github_calls() {
+        // A non-existent `gh` on PATH would make any GitHub call fail loudly;
+        // we instead assert the rendered sections never reference GitHub and
+        // that the writer fills both reserved sections. The issueless path
+        // never constructs a `Command::new("gh")`, so this run is hermetic.
+        let dir = tempdir();
+        let path = dir.join("ROADMAP-x.md");
+        let original = concat!(
+            "---\n",
+            "schema: roadmap/v1\n",
+            "status: Active\n",
+            "---\n\n",
+            "# ROADMAP: x\n\n",
+            "## Status\n\nActive\n\n",
+            "## Features\n\n",
+            "### Feature 1: Foundation\n",
+            "**Needs:** `needs-design` -- pending\n",
+            "**Dependencies:** None\n",
+            "**Status:** Not started\n\n",
+            "The foundation layer.\n\n",
+            "### Feature 2: Caching\n",
+            "**Needs:** `needs-spike`\n",
+            "**Dependencies:** Feature 1\n",
+            "**Status:** Not started\n\n",
+            "Adds a cache.\n\n",
+            "## Implementation Issues\n\n",
+            "<!-- placeholder -->\n\n",
+            "## Dependency Graph\n\n",
+            "<!-- placeholder -->\n",
+        );
+        fs::write(&path, original).unwrap();
+
+        let args = PopulateArgs {
+            roadmap_path: path.to_string_lossy().to_string(),
+            milestone: String::new(),
+            milestone_description: String::new(),
+            mapping: String::new(),
+            output_map: String::new(),
+            repo: String::new(),
+            dry_run: false,
+            no_issues: true,
+        };
+        let code = run(&args);
+        assert_eq!(code, ExitCode::SUCCESS);
+
+        let updated = fs::read_to_string(&path).unwrap();
+        // Both reserved sections are filled, feature-keyed, no GitHub refs.
+        assert!(updated.contains("| F1 | needs-design | None | needs-design |"));
+        assert!(updated.contains("| F2 | needs-spike | F1 | needs-spike |"));
+        assert!(updated.contains("graph TD"));
+        assert!(updated.contains("F1 --> F2"));
+        assert!(!updated.contains("https://github.com"));
+        // The other prose is preserved untouched.
+        assert!(updated.contains("## Features"));
+        assert!(updated.contains("The foundation layer."));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn run_issueless_render_validates_clean() {
+        // Render the issueless sections into a full roadmap and run the
+        // validator over it; the feature-keyed shape with bare-key deps must
+        // produce zero error-level findings (FC05/FC06/FC07 all pass).
+        use shirabe_validate::{detect_format, validate_file, Config};
+
+        let dir = tempdir();
+        let path = dir.join("ROADMAP-clean.md");
+        // A complete roadmap: required frontmatter (theme, scope) and the
+        // required sections (Theme, Sequencing Rationale, Progress) so the
+        // only thing under test is the issueless-rendered Implementation
+        // Issues table and Dependency Graph.
+        let original = concat!(
+            "---\n",
+            "schema: roadmap/v1\n",
+            "status: Active\n",
+            "theme: |\n  theme.\n",
+            "scope: |\n  scope.\n",
+            "---\n\n",
+            "# ROADMAP: clean\n\n",
+            "## Status\n\nActive\n\n",
+            "## Theme\n\nThe theme.\n\n",
+            "## Features\n\n",
+            "### Feature 1: Foundation\n",
+            "**Needs:** `needs-design`\n",
+            "**Dependencies:** None\n",
+            "**Status:** Not started\n\n",
+            "The foundation layer.\n\n",
+            "### Feature 2: Caching\n",
+            "**Needs:** `needs-spike`\n",
+            "**Dependencies:** Feature 1\n",
+            "**Status:** Not started\n\n",
+            "Adds a cache.\n\n",
+            "## Implementation Issues\n\n",
+            "<!-- placeholder -->\n\n",
+            "## Dependency Graph\n\n",
+            "<!-- placeholder -->\n\n",
+            "## Sequencing Rationale\n\nFoundation precedes caching.\n\n",
+            "## Progress\n\nNot started.\n",
+        );
+        fs::write(&path, original).unwrap();
+
+        let args = PopulateArgs {
+            roadmap_path: path.to_string_lossy().to_string(),
+            milestone: String::new(),
+            milestone_description: String::new(),
+            mapping: String::new(),
+            output_map: String::new(),
+            repo: String::new(),
+            dry_run: false,
+            no_issues: true,
+        };
+        assert_eq!(run(&args), ExitCode::SUCCESS);
+
+        let path_str = path.to_string_lossy().to_string();
+        let doc = parse_doc(&path_str).expect("re-parse populated roadmap");
+        let spec = detect_format("ROADMAP-clean.md").expect("roadmap format detected");
+        let cfg = Config {
+            custom_statuses: Default::default(),
+            visibility: "public".to_string(),
+            allow_untracked_acs: false,
+        };
+        let findings = validate_file(&doc, &spec, &cfg);
+        let errors: Vec<_> = findings
+            .iter()
+            .filter(|e| !shirabe_validate::is_notice(e))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "expected clean validation, got: {:?}",
+            errors
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -812,10 +1281,7 @@ mod tests {
 
     #[test]
     fn truncate_label_replaces_brackets_and_backticks() {
-        assert_eq!(
-            truncate_label("[Foo] `bar`"),
-            "(Foo)  bar "
-        );
+        assert_eq!(truncate_label("[Foo] `bar`"), "(Foo)  bar ");
     }
 
     #[test]
@@ -878,7 +1344,10 @@ mod tests {
         h.to_le_bytes().to_vec()
     }
 
-    fn make_doc_with_sections(body: Vec<&str>, sections: Vec<(&str, usize)>) -> shirabe_validate::Doc {
+    fn make_doc_with_sections(
+        body: Vec<&str>,
+        sections: Vec<(&str, usize)>,
+    ) -> shirabe_validate::Doc {
         shirabe_validate::Doc {
             path: "t.md".into(),
             schema: "roadmap/v1".into(),

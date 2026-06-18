@@ -9,7 +9,7 @@ use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 
 /// Resolve the binary under test. The `[[bin]]` target is named
-/// 
+///
 fn shirabe() -> Command {
     Command::cargo_bin("shirabe").expect("binary `shirabe` builds")
 }

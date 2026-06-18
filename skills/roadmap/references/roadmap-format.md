@@ -117,14 +117,38 @@ as ready for direct implementation. When present, it determines which
 
 Two sections follow Progress. They're structurally part of the
 roadmap but are NOT populated by `/roadmap` -- they exist as empty
-placeholders at creation time and are filled later by `/plan` during
-decomposition.
+placeholders at creation time and are filled later by a tool, never
+by hand.
+
+How they get filled depends on the repo's `## Roadmap Issues:`
+CLAUDE.md header (see
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/claude-md-conventions.md`).
+The header defaults to `required` when absent:
+
+- **`## Roadmap Issues: required` (default).** `/plan` fills both
+  sections during decomposition, keying the table and diagram on
+  the GitHub issues it creates (one issue per feature).
+- **`## Roadmap Issues: optional`.** An issueless render of
+  `shirabe roadmap populate` fills both sections from the Features
+  section -- no issues are created. The table is feature-keyed
+  (`F<n>` rows, the feature's `needs-*` label in the Issues
+  column), and the diagram uses `F<n>` nodes. The bare-key
+  Dependencies convention below applies in this mode.
+
+Either way the sections are tool-generated. Don't hand-edit them.
 
 6. **Implementation Issues** -- table mapping features to GitHub
    issues. Empty at creation. The canonical roadmap profile shape
    (`Feature | Issues | Dependencies | Status`), description rows, and
    strikethrough rules are defined in
    `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md`.
+
+Under `## Roadmap Issues: required` (the default) the marker reads
+as below, since `/plan` fills the table from the issues it creates.
+Under `## Roadmap Issues: optional` the marker instead reads
+`<!-- Populated by an issueless 'shirabe roadmap populate' from the
+Features section. Do not fill manually. -->`. The instruction not to
+hand-edit holds in both modes.
 
 ```markdown
 ## Implementation Issues
@@ -140,6 +164,13 @@ decomposition.
    syntax rules, the fixed status-class palette, node format, and
    legend are defined in
    `${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md`.
+
+As with Implementation Issues, the marker is conditioned on the
+preference: under `## Roadmap Issues: optional` it reads
+`<!-- Populated by an issueless 'shirabe roadmap populate' from the
+Features section. Do not fill manually. -->`, and the diagram uses
+`F<n>` feature nodes instead of `I<n>` issue nodes. Don't hand-edit
+it in either mode.
 
 ```markdown
 ## Dependency Graph
@@ -238,10 +269,24 @@ directory movement based on status -- all roadmaps stay in
 
 ### Validation enforcement
 
-The Go validator runs FC05 (issues-table schema conformance) and FC06
+The validator runs FC05 (issues-table schema conformance) and FC06
 (cross-reference existence) on roadmap docs. See
 `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` for the canonical
 roadmap profile contract those checks enforce.
+
+### Dependencies cells in issueless mode
+
+Under `## Roadmap Issues: optional`, the Implementation Issues
+table is feature-keyed, and each Dependencies cell MUST be a bare
+feature key or `None` -- `F1`, `F1, F2`, or `None`. Nothing else.
+
+FC06 rejects annotated forms. `F1 (soft)` and `None (ext:
+onboarding)` each fail with `dependency "..." names no row in this
+table`, because the parenthetical isn't a feature key. Soft-versus-hard
+nuance and external dependencies don't go in the cell -- they belong
+in the feature prose and the Sequencing Rationale, which is where
+the reader looks for that context anyway. Keep the cell to keys; put
+the reasoning in prose.
 
 ## Quality Guidance
 
