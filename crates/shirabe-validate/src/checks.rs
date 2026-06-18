@@ -3847,6 +3847,48 @@ mod tests {
     }
 
     #[test]
+    fn issueless_feature_keyed_roadmap_passes_fc05_fc06_fc07() {
+        // Pins the contract the issueless roadmap mode depends on: a
+        // feature-keyed roadmap whose Issues column carries a bare
+        // `needs-*` label (no `#n` link), whose diagram uses `F<n>`
+        // nodes, and whose Dependencies cells are bare feature keys must
+        // validate clean. If a future validator change broke this shape,
+        // the issueless populate mode would silently stop producing valid
+        // roadmaps; this test fails loudly instead.
+        let doc = doc_md(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| F1 | needs-design | None | Not started |\n| _Alpha._ | | | |\n| F2 | needs-spike | F1 | Not started |\n| _Beta._ | | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    F1[\"alpha\"]\n    F2[\"beta\"]\n    F1 --> F2\n    classDef needsDesign fill:#e1bee7\n    classDef needsSpike fill:#ffe0b2\n    class F1 needsDesign\n    class F2 needsSpike\n```\n",
+        );
+        let spec = spec_for("roadmap/v1");
+        let mut errs = Vec::new();
+        errs.extend(check_fc05(&doc, &spec));
+        errs.extend(check_fc06(&doc, &spec));
+        errs.extend(check_fc07(&doc, &spec));
+        assert!(
+            errs.is_empty(),
+            "issueless feature-keyed roadmap should validate clean across FC05/FC06/FC07, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc06_roadmap_annotated_dep_fires() {
+        // The boundary the issueless mode's bare-key rule exists to avoid:
+        // a Dependencies cell with a trailing annotation (`F1 (soft)`) does
+        // not match any feature-key row, so FC06 fires. This is why the
+        // issueless render emits bare keys; guard it so the rule and the
+        // validator stay in agreement.
+        let doc = doc_md(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| F1 | needs-design | None | Not started |\n| _Alpha._ | | | |\n| F2 | needs-spike | F1 (soft) | Not started |\n| _Beta._ | | | |\n",
+        );
+        let errs = check_fc06(&doc, &spec_for("roadmap/v1"));
+        assert!(
+            errs.iter().any(|e| e.message.contains("F1 (soft)")),
+            "expected FC06 to fire on the annotated dep `F1 (soft)`, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
     fn check_fc06_no_issues_table_spec_is_noop() {
         let doc = doc_md(
             "---\nschema: design/v1\nstatus: Accepted\n---\n\n## Implementation Issues\n\n| Some | Random | Headers |\n|------|--------|---------|\n| a | b | c |\n",
