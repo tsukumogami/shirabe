@@ -10,6 +10,17 @@ belong together. By the end of this phase you should have: a clear theme, an ini
 feature list (minimum 2), dependency sketch, sequencing constraints, and downstream
 artifact state for each feature.
 
+## Roadmap Issues Preference
+
+Resolve the `## Roadmap Issues:` preference once, here in setup, alongside the
+`## Execution Mode:` read. Grep CLAUDE.md for the `## Roadmap Issues:` header and
+take the value after the colon. The value is `optional` only when it reads exactly
+`optional`; absent header or any unrecognized value resolves to `required`
+(fail-closed toward the issue-creating, human-gated path). Record the resolved
+value (`optional` or `required`) in the run's context -- the populate phase reads it
+to decide whether issues get created and whether the R14 approval gate applies. The
+validator never reads this header; it's a skill-only preference.
+
 ## Resume Check
 
 If `wip/roadmap_<topic>_scope.md` exists and this is NOT a loop-back from Phase 2,
