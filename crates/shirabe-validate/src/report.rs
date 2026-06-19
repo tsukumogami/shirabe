@@ -16,6 +16,7 @@
 //! notices, so the three modes can never disagree about what counts as an
 //! error.
 
+use crate::advisory::AdvisoryReport;
 use crate::doc::ValidationError;
 use crate::validate::{is_notice, ReviewPosture};
 
@@ -68,6 +69,29 @@ fn json_string(value: &str) -> String {
 /// `code`, derived `severity`, `message`, `file`, and `line` (`null` when
 /// the engine's no-line sentinel `0` is present).
 pub fn render_json(findings: &[ValidationError], outcome: &str, posture: ReviewPosture) -> String {
+    render_json_with_advisory(findings, outcome, posture, None)
+}
+
+/// Like [`render_json`], but additionally emits an `advisory` object built
+/// from `advisory` when one is supplied.
+///
+/// **Additive and non-breaking.** Every existing field — `schema_version`,
+/// the `summary` block, and each finding's `code`/`severity`/`message`/
+/// `file`/`line` — is byte-identical to [`render_json`]'s output for the same
+/// `(findings, outcome, posture)`. The `advisory` key is appended after
+/// `findings`; `schema_version` does not change (the advisory is an additive
+/// `v1` field). When `advisory` is `None` the output equals [`render_json`]
+/// exactly, so the advisory context cannot perturb the verdict envelope.
+///
+/// The advisory strings were already sanitized by `advisory::explain`; they
+/// are still passed through [`json_string`] here so the envelope stays
+/// well-formed JSON regardless.
+pub fn render_json_with_advisory(
+    findings: &[ValidationError],
+    outcome: &str,
+    posture: ReviewPosture,
+    advisory: Option<&AdvisoryReport>,
+) -> String {
     let errors = findings.iter().filter(|e| !is_notice(e, posture)).count();
     let notices = findings.iter().filter(|e| is_notice(e, posture)).count();
 
@@ -83,8 +107,13 @@ pub fn render_json(findings: &[ValidationError], outcome: &str, posture: ReviewP
     out.push_str(&format!("    \"notices\": {}\n", notices));
     out.push_str("  },\n");
 
+    // The findings array is emitted with a trailing comma only when an
+    // advisory block follows it, so the existing (advisory-free) bytes are
+    // unchanged while the additive block stays well-formed.
+    let findings_trailer = if advisory.is_some() { "," } else { "" };
+
     if findings.is_empty() {
-        out.push_str("  \"findings\": []\n");
+        out.push_str(&format!("  \"findings\": []{}\n", findings_trailer));
     } else {
         out.push_str("  \"findings\": [\n");
         for (i, e) in findings.iter().enumerate() {
@@ -112,8 +141,35 @@ pub fn render_json(findings: &[ValidationError], outcome: &str, posture: ReviewP
             };
             out.push_str(close);
         }
-        out.push_str("  ]\n");
+        out.push_str(&format!("  ]{}\n", findings_trailer));
     }
+
+    if let Some(adv) = advisory {
+        out.push_str("  \"advisory\": {\n");
+        out.push_str(&format!(
+            "    \"summary\": {},\n",
+            json_string(&adv.summary)
+        ));
+        if adv.notes.is_empty() {
+            out.push_str("    \"notes\": []\n");
+        } else {
+            out.push_str("    \"notes\": [\n");
+            for (i, n) in adv.notes.iter().enumerate() {
+                out.push_str("      {\n");
+                out.push_str(&format!("        \"code\": {},\n", json_string(&n.code)));
+                out.push_str(&format!("        \"remedy\": {}\n", json_string(&n.remedy)));
+                let close = if i + 1 == adv.notes.len() {
+                    "      }\n"
+                } else {
+                    "      },\n"
+                };
+                out.push_str(close);
+            }
+            out.push_str("    ]\n");
+        }
+        out.push_str("  }\n");
+    }
+
     out.push_str("}\n");
     out
 }
@@ -126,9 +182,33 @@ pub fn render_json(findings: &[ValidationError], outcome: &str, posture: ReviewP
 /// (the engine already embeds the check code in it, as the annotation mode
 /// surfaces), so the code is not repeated.
 pub fn render_human(findings: &[ValidationError], outcome: &str, posture: ReviewPosture) -> String {
+    render_human_with_advisory(findings, outcome, posture, None)
+}
+
+/// Like [`render_human`], but appends a sanitized advisory block when one is
+/// supplied.
+///
+/// The findings list and the `N error(s), M notice(s) -- outcome` footer are
+/// byte-identical to [`render_human`]'s output; the advisory is appended after
+/// the footer under an `Advisory:` heading, so the verdict-bearing portion of
+/// the human output never varies with advisory context. When `advisory` is
+/// `None` the output equals [`render_human`] exactly.
+///
+/// **Verbatim-emit safety.** This renderer writes its inputs without escaping
+/// (unlike the JSON and annotation paths). The advisory strings were already
+/// run through `advisory::sanitize` (control/escape stripping) in
+/// `advisory::explain`, so appending them verbatim cannot leak control or
+/// escape bytes into a terminal or CI log.
+pub fn render_human_with_advisory(
+    findings: &[ValidationError],
+    outcome: &str,
+    posture: ReviewPosture,
+    advisory: Option<&AdvisoryReport>,
+) -> String {
     let mut out = String::new();
     if findings.is_empty() {
         out.push_str("All checks passed.\n");
+        append_human_advisory(&mut out, advisory);
         return out;
     }
     for e in findings {
@@ -155,7 +235,23 @@ pub fn render_human(findings: &[ValidationError], outcome: &str, posture: Review
         "\n{} error(s), {} notice(s) -- {}\n",
         errors, notices, outcome
     ));
+    append_human_advisory(&mut out, advisory);
     out
+}
+
+/// Append the advisory block to `out`. No-op when `advisory` is `None`. The
+/// advisory strings are emitted verbatim; they were sanitized upstream in
+/// `advisory::explain`.
+fn append_human_advisory(out: &mut String, advisory: Option<&AdvisoryReport>) {
+    let Some(adv) = advisory else {
+        return;
+    };
+    out.push_str("\nAdvisory: ");
+    out.push_str(&adv.summary);
+    out.push('\n');
+    for note in &adv.notes {
+        out.push_str(&format!("  {}: {}\n", note.code, note.remedy));
+    }
 }
 
 #[cfg(test)]

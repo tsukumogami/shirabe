@@ -91,12 +91,7 @@ pub trait IssueStateClient {
         number: u64,
     ) -> Result<IssueState, ClientError>;
 
-    fn fetch_pr_body(
-        &self,
-        owner: &str,
-        repo: &str,
-        number: u64,
-    ) -> Result<String, ClientError>;
+    fn fetch_pr_body(&self, owner: &str, repo: &str, number: u64) -> Result<String, ClientError>;
 }
 
 /// Per-request timeout for `gh api` calls, in seconds. Matches DESIGN
@@ -185,6 +180,176 @@ fn resolve_pr_from_github_ref() -> Option<u64> {
     let raw = read_nonempty_env("GITHUB_REF")?;
     let caps = GITHUB_REF_PR_RE.captures(&raw)?;
     caps.get(1)?.as_str().parse::<u64>().ok()
+}
+
+/// Byte ceiling for the `GITHUB_EVENT_PATH` payload read. The GitHub
+/// event JSON is small in practice; a generous 4 MiB bound keeps the
+/// advisory read from a pathological or attacker-influenced file (a fork
+/// PR event payload) without imposing a tight limit that real payloads
+/// might brush against. Matches the subprocess ceiling shape used
+/// elsewhere in this module.
+const EVENT_PAYLOAD_CEILING_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Reads the typed `pull_request.draft` boolean from the GitHub Actions
+/// event payload named by `$GITHUB_EVENT_PATH`, for *advisory phrasing
+/// only*.
+///
+/// This is the read described in DESIGN Decision 3 / Solution
+/// Architecture component 5: it lifts **only the typed `draft` bit** and
+/// never any free-form string from the payload, so the advisory layer
+/// cannot carry attacker-controlled bytes into the rendered output (the
+/// rendering-channel mitigation in Security Considerations).
+///
+/// The read is hermetic (a local file the runner writes; no network),
+/// size-bounded (`EVENT_PAYLOAD_CEILING_BYTES`), and parse-failure
+/// tolerant. Every failure mode — env var unset, file absent or
+/// unreadable, oversize, invalid JSON, missing/non-boolean
+/// `pull_request.draft` — degrades to `None`. A `None` therefore means
+/// "no draft signal available", which the advisory layer treats as the
+/// no-PR / unknown-posture phrasing branch.
+///
+/// The result NEVER feeds the verdict: it is read-only with respect to
+/// the exit code and the existing JSON envelope (the advisory-never-gates
+/// invariant).
+pub fn detect_pr_draft() -> Option<bool> {
+    let path = read_nonempty_env("GITHUB_EVENT_PATH")?;
+    let meta = std::fs::metadata(&path).ok()?;
+    if !meta.is_file() || meta.len() > EVENT_PAYLOAD_CEILING_BYTES {
+        return None;
+    }
+    let body = std::fs::read_to_string(&path).ok()?;
+    if body.len() as u64 > EVENT_PAYLOAD_CEILING_BYTES {
+        return None;
+    }
+    parse_pull_request_draft(&body)
+}
+
+/// Extract the boolean `draft` field from the top-level `pull_request`
+/// object of a GitHub event payload. Returns `None` on any structural
+/// surprise (no `pull_request` object, no `draft` key inside it, or a
+/// `draft` value that is not the literal `true`/`false` JSON token).
+///
+/// The scan reuses the brace-depth / string-skipping machinery already
+/// in this module so that braces or the substring `"draft"` appearing
+/// inside unrelated string values cannot perturb the result. It locates
+/// the depth-1 `"pull_request"` key, descends into its object value, and
+/// reads the depth-2 `"draft"` boolean token. No free-form string is
+/// ever returned.
+fn parse_pull_request_draft(body: &str) -> Option<bool> {
+    let bytes = body.as_bytes();
+    // Find the object value of the top-level "pull_request" key.
+    let pr_obj_start = find_object_value_for_key(bytes, "pull_request")?;
+    // Within that object, read the boolean "draft" token at its depth-1.
+    find_bool_value_for_key(bytes, pr_obj_start, "draft")
+}
+
+/// Given `bytes` and `key`, scan the outermost object (depth 1) for the
+/// key `"<key>"` whose value is an object, and return the byte offset of
+/// that value's opening `{`. Returns `None` if the key is absent at
+/// depth 1 or its value is not an object.
+fn find_object_value_for_key(bytes: &[u8], key: &str) -> Option<usize> {
+    let key_quoted = format!("\"{}\"", key);
+    let key_bytes = key_quoted.as_bytes();
+    let mut depth: usize = 0;
+    let mut i: usize = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => {
+                depth += 1;
+                i += 1;
+            }
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                i += 1;
+            }
+            b'"' if depth == 1 => {
+                if i + key_bytes.len() <= bytes.len() && &bytes[i..i + key_bytes.len()] == key_bytes
+                {
+                    // Confirm this is a key (followed by `:`) and find its value.
+                    let mut j = i + key_bytes.len();
+                    while j < bytes.len() && matches!(bytes[j], b' ' | b'\t' | b'\n' | b'\r') {
+                        j += 1;
+                    }
+                    if j < bytes.len() && bytes[j] == b':' {
+                        j += 1;
+                        while j < bytes.len() && matches!(bytes[j], b' ' | b'\t' | b'\n' | b'\r') {
+                            j += 1;
+                        }
+                        if j < bytes.len() && bytes[j] == b'{' {
+                            return Some(j);
+                        }
+                        // Value present but not an object: key matched, give up.
+                        return None;
+                    }
+                }
+                // Not our key (or not a key position): skip the whole string literal.
+                i = skip_string_literal(bytes, i).ok()?;
+            }
+            b'"' => {
+                i = skip_string_literal(bytes, i).ok()?;
+            }
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+/// Starting at `obj_start` (the offset of an opening `{`), scan that
+/// object for the key `"<key>"` whose value is the JSON boolean literal
+/// `true` or `false`, considered only at the object's own depth (depth-1
+/// relative to `obj_start`). Returns the boolean, or `None` if the key is
+/// absent at that depth or its value is not a boolean literal.
+fn find_bool_value_for_key(bytes: &[u8], obj_start: usize, key: &str) -> Option<bool> {
+    debug_assert_eq!(bytes.get(obj_start), Some(&b'{'));
+    let key_quoted = format!("\"{}\"", key);
+    let key_bytes = key_quoted.as_bytes();
+    let mut depth: usize = 0;
+    let mut i = obj_start;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => {
+                depth += 1;
+                i += 1;
+            }
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    // Left the pull_request object without finding draft.
+                    return None;
+                }
+                i += 1;
+            }
+            b'"' if depth == 1 => {
+                if i + key_bytes.len() <= bytes.len() && &bytes[i..i + key_bytes.len()] == key_bytes
+                {
+                    let mut j = i + key_bytes.len();
+                    while j < bytes.len() && matches!(bytes[j], b' ' | b'\t' | b'\n' | b'\r') {
+                        j += 1;
+                    }
+                    if j < bytes.len() && bytes[j] == b':' {
+                        j += 1;
+                        while j < bytes.len() && matches!(bytes[j], b' ' | b'\t' | b'\n' | b'\r') {
+                            j += 1;
+                        }
+                        if bytes[j..].starts_with(b"true") {
+                            return Some(true);
+                        }
+                        if bytes[j..].starts_with(b"false") {
+                            return Some(false);
+                        }
+                        // draft present but not a boolean literal: reject.
+                        return None;
+                    }
+                }
+                i = skip_string_literal(bytes, i).ok()?;
+            }
+            b'"' => {
+                i = skip_string_literal(bytes, i).ok()?;
+            }
+            _ => i += 1,
+        }
+    }
+    None
 }
 
 fn read_nonempty_env(name: &str) -> Option<String> {
@@ -293,12 +458,7 @@ impl IssueStateClient for GhSubprocessClient {
         }
     }
 
-    fn fetch_pr_body(
-        &self,
-        owner: &str,
-        repo: &str,
-        number: u64,
-    ) -> Result<String, ClientError> {
+    fn fetch_pr_body(&self, owner: &str, repo: &str, number: u64) -> Result<String, ClientError> {
         if !is_valid_owner_or_repo(owner) || !is_valid_owner_or_repo(repo) {
             return Err(ClientError::NotFound);
         }
@@ -571,12 +731,7 @@ impl IssueStateClient for MockIssueStateClient {
             .unwrap_or(Err(ClientError::NotFound))
     }
 
-    fn fetch_pr_body(
-        &self,
-        owner: &str,
-        repo: &str,
-        number: u64,
-    ) -> Result<String, ClientError> {
+    fn fetch_pr_body(&self, owner: &str, repo: &str, number: u64) -> Result<String, ClientError> {
         self.prs
             .get(&(owner.to_string(), repo.to_string(), number))
             .cloned()
@@ -716,6 +871,120 @@ mod tests {
         assert!(detect_pr_context().is_none());
     }
 
+    // --- detect_pr_draft / parse_pull_request_draft (advisory read) ---
+
+    /// Writes `content` to a uniquely-named temp file and returns its
+    /// path. The file is left on disk for the duration of the test; the
+    /// OS temp dir is auto-wiped, and tests overwrite their own paths.
+    fn write_temp_event(content: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static N: AtomicUsize = AtomicUsize::new(0);
+        let n = N.fetch_add(1, Ordering::SeqCst);
+        let path = std::env::temp_dir().join(format!(
+            "shirabe-gh-event-{}-{}.json",
+            std::process::id(),
+            n
+        ));
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    #[test]
+    fn parse_draft_true() {
+        let body = r#"{"action":"opened","pull_request":{"number":7,"draft":true}}"#;
+        assert_eq!(parse_pull_request_draft(body), Some(true));
+    }
+
+    #[test]
+    fn parse_draft_false() {
+        let body = r#"{"pull_request":{"draft":false,"number":7}}"#;
+        assert_eq!(parse_pull_request_draft(body), Some(false));
+    }
+
+    #[test]
+    fn parse_draft_missing_key_is_none() {
+        let body = r#"{"pull_request":{"number":7}}"#;
+        assert_eq!(parse_pull_request_draft(body), None);
+    }
+
+    #[test]
+    fn parse_draft_no_pull_request_is_none() {
+        let body = r#"{"action":"push","ref":"refs/heads/main"}"#;
+        assert_eq!(parse_pull_request_draft(body), None);
+    }
+
+    #[test]
+    fn parse_draft_non_boolean_value_is_none() {
+        // A `draft` whose value is a string, not a boolean literal,
+        // must not be lifted (no free-form string ever leaves this read).
+        let body = r#"{"pull_request":{"draft":"true"}}"#;
+        assert_eq!(parse_pull_request_draft(body), None);
+    }
+
+    #[test]
+    fn parse_draft_ignores_nested_and_string_draft_keys() {
+        // A `"draft"` substring inside an unrelated string value, and a
+        // nested object carrying its own `draft`, must not perturb the
+        // top-level pull_request.draft read.
+        let body = r#"{"pull_request":{"title":"has draft word and \"draft\":true text","head":{"draft":false},"draft":true}}"#;
+        assert_eq!(parse_pull_request_draft(body), Some(true));
+    }
+
+    #[test]
+    fn parse_draft_malformed_json_is_none() {
+        assert_eq!(parse_pull_request_draft("{not json at all"), None);
+        assert_eq!(parse_pull_request_draft(""), None);
+        assert_eq!(parse_pull_request_draft("[]"), None);
+    }
+
+    #[test]
+    fn detect_pr_draft_reads_event_file() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let _g = EnvGuard::new(&["GITHUB_EVENT_PATH"]);
+        let path = write_temp_event(r#"{"pull_request":{"draft":true}}"#);
+        std::env::set_var("GITHUB_EVENT_PATH", &path);
+        assert_eq!(detect_pr_draft(), Some(true));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn detect_pr_draft_ready_pr() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let _g = EnvGuard::new(&["GITHUB_EVENT_PATH"]);
+        let path = write_temp_event(r#"{"pull_request":{"draft":false}}"#);
+        std::env::set_var("GITHUB_EVENT_PATH", &path);
+        assert_eq!(detect_pr_draft(), Some(false));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn detect_pr_draft_unset_env_is_none() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let _g = EnvGuard::new(&["GITHUB_EVENT_PATH"]);
+        assert_eq!(detect_pr_draft(), None);
+    }
+
+    #[test]
+    fn detect_pr_draft_absent_file_is_none() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let _g = EnvGuard::new(&["GITHUB_EVENT_PATH"]);
+        std::env::set_var(
+            "GITHUB_EVENT_PATH",
+            "/does/not/exist/shirabe-no-such-event.json",
+        );
+        assert_eq!(detect_pr_draft(), None);
+    }
+
+    #[test]
+    fn detect_pr_draft_malformed_payload_is_none() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let _g = EnvGuard::new(&["GITHUB_EVENT_PATH"]);
+        let path = write_temp_event("{ this is not valid json");
+        std::env::set_var("GITHUB_EVENT_PATH", &path);
+        assert_eq!(detect_pr_draft(), None);
+        let _ = std::fs::remove_file(&path);
+    }
+
     // --- is_valid_owner_or_repo ---
 
     #[test]
@@ -743,20 +1012,30 @@ mod tests {
 
     #[test]
     fn mock_returns_canned_open_for_known_issue() {
-        let mock = MockIssueStateClient::new()
-            .with_issue("tsukumogami", "shirabe", 42, Ok(IssueState::Open));
+        let mock = MockIssueStateClient::new().with_issue(
+            "tsukumogami",
+            "shirabe",
+            42,
+            Ok(IssueState::Open),
+        );
         assert_eq!(
-            mock.fetch_issue_state("tsukumogami", "shirabe", 42).unwrap(),
+            mock.fetch_issue_state("tsukumogami", "shirabe", 42)
+                .unwrap(),
             IssueState::Open
         );
     }
 
     #[test]
     fn mock_returns_canned_closed_for_known_issue() {
-        let mock = MockIssueStateClient::new()
-            .with_issue("tsukumogami", "shirabe", 42, Ok(IssueState::Closed));
+        let mock = MockIssueStateClient::new().with_issue(
+            "tsukumogami",
+            "shirabe",
+            42,
+            Ok(IssueState::Closed),
+        );
         assert_eq!(
-            mock.fetch_issue_state("tsukumogami", "shirabe", 42).unwrap(),
+            mock.fetch_issue_state("tsukumogami", "shirabe", 42)
+                .unwrap(),
             IssueState::Closed
         );
     }
@@ -772,8 +1051,12 @@ mod tests {
 
     #[test]
     fn mock_returns_canned_rate_limit() {
-        let mock = MockIssueStateClient::new()
-            .with_issue("tsukumogami", "shirabe", 1, Err(ClientError::RateLimit));
+        let mock = MockIssueStateClient::new().with_issue(
+            "tsukumogami",
+            "shirabe",
+            1,
+            Err(ClientError::RateLimit),
+        );
         assert!(matches!(
             mock.fetch_issue_state("tsukumogami", "shirabe", 1),
             Err(ClientError::RateLimit)
@@ -782,8 +1065,12 @@ mod tests {
 
     #[test]
     fn mock_returns_canned_forbidden() {
-        let mock = MockIssueStateClient::new()
-            .with_issue("tsukumogami", "private", 1, Err(ClientError::Forbidden));
+        let mock = MockIssueStateClient::new().with_issue(
+            "tsukumogami",
+            "private",
+            1,
+            Err(ClientError::Forbidden),
+        );
         assert!(matches!(
             mock.fetch_issue_state("tsukumogami", "private", 1),
             Err(ClientError::Forbidden)

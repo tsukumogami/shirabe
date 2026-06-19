@@ -13,10 +13,11 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
-    check_slug_prefix, detect_format, format_error, format_notice, is_known_check_code, is_notice,
-    parse_doc, render_human, render_json, run_lifecycle_chain_check, run_lifecycle_check,
-    run_transition, validate_file, walk_chain_mode, Config, Flags, Mode, ParseError, ReviewPosture,
-    SlugPrefixCheck, ValidationError,
+    check_slug_prefix, detect_format, detect_pr_draft, explain_advisory, format_error,
+    format_notice, is_known_check_code, is_notice, parse_doc, render_human_with_advisory,
+    render_json_with_advisory, run_lifecycle_chain_check, run_lifecycle_check, run_transition,
+    validate_file, walk_chain_mode, AdvisoryReport, Config, Flags, Mode, ParseError, PrPosture,
+    ReviewPosture, SlugPrefixCheck, ValidationError,
 };
 
 mod populate;
@@ -497,11 +498,37 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
                 }
             }
         }
-        Format::Json => print!("{}", render_json(&findings, worst.label(), posture)),
-        Format::Human => print!("{}", render_human(&findings, worst.label(), posture)),
+        Format::Json => {
+            let advisory = compute_advisory(&findings, posture);
+            print!(
+                "{}",
+                render_json_with_advisory(&findings, worst.label(), posture, Some(&advisory))
+            )
+        }
+        Format::Human => {
+            let advisory = compute_advisory(&findings, posture);
+            print!(
+                "{}",
+                render_human_with_advisory(&findings, worst.label(), posture, Some(&advisory))
+            )
+        }
     }
 
     worst.exit()
+}
+
+/// Build the context-aware advisory for a render. The advisory is read-only
+/// with respect to the verdict (the advisory-never-gates invariant): the PR
+/// context it reads (`detect_pr_draft`, a typed `draft` bit from
+/// `GITHUB_EVENT_PATH`) feeds *phrasing only* and never the exit code or any
+/// existing JSON verdict field. The read is hermetic (a local file, no
+/// network) and degrades to no-PR phrasing when the signal is absent.
+///
+/// Annotation mode does not render an advisory (its bytes are frozen for CI
+/// parity), so this is only called for the JSON and human formats.
+fn compute_advisory(findings: &[ValidationError], posture: ReviewPosture) -> AdvisoryReport {
+    let pr = PrPosture::from_draft_bit(detect_pr_draft());
+    explain_advisory(findings, posture, pr)
 }
 
 /// Runs the chain-aware passing-state lifecycle check against `root`.
@@ -568,8 +595,20 @@ fn render_lifecycle(
                 }
             }
         }
-        Format::Json => print!("{}", render_json(findings, worst.label(), posture)),
-        Format::Human => print!("{}", render_human(findings, worst.label(), posture)),
+        Format::Json => {
+            let advisory = compute_advisory(findings, posture);
+            print!(
+                "{}",
+                render_json_with_advisory(findings, worst.label(), posture, Some(&advisory))
+            )
+        }
+        Format::Human => {
+            let advisory = compute_advisory(findings, posture);
+            print!(
+                "{}",
+                render_human_with_advisory(findings, worst.label(), posture, Some(&advisory))
+            )
+        }
     }
 
     worst.exit()
