@@ -324,6 +324,50 @@
         "Transcript fires the sentinel-gated auto-transition (because invoking_child matches 'plan')",
         "Forward-compatibility property held: a non-scope parent drives the transition correctly"
       ]
+    },
+    {
+      "id": 24,
+      "name": "coordinated-mode-per-repo-grouping-two-node-dag",
+      "prompt": "/plan docs/designs/DESIGN-multi-repo-rollout.md, where the design spans two repositories and the per-repo PRs must land in order with a coordination PR that merges last.",
+      "expected_output": "Detects input_type as design. The Execution Mode Decision selects coordinated (the third execution_mode value) because the effort spans more than one repository and the per-repo PRs must land in a coordinated order behind a merge-last coordination PR. The PLAN groups issues to the coarsest legal unit (one PR per repository by default), tags each issue with a Repo/Group annotation row, and emits a two-node merge-order DAG (PR nodes plus non-PR gate nodes) that plan-to-tasks.sh collapses from the issue-level dependency graph and validates acyclic after contraction. The coordinated PLAN validates and names its coordination PR. The contract is bound by reference, not restated.",
+      "files": [],
+      "expectations": [
+        "Transcript selects coordinated as the execution_mode (the third value: single-pr | multi-pr | coordinated), not multi-pr",
+        "Transcript anchors the coordinated choice on the effort spanning more than one repository with per-repo PRs landing in order behind a merge-last coordination PR",
+        "Transcript groups per-repo implementation to the coarsest legal unit (one PR per repository by default) and tags each issue with a Repo/Group annotation row",
+        "Transcript emits a two-node merge-order DAG (PR nodes plus non-PR gate nodes) collapsed from the issue-level dependency graph and validated acyclic after contraction",
+        "Transcript binds to ${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md for the contract rather than restating the grouping rule or merge-order model",
+        "Transcript produces a coordinated PLAN that validates and names its coordination PR"
+      ]
+    },
+    {
+      "id": 25,
+      "name": "coordinated-irreducible-atomicity-refused",
+      "prompt": "/plan docs/designs/DESIGN-atomic-cross-repo.md, where two repositories would have to merge simultaneously with no compatible-intermediate split.",
+      "expected_output": "Detects input_type as design and evaluates coordinated mode. During the contraction + acyclicity step, plan-to-tasks.sh finds a contraction cycle that no split at the seam can resolve because the two repositories genuinely must change simultaneously (a true cross-repo atomicity requirement with no compatible-intermediate split). The skill REFUSES to emit a plan that assumes atomic cross-repo merge, surfaces guidance to reshape the work into a compatible-intermediate sequence, and never commits a cyclic merge order. This is the R16 atomicity case distinct from the R13 auto-resolve case: the discriminator is whether a legal acyclic ordering exists after splitting.",
+      "files": [],
+      "expectations": [
+        "Transcript evaluates coordinated mode and reaches the contraction + acyclicity check",
+        "Transcript detects a cross-repo atomicity requirement: two repositories that must merge simultaneously with no compatible-intermediate split",
+        "Transcript REFUSES the plan rather than emitting one that assumes atomic cross-repo merge",
+        "Transcript surfaces guidance to reshape the work into a compatible-intermediate sequence",
+        "Transcript distinguishes the R16 refuse case from the R13 auto-resolve case (the discriminator is whether a legal acyclic ordering exists after splitting)",
+        "Transcript never commits a cyclic merge order"
+      ]
+    },
+    {
+      "id": 26,
+      "name": "coordinated-rule-surface-binds-not-restates",
+      "prompt": "/plan -- where does the coordinated execution mode live, and what contract does it bind to?",
+      "expected_output": "The coordinated mode is documented on the plan SKILL.md surface under 'Execution Mode Decision (single-pr vs multi-pr vs coordinated)' in a 'Coordinated Mode (multi-repo)' subsection. It is the multi-repo generalization of multi-pr: always multi-PR, sharing multi-pr's section shape (Implementation Issues table + Dependency Graph) and adding per-issue repo and pr_group tags plus a two-node merge-order DAG. The canonical contract (lifecycle, coarsest-legal grouping, two-node merge-order model, done-signal) lives in ${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md; the SKILL.md carries only bindings and points the PLAN-side authoring details to references/quality/plan-doc-structure.md under 'Coordinated Mode.' The skill does not restate the contract.",
+      "files": [],
+      "expectations": [
+        "Agent identifies coordinated mode on the plan SKILL.md surface under the Execution Mode Decision section, in a Coordinated Mode (multi-repo) subsection",
+        "Agent describes coordinated as the multi-repo generalization of multi-pr: always multi-PR, same section shape, adding repo and pr_group tags plus a two-node merge-order DAG",
+        "Agent cites ${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md as the canonical contract for lifecycle, grouping, merge-order model, and done-signal",
+        "Agent confirms the SKILL.md binds to the contract and does NOT restate it",
+        "Agent points the PLAN-side authoring details to references/quality/plan-doc-structure.md under Coordinated Mode"
+      ]
     }
   ]
 }
