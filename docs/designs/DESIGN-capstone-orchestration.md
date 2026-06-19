@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Planned
 problem: |
   shirabe's `/scope` and `/work-on` are single-repo. An effort spanning repositories
   has no tool-supported coordination: the author hand-writes the contract each session
@@ -29,7 +29,7 @@ upstream: docs/prds/PRD-capstone-orchestration.md
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 

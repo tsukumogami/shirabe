@@ -1,7 +1,7 @@
 ---
 schema: plan/v1
-status: Draft
-execution_mode: multi-pr
+status: Active
+execution_mode: single-pr
 milestone: Coordinated Multi-Repo Orchestration
 issue_count: 8
 upstream: docs/designs/DESIGN-capstone-orchestration.md
@@ -11,11 +11,11 @@ upstream: docs/designs/DESIGN-capstone-orchestration.md
 
 ## Status
 
-Draft
+Active
 
-Awaiting author review. On approval this finalizes to Active (multi-pr: a GitHub
-milestone + the eight issues below are created). The implementation lands as ordered
-shirabe PRs; the coordination PR (#196) merges last.
+Single-pr: the eight outlines below are implemented in one shirabe PR (no GitHub
+milestone or issues). The coordination PR (#196) merges last, once the implementation
+PR is in and the cascade has finalized the chain.
 
 ## Scope Summary
 
@@ -33,19 +33,18 @@ cross-repo `gh` boundary. Issue 1 is a thin end-to-end slice (contract + minimal
 create/status round-trip) that forces the integration path to surface first; every other
 issue thickens one layer against it.
 
-**Execution mode: multi-pr.** Two named conditions force it (both required tests met):
+**Execution mode: single-pr.** The coordinated capability is one usable unit: it delivers
+observable value only once the pieces are wired end-to-end (issue 6 binds the subcommand,
+gate, and contract into `/scope` and `/work-on`). The earlier pieces are building blocks,
+not independent increments, so neither named multi-pr escape applies — there is no hard
+constraint forcing a split (it all builds on one branch), and only issue 2 is independently
+useful to a reader. Per principle P1 (usable value is the unit), the whole capability ships
+in one shirabe implementation PR; the coordination PR (#196) merges last.
 
-1. *Hard ordering constraint.* The merge-last CI gate (issue 4) and the `finalize` read
-   pass (issue 5) must reach `main` before the coordinated workflow can be invoked
-   end-to-end, and the contract reference (issue 1) must exist before `/scope` and
-   `/work-on` bind to it (issue 6). These are "must reach main before it can be invoked"
-   constraints.
-2. *Each PR independently useful.* The `/plan` grouping (issue 2) improves `/plan` on its
-   own; the `shirabe coordination` subcommand (issues 1, 3) is usable standalone; the gate
-   (issue 4) enforces merge-last independently. Each lands observable value.
-
-All implementation is in the shirabe repo; the per-repo PRs merge in dependency order and
-the coordination docs PR (#196) merges last — dogfooding the very pattern.
+The walking-skeleton decomposition below shapes the *work* (the order to build in), not the
+*delivery* — all eight outlines are implemented within the single implementation PR, with
+issue 1 landing first as the integration spine. (If review size later argues for a split,
+issue 2 — the standalone `/plan` improvement — is the natural seam.)
 
 ## Issue Outlines
 
@@ -65,7 +64,7 @@ PLAN render, and reads one indexed PR via the existing `gh.rs` client.
 - `shirabe coordination status` reads an indexed PR via `gh.rs`, validates its `owner/repo:path`
   (F2), and renders the index redacting any private-repo identifier (F1).
 - Unit test: a private-repo node fed into a public render produces only an opaque node id.
-**Dependencies**: None.
+**Dependencies**: None
 
 ### <<ISSUE:2>> — `/plan` per-repo grouping + two-node DAG + acyclicity
 **Complexity**: critical
@@ -83,7 +82,7 @@ and serialize the two-node order (a `plan-to-tasks.sh` sibling).
 - The R16-vs-R13 discriminator is applied (refuse only when no acyclic ordering exists
   after splitting).
 - The serialized order includes non-PR gate nodes.
-**Dependencies**: None.
+**Dependencies**: None
 
 ### <<ISSUE:3>> — `shirabe coordination sync` + merge-order recompute + PR-body render
 **Complexity**: testable
@@ -154,7 +153,15 @@ the merge-last lifecycle.
 - A guide documents how to run a coordinated effort end-to-end.
 **Dependencies**: <<ISSUE:6>>, <<ISSUE:7>>.
 
-## Dependency Graph
+## Implementation Sequence
+
+- **Build order within the implementation PR:** 1 → 3 → 4 → 6 → 7 → 8 (critical path), with
+  issue 2 (`/plan` grouping) alongside issue 1 and issue 5 (finalize read pass) alongside
+  issues 3–4. Issue 1 lands first as the integration spine.
+- **Merge:** the eight outlines are implemented in one shirabe PR; the coordination PR (#196)
+  merges last, once that PR is in and the cascade has finalized the chain.
+
+Dependency edges (also declared per-outline above):
 
 ```mermaid
 graph TD
@@ -180,13 +187,3 @@ graph TD
     I6 --> I8
     I7 --> I8
 ```
-
-## Implementation Sequence
-
-- **Critical path:** 1 → 3 → 4 → 6 → 7 → 8.
-- **Parallelizable:** Issue 2 (`/plan` grouping) runs alongside Issue 1; Issue 5 (finalize
-  read pass) runs alongside Issues 3–4.
-- **Merge order (per-repo PRs, then coordination PR last):** the issues land as shirabe PRs in
-  dependency order; the gate (Issue 4) and finalize (Issue 5) reach `main` before the
-  end-to-end bindings (Issue 6) are exercised; the coordination docs PR (#196) merges last once
-  all are in and the cascade has finalized the chain.

@@ -1,11 +1,12 @@
 ```yaml
 topic: capstone-orchestration
 chain_started: 2026-06-18T03:28:40Z
-last_updated: 2026-06-19T15:52:54Z
-phase_pointer: phase-2
+last_updated: 2026-06-19T17:43:11Z
+phase_pointer: phase-3
 visibility: Public
-exit: UNSET
-exit_artifacts: []
+exit: full-run
+exit_artifacts:
+  - docs/plans/PLAN-capstone-orchestration.md
 planned_chain:
   - brief
   - prd
@@ -16,6 +17,7 @@ chain_ran:
   - brief
   - prd
   - design
+  - plan
 design_predicate_projection: "P1: fires (open cross-repo tracking / merge-gating / cascade-trigger alternatives); P2: fires (capstone orchestrator + cross-repo finalize + niwa seam); P3: fires (Complex, cross-repo, multi-component)"
 pre_invocation_sha: fd79bf03c22b61bac4e20b840d6059a3b6ac8ef0
 worktree_rebases:
@@ -34,7 +36,11 @@ child_snapshots:
     content_hash: 63ebd06ddd6fe9c4facdf35429e5a45226f96c1f
     captured_at: 2026-06-19T15:39:20Z
   design:
-    status: Accepted
+    status: Planned
     content_hash: 541692c3922c1d68a2bf60ab80a36c4f69da044e
     captured_at: 2026-06-19T15:52:54Z
+  plan:
+    status: Active
+    content_hash: 3902d3b0a5e7cbb4e2237112ec5782926afc4cc5
+    captured_at: 2026-06-19T17:43:11Z
 ```
