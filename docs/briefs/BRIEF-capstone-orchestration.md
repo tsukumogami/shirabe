@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   `/scope` and `/work-on` take an effort from framing to merged code one repository at
   a time. When a single effort spans several repositories, the author supplies the
@@ -25,7 +25,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 Framing drafted under `/scope`. The downstream PRD owns the requirements
 articulation; the DESIGN owns the cross-repo technical decisions this brief
@@ -165,13 +165,6 @@ the effort is complete, with no separate "is it actually done?" judgment to make
   leaves to DESIGN; it commits only to the workflows being capstone-aware, not to how.
 - Whether the multi-repository workspace model itself should change. This frames one
   capability within the existing model, not a re-architecture of the workspace.
-
-## Open Questions
-
-- Whether the durable surface is named "capstone" or given a more self-explanatory term
-  for readers without context. The PRD owns the naming choice.
-- The precise boundary, convention by convention, between a durable workspace preference
-  and per-session intent. Settled in principle during exploration; the PRD pins it.
 
 ## References
 

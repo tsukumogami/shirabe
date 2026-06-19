@@ -56,3 +56,48 @@ Three focused leads (prior-art, /plan-unit, rule-tradeoffs); full findings at
   legal-grouping rule; mechanism (cycle check, two-node DAG, atomicity reshaping) pushed
   to OUT (DESIGN territory). Prior art confirms the universal unit is the self-contained
   logical change, never "one repo."
+
+## Integration-shape design lead (leading candidate for DESIGN)
+
+Answers the brief's deferred "integration shape" question. Author-proposed, agreed.
+
+- **Both: a canonical reference + capstone-aware consumers.** Articulate the capstone
+  strategy once as a cross-cutting plugin reference (`references/capstone-*.md`) defining
+  the lifecycle, the coarsest-legal-grouping rule, the two-node merge-order DAG (PR nodes
+  + non-PR gate nodes), and the done-signal. Then make `/scope`, `/work-on`, and the
+  `shirabe` CLI (`finalize`/`validate`) capstone-**aware** by binding to that reference.
+- **Precedent:** this is shirabe's house style — `references/` already holds cross-cutting
+  contracts (`parent-skill-pattern.md` consumed by `/scope` + `/charter`,
+  `worktree-discipline.md`, `cross-repo-references.md`, `wip-hygiene.md`). The capstone has
+  three consumers (`/scope`, `/work-on`, CLI), so it earns a reference rather than living
+  inside one skill. It sits naturally beside `cross-repo-references.md`.
+- **Discipline (the failure mode to avoid):** the contract lives in the reference; skills
+  and CLI carry only *bindings*, never a restated copy — same anti-drift discipline
+  `parent-skill-pattern.md` uses. "Both" must mean one source of truth, not two.
+- **Cost location:** the reference doc is cheap; the load-bearing/expensive work is CLI
+  enforcement — `finalize`/`validate` learning to walk and gate **across repos** (the
+  single-repo edge found in `finalize.rs` / `validate_upstream_path`). Budget effort there.
+- **Consistency with brief:** a reference is a contract, not a "separate tool bolted
+  alongside," so this honors the brief's IN ("capstone-aware") and answers its OUT
+  ("integration shape = DESIGN").
+
+## Dogfooding finding: lifecycle CI vs in-flight capstone chain (DESIGN input)
+
+Surfaced by CI on the dogfood capstone PR #196. The `lifecycle` check
+(`shirabe validate --lifecycle`) failed L02 (orphan-doc rule, governed by
+`docs/decisions/DECISION-orphan-doc-passing-state-rule-2026-06-06.md`) on the freshly
+committed `BRIEF` at status Draft. An orphan doc passes L02 only if terminal (Done),
+roadmap-rooted with an Active ROADMAP upstream, or a linked chain member; a from-scratch
+tactical chain's HEAD artifact (a BRIEF with no ROADMAP above it and no downstream PRD yet)
+satisfies none until its downstream lands. L02 is not strict-gated, so it fails even on a
+draft PR.
+
+Design implication: a capstone PR holds an in-flight chain whose head artifact is
+**transiently orphaned** until the next chain artifact references it as `upstream:`. The
+lifecycle check is not capstone-/in-flight-chain-aware. The DESIGN must reconcile this —
+options: (a) a capstone PR is only expected CI-green once its chain is complete (treat
+intermediate red as normal, like the docs-only-skips-integration-gates wrinkle from the
+#511 analysis); (b) L02 gains awareness of an in-flight capstone chain; (c) some explicit
+"chain in progress" marker. This is the concrete instance of the #511 "docs-only capstone
+vs CI gates" wrinkle. Resolves naturally here once `/prd` writes PRD with
+`upstream: docs/briefs/BRIEF-capstone-orchestration.md`.
