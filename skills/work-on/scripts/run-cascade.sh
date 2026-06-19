@@ -260,11 +260,11 @@ lifecycle_findings_summary() {
 }
 
 # ── Inline utility: lifecycle_probe ──────────────────────────────────────────
-# Run the chain-targeted lifecycle check in strict mode against the cascade's
+# Run the chain-targeted lifecycle check in ready posture against the cascade's
 # PLAN doc. Two modes:
 #
 #   pre:  expects exit code non-zero (chain at single-pr-Active mid-PR;
-#         --strict forces a failure naming the present PLAN at Active).
+#         --mode=ready forces a failure naming the present PLAN at Active).
 #         Returns 0 if the expected failure was observed; returns 1 (signal:
 #         skip cascade entirely) when the validator reports a clean pass —
 #         the chain is already at its terminal and the cascade would be a
@@ -295,12 +295,12 @@ lifecycle_probe() {
     LIFECYCLE_PROBE_OUTPUT=$("$SHIRABE_BIN" validate \
         --lifecycle-chain "$PLAN_DOC" \
         --format json \
-        --strict \
+        --mode=ready \
         ${ALLOW_UNTRACKED_ACS_ARGS[@]:+"${ALLOW_UNTRACKED_ACS_ARGS[@]}"} 2>&1) || exit_code=$?
 
     if [[ "$mode" == "pre" ]]; then
         if [[ "$exit_code" -eq 0 ]]; then
-            log_info "Pre-cascade probe: chain already at strict-mode passing state — cascade is a no-op"
+            log_info "Pre-cascade probe: chain already at ready-posture passing state — cascade is a no-op"
             return 1
         fi
         log_info "Pre-cascade probe: expected failure observed (chain at single-pr-Active mid-PR)"
@@ -311,7 +311,7 @@ lifecycle_probe() {
             log_lifecycle_findings "$LIFECYCLE_PROBE_OUTPUT"
             return 1
         fi
-        log_info "Post-cascade verification: chain at strict-mode passing state"
+        log_info "Post-cascade verification: chain at ready-posture passing state"
         return 0
     else
         log_warn "lifecycle_probe called with unknown mode: $mode"
@@ -651,12 +651,12 @@ fi
 
 # ── Pre-cascade lifecycle probe ───────────────────────────────────────────────
 #
-# Run the chain-targeted lifecycle check in strict mode BEFORE any
+# Run the chain-targeted lifecycle check in ready posture BEFORE any
 # transitions are applied. The chain is at single-pr-Active mid-PR; in
-# --strict mode the validator surfaces a failure naming the present PLAN
+# --mode=ready the validator surfaces a failure naming the present PLAN
 # and its non-terminal BRIEF/PRD upstreams, signaling that the cascade
 # must fire. A clean pass at this point means the chain is already at its
-# strict-mode terminal — the cascade is a no-op and the script exits 0
+# ready-posture terminal — the cascade is a no-op and the script exits 0
 # with cascade_status: skipped, no transitions performed.
 #
 # The post-cascade verification re-runs the same probe after the commit;
@@ -665,7 +665,7 @@ fi
 
 if ! lifecycle_probe "pre"; then
     add_step "lifecycle_pre_probe" "$PLAN_DOC" "null" "skipped" \
-        "chain at strict-mode passing state — cascade is a no-op${L06_SUPPRESSED_DETAIL:+ ($L06_SUPPRESSED_DETAIL)}"
+        "chain at ready-posture passing state — cascade is a no-op${L06_SUPPRESSED_DETAIL:+ ($L06_SUPPRESSED_DETAIL)}"
     emit_result "skipped"
     exit 0
 fi
@@ -859,7 +859,7 @@ fi
 
 # ── Post-cascade lifecycle verification ───────────────────────────────────────
 #
-# Run the chain-targeted check in strict mode AFTER the commit. We expect
+# Run the chain-targeted check in ready posture AFTER the commit. We expect
 # a clean pass — the cascade should have pulled the chain to its
 # at-merge passing state (PLAN deleted, BRIEF/PRD Done, DESIGN Current).
 # Failure here is a cascade bug; the validator's structured findings are
@@ -873,7 +873,7 @@ if [[ "$PUSH" == "true" ]] && [[ ${#STAGED_FILES[@]} -gt 0 ]]; then
     if ! lifecycle_probe "post"; then
         ANY_FAILED=true
         add_step "lifecycle_post_verify" "$PLAN_DOC" "null" "failed" \
-            "post-cascade lifecycle check failed in strict mode (cascade bug): $(lifecycle_findings_summary "$LIFECYCLE_PROBE_OUTPUT")${L06_SUPPRESSED_DETAIL:+ ($L06_SUPPRESSED_DETAIL)}"
+            "post-cascade lifecycle check failed in ready posture (cascade bug): $(lifecycle_findings_summary "$LIFECYCLE_PROBE_OUTPUT")${L06_SUPPRESSED_DETAIL:+ ($L06_SUPPRESSED_DETAIL)}"
     else
         add_step "lifecycle_post_verify" "$PLAN_DOC" "null" "ok" "$L06_SUPPRESSED_DETAIL"
     fi

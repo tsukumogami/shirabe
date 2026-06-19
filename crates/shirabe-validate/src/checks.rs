@@ -4342,14 +4342,17 @@ mod tests {
         // `"FC07"` from the alternation is the one-line diff that flips
         // FC07 from notice to error. We assert structurally via the
         // is_notice membership: FC07 is a notice today.
-        use crate::validate::is_notice;
+        use crate::validate::{is_notice, ReviewPosture};
         let e = ValidationError {
             file: String::new(),
             line: 0,
             code: "FC07".to_string(),
             message: String::new(),
         };
-        assert!(is_notice(&e), "FC07 must be notice-level for v1");
+        assert!(
+            is_notice(&e, ReviewPosture::Draft),
+            "FC07 must be notice-level for v1"
+        );
     }
 
     #[test]
@@ -5188,14 +5191,17 @@ mod tests {
         // is_notice match expression. The membership site is the one
         // place to flip; this test pins the current notice-level
         // membership and documents the seam.
-        use crate::validate::is_notice;
+        use crate::validate::{is_notice, ReviewPosture};
         let e = ValidationError {
             file: String::new(),
             line: 0,
             code: "FC08".to_string(),
             message: String::new(),
         };
-        assert!(is_notice(&e), "FC08 must be notice-level for v1");
+        assert!(
+            is_notice(&e, ReviewPosture::Draft),
+            "FC08 must be notice-level for v1"
+        );
     }
 
     #[test]
@@ -6261,13 +6267,16 @@ mod tests {
     fn check_fc14_promotion_seam_one_line() {
         // FC14 must appear in is_notice. Removing it from the match arm
         // should be the only edit required to promote to error.
-        use crate::validate::is_notice;
+        use crate::validate::{is_notice, ReviewPosture};
         let e = ValidationError {
             file: "x".to_string(),
             line: 1,
             code: "FC14".to_string(),
             message: "test".to_string(),
         };
-        assert!(is_notice(&e), "FC14 should be notice-level in is_notice");
+        assert!(
+            is_notice(&e, ReviewPosture::Draft),
+            "FC14 should be notice-level in is_notice"
+        );
     }
 }
