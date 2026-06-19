@@ -263,9 +263,13 @@ Components:
     merge-order and the R14 gate. Validates each `owner/repo:path` component before use (F2);
     resolves each repo's visibility and redacts private identifiers to opaque node ids when
     rendering a public coordination PR body (F1); escapes `gh`-sourced titles/branches (F3).
-  - `gate` — recompute "all indexed PRs merged + all upstreams terminal" from authoritative
-    live `gh api` queries at gate time, never by parsing the editable PR body (F4); fails
-    closed on any unresolvable PR. Drives the `lifecycle.yml` non-bypassable backstop.
+- **`shirabe validate --merge-gate`** — the merge-last gate (F4 / R14), folded into `validate`
+  as a posture-aware mode like every other merge-gating check rather than a coordination verb.
+  Recompute "all indexed PRs merged + all upstreams terminal" from authoritative live `gh api`
+  queries at gate time, never by parsing the editable PR body; fails closed on any unresolvable
+  PR/upstream. Under `--mode=ready` a blocked gate is an error (the merge-last backstop); under
+  `--mode=draft` it is a notice (exit 0). The upstream-terminal read pass (the old `verify` verb)
+  is part of this mode. Drives the `lifecycle.yml` non-bypassable backstop.
 - **`/plan` collapse step** — tags issues with `repo` + `pr_group`, contracts the `waits_on`
   issue DAG to a `(repo, pr_group)` PR DAG, runs the acyclicity check (R13) and the
   split→re-sequence→stack resolution, and emits the two-node order into the PLAN. A
@@ -310,8 +314,9 @@ hard rules in `references/coordination-strategy.md` (below); the rest are standa
 
 ### Threat surface
 
-- **Cross-repo read pass** (`shirabe coordination status/sync`, `gate`, the `finalize.rs` read
-  pass): reads each indexed PR / upstream on the operator's own `gh` credentials across
+- **Cross-repo read pass** (`shirabe coordination status/sync`, `shirabe validate --merge-gate`,
+  the `finalize.rs` read pass): reads each indexed PR / upstream on the operator's own `gh`
+  credentials across
   public and private repos — data from *other* repos now flows into a rendered artifact and
   a CI gate.
 - **Public coordination PR body:** the rendered PR-index + merge-order block. The
@@ -357,12 +362,14 @@ validates task names against `^[a-z][a-z0-9-]*$` and builds JSON with `jq --arg`
   `gh`-sourced strings as untrusted on render: escape/strip markdown/HTML control chars; the
   authoritative fields of the fenced merge-order block derive from validated PLAN/`gh`
   state, never from free-text titles (which are escaped, non-load-bearing annotations).
-- **F4 — Merge-last gate must not trust PR-body text (High, R7/R14/R21).** The `gate` verb
-  MUST recompute merge state from authoritative `gh api` queries at gate time, never by
-  parsing the editable PR body. The body may supply the *list* of indexed PRs (the durable
-  index), but each PR's merged/open status and the order's acyclicity are verified live.
-  Fail closed: any PR it cannot resolve is treated as not-merged. Pin to the strict-mode
-  `draft == false` trigger so it cannot be skipped.
+- **F4 — Merge-last gate must not trust PR-body text (High, R7/R14/R21).** The
+  `shirabe validate --merge-gate` mode MUST recompute merge state from authoritative `gh api`
+  queries at gate time, never by parsing the editable PR body. The body may supply the *list*
+  of indexed PRs (the durable index), but each PR's merged/open status and the order's
+  acyclicity are verified live. Fail closed: any PR it cannot resolve is treated as not-merged.
+  The mode is posture-aware (enforce under `--mode=ready`, notice under `--mode=draft`); CI
+  pins it to the strict-mode `draft == false` trigger and passes `--mode=ready` so it cannot
+  be skipped.
 - **F5 — Privilege scope / token exposure (Medium).** All coordination `gh` use is read-only;
   no coordination verb writes cross-repo. Inherit `gh.rs`'s no-token-in-process property; do
   not log raw `gh` responses; route private identifiers through F1 redaction before any

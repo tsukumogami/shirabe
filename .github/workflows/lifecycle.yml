@@ -109,13 +109,17 @@ jobs:
             $MODE_FLAG
 
       - name: Coordination merge-last gate
-        # The non-bypassable merge-last backstop (DESIGN Decision D / F4). On a
-        # *coordination PR* that is *ready* (draft == false), recompute "all
-        # indexed PRs merged + all upstreams terminal" from authoritative LIVE
-        # `gh` queries and block the ready check until the gate passes. The step
-        # is pinned to the same `draft == false` trigger the strict check uses,
-        # so toggling a PR back to draft cannot skip the gate — a draft PR runs
-        # neither the gate nor strict mode, and only a ready PR is mergeable.
+        # The non-bypassable merge-last backstop (DESIGN Decision D / F4),
+        # driven by `shirabe validate --merge-gate` — a posture-aware validate
+        # mode like every other merge-gating check. On a *coordination PR* that
+        # is *ready* (draft == false), recompute "all indexed PRs merged + all
+        # upstreams terminal" from authoritative LIVE `gh` queries and block the
+        # ready check until the gate passes. The step is pinned to the same
+        # `draft == false` trigger the strict check uses, so toggling a PR back
+        # to draft cannot skip the gate — a draft PR runs neither the gate nor
+        # strict mode, and only a ready PR is mergeable. Passing `--mode=ready`
+        # makes a blocked gate an error here (under draft posture the same mode
+        # would emit a notice and exit 0).
         #
         # Coordination-PR detection: the coordination PR body (seeded by
         # `shirabe coordination create`) carries a fixed declaration line — the
@@ -125,9 +129,10 @@ jobs:
         # render. A PR without the marker is not a coordination PR and the gate
         # is skipped (a no-op for ordinary lifecycle PRs).
         #
-        # F4: status is recomputed live by the `gate` verb from `gh`, never from
-        # the (editable) PR body — the body supplies only the list of refs the
-        # operator passes in. Fail closed: any unresolvable PR/upstream blocks.
+        # F4: status is recomputed live by `shirabe validate --merge-gate` from
+        # `gh`, never from the (editable) PR body — the body supplies only the
+        # list of refs the step passes in. Fail closed: any unresolvable
+        # PR/upstream blocks.
         env:
           # `gh` reads the PR body via the API; the token is consumed by the
           # subprocess only, never held by the validator process (gh.rs model).
@@ -151,9 +156,9 @@ jobs:
           echo "Coordination PR detected and ready; running the merge-last gate."
 
           # The coordination PR body's PR-index lines carry the durable list of
-          # `owner/repo:path#number` refs. Extract them as the index ONLY — the
-          # gate verb recomputes each ref's merged status LIVE via `gh` (F4); the
-          # `| merged`/`| open` cell in the body is intentionally NOT consulted.
+          # `owner/repo:path#number` refs. Extract them as the index ONLY —
+          # `validate --merge-gate` recomputes each ref's merged status LIVE via
+          # `gh` (F4); the `| merged`/`| open` cell in the body is NOT consulted.
           # A public index line shape is: `- <node> | <owner/repo>:<path>#<n> | ...`
           # We pull the `owner/repo:path#number` token from each index line.
           mapfile -t PR_REFS < <(
@@ -176,4 +181,6 @@ jobs:
           fi
 
           # A non-zero exit blocks the ready check (the merge-last backstop).
-          shirabe coordination gate "${GATE_ARGS[@]}"
+          # `--mode=ready`: this step only runs on ready PRs, so a blocked gate
+          # must fail (under draft posture the same mode is a notice, exit 0).
+          shirabe validate --merge-gate --mode=ready "${GATE_ARGS[@]}"

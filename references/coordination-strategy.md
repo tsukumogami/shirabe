@@ -196,15 +196,27 @@ and injection via a crafted reference.
 
 ### F4 — The merge-last gate recomputes from live `gh`, never PR-body text
 
-The gate MUST recompute merge state from authoritative `gh api` queries **at
-gate time**, never by parsing the editable PR body. The body may supply the
+The merge-last gate is the `shirabe validate --merge-gate` mode — a
+posture-aware validate mode like every other merge-gating check, not a separate
+subcommand. It MUST recompute merge state from authoritative `gh api` queries
+**at gate time**, never by parsing the editable PR body. The body may supply the
 *list* of indexed PRs (the durable index), but each PR's merged/open status and
 the order's acyclicity are verified **live**.
 
+**Posture-aware:** the mode honors the same `--mode=draft|ready` posture every
+other validate check uses. Under `--mode=ready` a blocked gate is an error (the
+merge-last backstop). Under `--mode=draft` (the default) a blocked gate is a
+**notice** that exits 0 — a coordination PR legitimately has unmerged indexed
+PRs mid-effort, symmetric with how the draft-tolerable lifecycle codes resolve
+under draft. The upstream-terminal verification that the gate folds in (a
+cross-repo upstream is at a terminal status) is part of the same mode; both the
+gate and the upstream-terminal check are validate modes, not coordination verbs.
+
 **Fail closed:** any PR the gate cannot resolve is treated as not-merged. The
-gate is pinned to the strict-mode `draft == false` trigger so it cannot be
-skipped by toggling draft. A stale rendered body can mislead a human reader but
-cannot cause a wrong merge, because the gate never trusts it.
+gate is pinned to the strict-mode `draft == false` trigger (CI passes
+`--mode=ready` there) so it cannot be skipped by toggling draft. A stale
+rendered body can mislead a human reader but cannot cause a wrong merge, because
+the gate never trusts it.
 
 ## Inherited Controls (must not regress)
 

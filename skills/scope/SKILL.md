@@ -156,10 +156,12 @@ repo's visibility per
 [`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`](${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md);
 a public coordination PR never embeds private-repo content (F1).
 
-The verb surface `/scope` calls (`create`, and the `status`/`sync`/
-`gate`/`verify` verbs `/work-on` drives later) is the `shirabe
-coordination` subcommand; its args and fail-closed behavior are owned
-by the CLI, not by this skill.
+The verb surface `/scope` calls (`create`, and the `status`/`sync`
+verbs `/work-on` drives later) is the `shirabe coordination`
+subcommand; the merge-last gate and the upstream-terminal verification
+`/work-on` drives later are the `shirabe validate --merge-gate` mode.
+Their args and fail-closed behavior are owned by the CLI, not by this
+skill.
 
 ## Topic-Slug Constraint
 

@@ -57,7 +57,7 @@ rest of this section only when the PLAN is `coordinated`.
 
 When the effort is coordinated, as per-repo PRs open and progress,
 `/work-on` calls `shirabe coordination sync` (the durable index/order
-recompute) on each orchestrator pass and `shirabe coordination gate`
+recompute) on each orchestrator pass and `shirabe validate --merge-gate`
 as the merge-last check before the coordination PR can merge. These
 are **smart defaults** (Decision F): coordination-PR sync, sequencing,
 and merge-order tracking activate automatically and each must

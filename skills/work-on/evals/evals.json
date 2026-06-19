@@ -641,12 +641,12 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on docs/plans/PLAN-multi-repo.md -- the PLAN's execution_mode is coordinated",
-      "expected_output": "Agent detects PLAN.md input with execution_mode: coordinated and runs the plan orchestrator in coordination-aware mode. As per-repo PRs open and progress, the agent calls shirabe coordination sync on each orchestrator pass to recompute the durable PR-index and the two-node merge-order from live gh, and calls shirabe coordination gate as the merge-last check. These are smart defaults: each ANNOUNCES itself in the invocation output, naming the behavior and its per-invocation override per R18 (e.g. on the first sync, announce that the index/merge-order is recomputed live). The shirabe coordination verb args and their fail-closed behavior are owned by the CLI; the agent binds to references/coordination-strategy.md and does not restate the contract.",
+      "expected_output": "Agent detects PLAN.md input with execution_mode: coordinated and runs the plan orchestrator in coordination-aware mode. As per-repo PRs open and progress, the agent calls shirabe coordination sync on each orchestrator pass to recompute the durable PR-index and the two-node merge-order from live gh, and calls shirabe validate --merge-gate as the merge-last check. These are smart defaults: each ANNOUNCES itself in the invocation output, naming the behavior and its per-invocation override per R18 (e.g. on the first sync, announce that the index/merge-order is recomputed live). The shirabe coordination verb args and their fail-closed behavior are owned by the CLI; the agent binds to references/coordination-strategy.md and does not restate the contract.",
       "files": [],
       "expectations": [
         "Agent detects execution_mode: coordinated and runs the plan orchestrator in coordination-aware mode",
         "Agent plans to call shirabe coordination sync on each orchestrator pass as per-repo PRs open and progress, recomputing the durable index and two-node merge-order from live gh",
-        "Agent plans to call shirabe coordination gate as the merge-last check before the coordination PR can merge",
+        "Agent plans to call shirabe validate --merge-gate as the merge-last check before the coordination PR can merge",
         "Agent ANNOUNCES the sync/gate smart defaults in the invocation output, naming the per-invocation override per R18",
         "Agent binds to ${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md and does NOT restate the contract or the verb fail-closed behavior",
         "Agent does NOT write across a repo boundary; the cross-repo boundary is the read-only verification gate"
@@ -658,10 +658,10 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on docs/plans/PLAN-multi-repo.md -- coordinated effort where one indexed per-repo PR is still open",
-      "expected_output": "Agent runs shirabe coordination gate, which recomputes merge state from authoritative live gh api queries at gate time (never by parsing the editable PR body, F4). One indexed per-repo PR is still open, so the merge-last gate fails and the coordination PR is kept unmerged. The gate fails closed: any PR it cannot resolve is treated as not-merged. The non-bypassable lifecycle.yml strict-mode check (draft == false trigger) is the backstop that keeps the coordination PR unmerged while any indexed PR is open or finalization is incomplete. A coordination step that cannot complete halts and surfaces the error rather than advancing (R21). The agent does not merge the coordination PR while any indexed PR is unmerged.",
+      "expected_output": "Agent runs shirabe validate --merge-gate, which recomputes merge state from authoritative live gh api queries at gate time (never by parsing the editable PR body, F4). One indexed per-repo PR is still open, so the merge-last gate fails and the coordination PR is kept unmerged. The gate fails closed: any PR it cannot resolve is treated as not-merged. The non-bypassable lifecycle.yml strict-mode check (draft == false trigger) is the backstop that keeps the coordination PR unmerged while any indexed PR is open or finalization is incomplete. A coordination step that cannot complete halts and surfaces the error rather than advancing (R21). The agent does not merge the coordination PR while any indexed PR is unmerged.",
       "files": [],
       "expectations": [
-        "Agent plans to run shirabe coordination gate, recomputing merge state from live gh api queries at gate time, never from the editable PR body (F4)",
+        "Agent plans to run shirabe validate --merge-gate, recomputing merge state from live gh api queries at gate time, never from the editable PR body (F4)",
         "Agent recognizes the merge-last gate FAILS while any indexed per-repo PR is unmerged, keeping the coordination PR unmerged",
         "Agent understands the gate fails closed: any unresolvable PR is treated as not-merged",
         "Agent identifies the non-bypassable lifecycle.yml strict-mode check (draft == false trigger) as the merge-last backstop",
@@ -675,12 +675,12 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on docs/plans/PLAN-single-repo.md -- the PLAN is single-pr or multi-pr (no coordination intent)",
-      "expected_output": "The PLAN's execution_mode is single-pr or multi-pr and no coordination intent is signaled (no --coordinated flag, no coordinated-default header). Per R3 the coordination capability is ADDITIVE: the plan orchestrator behaves exactly as before -- one repo, one shared branch, one PR, no coordination sync, no cross-repo gate. The agent does NOT call shirabe coordination create, sync, or gate, and does NOT add coordination prompts or a merge-last gate. The coordination-aware section of the SKILL applies only when the PLAN is coordinated (or intent is otherwise signaled).",
+      "expected_output": "The PLAN's execution_mode is single-pr or multi-pr and no coordination intent is signaled (no --coordinated flag, no coordinated-default header). Per R3 the coordination capability is ADDITIVE: the plan orchestrator behaves exactly as before -- one repo, one shared branch, one PR, no coordination sync, no cross-repo gate. The agent does NOT call shirabe coordination create or sync, or shirabe validate --merge-gate, and does NOT add coordination prompts or a merge-last gate. The coordination-aware section of the SKILL applies only when the PLAN is coordinated (or intent is otherwise signaled).",
       "files": [],
       "expectations": [
         "Agent resolves coordination intent as ABSENT (execution_mode single-pr or multi-pr, no --coordinated flag, no coordinated-default header)",
         "Agent runs the plan orchestrator exactly as before: one repo, one shared branch, one PR",
-        "Agent does NOT call shirabe coordination create, sync, or gate when intent is absent",
+        "Agent does NOT call shirabe coordination create or sync, or shirabe validate --merge-gate when intent is absent",
         "Agent does NOT add coordination prompts, cross-repo gate, or merge-last behavior on the intent-absent path",
         "Agent confirms R3 additivity: the coordination capability changes nothing for a non-coordinated PLAN"
       ]

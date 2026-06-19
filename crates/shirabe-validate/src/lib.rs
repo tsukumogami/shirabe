@@ -18,6 +18,7 @@ pub mod formats;
 pub mod frontmatter;
 pub mod gh;
 pub mod lifecycle;
+pub mod merge_gate;
 pub mod mermaid;
 pub mod report;
 pub mod table;
@@ -50,6 +51,10 @@ pub use gh::{
 };
 pub use lifecycle::{
     run_lifecycle_chain_check, run_lifecycle_check, target_state_for, Posture, TargetState,
+};
+pub use merge_gate::{
+    check_index_visibility, coordination_pr_visibility, run_merge_gate, split_pr_arg,
+    GhVisibilityResolver, MergeGateOutcome,
 };
 pub use report::{
     render_human, render_human_with_advisory, render_json, render_json_with_advisory,
