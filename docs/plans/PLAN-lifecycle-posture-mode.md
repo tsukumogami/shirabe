@@ -72,7 +72,11 @@ hard-fail on draft PRs while leaving L03/L04/L05 always-enforced.
   under `ready`.
 - [ ] A document set with an always-enforced finding exits 2 under both postures.
 - [ ] The issue #197 reproduction (a BRIEF at Draft with no downstream artifact, the
-  head of a fresh chain) exits 0 under `draft`.
+  head of a fresh chain) exits 0 under `draft` and 2 under `ready` (the L02 case).
+- [ ] An Active single-pr PLAN with unticked acceptance criteria — the L06 case, for
+  which this PR's own PLAN is a live fixture — exits 0 under `draft` (L06 surfaces as
+  a notice) and 2 under `ready`. Running `validate --lifecycle --mode=draft .` on this
+  PR's tree passes; `--mode=ready` still fails on the same unticked ACs.
 - [ ] A single-pr chain whose PLAN is still present exits 0 under `draft` and 2 under
   `ready` (L01 posture sensitivity preserved).
 - [ ] Each finding's JSON `severity` field agrees with the computed exit code.
