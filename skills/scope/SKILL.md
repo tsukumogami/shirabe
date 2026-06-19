@@ -111,6 +111,56 @@ suppress R9's hard-finalization check; an `--auto` run that cannot
 record a valid exit still fails finalization rather than silently
 absorbing the violation.
 
+## Coordination Intent
+
+`/scope` is coordination-aware: when an effort spans more than one
+repository, `/scope` carries the multi-repo coordination contract
+instead of leaving it to the author to hand-supply each session.
+This capability is **additive**. When coordination intent is absent,
+`/scope` behaves exactly as documented everywhere else in this file —
+single-repo, no coordination PR, no new prompts (R3). Read the rest
+of this section only when intent is present.
+
+Coordination intent resolves on the existing `flag >
+CLAUDE.md-header > default` stack:
+
+- `--coordinated` / `--no-coordinated` — the per-invocation flag
+  (highest precedence; `--no-coordinated` forces the single-repo
+  path even when a workspace default enables coordination).
+- `## PR Grouping Policy:` and `## Reviewability Ceiling:` headers in
+  CLAUDE.md — the durable workspace preferences that, when present,
+  signal coordinated defaults for routine efforts.
+- default — single-repo (intent absent).
+
+When intent is present, `/scope` creates the coordination PR **up
+front**, before invoking any child, by calling the `shirabe
+coordination create` verb seeded from the artifact chain it is about
+to produce. This is the create-up-front phase of the coordinated
+lifecycle. The lifecycle, the coarsest-legal-grouping rule, the
+two-node merge-order model, the done-signal, and the load-bearing
+F1/F2/F4 rules are the canonical contract in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md);
+`/scope` binds to it and does not restate it — the same
+single-source discipline `parent-skill-pattern.md` enforces across
+`/scope` and `/charter`.
+
+Coordination-PR creation, artifact persistence on the PR, sequencing,
+and merge-order tracking are **smart defaults** (Decision F): they
+activate automatically when intent is present, **announce** in the
+invocation output naming the override, and accept a per-invocation
+override (R18). The PR-grouping policy and the reviewability ceiling
+are **durable workspace preferences** (the two CLAUDE.md headers
+above), not announce-on-activation defaults. Cross-repo references in
+the seeded body use the `owner/repo:path` convention and respect each
+repo's visibility per
+[`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`](${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md);
+a public coordination PR never embeds private-repo content (F1).
+
+The verb surface `/scope` calls (`create`, and the `status`/`sync`/
+`gate`/`verify` verbs `/work-on` drives later) is the `shirabe
+coordination` subcommand; its args and fail-closed behavior are owned
+by the CLI, not by this skill.
+
 ## Topic-Slug Constraint
 
 The topic slug appears in the state-file path

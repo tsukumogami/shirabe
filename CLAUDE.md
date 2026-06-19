@@ -25,6 +25,31 @@ Context) so the validator's FC-CONVENTIONS check can find it. See
 header format and the cross-references to the other convention
 headers.
 
+## PR Grouping Policy: coarsest-legal
+
+The default PR-grouping policy for a coordinated multi-repo effort:
+one PR per repository (the coarsest legal unit). A repo splits into
+more than one PR only on a recorded trigger. This is a durable
+workspace preference, resolved `flag > CLAUDE.md-header > default`;
+the default is `coarsest-legal`. The header parallels the other
+convention headers (Repo Visibility, Planning Context, Release Notes
+Convention) so a reader finds the grouping policy in the same place.
+The triggers and the rule's semantics are single-sourced in
+`references/coordination-strategy.md` (Coarsest-Legal-Grouping Rule);
+this header sets the preference, it does not restate the rule.
+
+## Reviewability Ceiling: default
+
+The configured reviewability ceiling for a coordinated effort: the
+size at which a single per-repo PR becomes too large to review and
+the grouping splits it. This is a durable workspace preference,
+resolved `flag > CLAUDE.md-header > default`; `default` defers to
+the ceiling defined in `references/coordination-strategy.md`. Set a
+concrete value here to override. Exceeding the ceiling is one of the
+recorded split triggers named in that contract's
+Coarsest-Legal-Grouping Rule; this header configures the threshold,
+it does not restate the trigger.
+
 ## Artifact Lifecycle: per-skill
 
 shirabe artifacts follow a three-rule lifecycle model. Durable
