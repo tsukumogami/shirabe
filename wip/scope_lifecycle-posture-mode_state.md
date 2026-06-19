@@ -35,8 +35,13 @@ child_snapshots:
     content_hash: 95a78ece2e026ffa876d13724ebda92271dc9e23
     captured_at: 2026-06-19T16:41:33Z
     jury: 3/3 PASS (completeness, clarity, testability); refinements applied
+  design:
+    status: Accepted
+    content_hash: 2e28dd8a37d188fa1632f2145ecced856f5891a2
+    captured_at: 2026-06-19T16:41:33Z
+    jury: 3/3 PASS (architecture, security, structural-format); enum-collision + rendering-channel fixes applied
 parent_orchestration:
-  invoking_child: design
+  invoking_child: plan
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 ```
