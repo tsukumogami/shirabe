@@ -2652,9 +2652,17 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
         // No execution_mode at all is an FC01 / FC02 concern, not FC14's.
         None => return Vec::new(),
     };
-    if mode != "single-pr" && mode != "multi-pr" {
+    if mode != "single-pr" && mode != "multi-pr" && mode != "coordinated" {
         return Vec::new();
     }
+
+    // Coordinated mode is the multi-repo generalization of multi-pr (see
+    // `references/coordination-strategy.md`): its authoritative content is the
+    // Implementation Issues table + a Dependency Graph that /plan collapses
+    // into a two-node `(repo, pr_group)` merge-order DAG. Structurally it
+    // shares every multi-pr sub-check, so the sub-checks below branch on
+    // "single-pr vs not-single-pr" rather than naming each multi-PR mode.
+    let multi_pr_shaped = mode == "multi-pr" || mode == "coordinated";
 
     let mut errs = Vec::new();
     let outlines = parse_issue_outlines(doc);
@@ -2751,7 +2759,8 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
             let observed: usize = if mode == "single-pr" {
                 outlines.len()
             } else {
-                // multi-pr: count entity rows in Implementation Issues table.
+                // multi-pr / coordinated: count entity rows in the
+                // Implementation Issues table.
                 use crate::table::{parse_issues_table, RowKind};
                 parse_issues_table(doc)
                     .map(|t| t.rows.iter().filter(|r| r.kind == RowKind::Entity).count())
@@ -2797,14 +2806,19 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
                 message: "[FC14] execution_mode is 'single-pr' but '## Dependency Graph' is populated -- switch the frontmatter to 'multi-pr' or remove the diagram body".to_string(),
             });
         }
-    } else {
-        // multi-pr
+    } else if multi_pr_shaped {
+        // multi-pr / coordinated: authoritative content is the Implementation
+        // Issues table, so a populated Issue Outlines section is the symmetric
+        // mutual-exclusion violation.
         if !outlines.is_empty() {
             errs.push(ValidationError {
                 file: doc.path.clone(),
                 line: 1,
                 code: "FC14".to_string(),
-                message: "[FC14] execution_mode is 'multi-pr' but '## Issue Outlines' is populated -- switch the frontmatter to 'single-pr' or move the content to '## Implementation Issues'".to_string(),
+                message: format!(
+                    "[FC14] execution_mode is '{}' but '## Issue Outlines' is populated -- switch the frontmatter to 'single-pr' or move the content to '## Implementation Issues'",
+                    mode
+                ),
             });
         }
     }
@@ -6059,6 +6073,37 @@ mod tests {
         assert!(
             errs.is_empty(),
             "well-formed multi-pr should produce no FC14 notice; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc14_well_formed_coordinated_no_notice() {
+        // Coordinated mode shares multi-pr's section shape (Implementation
+        // Issues table + Dependency Graph), so a well-formed coordinated PLAN
+        // validates clean under FC14 just like multi-pr.
+        let doc = make_plan_doc("coordinated", 2, well_formed_multi_pr_body());
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.is_empty(),
+            "well-formed coordinated should produce no FC14 notice; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc14_coordinated_with_outlines_fires_mutual_exclusion() {
+        // A coordinated PLAN whose authoritative content should be the
+        // Implementation Issues table must not also carry populated Issue
+        // Outlines; FC14 fires the symmetric mutual-exclusion notice, naming
+        // the coordinated mode.
+        let doc = make_plan_doc("coordinated", 2, well_formed_single_pr_body());
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.iter().any(|e| e.code == "FC14"
+                && e.message.contains("execution_mode is 'coordinated'")
+                && e.message.contains("## Issue Outlines")),
+            "expected FC14 coordinated mutual-exclusion notice; got {:?}",
             errs
         );
     }

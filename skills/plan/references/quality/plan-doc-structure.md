@@ -62,7 +62,7 @@ before `gh pr ready` fires (the DRAFT-vs-READY discipline).
 ---
 schema: plan/v1
 status: Draft
-execution_mode: single-pr  # single-pr | multi-pr
+execution_mode: single-pr  # single-pr | multi-pr | coordinated
 upstream: docs/designs/DESIGN-<topic>.md  # optional, path to source design/PRD
 milestone: "<Milestone Name>"
 issue_count: <N>
@@ -121,10 +121,10 @@ Every PLAN artifact has these 7 sections, in order:
 
 ## Execution Mode Differences
 
-| Section | single-pr | multi-pr |
-|---------|-----------|----------|
-| Issue Outlines | Populated with structured outlines (goal, acceptance criteria, dependencies) | Empty or omitted |
-| Implementation Issues | Empty or omitted (no GitHub issues to link) | Populated with issue table |
+| Section | single-pr | multi-pr | coordinated |
+|---------|-----------|----------|-------------|
+| Issue Outlines | Populated with structured outlines (goal, acceptance criteria, dependencies) | Empty or omitted | Empty or omitted |
+| Implementation Issues | Empty or omitted (no GitHub issues to link) | Populated with issue table | Populated with issue table + per-issue Repo/Group tags |
 
 In single-pr mode, Phase 4 agents produce structured outlines that
 become sub-sections under Issue Outlines. These give /work-on the
@@ -134,6 +134,63 @@ doc stays at Draft and transitions to Active when /work-on starts.
 In multi-pr mode, Phase 4 agents write full issue body files. Phase 7
 creates GitHub issues and milestones, populates the Implementation
 Issues table with links, and transitions the PLAN doc to Active.
+
+In coordinated mode, the work spans more than one repository.
+Coordinated is the multi-repo generalization of multi-pr: it shares
+multi-pr's section shape (Implementation Issues table + Dependency
+Graph) and adds two things — per-issue `Repo`/`pr_group` tags and a
+two-node merge-order DAG that `/plan` derives by collapsing the
+issue-level dependency graph. See the canonical contract at
+`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`.
+
+### Coordinated Mode: Per-Repo Grouping and the Two-Node DAG
+
+Each issue in a coordinated PLAN carries a `repo` + `pr_group` tag,
+declared as an annotation row directly under the issue's entity row in
+the Implementation Issues table. The annotation mirrors the existing
+`^_Child: ..._` child-reference convention; the two fields are
+separated by an escaped pipe (`\|`) so the row stays one table cell:
+
+```markdown
+| [#1: feat: add api surface](url) | None | testable |
+| ^_Repo: owner/repo-a \| Group: default_ | | |
+| [#2: feat: consume api](url) | [#1](url) | testable |
+| ^_Repo: owner/repo-b \| Group: default_ | | |
+```
+
+- **`Repo`** — the `owner/repo` slug, validated against the GitHub
+  owner/repo charset (the same charset the coordination F2 validator
+  enforces).
+- **`Group`** (the `pr_group`) — a slug matching `^[a-z][a-z0-9-]*$`.
+  The default grouping is **one PR per repository** (`Group: default`);
+  a repo splits into more than one `pr_group` only on a recorded
+  trigger (see the coarsest-legal-grouping rule in the contract).
+
+**Non-PR gate nodes** (a named, verifiable condition that is not a PR,
+such as a package publish) are declared with a gate annotation row,
+also escaped-pipe-separated:
+
+```markdown
+| ^_Gate: publish-lib \| After: pr-lib-default \| Before: pr-app-default_ | | |
+```
+
+`/plan` collapses the issue-level dependency graph into a
+`(repo, pr_group)`-level **two-node DAG** (PR nodes + gate nodes),
+checks it for cycles **after contraction** (R13), and serializes a
+merge order. The contraction lives in
+`scripts/plan-to-tasks.sh` (the `coordinated` execution-mode branch).
+
+**Acyclicity and the R16-vs-R13 discriminator.** An issue-level graph
+can be acyclic yet contract to a cycle — e.g. issue #1 (repo-x) →
+issue #2 (repo-y) → issue #3 (repo-x) contracts to
+`repo-x → repo-y → repo-x`. When this happens, `/plan` applies the
+discriminator: if splitting a repo at the seam (re-sequencing its
+issues into separate PR nodes) yields an acyclic order, it resolves
+the cycle that way; if no acyclic order exists (true cross-repo
+atomicity — two repos that would have to merge simultaneously),
+`/plan` **refuses** and emits guidance to reshape into a
+compatible-intermediate sequence. A cyclic merge order is never
+emitted.
 
 ### Issue Outline Format
 

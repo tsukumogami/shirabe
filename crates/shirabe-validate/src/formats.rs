@@ -31,9 +31,9 @@ pub struct FormatSpec {
     /// value that maps in `map`, FC04 consults `map[execution_mode]`
     /// instead of `required_sections`. When `None` (the default for every
     /// format except Plan), FC04 uses `required_sections` as before. Plan
-    /// profile populates this with `single-pr` and `multi-pr` lists so the
-    /// Plan profile's required-sections check branches on execution mode
-    /// without affecting any other profile.
+    /// profile populates this with `single-pr`, `multi-pr`, and `coordinated`
+    /// lists so the Plan profile's required-sections check branches on
+    /// execution mode without affecting any other profile.
     pub execution_mode_required_sections: Option<HashMap<String, Vec<String>>>,
 }
 
@@ -43,10 +43,16 @@ fn s(values: &[&str]) -> Vec<String> {
 
 /// Build the Plan profile's per-`execution_mode` required-sections map.
 ///
-/// Returns a map with `"single-pr"` and `"multi-pr"` keys. FC04 consults
-/// this map for Plan profile docs when their frontmatter carries an
-/// `execution_mode` value; on a hit, the per-mode list replaces the flat
+/// Returns a map with `"single-pr"`, `"multi-pr"`, and `"coordinated"` keys.
+/// FC04 consults this map for Plan profile docs when their frontmatter carries
+/// an `execution_mode` value; on a hit, the per-mode list replaces the flat
 /// `required_sections` for that doc.
+///
+/// `coordinated` is the multi-repo generalization of `multi-pr` (see
+/// `references/coordination-strategy.md`). Its section shape is modeled on
+/// `multi-pr`: an Implementation Issues table plus a Dependency Graph that the
+/// /plan contraction collapses into a two-node `(repo, pr_group)` merge-order
+/// DAG. It carries the same required sections as `multi-pr`.
 fn plan_execution_mode_sections() -> HashMap<String, Vec<String>> {
     let mut m = HashMap::new();
     m.insert(
@@ -59,17 +65,18 @@ fn plan_execution_mode_sections() -> HashMap<String, Vec<String>> {
             "Implementation Sequence",
         ]),
     );
-    m.insert(
-        "multi-pr".to_string(),
-        s(&[
-            "Status",
-            "Scope Summary",
-            "Decomposition Strategy",
-            "Implementation Issues",
-            "Dependency Graph",
-            "Implementation Sequence",
-        ]),
-    );
+    let multi_pr_sections = s(&[
+        "Status",
+        "Scope Summary",
+        "Decomposition Strategy",
+        "Implementation Issues",
+        "Dependency Graph",
+        "Implementation Sequence",
+    ]);
+    m.insert("multi-pr".to_string(), multi_pr_sections.clone());
+    // Coordinated mode shares multi-pr's section shape: it is always multi-PR
+    // and adds the coordination PR + two-node merge-order DAG on top.
+    m.insert("coordinated".to_string(), multi_pr_sections);
     m
 }
 
@@ -289,5 +296,33 @@ mod tests {
     #[test]
     fn detect_format_returns_eight_formats() {
         assert_eq!(formats().len(), 8);
+    }
+
+    #[test]
+    fn plan_execution_mode_sections_includes_coordinated() {
+        let map = plan_execution_mode_sections();
+        // The third coordinated mode is recognized alongside single-pr/multi-pr.
+        assert!(map.contains_key("single-pr"));
+        assert!(map.contains_key("multi-pr"));
+        assert!(
+            map.contains_key("coordinated"),
+            "coordinated must be a recognized execution_mode section profile"
+        );
+        // Coordinated shares multi-pr's required-section shape (it is the
+        // multi-repo generalization of multi-pr).
+        assert_eq!(
+            map.get("coordinated"),
+            map.get("multi-pr"),
+            "coordinated section shape must mirror multi-pr"
+        );
+    }
+
+    #[test]
+    fn plan_profile_carries_coordinated_section_override() {
+        let plan = detect_format("PLAN-x.md").expect("PLAN- matches the Plan profile");
+        let map = plan
+            .execution_mode_required_sections
+            .expect("Plan profile must carry per-execution_mode sections");
+        assert!(map.contains_key("coordinated"));
     }
 }
