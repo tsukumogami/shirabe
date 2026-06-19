@@ -13,10 +13,11 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
-    check_slug_prefix, detect_format, format_error, format_notice, is_known_check_code, is_notice,
-    parse_doc, render_human, render_json, run_lifecycle_chain_check, run_lifecycle_check,
-    run_transition, validate_file, walk_chain_mode, Config, Flags, Mode, ParseError,
-    SlugPrefixCheck, ValidationError,
+    check_slug_prefix, detect_format, detect_pr_draft, explain_advisory, format_error,
+    format_notice, is_known_check_code, is_notice, parse_doc, render_human_with_advisory,
+    render_json_with_advisory, run_lifecycle_chain_check, run_lifecycle_check, run_transition,
+    validate_file, walk_chain_mode, AdvisoryReport, Config, Flags, Mode, ParseError, PrPosture,
+    ReviewPosture, SlugPrefixCheck, ValidationError,
 };
 
 mod coordination;
@@ -165,6 +166,24 @@ enum Format {
     Human,
 }
 
+/// The `--mode` value for `validate`: the review posture a lifecycle run
+/// asserts. `draft` is the in-flight posture (the default); `ready` is the
+/// review-ready posture (the successor of the deprecated `--strict`).
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum PostureMode {
+    Draft,
+    Ready,
+}
+
+impl PostureMode {
+    fn to_review_posture(self) -> ReviewPosture {
+        match self {
+            PostureMode::Draft => ReviewPosture::Draft,
+            PostureMode::Ready => ReviewPosture::Ready,
+        }
+    }
+}
+
 #[derive(clap::Args)]
 struct ValidateArgs {
     /// Files to validate.
@@ -202,20 +221,30 @@ struct ValidateArgs {
     #[arg(long, value_name = "ROOT")]
     lifecycle: Option<String>,
 
-    /// Strict mode for `--lifecycle`. Disables the single-pr-mid-PR
-    /// exemption so a present single-pr PLAN fails the check and
+    /// Review posture for `--lifecycle` / `--lifecycle-chain`. `draft`
+    /// (the default) is the in-flight posture: the single-pr-mid-PR
+    /// exemption applies, so a present single-pr PLAN and single-pr
+    /// BRIEF/PRD at Accepted pass. `ready` is the review-ready posture:
+    /// the exemption is disabled, so a present single-pr PLAN fails and
     /// single-pr BRIEF/PRD at Accepted fail. Multi-pr postures are
-    /// unchanged. Default off — preserves the upstream non-strict
-    /// behavior in local CLI invocations. The CI workflow templates
-    /// this flag conditional on the PR's `draft` state so DRAFT PRs
-    /// run non-strict and READY PRs run strict.
-    #[arg(long, default_value_t = false)]
+    /// unchanged by the mode. The CI workflow asserts `ready` only when
+    /// the PR is ready-for-review (`github.event.pull_request.draft ==
+    /// false`); otherwise the default `draft` applies.
+    #[arg(long, value_enum, default_value_t = PostureMode::Draft)]
+    mode: PostureMode,
+
+    /// Deprecated alias for `--mode=ready`. Hidden; retained for one
+    /// migration window so unmigrated callers keep working. When set it
+    /// resolves the posture to `ready` and prints a one-line deprecation
+    /// notice to stderr. Precedence: `--strict` present wins (resolves to
+    /// `ready`); otherwise the `--mode` value applies.
+    #[arg(long, hide = true, default_value_t = false)]
     strict: bool,
 
     /// Chain-targeted lifecycle mode. Takes a doc-in-a-chain (PLAN,
     /// DESIGN, PRD, BRIEF, or ROADMAP) and validates only the chain
     /// containing that doc. Mutually exclusive with `--lifecycle` and
-    /// with positional file arguments. Works with `--strict`. The
+    /// with positional file arguments. Works with `--mode`. The
     /// work-on cascade script uses this mode to verify its own chain's
     /// posture without surfacing unrelated drift as noise.
     #[arg(long, value_name = "DOC")]
@@ -327,6 +356,19 @@ impl ValidateOutcome {
     }
 }
 
+/// Resolve the effective [`ReviewPosture`] from the `--strict` deprecated
+/// flag and the `--mode` value. When `--strict` is set it wins (resolves to
+/// `Ready`) and a one-line deprecation notice is printed to stderr;
+/// otherwise the `--mode` value applies. Factored out so the precedence and
+/// the deprecation notice are covered by a unit test.
+fn resolve_posture(strict: bool, mode: PostureMode) -> ReviewPosture {
+    if strict {
+        eprintln!("warning: --strict is deprecated; use --mode=ready");
+        return ReviewPosture::Ready;
+    }
+    mode.to_review_posture()
+}
+
 /// Runs the `validate` subcommand. Returns the multi-level exit code per
 /// the `ValidateOutcome` contract: `0` clean, `1` tool-error (bad
 /// invocation, unreadable or unparseable file), `2` violations found
@@ -364,11 +406,17 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         }
     }
 
+    // Resolve the effective review posture once. Precedence: the
+    // deprecated `--strict` flag wins (resolves to Ready and emits a
+    // one-line deprecation notice to stderr); otherwise the `--mode` value
+    // applies (default Draft).
+    let posture = resolve_posture(args.strict, args.mode);
+
     if let Some(root) = args.lifecycle.as_deref() {
         return run_lifecycle(
             root,
             &args.visibility,
-            args.strict,
+            posture,
             args.allow_untracked_acs,
             args.format,
         );
@@ -378,7 +426,7 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         return run_lifecycle_chain(
             doc,
             &args.visibility,
-            args.strict,
+            posture,
             args.allow_untracked_acs,
             args.format,
         );
@@ -440,7 +488,7 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
             if !args.check.is_empty() && !args.check.iter().any(|c| c == &ve.code) {
                 continue;
             }
-            if !is_notice(&ve) {
+            if !is_notice(&ve, posture) {
                 worst = worst.merge(ValidateOutcome::Violations);
             }
             findings.push(ve);
@@ -450,35 +498,61 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     match args.format {
         Format::Annotation => {
             for ve in &findings {
-                if is_notice(ve) {
+                if is_notice(ve, posture) {
                     println!("{}", format_notice(&ve.file, &ve.message));
                 } else {
                     println!("{}", format_error(ve));
                 }
             }
         }
-        Format::Json => print!("{}", render_json(&findings, worst.label())),
-        Format::Human => print!("{}", render_human(&findings, worst.label())),
+        Format::Json => {
+            let advisory = compute_advisory(&findings, posture);
+            print!(
+                "{}",
+                render_json_with_advisory(&findings, worst.label(), posture, Some(&advisory))
+            )
+        }
+        Format::Human => {
+            let advisory = compute_advisory(&findings, posture);
+            print!(
+                "{}",
+                render_human_with_advisory(&findings, worst.label(), posture, Some(&advisory))
+            )
+        }
     }
 
     worst.exit()
+}
+
+/// Build the context-aware advisory for a render. The advisory is read-only
+/// with respect to the verdict (the advisory-never-gates invariant): the PR
+/// context it reads (`detect_pr_draft`, a typed `draft` bit from
+/// `GITHUB_EVENT_PATH`) feeds *phrasing only* and never the exit code or any
+/// existing JSON verdict field. The read is hermetic (a local file, no
+/// network) and degrades to no-PR phrasing when the signal is absent.
+///
+/// Annotation mode does not render an advisory (its bytes are frozen for CI
+/// parity), so this is only called for the JSON and human formats.
+fn compute_advisory(findings: &[ValidationError], posture: ReviewPosture) -> AdvisoryReport {
+    let pr = PrPosture::from_draft_bit(detect_pr_draft());
+    explain_advisory(findings, posture, pr)
 }
 
 /// Runs the chain-aware passing-state lifecycle check against `root`.
 /// Emits one annotation per failure to stdout and returns a non-zero
 /// exit code if any failures were emitted.
 ///
-/// When `strict` is true, the single-pr-mid-PR exemption is disabled:
-/// a single-pr PLAN present in the tree fails (regardless of its
-/// `status:` value) and single-pr BRIEF/PRD at Accepted fail.
-/// Multi-pr postures are unchanged by the strict flag.
+/// Under `ReviewPosture::Ready`, the single-pr-mid-PR exemption is
+/// disabled: a single-pr PLAN present in the tree fails (regardless of its
+/// `status:` value) and single-pr BRIEF/PRD at Accepted fail. Multi-pr
+/// postures are unchanged by the posture.
 ///
 /// The findings are collected into a `Vec` and rendered once by
 /// [`render_lifecycle`] per the chosen [`Format`], mirroring `run_validate`.
 fn run_lifecycle(
     root: &str,
     visibility: &str,
-    strict: bool,
+    posture: ReviewPosture,
     allow_untracked_acs: bool,
     format: Format,
 ) -> ExitCode {
@@ -492,8 +566,8 @@ fn run_lifecycle(
         eprintln!("--lifecycle root {} does not exist", root);
         return ValidateOutcome::ToolError.exit();
     }
-    let findings = run_lifecycle_check(root_path, &cfg, strict);
-    render_lifecycle(&findings, format)
+    let findings = run_lifecycle_check(root_path, &cfg, posture);
+    render_lifecycle(&findings, format, posture)
 }
 
 /// Render a lifecycle mode's collected findings once by `format` and return
@@ -501,14 +575,19 @@ fn run_lifecycle(
 /// [`run_lifecycle_chain`]; factored out so the two modes render identically.
 ///
 /// The `worst` outcome is accumulated the same way the streaming code did:
-/// a notice (per [`is_notice`]) never bumps the run to `Violations`, so a
-/// run carrying only notices stays clean (exit 0). In `Annotation` mode the
-/// per-finding `format_error`/`format_notice` loop runs in the original
-/// finding order, so its output bytes are unchanged.
-fn render_lifecycle(findings: &[ValidationError], format: Format) -> ExitCode {
+/// a notice (per [`is_notice`], resolved under `posture`) never bumps the
+/// run to `Violations`, so a run carrying only notices stays clean (exit
+/// 0). In `Annotation` mode the per-finding `format_error`/`format_notice`
+/// loop runs in the original finding order, so its output bytes are
+/// unchanged.
+fn render_lifecycle(
+    findings: &[ValidationError],
+    format: Format,
+    posture: ReviewPosture,
+) -> ExitCode {
     let mut worst = ValidateOutcome::Clean;
     for ve in findings {
-        if !is_notice(ve) {
+        if !is_notice(ve, posture) {
             worst = worst.merge(ValidateOutcome::Violations);
         }
     }
@@ -516,15 +595,27 @@ fn render_lifecycle(findings: &[ValidationError], format: Format) -> ExitCode {
     match format {
         Format::Annotation => {
             for ve in findings {
-                if is_notice(ve) {
+                if is_notice(ve, posture) {
                     println!("{}", format_notice(&ve.file, &ve.message));
                 } else {
                     println!("{}", format_error(ve));
                 }
             }
         }
-        Format::Json => print!("{}", render_json(findings, worst.label())),
-        Format::Human => print!("{}", render_human(findings, worst.label())),
+        Format::Json => {
+            let advisory = compute_advisory(findings, posture);
+            print!(
+                "{}",
+                render_json_with_advisory(findings, worst.label(), posture, Some(&advisory))
+            )
+        }
+        Format::Human => {
+            let advisory = compute_advisory(findings, posture);
+            print!(
+                "{}",
+                render_human_with_advisory(findings, worst.label(), posture, Some(&advisory))
+            )
+        }
     }
 
     worst.exit()
@@ -568,9 +659,9 @@ fn run_slug_prefix_detect(args: &SlugPrefixDetectArgs) -> ExitCode {
 /// and returns a non-zero exit code if any failures were emitted.
 ///
 /// Mirrors `run_lifecycle`'s shape but invokes
-/// `run_lifecycle_chain_check`. The strict flag has the same
-/// behavior: when true, the single-pr-mid-PR exemption is disabled
-/// for the matched chain; multi-pr postures are unchanged.
+/// `run_lifecycle_chain_check`. The posture has the same behavior: under
+/// `ReviewPosture::Ready` the single-pr-mid-PR exemption is disabled for
+/// the matched chain; multi-pr postures are unchanged.
 ///
 /// Used by the work-on cascade script in
 /// `skills/work-on/scripts/run-cascade.sh` for the pre-cascade probe
@@ -581,7 +672,7 @@ fn run_slug_prefix_detect(args: &SlugPrefixDetectArgs) -> ExitCode {
 fn run_lifecycle_chain(
     doc_path: &str,
     visibility: &str,
-    strict: bool,
+    posture: ReviewPosture,
     allow_untracked_acs: bool,
     format: Format,
 ) -> ExitCode {
@@ -596,8 +687,8 @@ fn run_lifecycle_chain(
     // entry guard rejects on missing roots; the chain-targeted mode
     // leaves the rejection to the module so the error includes the
     // expected-location-set guidance.
-    let findings = run_lifecycle_chain_check(path, &cfg, strict);
-    render_lifecycle(&findings, format)
+    let findings = run_lifecycle_chain_check(path, &cfg, posture);
+    render_lifecycle(&findings, format, posture)
 }
 
 /// Runs the `transition` subcommand. On success, prints the per-type JSON
@@ -1039,6 +1130,62 @@ mod tests {
             }
             _ => panic!("expected the validate subcommand"),
         }
+    }
+
+    #[test]
+    fn validate_mode_defaults_to_draft() {
+        // No --mode and no --strict: the default posture is Draft.
+        let cli = Cli::parse_from(["shirabe", "validate", "--lifecycle", "."]);
+        match cli.command {
+            Some(Commands::Validate(args)) => {
+                assert!(matches!(args.mode, PostureMode::Draft));
+                assert!(!args.strict);
+                assert_eq!(
+                    resolve_posture(args.strict, args.mode),
+                    ReviewPosture::Draft
+                );
+            }
+            _ => panic!("expected the validate subcommand"),
+        }
+    }
+
+    #[test]
+    fn validate_strict_and_mode_ready_resolve_identically() {
+        // The deprecated --strict and --mode=ready must resolve to the same
+        // ReviewPosture (Ready), so they yield identical verdicts/output.
+        let strict_cli = Cli::parse_from(["shirabe", "validate", "--lifecycle", ".", "--strict"]);
+        let ready_cli =
+            Cli::parse_from(["shirabe", "validate", "--lifecycle", ".", "--mode", "ready"]);
+
+        let strict_posture = match strict_cli.command {
+            Some(Commands::Validate(args)) => resolve_posture(args.strict, args.mode),
+            _ => panic!("expected the validate subcommand"),
+        };
+        let ready_posture = match ready_cli.command {
+            Some(Commands::Validate(args)) => resolve_posture(args.strict, args.mode),
+            _ => panic!("expected the validate subcommand"),
+        };
+        assert_eq!(strict_posture, ReviewPosture::Ready);
+        assert_eq!(ready_posture, ReviewPosture::Ready);
+        assert_eq!(strict_posture, ready_posture);
+    }
+
+    #[test]
+    fn resolve_posture_strict_wins_over_mode() {
+        // Precedence: --strict present resolves to Ready even if --mode says
+        // draft; otherwise the --mode value applies.
+        assert_eq!(
+            resolve_posture(true, PostureMode::Draft),
+            ReviewPosture::Ready
+        );
+        assert_eq!(
+            resolve_posture(false, PostureMode::Ready),
+            ReviewPosture::Ready
+        );
+        assert_eq!(
+            resolve_posture(false, PostureMode::Draft),
+            ReviewPosture::Draft
+        );
     }
 
     #[test]

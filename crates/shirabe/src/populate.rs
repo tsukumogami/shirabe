@@ -1220,7 +1220,7 @@ mod tests {
         let findings = validate_file(&doc, &spec, &cfg);
         let errors: Vec<_> = findings
             .iter()
-            .filter(|e| !shirabe_validate::is_notice(e))
+            .filter(|e| !shirabe_validate::is_notice(e, shirabe_validate::ReviewPosture::Draft))
             .collect();
         assert!(
             errors.is_empty(),
