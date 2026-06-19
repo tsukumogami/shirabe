@@ -108,9 +108,10 @@ a repo boundary.
 **4. Merge last.** Once every indexed PR has merged and finalization is
 complete, the gate passes, the coordination PR consumes its own PLAN, and
 merges. That merge is the done-signal. There's no separate "effort complete"
-marker —the merged coordination PR is it. A non-bypassable
-`lifecycle.yml` strict-mode check is the backstop: it keeps the coordination
-PR unmerged while any indexed PR is open or finalization is incomplete.
+marker —the merged coordination PR is it. The non-bypassable backstop is
+`shirabe validate --merge-gate`, which `lifecycle.yml` runs under `--mode=ready`:
+it keeps the coordination PR unmerged while any indexed PR is open or
+finalization is incomplete.
 
 ## The merge order
 

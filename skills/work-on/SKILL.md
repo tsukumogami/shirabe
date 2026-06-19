@@ -88,14 +88,16 @@ gate`), not a cross-repo write.
 
 A coordination step that **cannot complete** — a `shirabe
 coordination sync` that cannot rewrite the durable index, a finalize
-that cannot run its repo-local cascade, or a `gate` recompute that
-cannot resolve every indexed PR's live state — **halts and surfaces
-the error**. `/work-on` does not advance past a coordination step it
-could not complete and does not paper over a failed step as success.
-A halted coordination step leaves the coordination PR unmerged: the
-`lifecycle.yml` strict-mode gate keeps the coordination PR
-merge-ineligible while finalization is incomplete or any indexed PR
-is unresolved, and an unresolvable PR fails closed as not-merged.
+that cannot run its repo-local cascade, or a `shirabe validate
+--merge-gate` recompute that cannot resolve every indexed PR's live
+state — **halts and surfaces the error**. `/work-on` does not advance
+past a coordination step it could not complete and does not paper over
+a failed step as success. A halted coordination step leaves the
+coordination PR unmerged: the `lifecycle.yml` merge-last gate
+(`shirabe validate --merge-gate`, run under `--mode=ready`) keeps the
+coordination PR merge-ineligible while finalization is incomplete or
+any indexed PR is unresolved, and an unresolvable PR fails closed as
+not-merged.
 This is a binding to that gate, not a restatement of its internals —
 the gate's recompute mechanics and fail-closed rules are the
 canonical contract in

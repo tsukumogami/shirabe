@@ -53,8 +53,9 @@ The coordinated lifecycle has four phases, in order:
 4. **Merge last.** Once every indexed PR has merged and finalization is
    complete, the read-only gate passes, the coordination PR consumes its own
    PLAN, and merges. That merge is the done-signal. A non-bypassable CI check
-   (`lifecycle.yml` strict mode) is the backstop that keeps the coordination PR
-   unmerged while any indexed PR is open or finalization is incomplete.
+   (`shirabe validate --merge-gate`, run by `lifecycle.yml` under `--mode=ready`)
+   is the backstop that keeps the coordination PR unmerged while any indexed PR
+   is open or finalization is incomplete.
 
 ## Coarsest-Legal-Grouping Rule
 
@@ -109,8 +110,9 @@ sequence. The system never emits a plan that assumes atomic cross-repo merge.
 
 The single done-signal of a coordinated effort is **the coordination PR
 merging**. It cannot merge until every indexed per-repo PR has merged and
-finalization is complete; the strict-mode `lifecycle.yml` check enforces this
-and is non-bypassable. There is no separate "effort complete" marker — the
+finalization is complete; `shirabe validate --merge-gate` (run by `lifecycle.yml`
+under `--mode=ready`) enforces this and is non-bypassable. There is no separate
+"effort complete" marker — the
 merged coordination PR is it.
 
 ## Coordination-PR Visibility Rule
@@ -213,7 +215,7 @@ cross-repo upstream is at a terminal status) is part of the same mode; both the
 gate and the upstream-terminal check are validate modes, not coordination verbs.
 
 **Fail closed:** any PR the gate cannot resolve is treated as not-merged. The
-gate is pinned to the strict-mode `draft == false` trigger (CI passes
+gate is pinned to the `draft == false` trigger (CI passes
 `--mode=ready` there) so it cannot be skipped by toggling draft. A stale
 rendered body can mislead a human reader but cannot cause a wrong merge, because
 the gate never trusts it.

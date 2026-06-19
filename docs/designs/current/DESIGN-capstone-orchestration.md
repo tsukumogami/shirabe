@@ -11,9 +11,10 @@ decision: |
   `/work-on`, and the `shirabe` CLI. The coordination PR is a docs-only PR created
   up front; per-repo implementation lands as separate PRs grouped to the coarsest legal
   unit. A pull-model `shirabe coordination` subcommand (gh-backed) keeps the PR-index and a
-  two-node merge-order DAG current; finalize writes stay repo-local with a read-only
-  cross-repo verification gate; the strict `lifecycle.yml` CI check is the non-bypassable
-  merge-last backstop. The merge order is derived and validated (acyclic) in the PLAN at
+  two-node merge-order DAG current; the merge-last gate is a posture-aware
+  `shirabe validate --merge-gate` mode that `lifecycle.yml` runs under `--mode=ready` as the
+  non-bypassable backstop; finalize writes stay repo-local with a read-only cross-repo
+  verification gate. The merge order is derived and validated (acyclic) in the PLAN at
   authoring time and rendered into the coordination PR body as merge-time canon.
 rationale: |
   Every cross-repo write or always-on service was rejected for cost and for violating
@@ -175,8 +176,8 @@ new standalone tool.
   not declare or validate its own coordinated shape — the exact gap that surfaced while
   planning this very effort, where a coordinated PLAN fit neither `single-pr` nor `multi-pr`.
 - *Bootstrapping note:* `coordinated` mode does not exist until this effort builds it, so this
-  effort's own PLAN runs in `multi-pr` mode with the coordination PR (PR #196) handled
-  by hand.
+  effort's own PLAN runs in `single-pr` mode — all issues land in the one coordination PR
+  (PR #196), which is created up front and merged-last by hand.
 
 ## Decision Outcome
 
@@ -184,10 +185,11 @@ The coordination PR is a docs-only PR on its own branch, created up front by `/s
 (or `/work-on`) when coordination intent is present, holding the PLAN and the durable
 BRIEF/PRD/DESIGN. Implementation lands as per-repo PRs grouped by `/plan` to the coarsest
 legal unit, with a two-node merge-order DAG validated acyclic at authoring time and rendered
-into the coordination PR body. A pull-model `shirabe coordination` subcommand keeps the PR-index and
-gate current from the operator's own `gh` credentials; finalize stays repo-local with a
-read-only cross-repo verification gate; and the strict-mode `lifecycle.yml` CI check on the
-coordination PR is the non-bypassable merge-last backstop. The whole contract is defined once in
+into the coordination PR body. A pull-model `shirabe coordination` subcommand keeps the PR-index
+current from the operator's own `gh` credentials; the merge-last gate is the posture-aware
+`shirabe validate --merge-gate` mode that `lifecycle.yml` runs under `--mode=ready` as the
+non-bypassable backstop; finalize stays repo-local with a read-only cross-repo verification gate.
+The whole contract is defined once in
 `references/coordination-strategy.md` and bound by the three consumers.
 
 This holds together because every piece is pull-based and repo-local: no component writes
@@ -259,8 +261,9 @@ Components:
 - **`shirabe coordination` subcommand** (in the existing CLI crate) — verbs:
   - `create` — open the docs-only coordination PR/branch, seed the body (declaration, artifact
     chain, PR-index, fenced merge-order block) rendered from the PLAN.
-  - `status` / `sync` — read each indexed PR via `gh.rs`, rewrite the PR-index, recompute the
-    merge-order and the R14 gate. Validates each `owner/repo:path` component before use (F2);
+  - `status` / `sync` — read each indexed PR via `gh.rs`, rewrite the PR-index, and recompute the
+    merge-order. (The R14 merge-last gate is `shirabe validate --merge-gate`, below.) Validates
+    each `owner/repo:path` component before use (F2);
     resolves each repo's visibility and redacts private identifiers to opaque node ids when
     rendering a public coordination PR body (F1); escapes `gh`-sourced titles/branches (F3).
 - **`shirabe validate --merge-gate`** — the merge-last gate (F4 / R14), folded into `validate`
@@ -277,16 +280,18 @@ Components:
 - **`finalize.rs` extension** — keep the `Stop`-on-cross-repo wall for writes; add a `gh`-backed
   read pass that verifies cross-repo upstreams are terminal. Separately, relax
   `run-cascade.sh`'s `check_issue_closed` single-`origin` assumption.
-- **`lifecycle.yml` strict-mode check** — on a coordination PR, fail "ready" while any indexed PR
-  is unmerged or finalization is incomplete (the merge-last backstop).
+- **`lifecycle.yml` merge-last step** — on a coordination PR, run `shirabe validate --merge-gate
+  --mode=ready`, failing the "ready" check while any indexed PR is unmerged or finalization is
+  incomplete (the merge-last backstop).
 - **`/scope` + `/work-on` bindings** — detect coordination intent (flag/header/default), call
   `shirabe coordination create` up front, call `shirabe coordination sync` as per-repo PRs progress,
   and announce smart-default activations (R18).
 
 Data flow: `/scope` (coordination intent) → `shirabe coordination create` seeds the PR from the PLAN's
 two-node order → per-repo work via `/work-on` opens per-repo PRs → `shirabe coordination sync`
-refreshes index/gate from `gh` → each repo's PR finalizes its own artifacts → all merged →
-read-only verification gate passes → coordination PR consumes its PLAN and merges last.
+refreshes the index from `gh` → each repo's PR finalizes its own artifacts → all merged →
+`shirabe validate --merge-gate` (ready posture), the read-only merge-last gate, passes →
+coordination PR consumes its PLAN and merges last.
 
 ## Implementation Approach
 
@@ -298,9 +303,9 @@ A walking skeleton first, then the cross-repo machinery (sequenced by `/plan`):
 2. **`/plan` collapse + two-node order** — `repo`/`pr_group` tagging, DAG contraction,
    acyclicity check + resolution, serialized order. (Most of R10–R13.)
 3. **`shirabe coordination create`** — open + seed the coordination PR/branch from the PLAN render.
-4. **`shirabe coordination status/sync`** — gh-backed index/gate recompute (the core new logic).
-5. **`finalize.rs` read pass + `lifecycle.yml` gate** — the merge-last backstop and repo-local
-   cascade verification.
+4. **`shirabe coordination status/sync`** — gh-backed index/merge-order recompute (the core new logic).
+5. **`shirabe validate --merge-gate` + `finalize.rs` read pass + `lifecycle.yml`** — the merge-last
+   backstop and repo-local cascade verification.
 6. **`/scope` + `/work-on` bindings** — intent surface, announce/override, create/sync calls.
 7. **Abandonment + failure paths** — force-materialize on bail; halt-on-failure.
 
@@ -327,8 +332,8 @@ hard rules in `references/coordination-strategy.md` (below); the rest are standa
   positions, and gate logic.
 - **`/plan` collapse step:** new `repo`/`pr_group` tags become node identity and feed the
   acyclicity logic.
-- **`lifecycle.yml` strict-mode gate:** the merge-last backstop reads influenceable data to
-  decide "ready."
+- **`shirabe validate --merge-gate` (run by `lifecycle.yml` under `--mode=ready`):** the
+  merge-last backstop reads influenceable data to decide "ready."
 
 Inherited controls that must not regress: `gh.rs` uses `Command`/`.args()` (no shell
 string), validates owner/repo against `^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$`, caps output at
@@ -368,7 +373,7 @@ validates task names against `^[a-z][a-z0-9-]*$` and builds JSON with `jq --arg`
   of indexed PRs (the durable index), but each PR's merged/open status and the order's
   acyclicity are verified live. Fail closed: any PR it cannot resolve is treated as not-merged.
   The mode is posture-aware (enforce under `--mode=ready`, notice under `--mode=draft`); CI
-  pins it to the strict-mode `draft == false` trigger and passes `--mode=ready` so it cannot
+  pins it to the `draft == false` trigger and passes `--mode=ready` so it cannot
   be skipped.
 - **F5 — Privilege scope / token exposure (Medium).** All coordination `gh` use is read-only;
   no coordination verb writes cross-repo. Inherit `gh.rs`'s no-token-in-process property; do
