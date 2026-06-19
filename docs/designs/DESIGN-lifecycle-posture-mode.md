@@ -176,8 +176,8 @@ and `detect_pr_context` are extended, not duplicated).
    `crates/shirabe/src/main.rs` (`ValidateArgs`): `--mode <draft|ready>` with
    `default_value = "draft"`; `--strict` retained as a hidden deprecated boolean
    that, when set, resolves to `ReviewPosture::Ready` and emits a deprecation
-   notice. A malformed `--mode` value is a usage error (exit 1, tool-error),
-   matching clap's existing invalid-value handling.
+   notice. A malformed `--mode` value is a usage error (exits 2 (clap usage
+   error)), matching clap's existing invalid-value handling.
 
 2. **`effective_severity(code, posture) -> Severity`** — evolves the current
    static `is_notice(code)` in `validate.rs`. Backed by

@@ -12,16 +12,16 @@ name: Lifecycle Check
 #
 # The reusable workflow runs the chain-aware passing-state check
 # (`shirabe validate --lifecycle .`) against the caller repo's working
-# tree, with strict mode set conditional on
+# tree, with the review posture set conditional on
 # `github.event.pull_request.draft`. The whole-tree scan is the point —
 # no `paths:` filter at the caller level, since the check inspects
 # every chain in the tree regardless of which docs the diff touches.
 #
-# DRAFT PRs run in non-strict mode and pass against mid-PR chain
-# states; READY PRs run in strict mode and require single-pr chains to
-# be at their terminal (PLAN deleted, BRIEF/PRD Done, DESIGN Current).
-# See docs/briefs/BRIEF-lifecycle-draft-ready-discipline.md for the
-# DRAFT-vs-READY discipline.
+# DRAFT PRs run in draft posture and pass against mid-PR chain
+# states; READY PRs run in ready posture and require single-pr chains
+# to be at their terminal (PLAN deleted, BRIEF/PRD Done, DESIGN
+# Current). See docs/briefs/BRIEF-lifecycle-draft-ready-discipline.md
+# for the DRAFT-vs-READY discipline.
 
 on:
   workflow_call:
@@ -87,22 +87,23 @@ jobs:
 
       - name: Run lifecycle check
         # The shell conditional reads github.event.pull_request.draft
-        # and sets STRICT_FLAG when the PR is ready-for-review (draft
-        # is false). DRAFT PRs leave STRICT_FLAG empty and run the
-        # check in non-strict mode against mid-PR chain states. READY
-        # PRs run in strict mode and require chains to be at their
-        # terminal passing state. See
+        # and sets MODE_FLAG to --mode=ready when the PR is
+        # ready-for-review (draft is false). DRAFT PRs leave MODE_FLAG
+        # empty so the binary's default draft posture applies and the
+        # check passes against mid-PR chain states. READY PRs run in
+        # ready posture and require chains to be at their terminal
+        # passing state. See
         # docs/decisions/DECISION-lifecycle-strict-mode-interface-2026-06-06.md
         # for the interface rationale.
         run: |
-          STRICT_FLAG=""
+          MODE_FLAG=""
           if [ "${{ github.event.pull_request.draft }}" = "false" ]; then
-            STRICT_FLAG="--strict"
-            echo "PR is ready-for-review; running in strict mode."
+            MODE_FLAG="--mode=ready"
+            echo "PR is ready-for-review; running in ready posture."
           else
-            echo "PR is draft; running in non-strict mode."
+            echo "PR is draft; running in draft posture (default)."
           fi
           shirabe validate \
             --visibility=${{ github.repository_visibility }} \
             --lifecycle . \
-            $STRICT_FLAG
+            $MODE_FLAG

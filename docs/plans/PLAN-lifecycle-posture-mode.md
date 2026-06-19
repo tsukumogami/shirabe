@@ -44,7 +44,7 @@ change in observable behavior.
 - [ ] `ReviewPosture { Draft, Ready }` exists (named to avoid the existing chain
   `Posture` enum in `lifecycle.rs`).
 - [ ] `validate --mode <draft|ready>` parses with `default_value = "draft"`; an
-  invalid value is a usage error (exit 1).
+  invalid value is a usage error (exits 2 (clap usage error)).
 - [ ] `--strict` is accepted as a deprecated alias resolving to `--mode=ready` and
   emits a deprecation notice.
 - [ ] `run_lifecycle_check` / `run_lifecycle_chain_check` take `ReviewPosture`; the L01
