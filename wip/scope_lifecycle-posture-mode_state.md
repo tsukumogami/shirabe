@@ -2,10 +2,16 @@
 topic: lifecycle-posture-mode
 chain_started: 2026-06-19T16:41:33Z
 last_updated: 2026-06-19T16:41:33Z
-phase_pointer: phase-2
-exit: UNSET
-exit_artifacts: []
+phase_pointer: phase-3
+exit: full-run
+exit_artifacts:
+  - docs/plans/PLAN-lifecycle-posture-mode.md
 planned_chain:
+  - brief
+  - prd
+  - design
+  - plan
+chain_ran:
   - brief
   - prd
   - design
@@ -36,14 +42,15 @@ child_snapshots:
     captured_at: 2026-06-19T16:41:33Z
     jury: 3/3 PASS (completeness, clarity, testability); refinements applied
   design:
-    status: Accepted
+    status: Planned
     content_hash: 2e28dd8a37d188fa1632f2145ecced856f5891a2
     captured_at: 2026-06-19T16:41:33Z
     jury: 3/3 PASS (architecture, security, structural-format); enum-collision + rendering-channel fixes applied
-parent_orchestration:
-  invoking_child: plan
-  suppress_status_aware_prompt: true
-  rationale: fresh-chain
+  plan:
+    status: Active
+    content_hash: 035e1b47b55cb138de076d53ce4092f5d53695d2
+    captured_at: 2026-06-19T16:41:33Z
+    note: single-pr, 4 outlines; per-file validate clean; chain L06 (unticked ACs) is the draft-tolerable finding this work fixes
 ```
 
 ## Upstream context (from /explore lifecycle-strict-discipline)
