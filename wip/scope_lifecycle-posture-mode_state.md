@@ -24,10 +24,12 @@ worktree_rebases:
     impact: none
     rebased_at: 2026-06-19T16:41:33Z
     notes: branch created off origin/main this session; 0 behind
-parent_orchestration:
-  invoking_child: brief
-  suppress_status_aware_prompt: true
-  rationale: fresh-chain
+child_snapshots:
+  brief:
+    status: Draft
+    content_hash: 82b6b47f5e4a291d55cc74a89143713843a44e4a
+    captured_at: 2026-06-19T16:41:33Z
+    jury: both-PASS (content-quality, structural-format)
 ```
 
 ## Upstream context (from /explore lifecycle-strict-discipline)
