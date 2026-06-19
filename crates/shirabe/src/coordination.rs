@@ -18,8 +18,9 @@
 use std::process::ExitCode;
 
 use shirabe_validate::{
-    parse_cross_repo_ref, render_index_line, seed_body, ClientError, GhSubprocessClient, IndexedPr,
-    IssueState, IssueStateClient, SeedInputs, Visibility, VisibilityResolver,
+    parse_cross_repo_ref, render_index_line, seed_body, verify_cross_repo_upstream_terminal,
+    ClientError, GhSubprocessClient, IndexedPr, IssueState, IssueStateClient, SeedInputs,
+    Visibility, VisibilityResolver,
 };
 
 /// Clap-parsed args for `shirabe coordination`.
@@ -39,6 +40,11 @@ pub enum CoordinationCommands {
     /// (F2), and render its PR-index line redacting any private-repo
     /// identifier (F1, fail-closed).
     Status(StatusArgs),
+    /// Read-only verify a cross-repo `owner/repo:path` upstream is at a
+    /// terminal status (merged/closed). Performs no cross-repo write. Fails
+    /// closed (R21): a malformed reference, an unresolvable read, or a
+    /// non-terminal upstream halts with a diagnostic (exit 1).
+    Verify(VerifyArgs),
 }
 
 #[derive(clap::Args)]
@@ -65,6 +71,17 @@ pub struct StatusArgs {
     /// visibility). Defaults to `pr-<number>`.
     #[arg(long = "node-id")]
     pub node_id: Option<String>,
+}
+
+#[derive(clap::Args)]
+pub struct VerifyArgs {
+    /// The cross-repo `owner/repo:path` upstream reference to verify.
+    /// Validated by the F2 parser before any read; a malformed reference
+    /// halts (exit 1).
+    pub reference: String,
+
+    /// The issue/PR number whose terminal status confirms the upstream.
+    pub number: u64,
 }
 
 /// Bridges the `gh` client's [`fetch_repo_is_public`] into the F1
@@ -96,6 +113,7 @@ pub fn run(args: &CoordinationArgs) -> ExitCode {
     match &args.command {
         CoordinationCommands::Create(c) => run_create(c),
         CoordinationCommands::Status(s) => run_status(s),
+        CoordinationCommands::Verify(v) => run_verify(v),
     }
 }
 
@@ -162,4 +180,28 @@ fn run_status(args: &StatusArgs) -> ExitCode {
     let resolver = GhVisibilityResolver { client: &client };
     println!("{}", render_index_line(&pr, &resolver));
     ExitCode::SUCCESS
+}
+
+/// `verify`: read-only verify a cross-repo upstream is at a terminal status.
+///
+/// Performs no cross-repo write — it is the read-only verification gate. The F2
+/// parse and the read-only `gh` query live in
+/// [`verify_cross_repo_upstream_terminal`]; this verb only surfaces the result
+/// as stdout text + an exit code, failing closed (R21) on any non-terminal or
+/// unresolvable outcome.
+fn run_verify(args: &VerifyArgs) -> ExitCode {
+    let client = GhSubprocessClient::new();
+    match verify_cross_repo_upstream_terminal(&args.reference, args.number, &client) {
+        Ok(v) => {
+            println!(
+                "coordination verify: {}:{}#{} is terminal (verified read-only)",
+                v.slug, v.path, v.number
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("coordination verify: {}", e);
+            ExitCode::from(1)
+        }
+    }
 }

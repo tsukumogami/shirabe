@@ -34,7 +34,9 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::coordination::parse_cross_repo_ref;
 use crate::frontmatter::{self, ParseError};
+use crate::gh::{ClientError, IssueState, IssueStateClient};
 use crate::{detect_format, run_transition, Flags, TransitionError};
 
 /// The terminal action a chain node would take. The variants are exactly the
@@ -368,10 +370,7 @@ pub fn walk_chain_mode(plan_path: &str, mode: Mode) -> Result<Report, WalkError>
     // rather than hardcoding the "PLAN-" prefix.
     let plan_fmt = detect_format(basename(plan_path));
     debug_assert!(
-        plan_fmt
-            .as_ref()
-            .map(|f| f.name == "Plan")
-            .unwrap_or(true),
+        plan_fmt.as_ref().map(|f| f.name == "Plan").unwrap_or(true),
         "input PLAN's format must be `Plan` (delete, not transition); cascade owns Active -> Done"
     );
 
@@ -516,6 +515,141 @@ pub fn walk_chain_mode(plan_path: &str, mode: Mode) -> Result<Report, WalkError>
     }
 
     Ok(Report { nodes })
+}
+
+/// The outcome of the read-only cross-repo upstream verification pass.
+///
+/// This is the **verification-only** counterpart to the cross-repo WRITE wall in
+/// [`walk_chain_mode`] (a cross-repo `upstream` is still a [`NodeAction::Stop`]
+/// for the chain walk; finalize-chain never writes across a repo boundary). The
+/// verification pass answers a narrower question: is the referenced cross-repo
+/// upstream at its **terminal** status (its issue/PR resolved as merged/closed)?
+///
+/// A reference is verified only when the read resolves a terminal state.
+/// Everything else — an unresolvable reference, a non-terminal (still-open)
+/// upstream, or a malformed `owner/repo:path` — is an `Err` (fail closed, R21):
+/// the pass never silently treats an unverifiable upstream as satisfied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CrossRepoVerification {
+    /// The validated `owner/repo` slug the verification resolved against.
+    pub slug: String,
+    /// The cross-repo reference's repo-relative path component.
+    pub path: String,
+    /// The issue/PR number whose terminal status was confirmed.
+    pub number: u64,
+}
+
+/// A read-only cross-repo upstream verification failure (fail closed, R21).
+///
+/// Carries a human-readable diagnostic naming the reference and why it could
+/// not be confirmed terminal. The diagnostic never embeds a raw `gh` response
+/// (F5): only the validated reference fields and a fixed reason phrase appear.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifyError {
+    /// Human-readable reason the upstream could not be confirmed terminal.
+    pub message: String,
+}
+
+impl VerifyError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for VerifyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for VerifyError {}
+
+/// Decide a cross-repo upstream's verification outcome from an *already
+/// resolved* read result. This is the pure core of the verification pass: it
+/// holds the fail-closed (R21) terminal-status policy and is unit-testable
+/// without any network.
+///
+/// - `Ok(IssueState::Closed)` is the only verified (terminal) outcome.
+/// - `Ok(IssueState::Open)` is a non-terminal upstream: fail closed.
+/// - `Err(_)` is an unresolvable reference: fail closed. The `gh` payload is
+///   never embedded in the diagnostic (F5); only a fixed reason phrase derived
+///   from the error variant appears.
+fn decide_terminal(
+    slug: &str,
+    path: &str,
+    number: u64,
+    read: Result<IssueState, ClientError>,
+) -> Result<CrossRepoVerification, VerifyError> {
+    match read {
+        Ok(IssueState::Closed) => Ok(CrossRepoVerification {
+            slug: slug.to_string(),
+            path: path.to_string(),
+            number,
+        }),
+        Ok(IssueState::Open) => Err(VerifyError::new(format!(
+            "cross-repo upstream {}:{}#{} is not at a terminal status (still open); \
+             halting per fail-closed verification",
+            slug, path, number
+        ))),
+        Err(err) => {
+            // Map the client error to a fixed reason phrase. The raw `gh`
+            // response / Malformed payload is intentionally never interpolated
+            // (F5: never log raw responses).
+            let reason = match err {
+                ClientError::Auth => "gh is not authenticated",
+                ClientError::NotFound => "the referenced issue/PR was not found",
+                ClientError::Forbidden => "access to the referenced repo was forbidden",
+                ClientError::RateLimit => "gh reported a rate limit",
+                ClientError::Network => "the gh read failed (network/spawn/timeout)",
+                ClientError::Malformed(_) => "the gh response was malformed",
+            };
+            Err(VerifyError::new(format!(
+                "cross-repo upstream {}:{}#{} could not be resolved ({}); \
+                 halting per fail-closed verification",
+                slug, path, number, reason
+            )))
+        }
+    }
+}
+
+/// Read-only cross-repo upstream verification pass.
+///
+/// Given a cross-repo `owner/repo:path` upstream reference and the issue/PR
+/// `number` that tracks it, verify the referenced upstream is at a **terminal**
+/// status (resolved as merged/closed) using a read-only [`IssueStateClient`].
+/// This performs **no cross-repo write** — it is the read-only verification gate
+/// described in `references/coordination-strategy.md` (Decision C). The
+/// finalize-chain WRITE wall is unchanged: a cross-repo `upstream` still stops
+/// the chain walk ([`NodeAction::Stop`]); this is an additional read-only
+/// capability the coordination/gate path calls.
+///
+/// The reference is parsed and validated by [`parse_cross_repo_ref`] (F2:
+/// owner/repo charset, path lexically confined, no `..`/absolute/newline/NUL)
+/// before any read. The read goes through the supplied client (F5: read-only
+/// `gh api`, no token in process, 4 MiB cap, raw response never logged — the
+/// client owns those invariants; this pass never embeds a raw response in its
+/// diagnostic).
+///
+/// **Fail closed (R21):** a malformed reference, an unresolvable read, or a
+/// non-terminal (still-open) upstream all return `Err(VerifyError)` with a clear
+/// diagnostic. The pass never silently skips a reference and never treats an
+/// unverifiable upstream as satisfied.
+pub fn verify_cross_repo_upstream_terminal(
+    reference: &str,
+    number: u64,
+    client: &dyn IssueStateClient,
+) -> Result<CrossRepoVerification, VerifyError> {
+    // F2: parse + validate every component before use. A failing reference
+    // halts (R21) rather than being silently skipped.
+    let parsed = parse_cross_repo_ref(reference)
+        .map_err(|msg| VerifyError::new(format!("invalid cross-repo reference: {}", msg)))?;
+
+    // Read-only status query through the client (F5 invariants owned by the
+    // client). The decision policy is the pure, unit-testable core.
+    let read = client.fetch_issue_state(&parsed.owner, &parsed.repo, number);
+    decide_terminal(&parsed.slug(), &parsed.path, number, read)
 }
 
 /// Re-anchor a repo-relative post-move `new_path` to an absolute path, so the
@@ -1308,5 +1442,130 @@ mod tests {
         // It is emphatically not just a brace.
         assert_ne!(err.message.trim(), "{");
         assert!(err.message.len() > 1);
+    }
+
+    // ---- Issue 5: read-only cross-repo upstream verification pass ----
+
+    use crate::gh::MockIssueStateClient;
+
+    /// A cross-repo upstream whose tracking issue/PR is at a terminal
+    /// (Closed/merged) status passes the read-only verification pass. The pass
+    /// never writes across the repo boundary — it only confirms the terminal
+    /// status through the read-only client.
+    #[test]
+    fn verify_cross_repo_terminal_passes() {
+        let client = MockIssueStateClient::new().with_issue(
+            "tsukumogami",
+            "shirabe",
+            196,
+            Ok(IssueState::Closed),
+        );
+        let v = verify_cross_repo_upstream_terminal(
+            "tsukumogami/shirabe:docs/designs/DESIGN-x.md",
+            196,
+            &client,
+        )
+        .expect("terminal upstream must verify");
+        assert_eq!(v.slug, "tsukumogami/shirabe");
+        assert_eq!(v.path, "docs/designs/DESIGN-x.md");
+        assert_eq!(v.number, 196);
+    }
+
+    /// A non-terminal (still-open) upstream fails closed (R21): the pass halts
+    /// with a diagnostic naming the reference rather than treating it as
+    /// satisfied.
+    #[test]
+    fn verify_cross_repo_non_terminal_fails_closed() {
+        let client = MockIssueStateClient::new().with_issue(
+            "tsukumogami",
+            "shirabe",
+            196,
+            Ok(IssueState::Open),
+        );
+        let err = verify_cross_repo_upstream_terminal(
+            "tsukumogami/shirabe:docs/designs/DESIGN-x.md",
+            196,
+            &client,
+        )
+        .expect_err("non-terminal upstream must fail closed");
+        assert!(
+            err.message.contains("not at a terminal status"),
+            "diagnostic names the non-terminal reason: {}",
+            err.message
+        );
+        assert!(err.message.contains("tsukumogami/shirabe"));
+    }
+
+    /// An unresolvable reference (the read returns an error) fails closed
+    /// (R21) — never silently skipped, never treated as terminal. The raw `gh`
+    /// payload is not embedded in the diagnostic (F5).
+    #[test]
+    fn verify_cross_repo_unresolvable_fails_closed() {
+        // The mock has no entry for this (owner, repo, number), so the read
+        // returns NotFound.
+        let client = MockIssueStateClient::new();
+        let err = verify_cross_repo_upstream_terminal(
+            "tsukumogami/shirabe:docs/designs/DESIGN-x.md",
+            999,
+            &client,
+        )
+        .expect_err("unresolvable upstream must fail closed");
+        assert!(
+            err.message.contains("could not be resolved"),
+            "diagnostic explains the resolution failure: {}",
+            err.message
+        );
+        assert!(err.message.contains("not found"));
+    }
+
+    /// A malformed `owner/repo:path` reference fails closed at the F2 parse
+    /// gate, before any read is attempted (R21).
+    #[test]
+    fn verify_cross_repo_malformed_reference_fails_closed() {
+        let client = MockIssueStateClient::new();
+        // No colon: not a cross-repo reference at all.
+        let err = verify_cross_repo_upstream_terminal("docs/designs/DESIGN-x.md", 1, &client)
+            .expect_err("malformed reference must fail closed");
+        assert!(
+            err.message.contains("invalid cross-repo reference"),
+            "diagnostic names the F2 rejection: {}",
+            err.message
+        );
+
+        // Path traversal in the reference is also rejected by F2 before any read.
+        let err2 =
+            verify_cross_repo_upstream_terminal("tsukumogami/shirabe:../escape.md", 1, &client)
+                .expect_err("traversal reference must fail closed");
+        assert!(err2.message.contains("invalid cross-repo reference"));
+    }
+
+    /// The pure decision core encodes the fail-closed policy directly: only a
+    /// resolved Closed state is terminal; Open and every client error are
+    /// failures. Exercises the seam the network-free unit tests rely on.
+    #[test]
+    fn decide_terminal_policy_matrix() {
+        // Closed -> verified.
+        assert!(decide_terminal("o/r", "p", 1, Ok(IssueState::Closed)).is_ok());
+        // Open -> fail closed.
+        assert!(decide_terminal("o/r", "p", 1, Ok(IssueState::Open)).is_err());
+        // Each client error -> fail closed, with a fixed reason phrase (no raw
+        // payload interpolation).
+        for err in [
+            ClientError::Auth,
+            ClientError::NotFound,
+            ClientError::Forbidden,
+            ClientError::RateLimit,
+            ClientError::Network,
+            ClientError::Malformed("secret raw response".to_string()),
+        ] {
+            let out = decide_terminal("o/r", "p", 1, Err(err));
+            let e = out.expect_err("client error must fail closed");
+            // F5: the raw Malformed payload must never appear in the diagnostic.
+            assert!(
+                !e.message.contains("secret raw response"),
+                "raw gh payload leaked into diagnostic: {}",
+                e.message
+            );
+        }
     }
 }
