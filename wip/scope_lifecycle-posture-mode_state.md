@@ -30,12 +30,13 @@ child_snapshots:
     content_hash: 82b6b47f5e4a291d55cc74a89143713843a44e4a
     captured_at: 2026-06-19T16:41:33Z
     jury: both-PASS (content-quality, structural-format)
-worktree_rebases_prd:
-  phase: prd
-  behind: 0
-  impact: none
+  prd:
+    status: Accepted
+    content_hash: 95a78ece2e026ffa876d13724ebda92271dc9e23
+    captured_at: 2026-06-19T16:41:33Z
+    jury: 3/3 PASS (completeness, clarity, testability); refinements applied
 parent_orchestration:
-  invoking_child: prd
+  invoking_child: design
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 ```
