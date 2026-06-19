@@ -19,6 +19,7 @@ use shirabe_validate::{
     SlugPrefixCheck, ValidationError,
 };
 
+mod coordination;
 mod populate;
 
 /// The maximum accepted size of the `--custom-statuses` value, matching the
@@ -62,6 +63,11 @@ enum Commands {
     Validate(ValidateArgs),
     /// Roadmap-scoped subcommands.
     Roadmap(RoadmapArgs),
+    /// Coordinated multi-repo orchestration subcommands. `create` seeds a
+    /// docs-only coordination PR body; `status` reads an indexed PR and
+    /// renders its PR-index line with F1 private-identifier redaction. See
+    /// `references/coordination-strategy.md`.
+    Coordination(coordination::CoordinationArgs),
     /// Transition a shirabe doc to a new status.
     Transition(TransitionArgs),
     /// Walk a finished PLAN's upstream chain and apply each tactical node's
@@ -233,6 +239,7 @@ fn main() -> ExitCode {
         Some(Commands::Roadmap(args)) => match args.command {
             RoadmapCommands::Populate(p) => populate::run(&p),
         },
+        Some(Commands::Coordination(args)) => coordination::run(&args),
         Some(Commands::Transition(args)) => run_transition_cmd(&args),
         Some(Commands::FinalizeChain(args)) => run_finalize_chain_cmd(&args),
         Some(Commands::SlugPrefixDetect(args)) => run_slug_prefix_detect(&args),

@@ -9,6 +9,7 @@
 
 pub mod annotation;
 pub mod checks;
+pub mod coordination;
 pub mod doc;
 pub mod features;
 pub mod finalize;
@@ -27,11 +28,16 @@ pub mod validate;
 // internal-shaped and unstable; see the crate-level doc comment above.
 pub use annotation::{format_error, format_notice};
 pub use checks::{check_slug_prefix, detect_slug_prefix, SlugPrefixCheck};
+pub use coordination::{
+    escape_inline, parse_cross_repo_ref, render_index_line, seed_body, CrossRepoRef, IndexedPr,
+    SeedInputs, Visibility, VisibilityResolver,
+};
 pub use doc::{Config, Doc, FieldValue, Section, ValidationError};
 pub use features::{extract_needs_label, parse_features, strip_label_decoration, Feature};
 pub use finalize::{walk_chain, walk_chain_mode, Mode, NodeAction, NodeEntry, Report, WalkError};
 pub use formats::{detect_format, formats, FormatSpec};
 pub use frontmatter::{parse_doc, ParseError};
+pub use gh::{ClientError, GhSubprocessClient, IssueState, IssueStateClient};
 pub use lifecycle::{
     run_lifecycle_chain_check, run_lifecycle_check, target_state_for, Posture, TargetState,
 };
