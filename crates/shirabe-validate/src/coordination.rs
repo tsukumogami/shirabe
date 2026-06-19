@@ -192,6 +192,34 @@ pub fn render_index_line(pr: &IndexedPr, resolver: &dyn VisibilityResolver) -> S
     }
 }
 
+/// Render an F1-redacted **diagnostic label** for a cross-repo reference.
+///
+/// A diagnostic (the merge-last gate's blocker reasons, the `verify` result
+/// line) is a render path under F1 exactly like the PR-index body: a private
+/// repo's owner, repo, path, and number are themselves private and MUST NOT
+/// reach a diagnostic in the clear. This helper resolves the repo's visibility
+/// and, for a public repo, returns the full `owner/repo:path#number` label; for
+/// a private — or unresolvable, fail-closed — repo it returns the supplied
+/// opaque `node_id` (e.g. `pr-3`), which carries no private identifier.
+///
+/// The caller MUST route every cross-repo reference through this helper before
+/// interpolating it into a diagnostic, log, or any other operator-visible
+/// string. Passing the raw [`CrossRepoRef::slug_and_path`] straight into a
+/// diagnostic is an F1 leak.
+pub fn redacted_label(
+    reference: &CrossRepoRef,
+    number: u64,
+    node_id: &str,
+    resolver: &dyn VisibilityResolver,
+) -> String {
+    match resolver.visibility(&reference.slug()) {
+        Visibility::Public => format!("{}#{}", reference.slug_and_path(), number),
+        // Fail closed: private or unresolvable repos surface only the opaque
+        // node id, never the owner/repo/path/number.
+        Visibility::Private => node_id.to_string(),
+    }
+}
+
 /// Escape `gh`-sourced free text (PR titles, branch names) before it enters a
 /// markdown table cell or list line (F3). Newlines and pipe characters would
 /// break the row shape; backticks and angle brackets are neutralized so the
@@ -583,6 +611,60 @@ mod tests {
         assert!(line.contains("196"));
         assert!(line.contains("Add coordination subcommand"));
         assert!(line.contains("merged"));
+    }
+
+    // --- F1: diagnostic-label redaction (gate blocker reasons, verify result) ---
+
+    #[test]
+    fn f1_redacted_label_hides_private_ref() {
+        // A private upstream whose owner/repo/path/number are all sensitive.
+        let reference =
+            parse_cross_repo_ref("tsukumogami/secret-repo:docs/designs/DESIGN-classified.md")
+                .unwrap();
+        let resolver = StubResolver(Visibility::Private);
+        // The node id is an opaque, operator-chosen identity; here it carries no
+        // sensitive number so the "number leaked" assertion can be exact.
+        let label = redacted_label(&reference, 4242, "upstream-a", &resolver);
+
+        // Only the opaque node id surfaces; no private identifier leaks into the
+        // diagnostic label.
+        assert_eq!(label, "upstream-a");
+        assert!(
+            !label.contains("secret-repo"),
+            "private repo leaked: {}",
+            label
+        );
+        assert!(
+            !label.contains("tsukumogami"),
+            "private owner leaked: {}",
+            label
+        );
+        assert!(
+            !label.contains("DESIGN-classified.md"),
+            "private path leaked: {}",
+            label
+        );
+        assert!(!label.contains("4242"), "private number leaked: {}", label);
+    }
+
+    #[test]
+    fn f1_redacted_label_shows_public_ref() {
+        let reference = parse_cross_repo_ref("tsukumogami/shirabe:docs/plans/PLAN-x.md").unwrap();
+        let resolver = StubResolver(Visibility::Public);
+        let label = redacted_label(&reference, 196, "pr-196", &resolver);
+        assert_eq!(label, "tsukumogami/shirabe:docs/plans/PLAN-x.md#196");
+    }
+
+    #[test]
+    fn f1_redacted_label_fails_closed_on_unresolvable() {
+        // The StubResolver returning Private is the fail-closed verdict the
+        // production resolver yields when visibility cannot be resolved; the
+        // label must collapse to the opaque node id rather than leak the ref.
+        let reference = parse_cross_repo_ref("acme/unknown:docs/x.md").unwrap();
+        let resolver = StubResolver(Visibility::Private);
+        let label = redacted_label(&reference, 7, "pr-7", &resolver);
+        assert_eq!(label, "pr-7");
+        assert!(!label.contains("acme"), "ref leaked on fail-closed: {}", label);
     }
 
     #[test]

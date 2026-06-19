@@ -1852,6 +1852,98 @@ FIXTURE
     teardown
 }
 
+# ── Fixture: coordinated mode, irreducible PR-node cycle (refused, no gate) ──
+# Three single-issue repos form a pure PR-node contraction cycle X->Y->Z->X via
+# cross-repo issue deps alone (no gate closes it). Every PR node maps exactly one
+# issue, so split_repo_at_seam has no multi-issue victim: the cycle is genuine
+# cross-repo atomicity. The parser must REFUSE with exit 2 and carry the
+# reshaping guidance, never split a single-issue node and never emit an order.
+test_coordinated_atomicity_refused_pr_nodes() {
+    local name="coordinated irreducible PR-node cycle refused (no gate)"
+    setup
+
+    cat > "$TEST_DIR/plan-atomic-pr.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Active
+execution_mode: coordinated
+milestone: "Coord Atomic PR"
+issue_count: 3
+---
+
+# PLAN: coord atomic pr
+
+## Status
+
+Active
+
+## Scope Summary
+
+Three single-issue repos in a pure PR-node contraction 3-cycle: no node maps
+more than one issue, so the seam split has no victim. Irreducible atomicity.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#1: feat x](https://example.com/1) | [#3](https://example.com/3) | testable |
+| ^_Repo: acme/repo-x \| Group: default_ | | |
+| [#2: feat y](https://example.com/2) | [#1](https://example.com/1) | testable |
+| ^_Repo: acme/repo-y \| Group: default_ | | |
+| [#3: feat z](https://example.com/3) | [#2](https://example.com/2) | testable |
+| ^_Repo: acme/repo-z \| Group: default_ | | |
+
+## Dependency Graph
+
+```mermaid
+graph TD
+    I1["x"]
+    I2["y"]
+    I3["z"]
+    I3 --> I1
+    I1 --> I2
+    I2 --> I3
+```
+
+## Implementation Sequence
+
+Irreducible: a 3-cycle of single-issue PR nodes.
+FIXTURE
+
+    local output="" rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-atomic-pr.md" 2>/dev/null) || rc=$?
+
+    if [[ $rc -eq 2 ]]; then
+        pass "$name (refused with exit 2)"
+    else
+        fail "$name" "expected exit 2 (refused), got $rc (output: $output)"
+    fi
+
+    # Never emit a (partial) order on refusal.
+    if [[ -z "$output" ]]; then
+        pass "$name (no order emitted on refusal)"
+    else
+        fail "$name" "expected empty stdout on refusal, got: $output"
+    fi
+
+    # The diagnostic must carry the reshaping guidance (the die_schema message
+    # about cross-repo atomicity / compatible-intermediate sequence).
+    local diag="" drc=0
+    diag=$("$PARSER_SCRIPT" "$TEST_DIR/plan-atomic-pr.md" 2>&1 >/dev/null) || drc=$?
+    if echo "$diag" | grep -qi "cross-repo atomicity" \
+        && echo "$diag" | grep -qi "compatible-intermediate sequence"; then
+        pass "$name (diagnostic carries reshaping guidance)"
+    else
+        fail "$name" "diagnostic missing reshaping guidance; got: $diag"
+    fi
+
+    teardown
+}
+
 # ── Fixture: coordinated mode, non-PR gate node in serialized order ──
 # A package-publish gate sits between two PR nodes and must appear in the order
 # with NODE_KIND=gate.
@@ -2000,6 +2092,7 @@ echo "" >&2
 test_coordinated_basic
 test_coordinated_contraction_cycle_resolved
 test_coordinated_atomicity_refused
+test_coordinated_atomicity_refused_pr_nodes
 test_coordinated_gate_node
 test_coordinated_invalid_tags
 test_multi_pr_basic

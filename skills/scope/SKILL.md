@@ -528,6 +528,32 @@ audit trail. Reviewers and future-`/scope`-resume logic grep
 against the literal substring `scope-status-block: abandonment-forced`
 to detect a force-materialized partial.
 
+### Coordinated Abandonment (R20)
+
+When `exit: abandonment-forced` fires on a **coordinated** effort —
+one for which `/scope` created a coordination PR up front — the
+force-materialize step above still runs (the in-flight child's
+intermediate is written as a Draft and carries the marker), and the
+coordination PR is **closed without merging**. Abandonment never
+merges the coordination PR and never silently orphans the
+coordination state: the partial planning artifacts are
+force-materialized so the closed PR's durable body and the on-disk
+Draft together record the partial state a reviewer can audit. The
+close-without-merge action is the coordinated mirror of the
+single-repo force-materialize — the coordination PR is the durable
+home of the chain, so abandoning the chain closes that home rather
+than leaving it open and merge-eligible.
+
+The verb surface (`shirabe coordination`) owns the close action and
+its fail-closed behavior; the lifecycle this abandonment short-cuts —
+create-up-front, track, finalize, merge-last — is the canonical
+contract in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md).
+`/scope` binds to that contract and does not restate it: the binding
+is that abandonment closes the coordination PR unmerged and
+documents the partial state, not a re-derivation of how the PR was
+created or tracked.
+
 ## Security Considerations
 
 `/scope`'s security envelope binds the six pattern-level contract

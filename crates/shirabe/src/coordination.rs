@@ -18,8 +18,8 @@
 use std::process::ExitCode;
 
 use shirabe_validate::{
-    decide_gate, parse_cross_repo_ref, render_index_line, render_sync_body, seed_body,
-    verify_cross_repo_upstream_terminal, ClientError, GateDecision, GatePrStatus,
+    decide_gate, parse_cross_repo_ref, redacted_label, render_index_line, render_sync_body,
+    seed_body, verify_cross_repo_upstream_terminal, ClientError, GateDecision, GatePrStatus,
     GateUpstreamStatus, GhSubprocessClient, IndexedPr, IssueState, IssueStateClient, SeedInputs,
     Visibility, VisibilityResolver,
 };
@@ -337,12 +337,22 @@ fn split_pr_arg(raw: &str) -> Result<(&str, u64), String> {
 /// unresolvable outcome.
 fn run_verify(args: &VerifyArgs) -> ExitCode {
     let client = GhSubprocessClient::new();
+    let resolver = GhVisibilityResolver { client: &client };
     match verify_cross_repo_upstream_terminal(&args.reference, args.number, &client) {
         Ok(v) => {
-            println!(
-                "coordination verify: {}:{}#{} is terminal (verified read-only)",
-                v.slug, v.path, v.number
-            );
+            // F1: the result line is a render path. Re-validate the reference
+            // (it already passed F2 inside the verifier) so it can be routed
+            // through `redacted_label`, which fails closed to the opaque node id
+            // for a private — or unresolvable — repo. The raw slug/path is never
+            // printed in the clear for a private upstream.
+            let node_id = format!("upstream-{}", v.number);
+            let label = match parse_cross_repo_ref(&args.reference) {
+                Ok(reference) => redacted_label(&reference, v.number, &node_id, &resolver),
+                // The verifier already validated the ref; an unexpected parse
+                // failure here falls back to the opaque node id (fail closed).
+                Err(_) => node_id,
+            };
+            println!("coordination verify: {} is terminal (verified read-only)", label);
             ExitCode::SUCCESS
         }
         Err(e) => {
@@ -371,12 +381,13 @@ fn run_verify(args: &VerifyArgs) -> ExitCode {
 /// input error, never a silent skip).
 fn run_gate(args: &GateArgs) -> ExitCode {
     let client = GhSubprocessClient::new();
+    let resolver = GhVisibilityResolver { client: &client };
 
-    // Resolve each indexed PR's live merge state (F4). The label is the public
-    // `owner/repo:path#number` reference: a public-repo coordination effort's
-    // refs are themselves public, and the gate diagnostic only ever names the
-    // ref the operator supplied — it does not read or render any `gh`-sourced
-    // private metadata.
+    // Resolve each indexed PR's live merge state (F4). The blocker diagnostic is
+    // a render path under F1: a private repo's owner/repo/path/number are
+    // themselves private, so each label is routed through `redacted_label`,
+    // which fails closed to the opaque node id for a private — or unresolvable —
+    // repo. The gate diagnostic never names a private ref in the clear.
     let mut pr_statuses: Vec<GatePrStatus> = Vec::with_capacity(args.prs.len());
     for raw in &args.prs {
         let (ref_str, number) = match split_pr_arg(raw) {
@@ -414,8 +425,11 @@ fn run_gate(args: &GateArgs) -> ExitCode {
             Err(_) => false,
         };
 
+        // Node id mirrors the sync render's opaque identity (`pr-<number>`); it
+        // is the fail-closed label for a private/unresolvable repo.
+        let node_id = format!("pr-{}", number);
         pr_statuses.push(GatePrStatus {
-            label: format!("{}#{}", reference.slug_and_path(), number),
+            label: redacted_label(&reference, number, &node_id, &resolver),
             merged,
         });
     }
@@ -443,7 +457,10 @@ fn run_gate(args: &GateArgs) -> ExitCode {
             }
         };
 
-        let label = format!("{}#{}", reference.slug_and_path(), number);
+        // F1: the upstream blocker diagnostic redacts a private/unresolvable
+        // ref to its opaque node id, same as the indexed-PR labels above.
+        let node_id = format!("upstream-{}", number);
+        let label = redacted_label(&reference, number, &node_id, &resolver);
         let terminal = verify_cross_repo_upstream_terminal(ref_str, number, &client).is_ok();
         upstream_statuses.push(GateUpstreamStatus { label, terminal });
     }
@@ -465,6 +482,91 @@ fn run_gate(args: &GateArgs) -> ExitCode {
                 eprintln!("  - {}", reason);
             }
             ExitCode::from(1)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Stub resolver returning a fixed verdict, mirroring the validate crate's
+    /// F1 test idiom so the CLI gate path is exercised without `gh`.
+    struct StubResolver(Visibility);
+    impl VisibilityResolver for StubResolver {
+        fn visibility(&self, _slug: &str) -> Visibility {
+            self.0
+        }
+    }
+
+    // F1: the gate's BLOCKED diagnostic is a render path. A blocked private PR
+    // must surface only the redacted opaque node id in the reason, never the raw
+    // owner/repo:path. This locks the contract that run_gate builds its
+    // GatePrStatus labels via `redacted_label`, not raw `slug_and_path`.
+    #[test]
+    fn gate_blocked_reason_redacts_private_pr_label() {
+        let reference =
+            parse_cross_repo_ref("acme/secret-repo:docs/plans/PLAN-classified.md").unwrap();
+        let resolver = StubResolver(Visibility::Private);
+        let node_id = "pr-7";
+        let label = redacted_label(&reference, 7, node_id, &resolver);
+
+        // An unmerged (blocked) private PR feeds the decision core.
+        let pr_statuses = vec![GatePrStatus {
+            label: label.clone(),
+            merged: false,
+        }];
+        let decision = decide_gate(&pr_statuses, &[]);
+
+        match decision {
+            GateDecision::Block(reasons) => {
+                let joined = reasons.join("\n");
+                assert!(
+                    joined.contains(node_id),
+                    "blocked reason must carry the opaque node id: {}",
+                    joined
+                );
+                assert!(
+                    !joined.contains("secret-repo"),
+                    "private repo leaked in gate diagnostic: {}",
+                    joined
+                );
+                assert!(
+                    !joined.contains("PLAN-classified.md"),
+                    "private path leaked in gate diagnostic: {}",
+                    joined
+                );
+                assert!(
+                    !joined.contains("acme"),
+                    "private owner leaked in gate diagnostic: {}",
+                    joined
+                );
+            }
+            GateDecision::Pass => panic!("expected Block for an unmerged PR"),
+        }
+    }
+
+    // F1 public counterpart: a public blocked PR keeps its full ref in the
+    // diagnostic (public refs are themselves public).
+    #[test]
+    fn gate_blocked_reason_shows_public_pr_label() {
+        let reference = parse_cross_repo_ref("tsukumogami/shirabe:docs/plans/PLAN-x.md").unwrap();
+        let resolver = StubResolver(Visibility::Public);
+        let label = redacted_label(&reference, 196, "pr-196", &resolver);
+        let pr_statuses = vec![GatePrStatus {
+            label,
+            merged: false,
+        }];
+        match decide_gate(&pr_statuses, &[]) {
+            GateDecision::Block(reasons) => {
+                let joined = reasons.join("\n");
+                assert!(
+                    joined.contains("tsukumogami/shirabe:docs/plans/PLAN-x.md#196"),
+                    "public ref should appear in the diagnostic: {}",
+                    joined
+                );
+            }
+            GateDecision::Pass => panic!("expected Block for an unmerged PR"),
         }
     }
 }

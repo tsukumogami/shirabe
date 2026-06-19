@@ -84,6 +84,42 @@ artifacts through the same completion cascade documented under
 boundary is the read-only verification gate (`shirabe coordination
 gate`), not a cross-repo write.
 
+#### Coordination Failure Halts (R21)
+
+A coordination step that **cannot complete** — a `shirabe
+coordination sync` that cannot rewrite the durable index, a finalize
+that cannot run its repo-local cascade, or a `gate` recompute that
+cannot resolve every indexed PR's live state — **halts and surfaces
+the error**. `/work-on` does not advance past a coordination step it
+could not complete and does not paper over a failed step as success.
+A halted coordination step leaves the coordination PR unmerged: the
+`lifecycle.yml` strict-mode gate keeps the coordination PR
+merge-ineligible while finalization is incomplete or any indexed PR
+is unresolved, and an unresolvable PR fails closed as not-merged.
+This is a binding to that gate, not a restatement of its internals —
+the gate's recompute mechanics and fail-closed rules are the
+canonical contract in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md)
+(F4 and the done-signal). The halt surfaces the step that failed so
+the operator resolves it and re-invokes; the gate is the backstop
+that makes a halted-but-unnoticed finalization safe.
+
+#### Coordinated Abandonment (R20)
+
+When a coordinated effort is abandoned mid-flight — the plan
+orchestrator reaches `escalate` and the operator elects to abandon
+rather than resolve — `/work-on` **closes the coordination PR
+without merging** and documents the partial state. The in-flight
+planning artifacts are force-materialized (the coordination PR's
+durable body plus any partial on-disk artifacts record what was
+reached), never silently orphaned. Abandonment mirrors `/scope`'s
+`abandonment-forced` framing: the coordination PR is the durable home
+of the chain, so abandoning the chain closes that home unmerged
+rather than leaving it open and merge-eligible. The close action and
+its fail-closed behavior belong to the `shirabe coordination` verb
+surface; the lifecycle this short-cuts is the canonical contract in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md).
+
 ### Branch Context Evaluation
 
 Before running any koto operations, evaluate the branch context to determine whether `orchestrator_setup` should reuse an existing branch or create a new one. Check three signals in order: the current branch name, any open PRs whose head matches that branch, and any explicit branch instruction the user provided in their message.
