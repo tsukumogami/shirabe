@@ -26,10 +26,18 @@ worktree_rebases:
     notes: branch created off origin/main this session; 0 behind
 child_snapshots:
   brief:
-    status: Draft
+    status: Accepted
     content_hash: 82b6b47f5e4a291d55cc74a89143713843a44e4a
     captured_at: 2026-06-19T16:41:33Z
     jury: both-PASS (content-quality, structural-format)
+worktree_rebases_prd:
+  phase: prd
+  behind: 0
+  impact: none
+parent_orchestration:
+  invoking_child: prd
+  suppress_status_aware_prompt: true
+  rationale: fresh-chain
 ```
 
 ## Upstream context (from /explore lifecycle-strict-discipline)
