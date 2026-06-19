@@ -16,7 +16,7 @@ Public
 produce
 
 ## Phase
-0
+4
 
 ## Orchestration
 Invoked under /scope (parent_orchestration sentinel present, rationale: fresh-chain).
