@@ -18,6 +18,16 @@ r6_predicates:
   p1_architectural_alternatives: fires (escalation-assertion site + advisory read-source are open architectural choices)
   p2_new_component: fires (new advisory/explanation module + per-code posture-classification table)
   p3_complex: fires (supersedes an Accepted decision; changes public CLI interface --strict->--mode; spans L02/L06/L07 + workflow)
+worktree_rebases:
+  - phase: brief
+    upstream_commits: []
+    impact: none
+    rebased_at: 2026-06-19T16:41:33Z
+    notes: branch created off origin/main this session; 0 behind
+parent_orchestration:
+  invoking_child: brief
+  suppress_status_aware_prompt: true
+  rationale: fresh-chain
 ```
 
 ## Upstream context (from /explore lifecycle-strict-discipline)
