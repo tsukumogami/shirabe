@@ -1,0 +1,6 @@
+{
+  "impact": "none",
+  "rationale": "origin/main is 0 commits ahead of the shared branch; the rebase was a no-op and no PLAN-referenced files or contracts were touched upstream.",
+  "rebase_head": "76f895b04e31b79da92be72d735488b7a4bcac34",
+  "main_head": "e66995702891da2fe6f8b589e73046ce9b28c3b0"
+}

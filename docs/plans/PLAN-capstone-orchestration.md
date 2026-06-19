@@ -48,7 +48,7 @@ issue 2 — the standalone `/plan` improvement — is the natural seam.)
 
 ## Issue Outlines
 
-### <<ISSUE:1>> — Skeleton: coordination contract + minimal create/status round-trip
+### Issue 1: Skeleton: coordination contract + minimal create/status round-trip
 **Complexity**: critical
 **Goal**: Author `references/coordination-strategy.md` (lifecycle: create-up-front → track →
 finalize → merge-last; coarsest-legal-grouping rule; two-node merge-order DAG model;
@@ -66,7 +66,7 @@ PLAN render, and reads one indexed PR via the existing `gh.rs` client.
 - Unit test: a private-repo node fed into a public render produces only an opaque node id.
 **Dependencies**: None
 
-### <<ISSUE:2>> — `/plan` per-repo grouping + two-node DAG + acyclicity
+### Issue 2: `/plan` per-repo grouping + two-node DAG + acyclicity
 **Complexity**: critical
 **Goal**: Introduce the `coordinated` `execution_mode` value (schema + validator branch +
 `/plan` emission), and add `repo` + `pr_group` tagging to `/plan`: collapse the issue-level
@@ -84,7 +84,7 @@ and serialize the two-node order (a `plan-to-tasks.sh` sibling).
 - The serialized order includes non-PR gate nodes.
 **Dependencies**: None
 
-### <<ISSUE:3>> — `shirabe coordination sync` + merge-order recompute + PR-body render
+### Issue 3: `shirabe coordination sync` + merge-order recompute + PR-body render
 **Complexity**: testable
 **Goal**: `sync` refreshes the PR-index and recomputes the merge order from live `gh`,
 rendering the merge-time canonical index + fenced order into the coordination PR body
@@ -95,7 +95,7 @@ rendering the merge-time canonical index + fenced order into the coordination PR
 - Private-repo nodes stay redacted (F1) on every render.
 **Dependencies**: <<ISSUE:1>>, <<ISSUE:2>>.
 
-### <<ISSUE:4>> — `shirabe coordination gate` + `lifecycle.yml` merge-last check
+### Issue 4: `shirabe coordination gate` + `lifecycle.yml` merge-last check
 **Complexity**: critical
 **Goal**: `gate` recomputes "all indexed PRs merged + all upstreams terminal" from live
 `gh api` (never PR-body text, F4), fails closed, and drives a strict-mode `lifecycle.yml`
@@ -107,7 +107,7 @@ check on the coordination PR pinned to `draft == false`.
 - The check is pinned to strict-mode and cannot be skipped by toggling draft.
 **Dependencies**: <<ISSUE:3>>.
 
-### <<ISSUE:5>> — Cross-repo finalize read pass + `run-cascade.sh` single-origin relax
+### Issue 5: Cross-repo finalize read pass + `run-cascade.sh` single-origin relax
 **Complexity**: testable
 **Goal**: Add a `gh`-backed read pass to `finalize` that verifies cross-repo upstreams are
 terminal (keeping the `Stop` wall for writes), and relax `run-cascade.sh`'s
@@ -118,7 +118,7 @@ terminal (keeping the `Stop` wall for writes), and relax `run-cascade.sh`'s
 - An incomplete/failed verification halts and the coordination PR does not merge (R21).
 **Dependencies**: <<ISSUE:1>>.
 
-### <<ISSUE:6>> — Coordination-aware `/scope` + `/work-on` + intent surface
+### Issue 6: Coordination-aware `/scope` + `/work-on` + intent surface
 **Complexity**: critical
 **Goal**: Bind `/scope` and `/work-on` to the contract: detect coordination intent
 (flag > CLAUDE.md-header > default), call `shirabe coordination create` up front and `sync` as
@@ -131,7 +131,7 @@ grouping-policy + reviewability-ceiling workspace preferences (R2, R11).
 - Each smart default announces in output and is overridable (R18).
 **Dependencies**: <<ISSUE:1>>, <<ISSUE:3>>, <<ISSUE:4>>.
 
-### <<ISSUE:7>> — Abandonment, failure, and atomicity edge handling
+### Issue 7: Abandonment, failure, and atomicity edge handling
 **Complexity**: testable
 **Goal**: Implement abandonment (close record without merging; force-materialize/mark
 artifacts, R20), failure handling (halt + surface; no stale/partial state, R21), and
@@ -143,7 +143,7 @@ on all rendered/diagnostic paths (R15).
 - An atomicity requirement is refused with reshaping guidance, not silently planned.
 **Dependencies**: <<ISSUE:2>>, <<ISSUE:5>>, <<ISSUE:6>>.
 
-### <<ISSUE:8>> — Skill evals + adopter guide
+### Issue 8: Skill evals + adopter guide
 **Complexity**: simple
 **Goal**: Add/update evals for the changed skills (`/scope`, `/work-on`, `/plan`) and write
 an adopter guide under `docs/guides/` covering coordination intent, the grouping preference, and
