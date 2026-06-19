@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   shirabe validate answers "does this block the build?" the same way whether
   the work is an early local draft or a finished PR awaiting review. Findings
@@ -22,7 +22,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 This BRIEF frames the feature at problem/outcome altitude. Solution mechanics —
 the CLI interface shape, whether the advisory layer reads PR context from the
