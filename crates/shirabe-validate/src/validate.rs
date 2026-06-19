@@ -53,10 +53,13 @@ pub enum Severity {
 /// the intrinsic-notice set below). `DraftTolerable` codes resolve to a
 /// `Notice` under `Draft` posture and `Error` under `Ready`.
 ///
-/// **For this issue the draft-tolerable set is empty** — every code is
-/// `AlwaysEnforced`, so `effective_severity` is independent of posture and
-/// behavior is identical to the prior static `is_notice`. A later change
-/// populates the set (L02/L06/L07) to flip the behavior.
+/// The draft-tolerable set is the lifecycle in-flight findings `L02`
+/// (orphan/connectivity), `L06` (outline-AC completeness), and `L07`
+/// (design-location): these are legitimate intermediate states while a
+/// chain is being drafted, so they tolerate `Draft` posture but must be
+/// resolved before `Ready`. Everything else — the always-defect lifecycle
+/// findings `L01`/`L03`/`L04`/`L05` and the entire FC-family — is
+/// `AlwaysEnforced`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PostureClass {
     DraftTolerable,
@@ -93,12 +96,19 @@ fn is_intrinsic_notice(code: &str) -> bool {
 
 /// Classify a finding code by how its enforcement responds to posture.
 ///
-/// The draft-tolerable set is **empty** in this issue, so every code is
-/// `AlwaysEnforced`. Populating this set (with the lifecycle codes
-/// L02/L06/L07) is the single point that turns on posture sensitivity in a
-/// later change.
-pub fn posture_class(_code: &str) -> PostureClass {
-    PostureClass::AlwaysEnforced
+/// The draft-tolerable lifecycle codes `L02`/`L06`/`L07` resolve to a
+/// notice under `Draft` posture and an error under `Ready`; this is the
+/// single point that drives posture sensitivity. Every other code —
+/// including the always-defect lifecycle findings `L01`/`L03`/`L04`/`L05`
+/// and the whole FC-family — is `AlwaysEnforced` and resolves to an error
+/// in both postures (subject to the intrinsic-notice set in
+/// [`is_intrinsic_notice`], which keeps `SCHEMA` and the advisory FC codes
+/// notices regardless of posture).
+pub fn posture_class(code: &str) -> PostureClass {
+    match code {
+        "L02" | "L06" | "L07" => PostureClass::DraftTolerable,
+        _ => PostureClass::AlwaysEnforced,
+    }
 }
 
 /// Resolve a finding code's effective severity under a given posture.
@@ -322,9 +332,13 @@ mod tests {
                 code
             );
         }
+        // Always-enforced codes are errors in every posture (checked under
+        // Draft, the more permissive one). L02/L06/L07 are excluded here —
+        // they are draft-tolerable and surface as notices under Draft (see
+        // draft_tolerable_codes_are_notices_under_draft_only below).
         for code in [
-            "FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "L01", "L02", "L03", "L04", "L05",
-            "L06", "L07", "R6", "R7", "R8", "R9",
+            "FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "L01", "L03", "L04", "L05", "R6", "R7",
+            "R8", "R9",
         ] {
             assert!(
                 !is_notice(
@@ -343,10 +357,91 @@ mod tests {
     }
 
     #[test]
-    fn effective_severity_is_posture_independent_with_empty_draft_tolerable_set() {
-        // For this issue the draft-tolerable set is empty, so every code
-        // resolves to the same severity under Draft and Ready. This pins
-        // the behavior-preserving property of Phase A.
+    fn draft_tolerable_codes_are_notices_under_draft_only() {
+        // L02/L06/L07 surface as notices under Draft and errors under
+        // Ready — the is_notice view of the draft-tolerable classification.
+        for code in ["L02", "L06", "L07"] {
+            let err = ValidationError {
+                file: String::new(),
+                line: 0,
+                code: code.to_string(),
+                message: String::new(),
+            };
+            assert!(
+                is_notice(&err, ReviewPosture::Draft),
+                "{} should be a notice under Draft",
+                code
+            );
+            assert!(
+                !is_notice(&err, ReviewPosture::Ready),
+                "{} should not be a notice under Ready",
+                code
+            );
+        }
+    }
+
+    #[test]
+    fn posture_class_classifies_lifecycle_codes() {
+        // The draft-tolerable set is exactly the lifecycle in-flight
+        // findings L02/L06/L07.
+        for code in ["L02", "L06", "L07"] {
+            assert_eq!(
+                posture_class(code),
+                PostureClass::DraftTolerable,
+                "{} must be draft-tolerable",
+                code
+            );
+        }
+        // Always-defect lifecycle findings and the FC-family are
+        // always-enforced.
+        for code in [
+            "L01",
+            "L03",
+            "L04",
+            "L05",
+            "FC01",
+            "FC06",
+            "FC07",
+            "FC14",
+            "FC-CONVENTIONS",
+            "SCHEMA",
+            "R9",
+        ] {
+            assert_eq!(
+                posture_class(code),
+                PostureClass::AlwaysEnforced,
+                "{} must be always-enforced",
+                code
+            );
+        }
+    }
+
+    #[test]
+    fn effective_severity_draft_tolerable_flips_with_posture() {
+        // L02/L06/L07 are notices under Draft and errors under Ready: this
+        // is the posture sensitivity that closes #197.
+        for code in ["L02", "L06", "L07"] {
+            assert_eq!(
+                effective_severity(code, ReviewPosture::Draft),
+                Severity::Notice,
+                "{} must be a notice under Draft",
+                code
+            );
+            assert_eq!(
+                effective_severity(code, ReviewPosture::Ready),
+                Severity::Error,
+                "{} must be an error under Ready",
+                code
+            );
+        }
+    }
+
+    #[test]
+    fn effective_severity_always_enforced_is_posture_independent() {
+        // Always-enforced codes resolve to the same severity in both
+        // postures. SCHEMA/FC-advisory codes stay notices (intrinsic);
+        // the always-defect lifecycle findings and structural FC codes
+        // stay errors.
         for code in [
             "SCHEMA",
             "FC01",
@@ -355,20 +450,20 @@ mod tests {
             "FC14",
             "FC-CONVENTIONS",
             "L01",
-            "L02",
-            "L06",
-            "L07",
+            "L03",
+            "L04",
+            "L05",
             "R9",
         ] {
             assert_eq!(
                 effective_severity(code, ReviewPosture::Draft),
                 effective_severity(code, ReviewPosture::Ready),
-                "{} must resolve identically in both postures (empty draft-tolerable set)",
+                "{} must resolve identically in both postures",
                 code
             );
         }
-        // And the intrinsic-notice membership is unchanged from the old
-        // static is_notice: SCHEMA/FC* notices, everything else errors.
+        // Intrinsic-notice membership is unchanged: SCHEMA/FC-advisory
+        // notices, structural FC and always-defect L codes errors.
         assert_eq!(
             effective_severity("SCHEMA", ReviewPosture::Ready),
             Severity::Notice
@@ -378,7 +473,7 @@ mod tests {
             Severity::Error
         );
         assert_eq!(
-            effective_severity("L02", ReviewPosture::Draft),
+            effective_severity("L01", ReviewPosture::Draft),
             Severity::Error
         );
     }
