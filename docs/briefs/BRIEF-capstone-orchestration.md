@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   `/scope` and `/work-on` take an effort from framing to merged code one repository at
   a time. When a single effort spans several repositories, the author supplies the
@@ -25,7 +25,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Framing drafted under `/scope`. The downstream PRD owns the requirements
 articulation; the DESIGN owns the cross-repo technical decisions this brief

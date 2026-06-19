@@ -1,5 +1,5 @@
 ---
-status: In Progress
+status: Done
 problem: |
   `/scope` and `/work-on` operate one repository at a time. When an effort spans
   several repositories, the author hand-supplies the cross-repo coordination contract
@@ -22,7 +22,7 @@ motivating_context: |
 
 ## Status
 
-In Progress
+Done
 
 ## Problem Statement
 
