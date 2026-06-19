@@ -46,6 +46,13 @@ impl CrossRepoRef {
     pub fn slug(&self) -> String {
         format!("{}/{}", self.owner, self.repo)
     }
+
+    /// The full `owner/repo:path` reference, reproducing the canonical input
+    /// shape. Used to label a node in a diagnostic (e.g. the merge-last gate's
+    /// blocker reasons) from its already-validated components.
+    pub fn slug_and_path(&self) -> String {
+        format!("{}/{}:{}", self.owner, self.repo, self.path)
+    }
 }
 
 /// Parse and validate a cross-repo `owner/repo:path` reference (F2).
@@ -357,6 +364,101 @@ fn acyclic_node_order(prs: &[IndexedPr]) -> Vec<String> {
         }
     }
     order
+}
+
+/// One indexed PR's *live-resolved* merge status, as the merge-last gate sees
+/// it (F4). The `merged` flag is always the product of an authoritative live
+/// `gh` read recomputed at gate time — never a value parsed from the editable
+/// coordination PR body. `label` is an opaque, non-sensitive identifier (a node
+/// id or public reference) used only to name a blocker in a diagnostic; F1
+/// redaction is the caller's responsibility before any private slug reaches it.
+///
+/// The type deliberately carries **no PR body and no body-sourced claim**: the
+/// only thing the gate decision can read is the live `merged` flag. That is what
+/// makes [`decide_gate`] structurally immune to a "merged"-claiming body (F4) —
+/// there is nowhere in the input for a body claim to live.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GatePrStatus {
+    /// Opaque, non-sensitive label for diagnostics (node id or public ref).
+    pub label: String,
+    /// Live-resolved merge state. `true` only when an authoritative `gh` read
+    /// resolved the PR as merged/closed at gate time; `false` for open *and*
+    /// for any unresolvable read (fail closed).
+    pub merged: bool,
+}
+
+/// One upstream's *live-resolved* terminal status, as the merge-last gate sees
+/// it. As with [`GatePrStatus`], `terminal` is always the product of a live
+/// read (via `verify_cross_repo_upstream_terminal`), never a body claim.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GateUpstreamStatus {
+    /// Opaque, non-sensitive label for diagnostics.
+    pub label: String,
+    /// Live-resolved terminal state. `true` only when the upstream verified as
+    /// terminal (merged/closed); `false` for non-terminal *and* unresolvable
+    /// (fail closed).
+    pub terminal: bool,
+}
+
+/// The outcome of the pure merge-last gate decision.
+///
+/// `Pass` means every indexed PR resolved merged AND every upstream resolved
+/// terminal — the only state in which the coordination PR may merge (R7/R14).
+/// `Block` carries one human-readable reason per blocker, each naming the
+/// offending node, so the caller can surface exactly what holds the gate closed
+/// (R21: never a silent skip).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GateDecision {
+    /// All PRs merged and all upstreams terminal: the gate passes (exit 0).
+    Pass,
+    /// At least one blocker; each reason names the node it blocks on.
+    Block(Vec<String>),
+}
+
+impl GateDecision {
+    /// Whether the gate passed.
+    pub fn passed(&self) -> bool {
+        matches!(self, GateDecision::Pass)
+    }
+}
+
+/// The pure, network-free core of the merge-last gate (F4 / Decision D).
+///
+/// Given the **live-resolved** per-PR merged flags and per-upstream terminal
+/// flags, decide whether the coordination PR may merge. The gate passes only
+/// when every indexed PR is merged AND every upstream is terminal; otherwise it
+/// blocks with one reason per blocker, each naming the offending node.
+///
+/// This function is the F4 firewall expressed in the type system: its inputs are
+/// resolved statuses, not PR bodies. A coordination PR body that *claims* a PR
+/// merged cannot influence the result, because a claim has no representation in
+/// [`GatePrStatus`] — the only field the decision reads is the live `merged`
+/// flag the caller obtained from `gh`. Unresolvable reads are folded into
+/// `merged == false` / `terminal == false` by the caller (fail closed), so an
+/// unresolvable node blocks here exactly like an unmerged one.
+pub fn decide_gate(prs: &[GatePrStatus], upstreams: &[GateUpstreamStatus]) -> GateDecision {
+    let mut reasons: Vec<String> = Vec::new();
+    for pr in prs {
+        if !pr.merged {
+            reasons.push(format!(
+                "indexed PR {} is not merged (live status); merge-last gate blocked",
+                pr.label
+            ));
+        }
+    }
+    for up in upstreams {
+        if !up.terminal {
+            reasons.push(format!(
+                "upstream {} is not terminal (live status); merge-last gate blocked",
+                up.label
+            ));
+        }
+    }
+    if reasons.is_empty() {
+        GateDecision::Pass
+    } else {
+        GateDecision::Block(reasons)
+    }
 }
 
 #[cfg(test)]
@@ -703,5 +805,152 @@ mod tests {
         };
         assert!(!order_state(&open_body), "open body wrongly shows merged");
         assert!(order_state(&merged_body), "merged body should show merged");
+    }
+
+    // --- decide_gate: the pure merge-last gate core (F4 / Decision D) ---
+
+    fn pr(label: &str, merged: bool) -> GatePrStatus {
+        GatePrStatus {
+            label: label.to_string(),
+            merged,
+        }
+    }
+
+    fn upstream(label: &str, terminal: bool) -> GateUpstreamStatus {
+        GateUpstreamStatus {
+            label: label.to_string(),
+            terminal,
+        }
+    }
+
+    /// All PRs merged and all upstreams terminal => the gate passes.
+    #[test]
+    fn gate_passes_when_all_merged_and_all_terminal() {
+        let prs = [pr("pr-a", true), pr("pr-b", true)];
+        let ups = [upstream("design-x", true)];
+        assert_eq!(decide_gate(&prs, &ups), GateDecision::Pass);
+        assert!(decide_gate(&prs, &ups).passed());
+    }
+
+    /// An empty index trivially passes (no blockers); the caller decides whether
+    /// an empty index is meaningful — the pure core only reports blockers.
+    #[test]
+    fn gate_passes_with_no_nodes() {
+        assert_eq!(decide_gate(&[], &[]), GateDecision::Pass);
+    }
+
+    /// One unmerged PR blocks, and the reason names exactly that PR.
+    #[test]
+    fn gate_blocks_when_one_pr_unmerged() {
+        let prs = [pr("pr-merged", true), pr("pr-open", false)];
+        let decision = decide_gate(&prs, &[]);
+        match decision {
+            GateDecision::Block(reasons) => {
+                assert_eq!(reasons.len(), 1, "exactly one blocker: {:?}", reasons);
+                assert!(
+                    reasons[0].contains("pr-open"),
+                    "reason must name the unmerged PR: {}",
+                    reasons[0]
+                );
+                assert!(
+                    !reasons[0].contains("pr-merged"),
+                    "the merged PR must not be named a blocker: {}",
+                    reasons[0]
+                );
+            }
+            GateDecision::Pass => panic!("expected Block, got Pass"),
+        }
+    }
+
+    /// An unresolvable PR — folded by the caller into `merged == false` (fail
+    /// closed) — blocks the gate exactly like an unmerged one. The pure core
+    /// sees only the resolved flag, so "unresolvable" and "open" are the same
+    /// blocking input here; the fail-closed mapping lives at the call site.
+    #[test]
+    fn gate_blocks_when_pr_unresolvable_fail_closed() {
+        // `merged: false` is what the caller emits for an unresolvable read.
+        let prs = [pr("pr-unresolvable", false)];
+        let decision = decide_gate(&prs, &[]);
+        assert!(
+            !decision.passed(),
+            "an unresolvable (=> not-merged) PR must block: {:?}",
+            decision
+        );
+        match decision {
+            GateDecision::Block(reasons) => {
+                assert!(reasons.iter().any(|r| r.contains("pr-unresolvable")));
+            }
+            GateDecision::Pass => unreachable!(),
+        }
+    }
+
+    /// A non-terminal upstream blocks, and the reason names it.
+    #[test]
+    fn gate_blocks_when_upstream_not_terminal() {
+        let prs = [pr("pr-a", true)];
+        let ups = [upstream("upstream-open", false)];
+        let decision = decide_gate(&prs, &ups);
+        match decision {
+            GateDecision::Block(reasons) => {
+                assert!(
+                    reasons.iter().any(|r| r.contains("upstream-open")),
+                    "reason must name the non-terminal upstream: {:?}",
+                    reasons
+                );
+            }
+            GateDecision::Pass => panic!("expected Block, got Pass"),
+        }
+    }
+
+    /// Multiple blockers each surface their own named reason (R21: never a
+    /// silent skip — every blocker is reported).
+    #[test]
+    fn gate_reports_every_blocker() {
+        let prs = [pr("pr-a", false), pr("pr-b", true), pr("pr-c", false)];
+        let ups = [upstream("up-x", false)];
+        match decide_gate(&prs, &ups) {
+            GateDecision::Block(reasons) => {
+                assert_eq!(reasons.len(), 3, "three blockers expected: {:?}", reasons);
+                assert!(reasons.iter().any(|r| r.contains("pr-a")));
+                assert!(reasons.iter().any(|r| r.contains("pr-c")));
+                assert!(reasons.iter().any(|r| r.contains("up-x")));
+            }
+            GateDecision::Pass => panic!("expected Block"),
+        }
+    }
+
+    /// F4: the decision core takes only live-resolved statuses. A coordination
+    /// PR body that *claims* a PR is merged cannot flip the result, because the
+    /// core's input ([`GatePrStatus`]) has no field for a body-sourced claim —
+    /// the only readable field is the live `merged` flag. This test demonstrates
+    /// that a body claiming "all merged" is irrelevant: with the live flag still
+    /// `false`, the gate blocks.
+    #[test]
+    fn gate_ignores_body_claim_uses_live_status_only(/* F4 */) {
+        // Simulate a coordination PR body asserting the PR has merged. The body
+        // text is not an input to `decide_gate` at all — we keep it here only to
+        // make the F4 intent legible. The function signature physically cannot
+        // accept it.
+        let _editable_body_claiming_merged =
+            "## PR Index\n- pr-evil | tsukumogami/shirabe#1 | title | merged\n";
+
+        // The live-resolved status is the only thing the gate reads, and it says
+        // not-merged (e.g. the live `gh` read returned Open, or was unresolvable
+        // and fail-closed to false).
+        let live = [pr("pr-evil", false)];
+
+        let decision = decide_gate(&live, &[]);
+        assert!(
+            !decision.passed(),
+            "a body claiming merged must NOT flip the gate; live status governs"
+        );
+
+        // And conversely, flipping the *live* flag (not the body) is what changes
+        // the outcome — proving the live status is the sole governing input.
+        let live_merged = [pr("pr-evil", true)];
+        assert!(
+            decide_gate(&live_merged, &[]).passed(),
+            "flipping the live status (not the body) is what passes the gate"
+        );
     }
 }

@@ -106,3 +106,73 @@ jobs:
             --visibility=${{ github.repository_visibility }} \
             --lifecycle . \
             $STRICT_FLAG
+
+      - name: Coordination merge-last gate
+        # The non-bypassable merge-last backstop (DESIGN Decision D / F4). On a
+        # *coordination PR* that is *ready* (draft == false), recompute "all
+        # indexed PRs merged + all upstreams terminal" from authoritative LIVE
+        # `gh` queries and block the ready check until the gate passes. The step
+        # is pinned to the same `draft == false` trigger the strict check uses,
+        # so toggling a PR back to draft cannot skip the gate — a draft PR runs
+        # neither the gate nor strict mode, and only a ready PR is mergeable.
+        #
+        # Coordination-PR detection: the coordination PR body (seeded by
+        # `shirabe coordination create`) carries a fixed declaration line — the
+        # blockquote "This is a **coordination PR** for a coordinated multi-repo
+        # effort." We grep the live PR body for that marker rather than relying
+        # on a label, so the signal travels with the durable body the verbs
+        # render. A PR without the marker is not a coordination PR and the gate
+        # is skipped (a no-op for ordinary lifecycle PRs).
+        #
+        # F4: status is recomputed live by the `gate` verb from `gh`, never from
+        # the (editable) PR body — the body supplies only the list of refs the
+        # operator passes in. Fail closed: any unresolvable PR/upstream blocks.
+        env:
+          # `gh` reads the PR body via the API; the token is consumed by the
+          # subprocess only, never held by the validator process (gh.rs model).
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Only ready PRs run the gate (strict-mode pinned, mirrors the check
+          # above). A draft PR is not mergeable, so the gate is moot there.
+          if [ "${{ github.event.pull_request.draft }}" != "false" ]; then
+            echo "PR is draft; skipping coordination merge-last gate."
+            exit 0
+          fi
+
+          # Detect a coordination PR by the fixed declaration line in its body.
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          BODY="$(gh pr view "$PR_NUMBER" --json body --jq '.body')"
+          if ! printf '%s' "$BODY" | grep -qF 'This is a **coordination PR**'; then
+            echo "Not a coordination PR (no declaration marker); skipping merge-last gate."
+            exit 0
+          fi
+
+          echo "Coordination PR detected and ready; running the merge-last gate."
+
+          # The coordination PR body's PR-index lines carry the durable list of
+          # `owner/repo:path#number` refs. Extract them as the index ONLY — the
+          # gate verb recomputes each ref's merged status LIVE via `gh` (F4); the
+          # `| merged`/`| open` cell in the body is intentionally NOT consulted.
+          # A public index line shape is: `- <node> | <owner/repo>:<path>#<n> | ...`
+          # We pull the `owner/repo:path#number` token from each index line.
+          mapfile -t PR_REFS < <(
+            printf '%s\n' "$BODY" \
+              | grep -oE '[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+:[^ |]+#[0-9]+' \
+              | sort -u
+          )
+
+          GATE_ARGS=()
+          for ref in "${PR_REFS[@]}"; do
+            GATE_ARGS+=(--pr "$ref")
+          done
+
+          # No indexed PRs found in the body means the index is empty; a
+          # coordination PR with an empty index has nothing to gate on yet, but
+          # fail closed: an empty ready coordination PR should not merge silently.
+          if [ "${#GATE_ARGS[@]}" -eq 0 ]; then
+            echo "::error::Coordination PR is ready but its PR-index is empty; merge-last gate blocks."
+            exit 1
+          fi
+
+          # A non-zero exit blocks the ready check (the merge-last backstop).
+          shirabe coordination gate "${GATE_ARGS[@]}"

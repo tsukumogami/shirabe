@@ -18,9 +18,10 @@
 use std::process::ExitCode;
 
 use shirabe_validate::{
-    parse_cross_repo_ref, render_index_line, render_sync_body, seed_body,
-    verify_cross_repo_upstream_terminal, ClientError, GhSubprocessClient, IndexedPr, IssueState,
-    IssueStateClient, SeedInputs, Visibility, VisibilityResolver,
+    decide_gate, parse_cross_repo_ref, render_index_line, render_sync_body, seed_body,
+    verify_cross_repo_upstream_terminal, ClientError, GateDecision, GatePrStatus,
+    GateUpstreamStatus, GhSubprocessClient, IndexedPr, IssueState, IssueStateClient, SeedInputs,
+    Visibility, VisibilityResolver,
 };
 
 /// Clap-parsed args for `shirabe coordination`.
@@ -51,6 +52,14 @@ pub enum CoordinationCommands {
     /// closed (R21): a malformed reference, an unresolvable read, or a
     /// non-terminal upstream halts with a diagnostic (exit 1).
     Verify(VerifyArgs),
+    /// The merge-last gate (F4). Recompute "all indexed PRs merged + all
+    /// upstreams terminal" from authoritative **live** `gh` queries at gate
+    /// time, never from the editable PR body. Passes (exit 0) only when every
+    /// indexed PR is merged AND every upstream is terminal; otherwise exits
+    /// non-zero with one diagnostic per blocker. Fails closed (R21): any
+    /// unresolvable PR or upstream is treated as not-merged / not-terminal.
+    /// This verb drives the `lifecycle.yml` non-bypassable backstop.
+    Gate(GateArgs),
 }
 
 #[derive(clap::Args)]
@@ -100,6 +109,24 @@ pub struct SyncArgs {
 }
 
 #[derive(clap::Args)]
+pub struct GateArgs {
+    /// An indexed PR, given as `owner/repo:path#number` (repeatable). The
+    /// supplied LIST is the durable index; per-PR merged status is **never**
+    /// trusted from this argument or any PR body — it is recomputed live via
+    /// `gh` (F4). The `owner/repo:path` is validated by the F2 parser before any
+    /// read; a malformed reference halts (R21).
+    #[arg(long = "pr")]
+    pub prs: Vec<String>,
+
+    /// An upstream to verify terminal, given as `owner/repo:path#number`
+    /// (repeatable). Each is checked live via
+    /// `verify_cross_repo_upstream_terminal`; a non-terminal or unresolvable
+    /// upstream blocks the gate (fail closed, R21).
+    #[arg(long = "upstream")]
+    pub upstreams: Vec<String>,
+}
+
+#[derive(clap::Args)]
 pub struct VerifyArgs {
     /// The cross-repo `owner/repo:path` upstream reference to verify.
     /// Validated by the F2 parser before any read; a malformed reference
@@ -141,6 +168,7 @@ pub fn run(args: &CoordinationArgs) -> ExitCode {
         CoordinationCommands::Status(s) => run_status(s),
         CoordinationCommands::Sync(s) => run_sync(s),
         CoordinationCommands::Verify(v) => run_verify(v),
+        CoordinationCommands::Gate(g) => run_gate(g),
     }
 }
 
@@ -319,6 +347,123 @@ fn run_verify(args: &VerifyArgs) -> ExitCode {
         }
         Err(e) => {
             eprintln!("coordination verify: {}", e);
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `gate`: the merge-last gate (F4 / Decision D). Recompute each indexed PR's
+/// merge state and each upstream's terminal state from authoritative **live**
+/// `gh` queries, then route the resolved statuses through the pure
+/// [`decide_gate`] core. The gate passes (exit 0) only when every indexed PR is
+/// merged AND every upstream is terminal; otherwise it exits non-zero with one
+/// diagnostic per blocker.
+///
+/// **F4 (critical):** merge status is never read from the editable PR body. The
+/// `--pr` list is the durable *index* of refs; per-PR merged status is
+/// recomputed live here. The body cannot supply a "merged" claim that this verb
+/// would trust — the only status input the decision core accepts is the live
+/// flag resolved below.
+///
+/// **Fail closed (R21):** any PR whose live state cannot be resolved is treated
+/// as not-merged, and any upstream that cannot be confirmed terminal is treated
+/// as non-terminal. A malformed reference halts immediately (it is a hard
+/// input error, never a silent skip).
+fn run_gate(args: &GateArgs) -> ExitCode {
+    let client = GhSubprocessClient::new();
+
+    // Resolve each indexed PR's live merge state (F4). The label is the public
+    // `owner/repo:path#number` reference: a public-repo coordination effort's
+    // refs are themselves public, and the gate diagnostic only ever names the
+    // ref the operator supplied — it does not read or render any `gh`-sourced
+    // private metadata.
+    let mut pr_statuses: Vec<GatePrStatus> = Vec::with_capacity(args.prs.len());
+    for raw in &args.prs {
+        let (ref_str, number) = match split_pr_arg(raw) {
+            Ok(pair) => pair,
+            Err(msg) => {
+                eprintln!("coordination gate: invalid --pr {:?}: {}", raw, msg);
+                return ExitCode::from(1);
+            }
+        };
+
+        // F2: parse + validate every component before any read. A malformed
+        // reference is a hard input error (R21), not a fail-closed block.
+        let reference = match parse_cross_repo_ref(ref_str) {
+            Ok(r) => r,
+            Err(msg) => {
+                eprintln!("coordination gate: invalid reference: {}", msg);
+                return ExitCode::from(1);
+            }
+        };
+
+        // F4: recompute live merge state through the read-only issue client.
+        // `Closed` => merged; `Open` => not merged; ANY error => not merged
+        // (fail closed). The PR body is never consulted.
+        let merged = match client.fetch_issue_state(&reference.owner, &reference.repo, number) {
+            Ok(IssueState::Closed) => true,
+            Ok(IssueState::Open) => false,
+            Err(ClientError::Auth) => {
+                eprintln!(
+                    "coordination gate: gh is not authenticated; cannot recompute live PR \
+                     state. Run `gh auth login`."
+                );
+                return ExitCode::from(1);
+            }
+            // Any other read failure: fail closed to not-merged.
+            Err(_) => false,
+        };
+
+        pr_statuses.push(GatePrStatus {
+            label: format!("{}#{}", reference.slug_and_path(), number),
+            merged,
+        });
+    }
+
+    // Resolve each upstream's live terminal state via the read-only verifier.
+    // A malformed reference is a hard input error (halt); a non-terminal or
+    // unresolvable upstream is folded into `terminal == false` (fail closed).
+    let mut upstream_statuses: Vec<GateUpstreamStatus> = Vec::with_capacity(args.upstreams.len());
+    for raw in &args.upstreams {
+        let (ref_str, number) = match split_pr_arg(raw) {
+            Ok(pair) => pair,
+            Err(msg) => {
+                eprintln!("coordination gate: invalid --upstream {:?}: {}", raw, msg);
+                return ExitCode::from(1);
+            }
+        };
+
+        // Validate the reference up front so a malformed upstream halts (R21)
+        // rather than being folded into a fail-closed block.
+        let reference = match parse_cross_repo_ref(ref_str) {
+            Ok(r) => r,
+            Err(msg) => {
+                eprintln!("coordination gate: invalid upstream reference: {}", msg);
+                return ExitCode::from(1);
+            }
+        };
+
+        let label = format!("{}#{}", reference.slug_and_path(), number);
+        let terminal = verify_cross_repo_upstream_terminal(ref_str, number, &client).is_ok();
+        upstream_statuses.push(GateUpstreamStatus { label, terminal });
+    }
+
+    // The decision is pure: it reads only the live-resolved flags above.
+    match decide_gate(&pr_statuses, &upstream_statuses) {
+        GateDecision::Pass => {
+            println!(
+                "coordination gate: PASS ({} PR(s) merged, {} upstream(s) terminal; \
+                 recomputed live)",
+                pr_statuses.len(),
+                upstream_statuses.len()
+            );
+            ExitCode::SUCCESS
+        }
+        GateDecision::Block(reasons) => {
+            eprintln!("coordination gate: BLOCKED (merge-last gate, recomputed live):");
+            for reason in &reasons {
+                eprintln!("  - {}", reason);
+            }
             ExitCode::from(1)
         }
     }
