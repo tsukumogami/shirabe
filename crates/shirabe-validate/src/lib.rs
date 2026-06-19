@@ -29,8 +29,8 @@ pub mod validate;
 pub use annotation::{format_error, format_notice};
 pub use checks::{check_slug_prefix, detect_slug_prefix, SlugPrefixCheck};
 pub use coordination::{
-    escape_inline, parse_cross_repo_ref, render_index_line, seed_body, CrossRepoRef, IndexedPr,
-    SeedInputs, Visibility, VisibilityResolver,
+    escape_inline, parse_cross_repo_ref, render_index_line, render_sync_body, seed_body,
+    CrossRepoRef, IndexedPr, SeedInputs, Visibility, VisibilityResolver,
 };
 pub use doc::{Config, Doc, FieldValue, Section, ValidationError};
 pub use features::{extract_needs_label, parse_features, strip_label_decoration, Feature};

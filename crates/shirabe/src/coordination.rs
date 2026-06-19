@@ -18,9 +18,9 @@
 use std::process::ExitCode;
 
 use shirabe_validate::{
-    parse_cross_repo_ref, render_index_line, seed_body, verify_cross_repo_upstream_terminal,
-    ClientError, GhSubprocessClient, IndexedPr, IssueState, IssueStateClient, SeedInputs,
-    Visibility, VisibilityResolver,
+    parse_cross_repo_ref, render_index_line, render_sync_body, seed_body,
+    verify_cross_repo_upstream_terminal, ClientError, GhSubprocessClient, IndexedPr, IssueState,
+    IssueStateClient, SeedInputs, Visibility, VisibilityResolver,
 };
 
 /// Clap-parsed args for `shirabe coordination`.
@@ -40,6 +40,12 @@ pub enum CoordinationCommands {
     /// (F2), and render its PR-index line redacting any private-repo
     /// identifier (F1, fail-closed).
     Status(StatusArgs),
+    /// Read every indexed PR via the `gh` client (read-only, F5), recompute
+    /// each one's live merge state (F4) and repo visibility (F1, fail-closed),
+    /// and re-render the merge-time canonical coordination-PR body: the
+    /// PR-index (private nodes redacted) plus a fenced acyclic merge-order
+    /// block. Prints the body to stdout.
+    Sync(SyncArgs),
     /// Read-only verify a cross-repo `owner/repo:path` upstream is at a
     /// terminal status (merged/closed). Performs no cross-repo write. Fails
     /// closed (R21): a malformed reference, an unresolvable read, or a
@@ -71,6 +77,26 @@ pub struct StatusArgs {
     /// visibility). Defaults to `pr-<number>`.
     #[arg(long = "node-id")]
     pub node_id: Option<String>,
+}
+
+#[derive(clap::Args)]
+pub struct SyncArgs {
+    /// Effort slug (e.g. `capstone-orchestration`), reproduced in the body
+    /// header.
+    pub slug: String,
+
+    /// An indexed PR, given as `owner/repo:path#number` (repeatable). The
+    /// `owner/repo:path` is the durable cross-repo reference (validated by the
+    /// F2 parser); `#number` is the PR number whose live state is recomputed via
+    /// `gh`. The supplied LIST is the durable index; per-PR merged/open status
+    /// is never trusted from this argument — it is re-read live (F4).
+    #[arg(long = "pr")]
+    pub prs: Vec<String>,
+
+    /// An artifact-chain path to declare in the body (repeatable; BRIEF/PRD/
+    /// DESIGN/PLAN in order).
+    #[arg(long = "artifact")]
+    pub artifacts: Vec<String>,
 }
 
 #[derive(clap::Args)]
@@ -113,6 +139,7 @@ pub fn run(args: &CoordinationArgs) -> ExitCode {
     match &args.command {
         CoordinationCommands::Create(c) => run_create(c),
         CoordinationCommands::Status(s) => run_status(s),
+        CoordinationCommands::Sync(s) => run_sync(s),
         CoordinationCommands::Verify(v) => run_verify(v),
     }
 }
@@ -180,6 +207,97 @@ fn run_status(args: &StatusArgs) -> ExitCode {
     let resolver = GhVisibilityResolver { client: &client };
     println!("{}", render_index_line(&pr, &resolver));
     ExitCode::SUCCESS
+}
+
+/// `sync`: read every indexed PR live via `gh` (read-only, F5), recompute each
+/// node's merge state (F4) and visibility (F1, fail-closed), and re-render the
+/// merge-time canonical coordination-PR body via the pure
+/// [`render_sync_body`] fn.
+///
+/// The supplied `--pr` list is the durable index; per-PR merged/open status is
+/// never trusted from the argument text — it is re-read live through the `gh`
+/// client, which is what keeps F4's merge-last gate honest. A malformed
+/// reference halts (R21); an unresolvable read renders the node not-merged but
+/// still routed through F1 redaction.
+fn run_sync(args: &SyncArgs) -> ExitCode {
+    let client = GhSubprocessClient::new();
+    let resolver = GhVisibilityResolver { client: &client };
+
+    let mut indexed: Vec<IndexedPr> = Vec::with_capacity(args.prs.len());
+    for raw in &args.prs {
+        // Split the `#number` suffix off the durable `owner/repo:path` reference.
+        let (ref_str, number) = match split_pr_arg(raw) {
+            Ok(pair) => pair,
+            Err(msg) => {
+                eprintln!("coordination sync: invalid --pr {:?}: {}", raw, msg);
+                return ExitCode::from(1);
+            }
+        };
+
+        // F2: parse + validate every component before use. A failing reference
+        // halts with a diagnostic (R21), never a silent skip.
+        let reference = match parse_cross_repo_ref(ref_str) {
+            Ok(r) => r,
+            Err(msg) => {
+                eprintln!("coordination sync: invalid reference: {}", msg);
+                return ExitCode::from(1);
+            }
+        };
+
+        // F4: recompute live merge state through the read-only issue client.
+        // The body never supplies merged/open — only the list of refs.
+        let merged = match client.fetch_issue_state(&reference.owner, &reference.repo, number) {
+            Ok(IssueState::Closed) => true,
+            Ok(IssueState::Open) => false,
+            Err(ClientError::Auth) => {
+                eprintln!(
+                    "coordination sync: gh is not authenticated; cannot read PR state. \
+                     Run `gh auth login`."
+                );
+                return ExitCode::from(1);
+            }
+            // Any other read failure: render not-merged; F1 redaction below
+            // still applies to the node's identifiers.
+            Err(_) => false,
+        };
+
+        // Title is read for the public render and escaped (F3) inside
+        // render_index_line. An unresolvable body leaves the title empty rather
+        // than inventing data.
+        let title = client
+            .fetch_pr_body(&reference.owner, &reference.repo, number)
+            .unwrap_or_default();
+
+        indexed.push(IndexedPr {
+            node_id: format!("pr-{}", number),
+            reference,
+            number,
+            title,
+            merged,
+        });
+    }
+
+    // Render the durable, merge-time canonical body via the pure fn. F1
+    // redaction + F3 escaping live inside the render; the visibility resolver
+    // fails closed to private on any unresolvable repo.
+    let body = render_sync_body(&args.slug, &args.artifacts, &indexed, &resolver);
+    print!("{}", body);
+    ExitCode::SUCCESS
+}
+
+/// Split a `--pr` argument of shape `owner/repo:path#number` into its
+/// `owner/repo:path` reference and the parsed `number`. The `#number` suffix is
+/// taken from the **last** `#`, so a path containing `#` is tolerated. Returns
+/// `Err` with a diagnostic when the suffix is missing or not a `u64`.
+fn split_pr_arg(raw: &str) -> Result<(&str, u64), String> {
+    let hash = raw
+        .rfind('#')
+        .ok_or_else(|| "missing `#number` PR suffix".to_string())?;
+    let (ref_str, num_str) = (&raw[..hash], &raw[hash + 1..]);
+    let number = num_str
+        .parse::<u64>()
+        .map_err(|_| format!("PR number is not a non-negative integer: {:?}", num_str))?;
+    Ok((ref_str, number))
 }
 
 /// `verify`: read-only verify a cross-repo upstream is at a terminal status.

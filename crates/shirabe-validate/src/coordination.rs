@@ -255,6 +255,110 @@ pub fn seed_body(inputs: &SeedInputs) -> String {
     out
 }
 
+/// Render the merge-time canonical coordination-PR body from a resolved set of
+/// indexed PRs (Decision D). Pure: no network, no `gh` — the caller resolves
+/// each [`IndexedPr`]'s live merge state and visibility before calling, then
+/// this function renders the durable body that survives the PLAN's deletion (R8).
+///
+/// The body has two authoritative sections:
+///
+/// - **PR Index** — one [`render_index_line`] per node, applying F1 redaction
+///   (private nodes collapse to opaque node id + merge state) and F3 escaping
+///   (every `gh`-sourced title is run through [`escape_inline`] inside
+///   `render_index_line`).
+/// - **Merge Order** — a fenced ```` ```merge-order ```` block listing the nodes
+///   in an acyclic order (see [`acyclic_node_order`]). The block carries only
+///   opaque node ids and non-sensitive merge state, so it is safe to render
+///   regardless of any node's visibility.
+///
+/// `slug` and `artifact_chain` reproduce the [`seed_body`] header so a synced
+/// body is a drop-in replacement for the seed body.
+pub fn render_sync_body(
+    slug: &str,
+    artifact_chain: &[String],
+    prs: &[IndexedPr],
+    resolver: &dyn VisibilityResolver,
+) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("# Coordination PR: {}\n\n", escape_inline(slug)));
+    out.push_str(
+        "> This is a **coordination PR** for a coordinated multi-repo effort. It is \
+         docs-only and merges **last**, once every indexed per-repo PR has merged and \
+         finalization is complete. See `references/coordination-strategy.md`.\n\n",
+    );
+
+    out.push_str("## Artifact Chain\n\n");
+    if artifact_chain.is_empty() {
+        out.push_str("_(none yet)_\n\n");
+    } else {
+        for artifact in artifact_chain {
+            out.push_str(&format!("- {}\n", escape_inline(artifact)));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("## PR Index\n\n");
+    if prs.is_empty() {
+        out.push_str("_(no per-repo PRs indexed yet)_\n\n");
+    } else {
+        for pr in prs {
+            out.push_str(&render_index_line(pr, resolver));
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+
+    out.push_str("## Merge Order\n\n");
+    out.push_str(&render_merge_order_block(prs));
+
+    out
+}
+
+/// Render the fenced ```` ```merge-order ```` block for a resolved node set,
+/// recomputed as an acyclic order over the indexed nodes.
+///
+/// The block carries only opaque node ids and merge state — no `owner/repo`,
+/// path, title, or number — so it is always safe regardless of visibility, and
+/// it reflects the **live** merge state of each node (F4): a node that has
+/// merged renders `merged`, an open one renders `open`. The order is acyclic by
+/// construction (see [`acyclic_node_order`]).
+fn render_merge_order_block(prs: &[IndexedPr]) -> String {
+    let mut out = String::new();
+    out.push_str("```merge-order\n");
+    out.push_str("# Two-node merge-order DAG (PR nodes + non-PR gate nodes).\n");
+    out.push_str("# Rendered from the PLAN; recomputed live by `shirabe coordination sync`.\n");
+    let order = acyclic_node_order(prs);
+    for node_id in &order {
+        // Look up the node's live merge state by opaque id.
+        let state = prs
+            .iter()
+            .find(|p| &p.node_id == node_id)
+            .map(|p| if p.merged { "merged" } else { "open" })
+            .unwrap_or("open");
+        out.push_str(&format!("{} | {}\n", escape_inline(node_id), state));
+    }
+    out.push_str("```\n");
+    out
+}
+
+/// Produce an acyclic order over the indexed nodes' opaque ids.
+///
+/// The [`IndexedPr`] set carries no inter-node edges (the edge data lives in the
+/// PLAN, which Decision D collapses into this flat node list at render time), so
+/// the order is the nodes' first-appearance order — acyclic by construction
+/// because it introduces no back-edge. Duplicate node ids are de-duplicated,
+/// keeping the first occurrence, so the rendered order lists every node exactly
+/// once.
+fn acyclic_node_order(prs: &[IndexedPr]) -> Vec<String> {
+    let mut order: Vec<String> = Vec::with_capacity(prs.len());
+    for pr in prs {
+        if !order.iter().any(|n| n == &pr.node_id) {
+            order.push(pr.node_id.clone());
+        }
+    }
+    order
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -401,5 +505,203 @@ mod tests {
         assert!(body.contains("## PR Index"));
         assert!(body.contains("## Merge Order"));
         assert!(body.contains("```merge-order"));
+    }
+
+    // --- render_sync_body: the merge-time canonical body (Decision D) ---
+
+    /// Resolver that decides visibility per-slug from an allow-list of public
+    /// slugs, mirroring the production `gh`-backed resolver's verdict shape but
+    /// offline. Any slug not on the list is private (fail-closed).
+    struct SlugResolver(Vec<String>);
+    impl VisibilityResolver for SlugResolver {
+        fn visibility(&self, slug: &str) -> Visibility {
+            if self.0.iter().any(|s| s == slug) {
+                Visibility::Public
+            } else {
+                Visibility::Private
+            }
+        }
+    }
+
+    /// A public node and a private node mixed in one index. F1: the private
+    /// node's owner/repo/path/title/number must not leak; only its opaque node
+    /// id and merge state appear. The public node renders in full.
+    #[test]
+    fn sync_body_redacts_private_node_keeps_public(/* F1 */) {
+        let public_pr = IndexedPr {
+            node_id: "pr-shirabe-api".to_string(),
+            reference: parse_cross_repo_ref("tsukumogami/shirabe:docs/plans/PLAN-x.md").unwrap(),
+            number: 196,
+            title: "Public coordination subcommand".to_string(),
+            merged: true,
+        };
+        let private_pr = IndexedPr {
+            node_id: "pr-secret-core".to_string(),
+            reference: parse_cross_repo_ref(
+                "tsukumogami/secret-repo:docs/designs/DESIGN-classified.md",
+            )
+            .unwrap(),
+            number: 4242,
+            title: "Secret internal feature name".to_string(),
+            merged: false,
+        };
+        let resolver = SlugResolver(vec!["tsukumogami/shirabe".to_string()]);
+        let body = render_sync_body(
+            "capstone-orchestration",
+            &["docs/plans/PLAN-capstone-orchestration.md".to_string()],
+            &[public_pr, private_pr],
+            &resolver,
+        );
+
+        // Public node renders in full.
+        assert!(body.contains("pr-shirabe-api"));
+        assert!(body.contains("tsukumogami/shirabe"));
+        assert!(body.contains("196"));
+        assert!(body.contains("Public coordination subcommand"));
+
+        // Private node: only opaque id + merge state survive.
+        assert!(body.contains("pr-secret-core"));
+        assert!(
+            !body.contains("secret-repo"),
+            "private repo leaked: {}",
+            body
+        );
+        assert!(
+            !body.contains("DESIGN-classified.md"),
+            "private path leaked: {}",
+            body
+        );
+        assert!(
+            !body.contains("Secret internal feature name"),
+            "private title leaked: {}",
+            body
+        );
+        assert!(!body.contains("4242"), "private number leaked: {}", body);
+    }
+
+    /// F3: a public node whose title carries every table/markdown breaker is
+    /// escaped before it reaches the rendered index line.
+    #[test]
+    fn sync_body_escapes_gh_sourced_title(/* F3 */) {
+        let pr = IndexedPr {
+            node_id: "pr-shirabe-api".to_string(),
+            reference: parse_cross_repo_ref("tsukumogami/shirabe:docs/plans/PLAN-x.md").unwrap(),
+            number: 7,
+            title: "evil|title\nwith`back<ticks>".to_string(),
+            merged: false,
+        };
+        let resolver = SlugResolver(vec!["tsukumogami/shirabe".to_string()]);
+        let body = render_sync_body("slug", &[], &[pr], &resolver);
+
+        // Scope the breaker assertions to the rendered index line, not the
+        // static boilerplate (which legitimately contains backticks/fences).
+        let line = body
+            .lines()
+            .find(|l| l.starts_with("- pr-shirabe-api"))
+            .expect("public index line present");
+
+        // The raw, unescaped title must not appear; the breakers are neutralized.
+        assert!(
+            !line.contains("evil|title"),
+            "unescaped pipe survived: {}",
+            line
+        );
+        // The title's own backtick/angle brackets are escaped away. The only `|`
+        // left on the line are the cell separators render_index_line emits.
+        assert!(!line.contains('`'), "backtick survived: {}", line);
+        assert!(!line.contains('<'), "angle bracket survived: {}", line);
+        assert!(!line.contains('>'), "angle bracket survived: {}", line);
+        // The non-breaker text survives in escaped form.
+        assert!(line.contains("title"));
+    }
+
+    /// The fenced merge-order block lists every node exactly once in an acyclic
+    /// order. With no inter-node edges, that is first-appearance order; the
+    /// block carries only opaque ids + merge state (safe regardless of
+    /// visibility).
+    #[test]
+    fn sync_body_merge_order_is_acyclic_and_complete() {
+        let prs = vec![
+            IndexedPr {
+                node_id: "pr-a".to_string(),
+                reference: parse_cross_repo_ref("tsukumogami/shirabe:docs/a.md").unwrap(),
+                number: 1,
+                title: "a".to_string(),
+                merged: false,
+            },
+            IndexedPr {
+                node_id: "pr-b".to_string(),
+                reference: parse_cross_repo_ref("tsukumogami/secret:docs/b.md").unwrap(),
+                number: 2,
+                title: "b".to_string(),
+                merged: true,
+            },
+            IndexedPr {
+                node_id: "pr-c".to_string(),
+                reference: parse_cross_repo_ref("tsukumogami/koto:docs/c.md").unwrap(),
+                number: 3,
+                title: "c".to_string(),
+                merged: false,
+            },
+        ];
+        let resolver = SlugResolver(vec!["tsukumogami/shirabe".to_string()]);
+        let body = render_sync_body("slug", &[], &prs, &resolver);
+
+        // Extract the fenced merge-order block.
+        let block_start = body.find("```merge-order").expect("block present");
+        let after = &body[block_start..];
+        let block_end = after[3..].find("```").expect("block closes") + 3;
+        let block = &after[..block_end];
+
+        // Every node id appears exactly once in the order block.
+        for node in ["pr-a", "pr-b", "pr-c"] {
+            assert_eq!(
+                block.matches(node).count(),
+                1,
+                "node {} should appear once in {}",
+                node,
+                block
+            );
+        }
+
+        // First-appearance (acyclic) order: pr-a precedes pr-b precedes pr-c.
+        let pos_a = block.find("pr-a").unwrap();
+        let pos_b = block.find("pr-b").unwrap();
+        let pos_c = block.find("pr-c").unwrap();
+        assert!(
+            pos_a < pos_b && pos_b < pos_c,
+            "order not acyclic: {}",
+            block
+        );
+    }
+
+    /// F4: the merge-order block reflects **live** merge state. Re-rendering the
+    /// same node set after a node flips open -> merged changes the body text.
+    #[test]
+    fn sync_body_reflects_live_merge_state_change(/* F4 */) {
+        let make = |merged: bool| IndexedPr {
+            node_id: "pr-shirabe-api".to_string(),
+            reference: parse_cross_repo_ref("tsukumogami/shirabe:docs/plans/PLAN-x.md").unwrap(),
+            number: 196,
+            title: "title".to_string(),
+            merged,
+        };
+        let resolver = SlugResolver(vec!["tsukumogami/shirabe".to_string()]);
+
+        let open_body = render_sync_body("slug", &[], &[make(false)], &resolver);
+        let merged_body = render_sync_body("slug", &[], &[make(true)], &resolver);
+
+        // The two renders differ: the live state propagates into the body.
+        assert_ne!(open_body, merged_body);
+
+        // The merge-order block specifically flips open -> merged.
+        let order_state = |body: &str| -> bool {
+            let start = body.find("```merge-order").unwrap();
+            let block = &body[start..];
+            // The node line carries `pr-shirabe-api | <state>`.
+            block.contains("pr-shirabe-api | merged")
+        };
+        assert!(!order_state(&open_body), "open body wrongly shows merged");
+        assert!(order_state(&merged_body), "merged body should show merged");
     }
 }
