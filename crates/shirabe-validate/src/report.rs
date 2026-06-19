@@ -8,14 +8,16 @@
 //! (human).
 //!
 //! Both renderers take the full set of [`ValidationError`]s collected
-//! across every validated document plus an `outcome` label (the resolved
-//! [`run_validate`] outcome, e.g. `"violations"`). Severity is derived from
-//! [`crate::validate::is_notice`], the same seam the annotation mode uses to
-//! split errors from notices, so the three modes can never disagree about
-//! what counts as an error.
+//! across every validated document, an `outcome` label (the resolved
+//! [`run_validate`] outcome, e.g. `"violations"`), and the [`ReviewPosture`]
+//! the run asserted. Severity is derived from
+//! [`crate::validate::effective_severity`], the same posture-aware seam the
+//! annotation mode and the exit-code roll-up use to split errors from
+//! notices, so the three modes can never disagree about what counts as an
+//! error.
 
 use crate::doc::ValidationError;
-use crate::validate::is_notice;
+use crate::validate::{is_notice, ReviewPosture};
 
 /// The machine-output schema version. Follows the repo's `<name>/v<major>`
 /// idiom (the same shape as the `design/v1` document schema tag): additive
@@ -23,9 +25,10 @@ use crate::validate::is_notice;
 /// on the major.
 const SCHEMA_VERSION: &str = "shirabe-validate/v1";
 
-/// The severity label for a finding, derived solely from [`is_notice`].
-fn severity(err: &ValidationError) -> &'static str {
-    if is_notice(err) {
+/// The severity label for a finding under `posture`, derived solely from
+/// [`is_notice`] (the [`crate::validate::effective_severity`] seam).
+fn severity(err: &ValidationError, posture: ReviewPosture) -> &'static str {
+    if is_notice(err, posture) {
         "notice"
     } else {
         "error"
@@ -64,9 +67,9 @@ fn json_string(value: &str) -> String {
 /// notice counts), and a flat `findings` array. Each finding carries its
 /// `code`, derived `severity`, `message`, `file`, and `line` (`null` when
 /// the engine's no-line sentinel `0` is present).
-pub fn render_json(findings: &[ValidationError], outcome: &str) -> String {
-    let errors = findings.iter().filter(|e| !is_notice(e)).count();
-    let notices = findings.iter().filter(|e| is_notice(e)).count();
+pub fn render_json(findings: &[ValidationError], outcome: &str, posture: ReviewPosture) -> String {
+    let errors = findings.iter().filter(|e| !is_notice(e, posture)).count();
+    let notices = findings.iter().filter(|e| is_notice(e, posture)).count();
 
     let mut out = String::new();
     out.push_str("{\n");
@@ -94,7 +97,7 @@ pub fn render_json(findings: &[ValidationError], outcome: &str) -> String {
             out.push_str(&format!("      \"code\": {},\n", json_string(&e.code)));
             out.push_str(&format!(
                 "      \"severity\": {},\n",
-                json_string(severity(e))
+                json_string(severity(e, posture))
             ));
             out.push_str(&format!(
                 "      \"message\": {},\n",
@@ -122,7 +125,7 @@ pub fn render_json(findings: &[ValidationError], outcome: &str) -> String {
 /// findings reports that all checks passed. The message is shown verbatim
 /// (the engine already embeds the check code in it, as the annotation mode
 /// surfaces), so the code is not repeated.
-pub fn render_human(findings: &[ValidationError], outcome: &str) -> String {
+pub fn render_human(findings: &[ValidationError], outcome: &str, posture: ReviewPosture) -> String {
     let mut out = String::new();
     if findings.is_empty() {
         out.push_str("All checks passed.\n");
@@ -130,19 +133,24 @@ pub fn render_human(findings: &[ValidationError], outcome: &str) -> String {
     }
     for e in findings {
         if e.line == 0 {
-            out.push_str(&format!("{} {} {}\n", e.file, severity(e), e.message));
+            out.push_str(&format!(
+                "{} {} {}\n",
+                e.file,
+                severity(e, posture),
+                e.message
+            ));
         } else {
             out.push_str(&format!(
                 "{}:{} {} {}\n",
                 e.file,
                 e.line,
-                severity(e),
+                severity(e, posture),
                 e.message
             ));
         }
     }
-    let errors = findings.iter().filter(|e| !is_notice(e)).count();
-    let notices = findings.iter().filter(|e| is_notice(e)).count();
+    let errors = findings.iter().filter(|e| !is_notice(e, posture)).count();
+    let notices = findings.iter().filter(|e| is_notice(e, posture)).count();
     out.push_str(&format!(
         "\n{} error(s), {} notice(s) -- {}\n",
         errors, notices, outcome
@@ -165,7 +173,7 @@ mod tests {
 
     #[test]
     fn json_empty_findings_has_clean_shape() {
-        let out = render_json(&[], "clean");
+        let out = render_json(&[], "clean", ReviewPosture::Draft);
         assert!(out.contains("\"schema_version\": \"shirabe-validate/v1\""));
         assert!(out.contains("\"outcome\": \"clean\""));
         assert!(out.contains("\"errors\": 0"));
@@ -179,7 +187,7 @@ mod tests {
             err("a.md", 3, "FC01", "missing field"),
             err("a.md", 1, "SCHEMA", "schema notice"),
         ];
-        let out = render_json(&findings, "violations");
+        let out = render_json(&findings, "violations", ReviewPosture::Draft);
         assert!(out.contains("\"severity\": \"error\""));
         assert!(out.contains("\"severity\": \"notice\""));
         assert!(out.contains("\"errors\": 1"));
@@ -188,14 +196,22 @@ mod tests {
 
     #[test]
     fn json_no_line_sentinel_renders_null() {
-        let out = render_json(&[err("a.md", 0, "FC01", "msg")], "violations");
+        let out = render_json(
+            &[err("a.md", 0, "FC01", "msg")],
+            "violations",
+            ReviewPosture::Draft,
+        );
         assert!(out.contains("\"line\": null"));
         assert!(!out.contains("\"line\": 0"));
     }
 
     #[test]
     fn json_with_line_renders_integer() {
-        let out = render_json(&[err("a.md", 42, "FC01", "msg")], "violations");
+        let out = render_json(
+            &[err("a.md", 42, "FC01", "msg")],
+            "violations",
+            ReviewPosture::Draft,
+        );
         assert!(out.contains("\"line\": 42"));
     }
 
@@ -206,7 +222,11 @@ mod tests {
         // string value: the literal injection substring must NOT appear
         // unescaped, and there must still be exactly one finding.
         let evil = "x\",\"line\":0,\"code\":\"INJECTED\",\"message\":\"pwned";
-        let out = render_json(&[err("a.md", 7, "FC01", evil)], "violations");
+        let out = render_json(
+            &[err("a.md", 7, "FC01", evil)],
+            "violations",
+            ReviewPosture::Draft,
+        );
         // The raw breakout sequence (the forged-key fragment exactly as it
         // would appear if the value were interpolated unescaped) must be
         // absent.
@@ -219,7 +239,11 @@ mod tests {
 
     #[test]
     fn json_escapes_newlines_and_control_chars() {
-        let out = render_json(&[err("a.md", 1, "FC01", "line1\nline2\tend\u{0001}")], "x");
+        let out = render_json(
+            &[err("a.md", 1, "FC01", "line1\nline2\tend\u{0001}")],
+            "x",
+            ReviewPosture::Draft,
+        );
         assert!(out.contains("line1\\nline2\\tend\\u0001"));
         // The raw newline must not appear inside the rendered message value.
         assert!(!out.contains("line1\nline2"));
@@ -227,13 +251,16 @@ mod tests {
 
     #[test]
     fn human_empty_reports_all_passed() {
-        assert_eq!(render_human(&[], "clean"), "All checks passed.\n");
+        assert_eq!(
+            render_human(&[], "clean", ReviewPosture::Draft),
+            "All checks passed.\n"
+        );
     }
 
     #[test]
     fn human_has_no_annotation_syntax() {
         let findings = vec![err("a.md", 3, "FC01", "missing field")];
-        let out = render_human(&findings, "violations");
+        let out = render_human(&findings, "violations", ReviewPosture::Draft);
         assert!(!out.contains("::error"));
         assert!(!out.contains("::notice"));
         assert!(out.contains("a.md:3 error missing field"));
@@ -242,7 +269,11 @@ mod tests {
 
     #[test]
     fn human_omits_line_for_sentinel() {
-        let out = render_human(&[err("a.md", 0, "SCHEMA", "note")], "clean");
+        let out = render_human(
+            &[err("a.md", 0, "SCHEMA", "note")],
+            "clean",
+            ReviewPosture::Draft,
+        );
         assert!(out.contains("a.md notice note"));
         assert!(!out.contains("a.md:0"));
     }

@@ -59,6 +59,7 @@ use std::path::{Path, PathBuf};
 use crate::doc::{Config, Doc, ValidationError};
 use crate::frontmatter::parse_doc;
 use crate::table::parse_outline_acs;
+use crate::validate::ReviewPosture;
 
 // ---------- public data types ----------
 
@@ -804,22 +805,23 @@ fn check_location(doc: &IndexedDoc) -> Option<ValidationError> {
 /// state and every orphan doc honors the orphan-rule. Otherwise
 /// returns one or more `ValidationError`s carrying `Lnn` codes.
 ///
-/// The `strict` flag controls the DRAFT-vs-READY discipline for
-/// single-pr chains. When false (the default), `Posture::SinglePrMidPR`
+/// The `posture` argument controls the DRAFT-vs-READY discipline for
+/// single-pr chains. Under `ReviewPosture::Draft`, `Posture::SinglePrMidPR`
 /// is a passing posture — BRIEF/PRD at Accepted, DESIGN at
-/// Planned/Current, PLAN at Draft is healthy iteration. When true,
-/// `Posture::SinglePrMidPR` is re-targeted to the
+/// Planned/Current, PLAN at Draft is healthy iteration. Under
+/// `ReviewPosture::Ready`, `Posture::SinglePrMidPR` is re-targeted to the
 /// `Posture::SinglePrAtMerge` passing-state row at check time, so a
 /// present single-pr PLAN fails and single-pr BRIEF/PRD at Accepted
-/// fail. Multi-pr postures are unchanged by the strict flag.
+/// fail. Multi-pr postures are unchanged by the posture.
 ///
-/// The CI workflow sets `strict=true` when the PR is ready-for-review
-/// (`github.event.pull_request.draft == false`) and `strict=false`
-/// when the PR is draft.
+/// `ReviewPosture::Ready` is the successor of the old `strict == true`:
+/// the CI workflow asserts `Ready` when the PR is ready-for-review
+/// (`github.event.pull_request.draft == false`) and `Draft` when the PR is
+/// draft.
 pub fn run_lifecycle_check(
     root: &Path,
     cfg: &Config,
-    strict: bool,
+    posture: ReviewPosture,
 ) -> Vec<ValidationError> {
     let (idx, mut errors) = build_doc_index(root);
     let inv = build_inverse_upstream(&idx);
@@ -837,16 +839,17 @@ pub fn run_lifecycle_check(
 
     // Per-chain passing-state check.
     for chain in &chains {
-        // Apply the strict-mode posture re-target. When strict is set
-        // and the chain's posture is single-pr-mid-PR, the
+        // Apply the ready-posture re-target. Under ReviewPosture::Ready,
+        // when the chain's posture is single-pr-mid-PR, the
         // passing-state computation uses the single-pr at-merge row
         // (PLAN deleted, BRIEF/PRD Done, DESIGN Current) instead of
         // the mid-PR exemption. Multi-pr postures are unchanged.
-        let effective_posture = if strict && chain.posture == Posture::SinglePrMidPR {
-            Posture::SinglePrAtMerge
-        } else {
-            chain.posture
-        };
+        let effective_posture =
+            if posture == ReviewPosture::Ready && chain.posture == Posture::SinglePrMidPR {
+                Posture::SinglePrAtMerge
+            } else {
+                chain.posture
+            };
         for member in &chain.members {
             let passing = compute_passing_state(member.role, effective_posture);
             // The chain root is present in the tree by definition (we
@@ -999,15 +1002,15 @@ fn check_l06_outline_acs(
 /// inside the indexed doc directories all produce a single L05
 /// error naming the expected location set.
 ///
-/// The `strict` flag has the same shape as `run_lifecycle_check`'s
-/// strict flag — when set and the matched chain's posture is
+/// The `posture` argument has the same shape as `run_lifecycle_check`'s —
+/// under `ReviewPosture::Ready` and a matched chain at
 /// `Posture::SinglePrMidPR`, the chain re-targets to
-/// `Posture::SinglePrAtMerge`. Multi-pr postures are unchanged by
-/// the strict flag.
+/// `Posture::SinglePrAtMerge`. Multi-pr postures are unchanged by the
+/// posture.
 pub fn run_lifecycle_chain_check(
     doc_path: &Path,
     cfg: &Config,
-    strict: bool,
+    posture: ReviewPosture,
 ) -> Vec<ValidationError> {
     // Resolve the input path to an absolute canonical form. A
     // missing file or a path outside the filesystem produces a
@@ -1102,11 +1105,12 @@ pub fn run_lifecycle_chain_check(
         .find(|c| c.members.iter().any(|m| m.path == canon_doc));
 
     if let Some(chain) = matched_chain {
-        let effective_posture = if strict && chain.posture == Posture::SinglePrMidPR {
-            Posture::SinglePrAtMerge
-        } else {
-            chain.posture
-        };
+        let effective_posture =
+            if posture == ReviewPosture::Ready && chain.posture == Posture::SinglePrMidPR {
+                Posture::SinglePrAtMerge
+            } else {
+                chain.posture
+            };
         for member in &chain.members {
             let passing = compute_passing_state(member.role, effective_posture);
             let mismatch = match &passing {
@@ -1399,7 +1403,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
     }
 
@@ -1427,7 +1431,7 @@ mod tests {
                 &plan_body("Done"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         // PLAN at Done in tree should fail L01 with the deletion forcing message.
         assert!(
             errors.iter().any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md") && e.message.contains("DELETED")),
@@ -1462,7 +1466,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
     }
 
@@ -1494,7 +1498,7 @@ mod tests {
                 &plan_body("Draft"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(
             errors.iter().any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
             "expected L01 on Draft single-pr PLAN, got {:?}",
@@ -1525,7 +1529,7 @@ mod tests {
                 &design_body("Current"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
     }
 
@@ -1553,7 +1557,7 @@ mod tests {
                 &plan_body("Draft"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(
             errors.iter().any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
             "expected L01 on Draft multi-pr PLAN, got {:?}",
@@ -1586,7 +1590,7 @@ mod tests {
                 &plan_body("Done"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(
             errors.iter().any(|e| e.code == "L01" && e.file.contains("PLAN-foo.md")),
             "expected L01 on present-Done single-pr PLAN, got {:?}",
@@ -1619,7 +1623,7 @@ mod tests {
                 &plan_body("Done"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         // BRIEF at Accepted expected Done (work-completing posture).
         assert!(
             errors.iter().any(|e| e.code == "L01" && e.file.contains("BRIEF-foo.md")),
@@ -1636,7 +1640,7 @@ mod tests {
             &make_brief("Done", ""),
             &body_for("BRIEF", "Done"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
     }
 
@@ -1648,7 +1652,7 @@ mod tests {
             &make_brief("Accepted", ""),
             &body_for("BRIEF", "Accepted"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(
             errors.iter().any(|e| e.code == "L02" && e.file.contains("BRIEF-foo.md")),
             "expected L02 on orphan Accepted BRIEF, got {:?}",
@@ -1670,7 +1674,7 @@ mod tests {
                 &prd_body("Accepted"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         // The PRD is a chain member (chain rooted at the ROADMAP), so
         // it goes through the chain check (Accepted is the in-flight
         // passing state for a multi-pr posture).
@@ -1688,7 +1692,7 @@ mod tests {
             &make_design("Current", ""),
             &design_body("Current"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(errors.is_empty(), "expected pass, got {:?}", errors);
     }
 
@@ -1700,7 +1704,7 @@ mod tests {
             &make_design("Current", ""),
             &design_body("Current"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(
             errors.iter().any(|e| e.code == "L07" && e.file.contains("DESIGN-foo.md")),
             "expected L07 on a Current design outside current/, got {:?}",
@@ -1715,7 +1719,7 @@ mod tests {
             &make_design("Current", ""),
             &design_body("Current"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(
             !errors.iter().any(|e| e.code == "L07"),
             "expected no L07 on a Current design in current/, got {:?}",
@@ -1730,7 +1734,7 @@ mod tests {
             &make_design("Accepted", ""),
             &design_body("Accepted"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(
             errors.iter().any(|e| e.code == "L07" && e.file.contains("DESIGN-foo.md")),
             "expected L07 on an Accepted design inside current/, got {:?}",
@@ -1763,7 +1767,7 @@ mod tests {
                 &design_body("Accepted"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(
             !errors.iter().any(|e| e.code == "L02"),
             "expected no L02 on an in-flight roadmap-less chain, got {:?}",
@@ -1801,7 +1805,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(
             !errors.iter().any(|e| e.code == "L01" && e.file.contains("PRD-foo.md")),
             "expected no L01 on a single-pr PRD at In Progress, got {:?}",
@@ -1828,7 +1832,7 @@ mod tests {
                 &design_body("Accepted"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(
             errors.iter().any(|e| e.code == "L02" && e.file.contains("BRIEF-foo.md")),
             "expected L02 on the unrelated BRIEF, got {:?}",
@@ -1853,7 +1857,7 @@ mod tests {
             &make_design("Accepted", "docs/prds/PRD-missing.md"),
             &design_body("Accepted"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(
             errors.iter().any(|e| e.code == "L02" && e.file.contains("DESIGN-foo.md")),
             "expected L02 on a lone DESIGN with a dangling upstream, got {:?}",
@@ -1881,7 +1885,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(
             errors.iter().any(|e| e.code == "L03"),
             "expected L03 cycle, got {:?}",
@@ -1896,7 +1900,7 @@ mod tests {
             &make_plan("Active", "multi-pr", "docs/designs/DESIGN-missing.md"),
             &plan_body("Active"),
         )]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(
             errors.iter().any(|e| e.code == "L04"),
             "expected L04 missing member, got {:?}",
@@ -1914,7 +1918,7 @@ mod tests {
             "---\nschema: brief/v1\nstatus: Draft\nproblem: |\n  unclosed\noutcome: |\n  outcome\nupstream: [unclosed list\n---\n\n# BRIEF: bad\n\n## Status\n\nDraft\n",
         )
         .unwrap();
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         // The parse failure should be reported as L05, not a panic.
         assert!(
             errors.iter().any(|e| e.code == "L05"),
@@ -1960,7 +1964,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(errors.is_empty(), "expected pass (DESIGN at Planned during in-flight), got {:?}", errors);
     }
 
@@ -1990,7 +1994,7 @@ mod tests {
                 &plan_body("Done"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         // DESIGN at Planned during work-completing should fail
         // (expected Current).
         assert!(
@@ -2031,14 +2035,14 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(errors.is_empty(), "expected pass (PRD at In Progress in-flight), got {:?}", errors);
     }
 
     #[test]
     fn empty_tree_passes() {
         let root = build_tree(&[]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(errors.is_empty(), "expected pass on empty tree, got {:?}", errors);
     }
 
@@ -2080,7 +2084,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
         assert!(
             errors.is_empty(),
             "expected single-pr mid-PR pass in non-strict mode, got {:?}",
@@ -2115,7 +2119,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), true);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Ready);
         // Three L01 errors expected: PLAN must be DELETED, BRIEF must
         // be Done, PRD must be Done. The posture name in the message
         // is the re-targeted "single-pr at-merge" not "single-pr mid-PR".
@@ -2170,7 +2174,7 @@ mod tests {
                 &design_body("Current"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), true);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Ready);
         assert!(
             errors.is_empty(),
             "expected single-pr at-merge pass in strict mode, got {:?}",
@@ -2205,7 +2209,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), true);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Ready);
         assert!(
             errors.is_empty(),
             "expected multi-pr in-flight pass in strict mode, got {:?}",
@@ -2241,7 +2245,7 @@ mod tests {
             ),
         ]);
         let errors_nonstrict =
-            run_lifecycle_check(&root_nonstrict, &Config::default(), false);
+            run_lifecycle_check(&root_nonstrict, &Config::default(), ReviewPosture::Draft);
         assert!(
             errors_nonstrict
                 .iter()
@@ -2272,7 +2276,7 @@ mod tests {
             ),
         ]);
         let errors_strict =
-            run_lifecycle_check(&root_strict, &Config::default(), true);
+            run_lifecycle_check(&root_strict, &Config::default(), ReviewPosture::Ready);
         assert!(
             errors_strict
                 .iter()
@@ -2310,7 +2314,7 @@ mod tests {
                 &plan_body("Done"),
             ),
         ]);
-        let errors = run_lifecycle_check(&root, &Config::default(), true);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Ready);
         assert!(
             errors
                 .iter()
@@ -2364,7 +2368,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors_nonstrict = run_lifecycle_check(&root_a, &Config::default(), false);
+        let errors_nonstrict = run_lifecycle_check(&root_a, &Config::default(), ReviewPosture::Draft);
         let root_b = build_tree(&[
             (
                 "docs/briefs/BRIEF-foo.md",
@@ -2387,7 +2391,7 @@ mod tests {
                 &plan_body("Active"),
             ),
         ]);
-        let errors_strict = run_lifecycle_check(&root_b, &Config::default(), true);
+        let errors_strict = run_lifecycle_check(&root_b, &Config::default(), ReviewPosture::Ready);
         assert!(
             errors_nonstrict.is_empty(),
             "non-strict expected to pass, got {:?}",
@@ -2426,7 +2430,7 @@ mod tests {
             ),
         ]);
         let plan_path = root.join("docs/plans/PLAN-foo.md");
-        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), true);
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), ReviewPosture::Ready);
         assert!(
             !errors.is_empty(),
             "strict mode expected to fail on present single-pr PLAN, got empty"
@@ -2468,7 +2472,7 @@ mod tests {
             ),
         ]);
         let brief_path = root.join("docs/briefs/BRIEF-foo.md");
-        let errors = run_lifecycle_chain_check(&brief_path, &Config::default(), true);
+        let errors = run_lifecycle_chain_check(&brief_path, &Config::default(), ReviewPosture::Ready);
         assert!(
             errors.is_empty(),
             "single-pr at-terminal chain expected to pass; got: {:?}",
@@ -2501,7 +2505,7 @@ mod tests {
             ),
         ]);
         let plan_path = root.join("docs/plans/PLAN-foo.md");
-        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), false);
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), ReviewPosture::Draft);
         assert!(
             errors.is_empty(),
             "single-pr mid-PR with strict=false should pass; got: {:?}",
@@ -2534,7 +2538,7 @@ mod tests {
             ),
         ]);
         let plan_path = root.join("docs/plans/PLAN-foo.md");
-        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), true);
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), ReviewPosture::Ready);
         assert!(
             errors.is_empty(),
             "multi-pr in-flight with strict=true should pass; got: {:?}",
@@ -2545,7 +2549,7 @@ mod tests {
     #[test]
     fn chain_targeted_non_existent_path_rejects() {
         let path = std::path::Path::new("/tmp/does-not-exist-shirabe-test.md");
-        let errors = run_lifecycle_chain_check(path, &Config::default(), false);
+        let errors = run_lifecycle_chain_check(path, &Config::default(), ReviewPosture::Draft);
         assert_eq!(errors.len(), 1, "expected one error; got: {:?}", errors);
         assert_eq!(errors[0].code, "L05");
         assert!(
@@ -2566,7 +2570,7 @@ mod tests {
             "# README",
         )]);
         let readme_path = root.join("docs/briefs/README.md");
-        let errors = run_lifecycle_chain_check(&readme_path, &Config::default(), false);
+        let errors = run_lifecycle_chain_check(&readme_path, &Config::default(), ReviewPosture::Draft);
         assert_eq!(errors.len(), 1, "expected one error; got: {:?}", errors);
         assert_eq!(errors[0].code, "L05");
         assert!(
@@ -2591,7 +2595,7 @@ mod tests {
         fs::create_dir_all(&outside).unwrap();
         let path = outside.join("BRIEF-foo.md");
         fs::write(&path, "---\nschema: brief/v1\nstatus: Accepted\n---\n\n# BRIEF\n").unwrap();
-        let errors = run_lifecycle_chain_check(&path, &Config::default(), false);
+        let errors = run_lifecycle_chain_check(&path, &Config::default(), ReviewPosture::Draft);
         assert_eq!(errors.len(), 1, "expected one error; got: {:?}", errors);
         assert_eq!(errors[0].code, "L05");
         assert!(
@@ -2612,7 +2616,7 @@ mod tests {
             &body_for("BRIEF", "Done"),
         )]);
         let path = root.join("docs/briefs/BRIEF-orphan.md");
-        let errors = run_lifecycle_chain_check(&path, &Config::default(), false);
+        let errors = run_lifecycle_chain_check(&path, &Config::default(), ReviewPosture::Draft);
         assert!(
             errors.is_empty(),
             "orphan at terminal should pass via orphan rule; got: {:?}",
@@ -2631,7 +2635,7 @@ mod tests {
             &body_for("BRIEF", "Accepted"),
         )]);
         let path = root.join("docs/briefs/BRIEF-orphan.md");
-        let errors = run_lifecycle_chain_check(&path, &Config::default(), false);
+        let errors = run_lifecycle_chain_check(&path, &Config::default(), ReviewPosture::Draft);
         assert!(
             !errors.is_empty(),
             "orphan at non-terminal should fail; got empty errors"
@@ -2671,7 +2675,7 @@ mod tests {
             ),
         ]);
         let design_path = root.join("docs/designs/DESIGN-foo.md");
-        let errors = run_lifecycle_chain_check(&design_path, &Config::default(), true);
+        let errors = run_lifecycle_chain_check(&design_path, &Config::default(), ReviewPosture::Ready);
         assert!(
             !errors.is_empty(),
             "strict mode from DESIGN should still surface the chain's failure"
@@ -2708,7 +2712,7 @@ mod tests {
     fn l06_passes_when_all_acs_ticked() {
         let root = build_single_pr_chain("- [x] one\n- [X] two\n");
         let plan_path = root.join("docs/plans/PLAN-foo.md");
-        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), false);
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), ReviewPosture::Draft);
         let l06s: Vec<_> = errors.iter().filter(|e| e.code == "L06").collect();
         assert!(
             l06s.is_empty(),
@@ -2721,7 +2725,7 @@ mod tests {
     fn l06_fires_per_unticked_ac_with_message_naming_outline_and_text() {
         let root = build_single_pr_chain("- [ ] alpha\n- [x] beta\n- [ ] gamma\n");
         let plan_path = root.join("docs/plans/PLAN-foo.md");
-        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), false);
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), ReviewPosture::Draft);
         let l06s: Vec<_> = errors.iter().filter(|e| e.code == "L06").collect();
         assert_eq!(l06s.len(), 2, "expected 2 L06 errors; got {:?}", l06s);
         let combined: String = l06s.iter().map(|e| e.message.as_str()).collect::<Vec<_>>().join(" | ");
@@ -2737,7 +2741,7 @@ mod tests {
         let plan_path = root.join("docs/plans/PLAN-foo.md");
         let mut cfg = Config::default();
         cfg.allow_untracked_acs = true;
-        let errors = run_lifecycle_chain_check(&plan_path, &cfg, false);
+        let errors = run_lifecycle_chain_check(&plan_path, &cfg, ReviewPosture::Draft);
         let l06s: Vec<_> = errors.iter().filter(|e| e.code == "L06").collect();
         assert!(
             l06s.is_empty(),
@@ -2758,7 +2762,7 @@ mod tests {
         let root = build_single_pr_chain("- [ ] open\n");
         let mut cfg = Config::default();
         cfg.allow_untracked_acs = true;
-        let errors = run_lifecycle_check(&root, &cfg, true);
+        let errors = run_lifecycle_check(&root, &cfg, ReviewPosture::Ready);
         let l06s: Vec<_> = errors.iter().filter(|e| e.code == "L06").collect();
         assert!(
             l06s.is_empty(),
@@ -2780,7 +2784,7 @@ mod tests {
             ("docs/plans/PLAN-foo.md", &make_plan("Active", "multi-pr", "docs/designs/DESIGN-foo.md"), &plan_body("Active")),
         ]);
         let plan_path = root.join("docs/plans/PLAN-foo.md");
-        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), false);
+        let errors = run_lifecycle_chain_check(&plan_path, &Config::default(), ReviewPosture::Draft);
         let l06s: Vec<_> = errors.iter().filter(|e| e.code == "L06").collect();
         assert!(
             l06s.is_empty(),

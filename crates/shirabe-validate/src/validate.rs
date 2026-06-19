@@ -19,22 +19,64 @@ use crate::gh::{detect_pr_context, GhSubprocessClient};
 
 pub use crate::doc::Config;
 
-/// Reports whether a [`ValidationError`] should be emitted as a GHA
-/// `::notice` annotation rather than a `::error`.
+/// The review posture a `validate` run is asserting.
 ///
-/// **Promotion seam.** FC07-FC13 and FC-CONVENTIONS ship notice-level for
+/// `Draft` is the in-flight posture (an author drafting locally or a draft
+/// PR): draft-tolerable findings resolve to notices. `Ready` is the
+/// review-ready posture (a non-draft PR, or the cascade's terminal forcing
+/// function): every finding resolves at its enforced severity. The enum is
+/// named `ReviewPosture` to avoid collision with the multi-variant
+/// [`crate::lifecycle::Posture`] (the *chain* posture), a distinct concept.
+///
+/// `Ready` is the successor of the old `--strict` boolean: `Ready` == old
+/// `strict == true`, `Draft` == old `strict == false`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ReviewPosture {
+    Draft,
+    Ready,
+}
+
+/// The effective severity a finding contributes to the run.
+///
+/// `Notice` never makes a run non-clean (exit 0); `Error` rolls up to the
+/// violations exit code (2). This is the evolved notice-vs-error seam that
+/// the static `is_notice` used to drive.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Severity {
+    Notice,
+    Error,
+}
+
+/// How a finding's enforcement responds to posture.
+///
+/// `AlwaysEnforced` codes resolve to `Error` in every posture (subject to
+/// the intrinsic-notice set below). `DraftTolerable` codes resolve to a
+/// `Notice` under `Draft` posture and `Error` under `Ready`.
+///
+/// **For this issue the draft-tolerable set is empty** — every code is
+/// `AlwaysEnforced`, so `effective_severity` is independent of posture and
+/// behavior is identical to the prior static `is_notice`. A later change
+/// populates the set (L02/L06/L07) to flip the behavior.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PostureClass {
+    DraftTolerable,
+    AlwaysEnforced,
+}
+
+/// The intrinsic-notice set: codes that ship notice-level regardless of
+/// posture.
+///
+/// **Promotion seam.** FC07-FC15 and FC-CONVENTIONS ship notice-level for
 /// v1; remove the corresponding arm from this match to promote the check
 /// from notice to error in a single-line diff. The match expression is
-/// the one place that drives the notice-vs-error split; the
-/// corresponding test in this module tracks the membership.
+/// the one place that drives the intrinsic notice-vs-error split.
 ///
-/// All other codes (`FC01`-`FC06`, `R6`-`R9`) are errors that contribute
-/// to a non-zero exit. `SCHEMA` is the long-standing notice; `FC07`
-/// through `FC13` and `FC-CONVENTIONS` are notice-level additions pending
-/// their respective corpus-cleanup PRs.
-pub fn is_notice(err: &ValidationError) -> bool {
+/// `SCHEMA` is the long-standing notice; `FC07` through `FC15` and
+/// `FC-CONVENTIONS` are notice-level additions pending their respective
+/// corpus-cleanup PRs. These remain notices in both postures.
+fn is_intrinsic_notice(code: &str) -> bool {
     matches!(
-        err.code.as_str(),
+        code,
         "SCHEMA"
             | "FC07"
             | "FC08"
@@ -47,6 +89,44 @@ pub fn is_notice(err: &ValidationError) -> bool {
             | "FC15"
             | "FC-CONVENTIONS"
     )
+}
+
+/// Classify a finding code by how its enforcement responds to posture.
+///
+/// The draft-tolerable set is **empty** in this issue, so every code is
+/// `AlwaysEnforced`. Populating this set (with the lifecycle codes
+/// L02/L06/L07) is the single point that turns on posture sensitivity in a
+/// later change.
+pub fn posture_class(_code: &str) -> PostureClass {
+    PostureClass::AlwaysEnforced
+}
+
+/// Resolve a finding code's effective severity under a given posture.
+///
+/// This is the single posture-aware resolution point: both the JSON
+/// envelope's per-finding `severity` field and the exit-code roll-up read
+/// it, so they can never disagree. Intrinsic notices stay notices in either
+/// posture; a draft-tolerable code is a notice under `Draft` and an error
+/// under `Ready`; everything else is an error.
+///
+/// With the draft-tolerable set empty (this issue), this is independent of
+/// `posture` and equals the old static `is_notice` decision.
+pub fn effective_severity(code: &str, posture: ReviewPosture) -> Severity {
+    if is_intrinsic_notice(code) {
+        return Severity::Notice;
+    }
+    match posture_class(code) {
+        PostureClass::DraftTolerable if posture == ReviewPosture::Draft => Severity::Notice,
+        _ => Severity::Error,
+    }
+}
+
+/// Reports whether a [`ValidationError`] resolves to a notice under
+/// `posture`. Thin wrapper over [`effective_severity`] kept for the
+/// notice-vs-error call sites; the posture must always be threaded through
+/// so the verdict and the JSON envelope share one source.
+pub fn is_notice(err: &ValidationError, posture: ReviewPosture) -> bool {
+    effective_severity(&err.code, posture) == Severity::Notice
 }
 
 /// Reports whether `code` is a known per-file check code that the `--check`
@@ -83,8 +163,9 @@ pub fn is_known_check_code(code: &str) -> bool {
 
 /// Runs all checks for a given doc against its format spec. Returns a
 /// SCHEMA notice (non-error) if the schema gate fires; otherwise returns
-/// the FC01-FC06 / R6-R8 errors. Callers must use [`is_notice`] to
-/// distinguish notice-level results from error-level results.
+/// the FC01-FC06 / R6-R8 errors. Callers must use [`effective_severity`]
+/// (or the [`is_notice`] wrapper) to distinguish notice-level results from
+/// error-level results.
 pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<ValidationError> {
     // 1. Schema gate: if doc.schema != spec.schema_version, return SCHEMA notice.
     if let Some(schema_err) = check_schema(doc, spec) {
@@ -228,12 +309,15 @@ mod tests {
             "FC-CONVENTIONS",
         ] {
             assert!(
-                is_notice(&ValidationError {
-                    file: String::new(),
-                    line: 0,
-                    code: code.to_string(),
-                    message: String::new(),
-                }),
+                is_notice(
+                    &ValidationError {
+                        file: String::new(),
+                        line: 0,
+                        code: code.to_string(),
+                        message: String::new(),
+                    },
+                    ReviewPosture::Draft
+                ),
                 "{} should be a notice",
                 code
             );
@@ -243,16 +327,60 @@ mod tests {
             "L06", "L07", "R6", "R7", "R8", "R9",
         ] {
             assert!(
-                !is_notice(&ValidationError {
-                    file: String::new(),
-                    line: 0,
-                    code: code.to_string(),
-                    message: String::new(),
-                }),
+                !is_notice(
+                    &ValidationError {
+                        file: String::new(),
+                        line: 0,
+                        code: code.to_string(),
+                        message: String::new(),
+                    },
+                    ReviewPosture::Draft
+                ),
                 "{} should not be a notice",
                 code
             );
         }
+    }
+
+    #[test]
+    fn effective_severity_is_posture_independent_with_empty_draft_tolerable_set() {
+        // For this issue the draft-tolerable set is empty, so every code
+        // resolves to the same severity under Draft and Ready. This pins
+        // the behavior-preserving property of Phase A.
+        for code in [
+            "SCHEMA",
+            "FC01",
+            "FC06",
+            "FC07",
+            "FC14",
+            "FC-CONVENTIONS",
+            "L01",
+            "L02",
+            "L06",
+            "L07",
+            "R9",
+        ] {
+            assert_eq!(
+                effective_severity(code, ReviewPosture::Draft),
+                effective_severity(code, ReviewPosture::Ready),
+                "{} must resolve identically in both postures (empty draft-tolerable set)",
+                code
+            );
+        }
+        // And the intrinsic-notice membership is unchanged from the old
+        // static is_notice: SCHEMA/FC* notices, everything else errors.
+        assert_eq!(
+            effective_severity("SCHEMA", ReviewPosture::Ready),
+            Severity::Notice
+        );
+        assert_eq!(
+            effective_severity("FC01", ReviewPosture::Draft),
+            Severity::Error
+        );
+        assert_eq!(
+            effective_severity("L02", ReviewPosture::Draft),
+            Severity::Error
+        );
     }
 
     #[test]
@@ -376,7 +504,7 @@ mod tests {
         let errs = validate_file(&doc, &spec_for("design/v1"), &cfg);
         assert_eq!(errs.len(), 1);
         assert_eq!(errs[0].code, "SCHEMA");
-        assert!(is_notice(&errs[0]));
+        assert!(is_notice(&errs[0], ReviewPosture::Draft));
     }
 
     // --- validate_file R9 dispatch (comp/v1 private-only gate) ---
