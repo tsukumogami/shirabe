@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   shirabe validate's lifecycle checking returns the same verdict regardless of
   whether the work is an early local draft or a review-ready PR. Findings that
@@ -19,7 +19,7 @@ source_issue: 197
 
 ## Status
 
-Accepted
+In Progress
 
 ## Problem Statement
 
