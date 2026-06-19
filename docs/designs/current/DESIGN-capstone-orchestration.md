@@ -212,11 +212,21 @@ while finalization is incomplete, so no partial cross-repo state can land.
 
 ### Visibility and atomicity (PRD R15, R16)
 
-Cross-repo references use `owner/repo:path`; a public coordination PR never embeds private content
-(the read pass surfaces only state, not bodies). A cross-repo atomicity requirement is
-detected at planning time (a dependency that would require two repos to merge simultaneously)
-and refused with guidance to reshape into a compatible-intermediate sequence — the system
-never emits a plan that assumes atomic cross-repo merge.
+Cross-repo references use `owner/repo:path`. The load-bearing visibility rule is the
+**Coordination-PR Visibility Rule** (canon: `references/coordination-strategy.md`): a
+coordination PR lives at the most-restrictive visibility of any repo the effort touches.
+A public-only effort gets a public coordination PR; an effort touching any private repo
+requires a private coordination PR. This follows from the workspace's directional rule
+(`references/cross-repo-references.md`): Public → Private references are forbidden, and the
+coordination PR holds the PLAN, which names each indexed repo in plaintext — so a public
+coordination PR coordinating a private repo would both make a forbidden reference and name the
+private repo regardless of redaction. A public coordination PR therefore never coordinates a
+private repo; the front-door check (a public coordination PR refuses to index a private node,
+fail-closed) enforces this, and F1 redaction is the fail-closed backstop for residual edges
+(see the F1 finding below). A cross-repo atomicity requirement is detected at planning time
+(a dependency that would require two repos to merge simultaneously) and refused with guidance
+to reshape into a compatible-intermediate sequence — the system never emits a plan that assumes
+atomic cross-repo merge.
 
 ### Decomposition edge rules (R13, R16, R22)
 
@@ -304,8 +314,10 @@ hard rules in `references/coordination-strategy.md` (below); the rest are standa
   pass): reads each indexed PR / upstream on the operator's own `gh` credentials across
   public and private repos — data from *other* repos now flows into a rendered artifact and
   a CI gate.
-- **Public coordination PR body:** the rendered PR-index + merge-order block is a
-  cross-visibility egress point (R15).
+- **Public coordination PR body:** the rendered PR-index + merge-order block. The
+  Coordination-PR Visibility Rule keeps this from being a cross-visibility egress point —
+  a public coordination PR only coordinates public repos (front-door refusal), with F1
+  redaction as the fail-closed backstop for residual edges (R15).
 - **Untrusted `owner/repo:path` and PR metadata** interpolated into markdown, `gh` argument
   positions, and gate logic.
 - **`/plan` collapse step:** new `repo`/`pr_group` tags become node identity and feed the
@@ -321,12 +333,21 @@ validates task names against `^[a-z][a-z0-9-]*$` and builds JSON with `jq --arg`
 
 ### Findings and mitigations
 
-- **F1 — Private content leak through a public coordination PR body (High, R15).** A private
-  repo's name, path, branch, PR title, and number are themselves private. The render path
-  MUST resolve each indexed PR's repo visibility and, for any private repo, render a
-  redacted placeholder carrying only an opaque node id and merge state — no private
+- **F1 — Private content leak through a public coordination PR body (High, R15) — fail-closed
+  backstop.** Front-door enforcement is the **Coordination-PR Visibility Rule** (canon:
+  `references/coordination-strategy.md`): a public coordination PR refuses to index a private
+  repo, because Public → Private references are forbidden and the PLAN would name the private
+  repo regardless. So a public coordination PR never coordinates a private one in the first
+  place. F1 is **not** the cross-visibility egress mechanism — it is the fail-closed backstop
+  for the residual edges the front-door rule cannot pre-empt (a repo flips visibility
+  mid-effort, a moved/renamed/unresolvable ref). For those, a private repo's name, path,
+  branch, PR title, and number are themselves private, so the render path MUST resolve each
+  indexed PR's repo visibility and, for any private repo, render a redacted placeholder
+  carrying only an opaque node id and merge state — no private
   owner/repo/path/branch/title/number. Fail closed: if visibility can't be resolved, treat
-  as private. Covered by a unit test feeding a private-repo node into a public render.
+  as private. Covered by unit tests on the front-door decision (public PR + private node →
+  refuse; private PR + mixed → allow; unresolvable → refuse) and by the F1 redaction tests
+  feeding a private-repo node into a public render.
 - **F2 — Path traversal / injection via crafted `owner/repo:path` (High).** The read pass
   MUST parse the reference into components and validate each before use: owner/repo against
   the existing GitHub charset regex; path against `finalize.rs`'s in-root, no-symlink,

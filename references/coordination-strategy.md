@@ -113,13 +113,60 @@ finalization is complete; the strict-mode `lifecycle.yml` check enforces this
 and is non-bypassable. There is no separate "effort complete" marker — the
 merged coordination PR is it.
 
+## Coordination-PR Visibility Rule
+
+**A coordination PR lives at the most-restrictive visibility of any repo the
+effort touches.** A public-only effort gets a public coordination PR; an effort
+that touches any private repo requires a **private** coordination PR. This is
+the front-door rule; F1 (below) is its fail-closed backstop, not the mechanism
+that makes cross-visibility coordination safe.
+
+The rule follows directly from the workspace's directional visibility rule in
+[`cross-repo-references.md`](cross-repo-references.md) (the "Visibility rule"
+table): **a public artifact must not reference a private repo's artifact**
+(Public → Private is forbidden; Private → Public is allowed). Two independent
+consequences make a public coordination PR coordinating a private repo
+incoherent, not merely risky:
+
+1. The coordination PR is a public artifact that *references* the private
+   repo's PR (it indexes it). That is a Public → Private reference, which the
+   directional rule forbids outright.
+2. The coordination PR holds the PLAN (R5/R8), and the PLAN describes the
+   per-repo work by tagging each issue with its `repo`. A public coordination
+   PR coordinating a private repo would therefore **name that private repo in
+   plaintext in the PLAN**, regardless of any render-layer redaction — making
+   redaction theater rather than protection.
+
+Because Private → Public references *are* allowed, a private coordination PR
+can legally describe and index everything — public and private repos alike. The
+direction only fails one way, so the most-restrictive-visibility rule resolves
+it cleanly: any private repo in the effort pulls the coordination PR to private.
+
+**Consequence (enforced at the front door):** a public coordination PR MUST NOT
+index or reference a private repo. When a coordination verb is rendering,
+creating, or syncing a coordination PR whose own repo is public and any indexed
+(or to-be-indexed) repo resolves as private — including the fail-closed
+unresolvable case (treated as private) — the verb **refuses fail-closed** with a
+diagnostic naming the violation. Every identifier in that diagnostic is routed
+through the F1 redaction so the refusal itself does not leak. A public
+coordination PR therefore only ever coordinates public repos.
+
 ## Hard Rules (Load-Bearing Security)
 
 The following three rules are load-bearing for visibility (R15) and the
 merge-last gate (R7/R14/R21). They are requirements, not guidance: every
 consumer that renders, validates, or gates MUST satisfy them.
 
-### F1 — Fail-closed private-identifier redaction
+### F1 — Fail-closed private-identifier redaction (defense-in-depth backstop)
+
+Front-door enforcement of visibility is the **Coordination-PR Visibility Rule**
+above: a public coordination PR refuses to index a private repo, so a public
+coordination PR never coordinates a private one. F1 is **not** the mechanism
+that enables cross-visibility coordination — that is forbidden. F1 is the
+**fail-closed backstop** for the residual edges the front-door rule cannot
+pre-empt: a repo flips visibility mid-effort, a moved/renamed reference, or a
+reference whose visibility is unresolvable. In each of those cases the
+redaction still happens; it is the second line of defense, not the first.
 
 A private repo's **name, path, branch, PR title, and number are themselves
 private**. The render path MUST resolve each indexed PR's repo visibility and,
@@ -129,9 +176,9 @@ or number.
 
 **Fail closed:** if a repo's visibility cannot be resolved, treat it as
 private. Private identifiers MUST be routed through this redaction before they
-reach any rendered body, diagnostic, or log. A public coordination PR body is a
-cross-visibility egress point; F1 is what keeps private content from leaking
-through it.
+reach any rendered body, diagnostic, or log. So even where the front-door rule
+would already have refused (e.g. an edge it could not see), no private content
+leaks: the redaction is the backstop that holds.
 
 ### F2 — `owner/repo:path` component validation
 

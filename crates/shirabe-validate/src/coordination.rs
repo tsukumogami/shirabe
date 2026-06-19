@@ -22,10 +22,20 @@
 //! - [`seed_body`] — the `create` verb's body skeleton (declaration, artifact
 //!   chain, PR-index, fenced merge-order block).
 //!
-//! Security model: this is the public-coordination-PR egress point. F1 redacts
-//! private identifiers fail-closed; F2 validates every reference before use.
-//! The deeper F4 live-`gh` gate lands in a later issue; this skeleton wires the
-//! read seam (`status`) through the existing `gh.rs` client.
+//! Security model: a coordination PR lives at the most-restrictive visibility
+//! of any repo the effort touches (the Coordination-PR Visibility Rule in
+//! `references/coordination-strategy.md`), so a **public** coordination PR only
+//! ever coordinates public repos. [`decide_visibility_guard`] is that
+//! front-door enforcement: a public coordination PR refuses to index a private
+//! node, because `Public -> Private` references are forbidden
+//! (`references/cross-repo-references.md`). F1 redaction ([`render_index_line`],
+//! [`redacted_label`]) is the **fail-closed backstop** for the residual edges
+//! the front door cannot pre-empt (a repo flips visibility mid-effort, a
+//! moved/renamed/unresolvable ref → treat as private → redact to an opaque id),
+//! not the mechanism that enables cross-visibility coordination — that is
+//! forbidden. F2 validates every reference before use. The deeper F4 live-`gh`
+//! gate lands in a later issue; this skeleton wires the read seam (`status`)
+//! through the existing `gh.rs` client.
 
 use crate::gh::is_valid_owner_or_repo;
 
@@ -486,6 +496,106 @@ pub fn decide_gate(prs: &[GatePrStatus], upstreams: &[GateUpstreamStatus]) -> Ga
         GateDecision::Pass
     } else {
         GateDecision::Block(reasons)
+    }
+}
+
+/// The outcome of the coordination-PR visibility front-door check.
+///
+/// `Allow` means the coordination PR may index every node it was given. `Refuse`
+/// carries one human-readable reason per violating index, each naming the
+/// offending node through an **already-F1-redacted** label, so the diagnostic
+/// itself cannot leak a private identifier (R21: never a silent skip).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VisibilityGuardDecision {
+    /// The coordination PR's visibility legally covers every indexed node.
+    Allow,
+    /// At least one indexed node violates the most-restrictive-visibility rule;
+    /// each reason names the offending node via its redacted label.
+    Refuse(Vec<String>),
+}
+
+impl VisibilityGuardDecision {
+    /// Whether the coordination PR may proceed to index its nodes.
+    pub fn allowed(&self) -> bool {
+        matches!(self, VisibilityGuardDecision::Allow)
+    }
+}
+
+/// One indexed node's resolved visibility plus an already-redacted diagnostic
+/// label, as the coordination-PR visibility front-door check sees it.
+///
+/// `visibility` is the live-resolved (or fail-closed) verdict for the node's
+/// repo. `label` is the F1-redacted identifier the caller already routed through
+/// [`redacted_label`] — for a private node it is the opaque node id, so a refusal
+/// diagnostic built from it cannot leak a private slug. The check deliberately
+/// reads no raw `owner/repo` here: a leak is only possible if the caller hands a
+/// raw slug as the label, which is the same caller responsibility F1 already
+/// places on every diagnostic path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GuardIndexNode {
+    /// Already-F1-redacted, non-sensitive label for the diagnostic.
+    pub label: String,
+    /// Live-resolved visibility of the node's repo. [`Visibility::Private`]
+    /// covers both genuinely-private and unresolvable (fail-closed) repos.
+    pub visibility: Visibility,
+}
+
+/// The pure front-door check for the **Coordination-PR Visibility Rule**: a
+/// coordination PR lives at the most-restrictive visibility of any repo the
+/// effort touches.
+///
+/// `Public → Private` references are forbidden by the workspace's directional
+/// visibility rule (`references/cross-repo-references.md`, the "Visibility rule"
+/// table): a public artifact must not reference a private repo's artifact. The
+/// coordination PR holds the PLAN, which names each indexed repo in plaintext,
+/// so a public coordination PR that indexes a private repo would name that
+/// private repo regardless of render-layer redaction. The fix is structural, not
+/// cosmetic: the coordination PR must itself be private whenever the effort
+/// touches any private repo.
+///
+/// This function is that rule expressed as a decision:
+///
+/// - A **public** coordination PR may index only **public** nodes. Any node that
+///   resolves [`Visibility::Private`] — including an unresolvable repo, which
+///   fails closed to private upstream of this call — is a violation, and the
+///   check **refuses fail-closed**.
+/// - A **private** coordination PR may index **any** node (private *and* public),
+///   because `Private → Public` references are allowed: a private coordination PR
+///   can legally describe and index everything.
+///
+/// This is the front-door enforcement; F1 render-layer redaction is the
+/// fail-closed backstop for the residual edges this check cannot pre-empt (a
+/// repo flips visibility mid-effort, a moved/renamed/unresolvable ref). The
+/// labels in `index` are already F1-redacted, so a refusal diagnostic built here
+/// cannot leak a private identifier.
+pub fn decide_visibility_guard(
+    coordination_pr_visibility: Visibility,
+    index: &[GuardIndexNode],
+) -> VisibilityGuardDecision {
+    // A private coordination PR may index anything (Private -> Public allowed).
+    if coordination_pr_visibility == Visibility::Private {
+        return VisibilityGuardDecision::Allow;
+    }
+
+    // A public coordination PR may index only public nodes. Any private (or
+    // fail-closed-to-private) node is a Public -> Private violation.
+    let mut reasons: Vec<String> = Vec::new();
+    for node in index {
+        if node.visibility == Visibility::Private {
+            reasons.push(format!(
+                "public coordination PR cannot index private node {} \
+                 (Public -> Private reference is forbidden; \
+                 see references/cross-repo-references.md); \
+                 an effort touching any private repo requires a private coordination PR",
+                node.label
+            ));
+        }
+    }
+
+    if reasons.is_empty() {
+        VisibilityGuardDecision::Allow
+    } else {
+        VisibilityGuardDecision::Refuse(reasons)
     }
 }
 
@@ -1034,5 +1144,117 @@ mod tests {
             decide_gate(&live_merged, &[]).passed(),
             "flipping the live status (not the body) is what passes the gate"
         );
+    }
+
+    // --- decide_visibility_guard: the Coordination-PR Visibility Rule front door ---
+
+    fn node(label: &str, visibility: Visibility) -> GuardIndexNode {
+        GuardIndexNode {
+            label: label.to_string(),
+            visibility,
+        }
+    }
+
+    /// A public coordination PR indexing only public nodes is allowed — the
+    /// common case (public-only effort -> public coordination PR).
+    #[test]
+    fn guard_allows_public_pr_with_all_public_index() {
+        let index = [
+            node("tsukumogami/shirabe:docs/x.md#1", Visibility::Public),
+            node("tsukumogami/koto:docs/y.md#2", Visibility::Public),
+        ];
+        let decision = decide_visibility_guard(Visibility::Public, &index);
+        assert_eq!(decision, VisibilityGuardDecision::Allow);
+        assert!(decision.allowed());
+    }
+
+    /// A public coordination PR indexing even one private node must refuse
+    /// fail-closed: this is the forbidden Public -> Private direction, and the
+    /// reason names the offending (already-redacted) node.
+    #[test]
+    fn guard_refuses_public_pr_with_one_private_index() {
+        let index = [
+            node("tsukumogami/shirabe:docs/x.md#1", Visibility::Public),
+            // Already-redacted opaque label for the private node (F1).
+            node("pr-2", Visibility::Private),
+        ];
+        let decision = decide_visibility_guard(Visibility::Public, &index);
+        match decision {
+            VisibilityGuardDecision::Refuse(reasons) => {
+                assert_eq!(reasons.len(), 1, "exactly one violation: {:?}", reasons);
+                assert!(
+                    reasons[0].contains("pr-2"),
+                    "reason must name the private node: {}",
+                    reasons[0]
+                );
+                // The public node is not a violation and must not be named.
+                assert!(
+                    !reasons[0].contains("tsukumogami/shirabe"),
+                    "the public node must not be flagged: {}",
+                    reasons[0]
+                );
+                // The reason cites the directional rule and the remediation.
+                assert!(reasons[0].contains("Public -> Private"));
+                assert!(reasons[0].contains("private coordination PR"));
+            }
+            VisibilityGuardDecision::Allow => {
+                panic!("a public PR indexing a private node must refuse")
+            }
+        }
+        assert!(!decide_visibility_guard(Visibility::Public, &index).allowed());
+    }
+
+    /// A private coordination PR may index a mixed set (private + public): the
+    /// Private -> Public direction is allowed, so a private coordination PR can
+    /// describe and index everything.
+    #[test]
+    fn guard_allows_private_pr_with_mixed_index() {
+        let index = [
+            node("tsukumogami/shirabe:docs/x.md#1", Visibility::Public),
+            node("pr-2", Visibility::Private),
+        ];
+        let decision = decide_visibility_guard(Visibility::Private, &index);
+        assert_eq!(decision, VisibilityGuardDecision::Allow);
+    }
+
+    /// An unresolvable index visibility is folded to private (fail-closed)
+    /// upstream of this call; a public coordination PR therefore refuses it,
+    /// exactly like a known-private node. This is the fail-closed edge the
+    /// front-door check shares with F1.
+    #[test]
+    fn guard_refuses_public_pr_with_unresolvable_index_fail_closed() {
+        // `Visibility::Private` is the fail-closed verdict the resolver yields
+        // for an unresolvable repo.
+        let index = [node("pr-3", Visibility::Private)];
+        let decision = decide_visibility_guard(Visibility::Public, &index);
+        assert!(
+            !decision.allowed(),
+            "an unresolvable (=> private, fail-closed) node must refuse under a public PR"
+        );
+        match decision {
+            VisibilityGuardDecision::Refuse(reasons) => {
+                assert!(reasons.iter().any(|r| r.contains("pr-3")));
+            }
+            VisibilityGuardDecision::Allow => unreachable!(),
+        }
+    }
+
+    /// Every violating node surfaces its own named reason (R21: never a silent
+    /// skip) and public nodes in the same index are not flagged.
+    #[test]
+    fn guard_reports_every_private_violation() {
+        let index = [
+            node("pr-a", Visibility::Private),
+            node("tsukumogami/shirabe:docs/x.md#2", Visibility::Public),
+            node("pr-c", Visibility::Private),
+        ];
+        match decide_visibility_guard(Visibility::Public, &index) {
+            VisibilityGuardDecision::Refuse(reasons) => {
+                assert_eq!(reasons.len(), 2, "two violations expected: {:?}", reasons);
+                assert!(reasons.iter().any(|r| r.contains("pr-a")));
+                assert!(reasons.iter().any(|r| r.contains("pr-c")));
+            }
+            VisibilityGuardDecision::Allow => panic!("expected Refuse"),
+        }
     }
 }
