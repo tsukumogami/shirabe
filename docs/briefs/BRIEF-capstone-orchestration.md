@@ -9,8 +9,8 @@ problem: |
   in their head and a pasted prompt: unpersisted, unenforced, easy to get wrong.
 outcome: |
   `/scope` and `/work-on` carry multi-repo coordination themselves: the plan and its
-  upstream framing live in one coordinating record created up front, work is grouped
-  per repository, merge order is derived and tracked, and that record merges last as
+  upstream framing live in one coordination PR created up front, work is grouped
+  per repository, merge order is derived and tracked, and that PR merges last as
   the signal the effort is complete. The author expresses the intent once instead of
   re-pasting a contract each session.
 motivating_context: |
@@ -21,7 +21,7 @@ motivating_context: |
   by hand.
 ---
 
-# BRIEF: Capstone Orchestration
+# BRIEF: Coordinated Multi-Repo Orchestration
 
 ## Status
 
@@ -41,10 +41,10 @@ repository; `/work-on` then drives a PLAN's issues onto a single branch and pull
 request. Neither has a notion of an effort that spans repositories.
 
 So the author supplies the cross-repo coordination by hand, every session. The
-recurring contract reads roughly the same each time: create a coordinating branch and
+recurring contract reads roughly the same each time: create a coordination branch and
 pull request up front to hold the plan and the artifacts that precede it; keep
 implementation grouped per repository; merge those PRs in a defined order; merge the
-coordinating record last, once everything else is in.
+coordination PR last, once everything else is in.
 
 Two things stay manual, and both are fragile:
 
@@ -68,12 +68,12 @@ The author expresses the coordination intent once — as a flag, a short intent 
 or a workspace default — instead of re-describing it at the start of every effort.
 From there `/scope` and `/work-on` carry the coordination themselves:
 
-- It creates a single coordinating record up front and persists the plan plus the
+- It creates a single coordination PR up front and persists the plan plus the
   upstream framing there, so the effort has one durable home from the beginning.
 - It groups implementation so each repository yields one reviewable PR.
 - It derives the merge order from the plan's own dependencies and keeps it current as
   PRs open and merge.
-- It treats the coordinating record as the last thing to merge, and that merge is the
+- It treats the coordination PR as the last thing to merge, and that merge is the
   single signal that the whole effort is done.
 
 What changes for the author is that the effort's framing and its running state are
@@ -86,8 +86,8 @@ is legible from one place instead of scattered across branches and recollection.
 ### Author kicks off a coordinated effort
 
 A workspace author begins work they already know will span repositories. They invoke
-`/scope` with the capstone intent once. Before any implementation starts, the chain
-creates the coordinating record and seeds it with the plan and the upstream artifacts
+`/scope` with the coordination intent once. Before any implementation starts, the chain
+creates the coordination PR and seeds it with the plan and the upstream artifacts
 it produces (BRIEF → PRD → DESIGN → PLAN) — so the durable home exists from the first
 move, not as an afterthought.
 
@@ -95,8 +95,8 @@ move, not as an afterthought.
 
 The author runs `/work-on` against the plan, repository by repository. Each
 repository's work is grouped into one reviewable PR where it can be — occasionally
-more, when the work must split. As those PRs open and merge, the coordinating record's index and merge
-order update to match — the author doesn't hand-maintain them, and the record stays an
+more, when the work must split. As those PRs open and merge, the coordination PR's index and merge
+order update to match — the author doesn't hand-maintain them, and the PR stays an
 accurate picture of where the effort actually is.
 
 ### A reviewer or future reader traces the effort
@@ -107,22 +107,22 @@ effort from one place: the plan, the framing artifacts, the per-repository PRs, 
 merge order, and the done-state — without reconstructing it from scattered branches
 and commit archaeology.
 
-### The effort completes and the record merges last
+### The effort completes and the coordination PR merges last
 
 The author — and any reviewer watching the effort — reaches the end once every
 per-repository PR has merged. A completion step finalizes the framing artifacts, and the
-coordinating record merges last. That final merge is the one signal they rely on to know
+coordination PR merges last. That final merge is the one signal they rely on to know
 the effort is complete, with no separate "is it actually done?" judgment to make.
 
 ## Scope Boundary
 
 ### In
 
-- Making `/scope` and `/work-on` capstone-aware so they carry multi-repo coordination.
-  The capstone is the multi-repo generalization of what these workflows already do
+- Making `/scope` and `/work-on` coordination-aware so they carry multi-repo coordination.
+  Coordinated mode is the multi-repo generalization of what these workflows already do
   single-repo — `/scope`'s artifact chain and `/work-on`'s shared-branch, merge-last,
   consume-before-merge cascade — not a separate tool bolted alongside them.
-- The coordinating-record concept: a single record created up front that holds the
+- The coordination-PR concept: a single PR created up front that holds the
   plan and its upstream framing, merges last, and is finalized and consumed before it
   merges.
 - Expressing coordination intent once: the split between behaviors that are durable
@@ -160,16 +160,16 @@ the effort is complete, with no separate "is it actually done?" judgment to make
 - Requirements-level specifics: exact flag names, the precise set of smart-defaults
   versus preferences, frontmatter field names, and validation checks. Those belong in
   the downstream PRD.
-- The exact integration shape — whether capstone behavior arrives as modes or flags on
+- The exact integration shape — whether coordinated behavior arrives as modes or flags on
   `/scope` and `/work-on`, a wrapping orchestrator, or new sub-skills. That this brief
-  leaves to DESIGN; it commits only to the workflows being capstone-aware, not to how.
+  leaves to DESIGN; it commits only to the workflows being coordination-aware, not to how.
 - Whether the multi-repository workspace model itself should change. This frames one
   capability within the existing model, not a re-architecture of the workspace.
 
 ## References
 
 - `skills/scope/SKILL.md` — the tactical chain (BRIEF → PRD → DESIGN → PLAN) the
-  capstone extends to span repositories.
+  coordinated mode extends to span repositories.
 - `skills/work-on/SKILL.md` — the single-repo precedent for shared-branch plan
   orchestration and the consume-upstream-then-finalize cascade this effort generalizes.
 - `skills/plan/SKILL.md` — PLAN decomposition and the dependency graph the cross-repo

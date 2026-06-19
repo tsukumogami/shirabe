@@ -7,14 +7,14 @@ problem: |
   workflows to carry that coordination, but the cascade, finalize, and merge-order
   machinery are all hard-bound to a single repository.
 decision: |
-  Add a "capstone" capability as a cross-cutting reference contract bound by `/scope`,
-  `/work-on`, and the `shirabe` CLI. The capstone is a docs-only coordinating PR created
+  Add a "coordinated" capability as a cross-cutting reference contract bound by `/scope`,
+  `/work-on`, and the `shirabe` CLI. The coordination PR is a docs-only PR created
   up front; per-repo implementation lands as separate PRs grouped to the coarsest legal
-  unit. A pull-model `shirabe capstone` subcommand (gh-backed) keeps the PR-index and a
+  unit. A pull-model `shirabe coordination` subcommand (gh-backed) keeps the PR-index and a
   two-node merge-order DAG current; finalize writes stay repo-local with a read-only
   cross-repo verification gate; the strict `lifecycle.yml` CI check is the non-bypassable
   merge-last backstop. The merge order is derived and validated (acyclic) in the PLAN at
-  authoring time and rendered into the capstone PR body as merge-time canon.
+  authoring time and rendered into the coordination PR body as merge-time canon.
 rationale: |
   Every cross-repo write or always-on service was rejected for cost and for violating
   PRD R19/R21 (no new service; no partial cross-repo state). Keeping writes repo-local
@@ -25,7 +25,7 @@ rationale: |
 upstream: docs/prds/PRD-capstone-orchestration.md
 ---
 
-# DESIGN: Capstone Orchestration
+# DESIGN: Coordinated Multi-Repo Orchestration
 
 ## Status
 
@@ -36,10 +36,14 @@ Accepted
 shirabe's tactical chain is single-repo by construction. `/scope` produces
 BRIEF → PRD → DESIGN → PLAN in the current repository; `/work-on` drives a PLAN onto
 one branch and one PR there. PRD-capstone-orchestration requires `/scope` and `/work-on`
-to become capstone-aware: a single coordinating record created up front, implementation
+to become coordination-aware: a single coordination PR created up front, implementation
 grouped to the coarsest legal per-repo PRs, a derived and tracked merge order, and the
-record merging last as the completion signal — generalizing the single-repo machinery
+coordination PR merging last as the completion signal — generalizing the single-repo machinery
 across repositories.
+
+This effort is slugged `capstone-orchestration` (its working name) and introduces the
+**coordinated** execution mode and the **coordination PR** — the durable terms used
+throughout this document for the mode and the artifact respectively.
 
 The technical obstacle is that the machinery is hard-bound to one repository, by design:
 
@@ -52,20 +56,20 @@ The technical obstacle is that the machinery is hard-bound to one repository, by
 - niwa's mesh/coordination was removed; only `niwa worktree` plus git/`gh` remain, so all
   orchestration must live in shirabe with no new always-on service (PRD R19).
 
-The capstone is the multi-repo generalization of what already works single-repo, not a
+Coordinated mode is the multi-repo generalization of what already works single-repo, not a
 new standalone tool.
 
 ## Decision Drivers
 
 - **PRD R19 — no new always-on service or state store.** Coordination must use only the
-  record, git/`gh`, and existing niwa worktree creation.
-- **PRD R21 — no partial cross-repo state.** A failed coordination step halts; the record
+  coordination PR, git/`gh`, and existing niwa worktree creation.
+- **PRD R21 — no partial cross-repo state.** A failed coordination step halts; the coordination PR
   never merges on incomplete finalization. This rules out any operation that can leave one
   repo written and another not.
-- **PRD R7/R14 — merge-last, gated.** The capstone cannot merge until every indexed per-repo
+- **PRD R7/R14 — merge-last, gated.** The coordination PR cannot merge until every indexed per-repo
   PR has merged; enforcement must be non-bypassable.
 - **PRD R13 — always-executable merge order.** No cyclic order may ever be emitted.
-- **PRD R8 — consume-before-merge.** The PLAN is consumed before the capstone merges, so the
+- **PRD R8 — consume-before-merge.** The PLAN is consumed before the coordination PR merges, so the
   canonical merge-order data cannot rely on the PLAN surviving to merge time.
 - **PRD R15 — visibility-aware; cross-repo refs use `owner/repo:path`.**
 - **PRD R17 — single source of truth across `/scope`, `/work-on`, CLI.**
@@ -77,20 +81,20 @@ new standalone tool.
 
 ### Decision A — Integration shape
 
-- **Chosen: canonical reference + capstone-aware consumers.** A cross-cutting
-  `references/capstone-strategy.md` defines the capstone contract (lifecycle, grouping
+- **Chosen: canonical reference + coordination-aware consumers.** A cross-cutting
+  `references/coordination-strategy.md` defines the coordination contract (lifecycle, grouping
   rule, two-node merge-order model, done-signal). `/scope`, `/work-on`, and the `shirabe`
   CLI bind to it, carrying only bindings, never a restated copy.
 - *Alternative — embed the contract in each consumer.* Rejected: three consumers would
   drift; this is exactly the failure `parent-skill-pattern.md` avoids by being shared by
   `/scope` and `/charter`.
-- *Alternative — a standalone capstone tool/skill alongside the chain.* Rejected by the
-  brief: the capstone is the generalization of `/scope` + `/work-on`, not a bolt-on; a
+- *Alternative — a standalone coordination tool/skill alongside the chain.* Rejected by the
+  brief: coordinated mode is the generalization of `/scope` + `/work-on`, not a bolt-on; a
   separate tool re-implements their machinery.
 
 ### Decision B — Cross-repo PR-state tracking (PRD R6, R14)
 
-- **Chosen: pull-model `shirabe capstone` subcommand.** Reuses the existing `gh api`
+- **Chosen: pull-model `shirabe coordination` subcommand.** Reuses the existing `gh api`
   client (`crates/shirabe-validate/src/gh.rs`) and the `owner/repo:path` parser
   (`finalize.rs::is_cross_repo_ref`) to read each indexed PR on the operator's own
   credentials, rewrite the PR-index, and recompute the merge-order/R14 gate. Invoked by
@@ -106,9 +110,9 @@ new standalone tool.
 ### Decision C — Cross-repo finalize / consume cascade (PRD R8, R21)
 
 - **Chosen: repo-local writes + read-only cross-repo verification gate.** Each repo
-  finalizes its own artifacts in its own PR; the capstone consumes only its own PLAN (R8,
+  finalizes its own artifacts in its own PR; the coordination PR consumes only its own PLAN (R8,
   unchanged). The cross-repo boundary becomes a read-only gate — "all upstreams terminal,
-  all per-repo PRs merged" — that blocks the capstone from merging (R21). The Rust change
+  all per-repo PRs merged" — that blocks the coordination PR from merging (R21). The Rust change
   is small: the `finalize.rs` `Stop` wall persists for *writes*, a new `gh`-backed read
   pass is added alongside it, and `run-cascade.sh`'s `check_issue_closed` single-`origin`
   assumption is relaxed.
@@ -117,14 +121,14 @@ new standalone tool.
   leave cross-repo partial state (violates R21), for the largest change to the shared
   binary — to provide an atomicity plain PRs cannot.
 
-### Decision D — Coordinating-record + merge-order representation (PRD R12, R13)
+### Decision D — Coordination PR + merge-order representation (PRD R12, R13)
 
 - **Chosen: phase-split canon.** The merge order is a two-node DAG (PR nodes + non-PR gate
   nodes) derived and validated at authoring time inside the PLAN, by `/plan` collapsing its
   existing issue-level `waits_on` graph into a `(repo, pr_group)`-level graph. The
   post-contraction acyclicity check (R13) and the split-at-seam → re-sequence → stack
-  resolution live at that collapse step, so an unschedulable capstone is never committed.
-  Because R8 deletes the PLAN before the capstone merges, the capstone PR body carries the
+  resolution live at that collapse step, so an unschedulable coordinated effort is never committed.
+  Because R8 deletes the PLAN before the coordination PR merges, the coordination PR body carries the
   merge-time canonical PR-index + fenced merge-order block, rendered from the PLAN at
   creation and surviving it through merge.
 - *Alternative — canonical only in the PR body.* Rejected: loses authoring-time
@@ -146,50 +150,69 @@ new standalone tool.
 
 ### Decision F — Intent and preference surface (PRD R1, R2, R18)
 
-- **Chosen: the existing `flag > CLAUDE.md-header > default` stack.** Capstone intent is a
+- **Chosen: the existing `flag > CLAUDE.md-header > default` stack.** Coordination intent is a
   per-invocation flag on `/scope` and `/work-on` plus a workspace default header. The
   PR-grouping policy and the reviewability ceiling are durable workspace preferences;
-  capstone creation, artifact persistence, sequencing, and merge-order tracking are smart
+  coordination-PR creation, artifact persistence, sequencing, and merge-order tracking are smart
   defaults that announce on activation and accept a per-invocation override.
 - *Alternative — all per-invocation flags.* Rejected: defeats the "express once" goal.
 - *Alternative — all workspace preferences.* Rejected: forces configuration before first
   use and can't carry per-effort intent.
 
+### Decision G — PLAN execution_mode for coordinated efforts
+
+- **Chosen: a third `execution_mode` value — `coordinated`** (`single-pr | multi-pr |
+  coordinated`). A coordinated PLAN is always multi-PR but adds what `multi-pr` lacks: a
+  coordination PR that merges last, cross-repo per-repo grouping, and the two-node
+  merge-order DAG with gates. `/plan`, `/work-on`, the validator (an FC14-style branch),
+  and the CLI all branch on this one field; a `coordinated`-mode PLAN carries the
+  Implementation Issues table plus the two-node Dependency Graph and names its coordination
+  PR.
+- *Alternative — an orthogonal `coordinated: true` flag over `multi-pr`.* Rejected: splits the
+  coordinated effort's identity across two fields and permits invalid combinations (`single-pr` +
+  coordinated); a single enum has no invalid state and gives the validator one branch.
+- *Alternative — no schema change (intent-driven behavior only).* Rejected: the PLAN could
+  not declare or validate its own coordinated shape — the exact gap that surfaced while
+  planning this very effort, where a coordinated PLAN fit neither `single-pr` nor `multi-pr`.
+- *Bootstrapping note:* `coordinated` mode does not exist until this effort builds it, so this
+  effort's own PLAN runs in `multi-pr` mode with the coordination PR (PR #196) handled
+  by hand.
+
 ## Decision Outcome
 
-The capstone is a docs-only coordinating PR on its own branch, created up front by `/scope`
-(or `/work-on`) when capstone intent is present, holding the PLAN and the durable
+The coordination PR is a docs-only PR on its own branch, created up front by `/scope`
+(or `/work-on`) when coordination intent is present, holding the PLAN and the durable
 BRIEF/PRD/DESIGN. Implementation lands as per-repo PRs grouped by `/plan` to the coarsest
 legal unit, with a two-node merge-order DAG validated acyclic at authoring time and rendered
-into the capstone PR body. A pull-model `shirabe capstone` subcommand keeps the PR-index and
+into the coordination PR body. A pull-model `shirabe coordination` subcommand keeps the PR-index and
 gate current from the operator's own `gh` credentials; finalize stays repo-local with a
 read-only cross-repo verification gate; and the strict-mode `lifecycle.yml` CI check on the
-capstone PR is the non-bypassable merge-last backstop. The whole contract is defined once in
-`references/capstone-strategy.md` and bound by the three consumers.
+coordination PR is the non-bypassable merge-last backstop. The whole contract is defined once in
+`references/coordination-strategy.md` and bound by the three consumers.
 
 This holds together because every piece is pull-based and repo-local: no component writes
 across a repo boundary, nothing runs always-on, and the only genuinely new logic is one
-testable subcommand plus a `/plan` collapse step. State lives on the capstone branch/PR
+testable subcommand plus a `/plan` collapse step. State lives on the coordination branch/PR
 itself (R9), so an interrupted effort is re-discoverable without a session store.
 
 ### State home and discovery (PRD R9)
 
-"A capstone is active" is encoded by the capstone PR/branch itself (a `docs(...)` PR labeled
-as a capstone, carrying the index/order block). `shirabe capstone status` re-derives the live
+"A coordinated effort is active" is encoded by the coordination PR/branch itself (a `docs(...)` PR labeled
+as a coordination PR, carrying the index/order block). `shirabe coordination status` re-derives the live
 picture by reading the PR body + querying indexed PRs; no `wip/` session file is the source of
 truth, so context resets reconnect from durable state.
 
 ### Abandonment and failure (PRD R20, R21)
 
-Abandonment closes the capstone PR without merging and force-materializes/marks the in-flight
+Abandonment closes the coordination PR without merging and force-materializes/marks the in-flight
 planning artifacts as Draft (mirroring `/scope`'s `abandonment-forced` exit), never silently
 orphaning them. Any coordination step that cannot complete (index update, finalize, gate
-recompute) surfaces the error and halts; the `lifecycle.yml` gate keeps the capstone unmerged
+recompute) surfaces the error and halts; the `lifecycle.yml` gate keeps the coordination PR unmerged
 while finalization is incomplete, so no partial cross-repo state can land.
 
 ### Visibility and atomicity (PRD R15, R16)
 
-Cross-repo references use `owner/repo:path`; a public capstone never embeds private content
+Cross-repo references use `owner/repo:path`; a public coordination PR never embeds private content
 (the read pass surfaces only state, not bodies). A cross-repo atomicity requirement is
 detected at planning time (a dependency that would require two repos to merge simultaneously)
 and refused with guidance to reshape into a compatible-intermediate sequence — the system
@@ -219,17 +242,17 @@ never emits a plan that assumes atomic cross-repo merge.
 
 Components:
 
-- **`references/capstone-strategy.md`** — the canonical contract: lifecycle (create up front
+- **`references/coordination-strategy.md`** — the canonical contract: lifecycle (create up front
   → track → finalize → merge last), the coarsest-legal-grouping rule, the two-node
   merge-order DAG model, the done-signal, and the `owner/repo:path` reference rules. Bound by
   the three consumers; no consumer restates it.
-- **`shirabe capstone` subcommand** (in the existing CLI crate) — verbs:
-  - `create` — open the docs-only capstone PR/branch, seed the body (declaration, artifact
+- **`shirabe coordination` subcommand** (in the existing CLI crate) — verbs:
+  - `create` — open the docs-only coordination PR/branch, seed the body (declaration, artifact
     chain, PR-index, fenced merge-order block) rendered from the PLAN.
   - `status` / `sync` — read each indexed PR via `gh.rs`, rewrite the PR-index, recompute the
     merge-order and the R14 gate. Validates each `owner/repo:path` component before use (F2);
     resolves each repo's visibility and redacts private identifiers to opaque node ids when
-    rendering a public capstone body (F1); escapes `gh`-sourced titles/branches (F3).
+    rendering a public coordination PR body (F1); escapes `gh`-sourced titles/branches (F3).
   - `gate` — recompute "all indexed PRs merged + all upstreams terminal" from authoritative
     live `gh api` queries at gate time, never by parsing the editable PR body (F4); fails
     closed on any unresolvable PR. Drives the `lifecycle.yml` non-bypassable backstop.
@@ -240,28 +263,28 @@ Components:
 - **`finalize.rs` extension** — keep the `Stop`-on-cross-repo wall for writes; add a `gh`-backed
   read pass that verifies cross-repo upstreams are terminal. Separately, relax
   `run-cascade.sh`'s `check_issue_closed` single-`origin` assumption.
-- **`lifecycle.yml` strict-mode check** — on a capstone PR, fail "ready" while any indexed PR
+- **`lifecycle.yml` strict-mode check** — on a coordination PR, fail "ready" while any indexed PR
   is unmerged or finalization is incomplete (the merge-last backstop).
-- **`/scope` + `/work-on` bindings** — detect capstone intent (flag/header/default), call
-  `shirabe capstone create` up front, call `shirabe capstone sync` as per-repo PRs progress,
+- **`/scope` + `/work-on` bindings** — detect coordination intent (flag/header/default), call
+  `shirabe coordination create` up front, call `shirabe coordination sync` as per-repo PRs progress,
   and announce smart-default activations (R18).
 
-Data flow: `/scope` (capstone intent) → `shirabe capstone create` seeds the PR from the PLAN's
-two-node order → per-repo work via `/work-on` opens per-repo PRs → `shirabe capstone sync`
+Data flow: `/scope` (coordination intent) → `shirabe coordination create` seeds the PR from the PLAN's
+two-node order → per-repo work via `/work-on` opens per-repo PRs → `shirabe coordination sync`
 refreshes index/gate from `gh` → each repo's PR finalizes its own artifacts → all merged →
-read-only verification gate passes → capstone consumes its PLAN and merges last.
+read-only verification gate passes → coordination PR consumes its PLAN and merges last.
 
 ## Implementation Approach
 
 A walking skeleton first, then the cross-repo machinery (sequenced by `/plan`):
 
-1. **Contract reference** — author `references/capstone-strategy.md`, including the F1
+1. **Contract reference** — author `references/coordination-strategy.md`, including the F1
    (fail-closed private-identifier redaction), F2 (`owner/repo:path` component validation),
    and F4 (gate recomputes from live `gh`, not PR body) hard rules (cheap; unblocks the rest).
 2. **`/plan` collapse + two-node order** — `repo`/`pr_group` tagging, DAG contraction,
    acyclicity check + resolution, serialized order. (Most of R10–R13.)
-3. **`shirabe capstone create`** — open + seed the capstone PR/branch from the PLAN render.
-4. **`shirabe capstone status/sync`** — gh-backed index/gate recompute (the core new logic).
+3. **`shirabe coordination create`** — open + seed the coordination PR/branch from the PLAN render.
+4. **`shirabe coordination status/sync`** — gh-backed index/gate recompute (the core new logic).
 5. **`finalize.rs` read pass + `lifecycle.yml` gate** — the merge-last backstop and repo-local
    cascade verification.
 6. **`/scope` + `/work-on` bindings** — intent surface, announce/override, create/sync calls.
@@ -271,17 +294,17 @@ A walking skeleton first, then the cross-repo machinery (sequenced by `/plan`):
 
 The architecture is pull-based and repo-local — no cross-repo write path and no always-on
 service — which removes the highest-severity classes up front. The remaining surface is the
-`gh`-backed read pass, the rendering of cross-repo metadata into a **public** capstone PR
+`gh`-backed read pass, the rendering of cross-repo metadata into a **public** coordination PR
 body, and the `lifecycle.yml` merge-last gate. Three findings are load-bearing and are
-hard rules in `references/capstone-strategy.md` (below); the rest are standard hardening.
+hard rules in `references/coordination-strategy.md` (below); the rest are standard hardening.
 
 ### Threat surface
 
-- **Cross-repo read pass** (`shirabe capstone status/sync`, `gate`, the `finalize.rs` read
+- **Cross-repo read pass** (`shirabe coordination status/sync`, `gate`, the `finalize.rs` read
   pass): reads each indexed PR / upstream on the operator's own `gh` credentials across
   public and private repos — data from *other* repos now flows into a rendered artifact and
   a CI gate.
-- **Public capstone PR body:** the rendered PR-index + merge-order block is a
+- **Public coordination PR body:** the rendered PR-index + merge-order block is a
   cross-visibility egress point (R15).
 - **Untrusted `owner/repo:path` and PR metadata** interpolated into markdown, `gh` argument
   positions, and gate logic.
@@ -298,7 +321,7 @@ validates task names against `^[a-z][a-z0-9-]*$` and builds JSON with `jq --arg`
 
 ### Findings and mitigations
 
-- **F1 — Private content leak through a public capstone body (High, R15).** A private
+- **F1 — Private content leak through a public coordination PR body (High, R15).** A private
   repo's name, path, branch, PR title, and number are themselves private. The render path
   MUST resolve each indexed PR's repo visibility and, for any private repo, render a
   redacted placeholder carrying only an opaque node id and merge state — no private
@@ -319,13 +342,13 @@ validates task names against `^[a-z][a-z0-9-]*$` and builds JSON with `jq --arg`
   index), but each PR's merged/open status and the order's acyclicity are verified live.
   Fail closed: any PR it cannot resolve is treated as not-merged. Pin to the strict-mode
   `draft == false` trigger so it cannot be skipped.
-- **F5 — Privilege scope / token exposure (Medium).** All capstone `gh` use is read-only;
-  no capstone verb writes cross-repo. Inherit `gh.rs`'s no-token-in-process property; do
+- **F5 — Privilege scope / token exposure (Medium).** All coordination `gh` use is read-only;
+  no coordination verb writes cross-repo. Inherit `gh.rs`'s no-token-in-process property; do
   not log raw `gh` responses; route private identifiers through F1 redaction before any
   diagnostic, log, or body; apply the 4 MiB cap to the read pass.
 - **F6 — `repo`/`pr_group` tags re-validated on every read (Medium).** Constrain `pr_group`
   to `^[a-z][a-z0-9-]*$` and the repo tag to the owner/repo regex before interpolation.
-  Because the capstone re-derives state from the editable PR body on resume (R9, R22),
+  Because the coordination PR re-derives state from the editable PR body on resume (R9, R22),
   re-validate these on every read, not only at authoring time (matching the
   re-validation-on-resume rule); build serialized JSON with `jq --arg`.
 - **F7 — Acyclicity / scheduling integrity (Low, integrity).** Treat the acyclicity check
@@ -348,7 +371,7 @@ validates task names against `^[a-z][a-z0-9-]*$` and builds JSON with `jq --arg`
 ### Verdict
 
 No blocking security issues, conditional on F1, F2, and F4 being adopted as explicit,
-testable rules in `references/capstone-strategy.md` (they are load-bearing for R15 and
+testable rules in `references/coordination-strategy.md` (they are load-bearing for R15 and
 R7/R14/R21). The architecture supports all three with existing seams, so they are hardening
 requirements, not architectural blockers.
 
