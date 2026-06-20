@@ -3,7 +3,7 @@
 # resolves before any child is spawned.
 #
 # /execute owns plan-level execution but delegates each single issue to /work-on's
-# single-issue engine (work-on.md). The lifted execute-plan koto template references
+# single-issue engine (work-on.md). The lifted execute koto template references
 # that child template relatively (../../work-on/koto-templates/work-on.md); in a
 # canonical plugin install that resolves to:
 #   ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md

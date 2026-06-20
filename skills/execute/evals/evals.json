@@ -7,12 +7,12 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent reads execution_mode: single-pr from the PLAN frontmatter, re-validates it against {single-pr, coordinated, multi-pr}, runs the Step 1 preflight (scripts/preflight.sh) to assert the cross-skill work-on.md path resolves, then koto init execute-diamond-test with skills/execute/koto-templates/work-on-plan.md and PLAN_DOC set to the fixture path. Drives the orchestrator loop (orchestrator_setup -> spawn_and_await -> pr_finalization -> plan_completion) to a single merged PR. The agent does NOT edit the PLAN doc.",
+      "expected_output": "Agent reads execution_mode: single-pr from the PLAN frontmatter, re-validates it against {single-pr, coordinated, multi-pr}, runs the Step 1 preflight (scripts/preflight.sh) to assert the cross-skill work-on.md path resolves, then koto init execute-diamond-test with skills/execute/koto-templates/execute.md and PLAN_DOC set to the fixture path. Drives the orchestrator loop (orchestrator_setup -> spawn_and_await -> pr_finalization -> plan_completion) to a single merged PR. The agent does NOT edit the PLAN doc.",
       "files": [],
       "expectations": [
         "Agent reads execution_mode: single-pr and re-validates it against {single-pr, coordinated, multi-pr} before path or branch interpolation",
         "Agent runs the Step 1 preflight (scripts/preflight.sh) before spawning any child",
-        "Agent runs koto init with skills/execute/koto-templates/work-on-plan.md and PLAN_DOC pointing at the fixture",
+        "Agent runs koto init with skills/execute/koto-templates/execute.md and PLAN_DOC pointing at the fixture",
         "Agent drives the orchestrator loop through orchestrator_setup, spawn_and_await, pr_finalization, plan_completion to one merged PR",
         "Agent does NOT edit or rewrite the PLAN doc to run it through /execute"
       ]
@@ -172,10 +172,10 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent detects a single-pr PLAN, initializes skills/execute/koto-templates/work-on-plan.md (not work-on.md), runs plan-to-tasks.sh to produce tasks JSON, submits tasks to koto via --with-data, monitors children, and when all succeed submits batch_outcome: all_success, routes to pr_finalization (updates PR description), then plan_completion (runs the cascade via skills/execute/scripts/run-cascade.sh and marks the PR ready), then ci_monitor where strict-mode CI passes on the finalized chain.",
+      "expected_output": "Agent detects a single-pr PLAN, initializes skills/execute/koto-templates/execute.md (not work-on.md), runs plan-to-tasks.sh to produce tasks JSON, submits tasks to koto via --with-data, monitors children, and when all succeed submits batch_outcome: all_success, routes to pr_finalization (updates PR description), then plan_completion (runs the cascade via skills/execute/scripts/run-cascade.sh and marks the PR ready), then ci_monitor where strict-mode CI passes on the finalized chain.",
       "files": [],
       "expectations": [
-        "Agent initializes skills/execute/koto-templates/work-on-plan.md template (not work-on.md) for the PLAN input",
+        "Agent initializes skills/execute/koto-templates/execute.md template (not work-on.md) for the PLAN input",
         "Agent creates a shared branch (impl/<plan-slug>) and a draft PR in orchestrator_setup before spawning children",
         "Agent runs plan-to-tasks.sh to produce tasks JSON and injects SHARED_BRANCH into each task's vars",
         "Agent submits batch_outcome: all_success when all children succeed and routes to pr_finalization",
@@ -220,11 +220,11 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent detects PLAN.md path input and plans to use skills/execute/koto-templates/work-on-plan.md template (not work-on.md). Plans to init koto with the lifted template and PLAN_DOC variable, then pipe plan-to-tasks.sh output to koto next. Does not call gh issue view for a PLAN.md input.",
+      "expected_output": "Agent detects PLAN.md path input and plans to use skills/execute/koto-templates/execute.md template (not work-on.md). Plans to init koto with the lifted template and PLAN_DOC variable, then pipe plan-to-tasks.sh output to koto next. Does not call gh issue view for a PLAN.md input.",
       "files": [],
       "expectations": [
         "Agent detects the PLAN.md path and uses the lifted execute plan template (not work-on.md, not issue-backed or free-form)",
-        "Agent initializes skills/execute/koto-templates/work-on-plan.md template with a PLAN_DOC variable",
+        "Agent initializes skills/execute/koto-templates/execute.md template with a PLAN_DOC variable",
         "Agent runs plan-to-tasks.sh to generate tasks JSON from the PLAN doc",
         "Agent pipes plan-to-tasks.sh output to koto next via --with-data",
         "Agent does NOT call gh issue view for a PLAN.md input"
@@ -237,10 +237,10 @@
       "mode": "execute",
       "scenario": "e2e-plan-happy",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent detects the PLAN.md path, initializes skills/execute/koto-templates/work-on-plan.md template with PLAN_DOC var, runs plan-to-tasks.sh on the fixture to produce tasks JSON, submits tasks to koto. Then receives pr_finalization state, reads batch_final_view via koto context get, assembles PR description with per-child outcomes, updates the PR (but does NOT mark it ready in this state), and submits finalization_status: updated. The next state (plan_completion) marks the PR ready.",
+      "expected_output": "Agent detects the PLAN.md path, initializes skills/execute/koto-templates/execute.md template with PLAN_DOC var, runs plan-to-tasks.sh on the fixture to produce tasks JSON, submits tasks to koto. Then receives pr_finalization state, reads batch_final_view via koto context get, assembles PR description with per-child outcomes, updates the PR (but does NOT mark it ready in this state), and submits finalization_status: updated. The next state (plan_completion) marks the PR ready.",
       "files": [],
       "expectations": [
-        "Agent initializes skills/execute/koto-templates/work-on-plan.md template (not work-on.md) for the PLAN input",
+        "Agent initializes skills/execute/koto-templates/execute.md template (not work-on.md) for the PLAN input",
         "Agent handles pr_finalization state by reading batch_final_view via koto context get",
         "Agent assembles PR description including per-child name and outcome fields",
         "Agent does NOT mark the PR ready in pr_finalization state (gh pr ready is deferred to plan_completion)",

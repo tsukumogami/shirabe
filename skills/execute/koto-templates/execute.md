@@ -1,5 +1,5 @@
 ---
-name: execute-plan
+name: execute
 version: "1.0"
 description: >
   Plan orchestrator template. Creates a shared branch and draft PR, spawns

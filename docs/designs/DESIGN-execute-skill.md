@@ -152,7 +152,7 @@ Decision Record and does not re-execute.
 - **/execute SKILL.md** — plain-English parent skill with the seven required
   structural elements and the execution phases (setup, mode detection, per-mode
   execution loop, finalization).
-- **Lifted orchestrator** — `skills/execute/koto-templates/work-on-plan.md`, the
+- **Lifted orchestrator** — `skills/execute/koto-templates/execute.md`, the
   orchestrator prose, and `skills/execute/scripts/run-cascade.sh` (moved from
   /work-on, including the `WORK_ON_ALLOW_UNTRACKED_ACS` allowance).
 - **/work-on (narrowed)** — retains `skills/work-on/koto-templates/work-on.md` as the

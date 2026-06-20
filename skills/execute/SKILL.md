@@ -103,7 +103,7 @@ Phase-1 mechanics live in the lifted koto template and the **Coordinated** loop)
 0. **Setup** — re-validate the topic slug; build the `wip-yaml-md` projection;
    unconditionally clear any stale `parent_orchestration:` sentinel; run the home-PR
    resume lookup. See **State**, **Resume**, **Security Considerations**.
-1. **Drive** — single-pr: drive the lifted `execute-plan` koto loop (**Single-PR
+1. **Drive** — single-pr: drive the lifted `execute` koto loop (**Single-PR
    Execution Path**, Step 3). coordinated: drive the track-to-merge-last loop
    (**Coordinated Execution Path**, Step 2). Autonomy binds at every tick.
 2. **Finalize** — single-pr: run the finalization cascade DRAFT-before-READY, then
@@ -142,7 +142,7 @@ initialize the lifted orchestrator template:
 
 ```bash
 koto init execute-<plan-slug> \
-  --template ${CLAUDE_PLUGIN_ROOT}/skills/execute/koto-templates/work-on-plan.md \
+  --template ${CLAUDE_PLUGIN_ROOT}/skills/execute/koto-templates/execute.md \
   --var PLAN_DOC=<path-to-plan>
 ```
 
@@ -152,7 +152,7 @@ In autonomous mode, drive this loop continuously per the **Autonomy** section be
 do not stop between issues to advise a checkpoint. The mandate is bound at the loop
 tick itself: the lifted template's `spawn_and_await` state carries an "Autonomy at
 every tick" directive so the rule fires on each pass, not only at entry. Drive the
-koto loop over the lifted `execute-plan` template, which carries the
+koto loop over the lifted `execute` template, which carries the
 orchestrator states (Issue 2 removed this machinery from `/work-on`; it lives here
 now). The states and their tick mechanics:
 
@@ -515,7 +515,7 @@ inspection, and the six security surfaces) is complete across the **Workflow Pha
 
 | File | When |
 |------|------|
-| `skills/execute/koto-templates/work-on-plan.md` | the lifted `execute-plan` orchestrator template |
+| `skills/execute/koto-templates/execute.md` | the lifted `execute` orchestrator template |
 | `skills/execute/scripts/preflight.sh` | Step 1 cross-skill preflight |
 | `skills/execute/scripts/run-cascade.sh` | `plan_completion` atomic finalization cascade (carries the `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch) |
 | `references/coordination-strategy.md` | the canonical coordinated contract the coordinated path binds to (lifecycle, merge-order DAG, done-signal, F1/F2/F4, R20/R21) |

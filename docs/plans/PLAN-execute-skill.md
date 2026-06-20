@@ -41,7 +41,7 @@ runs an existing single-pr PLAN to a single merged PR, delegating each issue to
 **Acceptance Criteria**:
 - [x] `skills/execute/SKILL.md` exists with a single-pr execution path and the
   minimal parent-skill structural elements.
-- [x] `skills/execute/koto-templates/work-on-plan.md` (lifted from `/work-on`) drives
+- [x] `skills/execute/koto-templates/execute.md` (lifted from `/work-on`) drives
   issues via per-issue `work-on.md` child sessions resolved at
   `${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md`.
 - [x] A preflight check asserts the cross-skill `work-on.md` path resolves before
@@ -52,7 +52,7 @@ runs an existing single-pr PLAN to a single merged PR, delegating each issue to
 **Dependencies**: None
 
 **Type**: docs
-**Files**: `skills/execute/SKILL.md`, `skills/execute/koto-templates/work-on-plan.md`
+**Files**: `skills/execute/SKILL.md`, `skills/execute/koto-templates/execute.md`
 
 ### Issue 2: feat(work-on): narrow to single-issue + execution_mode dispatcher
 
@@ -110,7 +110,7 @@ merge-order DAG, gated on `shirabe validate --merge-gate`.
 **Dependencies**: Blocked by <<ISSUE:1>>
 
 **Type**: docs
-**Files**: `skills/execute/SKILL.md`, `skills/execute/koto-templates/work-on-plan.md`
+**Files**: `skills/execute/SKILL.md`, `skills/execute/koto-templates/execute.md`
 
 ### Issue 5: feat(execute): state projection, cross-branch resume, exit paths
 
