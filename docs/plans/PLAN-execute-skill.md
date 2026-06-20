@@ -39,14 +39,14 @@ runs an existing single-pr PLAN to a single merged PR, delegating each issue to
 `/work-on`'s `work-on.md` over the cross-skill path.
 
 **Acceptance Criteria**:
-- [ ] `skills/execute/SKILL.md` exists with a single-pr execution path and the
+- [x] `skills/execute/SKILL.md` exists with a single-pr execution path and the
   minimal parent-skill structural elements.
-- [ ] `skills/execute/koto-templates/work-on-plan.md` (lifted from `/work-on`) drives
+- [x] `skills/execute/koto-templates/work-on-plan.md` (lifted from `/work-on`) drives
   issues via per-issue `work-on.md` child sessions resolved at
   `${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md`.
-- [ ] A preflight check asserts the cross-skill `work-on.md` path resolves before
+- [x] A preflight check asserts the cross-skill `work-on.md` path resolves before
   any child is spawned.
-- [ ] An existing single-pr PLAN doc runs end to end through `/execute` to one merged
+- [x] An existing single-pr PLAN doc runs end to end through `/execute` to one merged
   PR with no edit to the PLAN.
 
 **Dependencies**: None
