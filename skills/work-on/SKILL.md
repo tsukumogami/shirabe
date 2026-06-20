@@ -103,117 +103,38 @@ artifacts. A caveat is legitimate only where it records an approved deferral (R6
 is enforced by the deferral gate plus the checklist — no approval means no caveat — not
 by a brittle word-grep that would flag legitimate uses of those words.
 
-## Plan Mode
+## Plan Input (Dispatcher)
 
-When `$ARGUMENTS` is a path to a PLAN.md file, the skill runs as a plan orchestrator rather than working on a single issue. Plan mode coordinates multiple per-issue child workflows and assembles a combined PR after all children complete.
+When `$ARGUMENTS` is a path to a PLAN.md file, `/work-on` acts as a thin dispatcher
+on the PLAN's `execution_mode`. `/work-on` no longer orchestrates a whole plan:
+plan-level execution (single-pr and coordinated) is owned by `/execute`, which
+delegates each single issue back to `/work-on`'s Plan-Backed Child Mode below.
 
-### Coordination Intent (coordinated efforts)
+Read `execution_mode` from the PLAN frontmatter and **re-validate it against the
+closed set `{single-pr, multi-pr, coordinated}` before using it in any path or
+branch interpolation** (an out-of-set value halts with a clear error). Then route:
 
-Plan orchestrator mode is coordination-aware. When the PLAN's
-`execution_mode` is `coordinated` (or coordination intent is signaled
-via `--coordinated` / the `## PR Grouping Policy:` and `##
-Reviewability Ceiling:` CLAUDE.md headers, resolved `flag >
-CLAUDE.md-header > default`), `/work-on` drives the coordinated
-lifecycle's **track** phase in addition to the per-repo work.
-
-This capability is **additive** (R3). When coordination intent is
-absent — every `single-pr` and `multi-pr` PLAN — `/work-on` behaves
-exactly as documented everywhere else in this file: one shared
-branch, one PR, no coordination sync, no cross-repo gate. Read the
-rest of this section only when the PLAN is `coordinated`.
-
-When the effort is coordinated, as per-repo PRs open and progress,
-`/work-on` **refreshes the coordination PR body itself** on each
-orchestrator pass — re-authoring the PR-index and merge-order block
-from the template in
-[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md)
-and posting it with `gh pr edit`, the same `gh` surface it already
-uses. There is no `shirabe coordination` subcommand: the body is
-skill-authored, like every other shirabe artifact. `shirabe validate
---coordination-body <file>` gives authoring feedback on the refreshed
-body offline, and `shirabe validate --merge-gate` is the merge-last
-check before the coordination PR can merge. These are **smart
-defaults** (Decision F): coordination-PR refresh, sequencing, and
-merge-order tracking activate automatically and each must **announce**
-itself in the invocation output — naming the behavior and its
-per-invocation override (R18). For example, on the first refresh of a
-pass, announce that the index/merge-order is being re-authored and name
-the flag that suppresses it.
-
-The lifecycle phases (create → track → finalize → merge last), the
-coarsest-legal-grouping rule, the two-node merge-order model, the
-done-signal, and the load-bearing F1/F2/F4 rules are the canonical
-contract in
-[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md).
-`/work-on` binds to it and does not restate it; the `shirabe validate`
-mode args (`--coordination-body`, `--merge-gate`) and their fail-closed
-behavior are owned by the CLI. Cross-repo references follow
-[`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`](${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md)
-(`owner/repo:path`), and a public coordination PR never embeds
-private-repo content (F1).
-
-The finalize phase stays repo-local: each repo's PR finalizes its own
-artifacts through the same completion cascade documented under
-**Completion Cascade (plan_completion)** below. The cross-repo
-boundary is the read-only verification gate (`shirabe validate
---merge-gate`), not a cross-repo write.
-
-#### Coordination Failure Halts (R21)
-
-A coordination step that **cannot complete** — a coordination-body
-refresh that cannot rewrite the durable index (e.g. `gh pr edit`
-fails), a finalize that cannot run its repo-local cascade, or a
-`shirabe validate --merge-gate` recompute that cannot resolve every
-indexed PR's live state — **halts and surfaces the error**. `/work-on` does not advance
-past a coordination step it could not complete and does not paper over
-a failed step as success. A halted coordination step leaves the
-coordination PR unmerged: the `lifecycle.yml` merge-last gate
-(`shirabe validate --merge-gate`, run under `--mode=ready`) keeps the
-coordination PR merge-ineligible while finalization is incomplete or
-any indexed PR is unresolved, and an unresolvable PR fails closed as
-not-merged.
-This is a binding to that gate, not a restatement of its internals —
-the gate's recompute mechanics and fail-closed rules are the
-canonical contract in
-[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md)
-(F4 and the done-signal). The halt surfaces the step that failed so
-the operator resolves it and re-invokes; the gate is the backstop
-that makes a halted-but-unnoticed finalization safe.
-
-#### Coordinated Abandonment (R20)
-
-When a coordinated effort is abandoned mid-flight — the plan
-orchestrator reaches `escalate` and the operator elects to abandon
-rather than resolve — `/work-on` **closes the coordination PR
-without merging** and documents the partial state. The in-flight
-planning artifacts are force-materialized (the coordination PR's
-durable body plus any partial on-disk artifacts record what was
-reached), never silently orphaned. Abandonment mirrors `/scope`'s
-`abandonment-forced` framing: the coordination PR is the durable home
-of the chain, so abandoning the chain closes that home unmerged
-rather than leaving it open and merge-eligible. The skill performs the
-close with `gh pr close` (the same `gh` surface it used to author the
-body); the lifecycle this short-cuts is the canonical contract in
-[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md).
-
-### Branch Context Evaluation
-
-Before running any koto operations, evaluate the branch context to determine whether `orchestrator_setup` should reuse an existing branch or create a new one. Check three signals in order: the current branch name, any open PRs whose head matches that branch, and any explicit branch instruction the user provided in their message.
-
-If the current branch name matches `impl/<slug>` (where `<slug>` is the plan slug derived from the PLAN doc filename) and an open PR exists for that branch, the branch and PR are already in place — submit `status: override` in `orchestrator_setup` rather than running the branch-creation script. If the user explicitly instructed you to work on the current branch (e.g. "use this branch", "continue on this branch", "work here"), also submit `status: override`. In either override case, confirm that the checkout is already on the intended shared branch before proceeding. If neither condition applies — you are on `main`, a docs branch, or any branch that doesn't match `impl/<slug>` with an open PR — let `orchestrator_setup` run normally and submit `status: completed` after the branch and PR are created.
-
-This check must happen before Mode Detection and before any `koto init` or `koto next` calls.
+- **`single-pr` or `coordinated`** — hand off to `/execute`. `/work-on` does not run
+  these directly; direct the caller to invoke `/execute <PLAN>` (the
+  implementation-altitude coordinator that owns plan-level execution and its
+  ephemeral home). When `/execute` is already driving the plan, it spawns `/work-on`
+  per issue via Plan-Backed Child Mode.
+- **`multi-pr`** — run in place, one issue at a time. Select the next unblocked issue
+  from the PLAN (an issue is blocked while its Dependencies reference open issues) and
+  run it as a single issue-backed unit against the repo-persisted PLAN, each landing
+  its own PR. There is no shared branch and no cross-issue carry-forward — multi-pr
+  issues are independent, per the DESIGN's ephemeral-home model.
 
 ### Mode Detection
 
 When invoked as `/work-on <argument>`:
 
-- If `$ARGUMENTS` begins with `-- plan-backed` — **plan-backed child mode** (highest priority; the plan orchestrator is spawning this as a per-issue child workflow)
-- If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` — **plan orchestrator mode**
+- If `$ARGUMENTS` begins with `-- plan-backed` — **plan-backed child mode** (highest priority; the plan-level coordinator /execute is spawning this as a per-issue child workflow)
+- If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` — **plan dispatcher mode** (see Plan Input above)
 - If the argument is an issue reference (`#N` or a GitHub issue URL) — **issue-backed mode**
 - If the argument is a free-form task description — **free-form mode**
 
-Plan-backed child mode is checked first. Plan orchestrator mode is checked before issue-backed mode.
+Plan-backed child mode is checked first. Plan dispatcher mode is checked before issue-backed mode.
 
 ### Plan-Backed Child Mode
 
@@ -244,82 +165,7 @@ When `ISSUE_TYPE` is not passed (standalone issue-backed or free-form mode), omi
 
 If the koto scheduler marks this child as skipped due to a failed dependency (`failure_policy: skip_dependents`), the workflow enters with `mode: skipped`. Submit entry evidence `{"mode": "skipped"}` and enter the execution loop — koto routes directly to the `skipped_due_to_dep_failure` terminal state, which carries `skipped_marker: true`. Do not perform any implementation work.
 
-### Initialization
-
-Before calling `koto init`, check the user's branch intent:
-- If the user specified a branch to work on, or you are already on a non-default branch that has an open PR for this work, note that branch as the intended shared branch. You will submit `status: override` in `orchestrator_setup` rather than running the branch-creation script.
-- Only if no applicable branch exists should you let `orchestrator_setup` create a new `impl/<slug>` branch.
-
-Derive the plan slug from the filename: `PLAN-foo-bar.md` → `plan-foo-bar`.
-
-```bash
-koto init <plan-slug> \
-  --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on-plan.md \
-  --var PLAN_DOC=<path-to-plan>
-```
-
-### Shared Branch and Draft PR
-
-The `orchestrator_setup` state creates the shared branch and draft PR before any children are spawned. The script is idempotent — on a re-run after a crash, it reuses the existing branch and PR:
-
-```bash
-PLAN_SLUG=$(basename <path-to-plan> .md | sed 's/^PLAN-//')
-git checkout impl/$PLAN_SLUG 2>/dev/null || git checkout -b impl/$PLAN_SLUG
-git push -u origin impl/$PLAN_SLUG 2>/dev/null || true
-gh pr list --head impl/$PLAN_SLUG --json number --jq '.[0].number' | grep -q . || \
-  gh pr create --draft --title "impl: $PLAN_SLUG" --body "Implements $(basename <path-to-plan>)."
-```
-
-Submit `status: completed` after branch and PR exist, `status: override` if a branch and PR already exist and should be reused (e.g. the agent is already on an appropriate branch from the session that produced the PLAN doc), or `status: blocked` with `detail` if either step fails. All child workflows then commit to this branch; `pr_finalization` updates the description when the batch completes.
-
-When submitting `status: override`, ensure the current checkout is already on the intended shared branch and that a PR for it exists. Child workflows read the `SHARED_BRANCH` variable injected by `plan-to-tasks.sh` — set it to the current branch name in the task vars if the orchestrator skipped branch creation.
-
-### First Tick: Submitting Tasks
-
-In `spawn_and_await`, run `plan-to-tasks.sh` to produce a JSON array from the PLAN doc, inject `SHARED_BRANCH` (the branch created in `orchestrator_setup`) into each task's `vars` via `jq`, wrap in `{"tasks": [...]}`, and submit with `--with-data`. The `spawn_and_await` directive in the koto template has the full script.
-
-### Monitoring Children (spawn_and_await)
-
-After submitting tasks, the workflow enters `spawn_and_await`. Monitor child progress via `koto workflows`. When all children reach terminal states, inspect their outcomes and submit:
-
-- `batch_outcome: all_success` — all children completed without failure; routes to `pr_coordination`
-- `batch_outcome: needs_attention` — one or more children reached `done_blocked` or were skipped; routes to `escalate`
-
-### Cross-Issue Context Assembly
-
-After each child completes and before dispatching the next, run the context assembly step in `references/cross-issue-context.md`.
-
-### Escalation Handling
-
-When the parent workflow reaches `escalate` state, one or more children reached `done_blocked` or were skipped due to dependency failure:
-
-1. Read per-child data: `koto context get <plan-slug> batch_final_view`
-2. Identify failed children (`outcome: failure`, `reason` field, `reason_source`) and skipped children (`outcome: skipped`, `skipped_because_chain`)
-3. Write a `failure_reason` summary covering which children failed, why, and what the user should do
-4. Submit: `koto next <plan-slug> --with-data '{"failure_reason": "<summary>"}'`
-
-The `failure_reason` field is required — omitting it prevents `context_assignments` from propagating the reason downstream.
-
-### PR Finalization (pr_finalization)
-
-In `pr_finalization` state, read `batch_final_view` and assemble a PR description table. For each child include: `name`, `outcome`, `reason` (if failed or skipped), `reason_source`, and `skipped_because_chain` (if skipped). Update the PR with `gh pr edit`. Do **not** mark the PR ready in this state — `gh pr ready` runs in `plan_completion` after the cascade pulls the chain to its ready-posture passing state. Submit `finalization_status: updated` with `pr_url`.
-
-### Completion Cascade (plan_completion)
-
-The completion cascade runs BEFORE `gh pr ready` so the chain is at its ready-posture passing state when CI re-runs on the `ready_for_review` event. This is the DRAFT-vs-READY discipline: DRAFT PRs run under draft posture and pass against mid-PR chain states; the cascade in this state finalizes the chain atomically; then `gh pr ready` fires; then CI re-runs under ready posture and passes on the terminal chain.
-
-The state runs two steps:
-
-1. **Cascade.** `${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}}` runs the chain-targeted lifecycle check before any transitions (pre-cascade probe), performs the atomic finalization commit (PLAN deletion + BRIEF/PRD/DESIGN transitions), pushes, and re-runs the chain-targeted check after the commit (post-cascade verification). All three points are inside the script — the agent does not invoke the validator directly.
-2. **Mark ready.** `gh pr ready <pr-number>` flips the PR out of draft. CI re-runs under ready posture and should pass.
-
-The cascade script is the load-bearing element: it invokes `shirabe validate --lifecycle-chain {{PLAN_DOC}} --mode=ready` at the pre-probe (expecting failure on the present PLAN) and post-verify (expecting clean pass after the commit) points, parses exit codes deterministically, and fails fast on unexpected outcomes. If the pre-probe sees a clean pass — the chain is already at its ready-posture terminal — the script emits `cascade_status: skipped` and exits 0 without performing any transitions. If the post-verify sees a failure, the script logs the validator's output and emits `cascade_status: partial`.
-
-The cascade script walks the `upstream` frontmatter chain from the PLAN doc and applies the appropriate lifecycle transition at each node: PLAN → DELETED, DESIGN → Current, PRD → Done, BRIEF → Done, ROADMAP feature status update, and optional ROADMAP → Done when all features complete. It emits a JSON result containing `cascade_status` (`completed | partial | skipped`) and a `steps` array describing what ran — including the `lifecycle_pre_probe` and `lifecycle_post_verify` steps when those points run.
-
-Submit `cascade_status` from the JSON output. All three values route to `ci_monitor`, which waits for the ready-posture CI run to land green on the now-ready PR.
-
-See `docs/decisions/DECISION-chain-targeted-lifecycle-cli-shape-2026-06-06.md` for the rationale on the `--lifecycle-chain` CLI flag the cascade invokes. See `docs/decisions/DECISION-cascade-trigger-mechanism-2026-06-06.md` for the rationale on running the cascade inline rather than as a workflow hook or new subcommand. See `docs/decisions/DECISION-lifecycle-strict-mode-interface-2026-06-06.md` for the rationale on the lifecycle posture interface (`--mode=draft|ready`, which superseded the original `--strict` flag) the cascade verifies against.
+The plan-level orchestrator — shared branch and draft PR, child spawning, cross-issue context assembly, escalation, PR finalization, and the completion cascade — now lives in `/execute` (`skills/execute/`). `/work-on` keeps only Plan-Backed Child Mode above, by which `/execute` delegates each single issue back to it.
 
 ---
 

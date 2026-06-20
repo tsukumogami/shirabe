@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run-cascade.sh — Post-implementation artifact lifecycle cascade
-# Part of the work-on skill
+# Part of the execute skill
 #
 # Walks the upstream frontmatter chain from a completed PLAN doc and brings each
 # node to its terminal lifecycle state. The tactical chain walk and per-node
@@ -514,8 +514,9 @@ handle_roadmap_deletion() {
         return 0
     fi
 
-    # Confirm all referenced GitHub issues are CLOSED. Reuses check_issue_closed
-    # which validates owner/repo against the origin remote.
+    # Confirm all referenced GitHub issues are CLOSED. Reuses check_issue_closed,
+    # which validates the owner/repo charset but does NOT enforce origin-equality
+    # (sibling-repo issue URLs in a coordinated effort are valid read-only targets).
     local all_closed=true
     local open_issue_url=""
     local issue_urls

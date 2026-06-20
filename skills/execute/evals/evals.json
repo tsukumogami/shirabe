@@ -1,0 +1,430 @@
+{
+  "skill_name": "execute",
+  "evals": [
+    {
+      "id": 1,
+      "name": "single-pr-plan-to-merged-pr-unchanged",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
+      "expected_output": "Agent reads execution_mode: single-pr from the PLAN frontmatter, re-validates it against {single-pr, coordinated, multi-pr}, runs the Step 1 preflight (scripts/preflight.sh) to assert the cross-skill work-on.md path resolves, then koto init execute-diamond-test with skills/execute/koto-templates/execute.md and PLAN_DOC set to the fixture path. Drives the orchestrator loop (orchestrator_setup -> spawn_and_await -> pr_finalization -> plan_completion) to a single merged PR. The agent does NOT edit the PLAN doc.",
+      "files": [],
+      "expectations": [
+        "Agent reads execution_mode: single-pr and re-validates it against {single-pr, coordinated, multi-pr} before path or branch interpolation",
+        "Agent runs the Step 1 preflight (scripts/preflight.sh) before spawning any child",
+        "Agent runs koto init with skills/execute/koto-templates/execute.md and PLAN_DOC pointing at the fixture",
+        "Agent drives the orchestrator loop through orchestrator_setup, spawn_and_await, pr_finalization, plan_completion to one merged PR",
+        "Agent does NOT edit or rewrite the PLAN doc to run it through /execute"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "dispatcher-multi-pr-one-issue-at-a-time",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on skills/execute/evals/fixtures/plans/PLAN-multi-pr-test.md",
+      "expected_output": "The /work-on dispatcher reads execution_mode: multi-pr, re-validates the enum, and routes in place: it selects the next unblocked issue from the PLAN (an issue is blocked while its Dependencies reference open issues), runs it as a single issue-backed unit against the repo-persisted PLAN, and lands its own PR. There is no shared branch and no cross-issue carry-forward. The dispatcher does NOT hand off to /execute and does NOT run the whole plan at once.",
+      "files": [],
+      "expectations": [
+        "Agent reads execution_mode: multi-pr from the PLAN frontmatter and re-validates the enum",
+        "Agent selects the next unblocked issue (first issue with no open blocking dependency)",
+        "Agent runs that single issue in place as an issue-backed unit, landing its own PR",
+        "Agent does NOT hand off a multi-pr PLAN to /execute",
+        "Agent does NOT create a shared branch or assemble cross-issue carry-forward for multi-pr"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "legacy-four-column-table-parse",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-legacy-four-column-test.md",
+      "expected_output": "The PLAN's Implementation Issues table uses the historic four-column shape (Issue | Title | Dependencies | Complexity). The agent parses the two issues and their dependency (#2 blocked by #1) from the four-column rows without failing, folding the Title cell into the issue identity. It proceeds to read execution_mode: single-pr and drive the single-pr path. A four-column table is a tolerated legacy shape, not a parse failure.",
+      "files": [],
+      "expectations": [
+        "Agent recognizes the four-column Implementation Issues table (Issue | Title | Dependencies | Complexity) as a valid legacy shape",
+        "Agent parses both issues and the #2-blocked-by-#1 dependency from the four-column rows",
+        "Agent does NOT treat the legacy four-column table as a parse failure or refuse to run",
+        "Agent proceeds to read execution_mode: single-pr and drive the single-pr path"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "cross-skill-work-on-path-preflight",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- describe the preflight before any child is spawned",
+      "expected_output": "Before spawning any per-issue child, the agent runs the Step 1 preflight (bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/preflight.sh), which asserts the cross-skill work-on.md child template resolves at ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md (referenced relatively from the lifted template as ../../work-on/koto-templates/work-on.md). A non-zero exit halts the run with a clear message before any child is spawned. This is the Issue 1 preflight: the load-bearing cross-skill coupling guarded fail-closed.",
+      "files": [],
+      "expectations": [
+        "Agent runs scripts/preflight.sh as the Step 1 cross-skill preflight before spawning any child",
+        "Agent asserts the work-on.md child template resolves at ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md",
+        "Agent halts the run on a non-zero preflight exit rather than proceeding to spawn children",
+        "Agent treats the cross-skill path resolution as fail-closed (preflight before any child dispatch)"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "parity-drift-gate-intent-changing-halts",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-orchestrator",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
+      "expected_output": "The orchestrator reaches worktree_discipline_check after orchestrator_setup. The agent runs git fetch origin && git rebase origin/main, classifies the upstream impact per skills/work-on/references/phases/phase-2.5-worktree-discipline.md, and writes wip/work-on_<PLAN_SLUG>_impact.json. The impact is intent-changing: main advanced in a way that invalidates the PLAN's intent. The agent submits impact: intent-changing with a rationale. The workflow routes to escalate_upstream_drift -> done_blocked carrying the upstream-drift failure_reason. Children are NEVER dispatched because the per-child loop runs only after worktree_discipline_check classifies impact as none or informational. This is the drift gate carried over by the lifted template firing under /execute.",
+      "files": [],
+      "expectations": [
+        "Agent fetches origin and rebases on main before classifying impact",
+        "Agent writes wip/work-on_<PLAN_SLUG>_impact.json with the impact classification",
+        "Agent submits impact: intent-changing with a rationale (rationale required for this branch)",
+        "Workflow routes to escalate_upstream_drift -> done_blocked (children NOT dispatched)",
+        "failure_reason includes the rationale and the worktree_discipline_check origin",
+        "The drift gate fires under /execute exactly as the lifted template carried over (caught mid-chain, not at PR finalization)"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "parity-drift-gate-absorbs-non-intent-changing",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-orchestrator",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- main advanced in unrelated files",
+      "expected_output": "The orchestrator reaches worktree_discipline_check. The agent runs git fetch + rebase and classifies impact as none (main did not advance in directories the PLAN touches) or informational (advanced but the changes do not invalidate the PLAN's intent -- docs-only edits, unrelated test additions). The agent submits impact: none or impact: informational, records the classification in wip/work-on_<PLAN_SLUG>_impact.json for audit, and the workflow routes forward to spawn_and_await without escalation. The per-child dispatch proceeds normally. This is the drift gate ABSORBING a non-intent-changing base-branch change under /execute.",
+      "files": [],
+      "expectations": [
+        "Agent submits impact: none OR impact: informational for a non-intent-changing base-branch change",
+        "Workflow routes to spawn_and_await (per-child dispatch proceeds) with no escalation",
+        "wip/work-on_<PLAN_SLUG>_impact.json records the classification for audit",
+        "The drift gate absorbs the non-intent-changing change under /execute rather than halting"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "parity-cross-issue-carry-forward",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- dispatching issue 3 after issues 1 and 2 completed",
+      "expected_output": "Before dispatching the child for issue 3 (blocked by issues 1 and 2), the agent reads ALL prior completed children's summaries via koto context get and writes a combined current-context.md to the new child's context. It includes context from every completed child (issues 1 AND 2), not just the immediately preceding one. The agent does not dispatch the next child without first assembling cross-issue context. This is cross-issue carry-forward observable across two issues of a single-pr plan under /execute.",
+      "files": [],
+      "expectations": [
+        "Agent reads prior completed children's summaries via koto context get before dispatching the next child",
+        "Agent writes a combined current-context.md to the dispatched child's context",
+        "Agent includes context from ALL completed children (issues 1 and 2), not just the immediately preceding one",
+        "Agent does NOT dispatch a new child without first assembling cross-issue context",
+        "Cross-issue carry-forward is observable across two completed issues of a single-pr plan under /execute"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "parity-failed-issue-skips-dependents",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- issue 3 (wire auth to user model) fails",
+      "expected_output": "When the child for issue 3 reaches done_blocked, koto's failure_policy: skip_dependents marks issue 4 (e2e auth flow, blocked by issue 3) as skipped -- it enters with mode: skipped and routes directly to skipped_due_to_dep_failure without doing implementation work. The orchestrator submits batch_outcome: needs_attention and routes to escalate, where it reads batch_final_view, names the failed child and the skipped dependent (with its skipped_because_chain), and writes a failure_reason. It does NOT retry the failed child. A failed issue skips its dependents under /execute.",
+      "files": [],
+      "expectations": [
+        "Agent recognizes that a failed issue (issue 3 done_blocked) causes its dependent (issue 4) to be skipped via failure_policy: skip_dependents",
+        "Agent understands the skipped dependent enters with mode: skipped and routes to skipped_due_to_dep_failure without implementation work",
+        "Agent submits batch_outcome: needs_attention and routes to escalate (not pr_finalization)",
+        "Agent names the failed child and the skipped dependent (with skipped_because_chain) in the failure_reason",
+        "Agent does NOT retry the failed child"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "parity-finalization-cascade-atomic",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "e2e-cascade-short",
+      "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-short.md",
+      "expected_output": "The agent runs ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/run-cascade.sh --push on PLAN-cascade-test-short.md. The cascade runs the pre-cascade probe (expects a strict-mode failure naming the present PLAN), performs the atomic finalization commit (PLAN deletion + DESIGN transition to Current + ROADMAP Feature 1 Status to Done and Downstream pointed at the DESIGN at Current), pushes, and runs the post-cascade verification (expects a clean pass) -- all three points inside the script. cascade_status is completed. The cascade runs as one atomic finalization commit before the PR flips ready (DRAFT-before-READY). This is the finalization cascade running atomically under /execute (the relocated script copy).",
+      "files": [
+        "skills/execute/evals/fixtures/plans/PLAN-cascade-test-short.md",
+        "skills/execute/evals/fixtures/designs/DESIGN-cascade-test-short.md",
+        "skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md"
+      ],
+      "expectations": [
+        "Agent runs skills/execute/scripts/run-cascade.sh --push (the relocated /execute cascade copy), not the work-on path",
+        "DESIGN-cascade-test-short.md is MOVED to its Current folder (docs/designs/current/) — a folder move, not only a status-field flip",
+        "ROADMAP-cascade-test.md Feature 1 Status is updated to Done and Downstream references the DESIGN at Current",
+        "The PLAN deletion (git rm; PLAN no longer on disk) and the DESIGN/ROADMAP transitions land in one atomic finalization commit",
+        "cascade_status is completed"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "coordinated-cross-unit-carry-forward",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coordinated-test.md -- the PLAN's execution_mode is coordinated",
+      "expected_output": "The agent reads execution_mode: coordinated, re-validates the enum, and runs the plain durable-state track-to-merge-last loop. The durable state lives on the coordination PR (its PR-Index and fenced merge-order block), NOT a shared branch. Cross-unit carry-forward between issue 1 (library repo) and issue 2 (app repo, blocked by issue 1) flows through the coordination PR's durable state -- the coordinated payload, which is not inherited from the single-pr shared-branch path. Each pass refreshes from live gh, re-authors the coordination body and re-validates with shirabe validate --coordination-body, walks the merge-order DAG dispatching each unblocked PR node to work-on.md per repo, and re-gates with shirabe validate --merge-gate. The agent does NOT write across a repo boundary.",
+      "files": [],
+      "expectations": [
+        "Agent reads execution_mode: coordinated and re-validates the enum before path interpolation",
+        "Agent runs the plain durable-state track-to-merge-last loop (not a koto plan session)",
+        "Agent recognizes cross-unit carry-forward flows through the coordination PR's durable state, NOT a shared branch",
+        "Agent dispatches each unblocked PR node to work-on.md per repo on that repo's own branch",
+        "Agent re-gates with shirabe validate --merge-gate and does NOT write across a repo boundary"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "execute-plan-all-success",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
+      "expected_output": "Agent detects a single-pr PLAN, initializes skills/execute/koto-templates/execute.md (not work-on.md), runs plan-to-tasks.sh to produce tasks JSON, submits tasks to koto via --with-data, monitors children, and when all succeed submits batch_outcome: all_success, routes to pr_finalization (updates PR description), then plan_completion (runs the cascade via skills/execute/scripts/run-cascade.sh and marks the PR ready), then ci_monitor where strict-mode CI passes on the finalized chain.",
+      "files": [],
+      "expectations": [
+        "Agent initializes skills/execute/koto-templates/execute.md template (not work-on.md) for the PLAN input",
+        "Agent creates a shared branch (impl/<plan-slug>) and a draft PR in orchestrator_setup before spawning children",
+        "Agent runs plan-to-tasks.sh to produce tasks JSON and injects SHARED_BRANCH into each task's vars",
+        "Agent submits batch_outcome: all_success when all children succeed and routes to pr_finalization",
+        "Agent updates the PR description in pr_finalization but does NOT mark the PR ready in that state",
+        "Agent routes from pr_finalization to plan_completion, which runs the cascade (skills/execute/scripts/run-cascade.sh) and marks the PR ready via gh pr ready, then routes to ci_monitor"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "execute-plan-needs-attention",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- one child fails",
+      "expected_output": "Agent detects a single-pr PLAN, initializes execute.md, runs plan-to-tasks.sh, monitors children. One child reaches done_blocked. Agent submits batch_outcome: needs_attention and routes to escalate state. In escalate, agent reads batch_final_view, writes failure_reason summary with the failed child name and reason, then routes to done_blocked. The run terminates through the abandonment-forced exit path with the forced-stop operator summary.",
+      "files": [],
+      "expectations": [
+        "Agent submits batch_outcome: needs_attention when a child reaches done_blocked",
+        "Agent routes to escalate state (not pr_finalization) when needs_attention",
+        "Agent reads batch_final_view in escalate state for per-child failure details",
+        "Agent includes failure_reason from batch_final_view in the summary",
+        "Agent routes to done_blocked after escalate (no retry) and records the abandonment-forced forced-stop summary"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "execute-cross-issue-context",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- dispatching child N+1 after child N completed",
+      "expected_output": "Before dispatching child N+1, agent reads completed children's summaries via koto context get and writes combined current-context.md to the new child's context. Does not skip this step even when only one prior child has completed.",
+      "files": [],
+      "expectations": [
+        "Agent reads prior completed children's summaries via koto context get before dispatching the next child",
+        "Agent writes combined current-context.md to the dispatched child's context",
+        "Agent includes context from ALL completed children (not just the immediately preceding one)",
+        "Agent does NOT dispatch a new child without first assembling cross-issue context"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "execute-plan-detection-from-path",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
+      "expected_output": "Agent detects PLAN.md path input and plans to use skills/execute/koto-templates/execute.md template (not work-on.md). Plans to init koto with the lifted template and PLAN_DOC variable, then pipe plan-to-tasks.sh output to koto next. Does not call gh issue view for a PLAN.md input.",
+      "files": [],
+      "expectations": [
+        "Agent detects the PLAN.md path and uses the lifted execute plan template (not work-on.md, not issue-backed or free-form)",
+        "Agent initializes skills/execute/koto-templates/execute.md template with a PLAN_DOC variable",
+        "Agent runs plan-to-tasks.sh to generate tasks JSON from the PLAN doc",
+        "Agent pipes plan-to-tasks.sh output to koto next via --with-data",
+        "Agent does NOT call gh issue view for a PLAN.md input"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "e2e-execute-happy-path",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "e2e-plan-happy",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
+      "expected_output": "Agent detects the PLAN.md path, initializes skills/execute/koto-templates/execute.md template with PLAN_DOC var, runs plan-to-tasks.sh on the fixture to produce tasks JSON, submits tasks to koto. Then receives pr_finalization state, reads batch_final_view via koto context get, assembles PR description with per-child outcomes, updates the PR (but does NOT mark it ready in this state), and submits finalization_status: updated. The next state (plan_completion) marks the PR ready.",
+      "files": [],
+      "expectations": [
+        "Agent initializes skills/execute/koto-templates/execute.md template (not work-on.md) for the PLAN input",
+        "Agent handles pr_finalization state by reading batch_final_view via koto context get",
+        "Agent assembles PR description including per-child name and outcome fields",
+        "Agent does NOT mark the PR ready in pr_finalization state (gh pr ready is deferred to plan_completion)",
+        "Agent submits finalization_status: updated after assembling and updating the PR description"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "e2e-execute-escalate-recovery",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "e2e-plan-escalate",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
+      "expected_output": "Agent initializes or resumes the execute-plan workflow, receives escalate state. Reads batch_final_view via koto context get, identifies the failed child (outline-feat-wire-auth-to-user-model) and the skipped child (outline-test-e2e-auth-flow with its dependency chain). Writes a failure_reason summary naming both children and submits it. Does not attempt to retry failed children.",
+      "files": [],
+      "expectations": [
+        "Agent receives escalate state and attempts to read batch_final_view via koto context get",
+        "Agent identifies failed child outline-feat-wire-auth-to-user-model and its reason from batch_final_view",
+        "Agent identifies skipped child outline-test-e2e-auth-flow and its skipped_because_chain",
+        "Agent submits failure_reason field with a summary naming the failed and skipped children",
+        "Agent does NOT attempt to retry failed children (no restart loop)"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "e2e-execute-resume",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "e2e-resume-plan",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
+      "expected_output": "Agent calls koto workflows, finds an active execute-plan workflow, resumes with koto next (NOT koto init). Receives spawn_and_await state indicating 2 of 4 children are still pending. Agent monitors remaining children without re-running plan-to-tasks.sh or re-submitting tasks.",
+      "files": [],
+      "expectations": [
+        "Agent calls koto workflows to check for active workflows before calling koto init",
+        "Agent detects an active execute-plan workflow and decides to resume rather than re-init",
+        "Agent calls koto next (not koto init) to resume the workflow",
+        "Agent does NOT re-run plan-to-tasks.sh or re-submit tasks when resuming a workflow with children already dispatched",
+        "Agent recognizes spawn_and_await state as indicating children are still being processed"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "execute-plan-completion-cascade",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "After pr_finalization completes for an /execute plan run, what does the plan_completion state do?",
+      "expected_output": "Agent invokes ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/run-cascade.sh --push {{PLAN_DOC}}, reads cascade_status from the JSON output, marks the PR ready via gh pr ready, and submits cascade_status to koto. The cascade script runs the chain-targeted lifecycle check internally at the pre-cascade probe and post-cascade verification points; the agent does not invoke the validator directly. The cascade runs BEFORE gh pr ready so CI re-runs on the ready_for_review event in strict mode against the finalized chain (DRAFT-before-READY).",
+      "files": [],
+      "expectations": [
+        "Agent invokes skills/execute/scripts/run-cascade.sh --push {{PLAN_DOC}} as the cascade step rather than executing the cascade steps individually",
+        "Agent does NOT invoke shirabe validate directly; the cascade script runs the chain-targeted check internally",
+        "Agent marks the PR ready via gh pr ready as the final step of plan_completion (after the cascade lands)",
+        "Agent reads cascade_status from the JSON output emitted by run-cascade.sh",
+        "Agent submits cascade_status to koto (completed, partial, or skipped) and does NOT manually git rm the PLAN doc or run shirabe transition directly"
+      ]
+    },
+    {
+      "id": 19,
+      "name": "e2e-execute-cascade-design-roadmap",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "e2e-cascade-short",
+      "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-short.md",
+      "expected_output": "Agent runs skills/execute/scripts/run-cascade.sh --push on PLAN-cascade-test-short.md. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-short.md to Current, updates the ROADMAP-cascade-test.md Feature 1 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed.",
+      "files": [
+        "skills/execute/evals/fixtures/plans/PLAN-cascade-test-short.md",
+        "skills/execute/evals/fixtures/designs/DESIGN-cascade-test-short.md",
+        "skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md"
+      ],
+      "expectations": [
+        "Agent runs skills/execute/scripts/run-cascade.sh (the relocated /execute copy)",
+        "PLAN-cascade-test-short.md is DELETED by the cascade (git rm; the file no longer exists on disk)",
+        "DESIGN-cascade-test-short.md is MOVED to its Current folder (docs/designs/current/) — a folder move, not only a status-field flip",
+        "ROADMAP-cascade-test.md Feature 1 Status is updated to Done",
+        "ROADMAP-cascade-test.md Feature 1 Downstream references the DESIGN doc at Current",
+        "cascade_status is completed"
+      ]
+    },
+    {
+      "id": 20,
+      "name": "e2e-execute-cascade-design-prd-roadmap",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "e2e-cascade-full",
+      "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
+      "expected_output": "Agent runs skills/execute/scripts/run-cascade.sh --push on PLAN-cascade-test-full.md. The chain is PLAN -> DESIGN -> PRD -> BRIEF -> ROADMAP. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-full.md to Current (folder move into docs/designs/current/), transitions PRD-cascade-test-full.md to Done, transitions BRIEF-cascade-test-full.md to Done, updates ROADMAP-cascade-test.md Feature 2 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed.",
+      "files": [
+        "skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
+        "skills/execute/evals/fixtures/designs/DESIGN-cascade-test-full.md",
+        "skills/execute/evals/fixtures/prds/PRD-cascade-test-full.md",
+        "skills/execute/evals/fixtures/briefs/BRIEF-cascade-test-full.md",
+        "skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md"
+      ],
+      "expectations": [
+        "Agent runs skills/execute/scripts/run-cascade.sh (the relocated /execute copy)",
+        "PLAN-cascade-test-full.md is DELETED by the cascade (git rm; the file no longer exists on disk)",
+        "DESIGN-cascade-test-full.md is MOVED to its Current folder (docs/designs/current/) — a folder move, not only a status-field flip",
+        "PRD-cascade-test-full.md is transitioned to Done",
+        "BRIEF-cascade-test-full.md is transitioned to Done",
+        "ROADMAP-cascade-test.md Feature 2 Status is updated to Done",
+        "ROADMAP-cascade-test.md Feature 2 Downstream references the DESIGN doc at Current",
+        "cascade_status is completed"
+      ]
+    },
+    {
+      "id": 21,
+      "name": "execute-ci-monitor-dirty-merge-state-routing",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-orchestrator",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
+      "expected_output": "The orchestrator reaches ci_monitor on the shared impl/diamond-test branch. gh pr view --json mergeStateStatus --jq .mergeStateStatus returns DIRTY (merge conflicts; GitHub suppressed new check-runs). The merge_state_clean gate fails. The ci_passing gate command evaluates length == 0 against zero check-runs and returns true -- the agent does NOT loop on ci_passing because this is the silent-success surface. Instead the agent submits ci_outcome: dirty_merge_state with rationale naming the conflict files. The workflow routes to escalate_dirty_merge_state -> done_blocked carrying the DIRTY failure_reason 'ci_monitor: PR merge state is DIRTY; checks suppressed.' The koto state machine does not retry automatically; the operator must rebase.",
+      "files": [],
+      "expectations": [
+        "Agent observes gh pr view --json mergeStateStatus returning DIRTY",
+        "Agent submits ci_outcome: dirty_merge_state (NOT ci_outcome: passing, even though ci_passing gate returns length == 0)",
+        "Agent's rationale names the conflict files for operator recovery",
+        "Workflow routes to escalate_dirty_merge_state -> done_blocked",
+        "failure_reason includes 'ci_monitor: PR merge state is DIRTY; checks suppressed.'",
+        "The koto state machine does not retry automatically; the operator must rebase"
+      ]
+    },
+    {
+      "id": 22,
+      "name": "coordinated-effort-syncs-as-per-repo-prs-progress",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coordinated-test.md -- the PLAN's execution_mode is coordinated",
+      "expected_output": "Agent detects execution_mode: coordinated and runs the coordinated track-to-merge-last loop. As per-repo PRs open and progress, the agent re-authors the coordination PR body itself on each pass -- recomputing the durable PR-index and the merge-order from live gh against the template in references/coordination-strategy.md and posting it with gh pr edit -- and calls shirabe validate --merge-gate as the merge-last check. There is no shirabe coordination subcommand: the body is skill-authored, and shirabe validate --coordination-body checks it offline. The shirabe validate mode args and their fail-closed behavior are owned by the CLI; the agent binds to references/coordination-strategy.md and does not restate the contract.",
+      "files": [],
+      "expectations": [
+        "Agent detects execution_mode: coordinated and runs the coordinated track-to-merge-last loop",
+        "Agent re-authors the coordination PR body on each pass (recomputing the durable index and merge-order from live gh against the template, posting with gh pr edit) rather than calling a coordination subcommand",
+        "Agent calls shirabe validate --merge-gate as the merge-last check before the coordination PR can merge",
+        "Agent binds to ${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md and does NOT restate the contract or the validate-mode fail-closed behavior",
+        "Agent does NOT write across a repo boundary; the cross-repo boundary is the read-only verification gate"
+      ]
+    },
+    {
+      "id": 23,
+      "name": "coordinated-merge-last-gate-blocks-while-pr-unmerged",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coordinated-test.md -- coordinated effort where one indexed per-repo PR is still open",
+      "expected_output": "Agent runs shirabe validate --merge-gate, which recomputes merge state from authoritative live gh api queries at gate time (never by parsing the editable PR body). One indexed per-repo PR is still open, so the merge-last gate fails and the coordination PR is kept unmerged. The gate fails closed: any PR it cannot resolve is treated as not-merged. The non-bypassable lifecycle.yml strict-mode check (draft == false trigger) is the backstop that keeps the coordination PR unmerged while any indexed PR is open or finalization is incomplete. A coordination step that cannot complete halts and surfaces the error rather than advancing. The agent does not merge the coordination PR while any indexed PR is unmerged.",
+      "files": [],
+      "expectations": [
+        "Agent runs shirabe validate --merge-gate, recomputing merge state from live gh api queries at gate time, never from the editable PR body",
+        "Agent recognizes the merge-last gate FAILS while any indexed per-repo PR is unmerged, keeping the coordination PR unmerged",
+        "Agent understands the gate fails closed: any unresolvable PR is treated as not-merged",
+        "Agent identifies the non-bypassable lifecycle.yml strict-mode check (draft == false trigger) as the merge-last backstop",
+        "Agent halts and surfaces the error on a coordination step that cannot complete rather than advancing, and does NOT merge the coordination PR while any indexed PR is unmerged"
+      ]
+    },
+    {
+      "id": 24,
+      "name": "coordination-intent-absent-behavior-unchanged-r3",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- the PLAN is single-pr (no coordination intent)",
+      "expected_output": "The PLAN's execution_mode is single-pr and no coordination intent is signaled. Per R3 the coordination capability is ADDITIVE: /execute runs the single-pr path exactly as before -- one repo, one shared branch, one PR, no coordination-body refresh, no cross-repo gate. The agent does NOT author a coordination PR body or run shirabe validate --coordination-body / --merge-gate, and does NOT add coordination prompts or a merge-last gate. The coordinated path applies only when the PLAN is coordinated.",
+      "files": [],
+      "expectations": [
+        "Agent resolves coordination intent as ABSENT (execution_mode single-pr, no coordinated signal)",
+        "Agent runs the single-pr path exactly as before: one repo, one shared branch, one PR",
+        "Agent does NOT author a coordination PR body or run shirabe validate --coordination-body / --merge-gate when intent is absent",
+        "Agent does NOT add coordination prompts, cross-repo gate, or merge-last behavior on the intent-absent path",
+        "Agent confirms R3 additivity: the coordination capability changes nothing for a single-pr PLAN"
+      ]
+    },
+    {
+      "id": 25,
+      "name": "execute-re-evaluation-exit",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- a child surfaces that an upstream DESIGN must change before the plan can proceed (an upstream-must-change boundary)",
+      "expected_output": "Agent recognizes an upstream-must-change boundary: an upstream artifact (PRD or DESIGN) must change before the plan can proceed. Per R2/R19 this is a genuine blocker that routes to the re-evaluation exit, not full-run and not abandonment-forced. The agent writes a Decision Record under docs/decisions/ with its boundary set and does NOT re-execute -- it stops at the boundary rather than driving issues against an upstream that must move first. It sets exit: re-evaluation and records the Decision Record path in exit_artifacts.",
+      "files": [],
+      "expectations": [
+        "Agent classifies the upstream-must-change boundary as the re-evaluation exit (not full-run, not abandonment-forced)",
+        "Agent writes a Decision Record under docs/decisions/ with its boundary set",
+        "Agent does NOT re-execute or drive further issues against the upstream that must change first",
+        "Agent sets exit: re-evaluation and records the Decision Record path in exit_artifacts"
+      ]
+    }
+  ]
+}

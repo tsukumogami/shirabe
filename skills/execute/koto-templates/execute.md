@@ -1,5 +1,5 @@
 ---
-name: work-on-plan
+name: execute
 version: "1.0"
 description: >
   Plan orchestrator template. Creates a shared branch and draft PR, spawns
@@ -91,7 +91,7 @@ states:
     materialize_children:
       from_field: tasks
       failure_policy: skip_dependents
-      default_template: work-on.md
+      default_template: ../../work-on/koto-templates/work-on.md
     transitions:
       # Gate guards ensure children are complete; evidence routes success vs attention.
       - target: pr_finalization
@@ -264,6 +264,19 @@ A worktree-discipline check classified the upstream impact as `intent-changing` 
 
 Spawn and coordinate per-issue work-on children from the PLAN document.
 
+**Autonomy at every tick.** When the run is authorized autonomous (the `--auto` flag
+or a clear author instruction, per the SKILL's **Autonomy** section), drive this state
+to its terminal continuously: do NOT pause between children to advise a checkpoint,
+seek confirmation or reassurance, or stop because issues remain, the work is large, or
+out of concern for context budget. The coordinator stays thin by delegating each issue
+to a fresh `work-on.md` child and reading only status, so its context lasts the whole
+run. Stop ONLY on a genuine blocker (a child that fails/blocks needing human judgment
+and cannot be isolated by skip-dependents, an upstream-must-change boundary, a merge
+conflict or dirty state, or a destructive action needing confirmation) and emit the
+forced-stop operator summary. A decision with a reasonable default is NOT a blocker:
+take the default, record it in the decision log, continue. In interactive mode the
+existing approval behavior is unchanged.
+
 **Tick 1 — spawn**: run `plan-to-tasks.sh`, inject the shared branch into each task's vars, then submit `tasks`:
 
 ```bash
@@ -276,7 +289,7 @@ koto next {{SESSION_NAME}} --with-data @"$TMP"
 rm -f "$TMP"
 ```
 
-koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches.
+koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches. After each child completes and before dispatching the next, run the context assembly step in `references/cross-issue-context.md` so each child sees what prior children found, decided, or changed.
 
 **Tick 2 — complete**: once all children reach terminal states, the `batch_done` gate unblocks. Inspect child outcomes via `koto workflows`, determine `batch_outcome`, then re-submit the same `tasks` array alongside it — koto deduplicates children that already exist:
 
@@ -332,12 +345,12 @@ The PR's merge state is DIRTY (conflicts with the target branch); GitHub has sup
 
 Run the completion cascade that pulls the chain to its strict-mode passing state, then mark the PR ready. The DRAFT-vs-READY discipline (#117) requires this ordering: cascade BEFORE `gh pr ready` so the CI re-run on the `ready_for_review` event sees the chain at its terminal.
 
-The state runs two steps. The cascade script is the load-bearing element for the lifecycle verification — it invokes `shirabe validate --lifecycle-chain {{PLAN_DOC}} --strict` internally at the pre-cascade probe and post-cascade verification points, parses exit codes deterministically, and fails fast on unexpected outcomes. The agent does not invoke the validator directly.
+The state runs two steps. The cascade script is the load-bearing element for the lifecycle verification — it invokes `shirabe validate --lifecycle-chain {{PLAN_DOC}} --mode=ready` internally at the pre-cascade probe and post-cascade verification points, parses exit codes deterministically, and fails fast on unexpected outcomes. The agent does not invoke the validator directly.
 
 **Step 1: Run the cascade.** `run-cascade.sh --push` runs the pre-cascade probe (expects a strict-mode failure naming the present PLAN), performs the atomic finalization commit (PLAN deletion + BRIEF/PRD/DESIGN transitions), pushes, and runs the post-cascade verification (expects a clean pass). All three points are inside the script. The cascade also runs `handle_roadmap_deletion` which transitions the ROADMAP Active -> Done and `git rm`s the file in the same atomic finalization commit, gated by all-features-Done AND all-referenced-issues-closed.
 
 ```bash
-RESULT=$(${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}})
+RESULT=$(${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/run-cascade.sh --push {{PLAN_DOC}})
 CASCADE_STATUS=$(echo "$RESULT" | jq -r '.cascade_status')
 ```
 

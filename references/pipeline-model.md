@@ -119,9 +119,12 @@ Each artifact's `upstream` field points to its parent. The chain enables:
 - Tracing an implementation issue back to its strategic justification
 - Completion cascades (when issues close, propagate status upstream)
 
-When a plan runs through `/work-on PLAN-*.md` and CI passes on the
-orchestrator's ready PR, `/work-on` runs the completion cascade as its final
-step before `done`. A single script (`run-cascade.sh --push`) walks the
+Plan-level execution (both single-pr and coordinated modes) and the completion
+cascade are owned by `/execute`. `/work-on` is the single-issue engine plus an
+execution_mode dispatcher: it runs multi-pr in place and hands single-pr and
+coordinated plans to `/execute`. When a plan runs through `/execute PLAN-*.md`
+and CI passes on the orchestrator's ready PR, `/execute` runs the completion
+cascade as its final step before `done`. A single script (`run-cascade.sh --push`) walks the
 `upstream` chain from the PLAN doc and applies the right transition at each
 node: DESIGN moves to Current (with the Implementation Issues section
 compressed out), PRD moves to Done, the ROADMAP feature entry is updated,
@@ -131,7 +134,7 @@ artifact transitions` onto the open PR, so the PR merges with the upstream
 artifacts already advanced — there is no post-merge trigger. Cascade
 failures are best-effort: they don't block the PR, and the script emits a
 JSON result recording which steps ran. See
-`skills/work-on/scripts/run-cascade.sh` for the implementation and
+`skills/execute/scripts/run-cascade.sh` for the implementation and
 `docs/designs/current/DESIGN-completion-cascade.md` for the design.
 
 For cross-repo traceability and the visibility-direction rules, see
@@ -150,7 +153,7 @@ skills apply and in what order.
 |-----------|---------------|
 | Trivial fix (typo, config) | /work-on directly |
 | Simple task with issue | /work-on -> /release |
-| Full plan ready to ship | /work-on PLAN-*.md (plan orchestrator) -> /release |
+| Full plan ready to ship | /execute PLAN-*.md (plan orchestrator) -> /release |
 | Known approach, design decisions exist | /design -> /plan -> /work-on |
 | Shape unclear, multiple unknowns | /explore -> (crystallize) -> /prd or /design -> /plan -> /work-on |
 | New project, thesis needed | /explore --strategic -> /vision -> /roadmap -> per-feature pipeline |

@@ -242,7 +242,7 @@ On PLAN `Done`, the cascade walks the upstream chain:
 - ROADMAP (if upstream): feature status update; if all features
   complete, ROADMAP `Active -> Done`.
 
-The cascade is executed by `skills/work-on/scripts/run-cascade.sh`
+The cascade is executed by `skills/execute/scripts/run-cascade.sh`
 or by the implementing agent following the lifecycle script.
 
 ## Validation Rules
