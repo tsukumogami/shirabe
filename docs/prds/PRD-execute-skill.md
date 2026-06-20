@@ -173,6 +173,28 @@ regress.
   status read and the whole-plan done-signal. Creating the coordination home up front
   remains /scope's responsibility; /execute consumes it.
 
+### Autonomous execution
+
+- **R18.** Autonomous-execution mandate. When the author authorizes an autonomous
+  run (an explicit autonomy mode/flag, or a clear instruction such as "run
+  autonomously" or "don't stop"), /execute runs the plan to its done-signal or a
+  genuine blocker (R19) without pausing for checkpoints, confirmation, reassurance,
+  or unsolicited advisory stops. It MUST NOT stop merely because the work is large,
+  because many issues remain, or out of concern for its own context budget. In the
+  default (interactive) mode the existing human-approval behavior is unchanged; the
+  mandate governs the authorized-autonomous mode specifically.
+- **R19.** Blocker taxonomy. A genuine blocker that legitimately halts an autonomous
+  run is one of: a delegated issue that fails or is blocked in a way needing human
+  judgment and that cannot be auto-resolved or isolated via skip-dependents; an
+  upstream-must-change (re-evaluation) boundary; a merge conflict or dirty state
+  requiring human resolution; or a destructive or irreversible action requiring
+  confirmation. The following are explicitly NOT blockers and MUST NOT stop an
+  autonomous run: a decision that has a reasonable default (take the default, record
+  it, continue); the size or remaining count of the work; or the coordinator's own
+  context budget — which the delegation architecture (R6, R15) keeps bounded by
+  design. On a genuine blocker, /execute stops with the forced-stop operator summary
+  (R13); it does not stop otherwise.
+
 ### Inspection and progress
 
 - **R15.** /execute inspects issue, pull-request, and unit state only through status
@@ -228,6 +250,14 @@ regress.
 - [ ] /execute passes the parent-skill conformance checks defined in the parent-skill
   pattern references (state schema, resume ladder, three exit names, security
   surfaces).
+- [ ] An authorized autonomous run drives a multi-issue plan from start to the
+  done-signal with no intermediate approval, checkpoint, or reassurance prompt.
+- [ ] An autonomous run that hits a genuine blocker (a delegated issue fails needing
+  human judgment) stops with the forced-stop operator summary; an autonomous run that
+  hits a defaultable decision takes the default, records it, and continues without
+  stopping.
+- [ ] An autonomous run does not stop due to plan size, remaining-issue count, or
+  coordinator-context concern.
 
 ## Out of Scope
 
@@ -265,6 +295,15 @@ regress.
   multi-pr.** This keeps the parity guardrail satisfied: multi-pr issues are
   independent and never carried forward, so per-issue-only artifacts are correct
   there, while single-pr and coordinated keep the carry-forward value.
+- **D6 — True autonomy is an explicit skill mandate, not just an architectural
+  property.** The coordinator-plus-ephemeral-teams architecture keeps the
+  coordinator's context bounded over an arbitrarily long run (it delegates each issue
+  to a fresh child and inspects only the metadata surface), which removes the main
+  driver of premature stopping. But the architecture alone is not sufficient: a model
+  driving the skill inherits a default caution that stops mid-run to "advise a
+  checkpoint." So the skill MUST explicitly forbid that (R18) and MUST name the narrow
+  set of genuine blockers (R19). This is the difference between a run that uses the
+  hours the author gave it and one that wastes them by stopping after the first step.
 - **D5 — Multi-pr execution is independent per-issue /work-on runs.** A multi-pr plan
   executes one issue at a time through /work-on against the repository-persisted PLAN
   doc, with no plan-level coordinator and no cross-issue state. Whether /work-on

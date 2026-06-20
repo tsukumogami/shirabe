@@ -204,6 +204,40 @@ Cross-unit carry-forward in coordinated mode flows through the coordination PR's
 durable state rather than a shared branch (there is no single branch across repos);
 the precise carry-forward payload is a plan-time detail (see Consequences).
 
+### Autonomous execution contract
+
+A coordinator-driven design is what makes hours-long autonomous runs feasible, and the
+skill must be explicit about the behavior or the model driving it reverts to a default
+caution that stops mid-run.
+
+**Why the architecture enables it.** /execute holds only the metadata surface — issue
+and PR status, the merge-gate result, child terminal states — and offloads every
+issue's real work to a fresh /work-on child (its own koto session, its own context).
+The coordinator's context therefore does not grow with the number of issues; a
+hundred-issue plan costs the coordinator roughly what a one-issue plan costs. This
+removes the dominant cause of premature stopping (the driver running low on context
+and bailing to "checkpoint").
+
+**Why the architecture is not sufficient.** Bounded context removes the cause, but a
+model driving the loop still tends to stop and seek reassurance on long work. So the
+skill carries an explicit mandate: when authorized to run autonomously, the
+orchestrator loop runs to the done-signal or a genuine blocker and does NOT pause for
+checkpoints, confirmation, reassurance, or unsolicited advisory stops, and does NOT
+stop because the work is large or out of context concern (PRD R18). The mandate lives
+in the SKILL prose and in the koto orchestrator-loop directives so it binds at every
+tick, not only at entry.
+
+**Blocker taxonomy.** A genuine blocker halts the run and emits the forced-stop
+operator summary: a child that fails or is blocked in a way needing human judgment and
+cannot be auto-resolved or isolated by skip-dependents; an upstream-must-change
+re-evaluation boundary; a merge conflict or dirty state needing human resolution; or a
+destructive/irreversible action requiring confirmation. Not blockers (must not stop):
+a decision with a reasonable default (take it, record it in the koto decision log,
+continue); the size or remaining count of the work; or the coordinator's own context
+budget. The autonomy mode rides the existing execution-mode surface (the --auto /
+interactive distinction the other shirabe skills carry, resolved flag > CLAUDE.md
+header > default); the default stays interactive so existing behavior is unchanged.
+
 ## Implementation Approach
 
 1. **Extract the orchestrator.** Move `work-on-plan.md`, orchestrator prose,

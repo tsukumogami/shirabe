@@ -77,10 +77,9 @@ koto init execute-<plan-slug> \
 
 ### Step 3 — Drive the orchestrator loop
 
-Drive the koto loop exactly as `/work-on`'s plan-orchestrator mode does — the lifted
-`execute-plan` template carries the same states. Read
-`${CLAUDE_PLUGIN_ROOT}/skills/work-on/SKILL.md` (Plan Mode section) for the
-orchestrator-loop mechanics this slice reuses verbatim:
+In autonomous mode, drive this loop continuously per the **Autonomy** section below — do not stop between issues to advise a checkpoint. Drive the koto loop over the lifted `execute-plan` template, which carries the
+orchestrator states (Issue 2 removed this machinery from `/work-on`; it lives here
+now). The states and their tick mechanics:
 
 - `orchestrator_setup` — create (or reuse, via `status: override`) the shared
   `impl/<slug>` branch and a draft PR.
@@ -96,6 +95,33 @@ Each per-issue child is a `/work-on` single-issue run on the shared branch; the
 narrowing of `/work-on` to single-issue-only (so it no longer carries the
 orchestrator) is Issue 2 and does not block this slice.
 
+## Autonomy
+
+`/execute` honors an explicit autonomy mode — the `--auto` flag, or a clear author
+instruction such as "run autonomously" or "don't stop" (resolved `flag > CLAUDE.md
+## Execution Mode: header > default interactive`).
+
+When authorized to run autonomously, the orchestrator loop (Step 3) runs to the
+done-signal or a genuine blocker and **does not** pause for checkpoints, confirmation,
+reassurance, or unsolicited advisory stops. It **does not** stop because the work is
+large, because issues remain, or out of concern for its own context budget: the
+coordinator stays thin by delegating each issue to a fresh `/work-on` child and reading
+only status, so its context lasts the whole run. Stopping mid-run to "advise a
+checkpoint" on an authorized autonomous run wastes the time the author set aside and is
+forbidden.
+
+**Genuine blockers that stop the run** (emit the forced-stop operator summary): a child
+that fails or blocks needing human judgment and cannot be auto-resolved or isolated by
+skip-dependents; an upstream-must-change boundary; a merge conflict or dirty state; a
+destructive or irreversible action needing confirmation.
+
+**Not blockers** (take the default, record it in the koto decision log, continue): a
+decision with a reasonable default; the size or remaining count of the work; the
+coordinator's own context budget.
+
+In default (interactive) mode the existing approval/checkpoint behavior is unchanged;
+the mandate governs the authorized-autonomous mode specifically.
+
 ## Team Shape
 
 Single-agent parent in this slice — no team is spawned at the `/execute` layer. The
@@ -110,4 +136,4 @@ paths, metadata-only inspection, security surfaces) is Issue 6.
 |------|------|
 | `skills/execute/koto-templates/work-on-plan.md` | the lifted `execute-plan` orchestrator template |
 | `skills/execute/scripts/preflight.sh` | Step 1 cross-skill preflight |
-| `${CLAUDE_PLUGIN_ROOT}/skills/work-on/SKILL.md` (Plan Mode) | orchestrator-loop mechanics reused by Step 3 |
+| `${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md` | the single-issue engine each child delegates to |

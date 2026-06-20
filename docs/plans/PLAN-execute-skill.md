@@ -146,6 +146,9 @@ and the six security surfaces.
   of untrusted PLAN-body content into emitted shell.
 - [ ] `shirabe validate` passes the parent-skill conformance checks (state schema,
   resume ladder, exit names, security surfaces).
+- [ ] The autonomy mandate is bound in the SKILL prose and the orchestrator-loop
+  directives: an authorized autonomous run drives to the done-signal or a genuine
+  blocker without checkpoint/reassurance stops (PRD R18/R19).
 
 **Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:5>>
 
