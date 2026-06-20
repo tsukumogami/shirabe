@@ -60,11 +60,11 @@ runs an existing single-pr PLAN to a single merged PR, delegating each issue to
 remove the plan-orchestrator, leaving `/work-on` a single-issue engine.
 
 **Acceptance Criteria**:
-- [ ] `/work-on <PLAN>` reads `execution_mode` and routes: multi-pr in place per
+- [x] `/work-on <PLAN>` reads `execution_mode` and routes: multi-pr in place per
   issue; single-pr and coordinated handed off to `/execute`.
-- [ ] `/work-on` no longer contains the plan-orchestrator; a single-issue invocation
+- [x] `/work-on` no longer contains the plan-orchestrator; a single-issue invocation
   behaves exactly as before.
-- [ ] `execution_mode` is enum-re-validated in the dispatcher before any path or
+- [x] `execution_mode` is enum-re-validated in the dispatcher before any path or
   branch interpolation.
 - [ ] `/work-on`'s existing PLAN-detection evals are repointed to the dispatcher
   behavior and pass.
