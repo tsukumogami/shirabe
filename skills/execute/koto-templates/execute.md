@@ -289,7 +289,7 @@ koto next {{SESSION_NAME}} --with-data @"$TMP"
 rm -f "$TMP"
 ```
 
-koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches.
+koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches. After each child completes and before dispatching the next, run the context assembly step in `references/cross-issue-context.md` so each child sees what prior children found, decided, or changed.
 
 **Tick 2 — complete**: once all children reach terminal states, the `batch_done` gate unblocks. Inspect child outcomes via `koto workflows`, determine `batch_outcome`, then re-submit the same `tasks` array alongside it — koto deduplicates children that already exist:
 
@@ -345,7 +345,7 @@ The PR's merge state is DIRTY (conflicts with the target branch); GitHub has sup
 
 Run the completion cascade that pulls the chain to its strict-mode passing state, then mark the PR ready. The DRAFT-vs-READY discipline (#117) requires this ordering: cascade BEFORE `gh pr ready` so the CI re-run on the `ready_for_review` event sees the chain at its terminal.
 
-The state runs two steps. The cascade script is the load-bearing element for the lifecycle verification — it invokes `shirabe validate --lifecycle-chain {{PLAN_DOC}} --strict` internally at the pre-cascade probe and post-cascade verification points, parses exit codes deterministically, and fails fast on unexpected outcomes. The agent does not invoke the validator directly.
+The state runs two steps. The cascade script is the load-bearing element for the lifecycle verification — it invokes `shirabe validate --lifecycle-chain {{PLAN_DOC}} --mode=ready` internally at the pre-cascade probe and post-cascade verification points, parses exit codes deterministically, and fails fast on unexpected outcomes. The agent does not invoke the validator directly.
 
 **Step 1: Run the cascade.** `run-cascade.sh --push` runs the pre-cascade probe (expects a strict-mode failure naming the present PLAN), performs the atomic finalization commit (PLAN deletion + BRIEF/PRD/DESIGN transitions), pushes, and runs the post-cascade verification (expects a clean pass). All three points are inside the script. The cascade also runs `handle_roadmap_deletion` which transitions the ROADMAP Active -> Done and `git rm`s the file in the same atomic finalization commit, gated by all-features-Done AND all-referenced-issues-closed.
 

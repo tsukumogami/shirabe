@@ -309,6 +309,13 @@ header > default); the default stays interactive so existing behavior is unchang
   rather than a shared branch; its exact payload (what one unit records for the next)
   is specified at plan time, where single-pr inherits the shared-branch carry-forward
   verbatim from the lifted template.
+- Coordinated-mode parity and autonomy are delivered honestly through the coordination
+  contract plus per-child /work-on mechanisms and SKILL prose — a plain durable-state
+  loop — not the koto state machine: so single-pr gets structural (state-machine)
+  enforcement of the drift gate, skip-dependents, and autonomy, while coordinated
+  relies on the coordination contract plus prose for the same behaviors. The unified
+  cross-repo koto session that would give coordinated the same structural enforcement
+  is the deferred amplifier-layer item.
 
 ### Mitigations / deferrals
 

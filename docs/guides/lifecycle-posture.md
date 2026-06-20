@@ -33,7 +33,7 @@ The shirabe-side callers wire the ready signal as follows:
 - `.github/workflows/lifecycle.yml` passes `--mode=ready` only when
   `github.event.pull_request.draft == false` (a PR marked ready-for-review).
   Draft PRs pass no mode flag, so the default draft posture applies.
-- `skills/work-on/scripts/run-cascade.sh` passes `--mode=ready` on its
+- `skills/execute/scripts/run-cascade.sh` passes `--mode=ready` on its
   chain probes. The cascade asserts the terminal posture as a forcing
   function: before transitions, the ready probe is expected to fail (the PLAN
   is still present); after transitions, it is expected to pass.

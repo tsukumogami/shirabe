@@ -173,6 +173,22 @@ regress.
   status read and the whole-plan done-signal. Creating the coordination home up front
   remains /scope's responsibility; /execute consumes it.
 
+### Inspection and progress
+
+- **R15.** /execute inspects issue, pull-request, and unit state only through status
+  surfaces (lifecycle status, content fingerprints, validator and merge-gate
+  results), never by reading child artifact bodies, and reports progress against the
+  whole plan.
+
+### Non-functional
+
+- **R16.** No value regression: every capability in R8–R13 has a corresponding,
+  verifiable behavior in /execute for the shapes it owns; the migration does not
+  ship lower value than current multi-issue execution.
+- **R17.** Mechanism-neutral requirements: these requirements state capabilities and
+  contracts, not the execution mechanism. Whether /execute's plan iteration uses koto
+  is a downstream design decision (see Decisions and Trade-offs).
+
 ### Autonomous execution
 
 - **R18.** Autonomous-execution mandate. When the author authorizes an autonomous
@@ -194,22 +210,6 @@ regress.
   context budget — which the delegation architecture (R6, R15) keeps bounded by
   design. On a genuine blocker, /execute stops with the forced-stop operator summary
   (R13); it does not stop otherwise.
-
-### Inspection and progress
-
-- **R15.** /execute inspects issue, pull-request, and unit state only through status
-  surfaces (lifecycle status, content fingerprints, validator and merge-gate
-  results), never by reading child artifact bodies, and reports progress against the
-  whole plan.
-
-### Non-functional
-
-- **R16.** No value regression: every capability in R8–R13 has a corresponding,
-  verifiable behavior in /execute for the shapes it owns; the migration does not
-  ship lower value than current multi-issue execution.
-- **R17.** Mechanism-neutral requirements: these requirements state capabilities and
-  contracts, not the execution mechanism. Whether /execute's plan iteration uses koto
-  is a downstream design decision (see Decisions and Trade-offs).
 
 ## Acceptance Criteria
 

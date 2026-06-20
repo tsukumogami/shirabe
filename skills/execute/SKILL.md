@@ -156,7 +156,8 @@ now). The states and their tick mechanics:
 - `spawn_and_await` — run `plan-to-tasks.sh` against the PLAN, inject `SHARED_BRANCH`
   into each task, submit `tasks`; koto materializes one child per issue using the
   cross-skill `work-on.md` (`default_template` in the lifted template).
-- cross-issue context assembly between children; escalation on blocked/skipped.
+- cross-issue context assembly between children (see
+  `references/cross-issue-context.md`); escalation on blocked/skipped.
 - `pr_finalization` — assemble the combined PR body.
 - `plan_completion` — run the finalization cascade
   (`${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/run-cascade.sh`, relocated into

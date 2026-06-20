@@ -189,7 +189,7 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- one child fails",
-      "expected_output": "Agent detects a single-pr PLAN, initializes work-on-plan.md, runs plan-to-tasks.sh, monitors children. One child reaches done_blocked. Agent submits batch_outcome: needs_attention and routes to escalate state. In escalate, agent reads batch_final_view, writes failure_reason summary with the failed child name and reason, then routes to done_blocked. The run terminates through the abandonment-forced exit path with the forced-stop operator summary.",
+      "expected_output": "Agent detects a single-pr PLAN, initializes execute.md, runs plan-to-tasks.sh, monitors children. One child reaches done_blocked. Agent submits batch_outcome: needs_attention and routes to escalate state. In escalate, agent reads batch_final_view, writes failure_reason summary with the failed child name and reason, then routes to done_blocked. The run terminates through the abandonment-forced exit path with the forced-stop operator summary.",
       "files": [],
       "expectations": [
         "Agent submits batch_outcome: needs_attention when a child reaches done_blocked",
@@ -409,6 +409,21 @@
         "Agent does NOT author a coordination PR body or run shirabe validate --coordination-body / --merge-gate when intent is absent",
         "Agent does NOT add coordination prompts, cross-repo gate, or merge-last behavior on the intent-absent path",
         "Agent confirms R3 additivity: the coordination capability changes nothing for a single-pr PLAN"
+      ]
+    },
+    {
+      "id": 25,
+      "name": "execute-re-evaluation-exit",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- a child surfaces that an upstream DESIGN must change before the plan can proceed (an upstream-must-change boundary)",
+      "expected_output": "Agent recognizes an upstream-must-change boundary: an upstream artifact (PRD or DESIGN) must change before the plan can proceed. Per R2/R19 this is a genuine blocker that routes to the re-evaluation exit, not full-run and not abandonment-forced. The agent writes a Decision Record under docs/decisions/ with its boundary set and does NOT re-execute -- it stops at the boundary rather than driving issues against an upstream that must move first. It sets exit: re-evaluation and records the Decision Record path in exit_artifacts.",
+      "files": [],
+      "expectations": [
+        "Agent classifies the upstream-must-change boundary as the re-evaluation exit (not full-run, not abandonment-forced)",
+        "Agent writes a Decision Record under docs/decisions/ with its boundary set",
+        "Agent does NOT re-execute or drive further issues against the upstream that must change first",
+        "Agent sets exit: re-evaluation and records the Decision Record path in exit_artifacts"
       ]
     }
   ]
