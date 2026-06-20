@@ -29,10 +29,11 @@ motivating_context: |
 Draft
 
 This brief frames the implementation-altitude coordinator and the responsibility
-split that comes with it, and stops before requirements. The downstream PRD owns
-the requirements; the downstream design owns the technical calls — whether the
-coordinator is a new skill or an in-place evolution, and whether its plan iteration
-uses koto or not.
+split that comes with it, and stops before requirements. The coordinator is a new
+skill: `/work-on` persists as the single-issue executor the coordinator delegates
+to, so there is nothing to rename. The downstream PRD owns the requirements; the
+downstream design owns the technical calls, including whether the coordinator's plan
+iteration uses koto or not.
 
 ## Problem Statement
 
@@ -135,8 +136,6 @@ pull requests have merged, and picks up at the next unit of work.
   home when one exists; providing that substrate is separate amplifier work.
 - The review-time redirect mechanism (changing course mid-execution in response to a
   human redirect). Separate downstream feature.
-- The technical call of whether this is a brand-new skill or an in-place evolution of
-  the existing implementation flow.
 
 ## Open Questions
 
