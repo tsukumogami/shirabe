@@ -4,22 +4,22 @@ status: Draft
 problem: |
   The implementation flow does double duty: one workflow both runs a single issue
   and iterates a whole plan of many issues. So there is no implementation-altitude
-  coordinator that owns plan-level execution, the single-issue path carries
-  plan-orchestration weight at the wrong altitude, and for a plan spanning several
-  coordinated pull requests the across-issue picture lives nowhere durable.
+  coordinator that owns plan-level execution, and a plan coordinated across
+  repositories has nowhere durable to hold its across-issue picture.
 outcome: |
   Plan-level execution becomes its own coordinator: an author hands a finished plan
-  off in one move and it iterates the plan's issues to merged code — single pull
-  request or coordinated multi-pull-request — with progress against the whole, a
-  single done-signal, and cross-branch resume. The single-issue executor narrows to
-  exactly that one job, which the coordinator delegates to.
+  off in one move and it iterates the plan's issues to merged code — a single
+  pull request, or coordinated across repositories — with progress against the
+  whole, a single done-signal, and cross-branch resume. The single-issue executor
+  narrows to exactly that one job, which the coordinator delegates to.
 motivating_context: |
   The strategic chain (/charter) and tactical chain (/scope) already ship as
   single-agent parent skills in a shared pattern; the implementation altitude is
-  the remaining gap. A coordinated plan shape (shirabe#196) now gives a multi-issue
-  plan a durable coordination home, and the plan-iteration responsibility currently
-  bundled into the single-issue executor is the natural thing for the new
-  coordinator to own.
+  the remaining gap. shirabe#196 added multi-repo coordinated execution — a single
+  run across repositories with a merge-order coordination pull request — and the
+  plan-iteration responsibility currently bundled into the single-issue executor
+  (single-pull-request orchestration plus this coordinated mode) is the natural
+  thing for the new coordinator to own. See tsukumogami/shirabe#196.
 ---
 
 # BRIEF: execute-skill
@@ -53,10 +53,10 @@ the single-issue path is weighed down by plan-orchestration concerns that do not
 belong at the altitude of one issue.
 
 The cost is sharpest on the plans where coordination matters most: a plan whose
-issues land as several pull requests that must merge in a defined order. Nothing
-durable holds the across-issue picture — what has merged, what is blocked behind
-what, what comes next, whether the whole set is done — so an author tracks it by
-hand and loses it entirely when a session ends.
+issues land as several pull requests across repositories that must merge in a
+defined order. Nothing durable holds the across-issue picture — what has merged,
+what is blocked behind what, what comes next, whether the whole set is done — so an
+author tracks it by hand and loses it entirely when a session ends.
 
 ## User Outcome
 
@@ -68,18 +68,21 @@ delegated and driven to merged code without the author dispatching it by hand, a
 progress is reported against the whole plan rather than reconstructed from a wall of
 pull requests.
 
-A plan that resolves to a single pull request runs straight through. A plan whose
-issues are coordinated across several pull requests is walked in merge order on the
-author's behalf, arriving at a single, unambiguous signal that the whole set is
-done. Stepping away and coming back — even on a different branch, even in a new
-session — resumes exactly where it left off, because the plan's own durable
-coordination state is the source of truth.
+A plan that resolves to a single pull request runs straight through. A plan
+coordinated across repositories is walked in merge order on the author's behalf,
+arriving at a single, unambiguous signal that the whole set is done. Stepping away
+and coming back — even on a different branch, even in a new session — resumes
+exactly where it left off, because the plan's own durable coordination state is the
+source of truth.
 
 Underneath, the single-issue executor narrows to exactly one job: take one issue to
 a merged pull request, well. It stops carrying plan-orchestration weight; the
 coordinator owns that, and calls down to the executor one issue at a time.
 
 ## User Journeys
+
+The first two journeys are the two plan shapes the coordinator owns; the third is
+the cross-cutting resume path that applies to either.
 
 ### Author runs a single-pull-request plan
 
@@ -89,14 +92,14 @@ order to track, it iterates the plan's issues in order, delegating each to the
 single-issue executor, drives the one pull request to merged, and reports the plan
 complete. The author stays in one conversation and never dispatches an issue by hand.
 
-### Author runs a coordinated multi-pull-request plan
+### Author runs a coordinated multi-repo plan
 
-An author has a plan whose issues land as several pull requests that must merge in a
-defined order. They hand the whole plan to the coordinator. It walks the merge order,
-delegating each issue to the single-issue executor, surfacing progress against the
-whole as pull requests land, and signaling the plan done only when the coordinated
-set has fully merged. The author tracks one conversation, not a wall of pull
-requests.
+An author has a plan whose issues land as several pull requests across repositories
+that must merge in a defined order. They hand the whole plan to the coordinator. It
+walks the merge order, delegating each issue to the single-issue executor, surfacing
+progress against the whole as pull requests land, and signaling the plan done only
+when the coordinated set has fully merged. The author tracks one conversation, not a
+wall of pull requests across repositories.
 
 ### Author resumes an interrupted plan execution
 
@@ -113,9 +116,11 @@ pull requests have merged, and picks up at the next unit of work.
 - A single plan-level coordinator (working name `/execute`) that completes the
   parent-skill trio alongside the strategic and tactical chains, in the same
   single-agent shape.
-- Owning plan-based execution end to end: iterating a finished plan's issues to
-  merged code, for both single-pull-request plans and coordinated multi-pull-request
-  plans.
+- Owning plan-based execution end to end for two shapes: single-pull-request plans
+  (many issues driven through one shared pull request — the orchestration that lives
+  in the single-issue executor today), and coordinated multi-repo plans (a single run
+  across repositories with a merge-order coordination pull request, per the
+  coordination contract).
 - Delegating each individual issue down to the single-issue executor.
 - Narrowing the single-issue executor to single-issue work, by moving the
   plan-iteration responsibility it holds today out of it and into the coordinator.
@@ -128,6 +133,10 @@ pull requests have merged, and picks up at the next unit of work.
 
 - The mechanics of executing one issue. Those stay in the single-issue executor
   (koto-based today), which the coordinator calls down to rather than replaces.
+- Multi-pull-request plans within a single repository. These remain implemented one
+  issue at a time through the single-issue executor — each issue its own pull request
+  — not driven by the coordinator. The coordinator owns single-pull-request plans and
+  coordinated multi-repo plans only.
 - Whether the coordinator's plan iteration uses koto or a different mechanism, and
   the exact state and resume machinery. Downstream design owns these, given the work
   may go either way.
@@ -154,9 +163,9 @@ pull requests have merged, and picks up at the next unit of work.
 - `docs/designs/current/DESIGN-shirabe-progression-authoring.md` — the parent-skill
   progression pattern this feature extends to the implementation altitude.
 - `references/coordination-strategy.md` — the coordinated execution-mode contract a
-  multi-pull-request plan is orchestrated against.
+  coordinated multi-repo plan is orchestrated against.
 - The `/charter` (strategic) and `/scope` (tactical) skills — the precedent parent
   skills whose single-agent shape and metadata-only child inspection this feature
   mirrors.
-- tsukumogami/shirabe#196 — the coordinated execution-mode work that gives a
-  multi-issue plan a durable coordination home.
+- tsukumogami/shirabe#196 — the work that enabled multi-repo coordinated execution
+  (a single run across repositories with a merge-order coordination pull request).

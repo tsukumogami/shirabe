@@ -2,23 +2,27 @@
 
 **Verdict:** PASS
 
-The BRIEF satisfies every frontmatter, required-section, FC03, public-cleanliness, and writing-style rule with no violations.
+The BRIEF satisfies all frontmatter, section-order, FC03, public-visibility, and writing-style checks with real content throughout.
 
 ## Violations Found
-
-None.
+(none)
 
 ## Public-Visibility Flags
-
-none
-
-The only external references are public same-repo paths and issue numbers: `tsukumogami/shirabe#196` (public same-repo issue, explicitly allowed), `references/coordination-strategy.md` and `docs/designs/current/DESIGN-shirabe-progression-authoring.md` (public in-repo paths, allowed). The `/charter` and `/scope` skill names are public shirabe skills. No `private/` paths, private repos, internal codenames, or private issue numbers appear. The omission of `upstream:` is intentional (real upstream is private) and is not flagged.
+none — the only external reference is `tsukumogami/shirabe#196`, a public same-repo issue (allowed), and all in-repo paths (`docs/designs/current/DESIGN-shirabe-progression-authoring.md`, `references/coordination-strategy.md`) are public in-repo paths. No private paths, repos, filenames, or private issue numbers appear.
 
 ## Suggested Improvements
-
-1. Status-section prose redundancy with Open Questions: The Status paragraph already states "the downstream design owns the technical calls — whether the coordinator is a new skill or an in-place evolution, and whether its plan iteration uses koto or not," which is then restated as two of the three Open Questions. This is acceptable (Status prose is free-form context), but tightening one of the two would reduce duplication. Rationale: lowers maintenance drift if one copy changes and the other does not.
-2. Frontmatter `problem` block runs to roughly 7 lines and `outcome` to roughly 7 lines, exceeding the format's "2-4 line" guidance for the literal block scalars. Rationale: the guidance is a soft target, not an FC check, but trimming each to the canonical 2-4 lines would align with the stated convention; content itself is accurate and non-contradictory with the body.
+1. Frontmatter `problem` length: the `problem` block is a single ~6-line sentence-chain that runs slightly past the format's "2-4 line" guidance; tightening to 4 lines would track the spec more closely. Non-blocking — content matches the Problem Statement body faithfully.
+2. `motivating_context` references `shirabe#196` without the `tsukumogami/` owner prefix used in the References section (`tsukumogami/shirabe#196`). Harmonizing the two forms would read more consistently. Cosmetic only.
 
 ## Summary
+The BRIEF is structurally compliant: frontmatter carries the required `status` (Draft, valid), `problem`, and `outcome` fields with `upstream` intentionally omitted; all five required sections appear in canonical order followed by allowed optional Open Questions (Draft-appropriate) and References sections. FC03 passes — the first non-blank line under `## Status` is the bare word `Draft` with prose only after a blank line — and the frontmatter `problem`/`outcome` paraphrase their body sections without contradiction. No placeholders, no private references, no banned style words ("tier", "robust", "leverage", "comprehensive/holistic", "facilitate"), no emojis, no AI attribution, and consistent American spelling.
 
-The BRIEF passes all structural-format checks: valid frontmatter (status `Draft`, problem and outcome present, upstream intentionally omitted), all five required sections present and in canonical order, and a clean FC03 Status section with the bare word `Draft` on its own line followed by prose after a blank line. Public-visibility is clean — only public same-repo issue numbers and public in-repo paths are cited, with no private references. Writing style avoids all banned words, uses American spelling, carries no emojis or AI attribution, and the frontmatter summaries paraphrase the body without contradiction; the only notes are minor, non-blocking suggestions about the over-length frontmatter scalars and a small Status/Open-Questions overlap.
+### Detailed check trace
+1. Frontmatter validity: PASS. `status: Draft` is one of the valid set; `problem` and `outcome` present as YAML literal blocks. `schema: brief/v1` present. `upstream` omitted per instruction (not flagged). `motivating_context` is a valid optional field.
+2. Required sections present and ordered: PASS. Status -> Problem Statement -> User Outcome -> User Journeys -> Scope Boundary, in order. User Journeys carries three distinct named journeys (single-PR plan, coordinated multi-repo plan, resume), each with a `###` heading, a named user (author), a trigger, and an outcome shape. Scope Boundary has explicit In and Out lists with real exclusions.
+3. FC03: PASS. First non-blank line under `## Status` is `Draft` alone; explanatory prose follows after a blank line.
+4. Public-visibility cleanliness: PASS. Only public same-repo issue ref and public in-repo paths.
+5. No placeholders: PASS. Every section carries real, specific content.
+6. Frontmatter paraphrase consistency: PASS. `problem` matches the Problem Statement framing (double-duty workflow, no implementation-altitude coordinator, cross-repo across-issue picture lives nowhere durable); `outcome` matches the User Outcome (plan-level coordinator, single hand-off, progress against the whole, single done-signal, cross-branch resume, narrowed single-issue executor). No contradictions.
+7. Open Questions present and status Draft: PASS. Three genuine deferred framing questions, allowed in Draft.
+8. Writing style: PASS. No banned words; direct prose; no emojis; no AI attribution; American spelling consistent ("behalf", "recognizes", "signaling").
