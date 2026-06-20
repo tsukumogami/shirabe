@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-execute-skill.md
 decision_provenance: inline-resolved
 problem: |
@@ -33,7 +33,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
