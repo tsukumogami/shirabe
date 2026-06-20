@@ -15,9 +15,12 @@ chain_skipped: []
 chain_ran:
   - brief
   - prd
+  - design
 child_snapshots:
   brief:
     status: Accepted
   prd:
+    status: Accepted
+  design:
     status: Accepted
 ```

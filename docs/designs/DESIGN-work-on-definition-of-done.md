@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 problem: |
   `/work-on`'s single-issue completion is the agent's discretionary judgment, which accepts
   authored-but-unrun verification and lets the agent ship unilateral caveats/deferrals.
@@ -30,7 +30,7 @@ upstream: docs/prds/PRD-work-on-definition-of-done.md
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
