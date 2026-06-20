@@ -88,8 +88,11 @@ now). The states and their tick mechanics:
   cross-skill `work-on.md` (`default_template` in the lifted template).
 - cross-issue context assembly between children; escalation on blocked/skipped.
 - `pr_finalization` — assemble the combined PR body.
-- `plan_completion` — run the finalization cascade, then `gh pr ready`; CI re-runs
-  strict on the now-ready PR.
+- `plan_completion` — run the finalization cascade
+  (`${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/run-cascade.sh`, relocated into
+  `/execute` along with its `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch), then
+  `gh pr ready`; the cascade runs BEFORE the PR flips ready (DRAFT-before-READY)
+  so CI re-runs strict on the now-ready PR against the finalized chain.
 
 Each per-issue child is a `/work-on` single-issue run on the shared branch; the
 narrowing of `/work-on` to single-issue-only (so it no longer carries the
@@ -136,4 +139,5 @@ paths, metadata-only inspection, security surfaces) is Issue 6.
 |------|------|
 | `skills/execute/koto-templates/work-on-plan.md` | the lifted `execute-plan` orchestrator template |
 | `skills/execute/scripts/preflight.sh` | Step 1 cross-skill preflight |
+| `skills/execute/scripts/run-cascade.sh` | `plan_completion` atomic finalization cascade (carries the `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch) |
 | `${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md` | the single-issue engine each child delegates to |

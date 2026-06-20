@@ -80,11 +80,11 @@ remove the plan-orchestrator, leaving `/work-on` a single-issue engine.
 `/execute` and wire the atomic finalization cascade into the single-pr path.
 
 **Acceptance Criteria**:
-- [ ] `skills/execute/scripts/run-cascade.sh` performs the atomic upstream-lifecycle
+- [x] `skills/execute/scripts/run-cascade.sh` performs the atomic upstream-lifecycle
   cascade (PLAN delete + BRIEF/PRD/DESIGN/ROADMAP transitions) with pre/post probes.
-- [ ] The `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch is relocated with the script and
+- [x] The `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch is relocated with the script and
   still works.
-- [ ] single-pr completion runs the cascade before the PR flips to ready
+- [x] single-pr completion runs the cascade before the PR flips to ready
   (DRAFT-before-READY).
 
 **Dependencies**: Blocked by <<ISSUE:1>>
