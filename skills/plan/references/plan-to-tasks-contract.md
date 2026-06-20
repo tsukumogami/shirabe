@@ -59,6 +59,22 @@ The `template` field is intentionally omitted (set by the caller).
 | `ARTIFACT_PREFIX` | Same as `name` (e.g., `"o-add-core-parser"`) |
 | `ISSUE_TYPE` | Value of the **Type**: annotation, omitted if annotation is absent |
 
+### coordinated vars
+
+Coordinated mode emits one task entry per merge-order **node** (not per issue):
+the issue-level graph is collapsed into `(repo, pr_group)` PR nodes plus non-PR
+gate nodes. Each node's `waits_on` lists its immediate predecessors in the
+contracted, acyclic merge order.
+
+| Key | Value |
+|-----|-------|
+| `NODE_KIND` | `"pr"` for a `(repo, pr_group)` PR node, `"gate"` for a non-PR gate node |
+
+Node `name` values: `pr-<repo-name>-<pr_group>` for PR nodes (the owner is
+dropped; the slug is sanitized to R9) and `gate-<gate-name>` for gate nodes. A
+repo split at the seam to break a contraction cycle yields per-issue node names
+of the form `pr-<repo-name>-<pr_group>-i<issue-number>`.
+
 ## Frontmatter Requirements
 
 The PLAN file must begin with YAML frontmatter delimited by `---`:
@@ -66,7 +82,7 @@ The PLAN file must begin with YAML frontmatter delimited by `---`:
 ```yaml
 ---
 schema: plan/v1
-execution_mode: single-pr  # or multi-pr
+execution_mode: single-pr  # or multi-pr, or coordinated
 ...
 ---
 ```
@@ -74,7 +90,10 @@ execution_mode: single-pr  # or multi-pr
 The script exits 2 if:
 - The file does not start with `---`
 - `schema:` is missing or not `plan/v1`
-- `execution_mode:` is missing or not `single-pr` / `multi-pr`
+- `execution_mode:` is missing or not `single-pr` / `multi-pr` / `coordinated`
+- (coordinated) an issue is missing its `Repo`/`Group` annotation, a tag is
+  invalid, or the contracted PR DAG has an irreducible cycle (true cross-repo
+  atomicity — the effort is unschedulable)
 
 ## Name-Sanitization Algorithm (single-pr)
 
@@ -160,6 +179,34 @@ Dependencies line formats:
 
 Dependency references also support the `<<ISSUE:N>>` placeholder format as an alternative to `Issue N`. Both forms resolve to the `o-<slug>` name of the referenced issue.
 Exit 2 if a referenced issue number has no corresponding outline heading.
+
+### coordinated Mode
+
+Reads the `## Implementation Issues` section like multi-pr, plus two annotation
+row types (escaped-pipe-separated so each stays a single markdown table cell):
+
+- `| ^_Repo: owner/repo \| Group: <pr-group>_ | | |` — tags the issue on the
+  preceding entity row with its `(repo, pr_group)`. Every coordinated issue
+  MUST carry one (exit 2 otherwise). `repo` is validated against the GitHub
+  owner/repo charset; `pr_group` against `^[a-z][a-z0-9-]*$`.
+- `| ^_Gate: <name> \| After: <node>,... \| Before: <node>,..._ | | |` —
+  declares a non-PR gate node sitting between its `After` predecessors and
+  `Before` successors.
+
+Processing:
+
+1. Map each issue to its `(repo, pr_group)` PR node id (`pr-<repo-name>-<group>`).
+2. Contract the issue-level `waits_on` edges into PR-node edges (an edge between
+   distinct PR nodes; self-edges within one node are dropped).
+3. Add gate nodes and their After/Before edges.
+4. Run a Kahn topological sort (R13 acyclicity). On a contraction cycle, apply
+   the R16-vs-R13 discriminator: split a multi-issue PR node on the residual
+   cycle into per-issue nodes (`pr-<repo-name>-<group>-i<N>`) and retry. If the
+   only cyclic nodes are single-issue (unsplittable), refuse with exit 2 — the
+   effort is unschedulable (true cross-repo atomicity). A cyclic order is never
+   emitted.
+5. Emit one task entry per node in the serialized order, each with `vars.NODE_KIND`
+   (`pr` or `gate`) and `waits_on` listing its immediate predecessors.
 
 ## Examples
 

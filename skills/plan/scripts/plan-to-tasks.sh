@@ -6,8 +6,16 @@
 # stdout. Each object has the shape: {"name":"...","vars":{...},"waits_on":[...]}.
 # The template field is omitted.
 #
-# Supports both single-pr and multi-pr execution modes as indicated by the
-# PLAN frontmatter's execution_mode field.
+# Supports single-pr, multi-pr, and coordinated execution modes as indicated by
+# the PLAN frontmatter's execution_mode field.
+#
+# Coordinated mode (the multi-repo generalization defined in
+# references/coordination-strategy.md) collapses the issue-level waits_on graph
+# into a (repo, pr_group)-level two-node merge-order DAG: PR nodes (one per
+# (repo, pr_group) unit) plus non-PR gate nodes. After contraction it runs the
+# R13 acyclicity check; on a contraction cycle it applies the R16-vs-R13
+# discriminator (split-at-seam / re-sequence) and either resolves to an acyclic
+# order or refuses (exit 2). It NEVER emits a cyclic order.
 #
 # Usage:
 #   plan-to-tasks.sh <PLAN.md-path>
@@ -15,7 +23,9 @@
 # Exit codes:
 #   0 - success
 #   1 - malformed input (file not found, unreadable, or jq missing)
-#   2 - PLAN schema mismatch or unsanitizable name
+#   2 - PLAN schema mismatch, unsanitizable name, or unschedulable
+#       coordinated effort (irreducible contraction cycle / cross-repo
+#       atomicity)
 
 set -euo pipefail
 
@@ -541,6 +551,435 @@ process_single_pr() {
     printf '%s\n' "${json_entries[@]}" | jq -s .
 }
 
+# Validate a pr_group tag against the coordination contract:
+#   pr_group: ^[a-z][a-z0-9-]*$
+# (mirrors the repo/pr_group re-validation rule in
+# references/coordination-strategy.md, which is identical to the R9 name regex).
+validate_pr_group() {
+    local g="$1"
+    [[ "$g" =~ ^[a-z][a-z0-9-]*$ ]]
+}
+
+# Validate a repo tag against the GitHub owner/repo charset
+# (^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$ per component, joined by a single slash).
+# This is the same charset the F2 validator enforces in coordination.rs.
+validate_repo_tag() {
+    local r="$1"
+    local owner="${r%%/*}"
+    local name="${r#*/}"
+    # Must contain exactly one slash and non-empty components.
+    [[ "$r" == "$owner/$name" && -n "$owner" && -n "$name" && "$name" != *"/"* ]] || return 1
+    [[ "$owner" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$ ]] || return 1
+    [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$ ]] || return 1
+    return 0
+}
+
+# Build a stable, R9-valid node id from a (repo, pr_group) pair.
+# repo "owner/name" + group "g" -> "pr-<name>-<g>" (the owner is dropped from
+# the public node id; the slug is sanitized to ^[a-z][a-z0-9-]*$).
+pr_node_id() {
+    local repo="$1" group="$2"
+    local name="${repo#*/}"
+    local slug
+    slug=$(slugify "${name}-${group}")
+    echo "pr-${slug}"
+}
+
+# Process coordinated mode: collapse the issue-level waits_on graph into a
+# (repo, pr_group)-level two-node merge-order DAG (PR nodes + non-PR gate
+# nodes), check post-contraction acyclicity (R13), apply the R16-vs-R13
+# discriminator on a contraction cycle, and emit the serialized order.
+#
+# Per-issue tagging lives in the ## Implementation Issues table as an annotation
+# row directly under the issue's entity row, mirroring the existing `^_Child:_`
+# convention:
+#
+#   | [#1: feat ...](url) | None | testable |
+#   | ^_Repo: owner/repo \| Group: api_ | | |
+#
+# A non-PR gate node is declared the same way, on a row whose first cell is a
+# gate marker:
+#
+#   | ^_Gate: publish-foo \| After: pr-...,  \| Before: pr-..._ | | |
+process_coordinated() {
+    local file="$1"
+
+    # ---- Pass 1: parse the Implementation Issues table into issue records ----
+    # We reuse the multi-pr table walk to find issue numbers + dependency cells,
+    # but additionally capture the `^_Repo: ... | Group: ..._` annotation row and
+    # the `^_Gate: ... | After: ... | Before: ..._` gate rows.
+    local in_section=0
+    local dep_col=0
+    local re_issue_num="#([0-9]+)"
+
+    # Parallel arrays keyed by appearance order.
+    local -a issue_nums=()
+    local -a issue_deps=()
+    local -a issue_repos=()
+    local -a issue_groups=()
+    local last_issue_idx=-1
+
+    # Gate declarations: name|after-csv|before-csv per entry.
+    local -a gates=()
+
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^##[[:space:]]+Implementation[[:space:]]+Issues ]]; then
+            in_section=1
+            continue
+        fi
+        if [[ $in_section -eq 1 && "$line" =~ ^##[[:space:]] ]]; then
+            break
+        fi
+        [[ $in_section -eq 0 ]] && continue
+
+        # Separator rows.
+        if [[ "$line" =~ ^\|[-|[:space:]]+$ ]]; then
+            continue
+        fi
+
+        # Header row: locate the Dependencies column.
+        if [[ "$dep_col" -eq 0 && "$line" =~ \|.*Issue.*\|.*Dependencies ]]; then
+            local IFS_SAVE="$IFS"
+            IFS='|'
+            local -a header_cols=()
+            read -ra header_cols <<< "$line"
+            IFS="$IFS_SAVE"
+            local hi
+            for hi in "${!header_cols[@]}"; do
+                local hcell="${header_cols[$hi]}"
+                hcell="${hcell#"${hcell%%[![:space:]]*}"}"
+                hcell="${hcell%"${hcell##*[![:space:]]}"}"
+                if [[ "$hcell" == "Dependencies" ]]; then
+                    dep_col=$hi
+                    break
+                fi
+            done
+            continue
+        fi
+
+        # Gate annotation row. The Gate/After/Before fields are separated by an
+        # escaped pipe (`\|`) so the row stays a single markdown table cell.
+        if [[ "$line" =~ \^_Gate:[[:space:]]*(.+)\\\|[[:space:]]*After:[[:space:]]*(.*)\\\|[[:space:]]*Before:[[:space:]]*([^_]*)_ ]]; then
+            local gname="${BASH_REMATCH[1]}"
+            local gafter="${BASH_REMATCH[2]}"
+            local gbefore="${BASH_REMATCH[3]}"
+            # Trim each component.
+            gname="${gname#"${gname%%[![:space:]]*}"}"; gname="${gname%"${gname##*[![:space:]]}"}"
+            gafter="${gafter#"${gafter%%[![:space:]]*}"}"; gafter="${gafter%"${gafter##*[![:space:]]}"}"
+            gbefore="${gbefore#"${gbefore%%[![:space:]]*}"}"; gbefore="${gbefore%"${gbefore##*[![:space:]]}"}"
+            if ! validate_pr_group "$gname"; then
+                die_schema "coordinated gate name '${gname}' violates ^[a-z][a-z0-9-]*\$"
+            fi
+            gates+=("${gname}|${gafter}|${gbefore}")
+            continue
+        fi
+
+        # Repo/Group annotation row for the most recent issue. Repo and Group
+        # are separated by an escaped pipe (`\|`) to stay one table cell.
+        if [[ "$line" =~ \^_Repo:[[:space:]]*(.+)\\\|[[:space:]]*Group:[[:space:]]*([^_]+)_ ]]; then
+            local rtag="${BASH_REMATCH[1]}"
+            local gtag="${BASH_REMATCH[2]}"
+            rtag="${rtag#"${rtag%%[![:space:]]*}"}"; rtag="${rtag%"${rtag##*[![:space:]]}"}"
+            gtag="${gtag#"${gtag%%[![:space:]]*}"}"; gtag="${gtag%"${gtag##*[![:space:]]}"}"
+            if [[ $last_issue_idx -lt 0 ]]; then
+                die_schema "coordinated PLAN has a Repo/Group annotation with no preceding issue row"
+            fi
+            if ! validate_repo_tag "$rtag"; then
+                die_schema "coordinated issue #${issue_nums[$last_issue_idx]} has invalid repo tag '${rtag}'"
+            fi
+            if ! validate_pr_group "$gtag"; then
+                die_schema "coordinated issue #${issue_nums[$last_issue_idx]} has invalid pr_group tag '${gtag}'"
+            fi
+            issue_repos[$last_issue_idx]="$rtag"
+            issue_groups[$last_issue_idx]="$gtag"
+            continue
+        fi
+
+        # Entity rows: start with | and carry #N in the first data cell.
+        if [[ "$line" =~ ^\| && "$line" =~ $re_issue_num ]]; then
+            local issue_num="${BASH_REMATCH[1]}"
+
+            local IFS_SAVE2="$IFS"
+            IFS='|'
+            local -a data_cols=()
+            read -ra data_cols <<< "$line"
+            IFS="$IFS_SAVE2"
+
+            local deps_cell=""
+            if [[ "$dep_col" -gt 0 && "$dep_col" -lt "${#data_cols[@]}" ]]; then
+                deps_cell="${data_cols[$dep_col]}"
+            fi
+            deps_cell="${deps_cell#"${deps_cell%%[![:space:]]*}"}"
+            deps_cell="${deps_cell%"${deps_cell##*[![:space:]]}"}"
+
+            issue_nums+=("$issue_num")
+            issue_deps+=("$deps_cell")
+            issue_repos+=("")
+            issue_groups+=("")
+            last_issue_idx=$(( ${#issue_nums[@]} - 1 ))
+        fi
+    done < "$file"
+
+    local n_issues="${#issue_nums[@]}"
+    if [[ $n_issues -eq 0 ]]; then
+        die_schema "coordinated PLAN has no rows in Implementation Issues table"
+    fi
+
+    # Every coordinated issue MUST carry repo + pr_group tags.
+    local idx
+    for idx in "${!issue_nums[@]}"; do
+        if [[ -z "${issue_repos[$idx]}" || -z "${issue_groups[$idx]}" ]]; then
+            die_schema "coordinated issue #${issue_nums[$idx]} is missing a Repo/Group annotation row (\`^_Repo: owner/repo | Group: <pr-group>_\`)"
+        fi
+    done
+
+    # ---- Initial node assignment: each issue -> its (repo, pr_group) PR node.
+    # `issue_to_node` is the mutable assignment the resolver re-writes when it
+    # splits a repo at the seam. The issue-level deps in `issue_deps` are the
+    # source of truth the contraction re-derives edges from on every attempt.
+    declare -A issue_to_node=()
+    for idx in "${!issue_nums[@]}"; do
+        local node0
+        node0=$(pr_node_id "${issue_repos[$idx]}" "${issue_groups[$idx]}")
+        if ! validate_name "$node0"; then
+            die_schema "derived PR node id '${node0}' violates R9 regex ^[a-z][a-z0-9-]*\$"
+        fi
+        issue_to_node["${issue_nums[$idx]}"]="$node0"
+    done
+
+    # `is_gate` marks gate node ids; populated by build_contracted_graph.
+    declare -A is_gate=()
+    # `node_order` + `edges_set` are the contracted graph, rebuilt each attempt.
+    local -a node_order=()
+    declare -A edges_set=()
+
+    # ---- Contraction + acyclicity loop (R13) with split-at-seam resolution.
+    # Build the contracted (repo, pr_group) graph, attempt a topological order,
+    # and on a contraction cycle apply the R16-vs-R13 discriminator: split a
+    # repo node on the residual cycle into per-issue PR nodes (re-sequence at
+    # the seam) and retry. If no split yields an acyclic order, refuse.
+    local serialized=""
+    local resolved=0
+    # Bounded retries: at most one split per issue (worst case every issue
+    # becomes its own PR node), so the loop terminates.
+    local attempt
+    for (( attempt=0; attempt <= n_issues; attempt++ )); do
+        build_contracted_graph
+        if kahn_order; then
+            serialized="$KAHN_ORDER"
+            resolved=1
+            break
+        fi
+        # kahn_order failed: $RESIDUAL_NODES holds the cyclic PR nodes.
+        # Pick a splittable victim (a PR node, not a gate, that maps >1 issue).
+        local victim=""
+        local cand
+        for cand in $RESIDUAL_NODES; do
+            [[ -n "${is_gate[$cand]+x}" ]] && continue
+            # Count issues mapped to this node.
+            local cnt=0
+            local inum
+            for inum in "${issue_nums[@]}"; do
+                [[ "${issue_to_node[$inum]}" == "$cand" ]] && cnt=$(( cnt + 1 ))
+            done
+            if [[ $cnt -gt 1 ]]; then
+                victim="$cand"
+                break
+            fi
+        done
+        if [[ -z "$victim" ]]; then
+            # No multi-issue PR node on the cycle to split: the cycle is
+            # irreducible (true cross-repo atomicity). Refuse — never emit a
+            # cyclic order.
+            log "Refusing: contraction cycle among PR nodes [${RESIDUAL_NODES}] has no split-at-seam resolution (true cross-repo atomicity)."
+            die_schema "coordinated effort is unschedulable: no acyclic merge order exists after contraction (cross-repo atomicity). Reshape into a compatible-intermediate sequence per references/coordination-strategy.md."
+        fi
+        # Split the victim at the seam: give each of its issues its own PR node.
+        split_repo_at_seam "$victim"
+    done
+
+    if [[ $resolved -ne 1 ]]; then
+        die_schema "coordinated effort is unschedulable: contraction did not converge to an acyclic order."
+    fi
+
+    # ---- Emit the serialized two-node order as JSON ----
+    # Each node becomes a task entry; waits_on lists its immediate predecessors.
+    local -a json_entries=()
+    local node
+    for node in $serialized; do
+        local -a waits_on=()
+        local pred_node
+        for pred_node in "${node_order[@]}"; do
+            if [[ -n "${edges_set["${pred_node}->${node}"]+x}" ]]; then
+                waits_on+=("$pred_node")
+            fi
+        done
+        local waits_json
+        waits_json=$(array_to_json waits_on)
+        local kind="pr"
+        [[ -n "${is_gate[$node]+x}" ]] && kind="gate"
+        json_entries+=("$(jq -n \
+            --arg name "$node" \
+            --arg node_kind "$kind" \
+            --argjson waits_on "$waits_json" \
+            '{name: $name, vars: {NODE_KIND: $node_kind}, waits_on: $waits_on}')")
+    done
+
+    printf '%s\n' "${json_entries[@]}" | jq -s .
+}
+
+# Re-derive the contracted graph (node_order, edges_set, is_gate) from the
+# current issue_to_node assignment + issue_deps + gates. Idempotent: clears and
+# rebuilds the three structures, so the resolver can call it after every split.
+#
+# issue_nums, issue_deps, issue_to_node, gates, node_order, edges_set, and
+# is_gate are in scope from process_coordinated (bash dynamic scope).
+build_contracted_graph() {
+    node_order=()
+    local e
+    for e in "${!edges_set[@]}"; do unset 'edges_set[$e]'; done
+    for e in "${!is_gate[@]}"; do unset 'is_gate[$e]'; done
+
+    declare -A seen=()
+    local idx
+    # PR nodes in first-appearance order.
+    for idx in "${!issue_nums[@]}"; do
+        local node="${issue_to_node[${issue_nums[$idx]}]}"
+        if [[ -z "${seen[$node]+x}" ]]; then
+            seen[$node]=1
+            node_order+=("$node")
+        fi
+    done
+
+    # Contract issue-level waits_on into PR-node edges.
+    for idx in "${!issue_nums[@]}"; do
+        local this_node="${issue_to_node[${issue_nums[$idx]}]}"
+        local deps="${issue_deps[$idx]}"
+        [[ "$deps" == "None" || -z "$deps" ]] && continue
+        local re_ref="#([0-9]+)"
+        local remaining="$deps"
+        while [[ "$remaining" =~ $re_ref ]]; do
+            local dep_num="${BASH_REMATCH[1]}"
+            remaining="${remaining#*#${dep_num}}"
+            if [[ -z "${issue_to_node[$dep_num]+x}" ]]; then
+                die_schema "coordinated issue #${issue_nums[$idx]} references unknown dependency #${dep_num}"
+            fi
+            local dep_node_id="${issue_to_node[$dep_num]}"
+            if [[ "$dep_node_id" != "$this_node" ]]; then
+                edges_set["${dep_node_id}->${this_node}"]=1
+            fi
+        done
+    done
+
+    # Gate nodes + their After/Before edges.
+    local g
+    for g in "${gates[@]+"${gates[@]}"}"; do
+        local gname="${g%%|*}"
+        local rest="${g#*|}"
+        local gafter="${rest%%|*}"
+        local gbefore="${rest#*|}"
+        local gnode="gate-${gname}"
+        if ! validate_name "$gnode"; then
+            die_schema "derived gate node id '${gnode}' violates R9 regex ^[a-z][a-z0-9-]*\$"
+        fi
+        if [[ -z "${seen[$gnode]+x}" ]]; then
+            seen[$gnode]=1
+            node_order+=("$gnode")
+        fi
+        is_gate[$gnode]=1
+        local pred
+        for pred in ${gafter//,/ }; do
+            [[ -z "$pred" ]] && continue
+            edges_set["${pred}->${gnode}"]=1
+        done
+        local succ
+        for succ in ${gbefore//,/ }; do
+            [[ -z "$succ" ]] && continue
+            edges_set["${gnode}->${succ}"]=1
+        done
+    done
+}
+
+# Topologically order the contracted graph via Kahn's algorithm. On success,
+# sets the global KAHN_ORDER to the space-separated node order and returns 0.
+# On a cycle, sets the global RESIDUAL_NODES to the space-separated nodes that
+# never drained and returns 1. Writes globals (not stdout) so the caller can
+# read RESIDUAL_NODES without a subshell. node_order + edges_set are in scope.
+RESIDUAL_NODES=""
+KAHN_ORDER=""
+kahn_order() {
+    local -a nodes=("${node_order[@]}")
+    declare -A indeg=()
+    local nd
+    for nd in "${nodes[@]}"; do indeg[$nd]=0; done
+    local e
+    for e in "${!edges_set[@]}"; do
+        local to="${e#*->}"
+        indeg[$to]=$(( ${indeg[$to]} + 1 ))
+    done
+
+    local -a order=()
+    local -a queue=()
+    for nd in "${nodes[@]}"; do
+        [[ "${indeg[$nd]}" -eq 0 ]] && queue+=("$nd")
+    done
+    local processed=0
+    while [[ ${#queue[@]} -gt 0 ]]; do
+        local cur="${queue[0]}"
+        queue=("${queue[@]:1}")
+        order+=("$cur")
+        processed=$(( processed + 1 ))
+        local nbr
+        for nbr in "${nodes[@]}"; do
+            if [[ -n "${edges_set["${cur}->${nbr}"]+x}" ]]; then
+                indeg[$nbr]=$(( ${indeg[$nbr]} - 1 ))
+                [[ "${indeg[$nbr]}" -eq 0 ]] && queue+=("$nbr")
+            fi
+        done
+    done
+
+    if [[ $processed -eq ${#nodes[@]} ]]; then
+        KAHN_ORDER="${order[*]}"
+        return 0
+    fi
+
+    # Cycle: collect residual nodes (never ordered).
+    local -a residual=()
+    for nd in "${nodes[@]}"; do
+        local in_order=0
+        local o
+        for o in "${order[@]+"${order[@]}"}"; do
+            [[ "$o" == "$nd" ]] && { in_order=1; break; }
+        done
+        [[ $in_order -eq 0 ]] && residual+=("$nd")
+    done
+    RESIDUAL_NODES="${residual[*]}"
+    return 1
+}
+
+# Split a repo PR node at the seam (R16-vs-R13 resolution): re-assign each issue
+# currently mapped to $1 to its own per-issue PR node id, so a repo that
+# participated in an X->Y->X contraction cycle through *distinct* issues is
+# re-sequenced into orderable halves. The issue-level edges then re-contract
+# without the cross-repo cycle. issue_to_node is mutated in place; the caller
+# re-runs build_contracted_graph + kahn_order.
+split_repo_at_seam() {
+    local victim="$1"
+    log "Resolving contraction cycle: splitting PR node '${victim}' at the seam into per-issue PR nodes."
+    local idx
+    for idx in "${!issue_nums[@]}"; do
+        local inum="${issue_nums[$idx]}"
+        if [[ "${issue_to_node[$inum]}" == "$victim" ]]; then
+            local split_node
+            split_node=$(slugify "${victim}-i${inum}")
+            if ! validate_name "$split_node"; then
+                die_schema "derived split PR node id '${split_node}' violates R9 regex ^[a-z][a-z0-9-]*\$"
+            fi
+            issue_to_node["$inum"]="$split_node"
+        fi
+    done
+}
+
 # ── Argument parsing ──
 
 if [[ $# -eq 0 ]]; then
@@ -606,7 +1045,11 @@ case "$execution_mode" in
         log "Processing multi-pr PLAN: $PLAN_PATH"
         process_multi_pr "$PLAN_PATH"
         ;;
+    coordinated)
+        log "Processing coordinated PLAN: $PLAN_PATH"
+        process_coordinated "$PLAN_PATH"
+        ;;
     *)
-        die_schema "Unknown execution_mode '${execution_mode}': expected 'single-pr' or 'multi-pr'"
+        die_schema "Unknown execution_mode '${execution_mode}': expected 'single-pr', 'multi-pr', or 'coordinated'"
         ;;
 esac

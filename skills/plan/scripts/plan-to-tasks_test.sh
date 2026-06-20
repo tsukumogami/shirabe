@@ -2,7 +2,9 @@
 #
 # plan-to-tasks_test.sh - Tests for plan-to-tasks.sh
 #
-# Exercises multi-pr parsing, single-pr parsing, and diamond dependency graphs.
+# Exercises multi-pr parsing, single-pr parsing, diamond dependency graphs, and
+# coordinated-mode per-repo contraction (two-node DAG, gate nodes, the X->Y->X
+# contraction-cycle resolution, and irreducible-atomicity refusal).
 #
 # Usage:
 #   bash plan-to-tasks_test.sh
@@ -1591,9 +1593,508 @@ FIXTURE
     teardown
 }
 
+# ── Fixture: coordinated mode, basic two-repo linear order ──
+# Two repos, one PR each: repo-a -> repo-b. The issue-level DAG contracts to a
+# clean two-node PR DAG with no cycle.
+test_coordinated_basic() {
+    local name="coordinated basic two-repo order"
+    setup
+
+    cat > "$TEST_DIR/plan-coord.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Active
+execution_mode: coordinated
+milestone: "Coord Basic"
+issue_count: 2
+---
+
+# PLAN: coord basic
+
+## Status
+
+Active
+
+## Scope Summary
+
+Two repos, one PR each, linear.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#1: feat a](https://example.com/1) | None | testable |
+| ^_Repo: acme/repo-a \| Group: default_ | | |
+| [#2: feat b](https://example.com/2) | [#1](https://example.com/1) | testable |
+| ^_Repo: acme/repo-b \| Group: default_ | | |
+
+## Dependency Graph
+
+```mermaid
+graph TD
+    I1["a"]
+    I2["b"]
+    I1 --> I2
+```
+
+## Implementation Sequence
+
+a then b.
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-coord.md" 2>/dev/null)
+
+    local count
+    count=$(echo "$output" | jq 'length' 2>/dev/null) || true
+    if [[ "$count" != "2" ]]; then
+        fail "$name" "expected 2 PR nodes, got: $count (output: $output)"
+        teardown
+        return
+    fi
+    pass "$name (two PR nodes)"
+
+    local a_waits b_waits
+    a_waits=$(echo "$output" | jq -r '.[] | select(.name=="pr-repo-a-default") | .waits_on | length') || true
+    b_waits=$(echo "$output" | jq -r '.[] | select(.name=="pr-repo-b-default") | .waits_on[0]') || true
+    if [[ "$a_waits" == "0" && "$b_waits" == "pr-repo-a-default" ]]; then
+        pass "$name (repo-b waits on repo-a)"
+    else
+        fail "$name" "expected repo-a no deps / repo-b waits on repo-a; got a_waits=$a_waits b_waits=$b_waits"
+    fi
+
+    local kind
+    kind=$(echo "$output" | jq -r '.[] | select(.name=="pr-repo-a-default") | .vars.NODE_KIND') || true
+    if [[ "$kind" == "pr" ]]; then
+        pass "$name (NODE_KIND=pr)"
+    else
+        fail "$name" "expected NODE_KIND=pr, got: $kind"
+    fi
+
+    teardown
+}
+
+# ── Fixture: coordinated mode, X->Y->X contraction cycle (resolvable) ──
+# Issue level: #1(repo-x) -> #2(repo-y) -> #3(repo-x) is ACYCLIC. Per-repo
+# contraction yields pr-repo-x -> pr-repo-y -> pr-repo-x, a CYCLE. The resolver
+# must split repo-x at the seam and emit an acyclic order (never a cyclic one).
+test_coordinated_contraction_cycle_resolved() {
+    local name="coordinated contraction cycle (X->Y->X) resolved"
+    setup
+
+    cat > "$TEST_DIR/plan-cycle.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Active
+execution_mode: coordinated
+milestone: "Coord Cycle"
+issue_count: 3
+---
+
+# PLAN: coord cycle
+
+## Status
+
+Active
+
+## Scope Summary
+
+Acyclic at issue level, cyclic after per-repo contraction.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#1: feat x base](https://example.com/1) | None | testable |
+| ^_Repo: acme/repo-x \| Group: default_ | | |
+| [#2: feat y middle](https://example.com/2) | [#1](https://example.com/1) | testable |
+| ^_Repo: acme/repo-y \| Group: default_ | | |
+| [#3: feat x top](https://example.com/3) | [#2](https://example.com/2) | testable |
+| ^_Repo: acme/repo-x \| Group: default_ | | |
+
+## Dependency Graph
+
+```mermaid
+graph TD
+    I1["x base"]
+    I2["y middle"]
+    I3["x top"]
+    I1 --> I2
+    I2 --> I3
+```
+
+## Implementation Sequence
+
+Issue level acyclic; per-repo cyclic.
+FIXTURE
+
+    local output="" rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-cycle.md" 2>/dev/null) || rc=$?
+
+    if [[ $rc -ne 0 ]]; then
+        fail "$name" "expected exit 0 (resolved), got $rc"
+        teardown
+        return
+    fi
+    pass "$name (resolved, exit 0)"
+
+    # The emitted order must be acyclic: assert a valid topological property.
+    # repo-y must wait on the repo-x half it depends on, and the trailing
+    # repo-x half must wait on repo-y. We verify no node lists itself, and that
+    # repo-y depends on a repo-x split node while a repo-x split node depends on
+    # repo-y (proving the seam split, not a cycle).
+    local y_deps
+    y_deps=$(echo "$output" | jq -r '.[] | select(.name=="pr-repo-y-default") | .waits_on[]') || true
+    if echo "$y_deps" | grep -q '^pr-repo-x-default-i1$'; then
+        pass "$name (repo-y waits on repo-x split half i1)"
+    else
+        fail "$name" "repo-y should wait on pr-repo-x-default-i1; got: $y_deps"
+    fi
+
+    local x3_deps
+    x3_deps=$(echo "$output" | jq -r '.[] | select(.name=="pr-repo-x-default-i3") | .waits_on[]') || true
+    if echo "$x3_deps" | grep -q '^pr-repo-y-default$'; then
+        pass "$name (repo-x split half i3 waits on repo-y)"
+    else
+        fail "$name" "pr-repo-x-default-i3 should wait on pr-repo-y-default; got: $x3_deps"
+    fi
+
+    # Crucial: prove the order is acyclic. Build the edge set from waits_on and
+    # confirm no node transitively reaches itself by checking the original
+    # cyclic node id is gone (the split eliminated pr-repo-x-default).
+    if echo "$output" | jq -e '.[] | select(.name=="pr-repo-x-default")' >/dev/null 2>&1; then
+        fail "$name" "unsplit cyclic node pr-repo-x-default still present (cycle not resolved)"
+    else
+        pass "$name (no cyclic order emitted: pr-repo-x-default was split)"
+    fi
+
+    teardown
+}
+
+# ── Fixture: coordinated mode, irreducible cross-repo atomicity (refused) ──
+# Single-issue repos whose PR nodes form a 2-cycle (via gates) cannot be split.
+# The parser must REFUSE with exit 2, never emit a cyclic order.
+test_coordinated_atomicity_refused() {
+    local name="coordinated irreducible atomicity refused"
+    setup
+
+    cat > "$TEST_DIR/plan-atomic.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Active
+execution_mode: coordinated
+milestone: "Coord Atomic"
+issue_count: 2
+---
+
+# PLAN: coord atomic
+
+## Status
+
+Active
+
+## Scope Summary
+
+Single-issue repos in a contraction 2-cycle: irreducible.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#1: feat a](https://example.com/1) | [#2](https://example.com/2) | testable |
+| ^_Repo: acme/repo-a \| Group: default_ | | |
+| ^_Gate: needs-a \| After: pr-repo-a-default \| Before: pr-repo-b-default_ | | |
+| [#2: feat b](https://example.com/2) | None | testable |
+| ^_Repo: acme/repo-b \| Group: default_ | | |
+
+## Dependency Graph
+
+```mermaid
+graph TD
+    I2["b"]
+    I1["a"]
+    I2 --> I1
+```
+
+## Implementation Sequence
+
+Irreducible.
+FIXTURE
+
+    local output="" rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-atomic.md" 2>/dev/null) || rc=$?
+
+    if [[ $rc -eq 2 ]]; then
+        pass "$name (refused with exit 2)"
+    else
+        fail "$name" "expected exit 2 (refused), got $rc (output: $output)"
+    fi
+
+    # Never emit a (partial) order on refusal.
+    if [[ -z "$output" ]]; then
+        pass "$name (no order emitted on refusal)"
+    else
+        fail "$name" "expected empty stdout on refusal, got: $output"
+    fi
+
+    teardown
+}
+
+# ── Fixture: coordinated mode, irreducible PR-node cycle (refused, no gate) ──
+# Three single-issue repos form a pure PR-node contraction cycle X->Y->Z->X via
+# cross-repo issue deps alone (no gate closes it). Every PR node maps exactly one
+# issue, so split_repo_at_seam has no multi-issue victim: the cycle is genuine
+# cross-repo atomicity. The parser must REFUSE with exit 2 and carry the
+# reshaping guidance, never split a single-issue node and never emit an order.
+test_coordinated_atomicity_refused_pr_nodes() {
+    local name="coordinated irreducible PR-node cycle refused (no gate)"
+    setup
+
+    cat > "$TEST_DIR/plan-atomic-pr.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Active
+execution_mode: coordinated
+milestone: "Coord Atomic PR"
+issue_count: 3
+---
+
+# PLAN: coord atomic pr
+
+## Status
+
+Active
+
+## Scope Summary
+
+Three single-issue repos in a pure PR-node contraction 3-cycle: no node maps
+more than one issue, so the seam split has no victim. Irreducible atomicity.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#1: feat x](https://example.com/1) | [#3](https://example.com/3) | testable |
+| ^_Repo: acme/repo-x \| Group: default_ | | |
+| [#2: feat y](https://example.com/2) | [#1](https://example.com/1) | testable |
+| ^_Repo: acme/repo-y \| Group: default_ | | |
+| [#3: feat z](https://example.com/3) | [#2](https://example.com/2) | testable |
+| ^_Repo: acme/repo-z \| Group: default_ | | |
+
+## Dependency Graph
+
+```mermaid
+graph TD
+    I1["x"]
+    I2["y"]
+    I3["z"]
+    I3 --> I1
+    I1 --> I2
+    I2 --> I3
+```
+
+## Implementation Sequence
+
+Irreducible: a 3-cycle of single-issue PR nodes.
+FIXTURE
+
+    local output="" rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-atomic-pr.md" 2>/dev/null) || rc=$?
+
+    if [[ $rc -eq 2 ]]; then
+        pass "$name (refused with exit 2)"
+    else
+        fail "$name" "expected exit 2 (refused), got $rc (output: $output)"
+    fi
+
+    # Never emit a (partial) order on refusal.
+    if [[ -z "$output" ]]; then
+        pass "$name (no order emitted on refusal)"
+    else
+        fail "$name" "expected empty stdout on refusal, got: $output"
+    fi
+
+    # The diagnostic must carry the reshaping guidance (the die_schema message
+    # about cross-repo atomicity / compatible-intermediate sequence).
+    local diag="" drc=0
+    diag=$("$PARSER_SCRIPT" "$TEST_DIR/plan-atomic-pr.md" 2>&1 >/dev/null) || drc=$?
+    if echo "$diag" | grep -qi "cross-repo atomicity" \
+        && echo "$diag" | grep -qi "compatible-intermediate sequence"; then
+        pass "$name (diagnostic carries reshaping guidance)"
+    else
+        fail "$name" "diagnostic missing reshaping guidance; got: $diag"
+    fi
+
+    teardown
+}
+
+# ── Fixture: coordinated mode, non-PR gate node in serialized order ──
+# A package-publish gate sits between two PR nodes and must appear in the order
+# with NODE_KIND=gate.
+test_coordinated_gate_node() {
+    local name="coordinated non-PR gate node in order"
+    setup
+
+    cat > "$TEST_DIR/plan-gate.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Active
+execution_mode: coordinated
+milestone: "Coord Gate"
+issue_count: 2
+---
+
+# PLAN: coord gate
+
+## Status
+
+Active
+
+## Scope Summary
+
+A non-PR gate sits between two PR nodes.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#1: feat lib](https://example.com/1) | None | testable |
+| ^_Repo: acme/lib \| Group: default_ | | |
+| ^_Gate: publish-lib \| After: pr-lib-default \| Before: pr-app-default_ | | |
+| [#2: feat app](https://example.com/2) | [#1](https://example.com/1) | testable |
+| ^_Repo: acme/app \| Group: default_ | | |
+
+## Dependency Graph
+
+```mermaid
+graph TD
+    I1["lib"]
+    I2["app"]
+    I1 --> I2
+```
+
+## Implementation Sequence
+
+lib, publish, app.
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-gate.md" 2>/dev/null)
+
+    local gate_kind
+    gate_kind=$(echo "$output" | jq -r '.[] | select(.name=="gate-publish-lib") | .vars.NODE_KIND') || true
+    if [[ "$gate_kind" == "gate" ]]; then
+        pass "$name (gate node present with NODE_KIND=gate)"
+    else
+        fail "$name" "expected gate-publish-lib with NODE_KIND=gate; got: $gate_kind (output: $output)"
+    fi
+
+    local gate_waits
+    gate_waits=$(echo "$output" | jq -r '.[] | select(.name=="gate-publish-lib") | .waits_on[0]') || true
+    if [[ "$gate_waits" == "pr-lib-default" ]]; then
+        pass "$name (gate waits on pr-lib-default)"
+    else
+        fail "$name" "expected gate to wait on pr-lib-default; got: $gate_waits"
+    fi
+
+    local app_waits
+    app_waits=$(echo "$output" | jq -r '.[] | select(.name=="pr-app-default") | .waits_on | contains(["gate-publish-lib"])') || true
+    if [[ "$app_waits" == "true" ]]; then
+        pass "$name (app waits on the gate)"
+    else
+        fail "$name" "expected pr-app-default to wait on gate-publish-lib"
+    fi
+
+    teardown
+}
+
+# ── Fixture: coordinated mode, invalid repo/pr_group tags rejected ──
+test_coordinated_invalid_tags() {
+    local name="coordinated invalid repo/pr_group tags rejected"
+    setup
+
+    cat > "$TEST_DIR/plan-badtag.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Active
+execution_mode: coordinated
+milestone: "Coord Bad"
+issue_count: 1
+---
+
+# PLAN: coord bad
+
+## Status
+
+Active
+
+## Scope Summary
+
+Bad pr_group tag.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#1: feat a](https://example.com/1) | None | testable |
+| ^_Repo: acme/repo-a \| Group: Bad_Group_ | | |
+
+## Dependency Graph
+
+```mermaid
+graph TD
+    I1["a"]
+```
+
+## Implementation Sequence
+
+a.
+FIXTURE
+
+    local rc=0
+    "$PARSER_SCRIPT" "$TEST_DIR/plan-badtag.md" >/dev/null 2>&1 || rc=$?
+    if [[ $rc -eq 2 ]]; then
+        pass "$name (invalid pr_group rejected with exit 2)"
+    else
+        fail "$name" "expected exit 2 for invalid pr_group, got $rc"
+    fi
+
+    teardown
+}
+
 echo "Running plan-to-tasks.sh tests..." >&2
 echo "" >&2
 
+test_coordinated_basic
+test_coordinated_contraction_cycle_resolved
+test_coordinated_atomicity_refused
+test_coordinated_atomicity_refused_pr_nodes
+test_coordinated_gate_node
+test_coordinated_invalid_tags
 test_multi_pr_basic
 test_single_pr_basic
 test_single_pr_diamond

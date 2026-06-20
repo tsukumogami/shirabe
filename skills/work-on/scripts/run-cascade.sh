@@ -118,9 +118,12 @@ validate_upstream_path() {
 }
 
 # ── Inline utility: check_issue_closed ───────────────────────────────────────
-# Parses a GitHub issue URL, validates owner/repo against the current origin
-# remote, and queries the issue state.
-# Returns 0 if closed, 1 if open or if URL does not match current repo.
+# Parses a GitHub issue URL, validates the owner/repo charset, and queries the
+# issue state. The owner/repo is NOT required to match the origin remote: a
+# coordinated multi-repo effort references sibling-repo issues, and the read-only
+# `gh issue view --repo <owner>/<repo>` below queries the named repo directly.
+# Returns 0 if closed, 1 if open, if the URL cannot be parsed, or if the
+# owner/repo fails the charset validation.
 # Usage: check_issue_closed <github-issue-url>
 
 check_issue_closed() {
@@ -138,21 +141,19 @@ check_issue_closed() {
         return 1
     fi
 
-    # Validate owner/repo against origin remote
-    local origin_url
-    origin_url=$(git remote get-url origin 2>/dev/null) || {
-        log_warn "check_issue_closed: could not read origin remote"
+    # Validate the owner/repo charset before interpolating it into the gh argv.
+    # This guards against a crafted URL smuggling shell/path metacharacters into
+    # the `--repo` argument. The match is the GitHub-documented owner/repo
+    # character set (^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$). Origin-equality is
+    # intentionally NOT checked: sibling-repo issue URLs in a coordinated effort
+    # are valid targets for a read-only query.
+    local ghname_re='^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$'
+    if [[ ! "$owner" =~ $ghname_re ]]; then
+        log_warn "check_issue_closed: invalid owner component: $owner"
         return 1
-    }
-
-    # Normalize origin URL to owner/repo (handles both https and ssh)
-    local origin_slug
-    origin_slug=$(echo "$origin_url" | sed -n \
-        -e 's|https://github.com/\([^/]*/[^/]*\).*|\1|p' \
-        -e 's|git@github.com:\([^/]*/[^.]*\).*|\1|p')
-
-    if [[ "$origin_slug" != "$owner/$repo" ]]; then
-        log_warn "check_issue_closed: issue URL owner/repo ($owner/$repo) does not match origin ($origin_slug)"
+    fi
+    if [[ ! "$repo" =~ $ghname_re ]]; then
+        log_warn "check_issue_closed: invalid repo component: $repo"
         return 1
     fi
 

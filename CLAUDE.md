@@ -25,6 +25,31 @@ Context) so the validator's FC-CONVENTIONS check can find it. See
 header format and the cross-references to the other convention
 headers.
 
+## PR Grouping Policy: coarsest-legal
+
+The default PR-grouping policy for a coordinated multi-repo effort:
+one PR per repository (the coarsest legal unit). A repo splits into
+more than one PR only on a recorded trigger. This is a durable
+workspace preference, resolved `flag > CLAUDE.md-header > default`;
+the default is `coarsest-legal`. The header parallels the other
+convention headers (Repo Visibility, Planning Context, Release Notes
+Convention) so a reader finds the grouping policy in the same place.
+The triggers and the rule's semantics are single-sourced in
+`references/coordination-strategy.md` (Coarsest-Legal-Grouping Rule);
+this header sets the preference, it does not restate the rule.
+
+## Reviewability Ceiling: default
+
+The configured reviewability ceiling for a coordinated effort: the
+size at which a single per-repo PR becomes too large to review and
+the grouping splits it. This is a durable workspace preference,
+resolved `flag > CLAUDE.md-header > default`; `default` defers to
+the ceiling defined in `references/coordination-strategy.md`. Set a
+concrete value here to override. Exceeding the ceiling is one of the
+recorded split triggers named in that contract's
+Coarsest-Legal-Grouping Rule; this header configures the threshold,
+it does not restate the trigger.
+
 ## Artifact Lifecycle: per-skill
 
 shirabe artifacts follow a three-rule lifecycle model. Durable
@@ -132,6 +157,30 @@ own for authors who already know which altitude they want.
 - Conventional commits: `feat:`, `fix:`, `docs:`, `chore:`
 - No emojis in code or committed documentation
 - Never add AI attribution or co-author lines to commits or PRs
+
+## CLI Surface: author with skills, check with `validate`
+
+shirabe's CLI splits two jobs cleanly, and new work must respect the split:
+
+- **Artifacts are authored by skills**, not by CLI subcommands. The agent
+  writes the doc from the skill's prose and templates. There is no
+  `create`/`render` subcommand for any artifact type — no `shirabe brief`,
+  `shirabe prd`, `shirabe design`, and so on. The skill owns the body.
+- **`shirabe validate` is the feedback/correctness engine.** It tells the
+  agent what to fix and why. New correctness rules belong here as checks or
+  modes (e.g. `--lifecycle`, `--merge-gate`, `--coordination-body`), never in a
+  renderer.
+- **Lifecycle moves go through `shirabe transition` / `finalize-chain`.**
+
+**Anti-pattern (do not repeat):** do NOT add a CLI subcommand that renders or
+creates an artifact body. Rendering a body is authoring, and authoring belongs
+in a skill. Compiled CLI logic is justified only for deterministic
+validation/feedback and gh-backed live checks. The worked example is the
+coordination PR body: it is skill-authored from
+`references/coordination-strategy.md` and checked by `shirabe validate`
+(`--coordination-body` statically, `--merge-gate` live). An earlier iteration
+shipped a `shirabe coordination create/status/sync` subcommand that rendered
+the body; it was removed for exactly this reason.
 
 ## Intermediate Storage
 

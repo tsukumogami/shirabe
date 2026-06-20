@@ -10,6 +10,7 @@
 pub mod advisory;
 pub mod annotation;
 pub mod checks;
+pub mod coordination;
 pub mod doc;
 pub mod features;
 pub mod finalize;
@@ -17,6 +18,7 @@ pub mod formats;
 pub mod frontmatter;
 pub mod gh;
 pub mod lifecycle;
+pub mod merge_gate;
 pub mod mermaid;
 pub mod report;
 pub mod table;
@@ -29,14 +31,30 @@ pub mod validate;
 pub use advisory::{explain as explain_advisory, AdvisoryNote, AdvisoryReport, PrPosture};
 pub use annotation::{format_error, format_notice};
 pub use checks::{check_slug_prefix, detect_slug_prefix, SlugPrefixCheck};
+pub use coordination::{
+    check_coordination_body, decide_gate, decide_visibility_guard, is_acyclic_order,
+    parse_cross_repo_ref, redacted_label, CoordinationBodyFinding, CrossRepoRef, GateDecision,
+    GatePrStatus, GateUpstreamStatus, GuardIndexNode, IndexedPr, Visibility,
+    VisibilityGuardDecision, VisibilityResolver, COORDINATION_DECLARATION_MARKER,
+};
 pub use doc::{Config, Doc, FieldValue, Section, ValidationError};
 pub use features::{extract_needs_label, parse_features, strip_label_decoration, Feature};
-pub use finalize::{walk_chain, walk_chain_mode, Mode, NodeAction, NodeEntry, Report, WalkError};
+pub use finalize::{
+    verify_cross_repo_upstream_terminal, walk_chain, walk_chain_mode, CrossRepoVerification, Mode,
+    NodeAction, NodeEntry, Report, VerifyError, WalkError,
+};
 pub use formats::{detect_format, formats, FormatSpec};
 pub use frontmatter::{parse_doc, ParseError};
-pub use gh::{detect_pr_context, detect_pr_draft, PrContext};
+pub use gh::{
+    detect_pr_context, detect_pr_draft, ClientError, GhSubprocessClient, IssueState,
+    IssueStateClient, PrContext,
+};
 pub use lifecycle::{
     run_lifecycle_chain_check, run_lifecycle_check, target_state_for, Posture, TargetState,
+};
+pub use merge_gate::{
+    check_index_visibility, coordination_pr_visibility, run_merge_gate, split_pr_arg,
+    GhVisibilityResolver, MergeGateOutcome,
 };
 pub use report::{
     render_human, render_human_with_advisory, render_json, render_json_with_advisory,

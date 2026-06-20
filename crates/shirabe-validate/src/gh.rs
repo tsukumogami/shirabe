@@ -435,6 +435,28 @@ impl Default for GhSubprocessClient {
     }
 }
 
+impl GhSubprocessClient {
+    /// Resolve a repo's visibility by reading `repos/{owner}/{repo}` and
+    /// inspecting its top-level `visibility` string (`"public"`,
+    /// `"private"`, or `"internal"`). Returns `Ok(true)` for public,
+    /// `Ok(false)` for any non-public visibility, and `Err` when the repo
+    /// cannot be resolved -- the F1 caller treats every non-`Ok(true)` outcome
+    /// as private (fail closed).
+    ///
+    /// `internal` is treated as non-public: an internal repo's identifiers are
+    /// not safe to render into a public coordination PR body.
+    pub fn fetch_repo_is_public(&self, owner: &str, repo: &str) -> Result<bool, ClientError> {
+        if !is_valid_owner_or_repo(owner) || !is_valid_owner_or_repo(repo) {
+            return Err(ClientError::NotFound);
+        }
+        let path = format!("repos/{}/{}", owner, repo);
+        let body = self.run_gh_api(&path)?;
+        let visibility =
+            extract_top_level_string(&body, "visibility").map_err(ClientError::Malformed)?;
+        Ok(visibility == "public")
+    }
+}
+
 impl IssueStateClient for GhSubprocessClient {
     fn fetch_issue_state(
         &self,

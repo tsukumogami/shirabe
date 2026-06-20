@@ -13,11 +13,12 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
-    check_slug_prefix, detect_format, detect_pr_draft, explain_advisory, format_error,
-    format_notice, is_known_check_code, is_notice, parse_doc, render_human_with_advisory,
-    render_json_with_advisory, run_lifecycle_chain_check, run_lifecycle_check, run_transition,
-    validate_file, walk_chain_mode, AdvisoryReport, Config, Flags, Mode, ParseError, PrPosture,
-    ReviewPosture, SlugPrefixCheck, ValidationError,
+    check_coordination_body, check_slug_prefix, detect_format, detect_pr_draft, explain_advisory,
+    format_error, format_notice, is_known_check_code, is_notice, parse_doc,
+    render_human_with_advisory, render_json_with_advisory, run_lifecycle_chain_check,
+    run_lifecycle_check, run_merge_gate, run_transition, validate_file, walk_chain_mode,
+    AdvisoryReport, Config, Flags, GhSubprocessClient, GhVisibilityResolver, MergeGateOutcome,
+    Mode, ParseError, PrPosture, ReviewPosture, SlugPrefixCheck, ValidationError,
 };
 
 mod populate;
@@ -253,6 +254,57 @@ struct ValidateArgs {
     /// this flag to its validator invocations.
     #[arg(long, default_value_t = false)]
     allow_untracked_acs: bool,
+
+    /// The coordination merge-last gate mode (F4 / Decision D). Recompute
+    /// "all indexed PRs merged + all upstreams terminal" from authoritative
+    /// **live** `gh` queries at gate time, never from the editable PR body.
+    /// Posture-aware, mirroring the draft-tolerable lifecycle codes: under
+    /// `--mode=ready` a blocked gate fails (the merge-last backstop); under
+    /// `--mode=draft` (the default) a blocked gate is a notice (exit 0), since
+    /// a coordination PR legitimately has unmerged indexed PRs mid-effort.
+    /// Mutually exclusive with `--lifecycle` / `--lifecycle-chain` and with
+    /// positional file arguments. Takes the indexed PR refs via `--pr` and
+    /// upstreams via `--upstream`; honors `--visibility` (unset == public,
+    /// only `private` opts a private effort in, fail-closed otherwise).
+    #[arg(
+        long,
+        default_value_t = false,
+        conflicts_with = "lifecycle",
+        conflicts_with = "lifecycle_chain"
+    )]
+    merge_gate: bool,
+
+    /// An indexed PR for `--merge-gate`, given as `owner/repo:path#number`
+    /// (repeatable). The supplied LIST is the durable index; per-PR merged
+    /// status is **never** trusted from this argument or any PR body — it is
+    /// recomputed live via `gh` (F4). The `owner/repo:path` is validated by
+    /// the F2 parser; a malformed reference is a hard input error.
+    #[arg(long = "pr")]
+    pr: Vec<String>,
+
+    /// An upstream to verify terminal for `--merge-gate`, given as
+    /// `owner/repo:path#number` (repeatable). Each is checked live; a
+    /// non-terminal or unresolvable upstream blocks the gate (fail closed).
+    #[arg(long = "upstream")]
+    upstream: Vec<String>,
+
+    /// The static coordination-body check mode. Reads an authored coordination
+    /// PR body FILE and checks it **offline** (no `gh`): the declaration marker
+    /// is present, every `owner/repo:path#number` cross-repo ref parses and
+    /// passes F2, and the fenced merge-order block is acyclic. This is the
+    /// static analog of `shirabe validate <brief-file>` — authoring feedback
+    /// before the body is posted. The visibility rule and live merge state need
+    /// `gh` and stay in `--merge-gate`; they are not duplicated here. Mutually
+    /// exclusive with `--lifecycle` / `--lifecycle-chain` / `--merge-gate` and
+    /// with positional file arguments.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "lifecycle",
+        conflicts_with = "lifecycle_chain",
+        conflicts_with = "merge_gate"
+    )]
+    coordination_body: Option<String>,
 }
 
 fn main() -> ExitCode {
@@ -385,6 +437,25 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         eprintln!("--lifecycle and --lifecycle-chain are mutually exclusive");
         return ValidateOutcome::ToolError.exit();
     }
+    // The merge-gate mode is one validate mode: it cannot combine with the
+    // lifecycle modes (clap already rejects those via `conflicts_with`) or with
+    // positional file arguments.
+    if args.merge_gate && !args.files.is_empty() {
+        eprintln!("--merge-gate is mutually exclusive with positional file arguments");
+        return ValidateOutcome::ToolError.exit();
+    }
+    // `--pr` / `--upstream` are only meaningful in merge-gate mode.
+    if !args.merge_gate && (!args.pr.is_empty() || !args.upstream.is_empty()) {
+        eprintln!("--pr and --upstream require --merge-gate");
+        return ValidateOutcome::ToolError.exit();
+    }
+    // The static coordination-body check is its own mode: it cannot combine with
+    // positional file arguments (clap already rejects the lifecycle/merge-gate
+    // combinations via `conflicts_with`).
+    if args.coordination_body.is_some() && !args.files.is_empty() {
+        eprintln!("--coordination-body is mutually exclusive with positional file arguments");
+        return ValidateOutcome::ToolError.exit();
+    }
 
     // Reject an unknown --check code up front: a typo like `FC1` must be a
     // tool error, not a silent clean pass. A valid but format-inapplicable
@@ -404,6 +475,14 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     // one-line deprecation notice to stderr); otherwise the `--mode` value
     // applies (default Draft).
     let posture = resolve_posture(args.strict, args.mode);
+
+    if let Some(file) = args.coordination_body.as_deref() {
+        return run_coordination_body_mode(file, args.format);
+    }
+
+    if args.merge_gate {
+        return run_merge_gate_mode(args, posture);
+    }
 
     if let Some(root) = args.lifecycle.as_deref() {
         return run_lifecycle(
@@ -515,6 +594,243 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     }
 
     worst.exit()
+}
+
+/// Runs the `validate --merge-gate` mode: the coordination merge-last gate
+/// (F4 / Decision D), folded into `validate` as a posture-aware mode like every
+/// other merge-gating check. The live `gh` resolution and the pure decision
+/// cores live in `shirabe_validate::merge_gate`; this fn owns the CLI shell —
+/// the output text and the posture-aware exit code.
+///
+/// **Posture-aware outcome (mirrors `effective_severity` for a draft-tolerable
+/// code):**
+///
+/// - `ReviewPosture::Ready`: a blocked gate is an error (exit 2) — the
+///   merge-last backstop. A coordination PR is only mergeable when every
+///   indexed PR is merged and every upstream terminal.
+/// - `ReviewPosture::Draft`: a blocked gate is a **notice** (exit 0), because a
+///   coordination PR legitimately has unmerged indexed PRs mid-effort — exactly
+///   how `L02`/`L06`/`L07` resolve under draft.
+///
+/// A visibility-rule refusal and a hard input error are **posture-independent**:
+/// a draft does not soften a visibility leak or a malformed reference. Both exit
+/// non-zero in every posture (a refusal exits 2, an input error exits 1).
+///
+/// Output respects `--format`: `json` emits the versioned envelope, `human`/
+/// `annotation` emit a clear message. F1 redaction is applied inside the
+/// resolution (every cross-repo identifier is routed through `redacted_label`
+/// before it reaches a diagnostic), so the strings this fn prints are already
+/// safe. The `gh` reads are read-only (F5).
+fn run_merge_gate_mode(args: &ValidateArgs, posture: ReviewPosture) -> ExitCode {
+    let client = GhSubprocessClient::new();
+    let resolver = GhVisibilityResolver::new(&client);
+    let outcome = run_merge_gate(
+        &args.pr,
+        &args.upstream,
+        &args.visibility,
+        posture,
+        &client,
+        &resolver,
+    );
+
+    match &outcome {
+        MergeGateOutcome::Pass {
+            pr_count,
+            upstream_count,
+        } => print_merge_gate_line(
+            args.format,
+            "pass",
+            &format!(
+                "merge-gate: PASS ({} PR(s) merged, {} upstream(s) terminal; recomputed live)",
+                pr_count, upstream_count
+            ),
+        ),
+        MergeGateOutcome::InputError(msg) => {
+            // A malformed reference or auth failure is a hard input error
+            // (exit 1), posture-independent.
+            eprintln!("merge-gate: {}", msg);
+        }
+        MergeGateOutcome::Refused(reasons) => {
+            // The Coordination-PR Visibility Rule refusal is fail-closed in
+            // every posture (a draft does not soften a visibility leak). The
+            // reasons are already F1-redacted.
+            print_merge_gate_block(
+                args.format,
+                "refused",
+                "merge-gate: REFUSED (Coordination-PR Visibility Rule)",
+                reasons,
+            );
+        }
+        MergeGateOutcome::Blocked(reasons) => match posture {
+            ReviewPosture::Ready => print_merge_gate_block(
+                args.format,
+                "violations",
+                "merge-gate: BLOCKED (merge-last gate, recomputed live)",
+                reasons,
+            ),
+            ReviewPosture::Draft => print_merge_gate_block(
+                args.format,
+                "notice",
+                "merge-gate: notice (draft posture) — gate not yet satisfied",
+                reasons,
+            ),
+        },
+    }
+
+    merge_gate_outcome(&outcome, posture).exit()
+}
+
+/// Runs the `validate --coordination-body <FILE>` mode: the static
+/// authoring-feedback check over an authored coordination PR body, offline (no
+/// `gh`). It is the static analog of `shirabe validate <brief-file>` — it tells
+/// the author what to fix and why before the body is posted.
+///
+/// The pure check logic lives in `shirabe_validate::check_coordination_body`
+/// (declaration marker present, every cross-repo ref passes F2, the merge-order
+/// block is acyclic); this fn owns the CLI shell — reading the file, rendering
+/// findings per `--format`, and the exit code. The mode is posture-independent:
+/// any finding is a violation (exit 2). An unreadable file is a tool error
+/// (exit 1).
+///
+/// The **visibility** rule and **live merge state** (F4) need `gh`, so they
+/// stay in `--merge-gate` and are deliberately not checked here.
+fn run_coordination_body_mode(file: &str, format: Format) -> ExitCode {
+    let body = match std::fs::read_to_string(file) {
+        Ok(b) => b,
+        Err(err) => {
+            eprintln!("--coordination-body: could not read {}: {}", file, err);
+            return ValidateOutcome::ToolError.exit();
+        }
+    };
+
+    let findings = check_coordination_body(&body);
+    let outcome = if findings.is_empty() {
+        ValidateOutcome::Clean
+    } else {
+        ValidateOutcome::Violations
+    };
+
+    match format {
+        Format::Json => {
+            let items: Vec<String> = findings
+                .iter()
+                .map(|f| {
+                    format!(
+                        "{{\"line\":{},\"message\":{}}}",
+                        f.line,
+                        json_string(&f.message)
+                    )
+                })
+                .collect();
+            println!(
+                "{{\"schema\":\"shirabe-coordination-body/v1\",\"outcome\":{},\"findings\":[{}]}}",
+                json_string(outcome.label()),
+                items.join(",")
+            );
+        }
+        Format::Annotation => {
+            // GitHub Actions error annotations, file-scoped.
+            for f in &findings {
+                println!("::error file={},line={}::{}", file, f.line, f.message);
+            }
+        }
+        Format::Human => {
+            if findings.is_empty() {
+                println!("coordination-body: clean ({})", file);
+            } else {
+                eprintln!(
+                    "coordination-body: {} finding(s) in {}",
+                    findings.len(),
+                    file
+                );
+                for f in &findings {
+                    eprintln!("  - {}:{}: {}", file, f.line, f.message);
+                }
+            }
+        }
+    }
+
+    outcome.exit()
+}
+
+/// Map a [`MergeGateOutcome`] and review posture onto the shared
+/// [`ValidateOutcome`] exit-code contract. This is the posture-aware decision
+/// point, factored out so the draft-vs-ready matrix is unit-tested without
+/// needing a live `gh`:
+///
+/// - `Pass` => `Clean` (exit 0) in every posture.
+/// - `InputError` => `ToolError` (exit 1) in every posture (hard input error).
+/// - `Refused` => `Violations` (exit 2) in every posture — the
+///   Coordination-PR Visibility Rule is fail-closed; a draft does not soften a
+///   visibility leak.
+/// - `Blocked` => posture-aware, mirroring `effective_severity` for a
+///   draft-tolerable code: `Ready` => `Violations` (exit 2, the merge-last
+///   backstop); `Draft` => `Clean` (exit 0, a notice).
+fn merge_gate_outcome(outcome: &MergeGateOutcome, posture: ReviewPosture) -> ValidateOutcome {
+    match outcome {
+        MergeGateOutcome::Pass { .. } => ValidateOutcome::Clean,
+        MergeGateOutcome::InputError(_) => ValidateOutcome::ToolError,
+        MergeGateOutcome::Refused(_) => ValidateOutcome::Violations,
+        MergeGateOutcome::Blocked(_) => match posture {
+            ReviewPosture::Ready => ValidateOutcome::Violations,
+            ReviewPosture::Draft => ValidateOutcome::Clean,
+        },
+    }
+}
+
+/// Print a single merge-gate result line per `format`. For `json` it emits a
+/// minimal versioned envelope; otherwise the human/annotation message.
+fn print_merge_gate_line(format: Format, outcome: &str, message: &str) {
+    match format {
+        Format::Json => println!(
+            "{{\"schema\":\"shirabe-merge-gate/v1\",\"outcome\":{},\"reasons\":[]}}",
+            json_string(outcome)
+        ),
+        Format::Annotation | Format::Human => println!("{}", message),
+    }
+}
+
+/// Print a merge-gate block result (refusal / block / notice) with its reasons
+/// per `format`. For `json` the reasons are carried as a string array; for
+/// human/annotation each reason is printed on its own line.
+fn print_merge_gate_block(format: Format, outcome: &str, header: &str, reasons: &[String]) {
+    match format {
+        Format::Json => {
+            let items: Vec<String> = reasons.iter().map(|r| json_string(r)).collect();
+            println!(
+                "{{\"schema\":\"shirabe-merge-gate/v1\",\"outcome\":{},\"reasons\":[{}]}}",
+                json_string(outcome),
+                items.join(",")
+            );
+        }
+        Format::Annotation | Format::Human => {
+            eprintln!("{}:", header);
+            for reason in reasons {
+                eprintln!("  - {}", reason);
+            }
+        }
+    }
+}
+
+/// Minimal JSON string encoder for the merge-gate envelope: quote and escape
+/// the control characters JSON requires. The strings here are already
+/// F1-redacted, so this only needs to produce valid JSON, not redact.
+fn json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// Build the context-aware advisory for a render. The advisory is read-only
@@ -1198,6 +1514,97 @@ mod tests {
             }
             _ => panic!("expected the validate subcommand"),
         }
+    }
+
+    #[test]
+    fn merge_gate_posture_matrix() {
+        // Pass: clean (exit 0) in both postures.
+        let pass = MergeGateOutcome::Pass {
+            pr_count: 2,
+            upstream_count: 1,
+        };
+        assert_eq!(
+            merge_gate_outcome(&pass, ReviewPosture::Ready).exit_code(),
+            0
+        );
+        assert_eq!(
+            merge_gate_outcome(&pass, ReviewPosture::Draft).exit_code(),
+            0
+        );
+
+        // Blocked: posture-aware. Ready => violations (exit 2, backstop);
+        // Draft => clean (exit 0, notice) — symmetric with L02/L06/L07.
+        let blocked = MergeGateOutcome::Blocked(vec!["pr-1 is not merged".to_string()]);
+        assert_eq!(
+            merge_gate_outcome(&blocked, ReviewPosture::Ready).exit_code(),
+            2
+        );
+        assert_eq!(
+            merge_gate_outcome(&blocked, ReviewPosture::Draft).exit_code(),
+            0
+        );
+
+        // Refused: fail-closed in EVERY posture (a draft does not soften a
+        // visibility leak). Exit 2 under both.
+        let refused = MergeGateOutcome::Refused(vec!["public PR cannot index pr-2".to_string()]);
+        assert_eq!(
+            merge_gate_outcome(&refused, ReviewPosture::Ready).exit_code(),
+            2
+        );
+        assert_eq!(
+            merge_gate_outcome(&refused, ReviewPosture::Draft).exit_code(),
+            2
+        );
+
+        // InputError: hard input error (exit 1) in every posture.
+        let input = MergeGateOutcome::InputError("invalid reference".to_string());
+        assert_eq!(
+            merge_gate_outcome(&input, ReviewPosture::Ready).exit_code(),
+            1
+        );
+        assert_eq!(
+            merge_gate_outcome(&input, ReviewPosture::Draft).exit_code(),
+            1
+        );
+    }
+
+    #[test]
+    fn merge_gate_flag_parses_pr_and_upstream() {
+        let cli = Cli::parse_from([
+            "shirabe",
+            "validate",
+            "--merge-gate",
+            "--mode=ready",
+            "--pr",
+            "o/r:docs/a.md#1",
+            "--pr",
+            "o/r:docs/b.md#2",
+            "--upstream",
+            "o/r:docs/d.md#3",
+        ]);
+        match cli.command {
+            Some(Commands::Validate(args)) => {
+                assert!(args.merge_gate);
+                assert_eq!(args.pr, vec!["o/r:docs/a.md#1", "o/r:docs/b.md#2"]);
+                assert_eq!(args.upstream, vec!["o/r:docs/d.md#3"]);
+                assert!(matches!(args.mode, PostureMode::Ready));
+            }
+            _ => panic!("expected the validate subcommand"),
+        }
+    }
+
+    #[test]
+    fn merge_gate_conflicts_with_lifecycle() {
+        // clap rejects --merge-gate alongside --lifecycle (conflicts_with).
+        let res = Cli::try_parse_from(["shirabe", "validate", "--merge-gate", "--lifecycle", "."]);
+        assert!(res.is_err(), "--merge-gate + --lifecycle must be rejected");
+    }
+
+    #[test]
+    fn json_string_escapes_control_chars() {
+        assert_eq!(json_string("a\"b"), "\"a\\\"b\"");
+        assert_eq!(json_string("a\nb"), "\"a\\nb\"");
+        assert_eq!(json_string("plain"), "\"plain\"");
     }
 
     #[test]

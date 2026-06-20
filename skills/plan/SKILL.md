@@ -51,9 +51,9 @@ Quick summary of required sections:
 6. **Dependency Graph** -- Mermaid diagram showing issue relationships
 7. **Implementation Sequence** -- critical path and parallelization opportunities
 
-Frontmatter includes `schema: plan/v1`, `status`, `execution_mode` (single-pr or
-multi-pr), `milestone`, and `issue_count`. Optional `upstream` links to the source
-document (design doc, PRD, or roadmap).
+Frontmatter includes `schema: plan/v1`, `status`, `execution_mode` (single-pr,
+multi-pr, or coordinated), `milestone`, and `issue_count`. Optional `upstream`
+links to the source document (design doc, PRD, or roadmap).
 
 PLAN docs use a unified Draft -> Active -> Done -> DELETED lifecycle,
 identical for single-pr and multi-pr. Only the Draft -> Active gate
@@ -134,7 +134,7 @@ Planning issues are always `simple` complexity and carry a `needs_label` (needs-
 needs-design, needs-spike, or needs-decision) indicating what upstream artifact the
 feature requires.
 
-## Execution Mode Decision (single-pr vs multi-pr)
+## Execution Mode Decision (single-pr vs multi-pr vs coordinated)
 
 This is a separate decision from the Decomposition Strategy above. Work-slicing
 (walking skeleton vs horizontal) chooses how issues are shaped against the design;
@@ -170,6 +170,30 @@ records a decision block per `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol
 and continues; it never hard-stops. See `references/phases/phase-3-decomposition.md`
 step 3.5a for the guard's procedure and step 3.6 for the mode finalization that
 consumes the guard's output.
+
+### Coordinated Mode (multi-repo)
+
+`coordinated` is the third execution mode: the multi-repo generalization of
+multi-pr. Reach for it when the effort spans more than one repository and the
+per-repo PRs must land in a coordinated order with a coordination PR that
+merges last. It is always multi-PR and shares multi-pr's section shape
+(Implementation Issues table + Dependency Graph); it adds per-issue `repo` and
+`pr_group` tags plus a two-node merge-order DAG.
+
+The canonical contract is
+`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`; the PLAN-side
+authoring details (the Repo/Group annotation rows, gate-node declarations, and
+the contraction + acyclicity behavior) live in
+`references/quality/plan-doc-structure.md` under "Coordinated Mode."
+
+Mechanically, each coordinated issue carries a `^_Repo: owner/repo \| Group:
+<pr-group>_` annotation row in the Implementation Issues table (default
+grouping is one PR per repo, `Group: default`). `scripts/plan-to-tasks.sh`
+collapses the issue-level dependency graph into a `(repo, pr_group)`-level PR
+DAG with non-PR gate nodes, checks acyclicity after contraction (R13), and
+resolves a contraction cycle by splitting a repo at the seam — or refuses if no
+acyclic order exists (true cross-repo atomicity). It never emits a cyclic
+order.
 
 ## Complexity Classification
 

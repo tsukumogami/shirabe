@@ -1267,6 +1267,110 @@ scenario_deletion_idempotent_reinvoke() {
     cd "$SCRIPT_DIR"
 }
 
+# ── Scenario 14: check_issue_closed — sibling owner/repo accepted ─────────────
+# A coordinated multi-repo effort references sibling-repo issue URLs whose
+# owner/repo differs from the origin remote. check_issue_closed must query the
+# named repo directly (no origin-equality rejection) while still rejecting an
+# owner/repo that fails the GitHub charset validation. We source just the
+# function and stub gh/git so the test is hermetic.
+scenario_check_issue_closed_sibling_repo() {
+    local scenario="Scenario 14: check_issue_closed — sibling repo accepted, bad charset rejected"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+
+    # A gh stub on PATH that records the --repo it was asked about and returns
+    # CLOSED for the sibling-repo query. If check_issue_closed still enforced
+    # origin-equality, the sibling URL would be rejected BEFORE gh is invoked
+    # and the recorded repo would be empty.
+    local stub_dir="$tmpdir/bin"
+    mkdir -p "$stub_dir"
+    cat > "$stub_dir/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+STUB_DIR="$(dirname "$0")"
+if [[ "${1:-}" == "issue" ]] && [[ "${2:-}" == "view" ]]; then
+    # Find the value following --repo and record it.
+    prev=""
+    for arg in "$@"; do
+        if [[ "$prev" == "--repo" ]]; then
+            echo "$arg" >> "$STUB_DIR/queried-repos.txt"
+        fi
+        prev="$arg"
+    done
+    echo "CLOSED"
+    exit 0
+fi
+exit 0
+EOF
+    chmod +x "$stub_dir/gh"
+
+    # A git stub that reports an origin slug DIFFERENT from the sibling repo,
+    # proving origin-equality is no longer enforced.
+    cat > "$stub_dir/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "remote" ]] && [[ "${2:-}" == "get-url" ]]; then
+    echo "https://github.com/origin-owner/origin-repo"
+    exit 0
+fi
+exit 0
+EOF
+    chmod +x "$stub_dir/git"
+
+    local ok=true
+
+    # Accepted: a sibling owner/repo (differs from origin) at a CLOSED issue.
+    local sibling_rc=0
+    PATH="$stub_dir:$PATH" bash -c "
+        set -euo pipefail
+        log_warn() { :; }
+        $(awk '/^check_issue_closed\(\) \{/,/^\}/' "$CASCADE_SCRIPT")
+        check_issue_closed 'https://github.com/sibling-owner/sibling-repo/issues/7'
+    " || sibling_rc=$?
+
+    if [[ "$sibling_rc" -eq 0 ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo "  ✓ sibling-repo issue accepted (queried directly)"
+    else
+        fail "$scenario: sibling-repo issue URL was rejected (rc=$sibling_rc)"
+        ok=false
+    fi
+
+    # The gh stub must have been invoked with the sibling repo, proving the
+    # query reached gh rather than being short-circuited by an origin check.
+    local queried
+    queried=$(cat "$stub_dir/queried-repos.txt" 2>/dev/null || echo "")
+    if [[ "$queried" == *"sibling-owner/sibling-repo"* ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo "  ✓ gh queried the sibling repo directly"
+    else
+        fail "$scenario: gh was not queried for the sibling repo (got: '$queried')"
+        ok=false
+    fi
+
+    # Rejected: an owner with an invalid charset (a space) must still be
+    # rejected by the charset guard, before any gh query.
+    local bad_rc=0
+    PATH="$stub_dir:$PATH" bash -c "
+        set -euo pipefail
+        log_warn() { :; }
+        $(awk '/^check_issue_closed\(\) \{/,/^\}/' "$CASCADE_SCRIPT")
+        check_issue_closed 'https://github.com/bad owner/repo/issues/9'
+    " || bad_rc=$?
+
+    if [[ "$bad_rc" -ne 0 ]]; then
+        [[ "$VERBOSE" == "true" ]] && echo "  ✓ invalid-charset owner/repo rejected"
+    else
+        fail "$scenario: invalid-charset owner/repo was accepted (rc=$bad_rc)"
+        ok=false
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 # Check prerequisites
@@ -1336,6 +1440,9 @@ scenario_deletion_open_issue_skip
 cd "$ORIG_DIR"
 
 scenario_deletion_idempotent_reinvoke
+cd "$ORIG_DIR"
+
+scenario_check_issue_closed_sibling_repo
 cd "$ORIG_DIR"
 
 echo ""

@@ -40,6 +40,95 @@ Your project's extension file (`.claude/shirabe-extensions/work-on.md`) defines 
 
 When `$ARGUMENTS` is a path to a PLAN.md file, the skill runs as a plan orchestrator rather than working on a single issue. Plan mode coordinates multiple per-issue child workflows and assembles a combined PR after all children complete.
 
+### Coordination Intent (coordinated efforts)
+
+Plan orchestrator mode is coordination-aware. When the PLAN's
+`execution_mode` is `coordinated` (or coordination intent is signaled
+via `--coordinated` / the `## PR Grouping Policy:` and `##
+Reviewability Ceiling:` CLAUDE.md headers, resolved `flag >
+CLAUDE.md-header > default`), `/work-on` drives the coordinated
+lifecycle's **track** phase in addition to the per-repo work.
+
+This capability is **additive** (R3). When coordination intent is
+absent — every `single-pr` and `multi-pr` PLAN — `/work-on` behaves
+exactly as documented everywhere else in this file: one shared
+branch, one PR, no coordination sync, no cross-repo gate. Read the
+rest of this section only when the PLAN is `coordinated`.
+
+When the effort is coordinated, as per-repo PRs open and progress,
+`/work-on` **refreshes the coordination PR body itself** on each
+orchestrator pass — re-authoring the PR-index and merge-order block
+from the template in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md)
+and posting it with `gh pr edit`, the same `gh` surface it already
+uses. There is no `shirabe coordination` subcommand: the body is
+skill-authored, like every other shirabe artifact. `shirabe validate
+--coordination-body <file>` gives authoring feedback on the refreshed
+body offline, and `shirabe validate --merge-gate` is the merge-last
+check before the coordination PR can merge. These are **smart
+defaults** (Decision F): coordination-PR refresh, sequencing, and
+merge-order tracking activate automatically and each must **announce**
+itself in the invocation output — naming the behavior and its
+per-invocation override (R18). For example, on the first refresh of a
+pass, announce that the index/merge-order is being re-authored and name
+the flag that suppresses it.
+
+The lifecycle phases (create → track → finalize → merge last), the
+coarsest-legal-grouping rule, the two-node merge-order model, the
+done-signal, and the load-bearing F1/F2/F4 rules are the canonical
+contract in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md).
+`/work-on` binds to it and does not restate it; the `shirabe validate`
+mode args (`--coordination-body`, `--merge-gate`) and their fail-closed
+behavior are owned by the CLI. Cross-repo references follow
+[`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`](${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md)
+(`owner/repo:path`), and a public coordination PR never embeds
+private-repo content (F1).
+
+The finalize phase stays repo-local: each repo's PR finalizes its own
+artifacts through the same completion cascade documented under
+**Completion Cascade (plan_completion)** below. The cross-repo
+boundary is the read-only verification gate (`shirabe validate
+--merge-gate`), not a cross-repo write.
+
+#### Coordination Failure Halts (R21)
+
+A coordination step that **cannot complete** — a coordination-body
+refresh that cannot rewrite the durable index (e.g. `gh pr edit`
+fails), a finalize that cannot run its repo-local cascade, or a
+`shirabe validate --merge-gate` recompute that cannot resolve every
+indexed PR's live state — **halts and surfaces the error**. `/work-on` does not advance
+past a coordination step it could not complete and does not paper over
+a failed step as success. A halted coordination step leaves the
+coordination PR unmerged: the `lifecycle.yml` merge-last gate
+(`shirabe validate --merge-gate`, run under `--mode=ready`) keeps the
+coordination PR merge-ineligible while finalization is incomplete or
+any indexed PR is unresolved, and an unresolvable PR fails closed as
+not-merged.
+This is a binding to that gate, not a restatement of its internals —
+the gate's recompute mechanics and fail-closed rules are the
+canonical contract in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md)
+(F4 and the done-signal). The halt surfaces the step that failed so
+the operator resolves it and re-invokes; the gate is the backstop
+that makes a halted-but-unnoticed finalization safe.
+
+#### Coordinated Abandonment (R20)
+
+When a coordinated effort is abandoned mid-flight — the plan
+orchestrator reaches `escalate` and the operator elects to abandon
+rather than resolve — `/work-on` **closes the coordination PR
+without merging** and documents the partial state. The in-flight
+planning artifacts are force-materialized (the coordination PR's
+durable body plus any partial on-disk artifacts record what was
+reached), never silently orphaned. Abandonment mirrors `/scope`'s
+`abandonment-forced` framing: the coordination PR is the durable home
+of the chain, so abandoning the chain closes that home unmerged
+rather than leaving it open and merge-eligible. The skill performs the
+close with `gh pr close` (the same `gh` surface it used to author the
+body); the lifecycle this short-cuts is the canonical contract in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md).
+
 ### Branch Context Evaluation
 
 Before running any koto operations, evaluate the branch context to determine whether `orchestrator_setup` should reuse an existing branch or create a new one. Check three signals in order: the current branch name, any open PRs whose head matches that branch, and any explicit branch instruction the user provided in their message.
@@ -146,24 +235,24 @@ The `failure_reason` field is required — omitting it prevents `context_assignm
 
 ### PR Finalization (pr_finalization)
 
-In `pr_finalization` state, read `batch_final_view` and assemble a PR description table. For each child include: `name`, `outcome`, `reason` (if failed or skipped), `reason_source`, and `skipped_because_chain` (if skipped). Update the PR with `gh pr edit`. Do **not** mark the PR ready in this state — `gh pr ready` runs in `plan_completion` after the cascade pulls the chain to its strict-mode passing state. Submit `finalization_status: updated` with `pr_url`.
+In `pr_finalization` state, read `batch_final_view` and assemble a PR description table. For each child include: `name`, `outcome`, `reason` (if failed or skipped), `reason_source`, and `skipped_because_chain` (if skipped). Update the PR with `gh pr edit`. Do **not** mark the PR ready in this state — `gh pr ready` runs in `plan_completion` after the cascade pulls the chain to its ready-posture passing state. Submit `finalization_status: updated` with `pr_url`.
 
 ### Completion Cascade (plan_completion)
 
-The completion cascade runs BEFORE `gh pr ready` so the chain is at its strict-mode passing state when CI re-runs on the `ready_for_review` event. This is the DRAFT-vs-READY discipline: DRAFT PRs run non-strict and pass against mid-PR chain states; the cascade in this state finalizes the chain atomically; then `gh pr ready` fires; then CI re-runs in strict mode and passes on the terminal chain.
+The completion cascade runs BEFORE `gh pr ready` so the chain is at its ready-posture passing state when CI re-runs on the `ready_for_review` event. This is the DRAFT-vs-READY discipline: DRAFT PRs run under draft posture and pass against mid-PR chain states; the cascade in this state finalizes the chain atomically; then `gh pr ready` fires; then CI re-runs under ready posture and passes on the terminal chain.
 
 The state runs two steps:
 
 1. **Cascade.** `${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}}` runs the chain-targeted lifecycle check before any transitions (pre-cascade probe), performs the atomic finalization commit (PLAN deletion + BRIEF/PRD/DESIGN transitions), pushes, and re-runs the chain-targeted check after the commit (post-cascade verification). All three points are inside the script — the agent does not invoke the validator directly.
-2. **Mark ready.** `gh pr ready <pr-number>` flips the PR out of draft. CI re-runs in strict mode and should pass.
+2. **Mark ready.** `gh pr ready <pr-number>` flips the PR out of draft. CI re-runs under ready posture and should pass.
 
-The cascade script is the load-bearing element: it invokes `shirabe validate --lifecycle-chain {{PLAN_DOC}} --strict` at the pre-probe (expecting failure on the present PLAN) and post-verify (expecting clean pass after the commit) points, parses exit codes deterministically, and fails fast on unexpected outcomes. If the pre-probe sees a clean pass — the chain is already at its strict-mode terminal — the script emits `cascade_status: skipped` and exits 0 without performing any transitions. If the post-verify sees a failure, the script logs the validator's output and emits `cascade_status: partial`.
+The cascade script is the load-bearing element: it invokes `shirabe validate --lifecycle-chain {{PLAN_DOC}} --mode=ready` at the pre-probe (expecting failure on the present PLAN) and post-verify (expecting clean pass after the commit) points, parses exit codes deterministically, and fails fast on unexpected outcomes. If the pre-probe sees a clean pass — the chain is already at its ready-posture terminal — the script emits `cascade_status: skipped` and exits 0 without performing any transitions. If the post-verify sees a failure, the script logs the validator's output and emits `cascade_status: partial`.
 
 The cascade script walks the `upstream` frontmatter chain from the PLAN doc and applies the appropriate lifecycle transition at each node: PLAN → DELETED, DESIGN → Current, PRD → Done, BRIEF → Done, ROADMAP feature status update, and optional ROADMAP → Done when all features complete. It emits a JSON result containing `cascade_status` (`completed | partial | skipped`) and a `steps` array describing what ran — including the `lifecycle_pre_probe` and `lifecycle_post_verify` steps when those points run.
 
-Submit `cascade_status` from the JSON output. All three values route to `ci_monitor`, which waits for the strict-mode CI run to land green on the now-ready PR.
+Submit `cascade_status` from the JSON output. All three values route to `ci_monitor`, which waits for the ready-posture CI run to land green on the now-ready PR.
 
-See `docs/decisions/DECISION-chain-targeted-lifecycle-cli-shape-2026-06-06.md` for the rationale on the `--lifecycle-chain` CLI flag the cascade invokes. See `docs/decisions/DECISION-cascade-trigger-mechanism-2026-06-06.md` for the rationale on running the cascade inline rather than as a workflow hook or new subcommand. See `docs/decisions/DECISION-lifecycle-strict-mode-interface-2026-06-06.md` for the rationale on the `--strict` CLI flag interface the cascade verifies against.
+See `docs/decisions/DECISION-chain-targeted-lifecycle-cli-shape-2026-06-06.md` for the rationale on the `--lifecycle-chain` CLI flag the cascade invokes. See `docs/decisions/DECISION-cascade-trigger-mechanism-2026-06-06.md` for the rationale on running the cascade inline rather than as a workflow hook or new subcommand. See `docs/decisions/DECISION-lifecycle-strict-mode-interface-2026-06-06.md` for the rationale on the lifecycle posture interface (`--mode=draft|ready`, which superseded the original `--strict` flag) the cascade verifies against.
 
 ---
 

@@ -111,6 +111,70 @@ suppress R9's hard-finalization check; an `--auto` run that cannot
 record a valid exit still fails finalization rather than silently
 absorbing the violation.
 
+## Coordination Intent
+
+`/scope` is coordination-aware: when an effort spans more than one
+repository, `/scope` carries the multi-repo coordination contract
+instead of leaving it to the author to hand-supply each session.
+This capability is **additive**. When coordination intent is absent,
+`/scope` behaves exactly as documented everywhere else in this file —
+single-repo, no coordination PR, no new prompts (R3). Read the rest
+of this section only when intent is present.
+
+Coordination intent resolves on the existing `flag >
+CLAUDE.md-header > default` stack:
+
+- `--coordinated` / `--no-coordinated` — the per-invocation flag
+  (highest precedence; `--no-coordinated` forces the single-repo
+  path even when a workspace default enables coordination).
+- `## PR Grouping Policy:` and `## Reviewability Ceiling:` headers in
+  CLAUDE.md — the durable workspace preferences that, when present,
+  signal coordinated defaults for routine efforts.
+- default — single-repo (intent absent).
+
+When intent is present, `/scope` creates the coordination PR **up
+front**, before invoking any child. Like every other shirabe
+artifact, the coordination PR body is **authored by the skill**, not
+rendered by a CLI subcommand: `/scope` writes the body from the
+copy-pasteable template in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md)
+(the declaration marker, the artifact chain, the `owner/repo:path#number`
+ref index, and the fenced merge-order block) and posts it with `gh pr
+create` — the same way the skill already uses `gh`. Before posting,
+`shirabe validate --coordination-body <file>` gives authoring feedback
+(declaration marker present, every cross-repo ref passes F2, merge-order
+acyclic); `shirabe validate --merge-gate` is the merge-last gate later.
+This is the create-up-front phase of the coordinated
+lifecycle. The lifecycle, the coarsest-legal-grouping rule, the
+two-node merge-order model, the done-signal, and the load-bearing
+F1/F2/F4 rules are the canonical contract in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md);
+`/scope` binds to it and does not restate it — the same
+single-source discipline `parent-skill-pattern.md` enforces across
+`/scope` and `/charter`.
+
+Coordination-PR creation, artifact persistence on the PR, sequencing,
+and merge-order tracking are **smart defaults** (Decision F): they
+activate automatically when intent is present, **announce** in the
+invocation output naming the override, and accept a per-invocation
+override (R18). The PR-grouping policy and the reviewability ceiling
+are **durable workspace preferences** (the two CLAUDE.md headers
+above), not announce-on-activation defaults. Cross-repo references in
+the authored body use the `owner/repo:path` convention and respect each
+repo's visibility per
+[`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`](${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md);
+a public coordination PR never embeds private-repo content (F1).
+
+The coordination PR body is skill-authored from the contract's
+template and posted/refreshed with `gh pr create` / `gh pr edit`;
+there is no `shirabe coordination` subcommand. `shirabe validate
+--coordination-body <file>` checks the authored body offline (the
+authoring-feedback check `/scope` runs before posting), and `shirabe
+validate --merge-gate` is the merge-last gate `/work-on` drives later
+(it also folds in the upstream-terminal verification). The validate
+modes' args and fail-closed behavior are owned by the CLI, not by this
+skill.
+
 ## Topic-Slug Constraint
 
 The topic slug appears in the state-file path
@@ -477,6 +541,32 @@ The marker is the abandonment-forced exit's machine-readable
 audit trail. Reviewers and future-`/scope`-resume logic grep
 against the literal substring `scope-status-block: abandonment-forced`
 to detect a force-materialized partial.
+
+### Coordinated Abandonment (R20)
+
+When `exit: abandonment-forced` fires on a **coordinated** effort —
+one for which `/scope` created a coordination PR up front — the
+force-materialize step above still runs (the in-flight child's
+intermediate is written as a Draft and carries the marker), and the
+coordination PR is **closed without merging**. Abandonment never
+merges the coordination PR and never silently orphans the
+coordination state: the partial planning artifacts are
+force-materialized so the closed PR's durable body and the on-disk
+Draft together record the partial state a reviewer can audit. The
+close-without-merge action is the coordinated mirror of the
+single-repo force-materialize — the coordination PR is the durable
+home of the chain, so abandoning the chain closes that home rather
+than leaving it open and merge-eligible.
+
+The skill closes the coordination PR with `gh pr close` (the same
+`gh` surface it used to author and post the body); the lifecycle this
+abandonment short-cuts — create-up-front, track, finalize, merge-last —
+is the canonical contract in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md).
+`/scope` binds to that contract and does not restate it: the binding
+is that abandonment closes the coordination PR unmerged and
+documents the partial state, not a re-derivation of how the PR was
+created or tracked.
 
 ## Security Considerations
 
