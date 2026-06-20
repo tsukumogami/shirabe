@@ -15,6 +15,9 @@ Thumbs.db
 .claude/*
 # But commit the project settings (plugins, permissions)
 !.claude/settings.json
+# And shirabe's own /work-on extension (verification map; must ship in the repo)
+!.claude/shirabe-extensions/
+!.claude/shirabe-extensions/work-on.md
 
 # Eval workspaces (generated outputs, not committed)
 **/evals/workspace/

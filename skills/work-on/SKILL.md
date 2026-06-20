@@ -32,7 +32,7 @@ Other blocking labels (requiring design, requirements definition, or feasibility
 
 If the issue has a label indicating it tracks a child artifact whose implementation is underway, stop and direct the user to work on the child artifact instead.
 
-Your project's extension file (`.claude/shirabe-extensions/work-on.md`) defines additional label names and routing messages to use.
+Your project's extension file (`.claude/shirabe-extensions/work-on.md`) defines additional label names and routing messages to use. It also declares the project's **verification map** that the definition-of-done gate reads — see `references/verification-map.md` for the schema (path-glob to verification command(s), an optional default test command, fail-closed on cannot-verify).
 
 ---
 
