@@ -1,7 +1,7 @@
 ```yaml
 topic: execute-skill
 chain_started: 2026-06-19T20:55:34Z
-last_updated: 2026-06-19T20:57:00Z
+last_updated: 2026-06-19T21:05:00Z
 phase_pointer: phase-2
 exit: UNSET
 exit_artifacts: []
@@ -24,8 +24,13 @@ seed_context: >
   the unchanged koto-based /work-on. SE2-independent (resumability from on-PR
   DAG). Pre-fit by DESIGN-shirabe-progression-authoring.md. ~90% clone of
   SE4/SE7 deliverable set.
-parent_orchestration:
-  invoking_child: brief
-  suppress_status_aware_prompt: true
-  rationale: fresh-chain
+child_snapshots:
+  brief:
+    status: Draft
+    content_hash: e8757d1404a8149d628732fc57d64b23b424ede6
+    captured_at: 2026-06-19T21:05:00Z
+    jury: both-PASS
+    validator: clean
+# parent_orchestration sentinel cleared after /brief returned (child completed).
+# Awaiting chain-boundary approval to transition BRIEF Draft -> Accepted before /prd.
 ```
