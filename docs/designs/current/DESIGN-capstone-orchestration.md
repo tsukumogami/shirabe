@@ -107,7 +107,7 @@ new standalone tool.
   is the static authoring-feedback check (offline — declaration marker present, every ref
   passes F2, merge-order acyclic) and `--merge-gate` is the gh-backed live merge-last gate
   (F4). Both reuse the existing `gh api` client (`crates/shirabe-validate/src/gh.rs`) and
-  the `owner/repo:path` parser (`coordination.rs::parse_cross_repo_ref`).
+  the `owner/repo:path` parser (`shirabe-validate/src/coordination.rs::parse_cross_repo_ref`).
 - *Alternative — a `shirabe coordination create/status/sync` subcommand that renders the
   body (an earlier iteration of this design; see Revision below).* Rejected on a second
   pass: rendering an artifact body is authoring, and shirabe authors every other artifact
@@ -212,7 +212,8 @@ legal unit, with a two-node merge-order DAG validated acyclic at authoring time 
 into the coordination PR body. The skill authors the body from the contract's template and
 posts/refreshes it with `gh`; `shirabe validate --coordination-body` checks the authored body
 offline and `shirabe validate --merge-gate` is the posture-aware live merge-last gate that
-`lifecycle.yml` runs under `--mode=ready` as the non-bypassable backstop; finalize stays
+`lifecycle.yml` runs under `--mode=ready` on a ready coordination PR (draft PRs skip the gate;
+the binary default is `--mode=draft`) as the non-bypassable backstop; finalize stays
 repo-local with a read-only cross-repo verification gate. The whole contract is defined once in
 `references/coordination-strategy.md` and bound by the two consumers.
 
@@ -310,9 +311,9 @@ Components:
 - **`finalize.rs` extension** — keep the `Stop`-on-cross-repo wall for writes; add a `gh`-backed
   read pass that verifies cross-repo upstreams are terminal. Separately, relax
   `run-cascade.sh`'s `check_issue_closed` single-`origin` assumption.
-- **`lifecycle.yml` merge-last step** — on a coordination PR, run `shirabe validate --merge-gate
-  --mode=ready`, failing the "ready" check while any indexed PR is unmerged or finalization is
-  incomplete (the merge-last backstop).
+- **`lifecycle.yml` merge-last step** — on a ready coordination PR, run `shirabe validate --merge-gate
+  --mode=ready` (draft PRs skip the gate; the binary default is `--mode=draft`), failing the "ready"
+  check while any indexed PR is unmerged or finalization is incomplete (the merge-last backstop).
 - **`/scope` + `/work-on` bindings** — detect coordination intent (flag/header/default), author
   the coordination PR body up front from the template and post it with `gh pr create`, re-author and
   `gh pr edit` it as per-repo PRs progress, run `shirabe validate --coordination-body` for authoring

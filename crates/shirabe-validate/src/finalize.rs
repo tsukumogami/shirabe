@@ -576,6 +576,14 @@ impl std::error::Error for VerifyError {}
 /// - `Err(_)` is an unresolvable reference: fail closed. The `gh` payload is
 ///   never embedded in the diagnostic (F5); only a fixed reason phrase derived
 ///   from the error variant appears.
+///
+/// **F1-UNSAFE diagnostic — do not surface verbatim.** The `VerifyError`
+/// message built here interpolates the *raw* `slug` / `path` / `number`, so it
+/// can leak a private cross-repo identifier in the clear. It is safe only
+/// because the merge-gate caller discards this message and substitutes an
+/// F1-redacted label. Any private/coordination-node caller MUST route the
+/// reference through [`crate::coordination::redacted_label`] (the opaque node
+/// id) and must NOT print this message as-is.
 fn decide_terminal(
     slug: &str,
     path: &str,

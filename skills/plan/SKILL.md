@@ -186,7 +186,7 @@ authoring details (the Repo/Group annotation rows, gate-node declarations, and
 the contraction + acyclicity behavior) live in
 `references/quality/plan-doc-structure.md` under "Coordinated Mode."
 
-Mechanically, each coordinated issue carries a `^_Repo: owner/repo | Group:
+Mechanically, each coordinated issue carries a `^_Repo: owner/repo \| Group:
 <pr-group>_` annotation row in the Implementation Issues table (default
 grouping is one PR per repo, `Group: default`). `scripts/plan-to-tasks.sh`
 collapses the issue-level dependency graph into a `(repo, pr_group)`-level PR

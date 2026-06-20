@@ -34,7 +34,8 @@ repositories: a single coordination PR is created up front to hold the plan and
 its framing, per-repo work is grouped to the coarsest legal unit and merged in a
 derived order, and the coordination PR merges last as the one completion signal.
 The decision logic and the merge-last gate (`shirabe validate --merge-gate`) are
-in place and tested; some PR-creation wiring is still landing. See
+in place and tested; no coordinated effort has run end-to-end yet, so the first
+real exercise outside unit tests is still ahead. See
 [`docs/guides/coordinated-multi-repo.md`](docs/guides/coordinated-multi-repo.md)
 for the end-to-end walkthrough and current limitations.
 
@@ -164,8 +165,8 @@ run `shirabe validate docs/designs/DESIGN-foo.md`.
 
 - **koto integration for remaining skills** -- `/work-on` already uses koto for
   state machine enforcement; the other skills will follow
-- **Cross-repo workflow state** -- track multi-repo features through a shared
-  workflow state
+- **Harden coordinated multi-repo past the walking-skeleton stage** -- first
+  end-to-end run and PR-body automation ergonomics
 
 ## License
 

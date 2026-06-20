@@ -32,6 +32,7 @@ use crate::coordination::{
 };
 use crate::finalize::verify_cross_repo_upstream_terminal;
 use crate::gh::{ClientError, GhSubprocessClient, IssueState, IssueStateClient};
+use crate::validate::ReviewPosture;
 
 /// Bridges the `gh` client's `fetch_repo_is_public` into the F1
 /// [`VisibilityResolver`] trait. Fail-closed: any non-public result, or any
@@ -178,13 +179,34 @@ pub enum MergeGateOutcome {
 /// The `resolver` is injected so tests can exercise the visibility front door
 /// offline; production passes a [`GhVisibilityResolver`] backed by the same
 /// client used for the live reads.
+///
+/// **Empty index, posture-aware (fail closed under ready).** A ready
+/// coordination PR with no indexed PRs and no upstreams must NOT pass: a ready
+/// PR asserts the effort is complete, but an empty index means the gate has
+/// nothing to prove merge-last against, so it fails closed
+/// ([`MergeGateOutcome::Blocked`]) — matching the contract ("the gate is the
+/// authority; fail closed") and the lifecycle.yml shell guard. Under `Draft`
+/// the index is legitimately empty before any per-repo PR exists, so an empty
+/// index stays a pass/notice (exit 0).
 pub fn run_merge_gate(
     pr_args: &[String],
     upstream_args: &[String],
     visibility_flag: &str,
+    posture: ReviewPosture,
     client: &dyn IssueStateClient,
     resolver: &dyn VisibilityResolver,
 ) -> MergeGateOutcome {
+    // Empty index under ready posture: fail closed. A ready coordination PR
+    // with nothing indexed has no merge-last invariant to satisfy, which under
+    // the "gate is the authority; fail closed" contract must block rather than
+    // vacuously pass. Under draft the empty index is legitimate (no per-repo
+    // PRs exist yet), so fall through to the normal vacuous pass.
+    if pr_args.is_empty() && upstream_args.is_empty() && posture == ReviewPosture::Ready {
+        return MergeGateOutcome::Blocked(vec![
+            "ready coordination PR has an empty PR-index; merge-last gate blocks".to_string(),
+        ]);
+    }
+
     // Parse + validate every indexed PR reference (F2) up front so the
     // Coordination-PR Visibility Rule front door can run before any live read.
     let mut refs: Vec<(CrossRepoRef, u64)> = Vec::with_capacity(pr_args.len());
@@ -353,7 +375,14 @@ mod tests {
     fn run_merge_gate_malformed_pr_is_input_error() {
         let client = MockIssueStateClient::new();
         let resolver = StubResolver(Visibility::Public);
-        let outcome = run_merge_gate(&["no-hash-suffix".to_string()], &[], "", &client, &resolver);
+        let outcome = run_merge_gate(
+            &["no-hash-suffix".to_string()],
+            &[],
+            "",
+            ReviewPosture::Ready,
+            &client,
+            &resolver,
+        );
         assert!(matches!(outcome, MergeGateOutcome::InputError(_)));
     }
 
@@ -367,6 +396,7 @@ mod tests {
             &["acme/secret-repo:docs/plans/PLAN-classified.md#7".to_string()],
             &[],
             "", // public coordination PR (unset == public)
+            ReviewPosture::Ready,
             &client,
             &resolver,
         );
@@ -396,6 +426,7 @@ mod tests {
             &["tsukumogami/shirabe:docs/plans/PLAN-x.md#196".to_string()],
             &[],
             "",
+            ReviewPosture::Ready,
             &client,
             &resolver,
         );
@@ -421,6 +452,7 @@ mod tests {
             &["tsukumogami/shirabe:docs/plans/PLAN-x.md#196".to_string()],
             &[],
             "",
+            ReviewPosture::Ready,
             &client,
             &resolver,
         );
@@ -428,6 +460,38 @@ mod tests {
             outcome,
             MergeGateOutcome::Pass {
                 pr_count: 1,
+                upstream_count: 0
+            }
+        );
+    }
+
+    // run_merge_gate: an empty index under READY posture fails closed (Blocked).
+    // A ready coordination PR with nothing to gate against must not vacuously
+    // pass — the merge-last gate is the authority and fails closed.
+    #[test]
+    fn run_merge_gate_empty_index_under_ready_blocks() {
+        let client = MockIssueStateClient::new();
+        let resolver = StubResolver(Visibility::Public);
+        let outcome = run_merge_gate(&[], &[], "", ReviewPosture::Ready, &client, &resolver);
+        match outcome {
+            MergeGateOutcome::Blocked(reasons) => {
+                assert!(reasons.iter().any(|r| r.contains("empty PR-index")));
+            }
+            other => panic!("expected Blocked, got {:?}", other),
+        }
+    }
+
+    // run_merge_gate: an empty index under DRAFT posture is a vacuous pass
+    // (exit 0). The index is legitimately empty before per-repo PRs exist.
+    #[test]
+    fn run_merge_gate_empty_index_under_draft_passes() {
+        let client = MockIssueStateClient::new();
+        let resolver = StubResolver(Visibility::Public);
+        let outcome = run_merge_gate(&[], &[], "", ReviewPosture::Draft, &client, &resolver);
+        assert_eq!(
+            outcome,
+            MergeGateOutcome::Pass {
+                pr_count: 0,
                 upstream_count: 0
             }
         );

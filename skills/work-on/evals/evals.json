@@ -434,7 +434,7 @@
       "files": [],
       "expectations": [
         "Agent invokes run-cascade.sh --push {{PLAN_DOC}} as the cascade step rather than executing the cascade steps individually",
-        "Agent does NOT invoke shirabe validate --lifecycle . --strict directly; the cascade script runs the chain-targeted lifecycle check internally",
+        "Agent does NOT invoke shirabe validate directly; the cascade script runs the chain-targeted check (--lifecycle-chain ... --mode=ready) internally",
         "Agent marks the PR ready via gh pr ready as the final step of plan_completion (after the cascade lands)",
         "Agent reads cascade_status from the JSON output emitted by run-cascade.sh",
         "Agent submits cascade_status to koto (completed, partial, or skipped)",

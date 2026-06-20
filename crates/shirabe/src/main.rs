@@ -628,6 +628,7 @@ fn run_merge_gate_mode(args: &ValidateArgs, posture: ReviewPosture) -> ExitCode 
         &args.pr,
         &args.upstream,
         &args.visibility,
+        posture,
         &client,
         &resolver,
     );
