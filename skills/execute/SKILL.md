@@ -4,11 +4,10 @@ description: >-
   Implementation-altitude parent skill that owns plan-level execution. Takes a
   finished PLAN doc and drives it to merged code, delegating each single issue to
   /work-on. Use to run a plan end-to-end: `/execute docs/plans/PLAN-<topic>.md`.
-  Scope (current slice): single-pr and coordinated plans, with the wip-yaml-md
-  state projection, cross-branch resume over the durable home PR, the three
-  exit-path bindings, parent-skill conformance, and the six security surfaces.
-  Backward-compatibility and parity-survival evals are added by Issue 7 in
-  PLAN-execute-skill.md.
+  Owns single-pr and coordinated multi-repo plans, with a wip-yaml-md state
+  projection over the durable home PR (cross-branch resume), the three exit-path
+  bindings, parent-skill conformance, the six security surfaces, and an explicit
+  autonomy mandate.
 ---
 
 # Execute
@@ -20,19 +19,15 @@ delegates each single issue to `/work-on`'s single-issue engine. `/work-on` itse
 stays the canonical single-issue executor; `/execute` does not reimplement
 single-issue mechanics.
 
-This SKILL is the **walking-skeleton slice** (Issue 1 of `PLAN-execute-skill.md`):
-it runs a single-pr PLAN end-to-end by lifting `/work-on`'s plan-orchestrator
-template and pointing each per-issue child at `/work-on`'s `work-on.md` over a
-cross-skill reference, and runs a coordinated multi-repo PLAN as a plain
-durable-state loop over the coordination PR's merge-order DAG. The state projection,
-cross-branch resume over the durable home PR, and the three exit-path bindings land
-in the **State**, **Resume**, and **Exit Paths** sections below (Issue 5).
-Parent-skill conformance (the seven required structural elements and metadata-only
-child inspection) and the six security surfaces are bound in the **Workflow Phases**,
-**Phase Execution**, **Child Inspection**, and **Security Considerations** sections
-below (Issue 6). The remaining guarantee lands in a later issue:
-
-- backward-compatibility + parity-survival evals — Issue 7
+`/execute` runs a single-pr PLAN end-to-end by lifting `/work-on`'s plan-orchestrator
+template (now `execute.md`) and pointing each per-issue child at `/work-on`'s `work-on.md`
+over a cross-skill reference; it runs a coordinated multi-repo PLAN as a plain
+durable-state loop over the coordination PR's merge-order DAG. State, cross-branch resume
+over the durable home PR, and the three exit-path bindings are in the **State**,
+**Resume**, and **Exit Paths** sections; parent-skill conformance and the six security
+surfaces are in **Child Inspection** and **Security Considerations**; the autonomy
+mandate is in **Autonomy**. Backward-compatibility and parity-survival evals live under
+`skills/execute/evals/`.
 
 ## Input Modes
 
@@ -153,7 +148,7 @@ do not stop between issues to advise a checkpoint. The mandate is bound at the l
 tick itself: the lifted template's `spawn_and_await` state carries an "Autonomy at
 every tick" directive so the rule fires on each pass, not only at entry. Drive the
 koto loop over the lifted `execute` template, which carries the
-orchestrator states (Issue 2 removed this machinery from `/work-on`; it lives here
+orchestrator states (the orchestrator was moved out of `/work-on`; it lives here
 now). The states and their tick mechanics:
 
 - `orchestrator_setup` — create (or reuse, via `status: override`) the shared
@@ -171,7 +166,7 @@ now). The states and their tick mechanics:
 
 Each per-issue child is a `/work-on` single-issue run on the shared branch; the
 narrowing of `/work-on` to single-issue-only (so it no longer carries the
-orchestrator) is Issue 2 and does not block this slice.
+orchestrator) is the companion change in `/work-on`.
 
 ## Coordinated Execution Path
 
@@ -348,7 +343,7 @@ gh pr list --state open --search "<topic> in:title" --json number,title,headRefN
 
 The home-PR lookup runs through metadata-only `gh` reads (R15) and re-validates the
 recovered topic slug against `^[a-z0-9-]+$` before keying any write — the
-`gh`-recovered slug is an input surface, hardened in Issue 6.
+`gh`-recovered slug is an input surface that is re-validated.
 
 Body slots 5-7: Slot 5 (status-aware re-entry) carries the PLAN-lifecycle handoff
 `/execute` owns as the downstream skill `/scope`'s resume ladder redirects to — when
@@ -356,7 +351,7 @@ the run has already terminated, the home PR / PLAN status routes between the exi
 re-entries below rather than re-running issues. Slot 6 (partial-child-run) resumes
 into a `/work-on` child that started but did not reach its merged-PR terminal, by
 re-dispatching that child against its own resume ladder rather than re-running it from
-scratch. Slot 7 (feeder-doc) is vacuous in this slice.
+scratch. Slot 7 (feeder-doc) is vacuous for `/execute`.
 
 ## Exit Paths
 
@@ -488,7 +483,7 @@ against its chain shape:
 
 Two `/execute`-specific surfaces are also security-relevant:
 
-- **Cross-skill koto-template path resolution (Issue 1).** `/execute` `koto init`-ing
+- **Cross-skill koto-template path resolution.** `/execute` `koto init`-ing
   children against `${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md` is
   a load-bearing coupling; a misresolved path is a silent break. The Step-1 preflight
   (`scripts/preflight.sh`) is the guarded check that fails closed before any child is
@@ -500,7 +495,7 @@ Two `/execute`-specific surfaces are also security-relevant:
 
 ## Team Shape
 
-Single-agent parent in this slice — no team is spawned at the `/execute` layer. In
+Single-agent parent — no team is spawned at the `/execute` layer. In
 single-pr, the per-issue children are koto-materialized `/work-on` single-issue
 workflows on the shared branch (the same dispatch `/work-on`'s plan-orchestrator uses
 today). In coordinated, each unblocked PR node dispatches a `/work-on` single-issue
