@@ -98,13 +98,13 @@ remove the plan-orchestrator, leaving `/work-on` a single-issue engine.
 merge-order DAG, gated on `shirabe validate --merge-gate`.
 
 **Acceptance Criteria**:
-- [ ] On `execution_mode: coordinated`, `/execute` refreshes coordination state from
+- [x] On `execution_mode: coordinated`, `/execute` refreshes coordination state from
   live `gh`, walks the merge-order DAG of PR nodes and gate nodes, dispatches each
   unblocked PR node to `work-on.md` per repo, and resolves each gate node before its
   dependents advance.
-- [ ] The done-signal is gated on `shirabe validate --merge-gate --mode=ready`
+- [x] The done-signal is gated on `shirabe validate --merge-gate --mode=ready`
   (fail-closed: a `gh` failure halts, never falsely signals done).
-- [ ] The coordination body is re-authored from live `gh` each loop, re-running the
+- [x] The coordination body is re-authored from live `gh` each loop, re-running the
   full `--coordination-body` validation on write.
 
 **Dependencies**: Blocked by <<ISSUE:1>>

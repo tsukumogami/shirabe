@@ -4,9 +4,9 @@ description: >-
   Implementation-altitude parent skill that owns plan-level execution. Takes a
   finished PLAN doc and drives it to merged code, delegating each single issue to
   /work-on. Use to run a plan end-to-end: `/execute docs/plans/PLAN-<topic>.md`.
-  Skeleton scope (this slice): single-pr plans only. Coordinated multi-repo
-  execution, cross-branch resume/state, parent-skill conformance, and security
-  hardening are added by later issues in PLAN-execute-skill.md.
+  Scope (current slice): single-pr and coordinated plans. Cross-branch
+  resume/state, parent-skill conformance, and security hardening are added by
+  later issues in PLAN-execute-skill.md.
 ---
 
 # Execute
@@ -21,9 +21,10 @@ single-issue mechanics.
 This SKILL is the **walking-skeleton slice** (Issue 1 of `PLAN-execute-skill.md`):
 it runs a single-pr PLAN end-to-end by lifting `/work-on`'s plan-orchestrator
 template and pointing each per-issue child at `/work-on`'s `work-on.md` over a
-cross-skill reference. The remaining shapes and guarantees land in later issues:
+cross-skill reference, and runs a coordinated multi-repo PLAN as a plain
+durable-state loop over the coordination PR's merge-order DAG. The remaining
+guarantees land in later issues:
 
-- coordinated multi-repo execution — Issue 4
 - state projection, cross-branch resume, exit-path bindings — Issue 5
 - parent-skill conformance + the six security surfaces — Issue 6
 - backward-compatibility + parity-survival evals — Issue 7
@@ -35,8 +36,7 @@ From `$ARGUMENTS`:
 1. **Path to a PLAN doc** (`docs/plans/PLAN-*.md`, or any `.md` whose frontmatter
    has `schema: plan/v1`) — read the PLAN's `execution_mode`:
    - `single-pr` — run the single-pr execution path below.
-   - `coordinated` — not implemented in this slice; report that coordinated support
-     lands in Issue 4 and stop.
+   - `coordinated` — run the coordinated execution path below.
    - `multi-pr` — out of scope for `/execute`; multi-pr plans run one issue at a time
      through `/work-on` against the repo-persisted PLAN. Direct the user to `/work-on`.
 2. **Empty** — ask which PLAN to execute.
@@ -98,6 +98,99 @@ Each per-issue child is a `/work-on` single-issue run on the shared branch; the
 narrowing of `/work-on` to single-issue-only (so it no longer carries the
 orchestrator) is Issue 2 and does not block this slice.
 
+## Coordinated Execution Path
+
+A `coordinated` PLAN spans more than one repository, so there is no single shared
+branch and no plan-spanning koto session (koto has no cross-repo session). The
+coordinated path is therefore a **plain durable-state loop** the SKILL drives
+directly: the durable state lives on the **coordination PR** itself (its PR-Index
+and fenced merge-order block), and each pass refreshes from live `gh`, advances the
+merge-order DAG, and re-gates. The full coordinated contract — the coordination PR,
+the create → track → finalize → merge-last lifecycle, the coarsest-legal-grouping
+rule, the two-node merge-order DAG, the done-signal, and the load-bearing F1/F2/F4
+rules — is canonical in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](../../references/coordination-strategy.md).
+This path **binds** to that contract and does not restate it; the `shirabe validate`
+mode args (`--coordination-body`, `--merge-gate`) and their fail-closed behavior are
+owned by the CLI.
+
+This path is **metadata-only**: it reads issue/PR status and the merge-gate result,
+never child PR bodies. It runs against an existing coordination PR (creating the
+coordination home up front stays `/scope`'s responsibility; `/execute` consumes it).
+
+### Step 1 — Preflight
+
+Assert the same cross-skill `work-on.md` child template resolves (per-repo PR nodes
+dispatch to it), and confirm `gh` auth is live — it is a precondition, since every
+status read and every body write goes through `gh`:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/preflight.sh
+```
+
+A non-zero exit halts the run. Locate the coordination PR for this effort (the
+home PR carrying the verbatim `This is a **coordination PR**` declaration marker)
+before entering the loop.
+
+### Step 2 — Drive the track-to-merge-last loop
+
+Loop the following pass until the done-signal fires. Every step that goes through
+`gh` is **fail-closed**: a `gh` failure halts and surfaces the failed step (R21); it
+never papers over a failed step as success and never advances past a coordination
+step it could not complete.
+
+1. **Refresh coordination state from live `gh`.** Read each indexed PR's live
+   merged/open status on the operator's own `gh` credentials. Re-validate the
+   `repo` / `pr_group` tags on this read (not only at authoring time), because the
+   index is re-derived from the editable body each pass.
+2. **Re-author the coordination body and re-validate on write.** Rewrite the
+   PR-Index and the fenced merge-order block from the template in
+   `coordination-strategy.md`, derived from the PLAN and the live `gh` reads, keeping
+   the declaration marker verbatim. Run the **full**
+   `shirabe validate --coordination-body <file>` on the rewritten body (declaration
+   marker present, every reference passes F2, merge-order acyclic) — the offline
+   authoring surface runs on every write, not just the merge-gate on read — then post
+   with `gh pr edit`. A public coordination PR never embeds private-repo content
+   (F1); a reference that fails F2 component validation halts with a diagnostic
+   (R21), never silently skipped.
+3. **Walk the merge-order DAG.** A node is unblocked when every predecessor is
+   satisfied (a PR node when its PR has merged; a gate node when its condition
+   verifies live). For each unblocked **PR node**, dispatch its issue(s) to
+   `/work-on`'s `work-on.md` per repo, on that repo's own branch (the same per-issue
+   delegation contract the single-pr path uses, minus the shared branch — each repo's
+   work lands as its own PR). Cross-unit carry-forward flows through the coordination
+   PR's durable state, not a shared branch.
+4. **Resolve gate nodes before dependents advance.** A non-PR gate node (e.g. a
+   package publish) is satisfied only when its condition verifies **live** at
+   recompute time. An unsatisfiable or unverifiable gate fails closed and blocks
+   every node ordered after it — do not advance its dependents.
+5. **Re-gate.** Run `shirabe validate --merge-gate` (live status, never the editable
+   body text) to recompute merge state. Under `--mode=draft` an unmerged-indexed-PR
+   state is a tolerable notice mid-effort; the gate is the only authority on live
+   merge state.
+
+### Step 3 — Done-signal (merge last, fail-closed)
+
+The single done-signal is the **coordination PR merging last**. It is gated on
+`shirabe validate --merge-gate --mode=ready`: the gate recomputes from authoritative
+`gh` queries at gate time, and **fails closed** — any PR it cannot resolve is treated
+as not-merged, and a `gh` failure halts rather than falsely signaling done. Only once
+every indexed per-repo PR has merged, every gate node is satisfied, and finalization
+is complete (each repo finalizes its own artifacts repo-locally; the cross-repo
+boundary is a read-only verification gate, never a cross-repo write) does the gate
+pass under `--mode=ready` and the coordination PR merge. There is no separate "effort
+complete" marker — the merged coordination PR is it.
+
+### Abandonment (R20)
+
+When a coordinated effort is abandoned mid-flight — the loop reaches a genuine
+blocker and the operator elects to abandon rather than resolve — close the
+coordination PR **unmerged** with `gh pr close` (the same `gh` surface used to author
+the body) and document the partial state, rather than leaving it open and
+merge-eligible. The coordination PR is the durable home of the chain, so abandoning
+the chain closes that home. The lifecycle this short-cuts is the canonical contract
+in `coordination-strategy.md` (R20).
+
 ## Autonomy
 
 `/execute` honors an explicit autonomy mode — the `--auto` flag, or a clear author
@@ -127,10 +220,12 @@ the mandate governs the authorized-autonomous mode specifically.
 
 ## Team Shape
 
-Single-agent parent in this slice — no team is spawned at the `/execute` layer. The
-per-issue children are koto-materialized `/work-on` single-issue workflows on the
-shared branch (the same dispatch `/work-on`'s plan-orchestrator uses today). The
-full parent-skill conformance binding (state schema, resume ladder, three exit
+Single-agent parent in this slice — no team is spawned at the `/execute` layer. In
+single-pr, the per-issue children are koto-materialized `/work-on` single-issue
+workflows on the shared branch (the same dispatch `/work-on`'s plan-orchestrator uses
+today). In coordinated, each unblocked PR node dispatches a `/work-on` single-issue
+run per repo on that repo's own branch, driven by the plain durable-state loop rather
+than a koto session. The full parent-skill conformance binding (state schema, resume ladder, three exit
 paths, metadata-only inspection, security surfaces) is Issue 6.
 
 ## Reference Files
@@ -140,4 +235,5 @@ paths, metadata-only inspection, security surfaces) is Issue 6.
 | `skills/execute/koto-templates/work-on-plan.md` | the lifted `execute-plan` orchestrator template |
 | `skills/execute/scripts/preflight.sh` | Step 1 cross-skill preflight |
 | `skills/execute/scripts/run-cascade.sh` | `plan_completion` atomic finalization cascade (carries the `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch) |
+| `references/coordination-strategy.md` | the canonical coordinated contract the coordinated path binds to (lifecycle, merge-order DAG, done-signal, F1/F2/F4, R20/R21) |
 | `${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md` | the single-issue engine each child delegates to |
