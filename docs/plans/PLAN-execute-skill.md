@@ -118,11 +118,11 @@ merge-order DAG, gated on `shirabe validate --merge-gate`.
 lookup (I-6), and the three exit-path bindings.
 
 **Acceptance Criteria**:
-- [ ] `wip/execute_<topic>_state.md` carries the five-field schema, `child_snapshots:`,
+- [x] `wip/execute_<topic>_state.md` carries the five-field schema, `child_snapshots:`,
   and the `parent_orchestration:` sentinel.
-- [ ] The resume ladder does a topic-keyed home-PR lookup via `gh` before declaring
+- [x] The resume ladder does a topic-keyed home-PR lookup via `gh` before declaring
   "no state → fresh chain," so a resume on a different branch continues the run.
-- [ ] The three exit names bind: full-run = merged-PR done-signal; abandonment-forced
+- [x] The three exit names bind: full-run = merged-PR done-signal; abandonment-forced
   = forced stop leaving an abandonment-marked PR and a frozen PLAN; re-evaluation =
   an upstream-must-change Decision Record with no re-execution.
 
