@@ -137,16 +137,16 @@ lookup (I-6), and the three exit-path bindings.
 and the six security surfaces.
 
 **Acceptance Criteria**:
-- [ ] `/execute` SKILL.md has the seven required structural elements and inspects
+- [x] `/execute` SKILL.md has the seven required structural elements and inspects
   issue/PR/unit state only through status surfaces (no child-body reads).
-- [ ] The six security surfaces are bound: slug re-validation including the
+- [x] The six security surfaces are bound: slug re-validation including the
   `gh`-recovered home-PR slug; a closed write-target set; `execution_mode`
   re-validation at both `/execute` and the `/work-on` dispatcher; the unconditional
   silent `parent_orchestration:` clear; the visibility boundary; and no interpolation
   of untrusted PLAN-body content into emitted shell.
-- [ ] `shirabe validate` passes the parent-skill conformance checks (state schema,
+- [x] `shirabe validate` passes the parent-skill conformance checks (state schema,
   resume ladder, exit names, security surfaces).
-- [ ] The autonomy mandate is bound in the SKILL prose and the orchestrator-loop
+- [x] The autonomy mandate is bound in the SKILL prose and the orchestrator-loop
   directives: an authorized autonomous run drives to the done-signal or a genuine
   blocker without checkpoint/reassurance stops (PRD R18/R19).
 

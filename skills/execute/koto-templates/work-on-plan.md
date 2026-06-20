@@ -264,6 +264,19 @@ A worktree-discipline check classified the upstream impact as `intent-changing` 
 
 Spawn and coordinate per-issue work-on children from the PLAN document.
 
+**Autonomy at every tick.** When the run is authorized autonomous (the `--auto` flag
+or a clear author instruction, per the SKILL's **Autonomy** section), drive this state
+to its terminal continuously: do NOT pause between children to advise a checkpoint,
+seek confirmation or reassurance, or stop because issues remain, the work is large, or
+out of concern for context budget. The coordinator stays thin by delegating each issue
+to a fresh `work-on.md` child and reading only status, so its context lasts the whole
+run. Stop ONLY on a genuine blocker (a child that fails/blocks needing human judgment
+and cannot be isolated by skip-dependents, an upstream-must-change boundary, a merge
+conflict or dirty state, or a destructive action needing confirmation) and emit the
+forced-stop operator summary. A decision with a reasonable default is NOT a blocker:
+take the default, record it in the decision log, continue. In interactive mode the
+existing approval behavior is unchanged.
+
 **Tick 1 — spawn**: run `plan-to-tasks.sh`, inject the shared branch into each task's vars, then submit `tasks`:
 
 ```bash
