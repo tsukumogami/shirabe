@@ -76,8 +76,8 @@ the live, fail-closed status read and done-signal.
 ## Considered Options
 
 Decisions were resolved inline under parent orchestration
-(`decision_provenance: inline-resolved`); full evaluations are in
-`wip/design_execute-skill_decision_{1,2,3}_report.md`.
+(`decision_provenance: inline-resolved`); the options and rationale for each are
+recorded below.
 
 ### Decision 1 — Plan-iteration mechanism
 
