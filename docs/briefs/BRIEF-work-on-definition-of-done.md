@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   As the single-issue executor, `/work-on` decides one issue is done by the agent's own
   judgment, and that judgment accepts "verification authored" in place of "verification
@@ -28,7 +28,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 This brief frames the completion discipline for `/work-on` as a single-issue executor. It
 assumes the scope reduction that narrows `/work-on` to exactly one issue (plan-level
