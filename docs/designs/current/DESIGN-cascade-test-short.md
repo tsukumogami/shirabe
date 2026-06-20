@@ -1,5 +1,5 @@
 ---
-status: Planned
+status: Current
 upstream: skills/work-on/evals/fixtures/roadmaps/ROADMAP-cascade-test.md
 ---
 
@@ -7,7 +7,7 @@ upstream: skills/work-on/evals/fixtures/roadmaps/ROADMAP-cascade-test.md
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
