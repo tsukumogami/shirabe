@@ -2,23 +2,24 @@
 schema: brief/v1
 status: Draft
 problem: |
-  An author whose plan spans several coordinated pull requests has to drive each
-  unit to merged code by hand and loses their place when interrupted, because no
-  single coordinator carries a whole plan to merged code at the implementation
-  altitude. The strategic and tactical chains each give a coherent parent-skill
-  experience; the implementation altitude does not.
+  The implementation flow does double duty: one workflow both runs a single issue
+  and iterates a whole plan of many issues. So there is no implementation-altitude
+  coordinator that owns plan-level execution, the single-issue path carries
+  plan-orchestration weight at the wrong altitude, and for a plan spanning several
+  coordinated pull requests the across-issue picture lives nowhere durable.
 outcome: |
-  An author finishes a plan and hands the whole thing off in one move, getting
-  the same parent-skill rhythm the other two chains provide: one conversation
-  that holds state, delegates each unit, and reports progress against the whole.
-  A single-unit plan runs straight through; a coordinated multi-unit plan walks
-  its merge order to a single done-signal; an interrupted run resumes where it
-  left off, even on a different branch.
+  Plan-level execution becomes its own coordinator: an author hands a finished plan
+  off in one move and it iterates the plan's issues to merged code — single pull
+  request or coordinated multi-pull-request — with progress against the whole, a
+  single done-signal, and cross-branch resume. The single-issue executor narrows to
+  exactly that one job, which the coordinator delegates to.
 motivating_context: |
   The strategic chain (/charter) and tactical chain (/scope) already ship as
-  single-agent parent skills in a shared pattern. The implementation altitude is
-  the remaining gap in that trio, and a new coordinated plan shape now gives a
-  multi-unit plan a durable coordination home worth orchestrating against.
+  single-agent parent skills in a shared pattern; the implementation altitude is
+  the remaining gap. A coordinated plan shape (shirabe#196) now gives a multi-issue
+  plan a durable coordination home, and the plan-iteration responsibility currently
+  bundled into the single-issue executor is the natural thing for the new
+  coordinator to own.
 ---
 
 # BRIEF: execute-skill
@@ -27,10 +28,11 @@ motivating_context: |
 
 Draft
 
-This brief frames the implementation-altitude coordinator and stops before
-requirements. The downstream PRD owns the requirements articulation; the
-downstream design owns the technical call of whether this is a new skill or an
-in-place evolution of the existing implementation flow.
+This brief frames the implementation-altitude coordinator and the responsibility
+split that comes with it, and stops before requirements. The downstream PRD owns
+the requirements; the downstream design owns the technical calls — whether the
+coordinator is a new skill or an in-place evolution, and whether its plan iteration
+uses koto or not.
 
 ## Problem Statement
 
@@ -40,110 +42,122 @@ tactical chain walks a feature from framing to a finished plan the same way. In
 both, the author talks to one coordinator that holds state across steps, delegates
 each step to a child, and inspects only what it needs to before moving on.
 
-At the implementation altitude — taking a finished plan and turning it into merged
-code — that coherence is missing. An author can drive one unit of work to a merged
-pull request, but nothing holds the picture *across* units for a plan whose units
-land as several coordinated pull requests. There is no coordinator that knows what
-has merged, what is blocked behind what, what comes next, and whether the whole
-coordinated set is finished. The author carries that picture in their head, drives
-each unit by hand, and — because the picture lives only in the session — loses it
-entirely when the session ends or the work spans more than one sitting.
+The implementation altitude — taking a finished plan and turning it into merged
+code — has no such coordinator, and the reason is a tangle of responsibilities. The
+single workflow that executes work today does two jobs at once: it runs a single
+issue to a merged pull request, and it iterates a whole plan of many issues to
+completion. Bundling both into one place has two costs. There is no clean
+plan-level coordinator an author can hand a finished plan to and watch it run; and
+the single-issue path is weighed down by plan-orchestration concerns that do not
+belong at the altitude of one issue.
 
-The gap is felt most on exactly the plans where coordination matters most: work
-whose units must merge in a particular order, across one or more pull requests,
-where "done" is a property of the whole set rather than any single unit.
+The cost is sharpest on the plans where coordination matters most: a plan whose
+issues land as several pull requests that must merge in a defined order. Nothing
+durable holds the across-issue picture — what has merged, what is blocked behind
+what, what comes next, whether the whole set is done — so an author tracks it by
+hand and loses it entirely when a session ends.
 
 ## User Outcome
 
-An author who has finished a plan hands the entire plan off in a single move and
-then experiences the implementation altitude the way they already experience the
-other two chains. One conversation holds the state. Each unit of work is delegated
-and driven to merged code without the author dispatching it by hand. Progress is
-reported against the whole plan — what has merged, what is in flight, what is next —
-so the author never reconstructs that picture themselves.
+Plan-level execution becomes a coordinator of its own, completing the parent-skill
+trio. An author who has finished a plan hands the whole plan off in a single move
+and then experiences the implementation altitude the way they already experience
+the other two chains: one conversation holds the state, each issue in the plan is
+delegated and driven to merged code without the author dispatching it by hand, and
+progress is reported against the whole plan rather than reconstructed from a wall of
+pull requests.
 
-A plan that is a single unit of work simply runs straight through to a merged pull
-request. A plan whose units are coordinated walks its merge order on the author's
-behalf and arrives at a single, unambiguous signal that the whole set is done. When
-the author steps away and comes back — even on a different branch, even in a new
-session — the coordinator resumes exactly where it left off, because the plan's own
-durable coordination state is the source of truth rather than anything held in the
-session.
+A plan that resolves to a single pull request runs straight through. A plan whose
+issues are coordinated across several pull requests is walked in merge order on the
+author's behalf, arriving at a single, unambiguous signal that the whole set is
+done. Stepping away and coming back — even on a different branch, even in a new
+session — resumes exactly where it left off, because the plan's own durable
+coordination state is the source of truth.
+
+Underneath, the single-issue executor narrows to exactly one job: take one issue to
+a merged pull request, well. It stops carrying plan-orchestration weight; the
+coordinator owns that, and calls down to the executor one issue at a time.
 
 ## User Journeys
 
-### Author ships a single-unit plan
+### Author runs a single-pull-request plan
 
-A feature author has just finished a plan that describes one unit of work. They
-hand the plan to the implementation coordinator in one move. The coordinator runs
-that single unit through the existing implementation flow to a merged pull request
-and reports the plan complete. The author never leaves the parent-skill
-conversation and never dispatches the unit by hand.
+A feature author has finished a plan whose issues all land in one pull request.
+They hand the plan to the coordinator in one move. With no cross-pull-request merge
+order to track, it iterates the plan's issues in order, delegating each to the
+single-issue executor, drives the one pull request to merged, and reports the plan
+complete. The author stays in one conversation and never dispatches an issue by hand.
 
-### Author ships a coordinated multi-unit plan
+### Author runs a coordinated multi-pull-request plan
 
-An author has a plan whose units land as several coordinated pull requests that
-must merge in a defined order. They hand the whole plan to the coordinator. It
-walks the merge order, delegating each unit to the existing implementation flow,
-surfacing progress against the whole as units land, and signaling the plan done
-only when the coordinated set has fully merged. The author tracks one conversation,
-not a wall of pull requests.
+An author has a plan whose issues land as several pull requests that must merge in a
+defined order. They hand the whole plan to the coordinator. It walks the merge order,
+delegating each issue to the single-issue executor, surfacing progress against the
+whole as pull requests land, and signaling the plan done only when the coordinated
+set has fully merged. The author tracks one conversation, not a wall of pull
+requests.
 
-### Author resumes an interrupted execution
+### Author resumes an interrupted plan execution
 
 An author started executing a coordinated plan, then closed the session partway
 through — or picked the work back up on a different branch. They re-invoke the
-coordinator against the same plan. Rather than starting over or asking the author
-where things stood, it reads the plan's durable coordination state, recognizes
-which units have merged, and picks up at the next unit.
+coordinator against the same plan. Rather than starting over or asking where things
+stood, it reads the plan's durable coordination state, recognizes which issues and
+pull requests have merged, and picks up at the next unit of work.
 
 ## Scope Boundary
 
 ### In
 
-- A single implementation-altitude coordinator that completes the parent-skill
-  trio alongside the strategic and tactical chains, in the same single-agent shape.
-- Taking a finished plan and carrying it to merged code: both single-unit plans
-  and coordinated multi-unit plans.
-- Delegating each unit of work to the existing implementation flow, used unchanged.
-- Inspecting each unit only through its status surface, and reporting progress
-  against the whole plan.
-- Resuming from the plan's own durable coordination state, including across
-  branches and sessions, with a single done-signal for the whole coordinated set.
+- A single plan-level coordinator (working name `/execute`) that completes the
+  parent-skill trio alongside the strategic and tactical chains, in the same
+  single-agent shape.
+- Owning plan-based execution end to end: iterating a finished plan's issues to
+  merged code, for both single-pull-request plans and coordinated multi-pull-request
+  plans.
+- Delegating each individual issue down to the single-issue executor.
+- Narrowing the single-issue executor to single-issue work, by moving the
+  plan-iteration responsibility it holds today out of it and into the coordinator.
+- Inspecting each issue and pull request only through its status surface, reporting
+  progress against the whole plan, with a single done-signal for a coordinated set.
+- Resuming from the plan's own durable coordination state, including across branches
+  and sessions.
 
 ### Out
 
-- Changing the internal machinery of the existing implementation flow. The
-  coordinator sits above it and leaves it as-is; reworking its internals is
-  separate, substrate-gated work.
+- The mechanics of executing one issue. Those stay in the single-issue executor
+  (koto-based today), which the coordinator calls down to rather than replaces.
+- Whether the coordinator's plan iteration uses koto or a different mechanism, and
+  the exact state and resume machinery. Downstream design owns these, given the work
+  may go either way.
 - Building the shared coordination substrate the coordinator relies on for
-  cross-session, cross-branch state. The coordinator consumes a durable
-  coordination home when one exists; providing that substrate is a separate piece
-  of amplifier work.
-- The review-time redirect mechanism (changing course mid-execution in response to
-  a human's redirect). That is a separate downstream feature.
-- Plans whose units have no durable coordination home (ad-hoc multi-pull-request
-  fan-out with no coordination record). The coordinator targets single-unit and
-  coordinated plans, not unstructured fan-out.
-- The technical call of whether this is a brand-new skill or an in-place evolution
-  of the existing implementation flow, and the exact state and resume mechanics.
-  Those are downstream design decisions.
+  cross-session, cross-branch state. The coordinator consumes a durable coordination
+  home when one exists; providing that substrate is separate amplifier work.
+- The review-time redirect mechanism (changing course mid-execution in response to a
+  human redirect). Separate downstream feature.
+- The technical call of whether this is a brand-new skill or an in-place evolution of
+  the existing implementation flow.
 
 ## Open Questions
 
-- Whether the implementation-altitude coordinator is a new skill or an in-place
-  evolution of the existing implementation flow. The downstream design owns this
-  call, based on how much of the current surface survives the restructure.
-- Exactly which durable coordination state the coordinator reads, and how it binds
-  to a coordinated plan's on-pull-request state. The downstream PRD and design own
-  the precise contract.
+- Whether the coordinator's plan iteration reuses the existing koto plan-orchestration
+  machinery or a new, possibly non-koto, mechanism. The downstream design owns this,
+  given the explicit latitude to go either way.
+- The precise contract by which the coordinator hands a single issue to the
+  single-issue executor, and how that composes with the coordinated mode's per-repo
+  and per-pull-request grouping.
+- Whether the single-issue executor remains directly invocable on its own for
+  one-off issues, or is reached only through the coordinator. The PRD owns this
+  boundary detail.
 
 ## References
 
 - `docs/designs/current/DESIGN-shirabe-progression-authoring.md` — the parent-skill
   progression pattern this feature extends to the implementation altitude.
+- `references/coordination-strategy.md` — the coordinated execution-mode contract a
+  multi-pull-request plan is orchestrated against.
 - The `/charter` (strategic) and `/scope` (tactical) skills — the precedent parent
   skills whose single-agent shape and metadata-only child inspection this feature
   mirrors.
 - tsukumogami/shirabe#196 — the coordinated execution-mode work that gives a
-  multi-unit plan a durable coordination home worth orchestrating against.
+  multi-issue plan a durable coordination home.

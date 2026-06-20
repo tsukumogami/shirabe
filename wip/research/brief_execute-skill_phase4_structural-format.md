@@ -2,7 +2,7 @@
 
 **Verdict:** PASS
 
-The BRIEF satisfies all structural-format requirements: valid frontmatter, the five required sections in canonical order, an FC03-clean Status line, public-visibility cleanliness, and no writing-style violations.
+The BRIEF satisfies every frontmatter, required-section, FC03, public-cleanliness, and writing-style rule with no violations.
 
 ## Violations Found
 
@@ -12,13 +12,13 @@ None.
 
 none
 
-The only external reference, `tsukumogami/shirabe#196` (lines 149-150), is a same-repo public reference, which is explicitly allowed. All path references (`docs/designs/current/DESIGN-shirabe-progression-authoring.md`) are durable, repo-relative, public paths. No `private/` paths, private-repo references (e.g. `tsukumogami/vision#NN`), internal codenames, or private filenames appear. The `upstream` field is omitted, which is acceptable here since the real upstream is private and a public brief must not point at a private artifact.
+The only external references are public same-repo paths and issue numbers: `tsukumogami/shirabe#196` (public same-repo issue, explicitly allowed), `references/coordination-strategy.md` and `docs/designs/current/DESIGN-shirabe-progression-authoring.md` (public in-repo paths, allowed). The `/charter` and `/scope` skill names are public shirabe skills. No `private/` paths, private repos, internal codenames, or private issue numbers appear. The omission of `upstream:` is intentional (real upstream is private) and is not flagged.
 
 ## Suggested Improvements
 
-1. British/American spelling consistency: the document mixes spellings — "recognises" and "signalling" (lines 89, 98) alongside American forms elsewhere. Not a format violation; standardizing on one (American, per the workspace's other artifacts) would read more consistently.
-2. Open Questions reminder (informational, not a violation): the section is correctly Draft-only and present now, but it must be empty or removed before the Draft -> Accepted transition. No action needed at Draft.
+1. Status-section prose redundancy with Open Questions: The Status paragraph already states "the downstream design owns the technical calls — whether the coordinator is a new skill or an in-place evolution, and whether its plan iteration uses koto or not," which is then restated as two of the three Open Questions. This is acceptable (Status prose is free-form context), but tightening one of the two would reduce duplication. Rationale: lowers maintenance drift if one copy changes and the other does not.
+2. Frontmatter `problem` block runs to roughly 7 lines and `outcome` to roughly 7 lines, exceeding the format's "2-4 line" guidance for the literal block scalars. Rationale: the guidance is a soft target, not an FC check, but trimming each to the canonical 2-4 lines would align with the stated convention; content itself is accurate and non-contradictory with the body.
 
 ## Summary
 
-The BRIEF passes every structural-format check: frontmatter carries `status`/`problem`/`outcome` with a valid Draft status, the body opens `## Status` with the bare word `Draft` on its own line (FC03-clean), and all five required sections appear in canonical order followed by the optional Open Questions and References sections. Frontmatter `problem:`/`outcome:` paraphrase their corresponding body sections without contradiction, and the document is public-visibility clean with no private references. No banned writing-style words, emojis, or AI attribution are present; the only notes are non-blocking polish suggestions.
+The BRIEF passes all structural-format checks: valid frontmatter (status `Draft`, problem and outcome present, upstream intentionally omitted), all five required sections present and in canonical order, and a clean FC03 Status section with the bare word `Draft` on its own line followed by prose after a blank line. Public-visibility is clean — only public same-repo issue numbers and public in-repo paths are cited, with no private references. Writing style avoids all banned words, uses American spelling, carries no emojis or AI attribution, and the frontmatter summaries paraphrase the body without contradiction; the only notes are minor, non-blocking suggestions about the over-length frontmatter scalars and a small Status/Open-Questions overlap.
