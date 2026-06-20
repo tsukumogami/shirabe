@@ -15,32 +15,20 @@ and the load-bearing security rules— are defined once in
 This guide is the practical how-to; that contract is the canon. When the two
 seem to disagree, the contract wins.
 
-## Current status and limitations
+## How the coordination PR is maintained
 
-Coordinated mode is **experimental**. The decision logic is in place and
-tested — per-repo grouping, the acyclic two-node merge order with
-atomicity refusal, the `shirabe validate --coordination-body` static check,
-the `shirabe validate --merge-gate` merge-last gate, the F1/F2/F4 security
-rules, and the most-restrictive-visibility rule. Read this before relying on
-it:
+The coordination PR body is authored by the workflow skill, like every other
+shirabe artifact — there is no `shirabe coordination` subcommand. The skill
+writes the body from the template in
+[`references/coordination-strategy.md`](../../references/coordination-strategy.md)
+and posts and refreshes it with `gh pr create` / `gh pr edit`.
+`shirabe validate --coordination-body <file>` gives offline authoring feedback
+(declaration marker, ref validity, acyclic merge order) before you post.
 
-- **The coordination PR body is authored by the skill, not by a dedicated
-  renderer.** Like every other shirabe artifact, the body is written by the
-  workflow skill from the template in
-  [`references/coordination-strategy.md`](../../references/coordination-strategy.md)
-  and posted/refreshed with `gh pr create` / `gh pr edit`. There is no
-  `shirabe coordination` subcommand. `shirabe validate --coordination-body
-  <file>` gives authoring feedback offline (declaration marker, ref validity,
-  acyclic merge order) before you post.
-- **No end-to-end production run has happened yet.** Coordinated mode did not
-  exist while it was being built, so the first coordinated effort is the first
-  real exercise of the author → refresh → gate → merge-last chain outside unit
-  tests. Start with a small, low-stakes two-repo effort and watch the gate
-  actually block the coordination PR until the per-repo PRs land.
-
-The merge-last gate is the safety net regardless: even if the authored body
-is stale or hand-edited, `shirabe validate --merge-gate` recomputes merge
-state live and fails closed, so an authoring gap cannot cause a wrong merge.
+The merge-last gate is the safety net: even if the authored body is stale or
+hand-edited, `shirabe validate --merge-gate` recomputes merge state live from
+`gh` and fails closed, so the coordination PR cannot merge until every indexed
+per-repo PR has — an authoring gap can never cause a wrong merge.
 
 ## When to reach for coordinated mode
 
