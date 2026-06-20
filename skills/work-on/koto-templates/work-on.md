@@ -468,15 +468,15 @@ states:
           gates.on_feature_branch_impl.exit_code: 0
           gates.has_commits.exit_code: 0
           gates.tests_passing.exit_code: 0
-      # docs: skip panels, go directly to finalization (no tests_passing check)
-      - target: finalization
+      # docs: skip panels, go to verification before finalization (no tests_passing check)
+      - target: verification
         when:
           implementation_status: complete
           issue_type: docs
           gates.on_feature_branch_impl.exit_code: 0
           gates.has_commits.exit_code: 0
-      # task: skip panels, go directly to finalization (no commits required)
-      - target: finalization
+      # task: skip panels, go to verification before finalization (no commits required)
+      - target: verification
         when:
           implementation_status: complete
           issue_type: task
@@ -576,7 +576,7 @@ states:
         type: string
         description: Reason for blocking escalation
     transitions:
-      - target: finalization
+      - target: verification
         when:
           qa_outcome: passed
           gates.qa_results.exists: true
@@ -588,6 +588,44 @@ states:
           qa_outcome: blocking_escalate
         context_assignments:
           failure_reason: ${evidence.failure_reason}
+
+  verification:
+    accepts:
+      verification_outcome:
+        type: enum
+        values: [passed, failed, cannot_verify]
+        required: true
+      commands_run:
+        type: string
+        description: >
+          What the definition-of-done gate ran and its outcome. Records the commands
+          selected from the project's verification map (or the default test command when
+          no map entry matched the issue diff) and the pass/fail result of each. Required
+          for all outcomes so the evidence captures what was executed, not merely declared.
+      detail:
+        type: string
+        description: >
+          Failure detail or the reason verification could not be determined (no map match
+          and no usable default, or a command that could not run).
+    transitions:
+      # passed: every matched command (or the default) ran and passed; advance.
+      - target: finalization
+        when:
+          verification_outcome: passed
+      # failed: a verification command ran and did not pass; return to implementation
+      # to fix the failure rather than advancing toward a clean finalization.
+      - target: implementation
+        when:
+          verification_outcome: failed
+      # cannot_verify: no map entry matched and no usable default, or a command could not
+      # run. Fail closed (R11): this must not reach a clean finalization. Route to the
+      # blocking terminal so it surfaces as a human decision. Issue 3 builds the full
+      # human-approval gate at finalization; until then cannot_verify halts here.
+      - target: done_blocked
+        when:
+          verification_outcome: cannot_verify
+        context_assignments:
+          failure_reason: "verification cannot-verify (fail closed): ${evidence.detail}"
 
   finalization:
     gates:
@@ -931,6 +969,27 @@ Run the QA validation panel. Read `references/phases/phase-4c-qa.md` for detaile
 Note on gate discoverability: The gate name is `qa_results`; the context key is `qa_results.json` (with `.json` suffix).
 
 Submit `qa_outcome: passed` when QA approves the implementation, `blocking_retry` when QA finds correctable defects, or `blocking_escalate` when defects cannot be resolved without escalation. Include `failure_reason` for `blocking_escalate`.
+
+## verification
+
+Run the definition-of-done gate. See the `## Definition of Done` section of SKILL.md
+for the full procedure: read the project's verification map, classify the issue's
+changed files against it, run each matched command (or the default test command when
+nothing matches), and require every run to pass.
+
+Announce which commands ran and their results.
+
+Submit `verification_outcome: passed` only when every command ran and passed. Submit
+`failed` when a command ran and did not pass — this returns to implementation to fix
+the failure. Submit `cannot_verify` when verification cannot be determined (no map
+entry matched and no usable default, or a command could not run); this fails closed
+and does not advance toward a clean finalization. Always include `commands_run` so the
+evidence records what executed, not merely what was declared.
+
+Evidence schema:
+- `verification_outcome`: `passed`, `failed`, or `cannot_verify`
+- `commands_run`: the commands selected and run, with each command's pass/fail result
+- `detail`: failure detail, or why verification could not be determined
 
 ## finalization
 
