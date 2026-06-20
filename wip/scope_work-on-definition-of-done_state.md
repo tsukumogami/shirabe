@@ -12,4 +12,9 @@ planned_chain:
   - design
   - plan
 chain_skipped: []
+chain_ran:
+  - brief
+child_snapshots:
+  brief:
+    status: Accepted
 ```
