@@ -1,6 +1,6 @@
 ---
 status: Planned
-upstream: skills/work-on/evals/fixtures/roadmaps/ROADMAP-cascade-test.md
+upstream: skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md
 ---
 
 # DESIGN: Cascade Test Short

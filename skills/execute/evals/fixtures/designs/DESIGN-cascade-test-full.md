@@ -1,6 +1,6 @@
 ---
 status: Planned
-upstream: skills/work-on/evals/fixtures/prds/PRD-cascade-test-full.md
+upstream: skills/execute/evals/fixtures/prds/PRD-cascade-test-full.md
 ---
 
 # DESIGN: Cascade Test Full

@@ -1,6 +1,6 @@
 ---
 status: Accepted
-upstream: skills/work-on/evals/fixtures/roadmaps/ROADMAP-cascade-test.md
+upstream: skills/execute/evals/fixtures/briefs/BRIEF-cascade-test-full.md
 ---
 
 # PRD: Cascade Test Full

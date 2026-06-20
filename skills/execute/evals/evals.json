@@ -144,9 +144,9 @@
       ],
       "expectations": [
         "Agent runs skills/execute/scripts/run-cascade.sh --push (the relocated /execute cascade copy), not the work-on path",
-        "DESIGN-cascade-test-short.md is transitioned to Current",
+        "DESIGN-cascade-test-short.md is MOVED to its Current folder (docs/designs/current/) — a folder move, not only a status-field flip",
         "ROADMAP-cascade-test.md Feature 1 Status is updated to Done and Downstream references the DESIGN at Current",
-        "The PLAN deletion and the DESIGN/ROADMAP transitions land in one atomic finalization commit",
+        "The PLAN deletion (git rm; PLAN no longer on disk) and the DESIGN/ROADMAP transitions land in one atomic finalization commit",
         "cascade_status is completed"
       ]
     },
@@ -312,7 +312,8 @@
       ],
       "expectations": [
         "Agent runs skills/execute/scripts/run-cascade.sh (the relocated /execute copy)",
-        "DESIGN-cascade-test-short.md is transitioned to Current (status field updated, file may move to current/)",
+        "PLAN-cascade-test-short.md is DELETED by the cascade (git rm; the file no longer exists on disk)",
+        "DESIGN-cascade-test-short.md is MOVED to its Current folder (docs/designs/current/) — a folder move, not only a status-field flip",
         "ROADMAP-cascade-test.md Feature 1 Status is updated to Done",
         "ROADMAP-cascade-test.md Feature 1 Downstream references the DESIGN doc at Current",
         "cascade_status is completed"
@@ -325,17 +326,20 @@
       "mode": "execute",
       "scenario": "e2e-cascade-full",
       "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
-      "expected_output": "Agent runs skills/execute/scripts/run-cascade.sh --push on PLAN-cascade-test-full.md. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-full.md to Current, transitions PRD-cascade-test-full.md to Done, updates ROADMAP-cascade-test.md Feature 2 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed.",
+      "expected_output": "Agent runs skills/execute/scripts/run-cascade.sh --push on PLAN-cascade-test-full.md. The chain is PLAN -> DESIGN -> PRD -> BRIEF -> ROADMAP. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-full.md to Current (folder move into docs/designs/current/), transitions PRD-cascade-test-full.md to Done, transitions BRIEF-cascade-test-full.md to Done, updates ROADMAP-cascade-test.md Feature 2 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed.",
       "files": [
         "skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
         "skills/execute/evals/fixtures/designs/DESIGN-cascade-test-full.md",
         "skills/execute/evals/fixtures/prds/PRD-cascade-test-full.md",
+        "skills/execute/evals/fixtures/briefs/BRIEF-cascade-test-full.md",
         "skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md"
       ],
       "expectations": [
         "Agent runs skills/execute/scripts/run-cascade.sh (the relocated /execute copy)",
-        "DESIGN-cascade-test-full.md is transitioned to Current",
+        "PLAN-cascade-test-full.md is DELETED by the cascade (git rm; the file no longer exists on disk)",
+        "DESIGN-cascade-test-full.md is MOVED to its Current folder (docs/designs/current/) — a folder move, not only a status-field flip",
         "PRD-cascade-test-full.md is transitioned to Done",
+        "BRIEF-cascade-test-full.md is transitioned to Done",
         "ROADMAP-cascade-test.md Feature 2 Status is updated to Done",
         "ROADMAP-cascade-test.md Feature 2 Downstream references the DESIGN doc at Current",
         "cascade_status is completed"

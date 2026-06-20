@@ -2,7 +2,7 @@
 schema: plan/v1
 status: Draft
 execution_mode: single-pr
-upstream: skills/work-on/evals/fixtures/designs/DESIGN-cascade-test-short.md
+upstream: skills/execute/evals/fixtures/designs/DESIGN-cascade-test-short.md
 milestone: "Cascade Test"
 issue_count: 1
 ---
