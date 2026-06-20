@@ -16,8 +16,8 @@ Test roadmap for cascade e2e eval validation.
 
 ### Feature 1: Short Chain Feature
 
-**Status:** Planned
-**Downstream:** PLAN-cascade-test-short.md
+**Status:** Done
+**Downstream:** DESIGN-cascade-test-short.md (Current)
 
 ### Feature 2: Full Chain Feature
 

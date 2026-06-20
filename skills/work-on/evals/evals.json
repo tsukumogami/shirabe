@@ -541,7 +541,7 @@
       "mode": "execute",
       "scenario": "entry-plan-outline-skip",
       "prompt": "/work-on #42",
-      "expected_output": "Agent receives entry state with advanced: true, indicating koto auto-advanced via skip_if because ISSUE_SOURCE is plan_outline. Agent does not manually submit mode: plan_backed — it calls koto next again to continue to plan_context_injection.",
+      "expected_output": "Agent receives entry state with advanced: true, indicating koto auto-advanced via skip_if because ISSUE_SOURCE is plan_outline. Agent does not manually submit mode: plan_backed \u2014 it calls koto next again to continue to plan_context_injection.",
       "files": [],
       "expectations": [
         "Agent does NOT submit mode: plan_backed manually for entry when advanced: true",
@@ -590,13 +590,13 @@
       "mode": "execute",
       "scenario": "plan-orchestrator",
       "prompt": "/work-on docs/plans/PLAN-foo.md",
-      "expected_output": "The plan-orchestrator reaches ci_monitor on the shared impl/foo branch. `gh pr view --json mergeStateStatus --jq .mergeStateStatus` returns DIRTY (the PR has merge conflicts and GitHub has suppressed new check-runs). The merge_state_clean gate fails. The ci_passing gate command evaluates length == 0 against zero check-runs and returns true — the agent does NOT loop on ci_passing because this is the silent-success surface #162 names. Instead the agent submits ci_outcome: dirty_merge_state with rationale naming the conflict files. The workflow routes to escalate_dirty_merge_state → done_blocked carrying the DIRTY-specific failure_reason 'ci_monitor: PR merge state is DIRTY; checks suppressed.' The operator's recovery is to rebase the shared branch and resolve conflicts before re-running CI; the koto state machine does not retry automatically.",
+      "expected_output": "The plan-orchestrator reaches ci_monitor on the shared impl/foo branch. `gh pr view --json mergeStateStatus --jq .mergeStateStatus` returns DIRTY (the PR has merge conflicts and GitHub has suppressed new check-runs). The merge_state_clean gate fails. The ci_passing gate command evaluates length == 0 against zero check-runs and returns true \u2014 the agent does NOT loop on ci_passing because this is the silent-success surface #162 names. Instead the agent submits ci_outcome: dirty_merge_state with rationale naming the conflict files. The workflow routes to escalate_dirty_merge_state \u2192 done_blocked carrying the DIRTY-specific failure_reason 'ci_monitor: PR merge state is DIRTY; checks suppressed.' The operator's recovery is to rebase the shared branch and resolve conflicts before re-running CI; the koto state machine does not retry automatically.",
       "files": [],
       "expectations": [
         "Agent observes gh pr view --json mergeStateStatus returning DIRTY",
         "Agent submits ci_outcome: dirty_merge_state (NOT ci_outcome: passing, even though ci_passing gate returns length == 0)",
         "Agent's rationale names the conflict files for operator recovery",
-        "Workflow routes to escalate_dirty_merge_state → done_blocked",
+        "Workflow routes to escalate_dirty_merge_state \u2192 done_blocked",
         "failure_reason includes 'ci_monitor: PR merge state is DIRTY; checks suppressed.'",
         "The koto state machine does not retry automatically; the operator must rebase"
       ]
@@ -608,13 +608,13 @@
       "mode": "execute",
       "scenario": "plan-orchestrator",
       "prompt": "/work-on docs/plans/PLAN-bar.md",
-      "expected_output": "The plan-orchestrator reaches worktree_discipline_check after orchestrator_setup. The agent runs `git fetch origin && git rebase origin/main`, classifies the upstream impact per references/worktree-discipline.md, and writes wip/work-on_bar_impact.json. The impact is intent-changing: main has advanced in a way that invalidates the PLAN's intent (e.g., the design's referenced files were deleted, or the contract the PLAN relies on was changed). The agent submits impact: intent-changing with a rationale. The workflow routes to escalate_upstream_drift → done_blocked carrying the upstream-drift-specific failure_reason. Children are NEVER dispatched because the per-child loop runs only after the worktree_discipline_check classifies impact as none or informational. This validates R8/R9: upstream drift is caught mid-chain rather than at PR finalization.",
+      "expected_output": "The plan-orchestrator reaches worktree_discipline_check after orchestrator_setup. The agent runs `git fetch origin && git rebase origin/main`, classifies the upstream impact per references/worktree-discipline.md, and writes wip/work-on_bar_impact.json. The impact is intent-changing: main has advanced in a way that invalidates the PLAN's intent (e.g., the design's referenced files were deleted, or the contract the PLAN relies on was changed). The agent submits impact: intent-changing with a rationale. The workflow routes to escalate_upstream_drift \u2192 done_blocked carrying the upstream-drift-specific failure_reason. Children are NEVER dispatched because the per-child loop runs only after the worktree_discipline_check classifies impact as none or informational. This validates R8/R9: upstream drift is caught mid-chain rather than at PR finalization.",
       "files": [],
       "expectations": [
         "Agent fetches origin and rebases on main before classifying impact",
         "Agent writes wip/work-on_<PLAN_SLUG>_impact.json with the impact classification",
         "Agent submits impact: intent-changing with a rationale (rationale required for this branch)",
-        "Workflow routes to escalate_upstream_drift → done_blocked (children NOT dispatched)",
+        "Workflow routes to escalate_upstream_drift \u2192 done_blocked (children NOT dispatched)",
         "failure_reason includes the rationale and the worktree_discipline_check origin",
         "R8/R9 preserved: upstream drift caught mid-chain, not at PR finalization"
       ]
@@ -626,7 +626,7 @@
       "mode": "execute",
       "scenario": "plan-orchestrator",
       "prompt": "/work-on docs/plans/PLAN-baz.md",
-      "expected_output": "The plan-orchestrator reaches worktree_discipline_check after orchestrator_setup. The agent runs git fetch + rebase, classifies impact as either none (main has not advanced or advanced in directories the PLAN does not touch) or informational (advanced but the changes don't invalidate the PLAN's intent — e.g., docs-only edits, unrelated test additions). The agent submits impact: none (or impact: informational) and the workflow routes forward to spawn_and_await without escalation. The classification is recorded in wip/work-on_<PLAN_SLUG>_impact.json for audit. The per-child dispatch then proceeds normally.",
+      "expected_output": "The plan-orchestrator reaches worktree_discipline_check after orchestrator_setup. The agent runs git fetch + rebase, classifies impact as either none (main has not advanced or advanced in directories the PLAN does not touch) or informational (advanced but the changes don't invalidate the PLAN's intent \u2014 e.g., docs-only edits, unrelated test additions). The agent submits impact: none (or impact: informational) and the workflow routes forward to spawn_and_await without escalation. The classification is recorded in wip/work-on_<PLAN_SLUG>_impact.json for audit. The per-child dispatch then proceeds normally.",
       "files": [],
       "expectations": [
         "Agent submits impact: none OR impact: informational",
@@ -683,6 +683,50 @@
         "Agent does NOT author a coordination PR body or run shirabe validate --coordination-body / --merge-gate when intent is absent",
         "Agent does NOT add coordination prompts, cross-repo gate, or merge-last behavior on the intent-absent path",
         "Agent confirms R3 additivity: the coordination capability changes nothing for a non-coordinated PLAN"
+      ]
+    },
+    {
+      "id": 39,
+      "name": "dod-verified-by-execution",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #501 \u2014 an issue that changes a shirabe skill (edits skills/foo/SKILL.md). The issue's branch already has the skill's evals authored and committed, but they have not been run this session.",
+      "expected_output": "The agent's plan reaches the verification state before finalization, reads the project verification map from .claude/shirabe-extensions/work-on.md, sees skills/** maps to scripts/run-evals.sh, and runs that verification, requiring it to pass. The plan explicitly treats authored-but-unrun evals as NOT satisfying the gate (existence is not execution) and does not report the issue done until the verification has run and passed.",
+      "files": [],
+      "expectations": [
+        "Agent's plan includes a verification step before finalization that runs the project-declared verification for what the issue touched",
+        "Agent reads the verification map (.claude/shirabe-extensions/work-on.md) and runs scripts/run-evals.sh for the skills/** change rather than only confirming evals exist",
+        "Agent states that authored-but-unrun verification does NOT satisfy the gate (existence is not execution)",
+        "Agent does not report the issue done until the verification has actually run and passed"
+      ]
+    },
+    {
+      "id": 40,
+      "name": "dod-fail-closed-cannot-verify",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #502 \u2014 a single issue whose change touches files that match no entry in the project's verification map, in a project that declares no default test command and where no standard test command can be determined.",
+      "expected_output": "The agent's plan recognizes it cannot determine or run an applicable verification, yields a cannot-verify outcome, and routes to a human decision rather than reporting the issue done. The plan fails closed: it never treats absence of verification as a pass.",
+      "files": [],
+      "expectations": [
+        "Agent's plan recognizes the cannot-verify condition (no map entry matches and no usable default test command)",
+        "Agent fails closed: it routes to a human decision / blocked outcome rather than reporting the issue done",
+        "Agent explicitly does NOT treat absence of verification as a passing result (no silent-pass)"
+      ]
+    },
+    {
+      "id": 41,
+      "name": "dod-no-silent-deferral",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #503 \u2014 a single issue with one acceptance criterion that genuinely cannot be satisfied this session (a flaky external dependency). The rest of the issue is complete and verified.",
+      "expected_output": "The agent's plan does not self-report the issue done with a caveat. It surfaces the unmet acceptance criterion to the human as an explicit decision: approve a deferral (recorded as the human's decision) or report the issue blocked. The plan introduces no unapproved caveat/hedge language into the shipped artifacts.",
+      "files": [],
+      "expectations": [
+        "Agent's plan surfaces the unmet acceptance criterion to the human as an explicit decision rather than self-reporting done",
+        "Agent requires explicit human approval to defer; an approved deferral is recorded as the human's decision",
+        "Without approval the agent reports the issue blocked, not done",
+        "Agent does not introduce unapproved caveat or hedge language into the shipped artifacts"
       ]
     }
   ]

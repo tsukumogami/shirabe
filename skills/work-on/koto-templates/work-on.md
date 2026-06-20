@@ -468,15 +468,15 @@ states:
           gates.on_feature_branch_impl.exit_code: 0
           gates.has_commits.exit_code: 0
           gates.tests_passing.exit_code: 0
-      # docs: skip panels, go directly to finalization (no tests_passing check)
-      - target: finalization
+      # docs: skip panels, go to verification before finalization (no tests_passing check)
+      - target: verification
         when:
           implementation_status: complete
           issue_type: docs
           gates.on_feature_branch_impl.exit_code: 0
           gates.has_commits.exit_code: 0
-      # task: skip panels, go directly to finalization (no commits required)
-      - target: finalization
+      # task: skip panels, go to verification before finalization (no commits required)
+      - target: verification
         when:
           implementation_status: complete
           issue_type: task
@@ -576,7 +576,7 @@ states:
         type: string
         description: Reason for blocking escalation
     transitions:
-      - target: finalization
+      - target: verification
         when:
           qa_outcome: passed
           gates.qa_results.exists: true
@@ -589,6 +589,44 @@ states:
         context_assignments:
           failure_reason: ${evidence.failure_reason}
 
+  verification:
+    accepts:
+      verification_outcome:
+        type: enum
+        values: [passed, failed, cannot_verify]
+        required: true
+      commands_run:
+        type: string
+        description: >
+          What the definition-of-done gate ran and its outcome. Records the commands
+          selected from the project's verification map (or the default test command when
+          no map entry matched the issue diff) and the pass/fail result of each. Required
+          for all outcomes so the evidence captures what was executed, not merely declared.
+      detail:
+        type: string
+        description: >
+          Failure detail or the reason verification could not be determined (no map match
+          and no usable default, or a command that could not run).
+    transitions:
+      # passed: every matched command (or the default) ran and passed; advance.
+      - target: finalization
+        when:
+          verification_outcome: passed
+      # failed: a verification command ran and did not pass; return to implementation
+      # to fix the failure rather than advancing toward a clean finalization.
+      - target: implementation
+        when:
+          verification_outcome: failed
+      # cannot_verify: no map entry matched and no usable default, or a command could not
+      # run. Fail closed (R11): this must not reach a clean finalization. Route to the
+      # blocking terminal so it surfaces as a human decision. Issue 3 builds the full
+      # human-approval gate at finalization; until then cannot_verify halts here.
+      - target: done_blocked
+        when:
+          verification_outcome: cannot_verify
+        context_assignments:
+          failure_reason: "verification cannot-verify (fail closed): ${evidence.detail}"
+
   finalization:
     gates:
       summary_exists:
@@ -597,21 +635,62 @@ states:
     accepts:
       finalization_status:
         type: enum
-        values: [ready_for_pr, deferred_items_noted, issues_found]
+        # ready_for_pr: every acceptance criterion is met. Reaching this state at all
+        #   means the verification gate routed verification_outcome: passed (verification
+        #   only transitions passed -> finalization), so ready_for_pr is backed by run
+        #   verification evidence -- there is no clean finalization without it.
+        # deferral_requested: an acceptance criterion is unmet/deferred. There is NO clean
+        #   self-reported deferral terminal here (the old deferred_items_noted loophole is
+        #   removed). This routes to the blocking deferral_approval human gate instead.
+        # issues_found: defects need more implementation; return to implementation.
+        values: [ready_for_pr, deferral_requested, issues_found]
         required: true
     transitions:
       - target: implementation
         when:
           finalization_status: issues_found
+      # ready_for_pr requires the summary artifact AND (implicitly) that verification
+      # passed, since finalization is only reachable via verification_outcome: passed.
       - target: pr_creation
         when:
           finalization_status: ready_for_pr
           gates.summary_exists.exists: true
+      # deferral must be a surfaced human decision, never a clean self-report (Decision E).
+      - target: deferral_approval
+        when:
+          finalization_status: deferral_requested
+
+  deferral_approval:
+    # Blocking human-approval gate for a deferred acceptance criterion (Decision E,
+    # PRD R4/R5). The agent halts here and surfaces the unmet criterion to the human.
+    # The human's decision is the evidence:
+    #   approved -> record the deferral via `koto decisions record`, then proceed to PR
+    #               with the deferral recorded in the audit trail (and PR body).
+    #   rejected -> the issue is not done; route to the non-clean done_blocked terminal.
+    gates:
+      summary_exists:
+        type: context-exists
+        key: summary.md
+    accepts:
+      approval_decision:
+        type: enum
+        values: [approved, rejected]
+        required: true
+      deferral_detail:
+        type: string
+        description: >
+          The unmet acceptance criterion and the human's rationale. On approved, this is
+          the deferral recorded via `koto decisions record` and surfaced in the PR body.
+    transitions:
       - target: pr_creation
         when:
-          finalization_status: deferred_items_noted
+          approval_decision: approved
           gates.summary_exists.exists: true
-      - target: pr_creation
+      - target: done_blocked
+        when:
+          approval_decision: rejected
+        context_assignments:
+          failure_reason: "deferral rejected by human: ${evidence.deferral_detail}"
 
   pr_creation:
     accepts:
@@ -932,10 +1011,61 @@ Note on gate discoverability: The gate name is `qa_results`; the context key is 
 
 Submit `qa_outcome: passed` when QA approves the implementation, `blocking_retry` when QA finds correctable defects, or `blocking_escalate` when defects cannot be resolved without escalation. Include `failure_reason` for `blocking_escalate`.
 
+## verification
+
+Run the definition-of-done gate. See the `## Definition of Done` section of SKILL.md
+for the full procedure: read the project's verification map, classify the issue's
+changed files against it, run each matched command (or the default test command when
+nothing matches), and require every run to pass.
+
+Announce which commands ran and their results.
+
+Submit `verification_outcome: passed` only when every command ran and passed. Submit
+`failed` when a command ran and did not pass — this returns to implementation to fix
+the failure. Submit `cannot_verify` when verification cannot be determined (no map
+entry matched and no usable default, or a command could not run); this fails closed
+and does not advance toward a clean finalization. Always include `commands_run` so the
+evidence records what executed, not merely what was declared.
+
+Evidence schema:
+- `verification_outcome`: `passed`, `failed`, or `cannot_verify`
+- `commands_run`: the commands selected and run, with each command's pass/fail result
+- `detail`: failure detail, or why verification could not be determined
+
 ## finalization
 
 Read `references/phases/phase-5-finalization.md` for cleanup steps and summary
 format. Output: koto context key `summary.md`.
+
+Reaching this state means verification ran and passed (the `verification` state only
+routes `verification_outcome: passed` here), so `ready_for_pr` is backed by run
+verification evidence — there is no clean finalization without it.
+
+Submit `finalization_status: ready_for_pr` only when every acceptance criterion is met.
+Submit `issues_found` to return to implementation. If an acceptance criterion is unmet
+and you want to defer it, submit `deferral_requested` — this does NOT finalize the issue;
+it routes to the `deferral_approval` human gate. There is no self-reported clean deferral
+terminal: a deferral is only legitimate once a human approves it.
+
+Evidence schema:
+- `finalization_status`: `ready_for_pr`, `deferral_requested`, or `issues_found`
+
+## deferral_approval
+
+A blocking human-approval gate for a deferred acceptance criterion. You arrive here
+because finalization reported `deferral_requested` — an acceptance criterion is unmet.
+Halt and surface the specific unmet criterion to the human as an explicit decision.
+
+- If the human **approves** the deferral: record it as their decision with
+  `koto decisions record <WF> --with-data '{"choice": "...", "rationale": "...", "alternatives_considered": ["..."]}'`,
+  then submit `approval_decision: approved`. The recorded deferral is the audit trail and
+  must be surfaced in the PR body (see `references/phases/phase-6-pr.md`).
+- If the human **rejects** the deferral: the issue is not done. Submit
+  `approval_decision: rejected` with `deferral_detail` — this routes to `done_blocked`.
+
+Evidence schema:
+- `approval_decision`: `approved` or `rejected`
+- `deferral_detail`: the unmet criterion and the human's rationale
 
 ## pr_creation
 

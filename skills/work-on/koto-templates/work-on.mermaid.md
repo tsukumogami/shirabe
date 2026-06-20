@@ -15,17 +15,18 @@ stateDiagram-v2
     context_injection --> setup_issue_backed : status: override
     context_injection --> done_blocked : status: blocked
     context_injection --> setup_issue_backed
+    deferral_approval --> pr_creation : approval_decision: approved, gates.summary_exists.exists: true
+    deferral_approval --> done_blocked : approval_decision: rejected
     entry --> context_injection : mode: issue_backed
     entry --> task_validation : mode: free_form
     entry --> plan_context_injection : mode: plan_backed
     entry --> skipped_due_to_dep_failure : mode: skipped
     finalization --> implementation : finalization_status: issues_found
     finalization --> pr_creation : finalization_status: ready_for_pr, gates.summary_exists.exists: true
-    finalization --> pr_creation : finalization_status: deferred_items_noted, gates.summary_exists.exists: true
-    finalization --> pr_creation
+    finalization --> deferral_approval : finalization_status: deferral_requested
     implementation --> scrutiny : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, gates.tests_passing.exit_code: 0, implementation_status: complete, issue_type: code
-    implementation --> finalization : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: docs
-    implementation --> finalization : gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: task
+    implementation --> verification : gates.has_commits.exit_code: 0, gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: docs
+    implementation --> verification : gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete, issue_type: task
     implementation --> implementation : implementation_status: partial_tests_failing_retry
     implementation --> analysis : implementation_status: scope_expanded_retry
     implementation --> done_blocked : implementation_status: partial_tests_failing_escalate
@@ -48,7 +49,7 @@ stateDiagram-v2
     pr_creation --> done : pr_status: shared
     pr_creation --> pr_creation : pr_status: creation_failed_retry
     pr_creation --> done_blocked : pr_status: creation_failed_escalate
-    qa_validation --> finalization : gates.qa_results.exists: true, qa_outcome: passed
+    qa_validation --> verification : gates.qa_results.exists: true, qa_outcome: passed
     qa_validation --> implementation : qa_outcome: blocking_retry
     qa_validation --> done_blocked : qa_outcome: blocking_escalate
     research --> post_research_validation
@@ -77,6 +78,9 @@ stateDiagram-v2
     staleness_check --> analysis
     task_validation --> research : verdict: proceed
     task_validation --> validation_exit : verdict: exit
+    verification --> finalization : verification_outcome: passed
+    verification --> implementation : verification_outcome: failed
+    verification --> done_blocked : verification_outcome: cannot_verify
     done --> [*]
     done_already_complete --> [*]
     done_blocked --> [*]
@@ -90,6 +94,9 @@ stateDiagram-v2
     end note
     note left of context_injection
         gate: context_artifact
+    end note
+    note left of deferral_approval
+        gate: summary_exists
     end note
     note left of finalization
         gate: summary_exists
