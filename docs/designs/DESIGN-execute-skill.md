@@ -227,6 +227,8 @@ stop because the work is large or out of context concern (PRD R18). The mandate 
 in the SKILL prose and in the koto orchestrator-loop directives so it binds at every
 tick, not only at entry.
 
+**Why this skill and not /charter or /scope.** The strategic and tactical chains already run autonomously well, because each of their steps produces a *different* artifact (vision/strategy/roadmap; brief/prd/design/plan). That heterogeneity gives them momentum for free: each step is visibly distinct, its completion is unambiguous, and the chain has a concrete terminus. /execute is the homogeneous case — the same "implement an issue" step repeated over many issues — so it lacks that built-in momentum, and the cautious-stop instinct surfaces precisely as "I've done several of these, maybe I should check in." The mandate must kill that specific non-blocker and replace the vibe-of-enough with the concrete done-signal (all issues merged / the coordination PR merges last). This is why the explicit mandate is load-bearing for /execute specifically and not bolted onto every skill.
+
 **Blocker taxonomy.** A genuine blocker halts the run and emits the forced-stop
 operator summary: a child that fails or is blocked in a way needing human judgment and
 cannot be auto-resolved or isolated by skip-dependents; an upstream-must-change
