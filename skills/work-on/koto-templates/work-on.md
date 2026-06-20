@@ -635,21 +635,62 @@ states:
     accepts:
       finalization_status:
         type: enum
-        values: [ready_for_pr, deferred_items_noted, issues_found]
+        # ready_for_pr: every acceptance criterion is met. Reaching this state at all
+        #   means the verification gate routed verification_outcome: passed (verification
+        #   only transitions passed -> finalization), so ready_for_pr is backed by run
+        #   verification evidence -- there is no clean finalization without it.
+        # deferral_requested: an acceptance criterion is unmet/deferred. There is NO clean
+        #   self-reported deferral terminal here (the old deferred_items_noted loophole is
+        #   removed). This routes to the blocking deferral_approval human gate instead.
+        # issues_found: defects need more implementation; return to implementation.
+        values: [ready_for_pr, deferral_requested, issues_found]
         required: true
     transitions:
       - target: implementation
         when:
           finalization_status: issues_found
+      # ready_for_pr requires the summary artifact AND (implicitly) that verification
+      # passed, since finalization is only reachable via verification_outcome: passed.
       - target: pr_creation
         when:
           finalization_status: ready_for_pr
           gates.summary_exists.exists: true
+      # deferral must be a surfaced human decision, never a clean self-report (Decision E).
+      - target: deferral_approval
+        when:
+          finalization_status: deferral_requested
+
+  deferral_approval:
+    # Blocking human-approval gate for a deferred acceptance criterion (Decision E,
+    # PRD R4/R5). The agent halts here and surfaces the unmet criterion to the human.
+    # The human's decision is the evidence:
+    #   approved -> record the deferral via `koto decisions record`, then proceed to PR
+    #               with the deferral recorded in the audit trail (and PR body).
+    #   rejected -> the issue is not done; route to the non-clean done_blocked terminal.
+    gates:
+      summary_exists:
+        type: context-exists
+        key: summary.md
+    accepts:
+      approval_decision:
+        type: enum
+        values: [approved, rejected]
+        required: true
+      deferral_detail:
+        type: string
+        description: >
+          The unmet acceptance criterion and the human's rationale. On approved, this is
+          the deferral recorded via `koto decisions record` and surfaced in the PR body.
+    transitions:
       - target: pr_creation
         when:
-          finalization_status: deferred_items_noted
+          approval_decision: approved
           gates.summary_exists.exists: true
-      - target: pr_creation
+      - target: done_blocked
+        when:
+          approval_decision: rejected
+        context_assignments:
+          failure_reason: "deferral rejected by human: ${evidence.deferral_detail}"
 
   pr_creation:
     accepts:
@@ -995,6 +1036,36 @@ Evidence schema:
 
 Read `references/phases/phase-5-finalization.md` for cleanup steps and summary
 format. Output: koto context key `summary.md`.
+
+Reaching this state means verification ran and passed (the `verification` state only
+routes `verification_outcome: passed` here), so `ready_for_pr` is backed by run
+verification evidence — there is no clean finalization without it.
+
+Submit `finalization_status: ready_for_pr` only when every acceptance criterion is met.
+Submit `issues_found` to return to implementation. If an acceptance criterion is unmet
+and you want to defer it, submit `deferral_requested` — this does NOT finalize the issue;
+it routes to the `deferral_approval` human gate. There is no self-reported clean deferral
+terminal: a deferral is only legitimate once a human approves it.
+
+Evidence schema:
+- `finalization_status`: `ready_for_pr`, `deferral_requested`, or `issues_found`
+
+## deferral_approval
+
+A blocking human-approval gate for a deferred acceptance criterion. You arrive here
+because finalization reported `deferral_requested` — an acceptance criterion is unmet.
+Halt and surface the specific unmet criterion to the human as an explicit decision.
+
+- If the human **approves** the deferral: record it as their decision with
+  `koto decisions record <WF> --with-data '{"choice": "...", "rationale": "...", "alternatives_considered": ["..."]}'`,
+  then submit `approval_decision: approved`. The recorded deferral is the audit trail and
+  must be surfaced in the PR body (see `references/phases/phase-6-pr.md`).
+- If the human **rejects** the deferral: the issue is not done. Submit
+  `approval_decision: rejected` with `deferral_detail` — this routes to `done_blocked`.
+
+Evidence schema:
+- `approval_decision`: `approved` or `rejected`
+- `deferral_detail`: the unmet criterion and the human's rationale
 
 ## pr_creation
 

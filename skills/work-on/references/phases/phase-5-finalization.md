@@ -65,6 +65,17 @@ integration between components. Skip for docs-only or config changes.
 
 ## Evidence
 
-- `finalization_status: ready_for_pr` — clean and ready
-- `finalization_status: deferred_items_noted` — proceeding with documented limitations
-- `finalization_status: issues_found` — returning to implementation
+- `finalization_status: ready_for_pr` — every acceptance criterion is met and the
+  summary exists. Reaching finalization at all means verification ran and passed, so
+  this is backed by run verification evidence.
+- `finalization_status: deferral_requested` — an acceptance criterion is unmet and you
+  want to defer it. This does NOT finalize the issue; it routes to the
+  `deferral_approval` human gate. A deferral is only legitimate once a human approves it
+  — there is no self-reported clean deferral terminal.
+- `finalization_status: issues_found` — returning to implementation.
+
+A caveat or hedge ("experimental", "not yet handled", "known limitation") in the
+issue's shipped artifacts is legitimate only where it records a human-approved deferral.
+If you find yourself writing one, the matching acceptance criterion is unmet: submit
+`deferral_requested` and take it through the `deferral_approval` gate rather than
+shipping the caveat unapproved.

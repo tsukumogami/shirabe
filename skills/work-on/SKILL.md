@@ -76,6 +76,33 @@ Outcomes:
 The gate carries no project-specific commands. Those live only in the project's
 extension file; this skill holds the discipline, not the commands.
 
+### Finalization and No Silent Deferral
+
+After verification passes, the `finalization` state assembles the summary and decides
+whether the issue is done. `/work-on` cannot self-report an issue done with an unmet or
+deferred acceptance criterion (R4, R5). The clean `deferred_items_noted` terminal that
+once let the agent ship a unilateral deferral is removed.
+
+`ready_for_pr` is only reachable after verification ran and passed — finalization is
+reached only via `verification_outcome: passed`, so a finalization that reports done is
+backed by run verification evidence, not by the mere presence of a verification artifact.
+
+When an acceptance criterion is unmet, finalization reports `deferral_requested`, which
+routes to the blocking `deferral_approval` human gate. The human makes an explicit
+decision:
+
+- **Approved** — the deferral is recorded as the human's decision via
+  `koto decisions record` and surfaced in the PR body, so the audit trail shows what was
+  deferred and on whose authority. The workflow then proceeds to PR creation.
+- **Rejected** — the issue is not done. The workflow routes to `done_blocked`, a
+  non-clean terminal, rather than shipping with the criterion silently unmet.
+
+A finalization-checklist item disallows unapproved caveat or hedge language
+("experimental", "not yet handled", "known limitation") in the issue's shipped
+artifacts. A caveat is legitimate only where it records an approved deferral (R6). This
+is enforced by the deferral gate plus the checklist — no approval means no caveat — not
+by a brittle word-grep that would flag legitimate uses of those words.
+
 ## Plan Mode
 
 When `$ARGUMENTS` is a path to a PLAN.md file, the skill runs as a plan orchestrator rather than working on a single issue. Plan mode coordinates multiple per-issue child workflows and assembles a combined PR after all children complete.
