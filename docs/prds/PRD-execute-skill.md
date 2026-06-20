@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   shirabe has no implementation-altitude parent skill that owns plan-level
   execution. That responsibility is bundled into /work-on, which today both runs a
@@ -29,7 +29,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+In Progress
 
 ## Problem Statement
 
