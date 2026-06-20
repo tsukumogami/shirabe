@@ -15,6 +15,29 @@ and the load-bearing security rules— are defined once in
 This guide is the practical how-to; that contract is the canon. When the two
 seem to disagree, the contract wins.
 
+## Current status and limitations
+
+Coordinated mode is **experimental**. The decision logic is in place and
+tested — per-repo grouping, the acyclic two-node merge order with
+atomicity refusal, the `shirabe validate --merge-gate` merge-last gate, the
+F1/F2/F4 security rules, and the most-restrictive-visibility rule. Two seams
+are not yet fully wired, so read this before relying on it:
+
+- **`shirabe coordination create` and `sync` render the PR body to stdout;
+  they do not open or edit the PR yet.** Creating the coordination PR and
+  refreshing its body still go through `gh pr create` / `gh pr edit` around
+  the rendered output (the skill, or you, run that glue). Full
+  PR-mutation wiring is a planned follow-up.
+- **No end-to-end production run has happened yet.** Coordinated mode did not
+  exist while it was being built, so the first coordinated effort is the first
+  real exercise of the create → sync → gate → merge-last chain outside unit
+  tests. Start with a small, low-stakes two-repo effort and watch the gate
+  actually block the coordination PR until the per-repo PRs land.
+
+The merge-last gate is the safety net regardless: even if the rendered body
+is stale or hand-edited, `shirabe validate --merge-gate` recomputes merge
+state live and fails closed, so a wiring gap cannot cause a wrong merge.
+
 ## When to reach for coordinated mode
 
 Use coordinated mode when both hold:

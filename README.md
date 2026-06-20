@@ -27,6 +27,17 @@ need, then hands off to `/prd`, `/design`, or `/plan`. `/review-plan` catches
 problems in a plan before issues get created. `/work-on` picks up individual
 issues and delivers PRs.
 
+## Coordinated multi-repo (experimental)
+
+`/scope --coordinated` and `/work-on --coordinated` extend the chain across
+repositories: a single coordination PR is created up front to hold the plan and
+its framing, per-repo work is grouped to the coarsest legal unit and merged in a
+derived order, and the coordination PR merges last as the one completion signal.
+The decision logic and the merge-last gate (`shirabe validate --merge-gate`) are
+in place and tested; some PR-creation wiring is still landing. See
+[`docs/guides/coordinated-multi-repo.md`](docs/guides/coordinated-multi-repo.md)
+for the end-to-end walkthrough and current limitations.
+
 ## Example: building a plugin system from scratch
 
 Here's what it looks like to use shirabe for a non-trivial feature -- say you
