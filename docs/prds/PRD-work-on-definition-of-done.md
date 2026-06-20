@@ -1,5 +1,5 @@
 ---
-status: In Progress
+status: Accepted
 problem: |
   As the single-issue executor, `/work-on` decides one issue is done by the agent's own
   judgment, which accepts "verification authored" for "verification passed" and lets the
@@ -24,7 +24,7 @@ motivating_context: |
 
 ## Status
 
-In Progress
+Accepted
 
 ## Problem Statement
 
