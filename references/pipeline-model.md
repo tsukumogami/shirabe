@@ -131,7 +131,7 @@ artifact transitions` onto the open PR, so the PR merges with the upstream
 artifacts already advanced — there is no post-merge trigger. Cascade
 failures are best-effort: they don't block the PR, and the script emits a
 JSON result recording which steps ran. See
-`skills/work-on/scripts/run-cascade.sh` for the implementation and
+`skills/execute/scripts/run-cascade.sh` for the implementation and
 `docs/designs/current/DESIGN-completion-cascade.md` for the design.
 
 For cross-repo traceability and the visibility-direction rules, see

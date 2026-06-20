@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run-cascade_test.sh — Test harness for run-cascade.sh
-# Part of the work-on skill
+# Part of the execute skill
 #
 # Creates isolated fixture docs in a temp git repo, runs run-cascade.sh
 # against each scenario, and asserts the expected JSON output.
@@ -22,7 +22,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 CASCADE_SCRIPT="$SCRIPT_DIR/run-cascade.sh"
 
 # Repo root (the shirabe checkout) — used to locate the cargo workspace and the
-# built release binary. run-cascade_test.sh lives at skills/work-on/scripts/.
+# built release binary. run-cascade_test.sh lives at skills/execute/scripts/.
 REPO_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
 
 # Path to the REAL shirabe binary the cascade calls for finalize-chain and

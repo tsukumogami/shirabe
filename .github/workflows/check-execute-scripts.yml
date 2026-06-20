@@ -1,12 +1,12 @@
-name: Check work-on scripts
+name: Check execute scripts
 
 on:
   pull_request:
     paths:
-      - 'skills/work-on/scripts/**'
+      - 'skills/execute/scripts/**'
 
 jobs:
-  test-work-on-scripts:
+  test-execute-scripts:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -23,4 +23,4 @@ jobs:
         run: brew install jq
 
       - name: Run cascade tests
-        run: bash skills/work-on/scripts/run-cascade_test.sh
+        run: bash skills/execute/scripts/run-cascade_test.sh

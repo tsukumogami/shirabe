@@ -66,7 +66,7 @@ remove the plan-orchestrator, leaving `/work-on` a single-issue engine.
   behaves exactly as before.
 - [x] `execution_mode` is enum-re-validated in the dispatcher before any path or
   branch interpolation.
-- [ ] `/work-on`'s existing PLAN-detection evals are repointed to the dispatcher
+- [x] `/work-on`'s existing PLAN-detection evals are repointed to the dispatcher
   behavior and pass.
 
 **Dependencies**: Blocked by <<ISSUE:1>>
@@ -160,19 +160,19 @@ and the six security surfaces.
 **Goal**: Prove existing PLAN docs keep working and the cross-skill coupling holds.
 
 **Acceptance Criteria**:
-- [ ] An eval runs an existing single-pr PLAN through `/execute` to a merged PR
+- [x] An eval runs an existing single-pr PLAN through `/execute` to a merged PR
   unchanged.
-- [ ] An eval runs an existing multi-pr PLAN through the `/work-on` dispatcher one
+- [x] An eval runs an existing multi-pr PLAN through the `/work-on` dispatcher one
   issue at a time, unchanged.
-- [ ] An eval parses a legacy four-column Implementation Issues table.
-- [ ] An eval asserts the cross-skill `work-on.md` path resolves (the preflight from
+- [x] An eval parses a legacy four-column Implementation Issues table.
+- [x] An eval asserts the cross-skill `work-on.md` path resolves (the preflight from
   Issue 1).
-- [ ] Parity-survival evals assert each capability carried over by the lifted template
+- [x] Parity-survival evals assert each capability carried over by the lifted template
   still fires under `/execute`: the drift gate halts on an intent-changing base-branch
   change and absorbs a non-intent-changing one; cross-issue carry-forward is
   observable across two issues of a single-pr plan; a failed issue skips its
   dependents; and the finalization cascade runs atomically.
-- [ ] A coordinated-mode eval asserts cross-unit carry-forward through the coordination
+- [x] A coordinated-mode eval asserts cross-unit carry-forward through the coordination
   PR's durable state (the coordinated payload, which is not inherited from the
   single-pr shared-branch path).
 
