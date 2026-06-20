@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   The implementation flow does double duty: one workflow both runs a single issue
   and iterates a whole plan of many issues. So there is no implementation-altitude
@@ -26,7 +26,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 This brief frames the implementation-altitude coordinator and the responsibility
 split that comes with it, and stops before requirements. The coordinator is a new
