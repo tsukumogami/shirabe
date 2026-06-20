@@ -7,22 +7,26 @@ problem: |
   workflows to carry that coordination, but the cascade, finalize, and merge-order
   machinery are all hard-bound to a single repository.
 decision: |
-  Add a "coordinated" capability as a cross-cutting reference contract bound by `/scope`,
-  `/work-on`, and the `shirabe` CLI. The coordination PR is a docs-only PR created
-  up front; per-repo implementation lands as separate PRs grouped to the coarsest legal
-  unit. A pull-model `shirabe coordination` subcommand (gh-backed) keeps the PR-index and a
-  two-node merge-order DAG current; the merge-last gate is a posture-aware
-  `shirabe validate --merge-gate` mode that `lifecycle.yml` runs under `--mode=ready` as the
-  non-bypassable backstop; finalize writes stay repo-local with a read-only cross-repo
-  verification gate. The merge order is derived and validated (acyclic) in the PLAN at
-  authoring time and rendered into the coordination PR body as merge-time canon.
+  Add a "coordinated" capability as a cross-cutting reference contract bound by `/scope`
+  and `/work-on`. The coordination PR is a docs-only PR created up front; per-repo
+  implementation lands as separate PRs grouped to the coarsest legal unit. The
+  coordination PR body is authored by the skill from a template (the same author-by-skill
+  discipline every shirabe artifact follows) and posted/refreshed with `gh`; `shirabe
+  validate` checks it — `--coordination-body` is the static authoring-feedback check
+  (offline) and `--merge-gate` is the posture-aware live merge-last gate that
+  `lifecycle.yml` runs under `--mode=ready` as the non-bypassable backstop. Finalize
+  writes stay repo-local with a read-only cross-repo verification gate. The merge order is
+  derived and validated (acyclic) in the PLAN at authoring time and authored into the
+  coordination PR body as merge-time canon.
 rationale: |
   Every cross-repo write or always-on service was rejected for cost and for violating
   PRD R19/R21 (no new service; no partial cross-repo state). Keeping writes repo-local
   and coordination pull-based reuses existing seams (`gh.rs`, `is_cross_repo_ref`, the
-  `waits_on` DAG, `lifecycle.yml`) and concentrates the only real new logic in one
-  testable subcommand. A canonical reference with bound consumers matches shirabe's
-  house style (`parent-skill-pattern.md`) and prevents drift across three consumers.
+  `waits_on` DAG, `lifecycle.yml`). Authoring the body in the skill (not a CLI renderer)
+  keeps shirabe's author-by-skill / check-by-validate split consistent, so the only
+  compiled logic is deterministic validation and the gh-backed live gate. A canonical
+  reference with bound consumers matches shirabe's house style (`parent-skill-pattern.md`)
+  and prevents drift across consumers.
 upstream: docs/prds/PRD-capstone-orchestration.md
 ---
 
@@ -95,18 +99,38 @@ new standalone tool.
 
 ### Decision B — Cross-repo PR-state tracking (PRD R6, R14)
 
-- **Chosen: pull-model `shirabe coordination` subcommand.** Reuses the existing `gh api`
-  client (`crates/shirabe-validate/src/gh.rs`) and the `owner/repo:path` parser
-  (`finalize.rs::is_cross_repo_ref`) to read each indexed PR on the operator's own
-  credentials, rewrite the PR-index, and recompute the merge-order/R14 gate. Invoked by
-  `/work-on` and on demand.
-- *Alternative — on-demand polling embedded in skill prose (inline `gh` in templates).*
-  Rejected: index-rewrite + order recompute + `owner/repo:path` parsing as shell/markdown
-  is untestable and drift-prone — the exact class of logic shirabe has moved into the Rust
-  validator elsewhere.
+- **Chosen: skill-authored body + `shirabe validate` checks.** The coordination PR body
+  is authored by the skill from a template (declaration marker, artifact chain,
+  `owner/repo:path#number` PR-index, fenced merge-order block) and posted/refreshed with
+  `gh pr create` / `gh pr edit` — the same author-by-skill discipline every other shirabe
+  artifact follows. Correctness lives in `shirabe validate`: `--coordination-body <file>`
+  is the static authoring-feedback check (offline — declaration marker present, every ref
+  passes F2, merge-order acyclic) and `--merge-gate` is the gh-backed live merge-last gate
+  (F4). Both reuse the existing `gh api` client (`crates/shirabe-validate/src/gh.rs`) and
+  the `owner/repo:path` parser (`coordination.rs::parse_cross_repo_ref`).
+- *Alternative — a `shirabe coordination create/status/sync` subcommand that renders the
+  body (an earlier iteration of this design; see Revision below).* Rejected on a second
+  pass: rendering an artifact body is authoring, and shirabe authors every other artifact
+  in a skill, not a CLI subcommand. A renderer subcommand was the only place in the CLI
+  that produced an artifact body — an inconsistency. The deterministic parts (ref
+  validation, acyclicity) belong in `shirabe validate` as checks; the body belongs in the
+  skill.
+- *Alternative — on-demand polling embedded in skill prose with ad-hoc inline `gh`
+  parsing.* Rejected for the *validation* logic: `owner/repo:path` parsing and acyclicity
+  as shell/markdown is untestable and drift-prone — that class of logic lives in the Rust
+  validator (`--coordination-body`). Authoring the body text from a template, however, is
+  exactly what the skill should own.
 - *Alternative — webhook / GitHub Actions push from each repo.* Rejected: standing
   per-repo infrastructure, cross-repo write-auth, a visibility-boundary risk, and it can't
   attach to forward-declared PRs that don't exist yet. Violates R19.
+
+> **Revision.** An earlier iteration of this design introduced a pull-model `shirabe
+> coordination` subcommand with `create`/`status`/`sync` verbs that *rendered* the
+> coordination PR body. It was removed for consistency with shirabe's author-by-skill /
+> check-by-validate pattern: rendering a body is authoring (a skill job), and the body is
+> now authored from the template in `references/coordination-strategy.md` and checked by
+> `shirabe validate` (`--coordination-body` static, `--merge-gate` live). No coordination
+> subcommand exists.
 
 ### Decision C — Cross-repo finalize / consume cascade (PRD R8, R21)
 
@@ -130,7 +154,7 @@ new standalone tool.
   post-contraction acyclicity check (R13) and the split-at-seam → re-sequence → stack
   resolution live at that collapse step, so an unschedulable coordinated effort is never committed.
   Because R8 deletes the PLAN before the coordination PR merges, the coordination PR body carries the
-  merge-time canonical PR-index + fenced merge-order block, rendered from the PLAN at
+  merge-time canonical PR-index + fenced merge-order block, authored by the skill from the PLAN at
   creation and surviving it through merge.
 - *Alternative — canonical only in the PR body.* Rejected: loses authoring-time
   validatability and the rich `waits_on`-derived representation; the body becomes
@@ -184,25 +208,26 @@ new standalone tool.
 The coordination PR is a docs-only PR on its own branch, created up front by `/scope`
 (or `/work-on`) when coordination intent is present, holding the PLAN and the durable
 BRIEF/PRD/DESIGN. Implementation lands as per-repo PRs grouped by `/plan` to the coarsest
-legal unit, with a two-node merge-order DAG validated acyclic at authoring time and rendered
-into the coordination PR body. A pull-model `shirabe coordination` subcommand keeps the PR-index
-current from the operator's own `gh` credentials; the merge-last gate is the posture-aware
-`shirabe validate --merge-gate` mode that `lifecycle.yml` runs under `--mode=ready` as the
-non-bypassable backstop; finalize stays repo-local with a read-only cross-repo verification gate.
-The whole contract is defined once in
-`references/coordination-strategy.md` and bound by the three consumers.
+legal unit, with a two-node merge-order DAG validated acyclic at authoring time and authored
+into the coordination PR body. The skill authors the body from the contract's template and
+posts/refreshes it with `gh`; `shirabe validate --coordination-body` checks the authored body
+offline and `shirabe validate --merge-gate` is the posture-aware live merge-last gate that
+`lifecycle.yml` runs under `--mode=ready` as the non-bypassable backstop; finalize stays
+repo-local with a read-only cross-repo verification gate. The whole contract is defined once in
+`references/coordination-strategy.md` and bound by the two consumers.
 
 This holds together because every piece is pull-based and repo-local: no component writes
-across a repo boundary, nothing runs always-on, and the only genuinely new logic is one
-testable subcommand plus a `/plan` collapse step. State lives on the coordination branch/PR
-itself (R9), so an interrupted effort is re-discoverable without a session store.
+across a repo boundary, nothing runs always-on, and the only genuinely new compiled logic is
+two `shirabe validate` modes (`--coordination-body`, `--merge-gate`) plus a `/plan` collapse
+step. State lives on the coordination branch/PR itself (R9), so an interrupted effort is
+re-discoverable without a session store.
 
 ### State home and discovery (PRD R9)
 
-"A coordinated effort is active" is encoded by the coordination PR/branch itself (a `docs(...)` PR labeled
-as a coordination PR, carrying the index/order block). `shirabe coordination status` re-derives the live
-picture by reading the PR body + querying indexed PRs; no `wip/` session file is the source of
-truth, so context resets reconnect from durable state.
+"A coordinated effort is active" is encoded by the coordination PR/branch itself (a `docs(...)` PR
+carrying the declaration marker and the index/order block). The skill re-derives the live picture
+by reading the PR body + querying indexed PRs on each pass and re-authoring the body; no `wip/`
+session file is the source of truth, so context resets reconnect from durable state.
 
 ### Abandonment and failure (PRD R20, R21)
 
@@ -256,23 +281,28 @@ Components:
 
 - **`references/coordination-strategy.md`** — the canonical contract: lifecycle (create up front
   → track → finalize → merge last), the coarsest-legal-grouping rule, the two-node
-  merge-order DAG model, the done-signal, and the `owner/repo:path` reference rules. Bound by
-  the three consumers; no consumer restates it.
-- **`shirabe coordination` subcommand** (in the existing CLI crate) — verbs:
-  - `create` — open the docs-only coordination PR/branch, seed the body (declaration, artifact
-    chain, PR-index, fenced merge-order block) rendered from the PLAN.
-  - `status` / `sync` — read each indexed PR via `gh.rs`, rewrite the PR-index, and recompute the
-    merge-order. (The R14 merge-last gate is `shirabe validate --merge-gate`, below.) Validates
-    each `owner/repo:path` component before use (F2);
-    resolves each repo's visibility and redacts private identifiers to opaque node ids when
-    rendering a public coordination PR body (F1); escapes `gh`-sourced titles/branches (F3).
-- **`shirabe validate --merge-gate`** — the merge-last gate (F4 / R14), folded into `validate`
-  as a posture-aware mode like every other merge-gating check rather than a coordination verb.
-  Recompute "all indexed PRs merged + all upstreams terminal" from authoritative live `gh api`
-  queries at gate time, never by parsing the editable PR body; fails closed on any unresolvable
-  PR/upstream. Under `--mode=ready` a blocked gate is an error (the merge-last backstop); under
-  `--mode=draft` it is a notice (exit 0). The upstream-terminal read pass (the old `verify` verb)
-  is part of this mode. Drives the `lifecycle.yml` non-bypassable backstop.
+  merge-order DAG model, the done-signal, the body template, and the `owner/repo:path`
+  reference rules. Bound by `/scope` and `/work-on`; no consumer restates it.
+- **Skill-authored coordination PR body** — `/scope` and `/work-on` author the body from the
+  template in `references/coordination-strategy.md` (declaration marker, artifact chain,
+  `owner/repo:path#number` PR-index, fenced merge-order block) and post/refresh it with `gh pr
+  create` / `gh pr edit`. There is no `shirabe coordination` subcommand: rendering a body is
+  authoring, which belongs in a skill, as with every other shirabe artifact.
+- **`shirabe validate --coordination-body <file>`** — the static authoring-feedback check (in the
+  existing CLI crate), the static analog of `shirabe validate <brief-file>`. Reads an authored body
+  and checks it **offline** (no `gh`): the declaration marker is present, every `owner/repo:path#number`
+  cross-repo ref parses and passes F2, and the fenced merge-order block is acyclic. Reports findings
+  in the existing `annotation`/`human`/`json` shapes and exits non-zero on any violation. The
+  visibility rule and live merge state stay in `--merge-gate` (they need `gh`).
+- **`shirabe validate --merge-gate`** — the merge-last gate (F4 / R14), a posture-aware `validate`
+  mode like every other merge-gating check. Recompute "all indexed PRs merged + all upstreams
+  terminal" from authoritative live `gh api` queries at gate time, never by parsing the editable PR
+  body; fails closed on any unresolvable PR/upstream. Validates each `owner/repo:path` component
+  before use (F2); resolves each repo's visibility and redacts private identifiers to opaque node ids
+  in diagnostics (F1, the fail-closed backstop — a public coordination PR over a private indexed repo
+  is refused). Under `--mode=ready` a blocked gate is an error (the merge-last backstop); under
+  `--mode=draft` it is a notice (exit 0). The upstream-terminal read pass is part of this mode.
+  Drives the `lifecycle.yml` non-bypassable backstop.
 - **`/plan` collapse step** — tags issues with `repo` + `pr_group`, contracts the `waits_on`
   issue DAG to a `(repo, pr_group)` PR DAG, runs the acyclicity check (R13) and the
   split→re-sequence→stack resolution, and emits the two-node order into the PLAN. A
@@ -283,15 +313,17 @@ Components:
 - **`lifecycle.yml` merge-last step** — on a coordination PR, run `shirabe validate --merge-gate
   --mode=ready`, failing the "ready" check while any indexed PR is unmerged or finalization is
   incomplete (the merge-last backstop).
-- **`/scope` + `/work-on` bindings** — detect coordination intent (flag/header/default), call
-  `shirabe coordination create` up front, call `shirabe coordination sync` as per-repo PRs progress,
-  and announce smart-default activations (R18).
+- **`/scope` + `/work-on` bindings** — detect coordination intent (flag/header/default), author
+  the coordination PR body up front from the template and post it with `gh pr create`, re-author and
+  `gh pr edit` it as per-repo PRs progress, run `shirabe validate --coordination-body` for authoring
+  feedback, and announce smart-default activations (R18).
 
-Data flow: `/scope` (coordination intent) → `shirabe coordination create` seeds the PR from the PLAN's
-two-node order → per-repo work via `/work-on` opens per-repo PRs → `shirabe coordination sync`
-refreshes the index from `gh` → each repo's PR finalizes its own artifacts → all merged →
-`shirabe validate --merge-gate` (ready posture), the read-only merge-last gate, passes →
-coordination PR consumes its PLAN and merges last.
+Data flow: `/scope` (coordination intent) → skill authors the PR body from the PLAN's two-node
+order and posts it (`gh pr create`), checked by `shirabe validate --coordination-body` → per-repo
+work via `/work-on` opens per-repo PRs → skill re-authors the index from `gh` and refreshes the body
+(`gh pr edit`) → each repo's PR finalizes its own artifacts → all merged → `shirabe validate
+--merge-gate` (ready posture), the read-only merge-last gate, passes → coordination PR consumes its
+PLAN and merges last.
 
 ## Implementation Approach
 
@@ -302,11 +334,16 @@ A walking skeleton first, then the cross-repo machinery (sequenced by `/plan`):
    and F4 (gate recomputes from live `gh`, not PR body) hard rules (cheap; unblocks the rest).
 2. **`/plan` collapse + two-node order** — `repo`/`pr_group` tagging, DAG contraction,
    acyclicity check + resolution, serialized order. (Most of R10–R13.)
-3. **`shirabe coordination create`** — open + seed the coordination PR/branch from the PLAN render.
-4. **`shirabe coordination status/sync`** — gh-backed index/merge-order recompute (the core new logic).
+3. **Coordination PR body template** — add the copy-pasteable body template to
+   `references/coordination-strategy.md` (declaration marker, artifact chain, PR-index, fenced
+   merge-order block) that the skill authors from.
+4. **`shirabe validate --coordination-body`** — the static authoring-feedback check (declaration
+   marker, F2 on every ref, merge-order acyclicity), the static analog of `shirabe validate
+   <brief-file>`.
 5. **`shirabe validate --merge-gate` + `finalize.rs` read pass + `lifecycle.yml`** — the merge-last
    backstop and repo-local cascade verification.
-6. **`/scope` + `/work-on` bindings** — intent surface, announce/override, create/sync calls.
+6. **`/scope` + `/work-on` bindings** — intent surface, announce/override, author-and-post the body
+   with `gh`, run `--coordination-body` for feedback.
 7. **Abandonment + failure paths** — force-materialize on bail; halt-on-failure.
 
 ## Security Considerations
@@ -319,9 +356,9 @@ hard rules in `references/coordination-strategy.md` (below); the rest are standa
 
 ### Threat surface
 
-- **Cross-repo read pass** (`shirabe coordination status/sync`, `shirabe validate --merge-gate`,
-  the `finalize.rs` read pass): reads each indexed PR / upstream on the operator's own `gh`
-  credentials across
+- **Cross-repo read pass** (the skill's `gh` reads when authoring the body, `shirabe validate
+  --merge-gate`, the `finalize.rs` read pass): reads each indexed PR / upstream on the operator's
+  own `gh` credentials across
   public and private repos — data from *other* repos now flows into a rendered artifact and
   a CI gate.
 - **Public coordination PR body:** the rendered PR-index + merge-order block. The
@@ -351,20 +388,22 @@ validates task names against `^[a-z][a-z0-9-]*$` and builds JSON with `jq --arg`
   place. F1 is **not** the cross-visibility egress mechanism — it is the fail-closed backstop
   for the residual edges the front-door rule cannot pre-empt (a repo flips visibility
   mid-effort, a moved/renamed/unresolvable ref). For those, a private repo's name, path,
-  branch, PR title, and number are themselves private, so the render path MUST resolve each
-  indexed PR's repo visibility and, for any private repo, render a redacted placeholder
-  carrying only an opaque node id and merge state — no private
-  owner/repo/path/branch/title/number. Fail closed: if visibility can't be resolved, treat
-  as private. Covered by unit tests on the front-door decision (public PR + private node →
-  refuse; private PR + mixed → allow; unresolvable → refuse) and by the F1 redaction tests
-  feeding a private-repo node into a public render.
-- **F2 — Path traversal / injection via crafted `owner/repo:path` (High).** The read pass
-  MUST parse the reference into components and validate each before use: owner/repo against
-  the existing GitHub charset regex; path against `finalize.rs`'s in-root, no-symlink,
-  lexical confinement (reject newline/NUL). Reuse the existing validators; a failing
-  reference halts with a diagnostic (R21), never silently skipped.
+  branch, PR title, and number are themselves private: the skill must not author a private
+  ref into a public body, and `shirabe validate --merge-gate` enforces it — it resolves each
+  indexed PR's repo visibility and, for any private repo, routes diagnostics through an opaque
+  node id + merge state only (no private owner/repo/path/branch/title/number) and refuses a
+  public coordination PR over a private indexed repo. Fail closed: if visibility can't be
+  resolved, treat as private. Covered by unit tests on the front-door decision (public PR +
+  private node → refuse; private PR + mixed → allow; unresolvable → refuse) and by the F1
+  redaction tests feeding a private-repo node into a diagnostic label.
+- **F2 — Path traversal / injection via crafted `owner/repo:path` (High).** Both validate
+  modes (`--coordination-body` statically, `--merge-gate` live) MUST parse the reference into
+  components and validate each before use: owner/repo against the existing GitHub charset
+  regex; path against in-root, no-symlink, lexical confinement (reject newline/NUL). Reuse the
+  existing validators; a failing reference halts with a diagnostic (R21), never silently skipped.
 - **F3 — Markdown/metadata injection from PR titles and branch names (Medium).** Treat all
-  `gh`-sourced strings as untrusted on render: escape/strip markdown/HTML control chars; the
+  `gh`-sourced strings as untrusted when the skill authors them into the body: escape/strip
+  markdown/HTML control chars; the
   authoritative fields of the fenced merge-order block derive from validated PLAN/`gh`
   state, never from free-text titles (which are escaped, non-load-bearing annotations).
 - **F4 — Merge-last gate must not trust PR-body text (High, R7/R14/R21).** The
@@ -375,9 +414,10 @@ validates task names against `^[a-z][a-z0-9-]*$` and builds JSON with `jq --arg`
   The mode is posture-aware (enforce under `--mode=ready`, notice under `--mode=draft`); CI
   pins it to the `draft == false` trigger and passes `--mode=ready` so it cannot
   be skipped.
-- **F5 — Privilege scope / token exposure (Medium).** All coordination `gh` use is read-only;
-  no coordination verb writes cross-repo. Inherit `gh.rs`'s no-token-in-process property; do
-  not log raw `gh` responses; route private identifiers through F1 redaction before any
+- **F5 — Privilege scope / token exposure (Medium).** The validate modes' `gh` use is
+  read-only; no coordination step writes cross-repo (the skill's `gh pr` calls write only the
+  coordination PR's own body in its own repo). Inherit `gh.rs`'s no-token-in-process property;
+  do not log raw `gh` responses; route private identifiers through F1 redaction before any
   diagnostic, log, or body; apply the 4 MiB cap to the read pass.
 - **F6 — `repo`/`pr_group` tags re-validated on every read (Medium).** Constrain `pr_group`
   to `^[a-z][a-z0-9-]*$` and the repo tag to the owner/repo regex before interpolation.
@@ -391,7 +431,7 @@ validates task names against `^[a-z][a-z0-9-]*$` and builds JSON with `jq --arg`
 
 ### Residual risks
 
-- **Staleness window** between `sync` runs: the rendered body can misstate merge state, but
+- **Staleness window** between body refreshes: the authored body can misstate merge state, but
   F4 makes the gate recompute live at merge time, so a stale body misleads a human reader
   but cannot cause a wrong merge.
 - **Operator-credential blast radius:** the read pass is only as confined as the operator's
@@ -415,17 +455,19 @@ Positive:
 - No new always-on service, no cross-repo write access, no partial-state failure mode — the
   architecture is pull-based and repo-local throughout.
 - Reuses proven seams (`gh.rs`, `is_cross_repo_ref`, `waits_on`, `lifecycle.yml`), so the new,
-  drift-prone surface is one subcommand plus a `/plan` collapse step.
-- A single canonical contract prevents the three consumers from drifting.
+  drift-prone compiled surface is two `shirabe validate` modes plus a `/plan` collapse step;
+  the body is authored by the skill, like every other shirabe artifact.
+- A single canonical contract prevents the consumers from drifting.
 - The merge-last gate is enforced by CI, not discipline.
 
 Negative / mitigations:
 
-- Cross-repo PR state is only as fresh as the last `sync`; mitigation: `/work-on` syncs on
-  each pass and the CI gate re-checks at merge time, so staleness can't cause a wrong merge.
+- Cross-repo PR state is only as fresh as the last body refresh; mitigation: `/work-on`
+  re-authors the body each pass and the CI gate re-checks at merge time, so staleness can't
+  cause a wrong merge.
 - The phase-split canon (PLAN authoring-time, PR body merge-time) means two representations;
-  mitigation: the PR body is *rendered from* the PLAN, never hand-authored, so there is one
-  source at each phase.
+  mitigation: the skill authors the PR body *from* the PLAN against a fixed template, so there
+  is one source at each phase.
 - Already-merged per-repo PRs constrain mid-effort re-derivation (R22) and abandonment (R20);
   mitigation: re-derivation treats merged PRs as fixed nodes and only re-orders the unmerged
   remainder; abandonment leaves merged work in place and documents the partial state.

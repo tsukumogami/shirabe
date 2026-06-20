@@ -13,15 +13,14 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
-    check_slug_prefix, detect_format, detect_pr_draft, explain_advisory, format_error,
-    format_notice, is_known_check_code, is_notice, parse_doc, render_human_with_advisory,
-    render_json_with_advisory, run_lifecycle_chain_check, run_lifecycle_check, run_merge_gate,
-    run_transition, validate_file, walk_chain_mode, AdvisoryReport, Config, Flags,
-    GhSubprocessClient, GhVisibilityResolver, MergeGateOutcome, Mode, ParseError, PrPosture,
-    ReviewPosture, SlugPrefixCheck, ValidationError,
+    check_coordination_body, check_slug_prefix, detect_format, detect_pr_draft, explain_advisory,
+    format_error, format_notice, is_known_check_code, is_notice, parse_doc,
+    render_human_with_advisory, render_json_with_advisory, run_lifecycle_chain_check,
+    run_lifecycle_check, run_merge_gate, run_transition, validate_file, walk_chain_mode,
+    AdvisoryReport, Config, Flags, GhSubprocessClient, GhVisibilityResolver, MergeGateOutcome,
+    Mode, ParseError, PrPosture, ReviewPosture, SlugPrefixCheck, ValidationError,
 };
 
-mod coordination;
 mod populate;
 
 /// The maximum accepted size of the `--custom-statuses` value, matching the
@@ -65,11 +64,6 @@ enum Commands {
     Validate(ValidateArgs),
     /// Roadmap-scoped subcommands.
     Roadmap(RoadmapArgs),
-    /// Coordinated multi-repo orchestration subcommands. `create` seeds a
-    /// docs-only coordination PR body; `status` reads an indexed PR and
-    /// renders its PR-index line with F1 private-identifier redaction. See
-    /// `references/coordination-strategy.md`.
-    Coordination(coordination::CoordinationArgs),
     /// Transition a shirabe doc to a new status.
     Transition(TransitionArgs),
     /// Walk a finished PLAN's upstream chain and apply each tactical node's
@@ -293,6 +287,24 @@ struct ValidateArgs {
     /// non-terminal or unresolvable upstream blocks the gate (fail closed).
     #[arg(long = "upstream")]
     upstream: Vec<String>,
+
+    /// The static coordination-body check mode. Reads an authored coordination
+    /// PR body FILE and checks it **offline** (no `gh`): the declaration marker
+    /// is present, every `owner/repo:path#number` cross-repo ref parses and
+    /// passes F2, and the fenced merge-order block is acyclic. This is the
+    /// static analog of `shirabe validate <brief-file>` — authoring feedback
+    /// before the body is posted. The visibility rule and live merge state need
+    /// `gh` and stay in `--merge-gate`; they are not duplicated here. Mutually
+    /// exclusive with `--lifecycle` / `--lifecycle-chain` / `--merge-gate` and
+    /// with positional file arguments.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "lifecycle",
+        conflicts_with = "lifecycle_chain",
+        conflicts_with = "merge_gate"
+    )]
+    coordination_body: Option<String>,
 }
 
 fn main() -> ExitCode {
@@ -302,7 +314,6 @@ fn main() -> ExitCode {
         Some(Commands::Roadmap(args)) => match args.command {
             RoadmapCommands::Populate(p) => populate::run(&p),
         },
-        Some(Commands::Coordination(args)) => coordination::run(&args),
         Some(Commands::Transition(args)) => run_transition_cmd(&args),
         Some(Commands::FinalizeChain(args)) => run_finalize_chain_cmd(&args),
         Some(Commands::SlugPrefixDetect(args)) => run_slug_prefix_detect(&args),
@@ -438,6 +449,13 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         eprintln!("--pr and --upstream require --merge-gate");
         return ValidateOutcome::ToolError.exit();
     }
+    // The static coordination-body check is its own mode: it cannot combine with
+    // positional file arguments (clap already rejects the lifecycle/merge-gate
+    // combinations via `conflicts_with`).
+    if args.coordination_body.is_some() && !args.files.is_empty() {
+        eprintln!("--coordination-body is mutually exclusive with positional file arguments");
+        return ValidateOutcome::ToolError.exit();
+    }
 
     // Reject an unknown --check code up front: a typo like `FC1` must be a
     // tool error, not a silent clean pass. A valid but format-inapplicable
@@ -457,6 +475,10 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     // one-line deprecation notice to stderr); otherwise the `--mode` value
     // applies (default Draft).
     let posture = resolve_posture(args.strict, args.mode);
+
+    if let Some(file) = args.coordination_body.as_deref() {
+        return run_coordination_body_mode(file, args.format);
+    }
 
     if args.merge_gate {
         return run_merge_gate_mode(args, posture);
@@ -655,6 +677,79 @@ fn run_merge_gate_mode(args: &ValidateArgs, posture: ReviewPosture) -> ExitCode 
     }
 
     merge_gate_outcome(&outcome, posture).exit()
+}
+
+/// Runs the `validate --coordination-body <FILE>` mode: the static
+/// authoring-feedback check over an authored coordination PR body, offline (no
+/// `gh`). It is the static analog of `shirabe validate <brief-file>` — it tells
+/// the author what to fix and why before the body is posted.
+///
+/// The pure check logic lives in `shirabe_validate::check_coordination_body`
+/// (declaration marker present, every cross-repo ref passes F2, the merge-order
+/// block is acyclic); this fn owns the CLI shell — reading the file, rendering
+/// findings per `--format`, and the exit code. The mode is posture-independent:
+/// any finding is a violation (exit 2). An unreadable file is a tool error
+/// (exit 1).
+///
+/// The **visibility** rule and **live merge state** (F4) need `gh`, so they
+/// stay in `--merge-gate` and are deliberately not checked here.
+fn run_coordination_body_mode(file: &str, format: Format) -> ExitCode {
+    let body = match std::fs::read_to_string(file) {
+        Ok(b) => b,
+        Err(err) => {
+            eprintln!("--coordination-body: could not read {}: {}", file, err);
+            return ValidateOutcome::ToolError.exit();
+        }
+    };
+
+    let findings = check_coordination_body(&body);
+    let outcome = if findings.is_empty() {
+        ValidateOutcome::Clean
+    } else {
+        ValidateOutcome::Violations
+    };
+
+    match format {
+        Format::Json => {
+            let items: Vec<String> = findings
+                .iter()
+                .map(|f| {
+                    format!(
+                        "{{\"line\":{},\"message\":{}}}",
+                        f.line,
+                        json_string(&f.message)
+                    )
+                })
+                .collect();
+            println!(
+                "{{\"schema\":\"shirabe-coordination-body/v1\",\"outcome\":{},\"findings\":[{}]}}",
+                json_string(outcome.label()),
+                items.join(",")
+            );
+        }
+        Format::Annotation => {
+            // GitHub Actions error annotations, file-scoped.
+            for f in &findings {
+                println!("::error file={},line={}::{}", file, f.line, f.message);
+            }
+        }
+        Format::Human => {
+            if findings.is_empty() {
+                println!("coordination-body: clean ({})", file);
+            } else {
+                eprintln!(
+                    "coordination-body: {} finding(s) in {}",
+                    findings.len(),
+                    file
+                );
+                for f in &findings {
+                    eprintln!("  - {}:{}: {}", file, f.line, f.message);
+                }
+            }
+        }
+    }
+
+    outcome.exit()
 }
 
 /// Map a [`MergeGateOutcome`] and review posture onto the shared

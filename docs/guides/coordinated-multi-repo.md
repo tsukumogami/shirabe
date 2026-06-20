@@ -19,24 +19,28 @@ seem to disagree, the contract wins.
 
 Coordinated mode is **experimental**. The decision logic is in place and
 tested — per-repo grouping, the acyclic two-node merge order with
-atomicity refusal, the `shirabe validate --merge-gate` merge-last gate, the
-F1/F2/F4 security rules, and the most-restrictive-visibility rule. Two seams
-are not yet fully wired, so read this before relying on it:
+atomicity refusal, the `shirabe validate --coordination-body` static check,
+the `shirabe validate --merge-gate` merge-last gate, the F1/F2/F4 security
+rules, and the most-restrictive-visibility rule. Read this before relying on
+it:
 
-- **`shirabe coordination create` and `sync` render the PR body to stdout;
-  they do not open or edit the PR yet.** Creating the coordination PR and
-  refreshing its body still go through `gh pr create` / `gh pr edit` around
-  the rendered output (the skill, or you, run that glue). Full
-  PR-mutation wiring is a planned follow-up.
+- **The coordination PR body is authored by the skill, not by a dedicated
+  renderer.** Like every other shirabe artifact, the body is written by the
+  workflow skill from the template in
+  [`references/coordination-strategy.md`](../../references/coordination-strategy.md)
+  and posted/refreshed with `gh pr create` / `gh pr edit`. There is no
+  `shirabe coordination` subcommand. `shirabe validate --coordination-body
+  <file>` gives authoring feedback offline (declaration marker, ref validity,
+  acyclic merge order) before you post.
 - **No end-to-end production run has happened yet.** Coordinated mode did not
   exist while it was being built, so the first coordinated effort is the first
-  real exercise of the create → sync → gate → merge-last chain outside unit
+  real exercise of the author → refresh → gate → merge-last chain outside unit
   tests. Start with a small, low-stakes two-repo effort and watch the gate
   actually block the coordination PR until the per-repo PRs land.
 
-The merge-last gate is the safety net regardless: even if the rendered body
+The merge-last gate is the safety net regardless: even if the authored body
 is stale or hand-edited, `shirabe validate --merge-gate` recomputes merge
-state live and fails closed, so a wiring gap cannot cause a wrong merge.
+state live and fails closed, so an authoring gap cannot cause a wrong merge.
 
 ## When to reach for coordinated mode
 
@@ -107,20 +111,21 @@ A coordinated effort runs in four phases.
 
 **1. Create up front.** When intent is present, `/scope` (or `/work-on`)
 creates the coordination PR at the start, before any implementation work. The
-coordination PR is a docs-only PR on its own branch. Its body is *rendered
-from* the PLAN —a declaration that it's a coordination PR, the artifact chain,
-the PR-index, and a fenced merge-order block— and is never hand-authored.
-`/plan` collapses its issue-level dependency graph into a `(repo, pr_group)`
-merge order and validates it acyclic at authoring time, so an unschedulable
-effort is never committed.
+coordination PR is a docs-only PR on its own branch. The skill **authors** its
+body from the contract's template —a declaration that it's a coordination PR,
+the artifact chain, the PR-index, and a fenced merge-order block, all derived
+from the PLAN— and posts it with `gh pr create`. `shirabe validate
+--coordination-body` checks it first. `/plan` collapses its issue-level
+dependency graph into a `(repo, pr_group)` merge order and validates it acyclic
+at authoring time, so an unschedulable effort is never committed.
 
-**2. Track.** As per-repo PRs open and progress, `/work-on` calls `shirabe
-coordination sync` on each pass. Sync reads each indexed PR on your own `gh`
-credentials, rewrites the PR-index, and recomputes the merge order and the
-merge-last gate. State lives on the coordination branch and PR, so an
+**2. Track.** As per-repo PRs open and progress, `/work-on` re-authors the
+body on each pass. It reads each indexed PR on your own `gh` credentials,
+rewrites the PR-index, recomputes the merge order, and posts the refreshed body
+with `gh pr edit`. State lives on the coordination branch and PR, so an
 interrupted effort reconnects from durable state —no session file is the
-source of truth. Sync and gate are smart defaults: each announces itself when
-it activates and names its per-invocation override.
+source of truth. The body refresh and gate are smart defaults: each announces
+itself when it activates and names its per-invocation override.
 
 **3. Group and merge per-repo PRs in order.** Each repo's PR finalizes its own
 artifacts; writes stay repo-local. Per-repo PRs merge in the validated order.
@@ -160,10 +165,12 @@ cross-repo merge.
 ## Visibility
 
 Cross-repo references use `owner/repo:path`. A public coordination PR never
-embeds private-repo content: the render path resolves each indexed PR's repo
-visibility and, for any private repo, shows a redacted placeholder carrying
-only an opaque node id and merge state. If visibility can't be resolved, the
-repo is treated as private. These fail-closed rules (F1, F2, F4) are
+embeds private-repo content: the skill must not author a private repo's
+reference into a public body, and `shirabe validate --merge-gate` enforces it —
+it resolves each indexed PR's repo visibility and refuses a public coordination
+PR over a private indexed repo, redacting any private identifier in its
+diagnostics to an opaque node id. If visibility can't be resolved, the repo is
+treated as private. These fail-closed rules (F1, F2, F4) are
 load-bearing and live in the
 [contract](../../references/coordination-strategy.md); this guide describes
 them, it doesn't define them.
@@ -171,7 +178,8 @@ them, it doesn't define them.
 ## The contract
 
 For the authoritative lifecycle, grouping rule, merge-order model,
-done-signal, and security rules, read
+done-signal, the body template, and security rules, read
 [`references/coordination-strategy.md`](../../references/coordination-strategy.md).
-Every consumer —`/scope`, `/work-on`, and the `shirabe coordination`
-subcommand— binds to that contract; this guide does the same.
+The consumers —`/scope` and `/work-on`— author the coordination PR body from
+that contract's template, and `shirabe validate` checks it
+(`--coordination-body` static, `--merge-gate` live); this guide does the same.

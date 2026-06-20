@@ -3,11 +3,16 @@
 This document is the canonical contract for **coordinated** execution — the
 multi-repo generalization of shirabe's single-repo tactical chain. It defines
 the lifecycle, the per-repo grouping rule, the merge-order model, the
-done-signal, and the load-bearing security rules (F1, F2, F4). `/scope`,
-`/work-on`, and the `shirabe coordination` subcommand all bind to this contract
-and carry only bindings — no consumer restates it. This is the same
-single-source discipline `parent-skill-pattern.md` enforces across `/scope` and
-`/charter`.
+done-signal, and the load-bearing security rules (F1, F2, F4). `/scope` and
+`/work-on` bind to this contract and carry only bindings — no consumer restates
+it. This is the same single-source discipline `parent-skill-pattern.md` enforces
+across `/scope` and `/charter`.
+
+The coordination PR body is **authored by the skill** from the template below,
+the same author-by-skill discipline every other shirabe artifact follows; there
+is no `shirabe coordination` create/render subcommand. `shirabe validate` checks
+the authored body: `--coordination-body <file>` is the static authoring-feedback
+check (offline), and `--merge-gate` is the live merge-last gate.
 
 The companion references fill in the details this document points at:
 
@@ -36,16 +41,18 @@ merge-order DAG with gates.
 The coordinated lifecycle has four phases, in order:
 
 1. **Create up front.** When coordination intent is present, the coordination
-   PR/branch is created at the start — before any implementation work — and its
-   body is seeded from the PLAN: a declaration (this is a coordination PR), the
-   artifact chain, the PR-index, and a fenced merge-order block. The body is
-   *rendered from* the PLAN, never hand-authored.
-2. **Track.** As per-repo PRs open and progress, `shirabe coordination
-   status`/`sync` reads each indexed PR on the operator's own `gh` credentials,
-   rewrites the PR-index, and recomputes the merge-order and the merge-last
-   gate. State lives on the coordination branch/PR itself, so an interrupted
-   effort reconnects from durable state — no session file is the source of
-   truth.
+   PR/branch is created at the start — before any implementation work — and the
+   skill **authors** its body from the template below: a declaration (this is a
+   coordination PR), the artifact chain, the PR-index, and a fenced merge-order
+   block, all derived from the PLAN. The skill posts the body with `gh pr
+   create`. `shirabe validate --coordination-body <file>` gives authoring
+   feedback before the post.
+2. **Track.** As per-repo PRs open and progress, the skill re-authors the body
+   from the same template — reading each indexed PR on the operator's own `gh`
+   credentials, rewriting the PR-index, and recomputing the merge-order — and
+   posts the refreshed body with `gh pr edit`. State lives on the coordination
+   branch/PR itself, so an interrupted effort reconnects from durable state — no
+   session file is the source of truth.
 3. **Finalize.** Each repo finalizes its own artifacts in its own PR (writes
    stay repo-local). The cross-repo boundary is a **read-only verification
    gate**: "all upstreams terminal, all per-repo PRs merged." No coordination
@@ -56,6 +63,57 @@ The coordinated lifecycle has four phases, in order:
    (`shirabe validate --merge-gate`, run by `lifecycle.yml` under `--mode=ready`)
    is the backstop that keeps the coordination PR unmerged while any indexed PR
    is open or finalization is incomplete.
+
+## Coordination PR Body Template
+
+The skill authors the coordination PR body from this template (it is not
+rendered by a CLI subcommand). Fill the bracketed slots from the PLAN and from
+live `gh` reads, keep the literal declaration marker line **verbatim** (the
+merge-last gate detects a coordination PR by grepping for it), and post with `gh
+pr create` / refresh with `gh pr edit`:
+
+````markdown
+# Coordination PR: <effort-slug>
+
+> This is a **coordination PR** for a coordinated multi-repo effort. It is
+> docs-only and merges **last**, once every indexed per-repo PR has merged and
+> finalization is complete. See `references/coordination-strategy.md`.
+
+## Artifact Chain
+
+- <path/to/BRIEF>
+- <path/to/PRD>
+- <path/to/DESIGN>
+- <path/to/PLAN>
+
+## PR Index
+
+- <node-id> | <owner/repo:path#number> | <merge-state>
+- <node-id> | <owner/repo:path#number> | <merge-state>
+
+## Merge Order
+
+```merge-order
+# Two-node merge-order DAG (PR nodes + non-PR gate nodes), one node per line.
+<node-id> | <merge-state>
+<node-id> | <merge-state>
+```
+````
+
+Slot rules:
+
+- **Declaration marker** — the blockquote line carrying `This is a
+  **coordination PR**` is fixed text; do not paraphrase it (`lifecycle.yml`
+  greps for it).
+- **PR Index** — one line per `(repo, pr_group)` node. Each cross-repo
+  reference uses `owner/repo:path#number` and MUST satisfy F2 (below). A
+  **private** node is redacted to its opaque node id + merge state only (F1).
+- **Merge Order** — the fenced ```` ```merge-order ```` block lists each node id
+  once, in an acyclic order, carrying only opaque node ids + merge state.
+- **Checks** — run `shirabe validate --coordination-body <file>` before posting
+  (declaration marker present, every ref passes F2, merge-order acyclic);
+  `shirabe validate --merge-gate` is the live merge-last gate at merge time. The
+  static check is offline; the gate is the only authority on live merge state.
 
 ## Coarsest-Legal-Grouping Rule
 
@@ -87,9 +145,9 @@ Edges express "must merge / be satisfied before." The graph is derived and
 validated **acyclic at authoring time** inside the PLAN (`/plan` collapses its
 issue-level `waits_on` graph into this `(repo, pr_group)`-level graph). An
 unschedulable coordinated effort is never committed. Because the PLAN is
-consumed before the coordination PR merges, the validated two-node order is
-**rendered into the coordination PR body** as a fenced merge-order block, where
-it survives the PLAN through merge as the merge-time canon.
+consumed before the coordination PR merges, the skill **authors the validated
+two-node order into the coordination PR body** as a fenced merge-order block,
+where it survives the PLAN through merge as the merge-time canon.
 
 ### Re-derivation with merged nodes
 
@@ -145,10 +203,11 @@ direction only fails one way, so the most-restrictive-visibility rule resolves
 it cleanly: any private repo in the effort pulls the coordination PR to private.
 
 **Consequence (enforced at the front door):** a public coordination PR MUST NOT
-index or reference a private repo. When a coordination verb is rendering,
-creating, or syncing a coordination PR whose own repo is public and any indexed
-(or to-be-indexed) repo resolves as private — including the fail-closed
-unresolvable case (treated as private) — the verb **refuses fail-closed** with a
+index or reference a private repo. The skill authoring a public coordination PR
+body must not write a private repo's reference into it. The backstop is
+`shirabe validate --merge-gate`: when a public coordination PR (its own repo
+public) indexes any repo that resolves as private — including the fail-closed
+unresolvable case (treated as private) — the gate **refuses fail-closed** with a
 diagnostic naming the violation. Every identifier in that diagnostic is routed
 through the F1 redaction so the refusal itself does not leak. A public
 coordination PR therefore only ever coordinates public repos.
@@ -157,7 +216,7 @@ coordination PR therefore only ever coordinates public repos.
 
 The following three rules are load-bearing for visibility (R15) and the
 merge-last gate (R7/R14/R21). They are requirements, not guidance: every
-consumer that renders, validates, or gates MUST satisfy them.
+consumer that authors, validates, or gates MUST satisfy them.
 
 ### F1 — Fail-closed private-identifier redaction (defense-in-depth backstop)
 
@@ -171,16 +230,18 @@ reference whose visibility is unresolvable. In each of those cases the
 redaction still happens; it is the second line of defense, not the first.
 
 A private repo's **name, path, branch, PR title, and number are themselves
-private**. The render path MUST resolve each indexed PR's repo visibility and,
-for any private repo, render a redacted placeholder carrying **only an opaque
-node id and merge state** — never the private owner, repo, path, branch, title,
-or number.
+private**. The skill authoring a body MUST NOT write a private repo's
+identifiers into a public coordination PR body. Any diagnostic path that names a
+node (the merge-last gate's blocker reasons, a visibility refusal) MUST resolve
+each indexed PR's repo visibility and, for any private repo, surface **only an
+opaque node id and merge state** — never the private owner, repo, path, branch,
+title, or number.
 
 **Fail closed:** if a repo's visibility cannot be resolved, treat it as
 private. Private identifiers MUST be routed through this redaction before they
-reach any rendered body, diagnostic, or log. So even where the front-door rule
-would already have refused (e.g. an edge it could not see), no private content
-leaks: the redaction is the backstop that holds.
+reach any diagnostic or log. So even where the front-door rule would already
+have refused (e.g. an edge it could not see), no private content leaks: the
+redaction is the backstop that holds.
 
 ### F2 — `owner/repo:path` component validation
 
@@ -222,14 +283,15 @@ the gate never trusts it.
 
 ## Inherited Controls (must not regress)
 
-- All coordination `gh` use is **read-only**; no coordination verb writes
-  across a repo boundary.
-- `gh` arguments are passed as an argv array (`Command::arg`), never through a
-  shell; the validator process never holds the token bytes.
-- `gh`-sourced strings (PR titles, branch names) are treated as untrusted on
-  render: escape/strip markdown/HTML control characters (F3). The authoritative
-  fields of the merge-order block derive from validated PLAN/`gh` state, never
-  from free-text titles.
+- The merge-last gate's `gh` use is **read-only**; no coordination step writes
+  across a repo boundary. The skill's own `gh pr create`/`gh pr edit`/`gh pr
+  close` calls write only the coordination PR's own body/state in its own repo.
+- `gh` arguments are passed as an argv array, never through a shell; the
+  validator process never holds the token bytes.
+- `gh`-sourced strings (PR titles, branch names) are treated as untrusted when
+  the skill authors them into the body: escape/strip markdown/HTML control
+  characters (F3). The authoritative fields of the merge-order block derive from
+  validated PLAN/`gh` state, never from free-text titles.
 - `repo`/`pr_group` tags are re-validated on **every read** (not only at
   authoring time), because the coordination PR re-derives state from the
   editable body on resume; `pr_group` is constrained to `^[a-z][a-z0-9-]*$` and

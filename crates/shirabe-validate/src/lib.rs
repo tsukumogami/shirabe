@@ -32,10 +32,10 @@ pub use advisory::{explain as explain_advisory, AdvisoryNote, AdvisoryReport, Pr
 pub use annotation::{format_error, format_notice};
 pub use checks::{check_slug_prefix, detect_slug_prefix, SlugPrefixCheck};
 pub use coordination::{
-    decide_gate, decide_visibility_guard, escape_inline, parse_cross_repo_ref, redacted_label,
-    render_index_line, render_sync_body, seed_body, CrossRepoRef, GateDecision, GatePrStatus,
-    GateUpstreamStatus, GuardIndexNode, IndexedPr, SeedInputs, Visibility, VisibilityGuardDecision,
-    VisibilityResolver,
+    check_coordination_body, decide_gate, decide_visibility_guard, is_acyclic_order,
+    parse_cross_repo_ref, redacted_label, CoordinationBodyFinding, CrossRepoRef, GateDecision,
+    GatePrStatus, GateUpstreamStatus, GuardIndexNode, IndexedPr, Visibility,
+    VisibilityGuardDecision, VisibilityResolver, COORDINATION_DECLARATION_MARKER,
 };
 pub use doc::{Config, Doc, FieldValue, Section, ValidationError};
 pub use features::{extract_needs_label, parse_features, strip_label_decoration, Feature};

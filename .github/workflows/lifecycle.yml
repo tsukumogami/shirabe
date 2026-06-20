@@ -121,13 +121,14 @@ jobs:
         # makes a blocked gate an error here (under draft posture the same mode
         # would emit a notice and exit 0).
         #
-        # Coordination-PR detection: the coordination PR body (seeded by
-        # `shirabe coordination create`) carries a fixed declaration line — the
-        # blockquote "This is a **coordination PR** for a coordinated multi-repo
-        # effort." We grep the live PR body for that marker rather than relying
-        # on a label, so the signal travels with the durable body the verbs
-        # render. A PR without the marker is not a coordination PR and the gate
-        # is skipped (a no-op for ordinary lifecycle PRs).
+        # Coordination-PR detection: the coordination PR body (authored by the
+        # workflow skill from the template in references/coordination-strategy.md)
+        # carries a fixed declaration line — the blockquote "This is a
+        # **coordination PR** for a coordinated multi-repo effort." We grep the
+        # live PR body for that marker rather than relying on a label, so the
+        # signal travels with the durable skill-authored body. A PR without the
+        # marker is not a coordination PR and the gate is skipped (a no-op for
+        # ordinary lifecycle PRs).
         #
         # F4: status is recomputed live by `shirabe validate --merge-gate` from
         # `gh`, never from the (editable) PR body — the body supplies only the

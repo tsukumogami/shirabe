@@ -158,6 +158,30 @@ own for authors who already know which altitude they want.
 - No emojis in code or committed documentation
 - Never add AI attribution or co-author lines to commits or PRs
 
+## CLI Surface: author with skills, check with `validate`
+
+shirabe's CLI splits two jobs cleanly, and new work must respect the split:
+
+- **Artifacts are authored by skills**, not by CLI subcommands. The agent
+  writes the doc from the skill's prose and templates. There is no
+  `create`/`render` subcommand for any artifact type — no `shirabe brief`,
+  `shirabe prd`, `shirabe design`, and so on. The skill owns the body.
+- **`shirabe validate` is the feedback/correctness engine.** It tells the
+  agent what to fix and why. New correctness rules belong here as checks or
+  modes (e.g. `--lifecycle`, `--merge-gate`, `--coordination-body`), never in a
+  renderer.
+- **Lifecycle moves go through `shirabe transition` / `finalize-chain`.**
+
+**Anti-pattern (do not repeat):** do NOT add a CLI subcommand that renders or
+creates an artifact body. Rendering a body is authoring, and authoring belongs
+in a skill. Compiled CLI logic is justified only for deterministic
+validation/feedback and gh-backed live checks. The worked example is the
+coordination PR body: it is skill-authored from
+`references/coordination-strategy.md` and checked by `shirabe validate`
+(`--coordination-body` statically, `--merge-gate` live). An earlier iteration
+shipped a `shirabe coordination create/status/sync` subcommand that rendered
+the body; it was removed for exactly this reason.
+
 ## Intermediate Storage
 
 shirabe historically uses `wip/` as the standard location for

@@ -202,12 +202,12 @@
       "id": 14,
       "name": "coord-intent-creates-coordination-pr-up-front",
       "prompt": "/scope multi-repo-feature --coordinated",
-      "expected_output": "Phase 0 validates the slug and resolves coordination intent on the flag > CLAUDE.md-header > default stack; the --coordinated flag is highest precedence and turns coordination on. With intent present, /scope creates the coordination PR UP FRONT via the shirabe coordination create verb -- before any implementation work -- seeded from the artifact chain it is about to produce (declaration, artifact chain, PR-index, fenced merge-order block rendered from the PLAN). This is the create-up-front phase of the coordinated lifecycle. Coordination-PR creation, artifact persistence on the PR, sequencing, and merge-order tracking are smart defaults: they announce in the invocation output naming their per-invocation override (R18). Cross-repo references use owner/repo:path and a public coordination PR never embeds private-repo content (F1). The contract is bound by reference, not restated.",
+      "expected_output": "Phase 0 validates the slug and resolves coordination intent on the flag > CLAUDE.md-header > default stack; the --coordinated flag is highest precedence and turns coordination on. With intent present, /scope creates the coordination PR UP FRONT -- before any implementation work -- by authoring the PR body itself from the template in references/coordination-strategy.md (declaration marker, artifact chain, owner/repo:path#number PR-index, fenced merge-order block, all derived from the PLAN) and posting it with gh pr create. There is no shirabe coordination subcommand: the body is skill-authored like every other shirabe artifact. shirabe validate --coordination-body gives authoring feedback before the post. This is the create-up-front phase of the coordinated lifecycle. Coordination-PR creation, artifact persistence on the PR, sequencing, and merge-order tracking are smart defaults: they announce in the invocation output naming their per-invocation override (R18). Cross-repo references use owner/repo:path and a public coordination PR never embeds private-repo content (F1). The contract is bound by reference, not restated.",
       "files": [],
       "expectations": [
         "Plan resolves coordination intent on the flag > CLAUDE.md-header > default stack and treats --coordinated as highest precedence, turning coordination on",
-        "Plan creates the coordination PR UP FRONT via the shirabe coordination create verb before any implementation work (the create-up-front lifecycle phase)",
-        "Plan seeds the coordination PR body from the artifact chain it is about to produce (declaration, artifact chain, PR-index, fenced merge-order block rendered from the PLAN), never hand-authored",
+        "Plan creates the coordination PR UP FRONT before any implementation work by authoring the body from the references/coordination-strategy.md template and posting it with gh pr create (no shirabe coordination subcommand)",
+        "Plan authors the coordination PR body from the template (declaration marker, artifact chain, owner/repo:path#number PR-index, fenced merge-order block derived from the PLAN) and runs shirabe validate --coordination-body for authoring feedback",
         "Plan announces the smart-default activations (coordination-PR creation, artifact persistence, sequencing, merge-order tracking) and names their per-invocation override per R18",
         "Plan uses owner/repo:path for cross-repo references and ensures a public coordination PR never embeds private-repo content (F1)",
         "Plan binds to ${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md rather than restating the lifecycle or merge-order model"
@@ -217,12 +217,12 @@
       "id": 15,
       "name": "coord-intent-absent-behavior-unchanged-r3",
       "prompt": "/scope single-repo-feature",
-      "expected_output": "No coordination intent: no --coordinated flag, no ## PR Grouping Policy / ## Reviewability Ceiling header signaling a coordinated default, and the workspace default is single-repo. Per R3 the coordination capability is ADDITIVE: when intent is absent, /scope behaves exactly as the single-repo tactical chain (BRIEF -> PRD -> DESIGN -> PLAN). It does NOT create a coordination PR, does NOT call shirabe coordination create, does NOT add coordination prompts, and does NOT alter the existing chain proposal or child-gate evaluation. The coordination section's prose is read only when intent is present.",
+      "expected_output": "No coordination intent: no --coordinated flag, no ## PR Grouping Policy / ## Reviewability Ceiling header signaling a coordinated default, and the workspace default is single-repo. Per R3 the coordination capability is ADDITIVE: when intent is absent, /scope behaves exactly as the single-repo tactical chain (BRIEF -> PRD -> DESIGN -> PLAN). It does NOT create a coordination PR, does NOT author a coordination PR body, does NOT add coordination prompts, and does NOT alter the existing chain proposal or child-gate evaluation. The coordination section's prose is read only when intent is present.",
       "files": [],
       "expectations": [
         "Plan resolves coordination intent as ABSENT (no --coordinated flag, no coordinated-default header, workspace default single-repo)",
         "Plan walks the single-repo tactical chain (BRIEF -> PRD -> DESIGN -> PLAN) exactly as it would without the coordination capability",
-        "Plan does NOT create a coordination PR or call shirabe coordination create when intent is absent",
+        "Plan does NOT create or author a coordination PR body when intent is absent",
         "Plan does NOT introduce coordination-specific prompts or alter the chain proposal / child-gate evaluation when intent is absent",
         "Plan confirms R3 additivity: the coordination capability changes nothing on the intent-absent path"
       ]

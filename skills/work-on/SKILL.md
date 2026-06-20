@@ -56,24 +56,31 @@ branch, one PR, no coordination sync, no cross-repo gate. Read the
 rest of this section only when the PLAN is `coordinated`.
 
 When the effort is coordinated, as per-repo PRs open and progress,
-`/work-on` calls `shirabe coordination sync` (the durable index/order
-recompute) on each orchestrator pass and `shirabe validate --merge-gate`
-as the merge-last check before the coordination PR can merge. These
-are **smart defaults** (Decision F): coordination-PR sync, sequencing,
-and merge-order tracking activate automatically and each must
-**announce** itself in the invocation output — naming the behavior and
-its per-invocation override (R18). For example, on the first sync of a
-pass, announce that the index/merge-order is being recomputed live and
-name the flag that suppresses it.
+`/work-on` **refreshes the coordination PR body itself** on each
+orchestrator pass — re-authoring the PR-index and merge-order block
+from the template in
+[`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md)
+and posting it with `gh pr edit`, the same `gh` surface it already
+uses. There is no `shirabe coordination` subcommand: the body is
+skill-authored, like every other shirabe artifact. `shirabe validate
+--coordination-body <file>` gives authoring feedback on the refreshed
+body offline, and `shirabe validate --merge-gate` is the merge-last
+check before the coordination PR can merge. These are **smart
+defaults** (Decision F): coordination-PR refresh, sequencing, and
+merge-order tracking activate automatically and each must **announce**
+itself in the invocation output — naming the behavior and its
+per-invocation override (R18). For example, on the first refresh of a
+pass, announce that the index/merge-order is being re-authored and name
+the flag that suppresses it.
 
 The lifecycle phases (create → track → finalize → merge last), the
 coarsest-legal-grouping rule, the two-node merge-order model, the
 done-signal, and the load-bearing F1/F2/F4 rules are the canonical
 contract in
 [`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md).
-`/work-on` binds to it and does not restate it; the `shirabe
-coordination` verb args and their fail-closed behavior are owned by
-the CLI. Cross-repo references follow
+`/work-on` binds to it and does not restate it; the `shirabe validate`
+mode args (`--coordination-body`, `--merge-gate`) and their fail-closed
+behavior are owned by the CLI. Cross-repo references follow
 [`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`](${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md)
 (`owner/repo:path`), and a public coordination PR never embeds
 private-repo content (F1).
@@ -81,16 +88,16 @@ private-repo content (F1).
 The finalize phase stays repo-local: each repo's PR finalizes its own
 artifacts through the same completion cascade documented under
 **Completion Cascade (plan_completion)** below. The cross-repo
-boundary is the read-only verification gate (`shirabe coordination
-gate`), not a cross-repo write.
+boundary is the read-only verification gate (`shirabe validate
+--merge-gate`), not a cross-repo write.
 
 #### Coordination Failure Halts (R21)
 
-A coordination step that **cannot complete** — a `shirabe
-coordination sync` that cannot rewrite the durable index, a finalize
-that cannot run its repo-local cascade, or a `shirabe validate
---merge-gate` recompute that cannot resolve every indexed PR's live
-state — **halts and surfaces the error**. `/work-on` does not advance
+A coordination step that **cannot complete** — a coordination-body
+refresh that cannot rewrite the durable index (e.g. `gh pr edit`
+fails), a finalize that cannot run its repo-local cascade, or a
+`shirabe validate --merge-gate` recompute that cannot resolve every
+indexed PR's live state — **halts and surfaces the error**. `/work-on` does not advance
 past a coordination step it could not complete and does not paper over
 a failed step as success. A halted coordination step leaves the
 coordination PR unmerged: the `lifecycle.yml` merge-last gate
@@ -117,9 +124,9 @@ durable body plus any partial on-disk artifacts record what was
 reached), never silently orphaned. Abandonment mirrors `/scope`'s
 `abandonment-forced` framing: the coordination PR is the durable home
 of the chain, so abandoning the chain closes that home unmerged
-rather than leaving it open and merge-eligible. The close action and
-its fail-closed behavior belong to the `shirabe coordination` verb
-surface; the lifecycle this short-cuts is the canonical contract in
+rather than leaving it open and merge-eligible. The skill performs the
+close with `gh pr close` (the same `gh` surface it used to author the
+body); the lifecycle this short-cuts is the canonical contract in
 [`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`](${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md).
 
 ### Branch Context Evaluation
