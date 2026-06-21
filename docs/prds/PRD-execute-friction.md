@@ -107,16 +107,24 @@ an install/plugin-cache concern outside shirabe and is benign.
 
 ### Functional
 
-- **R1 — Existing branch/PR targeting.** `/execute`'s single-pr path SHALL support
-  landing a run into an author's existing branch and its open pull request instead
-  of always creating a new `impl/<slug>` branch and a new draft PR. When this path
-  is used, the per-issue children SHALL commit to that existing branch and the run
-  SHALL finalize against that existing PR.
-- **R2 — Pause before finalization.** `/execute` SHALL support a mode in which it
-  drives every plan issue to a reviewable draft pull request and stops BEFORE the
-  finalization cascade runs — with the artifact chain still intact (the PLAN not
-  deleted, the upstream BRIEF/PRD/DESIGN not transitioned) — and SHALL support a
-  resume that runs the cascade and completes the landing.
+- **R1 — Mode-aware existing-branch/PR targeting.** `/execute` SHALL target
+  branches in an execution-mode-aware way:
+  - *single-pr:* `/execute` SHALL land a run into the author's existing scoping
+    branch and its open pull request (the branch on which `/scope` produced the
+    PLAN) instead of creating a new `impl/<slug>` branch and a new draft PR; the
+    per-issue children SHALL commit to that branch and the run SHALL finalize that
+    PR.
+  - *coordinated:* `/execute` SHALL NOT land code on the coordination branch/PR.
+    The coordination branch carries only scoping-document updates (the PR-Index and
+    merge-order). For each repository that needs changes, `/execute` SHALL work it in
+    a separate worktree and land that repo's code as its own per-repo PR.
+- **R2 — Pause before finalization (interactive mode).** In interactive mode,
+  `/execute` SHALL drive every plan issue to a reviewable draft pull request and
+  stop BEFORE the finalization cascade runs — with the artifact chain still intact
+  (the PLAN not deleted, the upstream BRIEF/PRD/DESIGN not transitioned) — and SHALL
+  finalize (run the cascade and complete the landing) on the author's approval. This
+  implement-then-pause behavior is interactive-mode only; under `--auto` no pause is
+  offered (see R8).
 - **R3 — Documentation-coverage guarantee.** When a plan adds user-visible surface
   (new or changed CLI/behavior a user would read about in a guide), the chain
   SHALL ensure user-facing documentation is accounted for before the run reaches
@@ -138,28 +146,36 @@ an install/plugin-cache concern outside shirabe and is benign.
 
 ### Non-Functional
 
-- **R7 — Default-behavior preservation.** When none of the new capabilities (R1,
-  R2) are invoked, `/execute`'s existing behavior SHALL be unchanged: a fresh run
-  still creates the `impl/<slug>` branch and draft PR and drives to the merged-PR
+- **R7 — Default-behavior preservation.** When the existing-PR targeting (R1) is
+  not invoked, `/execute`'s branch/PR behavior SHALL be unchanged: a fresh run still
+  creates the `impl/<slug>` branch and draft PR and drives to the merged-PR
   done-signal. The new surfaces are additive, not a replacement.
-- **R8 — Autonomy compatibility.** The R2 pause SHALL be a solicited stop
-  consistent with the autonomy mandate: under an authorized autonomous (`--auto`)
-  run, the pause fires only when the author requested it, and is not a violation
-  of the "do not stop on an authorized autonomous run" rule. Absent the pause
-  request, an `--auto` run drives to the done-signal as today.
+- **R8 — Autonomy delivers a finished result.** The implement-then-pause behavior
+  (R2) is interactive-mode only. Under an authorized autonomous (`--auto`) run,
+  `/execute` SHALL NOT pause for review: it drives through finalization to a pull
+  request that is ready to merge and green, with the artifact chain already
+  transitioned to its final state (PLAN deleted, BRIEF/PRD → Done, DESIGN →
+  Current). An author who runs `--auto` expects a finished, mergeable result —
+  consistent with the autonomy mandate that an authorized autonomous run does not
+  stop short of completion. The pause is never offered in `--auto`.
 
 ## Acceptance Criteria
 
 - [ ] Running `/execute` against a single-pr plan on a branch that already has an
       open PR lands the implementation commits on that branch and finalizes that
       PR — no new `impl/<slug>` branch and no second draft PR are created.
-- [ ] Running `/execute` with no existing-PR context still creates the
+- [ ] Running `/execute` against a coordinated plan does NOT land code on the
+      coordination branch: the coordination branch receives only scoping-document
+      updates, and each repository that needs changes is worked in its own worktree
+      and lands as its own per-repo PR.
+- [ ] Running `/execute` with no existing-PR context (single-pr) still creates the
       `impl/<slug>` branch and draft PR and drives to the done-signal (R7 parity).
-- [ ] In the pause mode, after all issues are implemented the run stops with a
+- [ ] In interactive mode, after all issues are implemented the run stops with a
       draft PR open AND the PLAN file still present and the upstream BRIEF/PRD/
       DESIGN still at their pre-finalization statuses.
-- [ ] Resuming a paused run executes the finalization cascade (PLAN deleted,
-      upstream transitioned) and completes the landing.
+- [ ] On the author's approval, the paused interactive run executes the
+      finalization cascade (PLAN deleted, upstream transitioned) and completes the
+      landing.
 - [ ] A plan whose DESIGN/PRD indicates user-visible surface yields either a
       documentation work item or a documentation-coverage check result before the
       run can reach its done-signal; a plan with no user-visible surface does not.
@@ -171,9 +187,12 @@ an install/plugin-cache concern outside shirabe and is benign.
 - [ ] A friction/report-upstream artifact produced during a run is retrievable
       from a durable location after finalization cleanup and after the PR's
       squash-merge.
-- [ ] Under `--auto` without a pause request, the run drives to the done-signal
-      without stopping; under `--auto` with a pause request, it stops at the
-      reviewable draft (R8).
+- [ ] Under `--auto`, the run drives to a finished result with no pause: the PR is
+      marked ready to merge and CI is green, and the artifact chain is transitioned
+      to its final state (PLAN deleted, BRIEF/PRD → Done, DESIGN → Current). The
+      pause is never offered in `--auto` (R8).
+- [ ] In interactive mode, the run pauses at the reviewable draft before the
+      finalization cascade and only finalizes on the author's approval (R2).
 
 ## Out of Scope
 
@@ -181,9 +200,14 @@ an install/plugin-cache concern outside shirabe and is benign.
   plugin-cache directory alongside the prior stable version is an
   install/marketplace + plugin-cache resolution concern owned outside shirabe, and
   is benign (the dev build is a forward-compatible superset). Not specified here.
-- **The multi-PR and coordinated `/execute` paths.** These requirements are
-  grounded in the single-PR path the dogfood exercised. The coordinated path's
-  finalization/merge-gate contract is its own surface and is not reshaped here.
+- **The coordinated path's finalization/merge-gate contract, and the multi-PR
+  path.** Branch/PR targeting (R1) is specified mode-aware for both single-pr and
+  coordinated, but the coordinated path's done-signal, merge-order DAG, and
+  merge-gate are unchanged from their existing contract — only its branch-targeting
+  rule (code in per-repo worktrees, coordination branch for scoping docs only) is
+  stated here. The multi-pr path (one issue at a time against a repo-persisted PLAN)
+  is not reshaped. The R2 pause, R4 template PR, R5 guard, and R6 capture are
+  specified for the single-pr path the dogfood exercised.
 - **Reimplementing the per-issue execution engine.** `/execute` delegates each
   issue to `/work-on`; this PRD governs the orchestration and finalization seam,
   not the single-issue engine.

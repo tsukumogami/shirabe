@@ -12,6 +12,22 @@ here, stopping only on a genuine blocker.
   settled and reviewed; the remaining mechanism decisions have clear
   exploration-backed defaults, so autonomous settlement is appropriate.
 
+## Author review of decisions (mid-DESIGN, PR #204)
+
+- **D2 refined (author directive)**: the implement-then-pause behavior is
+  INTERACTIVE-MODE ONLY, not an orthogonal `--pause-for-review` flag. Under `--auto`
+  `/execute` never pauses — it drives to a finished, mergeable result (PR ready +
+  green, chain transitioned). Threaded through BRIEF (pause journey), PRD (R2/R8 +
+  ACs), DESIGN (D2). Reinforces the autonomy mandate: an authorized autonomous run
+  does not stop short of completion.
+- **D1 refined (author directive)**: branch targeting is MODE-AWARE. single-pr
+  adopts the scoping branch/PR (code + scoping docs together). coordinated keeps
+  code OFF the coordination branch — one worktree per repo needing changes, each
+  landing its own PR; the coordination branch carries scoping-document updates only.
+  Threaded through BRIEF (journey + scope boundary), PRD (R1 + Out of Scope + ACs),
+  DESIGN (D1). The coordinated path's finalization/merge-gate contract stays
+  unchanged; only its branch-targeting rule is now stated.
+
 ## Design decision defaults to apply (D1–D5 from the PRD)
 
 These are the recommended defaults `/design` will settle in --auto, each grounded

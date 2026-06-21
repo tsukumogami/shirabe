@@ -28,8 +28,14 @@ Accepted
 
 This brief frames the remediation of friction surfaced by the first real
 end-to-end use of the `/execute` skill. The downstream PRD owns the requirements;
-the DESIGN owns the mechanism choices this brief defers in Open Questions. F2
-(version skew) is excluded as an install/plugin-cache concern outside shirabe.
+the DESIGN owns the mechanism choices. F2 (version skew) is excluded as an
+install/plugin-cache concern outside shirabe.
+
+Edited in place after acceptance (author review during the downstream DESIGN): the
+branch-targeting journey and Scope Boundary were made execution-mode-aware
+(single-pr adopts the scoping branch; coordinated keeps code in per-repo worktrees
+and reserves the coordination branch for scoping docs), and the pause journey was
+scoped to interactive mode (`--auto` delivers a finished, mergeable result).
 
 ## Problem Statement
 
@@ -95,25 +101,29 @@ starts, and surfaces clearly the rare moments that genuinely need a human hand.
 
 ## User Journeys
 
-### Land into the existing scoping PR
+### Land into the existing scoping work, mode-aware
 
-A shirabe author runs `/scope` for a feature on a `docs/<topic>` branch and opens
-a pull request mid-chain to review the BRIEF. With the plan ready, they run
-`/execute` against it. The trigger is the `/execute` invocation on a branch that
-already has an open PR; the outcome shape is the plan's implementation committed
-onto that same branch and the same PR carried through to a finished, reviewable
-state — rather than a new `impl/<slug>` branch and a second draft PR appearing
-beside the one they were already using.
+A shirabe author runs `/scope` for a feature and opens a pull request mid-chain to
+review an early artifact. With the plan ready, they run `/execute`. In a single-pr
+plan, the trigger is the `/execute` invocation on the scoping branch that already
+has an open PR, and the outcome shape is the implementation committed onto that same
+branch and the same PR carried to a finished state — not a new `impl/<slug>` branch
+and a second draft PR beside the one they were using. In a coordinated plan, the
+coordination branch/PR is the home of the scoping documents only: the outcome shape
+is that code never lands on the coordination branch — each repository that needs
+changes is worked in its own worktree and lands as its own per-repo PR, while the
+coordination branch receives only scoping-document updates.
 
-### Implement, then pause for review before finalizing
+### Implement, then pause for review before finalizing (interactive mode)
 
-An author wants to see the assembled change before it is locked in. They run
-`/execute` in a mode that implements every issue in the plan and then stops at a
+An author running interactively wants to see the assembled change before it is
+locked in. `/execute` implements every issue in the plan and then stops at a
 reviewable draft, with the artifact chain still intact (the PLAN not yet deleted,
-the upstream docs not yet transitioned). The trigger is the author's request to
-pause before finalization; the outcome shape is a reviewable draft pull request
-they can inspect and approve, after which a resume lets `/execute` run the
-finalization cascade and complete the landing.
+the upstream docs not yet transitioned). The trigger is an interactive run reaching
+the end of implementation; the outcome shape is a reviewable draft pull request the
+author inspects and approves, after which `/execute` runs the finalization cascade
+and completes the landing. Under `--auto` there is no pause — the author expects a
+finished, mergeable result.
 
 ### A plan that adds user-visible surface reaches merge documented
 
@@ -135,10 +145,13 @@ durable location rather than erased by the finalization cleanup.
 
 **IN:**
 
-- The `/execute` handoff seam: landing a run into an author's existing
-  branch/pull request rather than always creating a new `impl/<slug>` branch and
-  draft PR (the friction's F1, and the F5 consequence where the manual fallback
-  it forced bypassed automated finalization).
+- The `/execute` handoff seam, mode-aware: in single-pr, landing a run into an
+  author's existing scoping branch/pull request rather than always creating a new
+  `impl/<slug>` branch and draft PR; in coordinated, keeping code off the
+  coordination branch entirely (per-repo worktrees, each landing its own PR) and
+  reserving the coordination branch for scoping-document updates (the friction's
+  F1, and the F5 consequence where the manual fallback it forced bypassed automated
+  finalization).
 - A pause-for-review capability: implement the plan, then stop at a reviewable
   draft before the finalization cascade irreversibly mutates the artifact chain,
   with a resume that completes finalization (F3).
@@ -159,9 +172,13 @@ durable location rather than erased by the finalization cleanup.
   stable version is an install/marketplace + plugin-cache resolution concern owned
   outside shirabe, and is benign (the dev build is a forward-compatible superset).
   This brief does not pursue it.
-- **The multi-PR and coordinated `/execute` paths.** This framing is grounded in
-  the single-PR path the dogfood exercised; the coordinated path's seam is its own
-  contract and is not reframed here.
+- **The coordinated path's finalization/merge-gate contract, and the multi-PR
+  path.** Branch targeting is framed mode-aware here (single-pr adopts the scoping
+  branch; coordinated keeps code in per-repo worktrees and the coordination branch
+  for scoping docs only), but the coordinated path's done-signal, merge-order, and
+  merge-gate are its existing contract and are not reframed. The multi-pr path
+  (one issue at a time) is not reframed. The pause, template-PR, guard, and durable-
+  capture concerns are framed against the single-PR path the dogfood exercised.
 - **Reimplementing the per-issue execution engine.** `/execute` delegates each
   issue to `/work-on`; this work touches the orchestration and finalization seam,
   not the single-issue engine.

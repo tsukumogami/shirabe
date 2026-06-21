@@ -9,10 +9,13 @@ problem: |
   has no docs-coverage step, and offers no manual-fallback finalization guard;
   report-upstream artifacts placed in wip/ are removed by squash-merge.
 decision: |
-  Six contained changes across /execute, /plan, and shirabe validate usage: capture
-  the settled branch into SHARED_BRANCH and adopt a scoped branch/PR as the home PR;
-  add a --pause-for-review flag routing to a new paused_for_review suspension before
-  the cascade; have /plan emit a docs work item from a user_visible_surface signal;
+  Six contained changes across /execute, /plan, and shirabe validate usage: make
+  branch targeting mode-aware (single-pr adopts the scoping branch/PR; coordinated
+  keeps code in per-repo worktrees and reserves the coordination branch for scoping
+  docs only); make interactive mode pause at a new paused_for_review terminal before
+  the cascade
+  while --auto drives to a finished, mergeable result; have /plan emit a docs work
+  item from a user_visible_surface signal;
   fold PR-template authoring into pr_finalization; reuse validate --lifecycle-chain
   --mode=ready as the finalization guard; and record a report-upstream durability
   convention.
@@ -85,26 +88,53 @@ The concrete technical surfaces:
 
 ## Considered Options
 
-### D1 — Existing branch/PR targeting
+### D1 — Mode-aware branch/PR targeting
 
-- **(a) Generalize the existing override + capture the settled branch into
-  `SHARED_BRANCH`, adopting a `/scope` `docs/<topic>` PR as the home PR (chosen).**
-  Reuses the override substrate that already exists; the only code change is
-  replacing the hardcoded `impl/$PLAN_SLUG` with the recorded settled branch.
-- (b) Add an explicit `--branch`/`--pr` flag. Rejected: redundant ceremony plus a
-  new validation/input surface, when auto-detect already has the signal.
-- (c) Keep a distinct `/scope` PR and link it rather than adopt. Rejected: leaves
-  the orphaned-second-PR friction the PRD names.
+Branch targeting must differ by execution mode: single-pr lands code on the scoping
+branch; coordinated keeps code off the coordination branch entirely.
+
+- **(a) Mode-aware targeting — single-pr adopts the scoping branch/PR; coordinated
+  uses a per-repo worktree and reserves the coordination branch for scoping-doc
+  updates (chosen).**
+  - *single-pr:* generalize the existing `status: override` and capture the settled
+    branch into `SHARED_BRANCH` (replacing the hardcoded `impl/$PLAN_SLUG`),
+    adopting the `/scope` `docs/<topic>` PR as the home PR. Code + scoping docs land
+    on the one branch/PR.
+  - *coordinated:* the coordination PR/branch is the home of the scoping documents
+    (PR-Index, merge-order) ONLY — code never lands there. For each repository that
+    needs changes, `/execute` creates a separate worktree and lands that repo's code
+    as its own per-repo PR; the coordination branch receives only scoping-doc
+    updates. This matches the existing coordinated dispatch (per-repo `/work-on` on
+    each repo's own branch) and makes the worktree-per-repo isolation and the
+    coordination-branch-is-docs-only rule explicit.
+- (b) A single mode-agnostic rule (e.g. always adopt the home PR for code).
+  **Rejected (author directive):** it would land cross-repo code on the
+  coordination branch, which must stay scoping-docs-only.
+- (c) An explicit `--branch`/`--pr` flag. Rejected: redundant ceremony plus a new
+  input surface, when auto-detect already has the signal in single-pr and the
+  coordination PR is already located in coordinated.
+- (d) Keep a distinct `/scope` PR and link it rather than adopt (single-pr).
+  Rejected: leaves the orphaned-second-PR friction the PRD names.
 
 ### D2 — Pause before finalization
 
-- **(a) A `--pause-for-review` flag → `PAUSE_BEFORE_FINALIZE` template var that
-  splits `pr_finalization`'s outgoing edge to a new `paused_for_review` terminal
-  (chosen).** Stops at the body-assembly/cascade boundary #117 already created.
-- (b) A mid-machine pause STATE with a human-wait. Rejected: koto has no human-wait
-  primitive; a terminal is the correct encoding of a resumable stop.
-- (c) Reframe the existing stop-at-ready as the pause. Rejected: by `done` the
-  cascade has already run, so it stops at the wrong place.
+- **(a) The pause is interactive-mode behavior, not a flag; `--auto` never pauses
+  (chosen).** Execution-mode resolution (the existing `interactive` vs `--auto`
+  resolution, not a new flag) drives `PAUSE_BEFORE_FINALIZE`. In interactive mode,
+  `/execute` stops at the body-assembly/cascade boundary #117 created — a new
+  non-failure `paused_for_review` terminal out of `pr_finalization`, chain intact —
+  and finalizes on the author's approval. Under `--auto` it drives straight through
+  `plan_completion` to a ready-to-merge, green PR with the chain transitioned to its
+  final state. An author who runs `--auto` expects a finished, mergeable result,
+  consistent with the autonomy mandate that an authorized autonomous run does not
+  stop short of completion.
+- (b) An explicit `--pause-for-review` flag orthogonal to `--auto`. **Rejected
+  (author directive):** the implement-then-pause behavior must be tied to
+  interactive mode; `--auto` must deliver a finished, mergeable result and must
+  never pause for review.
+- (c) A mid-machine pause STATE with a human-wait, or reframing stop-at-ready.
+  Rejected: koto has no human-wait primitive (a terminal is the right encoding of a
+  resumable stop), and stop-at-ready is after the cascade — the wrong place.
 
 ### D3 — Docs-coverage owner and signal
 
@@ -148,19 +178,30 @@ The concrete technical surfaces:
 
 Six contained changes, each minimal and additive:
 
-1. **D1:** In `execute.md`, persist the settled branch (HEAD) in `orchestrator_setup`
-   into a koto context key, and read it in both `spawn_and_await` ticks as
-   `SHARED_BRANCH` with a `|| impl/$PLAN_SLUG` fallback. Add one prose rule to
-   `skills/execute/SKILL.md` Input Modes / Single-PR: an existing branch with an
-   open PR is adopted as the home PR. The recovered branch is re-validated before
-   interpolation (it is an input surface).
-2. **D2:** Add `--pause-for-review` (alias `--no-finalize`) to `skills/execute/SKILL.md`
-   Execution-Mode Flags, threaded as `PAUSE_BEFORE_FINALIZE` into `execute.md`.
-   `pr_finalization`'s single edge becomes two guarded edges: the pause case routes
-   to a new non-failure terminal `paused_for_review` (chain intact: PLAN present,
-   upstream un-transitioned, PR DRAFT). Resume is the existing topic-keyed home-PR
-   lookup re-entering `plan_completion` with `PAUSE_BEFORE_FINALIZE=false`. The pause
-   is a **suspension**, not a termination: `exit:` stays UNSET with a resumable
+1. **D1 (mode-aware):** *single-pr* — in `execute.md`, persist the settled branch
+   (HEAD) in `orchestrator_setup` into a koto context key, and read it in both
+   `spawn_and_await` ticks as `SHARED_BRANCH` with a `|| impl/$PLAN_SLUG` fallback;
+   add one prose rule to `skills/execute/SKILL.md` Single-PR path that an existing
+   branch with an open PR is adopted as the home PR. *coordinated* — make the
+   Coordinated Execution Path's targeting explicit in `skills/execute/SKILL.md`: the
+   coordination branch/PR carries scoping-document updates only (PR-Index,
+   merge-order); each repo that needs changes is worked in its own worktree and lands
+   as its own per-repo PR (code never lands on the coordination branch). The
+   recovered single-pr branch is re-validated before interpolation (it is an input
+   surface); the coordinated per-repo worktree paths follow the same closed
+   write-target discipline.
+2. **D2:** The implement-then-pause behavior is governed by the existing execution
+   mode, not a new flag. `/execute`'s `interactive` vs `--auto` resolution drives a
+   `PAUSE_BEFORE_FINALIZE` template var: interactive sets it true, `--auto` sets it
+   false. `pr_finalization`'s single edge becomes two guarded edges — when
+   `PAUSE_BEFORE_FINALIZE`, route to a new non-failure terminal `paused_for_review`
+   (chain intact: PLAN present, upstream un-transitioned, PR DRAFT); otherwise route
+   straight to `plan_completion`. Under `--auto` the run therefore drives through the
+   cascade and `gh pr ready` to a ready-to-merge, green PR with the chain
+   transitioned — it never pauses. In interactive mode the run stops at
+   `paused_for_review` and finalizes on the author's approval (resume is the existing
+   topic-keyed home-PR lookup re-entering `plan_completion`). The interactive pause is
+   a **suspension**, not a termination: `exit:` stays UNSET with a resumable
    `paused_for_review` marker, so the parent-skill R9 hard-finalization check (which
    fires only at terminal exits) does not trip.
 3. **D3:** Add `user_visible_surface` to `skills/design/references/` design-format
@@ -196,8 +237,9 @@ adopt-PR behavior), so per D3 this DESIGN carries `user_visible_surface: true` a
 - `skills/execute/koto-templates/execute.md` — D1 (branch capture/inject), D2 (the
   `PAUSE_BEFORE_FINALIZE` edge split + `paused_for_review` terminal), D6 (PR title +
   two-part body in `pr_finalization`).
-- `skills/execute/SKILL.md` — D1 adopt-PR prose, D2 flag + suspension-exit
-  documentation, D4 guard pointer, D5 durable-capture pointer.
+- `skills/execute/SKILL.md` — D1 adopt-PR prose, D2 mode-driven pause +
+  suspension-exit documentation (interactive pauses, `--auto` finalizes), D4 guard
+  pointer, D5 durable-capture pointer.
 - `skills/plan/` (`references/phases/phase-3-decomposition.md`, format refs) and
   `skills/review-plan/` — D3 docs emit + backstop.
 - `skills/design/references/` (and optionally `skills/prd/references/prd-format.md`)
