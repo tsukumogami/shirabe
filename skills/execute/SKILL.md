@@ -698,6 +698,7 @@ inspection, and the six security surfaces) is complete across the **Workflow Pha
 | `skills/execute/scripts/run-cascade.sh` | `plan_completion` atomic finalization cascade (carries the `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch) |
 | `references/coordination-strategy.md` | the canonical coordinated contract the coordinated path binds to (lifecycle, merge-order DAG, done-signal, F1/F2/F4, R20/R21) |
 | `.github/workflows/lifecycle.yml` | the lifecycle CI workflow whose `--mode=ready` step is the R5 finalization-not-done guard at review time (gated on `draft == false`) |
+| `docs/guides/execute-friction.md` | developer-facing guide to the mode-aware branch/PR targeting, the interactive pause vs `--auto` finalizes behavior, and the R5 finalization guard usage |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md` | State — five-field minimum, conditional-field gating (I-5), R9 hard-finalization check, `child_snapshots:` dual-check, `parent_orchestration:` sentinel |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md` | Resume — meta-ladder rows 1-4 and 8-9 (the home-PR lookup binds I-6 into rows 8-9), body slots 5-7 |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` | conformance — the seven required SKILL.md structural elements, the three exit names, substitution surfaces |
