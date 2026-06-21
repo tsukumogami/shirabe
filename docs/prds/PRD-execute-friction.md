@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   shirabe's /execute skill is the newest link in the /explore → /scope → /execute
   chain, and its first real end-to-end use exposed that it cannot reliably finish
@@ -27,7 +27,7 @@ motivating_context: |
 
 ## Status
 
-In Progress
+Done
 
 Requirements for closing the friction the first end-to-end `/execute` use
 surfaced. Upstream BRIEF: `docs/briefs/BRIEF-execute-friction.md` (Accepted). The

@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   When a developer takes a feature through /explore → /scope → /execute in one
   sitting, /execute can't land into the branch/PR they already opened during
@@ -24,7 +24,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 This brief frames the remediation of friction surfaced by the first real
 end-to-end use of the `/execute` skill. The downstream PRD owns the requirements;
