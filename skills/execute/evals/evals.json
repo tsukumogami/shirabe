@@ -425,6 +425,38 @@
         "Agent does NOT re-execute or drive further issues against the upstream that must change first",
         "Agent sets exit: re-evaluation and records the Decision Record path in exit_artifacts"
       ]
+    },
+    {
+      "id": 26,
+      "name": "single-pr-adopts-scoping-branch-routes-children-to-settled-branch",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- already on a /scope docs/<topic> branch with an open PR",
+      "expected_output": "The agent enters orchestrator_setup standing on a non-main author/scope branch (a docs/<topic> branch) that already has an open PR. It detects this via git rev-parse --abbrev-ref HEAD plus gh pr list --head <branch>, submits status: override (skipping the impl/<slug> creation script), and ADOPTS that existing PR as the home PR -- it does NOT open a second PR and does NOT link a distinct one. It records the settled branch (HEAD, the docs/<topic> branch -- NOT impl/<slug>) into a koto context key, re-validating the recovered branch name against a safe ref pattern before storing or interpolating it. In spawn_and_await both ticks read that settled branch and inject it as SHARED_BRANCH into every child's vars, so per-issue children commit to the adopted branch rather than impl/<slug>. Finalization (gh pr edit / gh pr ready) and ci_monitor already target the HEAD-derived PR, so adoption needs no change there.",
+      "files": [],
+      "expectations": [
+        "Agent detects the non-main branch with an open PR and submits status: override (not the impl/<slug> creation path)",
+        "Agent ADOPTS the existing docs/<topic> PR as the home PR and does NOT open or link a second PR",
+        "Agent records the settled branch (HEAD, the scoping branch, NOT impl/<slug>) into a koto context key",
+        "Agent re-validates the recovered branch name against a safe ref pattern before storing/interpolating it into emitted shell",
+        "Both spawn_and_await ticks read the settled branch and inject it as SHARED_BRANCH so children land on the adopted branch, not impl/<slug>"
+      ]
+    },
+    {
+      "id": 27,
+      "name": "single-pr-fresh-run-r7-parity-lands-on-impl-slug",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- a fresh run with no existing-PR context (on main)",
+      "expected_output": "A fresh single-pr run with no existing-PR context (the override predicate -- non-main branch + open PR -- is false) behaves byte-identically to before. orchestrator_setup runs the unchanged creation script, checks out / creates impl/<slug>, pushes, opens the draft PR, and submits status: completed; the recorded settled branch is impl/<slug> (the branch just checked out). In spawn_and_await both ticks read that value -- and the || impl/$PLAN_SLUG fallback guarantees the identical string even if the context key is absent (crash/re-run) -- and inject impl/<slug> as SHARED_BRANCH. The jq filter, the task array, and the child contract are unchanged. No new flag is added, so a fresh /execute invocation parses identically. This is R7 parity: the default path is preserved.",
+      "files": [],
+      "expectations": [
+        "Agent runs the unchanged orchestrator_setup creation script and creates the impl/<slug> branch + draft PR on a fresh run",
+        "The recorded settled branch is impl/<slug> on the create path (byte-identical to the previous hardcode)",
+        "Both spawn_and_await ticks inject impl/<slug> as SHARED_BRANCH, and the || impl/$PLAN_SLUG fallback yields the identical value if the context key is absent",
+        "No new invocation flag is introduced; a fresh /execute on a single-pr PLAN parses and runs identically (R7 parity)",
+        "The override/settled-branch path is reached ONLY when the non-main-branch + open-PR predicate is already true"
+      ]
     }
   ]
 }

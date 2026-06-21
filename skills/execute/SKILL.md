@@ -152,10 +152,19 @@ orchestrator states (the orchestrator was moved out of `/work-on`; it lives here
 now). The states and their tick mechanics:
 
 - `orchestrator_setup` — create (or reuse, via `status: override`) the shared
-  `impl/<slug>` branch and a draft PR.
+  branch and a draft PR. On a fresh run this is `impl/<slug>`. When `/execute` enters
+  on an author or `/scope` branch that already has an open PR — including a
+  `docs/<topic>` scoping PR — that existing-PR context is **ADOPTED** as the home PR
+  (no second PR is opened and no distinct one is linked), the run stays on that
+  **settled branch**, and the settled branch (HEAD) is recorded into a koto context
+  key for `spawn_and_await`. The recovered branch is re-validated against a safe
+  ref pattern before it is stored or interpolated into emitted shell.
 - `spawn_and_await` — run `plan-to-tasks.sh` against the PLAN, inject `SHARED_BRANCH`
-  into each task, submit `tasks`; koto materializes one child per issue using the
-  cross-skill `work-on.md` (`default_template` in the lifted template).
+  into each task — read from the recorded settled branch with an
+  `|| impl/<slug>` fallback, so the adopt/override path routes children to the settled
+  branch while a fresh run lands byte-identically on `impl/<slug>` (R7) — submit
+  `tasks`; koto materializes one child per issue using the cross-skill `work-on.md`
+  (`default_template` in the lifted template).
 - cross-issue context assembly between children (see
   `references/cross-issue-context.md`); escalation on blocked/skipped.
 - `pr_finalization` — assemble the combined PR body.
@@ -188,6 +197,13 @@ owned by the CLI.
 This path is **metadata-only**: it reads issue/PR status and the merge-gate result,
 never child PR bodies. It runs against an existing coordination PR (creating the
 coordination home up front stays `/scope`'s responsibility; `/execute` consumes it).
+
+**Code never lands on the coordination branch.** Each repo that needs changes is
+worked in its own worktree on that repo's own branch and lands its own per-repo PR
+(Step 2 item 3). The coordination branch carries **only** scoping-document updates —
+the re-authored coordination PR body (PR-Index and fenced merge-order block, Step 2
+item 2). There is no shared code branch across repos; cross-unit carry-forward flows
+through the coordination PR's durable state, not a branch.
 
 ### Step 1 — Preflight
 

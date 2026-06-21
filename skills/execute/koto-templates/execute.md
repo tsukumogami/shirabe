@@ -232,6 +232,18 @@ states:
 
 Before running the script, check the current branch context. Derive `PLAN_SLUG` from `{{PLAN_DOC}}` (strip the `PLAN-` prefix), then run `git rev-parse --abbrev-ref HEAD` to get the current branch and `gh pr list --head <current-branch> --json number --jq '.[0].number'` to find any open PR on it. If the current branch is non-main and an open PR already covers this work, submit `status: override` rather than running the creation script.
 
+On the `override` path, the branch you stay on (the author's or `/scope` branch — NOT `impl/<slug>`) is the **settled branch**, and the open PR on it (including a `docs/<topic>` scoping PR) is **ADOPTED** as the home PR: `/execute` does not open a second PR and does not link a distinct one. Persist the settled branch so `spawn_and_await` routes children to it instead of recomputing `impl/<slug>`. After the create-or-override decision, record HEAD into a koto context key, validating it first as an input surface (treat the recovered branch name as untrusted — reject anything not matching `^[A-Za-z0-9._/-]+$` before it is stored or interpolated into emitted shell):
+
+```bash
+SETTLED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+case "$SETTLED_BRANCH" in
+  *[!A-Za-z0-9._/-]*|"") echo "refusing unsafe settled branch: $SETTLED_BRANCH" >&2; exit 1 ;;
+esac
+koto context set {{SESSION_NAME}} settled_branch "$SETTLED_BRANCH"
+```
+
+On the create path this records `impl/$PLAN_SLUG` (the branch just checked out), preserving today's value byte-for-byte; on the override path it records the settled branch.
+
 Create the shared branch and draft PR. This runs once before children are spawned.
 
 ```bash
@@ -244,7 +256,7 @@ gh pr list --head impl/$PLAN_SLUG --json number --jq '.[0].number' | grep -q . |
 
 The script is idempotent — if the branch or PR already exists (e.g., after a crash and re-run), it reuses them.
 
-Submit `status: completed` after branch and draft PR exist, `status: override` if the agent is already on an appropriate branch with an existing PR (skipping branch/PR creation), or `status: blocked` with `detail` if either step fails.
+Submit `status: completed` after branch and draft PR exist, `status: override` if the agent is already on an appropriate branch with an existing PR (skipping branch/PR creation), or `status: blocked` with `detail` if either step fails. Record the settled branch (above) before submitting `completed` or `override` so `spawn_and_await` can read it.
 
 ## worktree_discipline_check
 
@@ -283,7 +295,13 @@ existing approval behavior is unchanged.
 PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
 TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
-TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "impl/$PLAN_SLUG" '[.[] | .vars.SHARED_BRANCH = $b]')
+# Route children to the branch orchestrator_setup settled on (the adopted/override
+# branch), falling back byte-identically to impl/$PLAN_SLUG on the fresh path (R7).
+SETTLED_BRANCH=$(koto context get {{SESSION_NAME}} settled_branch 2>/dev/null || echo "impl/$PLAN_SLUG")
+case "$SETTLED_BRANCH" in
+  *[!A-Za-z0-9._/-]*|"") SETTLED_BRANCH="impl/$PLAN_SLUG" ;;
+esac
+TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" '[.[] | .vars.SHARED_BRANCH = $b]')
 echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
 koto next {{SESSION_NAME}} --with-data @"$TMP"
 rm -f "$TMP"
@@ -297,7 +315,12 @@ koto materializes one child per task using `work-on.md` with `failure_policy: sk
 PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
 TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
-TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "impl/$PLAN_SLUG" '[.[] | .vars.SHARED_BRANCH = $b]')
+# Same settled-branch read as Tick 1 — the dedup re-submit must inject the same branch.
+SETTLED_BRANCH=$(koto context get {{SESSION_NAME}} settled_branch 2>/dev/null || echo "impl/$PLAN_SLUG")
+case "$SETTLED_BRANCH" in
+  *[!A-Za-z0-9._/-]*|"") SETTLED_BRANCH="impl/$PLAN_SLUG" ;;
+esac
+TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" '[.[] | .vars.SHARED_BRANCH = $b]')
 # Set OUTCOME to "all_success" if no child reached done_blocked, else "needs_attention"
 OUTCOME="all_success"  # replace with "needs_attention" if any child failed
 echo "{\"tasks\": $TASKS_WITH_BRANCH, \"batch_outcome\": \"$OUTCOME\"}" > "$TMP"
