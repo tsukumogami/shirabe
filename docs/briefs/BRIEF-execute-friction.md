@@ -2,17 +2,17 @@
 schema: brief/v1
 status: Accepted
 problem: |
-  When an author takes a feature through /explore → /scope → /execute in one
+  When a developer takes a feature through /explore → /scope → /execute in one
   sitting, /execute can't land into the branch/PR they already opened during
   scoping, forcing a manual fallback that bypasses its own finalization. Even on
   a clean run the PR isn't template-conformant, there's no pause-for-review
   before the chain is irreversibly finalized, docs coverage isn't guaranteed,
   and captured friction notes are erased by the workflow's own cleanup.
 outcome: |
-  An author runs /execute against a plan they scoped on an existing branch and
+  A developer runs /execute against a plan they scoped on an existing branch and
   watches it land into that same PR, optionally pausing at a reviewable draft
   before finalization, with docs coverage ensured, a template-conformant PR, and
-  any captured notes preserved durably. The author trusts /execute to finish what
+  any captured notes preserved durably. The developer trusts /execute to finish what
   it starts and sees clearly when something genuinely needs their hand.
 motivating_context: |
   The first real end-to-end dogfood of the newly shipped /execute skill (the niwa
@@ -31,7 +31,7 @@ end-to-end use of the `/execute` skill. The downstream PRD owns the requirements
 the DESIGN owns the mechanism choices. F2 (version skew) is excluded as an
 install/plugin-cache concern outside shirabe.
 
-Edited in place after acceptance (author review during the downstream DESIGN): the
+Edited in place after acceptance (developer review during the downstream DESIGN): the
 branch-targeting journey and Scope Boundary were made execution-mode-aware
 (single-pr adopts the scoping branch; coordinated keeps code in per-repo worktrees
 and reserves the coordination branch for scoping docs), and the pause journey was
@@ -39,17 +39,17 @@ scoped to interactive mode (`--auto` delivers a finished, mergeable result).
 
 ## Problem Statement
 
-The shirabe chain promises that an author can take a feature from idea to merged
+The shirabe chain promises that a developer can take a feature from idea to merged
 code in one sitting: `/explore` to find the shape, `/scope` to settle
 BRIEF→PRD→DESIGN→PLAN, and `/execute` to drive the plan to a finished pull
 request. `/execute` is the newest link, and the first time it was used end-to-end
 on a real feature, it could not hold up its end of that promise.
 
-The break starts at the handoff seam. An author who scopes and plans a feature
+The break starts at the handoff seam. A developer who scopes and plans a feature
 naturally does so on a branch — and often opens a pull request mid-chain to review
 an early artifact. When they then run `/execute`, they expect it to continue into
 that same branch and PR. Instead, `/execute` always creates a *new* `impl/<slug>`
-branch and a *new* draft PR. The author who required all the work to land in their
+branch and a *new* draft PR. The developer who required all the work to land in their
 existing PR had no supported way to ask for that, and was forced into a manual
 fallback — driving the plan's issues by hand. That fallback bypassed `/execute`'s
 own automated finalization, so every step the skill was supposed to handle had to
@@ -69,33 +69,33 @@ The damage compounds from there, and not all of it depends on the manual fallbac
   user-visible surface. A feature can add CLI flags and behavior, the design can
   even name a docs guide, and the whole thing can flow to merge with no doc update
   — the gap falls through every layer and is caught only if a human notices.
-- The friction notes the author keeps to report problems upstream live in a
+- The friction notes the developer keeps to report problems upstream live in a
   location the workflow's own cleanup treats as disposable, so the very record
   meant to improve the tool is destroyed before it can be read.
 
-Each gap is individually small. Together they mean an author cannot trust
+Each gap is individually small. Together they mean a developer cannot trust
 `/execute` to finish what it starts: the skill quietly leaves work undone, offers
 no checkpoint to catch it, and erases the evidence that would have flagged it.
 
 ## User Outcome
 
-An author who has scoped and planned a feature can run `/execute` and watch the
+A developer who has scoped and planned a feature can run `/execute` and watch the
 implementation land into the pull request they already have open — no divergent
 branch, no orphaned second PR, no manual reconstruction of work the skill should
 drive. The continue-into-my-existing-PR path is a first-class, supported way to
 run the skill, not an undocumented accident.
 
-When the author wants to inspect the result before it becomes final, they can have
+When the developer wants to inspect the result before it becomes final, they can have
 `/execute` stop at a reviewable draft — the implementation complete, the artifact
 chain still intact — review it, and then resume to let `/execute` finish the
 finalization. The irreversible step waits for their go-ahead instead of firing the
 moment the code is written.
 
-Across both paths, the author no longer hand-finishes the skill's own work. When
+Across both paths, the developer no longer hand-finishes the skill's own work. When
 the plan touched user-visible surface, the documentation is covered rather than
 silently skipped. The pull request arrives already shaped to the project's
 template — conventional title, two-part body — with no fix-up pass. And any
-friction or notes the author captures along the way survive to a durable home
+friction or notes the developer captures along the way survive to a durable home
 instead of vanishing into cleanup. The net experience: `/execute` finishes what it
 starts, and surfaces clearly the rare moments that genuinely need a human hand.
 
@@ -103,7 +103,7 @@ starts, and surfaces clearly the rare moments that genuinely need a human hand.
 
 ### Land into the existing scoping work, mode-aware
 
-A shirabe author runs `/scope` for a feature and opens a pull request mid-chain to
+A shirabe developer runs `/scope` for a feature and opens a pull request mid-chain to
 review an early artifact. With the plan ready, they run `/execute`. In a single-pr
 plan, the trigger is the `/execute` invocation on the scoping branch that already
 has an open PR, and the outcome shape is the implementation committed onto that same
@@ -116,18 +116,18 @@ coordination branch receives only scoping-document updates.
 
 ### Implement, then pause for review before finalizing (interactive mode)
 
-An author running interactively wants to see the assembled change before it is
+A developer running interactively wants to see the assembled change before it is
 locked in. `/execute` implements every issue in the plan and then stops at a
 reviewable draft, with the artifact chain still intact (the PLAN not yet deleted,
 the upstream docs not yet transitioned). The trigger is an interactive run reaching
 the end of implementation; the outcome shape is a reviewable draft pull request the
-author inspects and approves, after which `/execute` runs the finalization cascade
-and completes the landing. Under `--auto` there is no pause — the author expects a
+developer inspects and approves, after which `/execute` runs the finalization cascade
+and completes the landing. Under `--auto` there is no pause — the developer expects a
 finished, mergeable result.
 
 ### A plan that adds user-visible surface reaches merge documented
 
-An author executes a plan whose feature adds user-visible CLI or behavior — the
+A developer executes a plan whose feature adds user-visible CLI or behavior — the
 kind of change a user reads about in a guide. The trigger is the plan carrying
 user-visible surface; the outcome shape is that the run reaches its finished state
 only with the user-facing documentation accounted for, rather than the doc update
@@ -135,7 +135,7 @@ falling through every layer and being noticed only by luck.
 
 ### Finish a run and find it already clean
 
-An author completes an `/execute` run and turns to the pull request. The trigger
+A developer completes an `/execute` run and turns to the pull request. The trigger
 is reaching the end of the run; the outcome shape is a PR that is already
 template-conformant — conventional title, two-part body — needing no manual
 fix-up, and any friction notes they captured during the run still present in a
@@ -146,7 +146,7 @@ durable location rather than erased by the finalization cleanup.
 **IN:**
 
 - The `/execute` handoff seam, mode-aware: in single-pr, landing a run into an
-  author's existing scoping branch/pull request rather than always creating a new
+  developer's existing scoping branch/pull request rather than always creating a new
   `impl/<slug>` branch and draft PR; in coordinated, keeping code off the
   coordination branch entirely (per-repo worktrees, each landing its own PR) and
   reserving the coordination branch for scoping-document updates (the friction's

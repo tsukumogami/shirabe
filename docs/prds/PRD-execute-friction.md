@@ -4,14 +4,14 @@ status: In Progress
 problem: |
   shirabe's /execute skill is the newest link in the /explore → /scope → /execute
   chain, and its first real end-to-end use exposed that it cannot reliably finish
-  what it starts. It cannot land into an author's existing branch/PR, it produces
+  what it starts. It cannot land into a developer's existing branch/PR, it produces
   a non-template-conformant PR even on a clean run, it offers no pause-for-review
   before irreversibly finalizing the chain, it does not guarantee docs coverage
-  when a plan adds user-visible surface, and the friction notes an author keeps
+  when a plan adds user-visible surface, and the friction notes a developer keeps
   are erased by the workflow's own cleanup.
 goals: |
   Make /execute trustworthy to finish a scoped+planned feature: land into the
-  author's existing PR, optionally pause at a reviewable draft before
+  developer's existing PR, optionally pause at a reviewable draft before
   finalization, guarantee documentation coverage for user-visible surface, emit a
   template-conformant PR without manual fix-up, surface incomplete finalization on
   a manual/fallback run, and give report-upstream artifacts a durable home — all
@@ -36,17 +36,17 @@ Decisions and Trade-offs.
 
 ## Problem Statement
 
-A shirabe author who takes a feature through `/explore → /scope → /execute` in one
+A shirabe developer who takes a feature through `/explore → /scope → /execute` in one
 sitting expects `/execute` to drive the plan to a finished, reviewable pull
 request. The first real end-to-end use — the niwa `niwa-default-worktree` feature —
-showed `/execute` cannot hold up that promise, and the gaps affect every author
+showed `/execute` cannot hold up that promise, and the gaps affect every developer
 who runs the skill, not just one case.
 
-The root break is at the handoff seam. An author scopes and plans on a branch and
+The root break is at the handoff seam. A developer scopes and plans on a branch and
 often opens a pull request mid-chain to review an early artifact; when they run
 `/execute`, they expect it to continue into that same branch and PR. Instead,
 `/execute`'s single-pr path always creates a new `impl/<slug>` branch and a new
-draft PR, with no supported way to target the existing one. The author is forced
+draft PR, with no supported way to target the existing one. The developer is forced
 into a manual fallback (driving the plan's issues by hand), which bypasses
 `/execute`'s automated finalization — so the lifecycle cascade and PR-template
 steps silently do not run.
@@ -56,8 +56,8 @@ a clean run the assembled PR is not template-conformant (non-conventional title,
 no two-part body); there is no way to implement-then-pause before the finalization
 cascade irreversibly mutates the artifact chain; nothing guarantees user-facing
 documentation is updated when a plan adds user-visible surface; and the friction
-notes an author keeps to report problems upstream are deleted by the workflow's
-own cleanup before they can be read. The net effect: an author cannot trust
+notes a developer keeps to report problems upstream are deleted by the workflow's
+own cleanup before they can be read. The net effect: a developer cannot trust
 `/execute` to finish cleanly, gets no checkpoint to catch what it skipped, and
 loses the evidence that would have flagged the skip. The version-skew observation
 (a `-dev` plugin-cache directory resolving alongside stable) is excluded — it is
@@ -65,9 +65,9 @@ an install/plugin-cache concern outside shirabe and is benign.
 
 ## Goals
 
-- An author can run `/execute` against a plan scoped on an existing branch and
+- A developer can run `/execute` against a plan scoped on an existing branch and
   have the implementation land into that same branch and open PR.
-- An author can have `/execute` implement the whole plan and stop at a reviewable
+- A developer can have `/execute` implement the whole plan and stop at a reviewable
   draft before the finalization cascade mutates the chain, then resume to finish.
 - A plan that adds user-visible surface cannot reach the done-signal with its
   user-facing documentation silently unaddressed.
@@ -82,24 +82,24 @@ an install/plugin-cache concern outside shirabe and is benign.
 
 ## User Stories
 
-- As a shirabe author who scoped and planned a feature on a `docs/<topic>` branch
+- As a shirabe developer who scoped and planned a feature on a `docs/<topic>` branch
   with an open PR, I want `/execute` to land the implementation into that same PR,
   so that I am not left with a divergent `impl/<slug>` branch and an orphaned
   second PR to reconcile by hand.
-- As an author who wants to inspect the assembled change before it is final, I
+- As a developer who wants to inspect the assembled change before it is final, I
   want `/execute` to implement every issue and then pause at a reviewable draft
   with the artifact chain still intact, so that I can review and only then let it
   finalize.
-- As an author executing a plan that adds user-visible CLI or behavior, I want the
+- As a developer executing a plan that adds user-visible CLI or behavior, I want the
   run to account for user-facing documentation before it finishes, so that the
   docs gap is not discovered only by luck after merge.
-- As an author finishing an `/execute` run, I want the PR to already carry a
+- As a developer finishing an `/execute` run, I want the PR to already carry a
   conventional title and the two-part body, so that I do not run a separate
   template fix-up.
-- As an author who had to drive a run manually, I want a mechanical signal that
+- As a developer who had to drive a run manually, I want a mechanical signal that
   finalization is incomplete, so that I do not forget the cascade and template
   steps the automated path would have done.
-- As an author reporting friction upstream, I want my notes to live somewhere the
+- As a developer reporting friction upstream, I want my notes to live somewhere the
   workflow cleanup will not erase, so that the record meant to improve the tool
   survives to be read.
 
@@ -109,7 +109,7 @@ an install/plugin-cache concern outside shirabe and is benign.
 
 - **R1 — Mode-aware existing-branch/PR targeting.** `/execute` SHALL target
   branches in an execution-mode-aware way:
-  - *single-pr:* `/execute` SHALL land a run into the author's existing scoping
+  - *single-pr:* `/execute` SHALL land a run into the developer's existing scoping
     branch and its open pull request (the branch on which `/scope` produced the
     PLAN) instead of creating a new `impl/<slug>` branch and a new draft PR; the
     per-issue children SHALL commit to that branch and the run SHALL finalize that
@@ -122,7 +122,7 @@ an install/plugin-cache concern outside shirabe and is benign.
   `/execute` SHALL drive every plan issue to a reviewable draft pull request and
   stop BEFORE the finalization cascade runs — with the artifact chain still intact
   (the PLAN not deleted, the upstream BRIEF/PRD/DESIGN not transitioned) — and SHALL
-  finalize (run the cascade and complete the landing) on the author's approval. This
+  finalize (run the cascade and complete the landing) on the developer's approval. This
   implement-then-pause behavior is interactive-mode only; under `--auto` no pause is
   offered (see R8).
 - **R3 — Documentation-coverage guarantee.** When a plan adds user-visible surface
@@ -155,7 +155,7 @@ an install/plugin-cache concern outside shirabe and is benign.
   `/execute` SHALL NOT pause for review: it drives through finalization to a pull
   request that is ready to merge and green, with the artifact chain already
   transitioned to its final state (PLAN deleted, BRIEF/PRD → Done, DESIGN →
-  Current). An author who runs `--auto` expects a finished, mergeable result —
+  Current). A developer who runs `--auto` expects a finished, mergeable result —
   consistent with the autonomy mandate that an authorized autonomous run does not
   stop short of completion. The pause is never offered in `--auto`.
 
@@ -173,7 +173,7 @@ an install/plugin-cache concern outside shirabe and is benign.
 - [ ] In interactive mode, after all issues are implemented the run stops with a
       draft PR open AND the PLAN file still present and the upstream BRIEF/PRD/
       DESIGN still at their pre-finalization statuses.
-- [ ] On the author's approval, the paused interactive run executes the
+- [ ] On the developer's approval, the paused interactive run executes the
       finalization cascade (PLAN deleted, upstream transitioned) and completes the
       landing.
 - [ ] A plan whose DESIGN/PRD indicates user-visible surface yields either a
@@ -192,7 +192,7 @@ an install/plugin-cache concern outside shirabe and is benign.
       to its final state (PLAN deleted, BRIEF/PRD → Done, DESIGN → Current). The
       pause is never offered in `--auto` (R8).
 - [ ] In interactive mode, the run pauses at the reviewable draft before the
-      finalization cascade and only finalizes on the author's approval (R2).
+      finalization cascade and only finalizes on the developer's approval (R2).
 
 ## Out of Scope
 
@@ -268,6 +268,6 @@ the DESIGN.
 - The single-PR focus means a later, separate effort is needed if the same
   finalization gaps prove to affect the coordinated multi-repo path.
 - R6's durable-capture home, if realized as a manual convention rather than an
-  automated emit, depends on author discipline; the automated-emit alternative is
+  automated emit, depends on developer discipline; the automated-emit alternative is
   heavier (it touches `/execute`'s security-bounded write-target set) and is left
   to the DESIGN to weigh.

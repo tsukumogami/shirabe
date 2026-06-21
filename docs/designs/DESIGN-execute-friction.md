@@ -108,7 +108,7 @@ branch; coordinated keeps code off the coordination branch entirely.
     each repo's own branch) and makes the worktree-per-repo isolation and the
     coordination-branch-is-docs-only rule explicit.
 - (b) A single mode-agnostic rule (e.g. always adopt the home PR for code).
-  **Rejected (author directive):** it would land cross-repo code on the
+  **Rejected (developer directive):** it would land cross-repo code on the
   coordination branch, which must stay scoping-docs-only.
 - (c) An explicit `--branch`/`--pr` flag. Rejected: redundant ceremony plus a new
   input surface, when auto-detect already has the signal in single-pr and the
@@ -123,13 +123,13 @@ branch; coordinated keeps code off the coordination branch entirely.
   resolution, not a new flag) drives `PAUSE_BEFORE_FINALIZE`. In interactive mode,
   `/execute` stops at the body-assembly/cascade boundary #117 created — a new
   non-failure `paused_for_review` terminal out of `pr_finalization`, chain intact —
-  and finalizes on the author's approval. Under `--auto` it drives straight through
+  and finalizes on the developer's approval. Under `--auto` it drives straight through
   `plan_completion` to a ready-to-merge, green PR with the chain transitioned to its
-  final state. An author who runs `--auto` expects a finished, mergeable result,
+  final state. A developer who runs `--auto` expects a finished, mergeable result,
   consistent with the autonomy mandate that an authorized autonomous run does not
   stop short of completion.
 - (b) An explicit `--pause-for-review` flag orthogonal to `--auto`. **Rejected
-  (author directive):** the implement-then-pause behavior must be tied to
+  (developer directive):** the implement-then-pause behavior must be tied to
   interactive mode; `--auto` must deliver a finished, mergeable result and must
   never pause for review.
 - (c) A mid-machine pause STATE with a human-wait, or reframing stop-at-ready.
@@ -199,7 +199,7 @@ Six contained changes, each minimal and additive:
    straight to `plan_completion`. Under `--auto` the run therefore drives through the
    cascade and `gh pr ready` to a ready-to-merge, green PR with the chain
    transitioned — it never pauses. In interactive mode the run stops at
-   `paused_for_review` and finalizes on the author's approval (resume is the existing
+   `paused_for_review` and finalizes on the developer's approval (resume is the existing
    topic-keyed home-PR lookup re-entering `plan_completion`). The interactive pause is
    a **suspension**, not a termination: `exit:` stays UNSET with a resumable
    `paused_for_review` marker, so the parent-skill R9 hard-finalization check (which
