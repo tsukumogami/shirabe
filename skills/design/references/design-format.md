@@ -37,12 +37,13 @@ motivating_context: |                       # optional
   triggered the work. Distinct from `problem` (which states the
   technical gap) and from `rationale` (which justifies the chosen
   approach against alternatives).
+user_visible_surface: true                  # optional, boolean
 ---
 ```
 
 Required fields: `schema`, `status`, `problem`, `decision`,
 `rationale`. Optional: `upstream`, `spawned_from`,
-`motivating_context`.
+`motivating_context`, `user_visible_surface`.
 
 - **schema** -- `design/v1`. Pins the artifact-type contract.
 - **status** -- lifecycle state (`Proposed`, `Accepted`, `Planned`,
@@ -69,6 +70,16 @@ Required fields: `schema`, `status`, `problem`, `decision`,
   signal that triggered the design. Optional; reach for it when the
   problem statement alone does not convey why the design exists
   *now*.
+- **user_visible_surface** -- boolean, optional. `true` when this
+  design introduces or changes CLI surface or behavior a user reads
+  about in a guide (a `docs/guides/*` entry). `/design`'s authoring
+  phase sets it; the downstream `/plan` reads it as the
+  authoritative signal for its docs-coverage emit step (Phase 3
+  decomposition). A design that omits the field defaults to
+  "unknown" -- `/plan` then falls back to scanning the design body
+  for a `docs/guides/*` reference. Set it `false` for designs that
+  add no user-facing surface (internal refactors, infra) so the
+  fallback scan is not consulted.
 
 Frontmatter status must match the body `## Status` first line --
 the validator's FC03 check compares the two case-insensitively

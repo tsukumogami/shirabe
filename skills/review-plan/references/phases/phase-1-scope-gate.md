@@ -62,6 +62,28 @@ component may be unimplemented.
 This check does not require perfect one-to-one mapping; one issue may cover multiple
 small components. The check triggers when a component appears nowhere in the issue set.
 
+### 4. Docs-Coverage Backstop (user-visible surface)
+
+This is the backstop for the `/plan` Phase 3 docs-coverage emit step
+(`skills/plan/references/phases/phase-3-decomposition.md`, step 3.1a). It exists
+so a missing docs item fails loudly rather than passing silently. Run only for
+`design` and `prd` input (topic input has no upstream frontmatter to read).
+
+Apply the same two-step detection contract as the emit step:
+
+1. If the source's frontmatter has `user_visible_surface: true` -> user-visible
+   surface present (authoritative).
+2. Else if `user_visible_surface` is absent AND the source body references a
+   `docs/guides/*` path -> user-visible surface present (prose fallback).
+3. Else -> no user-visible surface; this check passes with no finding.
+
+When user-visible surface is present, scan the issue set for docs coverage: an
+issue with `**Type**: docs`, or an issue whose body/acceptance criteria carry an
+explicit user-facing documentation deliverable. If no issue carries docs
+coverage, produce a finding — the source adds surface a user reads about, but the
+plan emits no documentation work. This is a structural gap that re-running Phase 3
+(Decomposition) must close.
+
 ## Finding Criteria
 
 Produce a `critical_finding` with `category: "A"` when:
@@ -70,6 +92,8 @@ Produce a `critical_finding` with `category: "A"` when:
 - Full check: issue count is outside the heuristic range for the design's scope
 - Full check: a named design component appears in no issue body
 - Full check: critical-complexity issues are absent for architecturally significant components
+- Full check (design/prd): the source signals user-visible surface (flag-authoritative
+  or `docs/guides/*` prose fallback) but no issue carries docs coverage
 
 Do NOT produce a finding for minor count variations within normal range. The scope
 gate is looking for structural mismatches, not stylistic preferences.
