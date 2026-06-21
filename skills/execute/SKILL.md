@@ -478,6 +478,68 @@ reaches its merged-PR done-signal it sets `exit: full-run` then. Under `--auto` 
 pause fires and the run terminates normally through `full-run` (or a genuine-blocker
 exit).
 
+## Finalization-Not-Done Guard (R5)
+
+A run whose finalization did **not** complete through the automated `plan_completion`
+cascade — a manual or fallback run that bypassed koto, an `--auto` run that stopped
+short, a paused interactive run that was never resumed — is detectable mechanically.
+The guard is the **existing** `shirabe validate --lifecycle-chain` mode under ready
+posture, invokable identically from the CLI by a human and from CI. It is **not** a new
+validate flag and **not** a new subcommand: ready-posture `--lifecycle-chain` already
+fails on exactly the negation of the finalized terminal, and the cascade itself
+self-verifies with this same probe (`run-cascade.sh`'s pre/post-cascade lifecycle
+checks). Reusing it keeps a single implementation of "is this chain finalized?" shared
+between the cascade's self-check and the human/CI guard, consistent with shirabe's
+CLI-Surface contract (correctness judgments live in `validate` as checks/modes, never
+in a renderer or a sibling subcommand).
+
+**Invocation:**
+
+```bash
+shirabe validate --lifecycle-chain <seed-doc> --mode=ready --format human
+```
+
+**Exit-code contract** (the same `ValidateOutcome` contract shared across validate
+modes; the exit code alone is the pass/fail branch signal, JSON is for diagnostics):
+
+| Exit | Meaning | R5 interpretation |
+|------|---------|-------------------|
+| 0 | clean | Finalization **complete** — the chain is at its terminal (PLAN deleted, BRIEF/PRD → Done, DESIGN → Current). |
+| 2 | violations (`L01`…) | Finalization **NOT done** — a present PLAN or an un-transitioned upstream fails `L01` under ready posture; the guard fires. |
+| 1 | tool-error | Bad invocation / unreadable input — **inconclusive**, distinct from a violation (do not read it as a pass). |
+
+**Seed-doc rule (load-bearing).** `--lifecycle-chain` seeds on a path that must exist; a
+missing seed returns `L05` / exit 2, which would look like a false failure. The correct
+seed depends on what you are checking:
+
+- **Suspected mid-run (human, "did my manual finalization land?").** Finalization did
+  not complete, so the PLAN is **still on disk** — seed on the PLAN
+  (`docs/plans/PLAN-<slug>.md`). Ready posture fails `L01` (present PLAN / untransitioned
+  upstream) and the guard fires (exit 2); this is the scenario R5 names.
+- **A finalized chain (CI, or a human confirming completion).** Post-finalization the
+  PLAN is **GONE** (the cascade `git rm`s it), so the seed must be the **durable surviving
+  anchor**: the DESIGN at its terminal `docs/designs/current/DESIGN-<slug>.md`, or the
+  BRIEF/PRD at Done — **never the deleted PLAN path** (which returns `L05` / exit 2 and
+  reads as a false failure). The same invocation then returns exit 0 on a complete chain
+  and exit 2 on an incomplete one.
+
+CI seeds on the surviving DESIGN anchor (always present in a finalized chain, an
+unambiguous chain root); a human investigating a suspected mid-run seeds on the
+still-present PLAN. The guard is meant to run **at finalization time**, not mid-effort —
+a chain legitimately mid-flight has a present PLAN and reads "not done," which is
+correct but noisy if asked too early. CI gates it on a ready (non-draft) PR for exactly
+this reason (see **CI wiring** below).
+
+**CI wiring.** The reusable lifecycle workflow (`.github/workflows/lifecycle.yml`)
+already runs `shirabe validate --lifecycle . --mode=ready` gated on
+`github.event.pull_request.draft == false` — a whole-tree ready-posture scan that **is**
+the R5 finalization guard at review time: on a ready PR it requires every single-pr
+chain in the tree to be at its terminal, and on a draft PR it runs default draft posture
+(the cascade is legitimately mid-flight) so the guard does not false-fire. The
+draft-gating matches the posture convention (`--mode=ready` only when `draft == false`).
+That step's comment names the R5 intent explicitly rather than duplicating it as a
+separate per-chain `--lifecycle-chain` step.
+
 ## Autonomy
 
 `/execute` honors an explicit autonomy mode — the `--auto` flag, or a clear author
@@ -613,6 +675,7 @@ inspection, and the six security surfaces) is complete across the **Workflow Pha
 | `skills/execute/scripts/preflight.sh` | Step 1 cross-skill preflight |
 | `skills/execute/scripts/run-cascade.sh` | `plan_completion` atomic finalization cascade (carries the `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch) |
 | `references/coordination-strategy.md` | the canonical coordinated contract the coordinated path binds to (lifecycle, merge-order DAG, done-signal, F1/F2/F4, R20/R21) |
+| `.github/workflows/lifecycle.yml` | the lifecycle CI workflow whose `--mode=ready` step is the R5 finalization-not-done guard at review time (gated on `draft == false`) |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md` | State — five-field minimum, conditional-field gating (I-5), R9 hard-finalization check, `child_snapshots:` dual-check, `parent_orchestration:` sentinel |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md` | Resume — meta-ladder rows 1-4 and 8-9 (the home-PR lookup binds I-6 into rows 8-9), body slots 5-7 |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` | conformance — the seven required SKILL.md structural elements, the three exit names, substitution surfaces |

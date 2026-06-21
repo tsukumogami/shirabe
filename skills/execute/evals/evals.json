@@ -520,6 +520,22 @@
         "The run reaches a finalized, mergeable result: PLAN deleted, BRIEF/PRD/DESIGN transitioned, PR ready and CI green",
         "No solicited pause fires under --auto; the autonomous run drives straight through to completion"
       ]
+    },
+    {
+      "id": 32,
+      "name": "finalization-not-done-guard-via-validate-lifecycle-chain",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "How do I check whether an /execute run's finalization completed, both for a suspected mid-run and for a finalized chain in CI?",
+      "expected_output": "The R5 finalization-not-done guard is the EXISTING shirabe validate --lifecycle-chain <seed> --mode=ready mode -- not a new flag and not a new subcommand. Exit codes: 0 = finalization complete (the chain is at its terminal: PLAN deleted, BRIEF/PRD Done, DESIGN Current); 2 = finalization NOT done (a present PLAN or an un-transitioned upstream fails L01 under ready posture, so the guard fires); 1 = tool-error/inconclusive, distinct from a violation (never read as a pass). The seed-doc rule is load-bearing: post-finalization the PLAN is GONE (the cascade git rm's it), so a finalized-chain check (CI) MUST seed on the durable surviving anchor -- the DESIGN at docs/designs/current/DESIGN-<slug>.md (or BRIEF/PRD at Done) -- NEVER the deleted PLAN path, which returns L05/exit 2 and looks like a false failure. A human investigating a suspected mid-run seeds on the still-present PLAN (docs/plans/PLAN-<slug>.md), which fails L01/exit 2 exactly as R5 names. A manual run with an un-finalized chain reports incomplete (exit 2); a finalized chain reports complete (exit 0). In CI the reusable lifecycle.yml workflow runs the equivalent whole-tree shirabe validate --lifecycle . --mode=ready gated on github.event.pull_request.draft == false, so the ready-posture finalization assertion fires only at review time and a draft PR's mid-flight cascade does not false-fire.",
+      "files": [],
+      "expectations": [
+        "Agent identifies the guard as the EXISTING shirabe validate --lifecycle-chain <seed> --mode=ready mode, NOT a new flag or new subcommand",
+        "Agent gives the exit-code contract: 0 = finalized/complete, 2 = finalization not done (L01 under ready posture), 1 = tool-error/inconclusive (distinct from a violation, not a pass)",
+        "Agent states a manual run with an un-finalized chain reports incomplete (exit 2) and a finalized chain reports complete (exit 0)",
+        "Agent applies the seed-doc rule: CI/finalized-chain checks seed on the durable surviving anchor (DESIGN at docs/designs/current/, or BRIEF/PRD at Done), NEVER the deleted PLAN path (which returns L05/exit 2); a human mid-run check seeds on the still-present PLAN",
+        "Agent notes CI wires the guard via the lifecycle.yml ready-posture check gated on pull_request.draft == false, so it asserts the finalized terminal only at review time"
+      ]
     }
   ]
 }
