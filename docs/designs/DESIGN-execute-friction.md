@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 upstream: docs/prds/PRD-execute-friction.md
 user_visible_surface: true
 problem: |
@@ -31,7 +31,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
@@ -226,9 +226,10 @@ Six contained changes, each minimal and additive:
    children are GitHub issues, not single-pr outlines). `pr-creation/SKILL.md` is the
    canonical template reference. No new koto state, no new write target.
 
-This feature itself adds user-visible surface (the `--pause-for-review` flag and the
-adopt-PR behavior), so per D3 this DESIGN carries `user_visible_surface: true` and
-`/plan` will emit a docs work item for it — the change dogfoods its own rule.
+This feature itself adds user-visible surface (the mode-driven interactive pause vs
+`--auto`-finalizes behavior, the adopt-PR targeting, and the new durable-capture
+convention), so per D3 this DESIGN carries `user_visible_surface: true` and `/plan`
+will emit a docs work item for it — the change dogfoods its own rule.
 
 ## Solution Architecture
 
@@ -284,8 +285,73 @@ Each slice is a self-contained, observable unit consistent with single-pr execut
 
 ## Security Considerations
 
-<!-- Phase 5 fills this in. -->
+The change set adds no new attack surface beyond `/execute`'s six documented
+security surfaces (`references/parent-skill-security.md`); each decision either
+reuses an existing fail-closed check or stays within those surfaces.
+
+- **D1 recovered branch (single-pr) is an input surface.** The settled branch
+  captured from `HEAD` into a koto context key is re-validated before interpolation
+  into any emitted shell or write path — the same discipline `/execute` already
+  applies to the `gh`-recovered slug on cross-branch resume. An unparseable recovered
+  branch rejects rather than interpolating. The `|| impl/$PLAN_SLUG` fallback never
+  interpolates untrusted text.
+- **D1 coordinated worktree paths.** Per-repo worktree paths are derived from the
+  validated PR-Index `repo`/`pr_group` tags (already re-validated on each refresh
+  read), not from free text; they follow `/execute`'s closed write-target discipline.
+- **D2 pause adds no write target and no R9 bypass.** The `paused_for_review`
+  terminal writes only the existing state projection; the suspension leaves `exit:`
+  UNSET legitimately (the run has not terminated), so the R9 hard-finalization check
+  — which fires only at terminal exits — is neither bypassed nor weakened.
+- **D3 signal is read, not interpolated.** `user_visible_surface` is a boolean
+  frontmatter flag read by `/plan` (which already reads bodies); the `docs/guides/*`
+  fallback is a path-pattern match. Neither introduces untrusted interpolation, and
+  `/execute` gains no content read (its metadata-only contract holds).
+- **D4 reuses a fail-closed check.** `shirabe validate --lifecycle-chain … --mode=ready`
+  is the existing validator with its multi-level exit-code contract (0/1/2); no new
+  code surface, and a tool-error (exit 1) is distinct from a violation (exit 2).
+- **D5 deliberately does not widen the write-target set.** The durable-capture home
+  is a convention (a GitHub issue / `docs/` note authored by the developer), not an
+  automated `/execute` emit — precisely to avoid adding a remote write target outside
+  `/execute`'s closed set. The automated emit is deferred for that reason.
+- **D6 PR title derives from the validated slug.** The conventional title is built
+  from the PLAN slug (which matches `^[a-z0-9-]+$`), defaulting to `feat:`, never from
+  raw developer prose interpolated into the title or shell. The two-part body is
+  posted via `gh pr edit --body-file`/stdin discipline, not `-m` interpolation —
+  consistent with `/execute`'s no-untrusted-input-interpolation surface.
+
+No secrets, tokens, or credentials are introduced. The visibility boundary is
+unchanged: `/execute` v1 binds to public-repo chains, and this work adds no
+cross-visibility path.
 
 ## Consequences
 
-<!-- Phase 5/6 finalize this. -->
+**Positive:**
+
+- Closes all six in-scope friction points with a minimal footprint — most changes
+  are wiring or small additions to existing machinery (the override substrate,
+  stop-at-ready, `/plan`'s docs routing, the `lifecycle-chain` validate mode).
+- Preserves the default path byte-for-byte (R7): a fresh single-pr run with no
+  existing-PR context and no interactive pause behaves exactly as today.
+- Reinforces the autonomy contract: `--auto` delivers a finished, mergeable result;
+  the pause is interactive-only.
+- Dogfoods D3 — this feature sets `user_visible_surface: true`, so `/plan` emits a
+  docs work item for its own user-visible surface (the mode-aware behaviors).
+
+**Negative / trade-offs:**
+
+- The R2 pause, R4 template PR, R5 guard, and R6 capture are specified for the
+  single-pr path; the coordinated path's finalization contract is unchanged and a
+  later effort is needed if those gaps prove to affect it.
+- D1's coordinated branch-targeting introduces per-repo worktree management; this
+  states an existing-dispatch rule explicitly rather than adding a new subsystem, but
+  the worktree lifecycle is operational surface to get right.
+- D5's durable-capture home, as a convention rather than an automated emit, depends
+  on developer discipline; the automated alternative is heavier (it widens
+  `/execute`'s write-target set) and is deferred.
+
+**Mitigations:**
+
+- Each of the six changes is an independently verifiable slice, so a regression in
+  one does not block the others.
+- The D4 finalization guard backstops the manual/fallback path that originally
+  caused the missed finalization, catching the exact F5 failure mechanically.
