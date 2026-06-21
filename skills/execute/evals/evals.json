@@ -536,6 +536,22 @@
         "Agent applies the seed-doc rule: CI/finalized-chain checks seed on the durable surviving anchor (DESIGN at docs/designs/current/, or BRIEF/PRD at Done), NEVER the deleted PLAN path (which returns L05/exit 2); a human mid-run check seeds on the still-present PLAN",
         "Agent notes CI wires the guard via the lifecycle.yml ready-posture check gated on pull_request.draft == false, so it asserts the finalized terminal only at review time"
       ]
+    },
+    {
+      "id": 33,
+      "name": "report-upstream-convention-and-user-facing-behavior-docs",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "Where is the report-upstream durability convention recorded, and where does a developer find the user-facing /execute behaviors documented?",
+      "expected_output": "skills/execute/SKILL.md carries the D5 report-upstream durability convention pointer: friction logs and other report-upstream artifacts go to a durable home -- a GitHub issue on the relevant skill repo (gh issue create, the same surface /plan and /roadmap use) or a committed docs/ note as the fallback -- and NEVER wip/, which the finalization cascade plus squash-merge carry off main by design. The pointer is developer behavior, not a new /execute write, so the closed write-target set is unchanged, and the automated run-report emit is explicitly deferred. The SKILL.md notes the canonical wording also lives in the workspace CLAUDE.md wip rule and its dot-niwa-overlay mirror, which are out-of-repo files (cross-repo follow-up), not edited in this PR. The developer-facing guide docs/guides/execute-friction.md covers the three user-visible behaviors: mode-aware branch/PR targeting (single-pr adopts the scoping branch/PR; coordinated keeps code in per-repo worktrees with the coordination branch for scoping docs only), the interactive pause (paused_for_review draft before the cascade) versus --auto finalizes (straight through to a mergeable green PR), and the finalization guard (shirabe validate --lifecycle-chain <seed> --mode=ready with the 0/2/1 exit codes and the seed-doc rule).",
+      "files": [],
+      "expectations": [
+        "skills/execute/SKILL.md records the report-upstream durability convention: durable home is a GitHub issue on the skill repo or a docs/ note fallback, NEVER wip/",
+        "The SKILL.md pointer is developer behavior (not a new /execute write); the closed write-target set is unchanged and the automated run-report emit is deferred",
+        "The SKILL.md notes the workspace CLAUDE.md and dot-niwa-overlay mirror as out-of-repo cross-repo follow-up, not edited in this PR",
+        "docs/guides/execute-friction.md documents mode-aware branch/PR targeting (single-pr adopt-the-scoping-PR; coordinated code-in-per-repo-worktrees, coordination-branch docs-only)",
+        "docs/guides/execute-friction.md documents the interactive pause (paused_for_review draft before the cascade) versus --auto finalizes, and the finalization guard (shirabe validate --lifecycle-chain --mode=ready, 0/2/1 exit codes, seed-doc rule)"
+      ]
     }
   ]
 }

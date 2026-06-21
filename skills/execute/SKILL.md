@@ -385,6 +385,28 @@ authoring chain, so the chain-tracking triad (`planned_chain` / `chain_ran` /
 `decision_record_sub_shape:`, `plan_execution_mode:`) are omitted; their omission
 satisfies I-5 the same way `/scope` omitting an inapplicable field does.
 
+### Report-upstream durability convention (D5)
+
+A friction log or any other report-upstream note captured during a run goes to a
+**durable home**, never to `wip/`. The `wip/execute_<topic>_*` scratch is
+non-durable: the finalization cascade plus the squash-merge carry it off main by
+design, so an artifact left there is erased exactly as the `wip/` rule intends. The
+durable home is a **GitHub issue on the relevant skill repo** (filed with
+`gh issue create`, the same surface `/plan` and `/roadmap` use), or — when no issue
+is the right target — a **committed note under `docs/`**. Prefer the issue; fall
+back to `docs/` only when there is no appropriate upstream issue target.
+
+This is a *pointer to developer behavior*, not a new `/execute` write: it does not
+add `gh issue create` to the commands `/execute` emits, so the closed write-target
+set (Security Considerations point 2) is unchanged. An automated `/execute`
+run-report emit is explicitly **deferred** — it would add a remote write target
+outside that closed set and need an R9 amendment (DESIGN D5(b)).
+
+The canonical wording of this convention also lives in the workspace `CLAUDE.md`
+wip-hygiene rule and its `dot-niwa-overlay` mirror. Those are **out-of-repo** files
+(outside the shirabe repo), so they are not edited here; landing the carve-out into
+both copies in lockstep is the cross-repo follow-up.
+
 ## Resume
 
 On re-entry, `/execute` follows the universal meta-ladder at
