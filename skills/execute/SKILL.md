@@ -76,11 +76,13 @@ interpolation — including the `gh`-recovered slug on cross-branch resume (see
 
 ```
 Phase 0: SETUP        -> Phase 1: DRIVE             -> Phase 2: FINALIZE        -> Phase 3: EXIT
-(slug re-validation;     (single-pr: orchestrator      (single-pr: cascade        (set exit: field;
- state-file projection;   loop over the lifted          DRAFT-before-READY +       write exit_artifacts;
- stale parent_orch        koto template.                gh pr ready.               R9 hard-finalization
- self-heal; home-PR       coordinated: track-to-        coordinated: merge-gate    check)
- resume lookup)           merge-last loop)              --mode=ready, merge last)
+(slug re-validation;     (single-pr: orchestrator      (single-pr: interactive    (set exit: field;
+ state-file projection;   loop over the lifted          PAUSES at paused_for_      write exit_artifacts;
+ stale parent_orch        koto template.                review; --auto runs the    R9 hard-finalization
+ self-heal; home-PR       coordinated: track-to-        cascade DRAFT-before-      check. A solicited
+ resume lookup)           merge-last loop)              READY + gh pr ready.       interactive pause
+                                                        coordinated: merge-gate    SUSPENDS with exit:
+                                                        --mode=ready, merge last)  UNSET, not terminated)
 ```
 
 The two execution paths share this phase spine but differ in Phase 1's loop
@@ -101,9 +103,12 @@ Phase-1 mechanics live in the lifted koto template and the **Coordinated** loop)
 1. **Drive** — single-pr: drive the lifted `execute` koto loop (**Single-PR
    Execution Path**, Step 3). coordinated: drive the track-to-merge-last loop
    (**Coordinated Execution Path**, Step 2). Autonomy binds at every tick.
-2. **Finalize** — single-pr: run the finalization cascade DRAFT-before-READY, then
+2. **Finalize** — single-pr: in interactive mode, PAUSE at `paused_for_review` after
+   the PR body is assembled and hand the DRAFT PR back for review (resume re-enters to
+   finalize); under `--auto`, run the finalization cascade DRAFT-before-READY then
    `gh pr ready`. coordinated: gate on `shirabe validate --merge-gate --mode=ready`
-   and merge the coordination PR last. See **Exit Paths**.
+   and merge the coordination PR last. See **Single-PR Execution Path** (mode-driven
+   pause) and **Exit Paths**.
 3. **Exit** — set `exit:` to one of `{full-run, re-evaluation, abandonment-forced}`;
    write `exit_artifacts:`; run the R9 hard-finalization check. See **Exit Paths**.
 
@@ -133,13 +138,25 @@ cross-skill reference: `/execute` spawns per-issue children with `/work-on`'s
 ### Step 2 — Initialize the plan-level orchestrator
 
 Derive the plan slug from the filename (`PLAN-foo-bar.md` → `foo-bar`) and
-initialize the lifted orchestrator template:
+initialize the lifted orchestrator template. Resolve `PAUSE_BEFORE_FINALIZE` from
+the **execution mode** (see **Execution-Mode Flags** and the mode-driven pause in the
+Single-PR path below) — it is NOT a separate user flag: interactive mode sets it
+`true`, `--auto` sets it `false`:
 
 ```bash
+# PAUSE_BEFORE_FINALIZE is derived from the resolved execution mode, not a flag:
+#   interactive (default) -> true   (pause at paused_for_review for review)
+#   --auto                -> false  (finalize straight through to a green PR)
 koto init execute-<plan-slug> \
   --template ${CLAUDE_PLUGIN_ROOT}/skills/execute/koto-templates/execute.md \
-  --var PLAN_DOC=<path-to-plan>
+  --var PLAN_DOC=<path-to-plan> \
+  --var PAUSE_BEFORE_FINALIZE=<true|false>
 ```
+
+On a **resume** of a paused run, `PAUSE_BEFORE_FINALIZE` is `false` regardless of
+mode — re-invoking `/execute` on a paused topic is a finalize invocation (the
+operator approved). The home-PR resume lookup re-enters and advances
+`pr_finalization` → `plan_completion`.
 
 ### Step 3 — Drive the orchestrator loop
 
@@ -167,12 +184,47 @@ now). The states and their tick mechanics:
   (`default_template` in the lifted template).
 - cross-issue context assembly between children (see
   `references/cross-issue-context.md`); escalation on blocked/skipped.
-- `pr_finalization` — assemble the combined PR body.
+- `pr_finalization` — assemble the template-conformant PR (title + two-part body),
+  then route on the **mode-driven pause** (see below): interactive stops at
+  `paused_for_review`; `--auto` continues to `plan_completion`.
+- `paused_for_review` — the interactive-mode pause terminal (non-failure). The run
+  stops here with the PR assembled but still DRAFT and the chain intact (PLAN
+  present, BRIEF/PRD/DESIGN un-transitioned), hands the DRAFT PR back to the operator
+  for review, and is resumed to finalize. Under `--auto` this state is never reached.
 - `plan_completion` — run the finalization cascade
   (`${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/run-cascade.sh`, relocated into
   `/execute` along with its `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch), then
   `gh pr ready`; the cascade runs BEFORE the PR flips ready (DRAFT-before-READY)
   so CI re-runs strict on the now-ready PR against the finalized chain.
+
+#### Mode-driven pause before finalization (D2)
+
+In **interactive** mode `/execute` stops at a reviewable DRAFT after
+`pr_finalization` (PR body assembled) but BEFORE `plan_completion` (the cascade that
+`git rm`s the PLAN and transitions BRIEF/PRD/DESIGN/ROADMAP). The stop is the new
+non-failure terminal `paused_for_review`: the chain is intact and the PR is DRAFT
+(`gh pr ready` has NOT fired). This is the body-assembly/cascade boundary #117 cut by
+moving both the cascade and `gh pr ready` into `plan_completion`.
+
+Under **`--auto`** there is no pause: the run drives straight through
+`plan_completion` to a ready-to-merge, green PR with the chain transitioned. A
+developer who runs `--auto` expects a finished, mergeable result, consistent with the
+autonomy mandate that an authorized autonomous run does not stop short of completion.
+
+The pause is **mode-driven, not a flag** — there is no `--pause-for-review` flag.
+Execution-mode resolution (the existing `interactive` vs `--auto` resolution) sets the
+`PAUSE_BEFORE_FINALIZE` template var at `koto init` (Step 2): interactive → `true`,
+`--auto` → `false`. The template reflects that var into the `pr_finalization`
+`pause_decision` evidence field, which splits the single `updated` edge into two
+guarded edges (→ `paused_for_review` when paused, → `plan_completion` otherwise).
+
+**Resume.** Resuming a paused run is the existing topic-keyed home-PR lookup
+(**Resume**, rows 8-9): re-invoking `/execute <plan>` on the same topic finds the
+still-open DRAFT PR, rebuilds the projection on its branch, and re-enters
+`pr_finalization` with `PAUSE_BEFORE_FINALIZE=false`, which advances into
+`plan_completion` (cascade DRAFT-before-READY, then `gh pr ready`, then CI to green).
+A re-passed pause intent is ignored on resume — the PR body is already assembled and
+the resume's intent is to land.
 
 Each per-issue child is a `/work-on` single-issue run on the shared branch; the
 narrowing of `/work-on` to single-issue-only (so it no longer carries the
@@ -301,12 +353,19 @@ durable plus `wip-yaml-md` scratch.
 The projection carries:
 
 - the five-field minimum. `phase_pointer` is an `/execute` phase enum
-  (`orchestrator_setup`, `spawn_and_await`, `pr_finalization`, `plan_completion`
-  for single-pr; the track-to-merge-last pass for coordinated). `exit` is UNSET
-  while the run is in flight and SET to one of `{full-run, re-evaluation,
-  abandonment-forced}` at finalization; the R9 hard-finalization check fires when it
-  is unset or out-of-enum at termination. `exit_artifacts` lists the durable files
-  the run produced (`{path, status}` per entry).
+  (`orchestrator_setup`, `spawn_and_await`, `pr_finalization`, `paused_for_review`,
+  `plan_completion` for single-pr; the track-to-merge-last pass for coordinated).
+  `exit` is UNSET while the run is in flight and SET to one of `{full-run,
+  re-evaluation, abandonment-forced}` at finalization; the R9 hard-finalization check
+  fires when it is unset or out-of-enum **at termination** — a solicited interactive
+  pause (`paused_for_review`) is a suspension, not a termination, so its UNSET `exit:`
+  does not trip the check (see **Exit Paths**). `exit_artifacts` lists the durable
+  files the run produced (`{path, status}` per entry).
+- **`paused_for_review:`** — a resumable suspension marker (I-5 gated: present ONLY
+  while the single-pr run is paused at the `paused_for_review` terminal in interactive
+  mode). It lets a resume distinguish a solicited pause (re-enter `plan_completion`
+  with `PAUSE_BEFORE_FINALIZE=false` to finalize) from a crash. Absent under `--auto`
+  and absent once the run is finalized.
 - **`child_snapshots:`** — one entry per dispatched `/work-on` child, each carrying
   the child's durable status AND a content-fingerprint, so drift fires when EITHER
   changes between resumes (the per-child dual-check, I-3). For an execution child the
@@ -404,6 +463,21 @@ upstream-must-change boundary routes to `re-evaluation`; the other genuine block
 state) route to `abandonment-forced` with the forced-stop summary; reaching the
 done-signal routes to `full-run`.
 
+**Interactive pause is a suspension, not a termination (D2).** The mode-driven
+interactive pause (the `paused_for_review` terminal, single-pr path) is **not** one of
+the three exits. A solicited pause is neither `full-run` (the PR is not merged and the
+chain is not finalized), nor `abandonment-forced` (nothing was abandoned — the run
+succeeded at exactly what was asked), nor `re-evaluation` (no upstream-must-change
+boundary). It is a resumable **suspension**: `exit:` stays **UNSET** and the state file
+carries a resumable `paused_for_review: true` marker (I-5 gated: present only while
+paused, so resume distinguishes a solicited pause from a crash). The R9
+hard-finalization check fires only at one of the three terminal exits, so an UNSET
+`exit:` at a solicited pause does **not** trip it — the run has not terminated. Resume
+re-enters `plan_completion` (Single-PR path, mode-driven pause); when the resumed run
+reaches its merged-PR done-signal it sets `exit: full-run` then. Under `--auto` no
+pause fires and the run terminates normally through `full-run` (or a genuine-blocker
+exit).
+
 ## Autonomy
 
 `/execute` honors an explicit autonomy mode — the `--auto` flag, or a clear author
@@ -430,6 +504,14 @@ coordinator's own context budget.
 
 In default (interactive) mode the existing approval/checkpoint behavior is unchanged;
 the mandate governs the authorized-autonomous mode specifically.
+
+**The interactive finalization pause is solicited, not an advisory stop (D2).** In
+interactive mode the run stops at `paused_for_review` before the cascade — but this is
+a mode-driven solicited stop, not the kind of unsolicited "advise a checkpoint" stop
+the mandate forbids. Under `--auto` the pause does not fire at all: the autonomous run
+drives straight through `plan_completion` to a finished, mergeable, green PR with the
+chain transitioned, exactly as the autonomy mandate requires. The pause is mode-driven
+(interactive vs `--auto`), never a flag.
 
 ## Child Inspection
 

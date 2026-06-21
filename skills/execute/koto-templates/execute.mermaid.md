@@ -15,7 +15,8 @@ stateDiagram-v2
     plan_completion --> ci_monitor : cascade_status: completed
     plan_completion --> ci_monitor : cascade_status: partial
     plan_completion --> ci_monitor : cascade_status: skipped
-    pr_finalization --> plan_completion : finalization_status: updated
+    pr_finalization --> paused_for_review : finalization_status: updated, pause_decision: pause
+    pr_finalization --> plan_completion : finalization_status: updated, pause_decision: finalize
     pr_finalization --> done_blocked : finalization_status: update_failed
     spawn_and_await --> pr_finalization : batch_outcome: all_success, gates.batch_done.all_complete: true
     spawn_and_await --> escalate : batch_outcome: needs_attention, gates.batch_done.all_complete: true
@@ -24,6 +25,7 @@ stateDiagram-v2
     worktree_discipline_check --> escalate_upstream_drift : gates.impact_classified.exit_code: 0, impact: intent-changing
     done --> [*]
     done_blocked --> [*]
+    paused_for_review --> [*]
     note left of ci_monitor
         gate: ci_passing
     end note

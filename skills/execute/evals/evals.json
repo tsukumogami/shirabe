@@ -488,6 +488,38 @@
         "Agent runs the title+body edit unconditionally on every finalization, including a zero-issue or all-skipped run",
         "The PR is template-conformant directly from pr_finalization with no separate /fix-pr remediation pass (R4)"
       ]
+    },
+    {
+      "id": 30,
+      "name": "interactive-pause-leaves-chain-intact-at-paused-for-review",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- run in interactive mode (the default); stop for review before finalization",
+      "expected_output": "The run resolves the execution mode as interactive (the default, no --auto), so PAUSE_BEFORE_FINALIZE is true and the agent passes --var PAUSE_BEFORE_FINALIZE=true at koto init. It is NOT a separate user flag -- there is no --pause-for-review flag; the value is derived from the mode. The orchestrator drives orchestrator_setup -> spawn_and_await -> pr_finalization, where it assembles the template-conformant DRAFT PR (title + two-part body) and submits finalization_status: updated with pause_decision: pause (reflecting PAUSE_BEFORE_FINALIZE=true). The workflow routes to the new non-failure terminal paused_for_review and STOPS. At the pause the chain is intact: the PLAN is still present on disk, BRIEF/PRD/DESIGN are un-transitioned, and the PR is still DRAFT (gh pr ready has NOT fired -- it lives in plan_completion). plan_completion's cascade did NOT run. The pause is a suspension, not a termination: at the /execute SKILL layer exit: stays UNSET with a resumable paused_for_review marker, so the R9 hard-finalization check (which fires only at terminal exits) is not tripped. The agent hands the DRAFT PR URL back with the resume instruction (re-invoke /execute on the same topic to finalize).",
+      "files": [],
+      "expectations": [
+        "Agent resolves interactive mode (default, no --auto) to PAUSE_BEFORE_FINALIZE=true and passes --var PAUSE_BEFORE_FINALIZE=true at koto init (derived from mode, NOT a --pause-for-review flag)",
+        "Agent submits finalization_status: updated with pause_decision: pause in pr_finalization and routes to the paused_for_review terminal",
+        "At the pause the chain is intact: PLAN present on disk, BRIEF/PRD/DESIGN un-transitioned, PR still DRAFT (gh pr ready NOT fired, plan_completion cascade NOT run)",
+        "The pause is a suspension: exit: stays UNSET with a resumable paused_for_review marker, so the R9 hard-finalization check is NOT tripped",
+        "Agent hands the DRAFT PR URL back with the resume instruction (re-invoke /execute on the same topic re-enters plan_completion with PAUSE_BEFORE_FINALIZE=false to finalize)"
+      ]
+    },
+    {
+      "id": 31,
+      "name": "auto-drives-through-to-finalized-mergeable-result-no-pause",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute --auto skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
+      "expected_output": "The run resolves the execution mode as --auto (authorized autonomous), so PAUSE_BEFORE_FINALIZE is false and the agent passes --var PAUSE_BEFORE_FINALIZE=false at koto init. The orchestrator drives orchestrator_setup -> spawn_and_await -> pr_finalization, where it assembles the template-conformant PR and submits finalization_status: updated with pause_decision: finalize (reflecting PAUSE_BEFORE_FINALIZE=false). The workflow routes straight to plan_completion -- it does NOT stop at paused_for_review. plan_completion runs the finalization cascade DRAFT-before-READY (run-cascade.sh deletes the PLAN and transitions BRIEF/PRD/DESIGN/ROADMAP), then gh pr ready flips the PR ready, then ci_monitor waits for strict-mode CI to land green on the finalized chain. The run reaches a ready-to-merge, green PR with the chain transitioned -- a finished, mergeable result, consistent with the autonomy mandate that an authorized autonomous run does not stop short of completion. No solicited pause fires under --auto.",
+      "files": [],
+      "expectations": [
+        "Agent resolves --auto to PAUSE_BEFORE_FINALIZE=false and passes --var PAUSE_BEFORE_FINALIZE=false at koto init",
+        "Agent submits finalization_status: updated with pause_decision: finalize in pr_finalization and routes to plan_completion (NOT paused_for_review -- no pause under --auto)",
+        "plan_completion runs the cascade DRAFT-before-READY (run-cascade.sh) then gh pr ready then ci_monitor to green",
+        "The run reaches a finalized, mergeable result: PLAN deleted, BRIEF/PRD/DESIGN transitioned, PR ready and CI green",
+        "No solicited pause fires under --auto; the autonomous run drives straight through to completion"
+      ]
     }
   ]
 }

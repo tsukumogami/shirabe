@@ -11,6 +11,16 @@ variables:
   PLAN_DOC:
     description: Path to the PLAN.md document driving this orchestration run
     required: true
+  PAUSE_BEFORE_FINALIZE:
+    description: >
+      Whether to stop at the paused_for_review terminal after pr_finalization
+      assembles the PR body, BEFORE the plan_completion finalization cascade.
+      Driven by /execute's execution mode (NOT a user flag): interactive sets it
+      true (pause for review with the chain intact), --auto sets it false (drive
+      straight through plan_completion to a ready-to-merge, green PR). Resume of a
+      paused run re-enters plan_completion with PAUSE_BEFORE_FINALIZE=false.
+    required: false
+    default: "false"
 
 states:
   orchestrator_setup:
@@ -109,9 +119,20 @@ states:
         type: enum
         values: [updated, update_failed]
         required: true
-      pr_url:
-        type: string
-        description: URL of the pull request
+      pause_decision:
+        type: enum
+        values: [pause, finalize]
+        default: finalize
+        description: >
+          Mode-driven routing after the PR body is assembled. The agent reads
+          the {{PAUSE_BEFORE_FINALIZE}} variable and submits `pause` when it is
+          `true` (interactive mode: stop at paused_for_review with the chain
+          intact) or `finalize` when it is `false` (--auto mode: drive straight
+          through plan_completion). Defaults to `finalize` so a submission that
+          omits it (e.g. an `update_failed` run, or a fresh non-paused run that
+          leaves it unset) preserves today's default path (R7). On a resume of a
+          paused run it is `finalize` because resume re-enters with
+          PAUSE_BEFORE_FINALIZE=false.
     transitions:
       # Reordered for the DRAFT-vs-READY discipline (#117): the
       # cascade (plan_completion) runs BEFORE gh pr ready so the
@@ -119,9 +140,25 @@ states:
       # the ready_for_review event. The cascade lives in
       # plan_completion; pr_finalization here only updates the PR
       # body and confirms `gh pr ready` is NOT yet invoked.
+      #
+      # D2 (execute-friction): the single `updated` edge is split into
+      # two guarded edges driven by the mode-derived PAUSE_BEFORE_FINALIZE
+      # variable, which the agent reflects into the pause_decision evidence
+      # field. When pause_decision is `pause` (interactive), route to the
+      # non-failure terminal paused_for_review (chain intact, PR DRAFT). When
+      # `finalize` (--auto, or a resume of a paused run), route to
+      # plan_completion (cascade + gh pr ready) unchanged.
+      - target: paused_for_review
+        when:
+          finalization_status: updated
+          pause_decision: pause
+      # plan_completion fires when pause_decision is `finalize` (--auto, resume,
+      # or the default when omitted), so the default path (R7) is preserved
+      # byte-for-byte for a fresh non-paused run.
       - target: plan_completion
         when:
           finalization_status: updated
+          pause_decision: finalize
       - target: done_blocked
         when:
           finalization_status: update_failed
@@ -215,6 +252,20 @@ states:
       - target: done_blocked
         context_assignments:
           failure_reason: "${evidence.failure_reason}"
+
+  paused_for_review:
+    # D2 (execute-friction): a non-failure terminal reached in interactive mode
+    # after pr_finalization assembles the PR body but BEFORE the plan_completion
+    # cascade. The chain is INTACT at this point: the PLAN is still present and
+    # BRIEF/PRD/DESIGN are un-transitioned, and the PR is still DRAFT (gh pr
+    # ready has NOT fired — it lives in plan_completion). `failure:` is absent —
+    # this is a successful, solicited stop, not a block. It is a SUSPENSION, not
+    # a termination: at the /execute SKILL layer `exit:` stays UNSET with a
+    # resumable paused_for_review marker, so the parent-skill R9
+    # hard-finalization check (which fires only at terminal exits) is not
+    # tripped. Resume is the existing topic-keyed home-PR lookup re-entering
+    # plan_completion with PAUSE_BEFORE_FINALIZE=false.
+    terminal: true
 
   done:
     terminal: true
@@ -369,7 +420,14 @@ rm -f "$BODY_FILE"
 
 Run this title+body edit **unconditionally** on every finalization (clean and attention runs) — a zero-issue or all-skipped run still yields a conformant title, so R4's no-fix-up guarantee holds.
 
-Submit `finalization_status: updated` with `pr_url` after the PR title and body are updated, or `finalization_status: update_failed` if the edit step fails. The `finalization_status` enum, the `update_failed`→`done_blocked` route, and the DRAFT-before-READY ordering (no `gh pr ready` here — that stays in `plan_completion`) are unchanged. The next state (`plan_completion`) runs the cascade and `gh pr ready`.
+Submit `finalization_status: updated` with `pr_url` after the PR title and body are updated, or `finalization_status: update_failed` if the edit step fails. The `update_failed`→`done_blocked` route and the DRAFT-before-READY ordering (no `gh pr ready` here — that stays in `plan_completion`) are unchanged.
+
+**4. Submit the mode-driven `pause_decision` (D2).** Alongside `finalization_status: updated`, set `pause_decision` from the `{{PAUSE_BEFORE_FINALIZE}}` variable, which `/execute` resolves from the execution mode at `koto init` time (interactive → `true`; `--auto` → `false`). It is NOT a separate user flag.
+
+- If `{{PAUSE_BEFORE_FINALIZE}}` is `true`, submit `pause_decision: pause`. The PR body is now assembled but the chain is intact (PLAN present, BRIEF/PRD/DESIGN un-transitioned) and the PR is still DRAFT. The workflow routes to the non-failure terminal `paused_for_review` and stops — the operator reviews the DRAFT PR and resumes to finalize.
+- If `{{PAUSE_BEFORE_FINALIZE}}` is `false` (the `--auto` path, and the default), submit `pause_decision: finalize` (or omit it — the fallback edge finalizes). The workflow routes to `plan_completion`, which runs the cascade and `gh pr ready`, driving straight through to a ready-to-merge, green PR.
+
+On a resume of a paused run, `/execute` re-enters with `PAUSE_BEFORE_FINALIZE=false` (resume is a finalize invocation), so this step submits `pause_decision: finalize` and the run advances into `plan_completion`. The PR body is already assembled, so this re-assert is cheap.
 
 ## ci_monitor
 
@@ -429,6 +487,18 @@ Read `koto context get {{SESSION_NAME}} batch_final_view` to get the full per-ch
 - What the user should do to resolve the blockers
 
 Submit `failure_reason` with this summary. The workflow routes to `done_blocked` and the `failure_reason` is written to context for the batch view.
+
+## paused_for_review
+
+The run is **paused for review** (D2, interactive mode). `pr_finalization` assembled a template-conformant DRAFT PR, and `PAUSE_BEFORE_FINALIZE` was `true`, so the run stopped here BEFORE the `plan_completion` finalization cascade. This is a **solicited suspension**, not a failure and not a completion: the chain is intact and resumable.
+
+Emit the operator hand-back:
+
+- **The DRAFT PR URL** — the assembled review surface (`pr_url` from `pr_finalization`).
+- **Confirmation the chain is intact** — the PLAN is still present on disk and BRIEF/PRD/DESIGN/ROADMAP are un-transitioned; `gh pr ready` has NOT fired, so the PR is still DRAFT.
+- **The resume instruction** — re-invoke `/execute <plan>` on the same topic to finalize. The existing topic-keyed home-PR lookup finds the still-open DRAFT PR, rebuilds the projection on that branch, and re-enters `pr_finalization` with `PAUSE_BEFORE_FINALIZE=false`; the run then advances into `plan_completion`, which runs the cascade DRAFT-before-READY, flips `gh pr ready`, and monitors CI to green.
+
+At the `/execute` SKILL layer this terminal maps to a suspension: `exit:` stays UNSET with a resumable `paused_for_review` state marker, so the R9 hard-finalization check — which fires only at one of the three terminal exits — is not tripped. See `skills/execute/SKILL.md` (**Exit Paths**, suspension semantics).
 
 ## done
 
