@@ -368,6 +368,47 @@
         "Agent confirms the SKILL.md binds to the contract and does NOT restate it",
         "Agent points the PLAN-side authoring details to references/quality/plan-doc-structure.md under Coordinated Mode"
       ]
+    },
+    {
+      "id": 27,
+      "name": "docs-coverage-emit-on-flag",
+      "prompt": "/plan docs/designs/DESIGN-cli-export-command.md, where the DESIGN frontmatter sets user_visible_surface: true.",
+      "expected_output": "Phase 3 decomposition step 3.1a applies the two-step detection contract. The DESIGN frontmatter has user_visible_surface: true, so the authoritative signal fires (the prose fallback is not consulted). The decomposition emits at least one issue carrying docs coverage -- a dedicated **Type**: docs issue or an explicit user-facing documentation deliverable folded into a covering issue's acceptance criteria -- and records which issue carries docs coverage in the decomposition artifact. The **Type**: docs annotation rides the existing machinery (plan-to-tasks.sh maps it to ISSUE_TYPE=docs); no new routing is introduced. /execute gains no content gate.",
+      "files": [],
+      "expectations": [
+        "Transcript runs the step 3.1a docs-coverage detection contract during Phase 3 decomposition",
+        "Transcript reads user_visible_surface: true from the DESIGN frontmatter as the authoritative signal",
+        "Transcript does NOT consult the docs/guides/* prose fallback when the flag is present",
+        "Transcript emits at least one issue carrying docs coverage (a **Type**: docs issue or an explicit docs deliverable in a covering issue's AC)",
+        "Transcript records which issue carries docs coverage in the decomposition artifact",
+        "Transcript does NOT add any content-reading gate to /execute"
+      ]
+    },
+    {
+      "id": 28,
+      "name": "docs-coverage-fallback-prose-reference",
+      "prompt": "/plan docs/designs/DESIGN-legacy-import.md, where the DESIGN frontmatter omits user_visible_surface but the body references docs/guides/import-flow.md.",
+      "expected_output": "Phase 3 step 3.1a finds user_visible_surface absent, so it falls back to the prose scan. The DESIGN body references a docs/guides/* path, so user-visible surface is present via the fallback (back-compat for designs authored before the field existed). The decomposition emits an issue carrying docs coverage and records it in the artifact.",
+      "files": [],
+      "expectations": [
+        "Transcript observes user_visible_surface is absent from the DESIGN frontmatter",
+        "Transcript falls back to scanning the DESIGN body for a docs/guides/* reference",
+        "Transcript treats the docs/guides/* reference as user-visible surface present via the fallback",
+        "Transcript emits an issue carrying docs coverage and records it in the decomposition artifact"
+      ]
+    },
+    {
+      "id": 29,
+      "name": "docs-coverage-no-emit-when-absent",
+      "prompt": "/plan docs/designs/DESIGN-internal-cache-refactor.md, where the DESIGN frontmatter sets user_visible_surface: false and the body has no docs/guides/* reference.",
+      "expected_output": "Phase 3 step 3.1a applies the detection contract. The frontmatter sets user_visible_surface: false, which is authoritative and ends the check -- the prose fallback is NOT consulted even though absence would otherwise trigger it. No user-visible surface is detected, so no docs item is forced. The decomposition proceeds without an emitted **Type**: docs issue.",
+      "files": [],
+      "expectations": [
+        "Transcript reads user_visible_surface: false as authoritative and ends the docs-coverage check",
+        "Transcript does NOT consult the docs/guides/* prose fallback when the flag is explicitly false",
+        "Transcript detects no user-visible surface and forces no docs item",
+        "Transcript does not emit a **Type**: docs issue solely for docs coverage"
+      ]
     }
   ]
 }

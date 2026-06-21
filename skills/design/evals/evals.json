@@ -91,6 +91,13 @@
       "prompt": "/design docs/prds/PRD-no-sentinel.md",
       "expected_output": "Phase 0 step 0.2 globs wip/*_no-sentinel_state.md and finds NO matching state file (this is a direct /design invocation, not a parent-driven chain). The sentinel-gated auto-transition does NOT fire because the sentinel is absent. The skill falls through to the existing hard-stop check. The PRD's status is Draft. The skill STOPs and informs the user that design work requires an accepted PRD. R6 is preserved: direct invocation against a non-Accepted PRD cannot silently promote it because no sentinel is on disk. No shirabe transition invocation; no PRD status mutation.",
       "files": []
+    },
+    {
+      "id": 14,
+      "name": "user-visible-surface-frontmatter-field",
+      "prompt": "/design cli-export-command",
+      "expected_output": "The design introduces a new CLI command users read about in a guide. The authoring phase sets the optional boolean frontmatter field user_visible_surface: true on the DESIGN, per skills/design/references/design-format.md. The field is documented as the authoritative signal the downstream /plan reads in its Phase 3 docs-coverage emit step: true means the design adds user-visible surface, so /plan emits a docs work item; a design with no user-facing surface sets it false so /plan's prose fallback is not consulted; omitting it defaults to 'unknown' and /plan falls back to scanning the body for a docs/guides/* reference. The field is optional and does not change the required-section set.",
+      "files": []
     }
   ]
 }

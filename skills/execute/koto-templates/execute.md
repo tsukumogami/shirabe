@@ -11,6 +11,16 @@ variables:
   PLAN_DOC:
     description: Path to the PLAN.md document driving this orchestration run
     required: true
+  PAUSE_BEFORE_FINALIZE:
+    description: >
+      Whether to stop at the paused_for_review terminal after pr_finalization
+      assembles the PR body, BEFORE the plan_completion finalization cascade.
+      Driven by /execute's execution mode (NOT a user flag): interactive sets it
+      true (pause for review with the chain intact), --auto sets it false (drive
+      straight through plan_completion to a ready-to-merge, green PR). Resume of a
+      paused run re-enters plan_completion with PAUSE_BEFORE_FINALIZE=false.
+    required: false
+    default: "false"
 
 states:
   orchestrator_setup:
@@ -109,9 +119,20 @@ states:
         type: enum
         values: [updated, update_failed]
         required: true
-      pr_url:
-        type: string
-        description: URL of the pull request
+      pause_decision:
+        type: enum
+        values: [pause, finalize]
+        default: finalize
+        description: >
+          Mode-driven routing after the PR body is assembled. The agent reads
+          the {{PAUSE_BEFORE_FINALIZE}} variable and submits `pause` when it is
+          `true` (interactive mode: stop at paused_for_review with the chain
+          intact) or `finalize` when it is `false` (--auto mode: drive straight
+          through plan_completion). Defaults to `finalize` so a submission that
+          omits it (e.g. an `update_failed` run, or a fresh non-paused run that
+          leaves it unset) preserves today's default path (R7). On a resume of a
+          paused run it is `finalize` because resume re-enters with
+          PAUSE_BEFORE_FINALIZE=false.
     transitions:
       # Reordered for the DRAFT-vs-READY discipline (#117): the
       # cascade (plan_completion) runs BEFORE gh pr ready so the
@@ -119,9 +140,25 @@ states:
       # the ready_for_review event. The cascade lives in
       # plan_completion; pr_finalization here only updates the PR
       # body and confirms `gh pr ready` is NOT yet invoked.
+      #
+      # D2 (execute-friction): the single `updated` edge is split into
+      # two guarded edges driven by the mode-derived PAUSE_BEFORE_FINALIZE
+      # variable, which the agent reflects into the pause_decision evidence
+      # field. When pause_decision is `pause` (interactive), route to the
+      # non-failure terminal paused_for_review (chain intact, PR DRAFT). When
+      # `finalize` (--auto, or a resume of a paused run), route to
+      # plan_completion (cascade + gh pr ready) unchanged.
+      - target: paused_for_review
+        when:
+          finalization_status: updated
+          pause_decision: pause
+      # plan_completion fires when pause_decision is `finalize` (--auto, resume,
+      # or the default when omitted), so the default path (R7) is preserved
+      # byte-for-byte for a fresh non-paused run.
       - target: plan_completion
         when:
           finalization_status: updated
+          pause_decision: finalize
       - target: done_blocked
         when:
           finalization_status: update_failed
@@ -216,6 +253,20 @@ states:
         context_assignments:
           failure_reason: "${evidence.failure_reason}"
 
+  paused_for_review:
+    # D2 (execute-friction): a non-failure terminal reached in interactive mode
+    # after pr_finalization assembles the PR body but BEFORE the plan_completion
+    # cascade. The chain is INTACT at this point: the PLAN is still present and
+    # BRIEF/PRD/DESIGN are un-transitioned, and the PR is still DRAFT (gh pr
+    # ready has NOT fired — it lives in plan_completion). `failure:` is absent —
+    # this is a successful, solicited stop, not a block. It is a SUSPENSION, not
+    # a termination: at the /execute SKILL layer `exit:` stays UNSET with a
+    # resumable paused_for_review marker, so the parent-skill R9
+    # hard-finalization check (which fires only at terminal exits) is not
+    # tripped. Resume is the existing topic-keyed home-PR lookup re-entering
+    # plan_completion with PAUSE_BEFORE_FINALIZE=false.
+    terminal: true
+
   done:
     terminal: true
 
@@ -232,6 +283,18 @@ states:
 
 Before running the script, check the current branch context. Derive `PLAN_SLUG` from `{{PLAN_DOC}}` (strip the `PLAN-` prefix), then run `git rev-parse --abbrev-ref HEAD` to get the current branch and `gh pr list --head <current-branch> --json number --jq '.[0].number'` to find any open PR on it. If the current branch is non-main and an open PR already covers this work, submit `status: override` rather than running the creation script.
 
+On the `override` path, the branch you stay on (the author's or `/scope` branch — NOT `impl/<slug>`) is the **settled branch**, and the open PR on it (including a `docs/<topic>` scoping PR) is **ADOPTED** as the home PR: `/execute` does not open a second PR and does not link a distinct one. Persist the settled branch so `spawn_and_await` routes children to it instead of recomputing `impl/<slug>`. After the create-or-override decision, record HEAD into a koto context key, validating it first as an input surface (treat the recovered branch name as untrusted — reject anything not matching `^[A-Za-z0-9._/-]+$` before it is stored or interpolated into emitted shell):
+
+```bash
+SETTLED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+case "$SETTLED_BRANCH" in
+  *[!A-Za-z0-9._/-]*|"") echo "refusing unsafe settled branch: $SETTLED_BRANCH" >&2; exit 1 ;;
+esac
+koto context set {{SESSION_NAME}} settled_branch "$SETTLED_BRANCH"
+```
+
+On the create path this records `impl/$PLAN_SLUG` (the branch just checked out), preserving today's value byte-for-byte; on the override path it records the settled branch.
+
 Create the shared branch and draft PR. This runs once before children are spawned.
 
 ```bash
@@ -244,7 +307,7 @@ gh pr list --head impl/$PLAN_SLUG --json number --jq '.[0].number' | grep -q . |
 
 The script is idempotent — if the branch or PR already exists (e.g., after a crash and re-run), it reuses them.
 
-Submit `status: completed` after branch and draft PR exist, `status: override` if the agent is already on an appropriate branch with an existing PR (skipping branch/PR creation), or `status: blocked` with `detail` if either step fails.
+Submit `status: completed` after branch and draft PR exist, `status: override` if the agent is already on an appropriate branch with an existing PR (skipping branch/PR creation), or `status: blocked` with `detail` if either step fails. Record the settled branch (above) before submitting `completed` or `override` so `spawn_and_await` can read it.
 
 ## worktree_discipline_check
 
@@ -283,7 +346,13 @@ existing approval behavior is unchanged.
 PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
 TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
-TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "impl/$PLAN_SLUG" '[.[] | .vars.SHARED_BRANCH = $b]')
+# Route children to the branch orchestrator_setup settled on (the adopted/override
+# branch), falling back byte-identically to impl/$PLAN_SLUG on the fresh path (R7).
+SETTLED_BRANCH=$(koto context get {{SESSION_NAME}} settled_branch 2>/dev/null || echo "impl/$PLAN_SLUG")
+case "$SETTLED_BRANCH" in
+  *[!A-Za-z0-9._/-]*|"") SETTLED_BRANCH="impl/$PLAN_SLUG" ;;
+esac
+TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" '[.[] | .vars.SHARED_BRANCH = $b]')
 echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
 koto next {{SESSION_NAME}} --with-data @"$TMP"
 rm -f "$TMP"
@@ -297,7 +366,12 @@ koto materializes one child per task using `work-on.md` with `failure_policy: sk
 PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
 TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
-TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "impl/$PLAN_SLUG" '[.[] | .vars.SHARED_BRANCH = $b]')
+# Same settled-branch read as Tick 1 — the dedup re-submit must inject the same branch.
+SETTLED_BRANCH=$(koto context get {{SESSION_NAME}} settled_branch 2>/dev/null || echo "impl/$PLAN_SLUG")
+case "$SETTLED_BRANCH" in
+  *[!A-Za-z0-9._/-]*|"") SETTLED_BRANCH="impl/$PLAN_SLUG" ;;
+esac
+TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" '[.[] | .vars.SHARED_BRANCH = $b]')
 # Set OUTCOME to "all_success" if no child reached done_blocked, else "needs_attention"
 OUTCOME="all_success"  # replace with "needs_attention" if any child failed
 echo "{\"tasks\": $TASKS_WITH_BRANCH, \"batch_outcome\": \"$OUTCOME\"}" > "$TMP"
@@ -311,18 +385,49 @@ Check progress at any time with `koto status {{SESSION_NAME}}`. Set `batch_outco
 
 ## pr_finalization
 
-Assemble the pull request description from the batch results and update the PR. Do **not** mark the PR ready in this state — the DRAFT-vs-READY discipline (#117) requires the chain to be at its strict-mode passing state BEFORE `gh pr ready` fires, and the cascade in `plan_completion` performs that finalization. This state confines itself to PR-description assembly.
+Author a template-conformant PR — a conventional-commit **title** and the project's **two-part body** — and apply it in the single `gh pr edit` this state already runs, so a clean run is conformant with no separate `/fix-pr` pass (DESIGN R4 / D6). Do **not** mark the PR ready in this state — the DRAFT-vs-READY discipline (#117) requires the chain to be at its strict-mode passing state BEFORE `gh pr ready` fires, and the cascade in `plan_completion` performs that finalization. This state confines itself to title + body assembly.
 
-1. Read `koto context get {{SESSION_NAME}} batch_final_view` to get per-child outcome data.
-2. Assemble a PR description. For each child include:
-   - `name`: child workflow name
-   - `outcome`: `success`, `failure`, or `skipped`
-   - `reason`: failure or skip reason (if applicable)
-   - `reason_source`: where the reason came from
-   - `skipped_because_chain`: dependency chain that caused the skip (if skipped)
-3. Update the PR description: `gh pr edit <pr-number> --body "<assembled description>"`
+The canonical title/body spec is `skills/pr-creation/SKILL.md` (conventional `<type>[scope]: <description>` title; two-part body where Part 1 becomes the squash commit body and everything from `---` down is deleted at merge). Apply that spec inline here — do **not** invoke the cross-plugin `/fix-pr` or `pr-creation` skill at runtime; an autonomous `/execute` run authors its own conformant PR rather than producing a malformed one and repairing it.
 
-Submit `finalization_status: updated` with `pr_url` after the PR description is updated, or `finalization_status: update_failed` if the edit step fails. The next state (`plan_completion`) runs the cascade and `gh pr ready`.
+**1. Build the conventional title.** Derive `<description>` from the **validated PLAN slug** — `PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')`, which already matches `^[a-z0-9-]+$`. NEVER interpolate raw PLAN prose (title text, body) into the title or the emitted shell — PLAN-body text is data (Security Considerations point 6); the title is built only from the validated slug.
+
+   - `<type>` defaults to **`feat`** (a PLAN normally lands feature work). Use `fix` only when the PLAN is purely remediation, or `docs`/`chore` when every child change is docs/chore. A reasonable default is not a blocker — take `feat` and move on.
+   - `<scope>` is optional: omit unless an obvious subsystem applies (per `pr-creation` scope guidance; NEVER the slug-as-issue-number).
+   - The result, e.g. `feat: execute-friction`, **replaces** the non-conventional `impl: $PLAN_SLUG` title set at creation.
+
+**2. Assemble the two-part body.** Read `koto context get {{SESSION_NAME}} batch_final_view` for per-child outcome data, then build:
+
+   - **Part 1 — factual change paragraph** (becomes the squash commit body): a concise paragraph of what the PLAN's PR changed in the codebase, derived from the PLAN's own validated framing plus the child-outcome metadata. `/execute` is metadata-only (R14/R15) — do NOT read child PR bodies or diffs. No `Fixes #N` here.
+   - A `---` separator.
+   - **Part 2 — reviewer context** (deleted at merge): the per-child outcome table — for each child `name`, `outcome` (`success`/`failure`/`skipped`), `reason`, `reason_source`, `skipped_because_chain`. Append `Fixes #<N>` lines **only** when the children are GitHub issues (`ISSUE_SOURCE` is a real issue, not `plan_outline`); for single-pr outline children there is no issue to close, so omit `Fixes #N` entirely.
+
+**3. Apply via `--body-file`/stdin, never inline interpolation.** Write the assembled body to a temp file (or heredoc to stdin) and pass it with `--body-file`, so prose is never spliced into the shell command line:
+
+```bash
+PR_NUMBER=$(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number')
+PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
+BODY_FILE=$(mktemp)
+cat > "$BODY_FILE" <<'BODY'
+<Part 1: factual change paragraph>
+
+---
+
+<Part 2: per-child outcome table; Fixes #N only for GitHub-issue children>
+BODY
+gh pr edit "$PR_NUMBER" --title "feat: $PLAN_SLUG" --body-file "$BODY_FILE"
+rm -f "$BODY_FILE"
+```
+
+Run this title+body edit **unconditionally** on every finalization (clean and attention runs) — a zero-issue or all-skipped run still yields a conformant title, so R4's no-fix-up guarantee holds.
+
+Submit `finalization_status: updated` with `pr_url` after the PR title and body are updated, or `finalization_status: update_failed` if the edit step fails. The `update_failed`→`done_blocked` route and the DRAFT-before-READY ordering (no `gh pr ready` here — that stays in `plan_completion`) are unchanged.
+
+**4. Submit the mode-driven `pause_decision` (D2).** Alongside `finalization_status: updated`, set `pause_decision` from the `{{PAUSE_BEFORE_FINALIZE}}` variable, which `/execute` resolves from the execution mode at `koto init` time (interactive → `true`; `--auto` → `false`). It is NOT a separate user flag.
+
+- If `{{PAUSE_BEFORE_FINALIZE}}` is `true`, submit `pause_decision: pause`. The PR body is now assembled but the chain is intact (PLAN present, BRIEF/PRD/DESIGN un-transitioned) and the PR is still DRAFT. The workflow routes to the non-failure terminal `paused_for_review` and stops — the operator reviews the DRAFT PR and resumes to finalize.
+- If `{{PAUSE_BEFORE_FINALIZE}}` is `false` (the `--auto` path, and the default), submit `pause_decision: finalize` (or omit it — the fallback edge finalizes). The workflow routes to `plan_completion`, which runs the cascade and `gh pr ready`, driving straight through to a ready-to-merge, green PR.
+
+On a resume of a paused run, `/execute` re-enters with `PAUSE_BEFORE_FINALIZE=false` (resume is a finalize invocation), so this step submits `pause_decision: finalize` and the run advances into `plan_completion`. The PR body is already assembled, so this re-assert is cheap.
 
 ## ci_monitor
 
@@ -382,6 +487,18 @@ Read `koto context get {{SESSION_NAME}} batch_final_view` to get the full per-ch
 - What the user should do to resolve the blockers
 
 Submit `failure_reason` with this summary. The workflow routes to `done_blocked` and the `failure_reason` is written to context for the batch view.
+
+## paused_for_review
+
+The run is **paused for review** (D2, interactive mode). `pr_finalization` assembled a template-conformant DRAFT PR, and `PAUSE_BEFORE_FINALIZE` was `true`, so the run stopped here BEFORE the `plan_completion` finalization cascade. This is a **solicited suspension**, not a failure and not a completion: the chain is intact and resumable.
+
+Emit the operator hand-back:
+
+- **The DRAFT PR URL** — the assembled review surface (`pr_url` from `pr_finalization`).
+- **Confirmation the chain is intact** — the PLAN is still present on disk and BRIEF/PRD/DESIGN/ROADMAP are un-transitioned; `gh pr ready` has NOT fired, so the PR is still DRAFT.
+- **The resume instruction** — re-invoke `/execute <plan>` on the same topic to finalize. The existing topic-keyed home-PR lookup finds the still-open DRAFT PR, rebuilds the projection on that branch, and re-enters `pr_finalization` with `PAUSE_BEFORE_FINALIZE=false`; the run then advances into `plan_completion`, which runs the cascade DRAFT-before-READY, flips `gh pr ready`, and monitors CI to green.
+
+At the `/execute` SKILL layer this terminal maps to a suspension: `exit:` stays UNSET with a resumable `paused_for_review` state marker, so the R9 hard-finalization check — which fires only at one of the three terminal exits — is not tripped. See `skills/execute/SKILL.md` (**Exit Paths**, suspension semantics).
 
 ## done
 

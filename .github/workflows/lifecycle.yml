@@ -85,7 +85,7 @@ jobs:
           cargo build --release --bin shirabe --manifest-path .shirabe-src/Cargo.toml
           install -m 0755 .shirabe-src/target/release/shirabe /usr/local/bin/shirabe
 
-      - name: Run lifecycle check
+      - name: Run lifecycle check (R5 finalization-not-done guard)
         # The shell conditional reads github.event.pull_request.draft
         # and sets MODE_FLAG to --mode=ready when the PR is
         # ready-for-review (draft is false). DRAFT PRs leave MODE_FLAG
@@ -95,6 +95,18 @@ jobs:
         # passing state. See
         # docs/decisions/DECISION-lifecycle-strict-mode-interface-2026-06-06.md
         # for the interface rationale.
+        #
+        # R5 (DESIGN-execute-friction D4): this ready-posture step IS the
+        # finalization-not-done guard for /execute. A run whose finalization
+        # did not complete (a manual/fallback or never-resumed run) leaves a
+        # present PLAN and un-transitioned upstreams; under --mode=ready that
+        # state fails L01 (exit 2) and the guard fires. The whole-tree
+        # `--lifecycle .` scan covers every chain, so no separate per-seed
+        # `--lifecycle-chain <DESIGN>` step is needed — duplicating it here
+        # would re-run the identical ready-posture check. The draft == false
+        # gating is the point: the guard asserts the finalized terminal only at
+        # review time, never on a draft PR whose cascade is legitimately
+        # mid-flight. See skills/execute/SKILL.md (Finalization-Not-Done Guard).
         run: |
           MODE_FLAG=""
           if [ "${{ github.event.pull_request.draft }}" = "false" ]; then

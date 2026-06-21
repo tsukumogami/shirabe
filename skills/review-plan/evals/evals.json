@@ -83,6 +83,20 @@
       ],
       "fixture_dir": "fixtures/clean-proceed-path",
       "files": []
+    },
+    {
+      "id": 7,
+      "name": "docs-coverage-backstop-fires",
+      "prompt": "/review-plan my-feature",
+      "expected_output": "The upstream DESIGN signals user-visible surface (frontmatter user_visible_surface: true, or the body references a docs/guides/* path while the flag is absent), but no issue in the decomposition carries docs coverage -- no **Type**: docs issue and no issue whose acceptance criteria carry a user-facing documentation deliverable. Phase 1 (Scope Gate, Category A) applies the two-step detection contract and produces a critical_finding with category A describing the missing docs item. Per Category A, the correction_hint is empty and the finding loops back to Phase 3 (Decomposition, loop_target: 3) rather than passing silently.",
+      "assertions": [
+        "Phase 1 Scope Gate applies the two-step user-visible-surface detection contract (flag-authoritative, docs/guides/* prose fallback)",
+        "A category A critical_finding is produced when the source signals user-visible surface but no issue carries docs coverage",
+        "The finding loops back to Phase 3 Decomposition (loop_target: 3), not a silent pass",
+        "The Category A correction_hint is empty (corrections require re-running Phase 3, not editing issue body content)",
+        "No finding is produced when an issue does carry docs coverage, or when the source signals no user-visible surface"
+      ],
+      "files": []
     }
   ]
 }

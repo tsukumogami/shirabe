@@ -166,6 +166,41 @@ For each component from Phase 1, determine:
 - Changes are tightly coupled
 - Split would create trivial issues
 
+#### 3.1a Docs-Coverage Emit (user-visible surface)
+
+After component decomposition, determine whether the source adds user-visible
+surface and, when it does, ensure the decomposition carries documentation work.
+This guarantee is owned by `/plan` because it is the only layer that reads the
+full design body (where the signal lives) and produces the issue set (where a
+docs item can be added). `/execute` carries no equivalent content gate -- its
+inspection contract is metadata-only.
+
+**Detection contract** (two-step, flag-authoritative + prose fallback):
+
+1. If the source's frontmatter has `user_visible_surface: true` ->
+   user-visible surface is **present** (authoritative).
+2. Else if `user_visible_surface` is **absent** AND the source body references
+   a `docs/guides/*` path -> user-visible surface is **present** (prose
+   fallback, for designs authored before the field existed).
+3. Else (`user_visible_surface: false`, or absent with no `docs/guides/*`
+   reference) -> **no** user-visible surface; skip the emit.
+
+The flag is authoritative: an explicit `user_visible_surface: false` ends the
+check and the prose fallback is NOT consulted. The fallback runs only when the
+field is absent. This applies to design and PRD inputs; topic inputs have no
+frontmatter to read, so they fall through to "no signal -> skip" and docs
+coverage falls to author judgment.
+
+**Emit rule.** When user-visible surface is present, the decomposition MUST
+include at least one issue whose work covers the user-facing documentation --
+either a dedicated `**Type**: docs` issue, or an explicit docs deliverable
+folded into a covering issue's acceptance criteria. The `**Type**: docs`
+annotation rides the existing machinery: `plan-to-tasks.sh` maps it to
+`ISSUE_TYPE=docs` and `/work-on` routes it to the docs path; no new routing is
+introduced. Record which issue carries docs coverage in the decomposition
+artifact (step 3.5). When no user-visible surface is detected, do not force a
+docs item.
+
 #### 3.2 Draft Issue Outlines
 
 For each issue, create an outline:
@@ -511,6 +546,9 @@ update the file to reflect the confirmed mode.
 Before proceeding:
 - [ ] Decomposition strategy decided and recorded (or "feature-by-feature-planning" for roadmaps)
 - [ ] All components (design/prd) or features (roadmap) covered by issues
+- [ ] Docs-coverage emit (step 3.1a) evaluated: when the source signals
+      user-visible surface, an issue carries docs coverage and is recorded in
+      the artifact; when it does not, no docs item is forced
 - [ ] Each issue is atomic and complete
 - [ ] Value-confirmation guard (step 3.5a) ran and classified every unit
 - [ ] Execution mode finalized against the SKILL-surface rule, with rationale recorded

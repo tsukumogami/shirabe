@@ -425,6 +425,133 @@
         "Agent does NOT re-execute or drive further issues against the upstream that must change first",
         "Agent sets exit: re-evaluation and records the Decision Record path in exit_artifacts"
       ]
+    },
+    {
+      "id": 26,
+      "name": "single-pr-adopts-scoping-branch-routes-children-to-settled-branch",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- already on a /scope docs/<topic> branch with an open PR",
+      "expected_output": "The agent enters orchestrator_setup standing on a non-main author/scope branch (a docs/<topic> branch) that already has an open PR. It detects this via git rev-parse --abbrev-ref HEAD plus gh pr list --head <branch>, submits status: override (skipping the impl/<slug> creation script), and ADOPTS that existing PR as the home PR -- it does NOT open a second PR and does NOT link a distinct one. It records the settled branch (HEAD, the docs/<topic> branch -- NOT impl/<slug>) into a koto context key, re-validating the recovered branch name against a safe ref pattern before storing or interpolating it. In spawn_and_await both ticks read that settled branch and inject it as SHARED_BRANCH into every child's vars, so per-issue children commit to the adopted branch rather than impl/<slug>. Finalization (gh pr edit / gh pr ready) and ci_monitor already target the HEAD-derived PR, so adoption needs no change there.",
+      "files": [],
+      "expectations": [
+        "Agent detects the non-main branch with an open PR and submits status: override (not the impl/<slug> creation path)",
+        "Agent ADOPTS the existing docs/<topic> PR as the home PR and does NOT open or link a second PR",
+        "Agent records the settled branch (HEAD, the scoping branch, NOT impl/<slug>) into a koto context key",
+        "Agent re-validates the recovered branch name against a safe ref pattern before storing/interpolating it into emitted shell",
+        "Both spawn_and_await ticks read the settled branch and inject it as SHARED_BRANCH so children land on the adopted branch, not impl/<slug>"
+      ]
+    },
+    {
+      "id": 27,
+      "name": "single-pr-fresh-run-r7-parity-lands-on-impl-slug",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- a fresh run with no existing-PR context (on main)",
+      "expected_output": "A fresh single-pr run with no existing-PR context (the override predicate -- non-main branch + open PR -- is false) behaves byte-identically to before. orchestrator_setup runs the unchanged creation script, checks out / creates impl/<slug>, pushes, opens the draft PR, and submits status: completed; the recorded settled branch is impl/<slug> (the branch just checked out). In spawn_and_await both ticks read that value -- and the || impl/$PLAN_SLUG fallback guarantees the identical string even if the context key is absent (crash/re-run) -- and inject impl/<slug> as SHARED_BRANCH. The jq filter, the task array, and the child contract are unchanged. No new flag is added, so a fresh /execute invocation parses identically. This is R7 parity: the default path is preserved.",
+      "files": [],
+      "expectations": [
+        "Agent runs the unchanged orchestrator_setup creation script and creates the impl/<slug> branch + draft PR on a fresh run",
+        "The recorded settled branch is impl/<slug> on the create path (byte-identical to the previous hardcode)",
+        "Both spawn_and_await ticks inject impl/<slug> as SHARED_BRANCH, and the || impl/$PLAN_SLUG fallback yields the identical value if the context key is absent",
+        "No new invocation flag is introduced; a fresh /execute on a single-pr PLAN parses and runs identically (R7 parity)",
+        "The override/settled-branch path is reached ONLY when the non-main-branch + open-PR predicate is already true"
+      ]
+    },
+    {
+      "id": 28,
+      "name": "pr-finalization-conventional-title-two-part-body",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- what does pr_finalization set on the PR?",
+      "expected_output": "In pr_finalization the agent authors a template-conformant PR in the single gh pr edit it runs, with no separate /fix-pr pass (DESIGN R4/D6). It sets a conventional-commit --title of the form <type>[scope]: <description>, defaulting <type> to feat and deriving <description> from the validated PLAN slug (basename {{PLAN_DOC}} .md | sed 's/^PLAN-//', which matches ^[a-z0-9-]+$) -- never from raw PLAN prose interpolated into the title or shell. This replaces the non-conventional impl: $PLAN_SLUG title set at PR creation. The body is two-part: Part 1 a concise factual change paragraph (becomes the squash commit body), then a --- separator, then Part 2 the per-child outcome table (name/outcome/reason/reason_source/skipped_because_chain). The agent applies the spec inline, referencing skills/pr-creation/SKILL.md as canonical, and does NOT invoke the cross-plugin /fix-pr or pr-creation skill at runtime. It does NOT mark the PR ready in this state.",
+      "files": [],
+      "expectations": [
+        "Agent sets gh pr edit --title to a conventional-commit <type>[scope]: <description> (default type feat), replacing the impl: $PLAN_SLUG creation-time title",
+        "Agent derives the title description from the validated PLAN slug (^[a-z0-9-]+$) and NEVER interpolates raw PLAN prose into the title or emitted shell",
+        "Agent assembles a two-part body: Part 1 factual change paragraph, a --- separator, Part 2 the per-child outcome table",
+        "Agent references skills/pr-creation/SKILL.md as the canonical title/body spec and applies it inline (does NOT invoke /fix-pr or the pr-creation skill at runtime)",
+        "Agent does NOT mark the PR ready in pr_finalization (gh pr ready stays in plan_completion)"
+      ]
+    },
+    {
+      "id": 29,
+      "name": "pr-finalization-body-file-stdin-and-fixes-omission",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- how does pr_finalization post the body, and does it append Fixes #N for a single-pr outline plan?",
+      "expected_output": "The agent posts the two-part body via --body-file (a temp file written with mktemp, or a heredoc to stdin), NOT inline -m / --body \"<prose>\" interpolation, so PLAN prose is never spliced into the shell command line (Security Considerations point 6). It appends Fixes #<N> lines in Part 2 ONLY when the children are GitHub issues (ISSUE_SOURCE is a real issue); for a single-pr PLAN whose children are plan_outline entries there is no issue to close, so it omits Fixes #N entirely. The title+body edit runs unconditionally on every finalization (clean and attention runs) so a zero-issue or all-skipped run still yields a conformant title -- satisfying R4's no-manual-fix-up guarantee.",
+      "files": [],
+      "expectations": [
+        "Agent posts the body via --body-file or heredoc-to-stdin, NOT inline -m / --body \"<prose>\" interpolation",
+        "Agent omits Fixes #N for single-pr outline children (plan_outline), appending Fixes #<N> only when children are GitHub issues",
+        "Agent runs the title+body edit unconditionally on every finalization, including a zero-issue or all-skipped run",
+        "The PR is template-conformant directly from pr_finalization with no separate /fix-pr remediation pass (R4)"
+      ]
+    },
+    {
+      "id": 30,
+      "name": "interactive-pause-leaves-chain-intact-at-paused-for-review",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- run in interactive mode (the default); stop for review before finalization",
+      "expected_output": "The run resolves the execution mode as interactive (the default, no --auto), so PAUSE_BEFORE_FINALIZE is true and the agent passes --var PAUSE_BEFORE_FINALIZE=true at koto init. It is NOT a separate user flag -- there is no --pause-for-review flag; the value is derived from the mode. The orchestrator drives orchestrator_setup -> spawn_and_await -> pr_finalization, where it assembles the template-conformant DRAFT PR (title + two-part body) and submits finalization_status: updated with pause_decision: pause (reflecting PAUSE_BEFORE_FINALIZE=true). The workflow routes to the new non-failure terminal paused_for_review and STOPS. At the pause the chain is intact: the PLAN is still present on disk, BRIEF/PRD/DESIGN are un-transitioned, and the PR is still DRAFT (gh pr ready has NOT fired -- it lives in plan_completion). plan_completion's cascade did NOT run. The pause is a suspension, not a termination: at the /execute SKILL layer exit: stays UNSET with a resumable paused_for_review marker, so the R9 hard-finalization check (which fires only at terminal exits) is not tripped. The agent hands the DRAFT PR URL back with the resume instruction (re-invoke /execute on the same topic to finalize).",
+      "files": [],
+      "expectations": [
+        "Agent resolves interactive mode (default, no --auto) to PAUSE_BEFORE_FINALIZE=true and passes --var PAUSE_BEFORE_FINALIZE=true at koto init (derived from mode, NOT a --pause-for-review flag)",
+        "Agent submits finalization_status: updated with pause_decision: pause in pr_finalization and routes to the paused_for_review terminal",
+        "At the pause the chain is intact: PLAN present on disk, BRIEF/PRD/DESIGN un-transitioned, PR still DRAFT (gh pr ready NOT fired, plan_completion cascade NOT run)",
+        "The pause is a suspension: exit: stays UNSET with a resumable paused_for_review marker, so the R9 hard-finalization check is NOT tripped",
+        "Agent hands the DRAFT PR URL back with the resume instruction (re-invoke /execute on the same topic re-enters plan_completion with PAUSE_BEFORE_FINALIZE=false to finalize)"
+      ]
+    },
+    {
+      "id": 31,
+      "name": "auto-drives-through-to-finalized-mergeable-result-no-pause",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute --auto skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
+      "expected_output": "The run resolves the execution mode as --auto (authorized autonomous), so PAUSE_BEFORE_FINALIZE is false and the agent passes --var PAUSE_BEFORE_FINALIZE=false at koto init. The orchestrator drives orchestrator_setup -> spawn_and_await -> pr_finalization, where it assembles the template-conformant PR and submits finalization_status: updated with pause_decision: finalize (reflecting PAUSE_BEFORE_FINALIZE=false). The workflow routes straight to plan_completion -- it does NOT stop at paused_for_review. plan_completion runs the finalization cascade DRAFT-before-READY (run-cascade.sh deletes the PLAN and transitions BRIEF/PRD/DESIGN/ROADMAP), then gh pr ready flips the PR ready, then ci_monitor waits for strict-mode CI to land green on the finalized chain. The run reaches a ready-to-merge, green PR with the chain transitioned -- a finished, mergeable result, consistent with the autonomy mandate that an authorized autonomous run does not stop short of completion. No solicited pause fires under --auto.",
+      "files": [],
+      "expectations": [
+        "Agent resolves --auto to PAUSE_BEFORE_FINALIZE=false and passes --var PAUSE_BEFORE_FINALIZE=false at koto init",
+        "Agent submits finalization_status: updated with pause_decision: finalize in pr_finalization and routes to plan_completion (NOT paused_for_review -- no pause under --auto)",
+        "plan_completion runs the cascade DRAFT-before-READY (run-cascade.sh) then gh pr ready then ci_monitor to green",
+        "The run reaches a finalized, mergeable result: PLAN deleted, BRIEF/PRD/DESIGN transitioned, PR ready and CI green",
+        "No solicited pause fires under --auto; the autonomous run drives straight through to completion"
+      ]
+    },
+    {
+      "id": 32,
+      "name": "finalization-not-done-guard-via-validate-lifecycle-chain",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "How do I check whether an /execute run's finalization completed, both for a suspected mid-run and for a finalized chain in CI?",
+      "expected_output": "The R5 finalization-not-done guard is the EXISTING shirabe validate --lifecycle-chain <seed> --mode=ready mode -- not a new flag and not a new subcommand. Exit codes: 0 = finalization complete (the chain is at its terminal: PLAN deleted, BRIEF/PRD Done, DESIGN Current); 2 = finalization NOT done (a present PLAN or an un-transitioned upstream fails L01 under ready posture, so the guard fires); 1 = tool-error/inconclusive, distinct from a violation (never read as a pass). The seed-doc rule is load-bearing: post-finalization the PLAN is GONE (the cascade git rm's it), so a finalized-chain check (CI) MUST seed on the durable surviving anchor -- the DESIGN at docs/designs/current/DESIGN-<slug>.md (or BRIEF/PRD at Done) -- NEVER the deleted PLAN path, which returns L05/exit 2 and looks like a false failure. A human investigating a suspected mid-run seeds on the still-present PLAN (docs/plans/PLAN-<slug>.md), which fails L01/exit 2 exactly as R5 names. A manual run with an un-finalized chain reports incomplete (exit 2); a finalized chain reports complete (exit 0). In CI the reusable lifecycle.yml workflow runs the equivalent whole-tree shirabe validate --lifecycle . --mode=ready gated on github.event.pull_request.draft == false, so the ready-posture finalization assertion fires only at review time and a draft PR's mid-flight cascade does not false-fire.",
+      "files": [],
+      "expectations": [
+        "Agent identifies the guard as the EXISTING shirabe validate --lifecycle-chain <seed> --mode=ready mode, NOT a new flag or new subcommand",
+        "Agent gives the exit-code contract: 0 = finalized/complete, 2 = finalization not done (L01 under ready posture), 1 = tool-error/inconclusive (distinct from a violation, not a pass)",
+        "Agent states a manual run with an un-finalized chain reports incomplete (exit 2) and a finalized chain reports complete (exit 0)",
+        "Agent applies the seed-doc rule: CI/finalized-chain checks seed on the durable surviving anchor (DESIGN at docs/designs/current/, or BRIEF/PRD at Done), NEVER the deleted PLAN path (which returns L05/exit 2); a human mid-run check seeds on the still-present PLAN",
+        "Agent notes CI wires the guard via the lifecycle.yml ready-posture check gated on pull_request.draft == false, so it asserts the finalized terminal only at review time"
+      ]
+    },
+    {
+      "id": 33,
+      "name": "report-upstream-convention-and-user-facing-behavior-docs",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "Where is the report-upstream durability convention recorded, and where does a developer find the user-facing /execute behaviors documented?",
+      "expected_output": "skills/execute/SKILL.md carries the D5 report-upstream durability convention pointer: friction logs and other report-upstream artifacts go to a durable home -- a GitHub issue on the relevant skill repo (gh issue create, the same surface /plan and /roadmap use) or a committed docs/ note as the fallback -- and NEVER wip/, which the finalization cascade plus squash-merge carry off main by design. The pointer is developer behavior, not a new /execute write, so the closed write-target set is unchanged, and the automated run-report emit is explicitly deferred. The SKILL.md notes the canonical wording also lives in the workspace CLAUDE.md wip rule and its dot-niwa-overlay mirror, which are out-of-repo files (cross-repo follow-up), not edited in this PR. The developer-facing guide docs/guides/execute-friction.md covers the three user-visible behaviors: mode-aware branch/PR targeting (single-pr adopts the scoping branch/PR; coordinated keeps code in per-repo worktrees with the coordination branch for scoping docs only), the interactive pause (paused_for_review draft before the cascade) versus --auto finalizes (straight through to a mergeable green PR), and the finalization guard (shirabe validate --lifecycle-chain <seed> --mode=ready with the 0/2/1 exit codes and the seed-doc rule).",
+      "files": [],
+      "expectations": [
+        "skills/execute/SKILL.md records the report-upstream durability convention: durable home is a GitHub issue on the skill repo or a docs/ note fallback, NEVER wip/",
+        "The SKILL.md pointer is developer behavior (not a new /execute write); the closed write-target set is unchanged and the automated run-report emit is deferred",
+        "The SKILL.md notes the workspace CLAUDE.md and dot-niwa-overlay mirror as out-of-repo cross-repo follow-up, not edited in this PR",
+        "docs/guides/execute-friction.md documents mode-aware branch/PR targeting (single-pr adopt-the-scoping-PR; coordinated code-in-per-repo-worktrees, coordination-branch docs-only)",
+        "docs/guides/execute-friction.md documents the interactive pause (paused_for_review draft before the cascade) versus --auto finalizes, and the finalization guard (shirabe validate --lifecycle-chain --mode=ready, 0/2/1 exit codes, seed-doc rule)"
+      ]
     }
   ]
 }
