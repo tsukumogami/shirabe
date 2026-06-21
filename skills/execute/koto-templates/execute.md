@@ -334,18 +334,42 @@ Check progress at any time with `koto status {{SESSION_NAME}}`. Set `batch_outco
 
 ## pr_finalization
 
-Assemble the pull request description from the batch results and update the PR. Do **not** mark the PR ready in this state — the DRAFT-vs-READY discipline (#117) requires the chain to be at its strict-mode passing state BEFORE `gh pr ready` fires, and the cascade in `plan_completion` performs that finalization. This state confines itself to PR-description assembly.
+Author a template-conformant PR — a conventional-commit **title** and the project's **two-part body** — and apply it in the single `gh pr edit` this state already runs, so a clean run is conformant with no separate `/fix-pr` pass (DESIGN R4 / D6). Do **not** mark the PR ready in this state — the DRAFT-vs-READY discipline (#117) requires the chain to be at its strict-mode passing state BEFORE `gh pr ready` fires, and the cascade in `plan_completion` performs that finalization. This state confines itself to title + body assembly.
 
-1. Read `koto context get {{SESSION_NAME}} batch_final_view` to get per-child outcome data.
-2. Assemble a PR description. For each child include:
-   - `name`: child workflow name
-   - `outcome`: `success`, `failure`, or `skipped`
-   - `reason`: failure or skip reason (if applicable)
-   - `reason_source`: where the reason came from
-   - `skipped_because_chain`: dependency chain that caused the skip (if skipped)
-3. Update the PR description: `gh pr edit <pr-number> --body "<assembled description>"`
+The canonical title/body spec is `skills/pr-creation/SKILL.md` (conventional `<type>[scope]: <description>` title; two-part body where Part 1 becomes the squash commit body and everything from `---` down is deleted at merge). Apply that spec inline here — do **not** invoke the cross-plugin `/fix-pr` or `pr-creation` skill at runtime; an autonomous `/execute` run authors its own conformant PR rather than producing a malformed one and repairing it.
 
-Submit `finalization_status: updated` with `pr_url` after the PR description is updated, or `finalization_status: update_failed` if the edit step fails. The next state (`plan_completion`) runs the cascade and `gh pr ready`.
+**1. Build the conventional title.** Derive `<description>` from the **validated PLAN slug** — `PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')`, which already matches `^[a-z0-9-]+$`. NEVER interpolate raw PLAN prose (title text, body) into the title or the emitted shell — PLAN-body text is data (Security Considerations point 6); the title is built only from the validated slug.
+
+   - `<type>` defaults to **`feat`** (a PLAN normally lands feature work). Use `fix` only when the PLAN is purely remediation, or `docs`/`chore` when every child change is docs/chore. A reasonable default is not a blocker — take `feat` and move on.
+   - `<scope>` is optional: omit unless an obvious subsystem applies (per `pr-creation` scope guidance; NEVER the slug-as-issue-number).
+   - The result, e.g. `feat: execute-friction`, **replaces** the non-conventional `impl: $PLAN_SLUG` title set at creation.
+
+**2. Assemble the two-part body.** Read `koto context get {{SESSION_NAME}} batch_final_view` for per-child outcome data, then build:
+
+   - **Part 1 — factual change paragraph** (becomes the squash commit body): a concise paragraph of what the PLAN's PR changed in the codebase, derived from the PLAN's own validated framing plus the child-outcome metadata. `/execute` is metadata-only (R14/R15) — do NOT read child PR bodies or diffs. No `Fixes #N` here.
+   - A `---` separator.
+   - **Part 2 — reviewer context** (deleted at merge): the per-child outcome table — for each child `name`, `outcome` (`success`/`failure`/`skipped`), `reason`, `reason_source`, `skipped_because_chain`. Append `Fixes #<N>` lines **only** when the children are GitHub issues (`ISSUE_SOURCE` is a real issue, not `plan_outline`); for single-pr outline children there is no issue to close, so omit `Fixes #N` entirely.
+
+**3. Apply via `--body-file`/stdin, never inline interpolation.** Write the assembled body to a temp file (or heredoc to stdin) and pass it with `--body-file`, so prose is never spliced into the shell command line:
+
+```bash
+PR_NUMBER=$(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number')
+PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
+BODY_FILE=$(mktemp)
+cat > "$BODY_FILE" <<'BODY'
+<Part 1: factual change paragraph>
+
+---
+
+<Part 2: per-child outcome table; Fixes #N only for GitHub-issue children>
+BODY
+gh pr edit "$PR_NUMBER" --title "feat: $PLAN_SLUG" --body-file "$BODY_FILE"
+rm -f "$BODY_FILE"
+```
+
+Run this title+body edit **unconditionally** on every finalization (clean and attention runs) — a zero-issue or all-skipped run still yields a conformant title, so R4's no-fix-up guarantee holds.
+
+Submit `finalization_status: updated` with `pr_url` after the PR title and body are updated, or `finalization_status: update_failed` if the edit step fails. The `finalization_status` enum, the `update_failed`→`done_blocked` route, and the DRAFT-before-READY ordering (no `gh pr ready` here — that stays in `plan_completion`) are unchanged. The next state (`plan_completion`) runs the cascade and `gh pr ready`.
 
 ## ci_monitor
 
