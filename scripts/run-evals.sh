@@ -18,6 +18,23 @@
 #   3  Missing prerequisites
 #
 # Prerequisites: claude CLI, python3, skill-creator plugin installed
+#
+# Tier-2 isolation:
+#   Tier-2 (execute) evals run the REAL workflow — run-cascade.sh --push, folder
+#   moves, and `git mv` into docs/designs/current/ — against a live git repo. Run
+#   directly in this checkout, a tier-2 cascade eval would mutate the working tree
+#   (e.g. move a fixture DESIGN into docs/designs/current/) and leak artifacts that
+#   collide with the next run. To prevent that, when a skill has any tier-2 evals
+#   the runner creates a throwaway, fully isolated clone of this repo under a temp
+#   dir (setup_tier2_isolation) and instructs the agent to `cd` into that clone
+#   before executing the workflow. The clone has its own .git and a local bare
+#   origin, so `git mv`/`git commit`/`git push` land in the sandbox and never touch
+#   the live tree or the real remote. A clone (rather than `git worktree add`) is
+#   used deliberately: concurrent agents share this repo's .git/worktrees, and a
+#   nested worktree would register there and risk cross-run contention; a clone is
+#   self-contained. This mirrors the temp-repo pattern in run-cascade_test.sh.
+#   The eval workspace (outputs/, grading.json) still lives in the live tree so
+#   --validate works; only the workflow EXECUTION is sandboxed.
 
 set -uo pipefail
 # Note: no set -e; we handle errors explicitly for --all resilience
@@ -163,6 +180,68 @@ PYEOF
   echo "$iteration" > /tmp/run-evals-iteration
 }
 
+# Returns 0 if the skill's evals.json contains at least one tier-2 eval.
+skill_has_tier2() {
+  local evals_file="$1"
+  python3 -c "
+import json, sys
+d = json.load(open('$evals_file'))
+sys.exit(0 if any(e.get('tier', 1) == 2 for e in d['evals']) else 1)
+" 2>/dev/null
+}
+
+# Create a throwaway, fully isolated clone of the repo for tier-2 eval execution.
+# The clone lives under a temp dir, has its own .git, and points origin at a local
+# bare repo in the same temp dir so the workflow's `git push` succeeds without
+# touching the live tree or the real remote. On success, sets TIER2_CHECKOUT to
+# the clone path and TIER2_ISOLATION_ROOT to the temp root (used by cleanup).
+# Returns nonzero on failure (caller must NOT fall back to the live tree).
+# Note: this sets globals rather than echoing, so it must be called directly
+# (not in a command substitution) or the assignments would be lost to a subshell.
+TIER2_ISOLATION_ROOT=""
+TIER2_CHECKOUT=""
+setup_tier2_isolation() {
+  local iso_root checkout bare branch
+  iso_root=$(mktemp -d "${TMPDIR:-/tmp}/shirabe-eval-iso.XXXXXX") || return 1
+  TIER2_ISOLATION_ROOT="$iso_root"
+  checkout="$iso_root/checkout"
+  bare="$iso_root/origin.git"
+
+  # Clone the live repo locally. --no-hardlinks keeps the sandbox fully
+  # independent of the live object store so a runaway gc/push in the clone can
+  # never corrupt the live repo.
+  if ! git clone --no-hardlinks --quiet "$REPO_ROOT" "$checkout" >/dev/null 2>&1; then
+    return 1
+  fi
+
+  # Replace origin with a throwaway bare repo so the cascade's `git push` lands
+  # in the sandbox, never the real remote.
+  git init --bare --quiet "$bare" >/dev/null 2>&1 || return 1
+  (
+    cd "$checkout" || exit 1
+    git config user.email "eval@shirabe.test"
+    git config user.name "Shirabe Eval Harness"
+    git remote remove origin >/dev/null 2>&1 || true
+    git remote add origin "$bare"
+    branch=$(git rev-parse --abbrev-ref HEAD)
+    git push --quiet --set-upstream origin "$branch" >/dev/null 2>&1
+  ) || return 1
+
+  TIER2_CHECKOUT="$checkout"
+}
+
+cleanup_tier2_isolation() {
+  if [ -n "$TIER2_ISOLATION_ROOT" ] && [ -d "$TIER2_ISOLATION_ROOT" ]; then
+    rm -rf "$TIER2_ISOLATION_ROOT"
+  fi
+  TIER2_ISOLATION_ROOT=""
+  TIER2_CHECKOUT=""
+}
+
+# Belt-and-suspenders: ensure the sandbox is removed even if the run exits early
+# (failed assertions, signal, or error) before run_skill_evals reaches cleanup.
+trap cleanup_tier2_isolation EXIT
+
 run_skill_evals() {
   local skill_name="$1"
   local skill_dir="$SKILLS_DIR/$skill_name"
@@ -176,8 +255,52 @@ run_skill_evals() {
   eval_count=$(cat /tmp/run-evals-eval-count)
   iteration=$(cat /tmp/run-evals-iteration)
 
-  # Step 2: Build tier-specific instructions for each eval
+  # Step 1b: For skills with tier-2 evals, stand up an isolated clone so the
+  # real workflow (run-cascade.sh --push, folder moves, git mv) executes against
+  # a sandbox checkout instead of the live working tree. See the "Tier-2
+  # isolation" note in the file header.
+  local tier2_checkout=""
+  local tier2_isolation_block=""
+  if skill_has_tier2 "$evals_file"; then
+    echo "=== Tier-2 evals detected: setting up isolated checkout ==="
+    # Call directly (not via $(...)): setup_tier2_isolation sets globals.
+    if setup_tier2_isolation; then
+      tier2_checkout="$TIER2_CHECKOUT"
+      echo "  Isolated checkout: $tier2_checkout"
+      echo "  (workflow execution sandboxed; live tree will not be mutated)"
+      echo ""
+      tier2_isolation_block=$(cat <<ISOBLOCK
+
+TIER-2 ISOLATION (MANDATORY for every tier 2 eval):
+An isolated, throwaway clone of this repository has been prepared at:
+  $tier2_checkout
+Tier-2 evals run the REAL workflow (run-cascade.sh --push, folder moves, git mv
+into docs/designs/current/), which mutates the repository working tree. To keep
+the live checkout clean, the with-skill agent for EVERY tier-2 eval MUST run with
+its working directory set to $tier2_checkout — i.e. cd into that directory before
+invoking the workflow, and pass fixture/plan paths relative to it (the clone
+contains an identical copy of skills/execute/evals/fixtures/...). The clone has
+its own git remote (a local throwaway), so the workflow's git commit/push land in
+the sandbox. Do NOT run any tier-2 workflow command in the original repository
+checkout. Tier-1 evals are unaffected (they execute no commands).
+ISOBLOCK
+)
+    else
+      echo "  WARNING: failed to set up isolated checkout for tier-2 evals." >&2
+      echo "  Refusing to run tier-2 evals against the live working tree." >&2
+      cleanup_tier2_isolation
+      return 2
+    fi
+  fi
+
+  # Step 2: Build tier-specific instructions for each eval.
+  # When tier-2 isolation is active, point the shimmed-bin path at the clone's
+  # copy of the fixtures so the agent's PATH shim and working directory stay
+  # consistent inside the sandbox.
   local fixtures_bin="$skill_dir/evals/fixtures/bin"
+  if [ -n "$tier2_checkout" ]; then
+    fixtures_bin="$tier2_checkout/skills/$skill_name/evals/fixtures/bin"
+  fi
   local tier_instructions
   tier_instructions=$(python3 << PYEOF
 import json
@@ -229,6 +352,7 @@ For tier 2 evals, before spawning the with-skill agent:
 1. Set the EVAL_SCENARIO environment variable as specified above.
 2. Prepend $fixtures_bin to PATH so the agent uses shimmed gh and koto binaries.
 These environment variables must be passed to the spawned agent process.
+$tier2_isolation_block
 
 For tier 1 evals, the agent must NOT execute any commands. It should only read the
 skill file and describe its planned execution sequence.
@@ -261,6 +385,9 @@ PROMPT
     echo "Open the eval viewer:"
     echo "  xdg-open $viewer"
   fi
+
+  # Tear down the tier-2 isolation sandbox (if one was created for this skill).
+  cleanup_tier2_isolation
 }
 
 validate_results() {
