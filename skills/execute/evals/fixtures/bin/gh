@@ -15,6 +15,34 @@ fi
 # Normalize args: join all arguments for pattern matching
 ARGS="$*"
 
+# emit_fixture <fixture-file> "$@": print canned JSON, honoring a trailing
+# `--jq <filter>` from the original gh args exactly as real gh does. The gate
+# commands in koto-templates/execute.md rely on the post-jq scalar (e.g. the
+# merge_state_clean gate compares stdout against the literal "DIRTY"), so the
+# shim must apply the filter rather than dump raw JSON. Call as
+# `emit_fixture "$SCENARIO_DIR/<file>.json" "$@"`.
+emit_fixture() {
+  local fixture="$1"
+  shift
+  [ -f "$fixture" ] || return 1
+  local jq_filter=""
+  local capture_next=false
+  for arg in "$@"; do
+    if $capture_next; then
+      jq_filter="$arg"
+      break
+    fi
+    if [ "$arg" = "--jq" ] || [ "$arg" = "-q" ]; then
+      capture_next=true
+    fi
+  done
+  if [ -n "$jq_filter" ]; then
+    jq -r "$jq_filter" "$fixture"
+  else
+    cat "$fixture"
+  fi
+}
+
 # Match on argument patterns
 case "$ARGS" in
   # gh issue view <number> [--json ...]
@@ -66,6 +94,31 @@ case "$ARGS" in
   *"issue list"*)
     if [ -f "$SCENARIO_DIR/gh-issue-list.json" ]; then
       cat "$SCENARIO_DIR/gh-issue-list.json"
+      exit 0
+    fi
+    ;;
+  # gh pr view --json mergeStateStatus --jq .mergeStateStatus
+  # Used by the ci_monitor merge_state_clean gate. Scenario-scoped: only
+  # scenarios that supply gh-pr-view-merge-state.json match; others fall
+  # through to the no-match path unchanged.
+  *"pr view"*)
+    if emit_fixture "$SCENARIO_DIR/gh-pr-view-merge-state.json" "$@"; then
+      exit 0
+    fi
+    ;;
+  # gh pr checks <number> --json state --jq '...'
+  # Used by the ci_monitor ci_passing gate. A scenario-local empty check-runs
+  # array models the DIRTY silent-success surface (GitHub suppresses new
+  # check-runs on a conflicted PR, so length == 0 evaluates true).
+  *"pr checks"*)
+    if emit_fixture "$SCENARIO_DIR/gh-pr-checks.json" "$@"; then
+      exit 0
+    fi
+    ;;
+  # gh pr list --head <branch> --json number --jq '.[0].number // empty'
+  # Used by both ci_monitor gates to resolve the PR number for the head branch.
+  *"pr list"*)
+    if emit_fixture "$SCENARIO_DIR/gh-pr-list-number.json" "$@"; then
       exit 0
     fi
     ;;
