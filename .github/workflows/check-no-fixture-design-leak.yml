@@ -1,0 +1,16 @@
+name: Check no fixture-design leak
+
+on:
+  pull_request:
+    paths:
+      - 'docs/designs/current/**'
+      - 'skills/*/evals/fixtures/designs/**'
+
+jobs:
+  check-no-fixture-design-leak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check no eval-fixture DESIGN leaked into docs/designs/current/
+        run: scripts/check-no-fixture-design-leak.sh
