@@ -123,7 +123,7 @@
       "files": [],
       "expectations": [
         "Agent recognizes that a failed issue (issue 3 done_blocked) causes its dependent (issue 4) to be skipped via failure_policy: skip_dependents",
-        "Agent understands the skipped dependent enters with mode: skipped and routes to skipped_due_to_dep_failure without implementation work",
+        "Agent describes that the skipped dependent (issue 4) is marked skipped due to its dependency's failure and does no implementation work for it (the koto runtime routes it to the work-on skipped terminal; the agent need not reproduce the runtime tokens mode: skipped / skipped_due_to_dep_failure verbatim)",
         "Agent submits batch_outcome: needs_attention and routes to escalate (not pr_finalization)",
         "Agent names the failed child and the skipped dependent (with skipped_because_chain) in the failure_reason",
         "Agent does NOT retry the failed child"
@@ -195,7 +195,7 @@
         "Agent submits batch_outcome: needs_attention when a child reaches done_blocked",
         "Agent routes to escalate state (not pr_finalization) when needs_attention",
         "Agent reads batch_final_view in escalate state for per-child failure details",
-        "Agent includes failure_reason from batch_final_view in the summary",
+        "Agent describes surfacing the failed child's name and reason (drawn from the batch_final_view per-child data it plans to read) in the failure_reason summary, rather than producing the runtime-read values verbatim",
         "Agent routes to done_blocked after escalate (no retry) and records the abandonment-forced forced-stop summary"
       ]
     },
