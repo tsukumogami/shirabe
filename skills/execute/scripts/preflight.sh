@@ -11,7 +11,12 @@
 # (the load-bearing cross-skill coupling). This preflight makes it loud and early.
 set -euo pipefail
 
-ROOT="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT is not set; /execute cannot resolve the cross-skill child template}"
+# Resolve the plugin root. Prefer $CLAUDE_PLUGIN_ROOT when the loader exported it,
+# but fall back to the script's own location so the preflight works from a plain
+# shell (e.g. an agent running it directly) where the env var may be unset. This
+# script lives at skills/execute/scripts/, so ../../.. is the plugin root. The
+# real assertion remains the child-template existence check below.
+ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 CHILD="$ROOT/skills/work-on/koto-templates/work-on.md"
 
 if [[ ! -f "$CHILD" ]]; then
