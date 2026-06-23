@@ -24,3 +24,6 @@ jobs:
 
       - name: Run cascade tests
         run: bash skills/execute/scripts/run-cascade_test.sh
+
+      - name: Run preflight tests
+        run: bash skills/execute/scripts/preflight_test.sh
