@@ -32,7 +32,11 @@ TEMPLATE_DIR="$SCRIPT_DIR/../references/templates"
 json_error() {
     local message="$1"
     local code="${2:-1}"
-    echo "{\"error\": \"$message\"}" >&2
+    if command -v jq &>/dev/null; then
+        jq -nc --arg msg "$message" '{error: $msg}' >&2
+    else
+        echo "{\"error\": \"$message\"}" >&2
+    fi
     exit "$code"
 }
 

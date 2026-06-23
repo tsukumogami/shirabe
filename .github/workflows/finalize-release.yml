@@ -23,32 +23,39 @@ jobs:
     steps:
       - name: Determine effective token
         id: token
+        env:
+          SECRET_TOKEN: ${{ secrets.token }}
+          FALLBACK_TOKEN: ${{ github.token }}
         run: |
-          if [ -n "${{ secrets.token }}" ]; then
-            echo "token=${{ secrets.token }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$SECRET_TOKEN" ]; then
+            echo "token=$SECRET_TOKEN" >> "$GITHUB_OUTPUT"
           else
-            echo "token=${{ github.token }}" >> "$GITHUB_OUTPUT"
+            echo "token=$FALLBACK_TOKEN" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Validate tag format
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if ! echo "${{ inputs.tag }}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::Tag '${{ inputs.tag }}' does not match v<major>.<minor>.<patch>"
+          if ! echo "$INPUT_TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Tag '$INPUT_TAG' does not match v<major>.<minor>.<patch>"
             exit 1
           fi
 
       - name: Verify draft release exists
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
         run: |
-          DRAFT=$(gh release view "${{ inputs.tag }}" --repo "${{ github.repository }}" --json isDraft --jq '.isDraft' 2>/dev/null || echo "not_found")
+          DRAFT=$(gh release view "$INPUT_TAG" --repo "$REPO" --json isDraft --jq '.isDraft' 2>/dev/null || echo "not_found")
           if [ "$DRAFT" = "not_found" ]; then
-            echo "::error::No release found for tag ${{ inputs.tag }}"
-            echo "Create one: gh release create ${{ inputs.tag }} --draft --title '${{ inputs.tag }}'"
+            echo "::error::No release found for tag $INPUT_TAG"
+            echo "Create one: gh release create $INPUT_TAG --draft --title '$INPUT_TAG'"
             exit 1
           fi
           if [ "$DRAFT" != "true" ]; then
-            echo "Release ${{ inputs.tag }} is already published. Nothing to do."
+            echo "Release $INPUT_TAG is already published. Nothing to do."
             exit 0
           fi
 
@@ -56,13 +63,15 @@ jobs:
         if: ${{ inputs.expected-assets > 0 }}
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
+          EXPECTED: ${{ inputs.expected-assets }}
         run: |
-          ACTUAL=$(gh release view "${{ inputs.tag }}" --repo "${{ github.repository }}" --json assets --jq '.assets | length')
-          EXPECTED=${{ inputs.expected-assets }}
+          ACTUAL=$(gh release view "$INPUT_TAG" --repo "$REPO" --json assets --jq '.assets | length')
           if [ "$ACTUAL" -lt "$EXPECTED" ]; then
             echo "::error::Expected at least $EXPECTED assets, found $ACTUAL"
             echo "Assets present:"
-            gh release view "${{ inputs.tag }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name'
+            gh release view "$INPUT_TAG" --repo "$REPO" --json assets --jq '.assets[].name'
             exit 1
           fi
           echo "Asset count OK: $ACTUAL >= $EXPECTED"
@@ -70,14 +79,16 @@ jobs:
       - name: Promote draft to published
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
         run: |
-          echo "Promoting ${{ inputs.tag }} from draft to published..."
-          if ! gh release edit "${{ inputs.tag }}" --repo "${{ github.repository }}" --draft=false; then
-            echo "::error::Failed to promote release ${{ inputs.tag }}"
-            echo "Manual fix: gh release edit ${{ inputs.tag }} --draft=false"
+          echo "Promoting $INPUT_TAG from draft to published..."
+          if ! gh release edit "$INPUT_TAG" --repo "$REPO" --draft=false; then
+            echo "::error::Failed to promote release $INPUT_TAG"
+            echo "Manual fix: gh release edit $INPUT_TAG --draft=false"
             exit 1
           fi
-          echo "Release ${{ inputs.tag }} is now published"
+          echo "Release $INPUT_TAG is now published"
 
       - name: Checkout for post-release hook
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -86,17 +97,20 @@ jobs:
 
       - name: Extract version from tag
         id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          VERSION=$(echo "${{ inputs.tag }}" | sed 's/^v//')
+          VERSION=$(echo "$INPUT_TAG" | sed 's/^v//')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Run post-release hook
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           if [ -x .release/post-release.sh ]; then
-            echo "Running .release/post-release.sh ${{ steps.version.outputs.version }}"
-            .release/post-release.sh "${{ steps.version.outputs.version }}"
+            echo "Running .release/post-release.sh $RELEASE_VERSION"
+            .release/post-release.sh "$RELEASE_VERSION"
           else
             echo "No .release/post-release.sh found, skipping"
           fi
