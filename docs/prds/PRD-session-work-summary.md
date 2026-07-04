@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   In long agent sessions that open multiple pull requests, often across several
   repositories, PR links scroll out of reach and no reliable surface recovers
@@ -27,7 +27,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
