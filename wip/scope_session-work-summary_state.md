@@ -2,7 +2,7 @@
 topic: session-work-summary
 chain_started: 2026-07-04T00:00:00Z
 last_updated: 2026-07-04T00:00:00Z
-phase_pointer: phase-1
+phase_pointer: phase-2
 exit: UNSET
 exit_artifacts: []
 visibility: Public
@@ -20,8 +20,15 @@ upstream_context: "Completed 4-round /explore on this branch: wip/explore_sessio
 coordination:
   coordination_pr: tsukumogami/shirabe#218
   created_at: 2026-07-04T00:00:00Z
+chain_ran:
+  - brief
+child_snapshots:
+  brief:
+    status: Accepted
+    content_hash: 06224ae6576857a9c0b871b4ad5339b0b717e9db
+    captured_at: 2026-07-04T00:00:00Z
 parent_orchestration:
-  invoking_child: brief
+  invoking_child: prd
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 ```
