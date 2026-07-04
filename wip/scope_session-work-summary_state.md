@@ -17,4 +17,11 @@ r6_predicates:
   p2: "fires — new components in three repos: capture/render hook scripts (dot-niwa), /status skill (shirabe), dispatch-brief rule (niwa rootskill); none exist today"
   p3: "fires — projected Complex: cross-repo contract spanning Claude Code hook semantics, niwa materialization, shirabe skill loading, and gh data plane"
 upstream_context: "Completed 4-round /explore on this branch: wip/explore_session-work-summary_{findings,decisions,crystallize}.md + wip/research/explore_session-work-summary_r*.md; crystallize recommended Design Doc"
+coordination:
+  coordination_pr: tsukumogami/shirabe#218
+  created_at: 2026-07-04T00:00:00Z
+parent_orchestration:
+  invoking_child: brief
+  suppress_status_aware_prompt: true
+  rationale: fresh-chain
 ```
