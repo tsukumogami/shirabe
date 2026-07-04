@@ -2,9 +2,13 @@
 topic: session-work-summary
 chain_started: 2026-07-04T00:00:00Z
 last_updated: 2026-07-04T00:00:00Z
-phase_pointer: phase-2
-exit: UNSET
-exit_artifacts: []
+phase_pointer: phase-3
+exit: full-run
+exit_artifacts:
+  - docs/plans/PLAN-session-work-summary.md
+plan_execution_mode: coordinated
+plan_status: Draft
+plan_note: "Coordinated PLAN authored and validated at Draft; GitHub issue fan-out across niwa/shirabe/dot-niwa deferred to implementation time per user decision. DESIGN marked Planned. Coordination PR tsukumogami/shirabe#218 merges last."
 visibility: Public
 planned_chain:
   - brief
@@ -34,11 +38,11 @@ child_snapshots:
     content_hash: 68d1f6b1311509e824cc650863ce564b1952cad1
     captured_at: 2026-07-04T00:00:00Z
   design:
-    status: Accepted
+    status: Planned
     content_hash: db4a3ebadb2278948f330f9db778563d0da559c6
     captured_at: 2026-07-04T00:00:00Z
-parent_orchestration:
-  invoking_child: plan
-  suppress_status_aware_prompt: true
-  rationale: fresh-chain
+  plan:
+    status: Draft
+    content_hash: 36f9606e72c7996410dfbfb203fc0420a50e4e68
+    captured_at: 2026-07-04T00:00:00Z
 ```
