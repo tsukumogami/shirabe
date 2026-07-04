@@ -91,9 +91,9 @@ to keep track of the work it produced.
 ### Functional
 
 - **R1** — The system SHALL define a single standardized summary block with a
-  fixed, constant leading marker line and one entry per tracked work item. All
-  emissions of the summary — automatic, on-demand, and in a worker's final
-  message — SHALL use this same block shape.
+  fixed, constant leading marker line and one entry per pull request the session
+  is tracking. All emissions of the summary — automatic, on-demand, and in a
+  worker's final message — SHALL use this same block shape.
 - **R2** — Each entry SHALL carry, at minimum: the owning repository identity,
   the PR number, the PR state (for example open, draft, merged, closed), a
   CI/review status indication, a short title, and the PR's full URL. The full
@@ -145,7 +145,8 @@ to keep track of the work it produced.
   widths, including when lines wrap, without breaking the usability of the URL
   on each entry.
 - **R15** — The per-emission cost of keeping the agent aware of the PR set SHALL
-  be bounded and small relative to the session's context budget, and the
+  be bounded and small relative to the session's context budget (on the order of
+  a few hundred tokens per emission for a typical handful of PRs), and the
   emission policy SHALL favor signal over volume.
 
 ## Acceptance Criteria
@@ -165,8 +166,14 @@ to keep track of the work it produced.
       freshness indication.
 - [ ] Every entry's URL corresponds to a real pull request; no summary emits a
       PR reference that does not resolve to an actual PR.
+- [ ] A PR-shaped reference that appears in the conversation but was not produced
+      or acted on by the session (for example a URL quoted in passing) does not
+      enter the summary.
 - [ ] A summary rendered while live PR state is unreachable is clearly marked as
-      best-effort and does not abort the turn.
+      best-effort and does not abort the turn, and the same summary is produced
+      within an interactive-cadence time budget under normal conditions.
+- [ ] The summary remains legible and each entry's URL stays usable when the
+      block is rendered at a narrow terminal width where lines wrap.
 - [ ] In a multi-repo workspace, entries name their repository, and a
       private-repo PR does not appear in a public-visibility summary.
 - [ ] A dispatched worker's final message contains the summary of the PRs it
