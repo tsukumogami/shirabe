@@ -37,11 +37,12 @@ actually works in the harness?
 
 ### Decisions
 
-(pending user convergence input)
+- Cadence: event-gated push + return-after-absence accepted; timer/turn-count rejected.
+- Placement: shirabe stays hook-free (verified — plugin.json declares only skills). shirabe owns template + skill emission rules; niwa/dot-niwa owns hook delivery. This resolves the all-sessions-vs-workflow-only tension into a layered split along the existing architectural boundary.
 
 ### User Focus
 
-(pending user convergence input)
+The user's placement instinct was architectural: "shirabe has no knowledge of hooks... connecting to claude hooks has been a responsibility of niwa" — confirmed by inspection. They chose to explore further rather than crystallize, pointing round 2 at mechanics validation and the layer contract.
 
 ## Accumulated Understanding
 

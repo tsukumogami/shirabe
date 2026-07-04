@@ -41,7 +41,24 @@ template convention with a delivery/cadence mechanism.
 - Multi-user / team notification systems (Slack digests etc.)
 - Redesigning shirabe's PR-creation workflow — only how results are surfaced
 
-## Research Leads
+## Research Leads (Round 2)
+
+Direction settled in round 1: event-gated push + return-after-absence cadence; shirabe
+owns template + skill emission rules (hook-free), niwa/dot-niwa delivers the cadence hook.
+
+1. **What is the exact contract between the shirabe layer and the niwa hook layer so they never double-emit?**
+   Who owns the marker string, the ledger/state file schema and location, and the template file both layers reference? How does a niwa-delivered hook point at a shirabe-owned template (shirabe-extensions channel, references/ path, or duplicated text)?
+
+2. **Do the hook mechanics actually behave as documented?**
+   Empirically verify: PostToolUse additionalContext injection (including in `claude -p` background mode), the `if: "Bash(gh pr create*)"` handler filter, and the suspected duplicate-hook installation bug in niwa's per-repo settings merge. Confirm where per-session state can live.
+
+3. **How should the summary reach the user for background/dispatched sessions?**
+   UserPromptSubmit is dead in `-p` mode and statuslines are invisible. Investigate Agent View, `niwa_report_progress`, `niwa_finish_task` result payloads, and the ledger file as the background channel.
+
+4. **What should the summary block actually look like?**
+   Draft 2-3 candidate formats grounded in the coordination PR-Index, issues-table.md, and Renovate's state-sectioned dashboard; pick a scrollback-searchable marker; sketch the /status pull skill's render.
+
+## Research Leads (Round 1)
 
 1. **What extension points does Claude Code offer for injecting recurring or conditional instructions into a session?**
    Hooks (Stop, PostToolUse, UserPromptSubmit, SessionStart), statusline, CLAUDE.md, system reminders, task list — which can count turns, measure elapsed time, or react to PR-related tool calls, and what are their injection semantics (context injection vs. blocking vs. display-only)?
