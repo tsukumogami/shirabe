@@ -1,7 +1,7 @@
 ---
 schema: design/v1
-upstream: docs/prds/PRD-session-work-summary.md
 status: Proposed
+upstream: docs/prds/PRD-session-work-summary.md
 problem: |
   A session's real PR set must be surfaced as a standardized, findable block
   without relying on the agent to remember what it opened, and the machinery has
@@ -164,13 +164,20 @@ rejected options are real alternatives that were built or tested, not strawmen.
   parallel tool calls in one turn double-fire the hook, producing duplicate
   blocks; identical blocks train the user to ignore the marker.
 - **Option C (chosen): event-gated plus return-after-absence, with a
-  compaction repair.** Emit both channels when the ledger hash or the rendered
-  block changes (a PR opened, merged, or its CI/review flipped), and on the first
-  prompt after a configurable absence (default 30 min); emit `additionalContext`
-  only after a compaction (`SessionStart` `compact` matcher) to repair model
-  awareness without a redundant user-facing block; emit nothing otherwise. State
-  writes are `flock`-protected to survive the parallel-tool-call race. Measured
-  cost: ~200 tokens per model-context echo, ~800 per realistic gated session.
+  compaction repair.** A two-level gate keeps cost bounded (PRD R15): the cheap
+  first level compares the ledger hash on every fire (no `gh` call); the
+  expensive second level — recomputing the rendered-block hash, which requires
+  live `gh` — runs only when the ledger changed or a render interval
+  (`WS_RENDER_INTERVAL`) has elapsed, so a status-only flip is caught
+  periodically rather than on every tool call. Emit both channels when either
+  hash changes; emit on the first prompt after a configurable absence
+  (`WS_ABSENCE_THRESHOLD`, default 30 min); emit `additionalContext` only after a
+  compaction (`SessionStart` `compact` matcher) to repair model awareness without
+  a redundant user-facing block; emit nothing otherwise. Every fire, including
+  suppressed ones, refreshes `last_activity` so the absence timer stays accurate.
+  State writes are `flock`-protected to survive the parallel-tool-call race.
+  Measured cost: ~200 tokens per model-context echo, ~800 per realistic gated
+  session.
 
 ### Decision 5 — Block format and marker
 
@@ -214,13 +221,27 @@ thin conversational surface in shirabe:
   background worker's final message to carry the block, since the systemMessage
   channel does not reach a dashboard row.
 
-This holds every PRD requirement: the block is standardized and identical across
-surfaces (R1-R2), ordered and terminal-dropping (R3), live-derived (R4),
-real-PR-only by construction because the ledger only ever holds captured-from-`gh`
-references (R5), event-gated with return-after-absence and duplicate suppression
-(R6-R8), on-demand via `/status` (R9), model-aware across compaction (R10),
-present in a worker's final message (R11), and multi-repo visibility-safe because
-per-session capture never reaches beyond the repos the session touched (R12).
+This holds the PRD requirements, with two bounds stated honestly. The block is
+standardized and identical across surfaces (R1-R2); ordered and terminal-dropping
+(R3), which the ledger backs with a per-item `terminal_shown` marker so a
+merged/closed PR appears in exactly one summary after transition and then drops;
+live-derived (R4); real-PR-only by construction because the ledger only ever
+holds captured-from-`gh` references (R5); event-gated with return-after-absence
+and duplicate suppression (R6-R8); on-demand via `/status`, which stamps a
+freshness line so R9's "indicate how fresh" is met; model-aware across compaction
+(R10); present in a worker's final message (R11); and multi-repo visibility-safe
+because per-session capture never reaches beyond the repos the session touched
+(R12).
+
+**Two acknowledged bounds.** (1) A GitHub-side CI or review status change (R6)
+produces no hook event — PostToolUse fires only on the agent's own `gh` commands.
+A status-only flip therefore surfaces at the next PR-affecting tool call, on
+return-after-absence, or on an on-demand `/status`, not at the instant GitHub
+changes; the `WS_RENDER_INTERVAL` second-level gate bounds the staleness. (2)
+R1's uniform block shape holds across every emission the render script produces;
+the shirabe-without-niwa degraded fallback (no render script present) follows the
+same block contract by carrying a copy of the format spec, so the shape stays
+consistent even in that mode.
 
 ## Solution Architecture
 
@@ -231,8 +252,9 @@ per-session capture never reaches beyond the repos the session touched (R12).
 | `capture-work-in-flight.sh` (PostToolUse) | dot-niwa `.niwa/hooks/post_tool_use/` | Extract PR ref from `gh pr create` output; append to ledger; invoke renderer; emit block on gate pass |
 | `work-summary-return.sh` (UserPromptSubmit) | dot-niwa `.niwa/hooks/user_prompt_submit/` | On first prompt after absence threshold, invoke renderer and emit block |
 | `work-summary-compact.sh` (SessionStart, `compact` matcher) | dot-niwa `.niwa/hooks/session_start/` | Re-inject `additionalContext` block after compaction |
-| `render-work-in-flight.sh` | dot-niwa, materialized to `.claude/hooks/render-work-in-flight.local.sh` | Single render implementation: ledger + live `gh` → block; gate logic; `--help` is the spec |
-| session ledger | runtime dir, keyed by session id | Private scope record (repo, PR number, URL, first-seen). Hook writes, renderer reads. Not a cross-layer contract |
+| `render-work-in-flight.sh` | dot-niwa, materialized to `.claude/hooks/render-work-in-flight.local.sh` | Single render implementation: ledger + live `gh` → block (with freshness line); gate logic; `--help` is the spec |
+| session ledger | per-user runtime dir, keyed by session id | Private scope record: one row per PR (repo, number, URL, first-seen, `terminal_shown` flag). Hook writes, renderer reads. Not a cross-layer contract |
+| gate state file | per-user runtime dir, keyed by session id | `flock`-protected: last-emitted ledger hash, last-rendered-block hash, last-render timestamp, `last_activity` timestamp. Shared by all three hooks; every fire refreshes `last_activity` |
 | `/status` skill | shirabe `skills/status/` | Relay the render script's output via `!` injection; `gh` fallback when absent |
 | dispatch-brief final-message rule | niwa rootskill `dispatch` + shirabe convention | Require the block in a background worker's final message |
 
@@ -294,30 +316,45 @@ confirms the resolved path stays within the project root.
 - **Render**: `render-work-in-flight.sh <session-id>` prints the block to stdout;
   exit 0 with a best-effort block when `gh` is unreachable.
 - **Gate/state**: a `flock`-protected state file per session holds the
-  last-emitted ledger hash, rendered-block hash, and last-activity timestamp.
+  last-emitted ledger hash, last-rendered-block hash, last-render timestamp, and
+  `last_activity` timestamp. The three hooks share it: the capture hook drives
+  the ledger-hash and rendered-hash comparison; the UserPromptSubmit hook reads
+  `last_activity` against `WS_ABSENCE_THRESHOLD`; both refresh `last_activity` on
+  every fire including suppressed ones so the absence timer cannot be starved.
+- **Ledger row**: repo, PR number, URL, first-seen timestamp, and a
+  `terminal_shown` flag set when a merged/closed PR has appeared in its one
+  post-transition summary (drives R3's drop-after-one-emission).
 - **Display**: hook stdout JSON carries `systemMessage` and
   `hookSpecificOutput.additionalContext` in a single emission.
 
 ## Implementation Approach
 
+0. **Prerequisites (niwa, sequence first).** Two niwa-side dependencies gate the
+   rest and are sequenced ahead of the hooks that rely on them: (a) the
+   materializer duplicate-hook fix — a hook registered through both declared
+   config and auto-discovery currently loses its matcher and fires on every tool
+   call; (b) a machine-readable, single-file provenance-verification surface the
+   `/status` skill can query (if the chosen `/status` trust approach requires it —
+   see the Cross-Layer Contract). Where the plan cannot land a prerequisite
+   first, the dependent hook is authored defensively (idempotent, tool-type
+   tolerant) and the `/status` skill fails closed rather than assuming the surface
+   exists.
 1. **Render script + block format** (dot-niwa). Port the validated prototype:
    ledger read, `gh pr view` refresh, block formatting with the marker, ordering,
-   terminal-drop, section escalation, and offline degradation. Its `--help` is
-   the format spec. Unit-test the capture regex against the fixture set.
+   terminal-drop (`terminal_shown`), freshness line, section escalation, and
+   offline degradation. Its `--help` is the format spec. Unit-test the capture
+   regex and the terminal-safety sanitizer against the fixture set.
 2. **Capture hook + ledger + gate** (dot-niwa). PostToolUse matcher on
-   PR-affecting `gh` commands; `flock`-protected ledger append and gate state;
-   dual-channel emission with neutral additionalContext phrasing.
-3. **Return + compaction hooks** (dot-niwa). UserPromptSubmit absence check;
-   SessionStart(compact) re-injection.
-4. **`/status` skill** (shirabe). Injection-line probe of the well-known path;
-   `gh` fallback; `disable-model-invocation: true`.
+   PR-affecting `gh` commands; `flock`-protected ledger append and two-level gate
+   state (ledger hash / rendered hash / render interval); dual-channel emission
+   with neutral additionalContext phrasing; per-user 0700 storage.
+3. **Return + compaction hooks** (dot-niwa). UserPromptSubmit absence check
+   against `WS_ABSENCE_THRESHOLD`; SessionStart(compact) re-injection.
+4. **`/status` skill** (shirabe). Injection-line probe of the well-known path per
+   the chosen trust approach; repo-scoped fail-closed `gh` fallback;
+   `disable-model-invocation: true`.
 5. **Dispatch-brief rule** (niwa rootskill + shirabe convention). Final-message
-   block requirement for background workers.
-6. **Prerequisite coordination**: the niwa materializer duplicate-hook fix (a PR
-   registered through both declared config and auto-discovery loses its matcher)
-   is upstream of hooks shipped this way; the plan sequences it first or the
-   hooks are authored to tolerate the current behavior (idempotent, tool-type
-   tolerant).
+   block requirement for background workers, with the same sanitization contract.
 
 ## Security Considerations
 
@@ -329,13 +366,20 @@ public/private visibility boundary. The controls below are load-bearing.
 
 **Untrusted-input handling (capture + render).** The extracted PR URL is
 validated against an anchored `^https://github\.com/<owner>/<repo>/pull/[0-9]+$`
-pattern (owner/repo per the F2 GitHub charset regex) before it reaches the
-ledger or any `gh` call; a non-match is rejected, not sanitized. The session id
-is validated against `^[A-Za-z0-9._-]+$` before composing any file path. Every
-`gh`-sourced field (title, state) is sanitized per F3 before entering the block:
-control/ANSI bytes stripped, newlines and `|` removed, title length truncated,
-and the literal `=== WORK IN FLIGHT ===` marker forbidden inside any cell — so a
-crafted title cannot forge rows, inject a second marker, or spoof the terminal.
+pattern before it reaches the ledger or any `gh` call; a non-match is rejected,
+not sanitized. This anchoring is load-bearing against `gh` flag-injection: the
+`owner`/`repo` components are validated with the coordination contract's F2
+GitHub charset regex, whose alphanumeric-first-character anchor prevents an
+extracted component from being read as a `gh` flag. The session id is validated
+against `^[A-Za-z0-9._-]+$` before composing any file path. Every `gh`-sourced
+field — title and state, and any other field ever rendered — passes through a
+**terminal-safety sanitizer** before entering the block. This is a distinct
+control from the coordination contract's F3 (a markdown/HTML escaper for PR
+bodies, which does not address terminals): here, control and ANSI bytes are
+stripped first, then the title is truncated (strip-before-truncate, so a
+multi-byte escape cannot survive by being split), newlines and `|` are removed,
+and the literal `=== WORK IN FLIGHT ===` marker is forbidden inside any cell — so
+a crafted title cannot forge rows, inject a second marker, or spoof the terminal.
 
 **Shell / permission discipline.** Every `gh` invocation in the hook and render
 script uses an argv array, never a shell string; no extracted value is
@@ -372,12 +416,17 @@ a per-user private directory (mode 0700, files 0600), opened with symlink-
 following disabled, so one local session or user cannot read another's tracked
 PR set from a predictable `/tmp` path.
 
-**Residual risk.** The feature trusts niwa's materialization fingerprint as the
-script-provenance root; a compromise of the materializer or of `GH_TOKEN` is out
-of scope and inherited from the harness. Prompt-injection defense is
-best-effort: sanitization and field-restriction reduce but do not eliminate the
-possibility that adversarial PR text influences the model's narrative, so no
-security decision is delegated to model interpretation of block contents.
+**Residual risk.** The feature trusts niwa's materialization provenance as the
+script-execution root; a compromise of the materializer or of `GH_TOKEN` is out
+of scope and inherited from the harness. Prompt-injection defense on the ambient
+path is best-effort: sanitization and field-restriction reduce but do not
+eliminate the possibility that adversarial PR text influences the model's
+narrative, so no security decision is delegated to model interpretation of block
+contents. The background-worker final-message path is a distinct, explicit
+residual: there the model itself authors a dashboard-bound block from
+attacker-influenceable PR titles, so the same sanitization contract applies to
+that authored block, and the title-restriction (structured fields preferred over
+free text) is the mitigation of record.
 
 ## Consequences
 
