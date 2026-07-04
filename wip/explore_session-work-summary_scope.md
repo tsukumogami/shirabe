@@ -41,6 +41,16 @@ template convention with a delivery/cadence mechanism.
 - Multi-user / team notification systems (Slack digests etc.)
 - Redesigning shirabe's PR-creation workflow — only how results are surfaced
 
+## Research Leads (Round 4)
+
+Closing the last unknowns before crystallize; architecture is settled.
+
+1. **Does the block actually render well end to end in the real UIs?**
+   Empirically (tmux-driven interactive session): does a multi-line hook `systemMessage` block render visibly and intact in the interactive TUI? Do trailing bare URLs linkify and survive wrapping? For a background session: does Agent View / `claude agents` surface the persisted `hook_system_message` record, and where do PR links actually show for a finished worker?
+
+2. **What is the right throttle/emit policy for the model-context echo, and what does it cost?**
+   Measure the block's token cost per additionalContext fire; define the gate (emit on PR-set change + first fire after absence; suppress otherwise); check the `!`cmd`` injection working directory; sanity-check compaction interaction by reasoning over transcript structure.
+
 ## Research Leads (Round 3)
 
 Direction pivot after round 2: maximize determinism — hooks capture PR URLs from tool
