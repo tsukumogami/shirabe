@@ -41,6 +41,21 @@ template convention with a delivery/cadence mechanism.
 - Multi-user / team notification systems (Slack digests etc.)
 - Redesigning shirabe's PR-creation workflow — only how results are surfaced
 
+## Research Leads (Round 3)
+
+Direction pivot after round 2: maximize determinism — hooks capture PR URLs from tool
+output, a script renders the block, `systemMessage` displays it without model
+involvement; instructions remain only where scripts can't reach.
+
+1. **What are the real semantics of `systemMessage` across hook events and modes?**
+   Empirically: does PostToolUse/UserPromptSubmit `systemMessage` render in the interactive transcript UI? Does it persist in the transcript JSONL? Does it appear in `claude -p` output, `claude logs`, and Agent View for background sessions? Size limits? Can one hook output carry `systemMessage` + `additionalContext` together? How does `suppressOutput` interact?
+
+2. **Does a deterministic capture+render pipeline actually work end to end?**
+   Prototype `work-summary.sh`: extract PR URL from `gh pr create` tool_response robustly (all output shapes), maintain the session ledger, render the block from live gh queries across multiple repos; measure latency inside a hook's time budget and handle missing-gh/offline gracefully.
+
+3. **What does the re-cut shirabe/dot-niwa division of labor look like, and does `!`cmd`` dynamic injection work for /status?**
+   If hooks own capture/render/display, what remains in shirabe (block spec as the script's contract, /status skill, dispatched-worker final-message rule)? Verify skill dynamic context injection (`` !`command` `` preprocessing) works in the installed version; define where the render script lives so both dot-niwa hooks and the shirabe /status skill can call one implementation without version skew.
+
 ## Research Leads (Round 2)
 
 Direction settled in round 1: event-gated push + return-after-absence cadence; shirabe
