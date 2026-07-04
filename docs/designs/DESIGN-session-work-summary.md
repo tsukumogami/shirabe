@@ -267,14 +267,29 @@ The only coupling between dot-niwa and shirabe is:
 
 There is no shared ledger schema. The ledger format is internal to dot-niwa's
 hook and renderer. When shirabe runs without niwa, `/status` degrades to a
-model-driven `gh` listing; when niwa runs without shirabe, the ambient display
-still works and only the `/status` command is missing.
+**repo-scoped** `gh` listing (never an author-scoped cross-repo search, which
+would over-collect private PRs into a public context — the rejected Decision 3
+Option B behavior); when niwa runs without shirabe, the ambient display still
+works and only the `/status` command is missing.
+
+**Required control — script provenance.** `/status` executes the probed
+`render-work-in-flight.local.sh` only after verifying niwa's materialization
+fingerprint. The `.local` path is a naming convention, not a trust boundary: a
+file planted at that path by a malicious branch, PR checkout, or clone must not
+be executed. When the fingerprint is absent or mismatched, `/status` fails
+**closed to the repo-scoped `gh` fallback**, not to executing the file, and
+confirms the resolved path stays within the project root.
 
 ### Key Interfaces
 
 - **Capture**: PostToolUse stdin JSON provides `tool_input.command` and
   `tool_response.stdout`; the hook parses the PR URL from `gh pr create` output
-  (digits-only PR-number match, rejecting `git push`'s `/pull/new/` hint).
+  and validates it against an anchored
+  `^https://github\.com/<owner>/<repo>/pull/[0-9]+$` pattern (owner/repo per the
+  F2 GitHub charset regex) before it reaches the ledger or any `gh` call —
+  rejecting, not sanitizing, a non-match, and rejecting `git push`'s
+  `/pull/new/` hint. The session id is validated against `^[A-Za-z0-9._-]+$`
+  before composing any file path.
 - **Render**: `render-work-in-flight.sh <session-id>` prints the block to stdout;
   exit 0 with a best-effort block when `gh` is unreachable.
 - **Gate/state**: a `flock`-protected state file per session holds the
@@ -305,7 +320,63 @@ still works and only the `/status` command is missing.
 
 ## Security Considerations
 
-<!-- Phase 5 security review fills this section -->
+This feature processes untrusted, attacker-influenceable input — `gh` command
+output and, most importantly, PR titles returned by `gh pr view` — and routes it
+into a shell pipeline, a user-visible terminal channel, and the model's context.
+It also executes a materialized script and reads PR state that may cross the
+public/private visibility boundary. The controls below are load-bearing.
+
+**Untrusted-input handling (capture + render).** The extracted PR URL is
+validated against an anchored `^https://github\.com/<owner>/<repo>/pull/[0-9]+$`
+pattern (owner/repo per the F2 GitHub charset regex) before it reaches the
+ledger or any `gh` call; a non-match is rejected, not sanitized. The session id
+is validated against `^[A-Za-z0-9._-]+$` before composing any file path. Every
+`gh`-sourced field (title, state) is sanitized per F3 before entering the block:
+control/ANSI bytes stripped, newlines and `|` removed, title length truncated,
+and the literal `=== WORK IN FLIGHT ===` marker forbidden inside any cell — so a
+crafted title cannot forge rows, inject a second marker, or spoof the terminal.
+
+**Shell / permission discipline.** Every `gh` invocation in the hook and render
+script uses an argv array, never a shell string; no extracted value is
+interpolated into `sh -c`, `eval`, or backticks. Field extraction uses
+`gh … --json/--jq` rather than stdout scraping, and no environment or token
+byte is written to the ledger, block, or logs. The pipeline is read-only against
+`gh` except for the agent's own triggering `gh pr create`.
+
+**Model-context exposure.** The `additionalContext` echo carries only
+structured fields (repo, number, state, URL); free-text PR titles are either
+omitted from the model-facing echo or delimited as opaque untrusted labels, so a
+PR title cannot act as a prompt-injection instruction. The neutral hook framing
+governs the hook's own text, not embedded data.
+
+**Supply-chain trust of the render script.** `/status` executes the probed
+`render-work-in-flight.local.sh` only after verifying niwa's materialization
+fingerprint/provenance; the `.local` path is a naming convention, not a trust
+boundary, and a file planted by a malicious branch or clone must not be
+executed. If the fingerprint is absent or mismatched, `/status` fails closed to
+the read-only, repo-scoped `gh` fallback rather than executing the file, and
+confirms the resolved path stays within the project root.
+
+**Visibility (R12).** The primary path is safe by construction: the ledger holds
+only PRs the session opened, so multi-repo collection never reaches beyond the
+repos the session touched. The two residual paths are constrained: (1) the
+`/status` `gh` fallback is scoped to the current repo only — never an
+author-scoped cross-repo search — and applies F1 fail-closed redaction to any
+item whose visibility it cannot confirm; (2) a dispatched worker's final-message
+block redacts private-repo entries to opaque node id + state (F1) when the
+destination surface is lower-visibility than the repo.
+
+**Storage isolation.** The per-session ledger and `flock` state file live under
+a per-user private directory (mode 0700, files 0600), opened with symlink-
+following disabled, so one local session or user cannot read another's tracked
+PR set from a predictable `/tmp` path.
+
+**Residual risk.** The feature trusts niwa's materialization fingerprint as the
+script-provenance root; a compromise of the materializer or of `GH_TOKEN` is out
+of scope and inherited from the harness. Prompt-injection defense is
+best-effort: sanitization and field-restriction reduce but do not eliminate the
+possibility that adversarial PR text influences the model's narrative, so no
+security decision is delegated to model interpretation of block contents.
 
 ## Consequences
 

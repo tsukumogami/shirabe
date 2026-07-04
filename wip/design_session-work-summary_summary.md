@@ -20,3 +20,11 @@ draw on those evaluated alternatives.
 ## Current Status
 **Phase:** 1 - Decomposition complete
 **Last Updated:** 2026-07-04
+
+## Security Review (Phase 5)
+**Outcome:** Option 2 (document) + 2 controls promoted to required (/status fingerprint verify + repo-scoped F1-redacted fallback)
+**Summary:** Core data path integrity- and visibility-safe by construction; edges need argv discipline, F2 URL validation, F3 title sanitization, fingerprint-gated script execution, and per-user ledger storage. All folded in.
+
+## Current Status
+**Phase:** 5 - Security complete
+**Last Updated:** 2026-07-04
