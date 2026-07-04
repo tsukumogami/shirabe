@@ -107,12 +107,24 @@ rejected options are real alternatives that were built or tested, not strawmen.
   Single owner, no cross-layer contract. Rejected: the on-demand command belongs
   in the skill system so users invoke it as `/status`; burying it in a hook
   strands it from the surface users reach for.
-- **Option C (chosen): layered — dot-niwa owns the deterministic pipeline
-  (capture hook, render script, ledger, display), shirabe owns the conversational
-  surface (`/status` skill, dispatch-brief rule).** The render script is the
-  single implementation; `/status` probes its well-known materialized path. The
-  cross-layer contract is that path plus a self-describing block — never a shared
-  schema.
+- **Option C (chosen): split by concern, not by pipeline. shirabe ships one
+  reusable capture/render component (bundled scripts, resolved via
+  `${CLAUDE_PLUGIN_ROOT}`); niwa/dot-niwa ships only the thin hook registration
+  that invokes it, plus the display glue.** The distinction is that a hook bundles
+  two separable things: the *registration* (which event fires it — workspace
+  policy, so niwa's) and the *logic* (capture, ledger, render — reusable code, so
+  shirabe's, alongside the scripts shirabe already ships). Both the ambient hook
+  path and the `/status` skill call the same shirabe component, so there is
+  exactly one render implementation. This preserves "shirabe is hook-free" as a
+  precise statement — shirabe ships a *script*, not a hook *registration* — while
+  removing the two-copies drift the earlier "dot-niwa owns its own render script"
+  framing would have introduced. The constraint it resolves: a niwa-materialized
+  `settings.json` hook receives only `${CLAUDE_PROJECT_DIR}`, not
+  `${CLAUDE_PLUGIN_ROOT}`, so it cannot self-locate the plugin; niwa resolves the
+  shirabe component path at `niwa apply` (it already prewarms and knows plugin
+  cache paths) and injects it into the thin registration. The cross-layer
+  contract is that resolved path plus a self-describing block — never a shared
+  ledger schema.
 
 ### Decision 2 — Display channel
 
@@ -199,24 +211,26 @@ rejected options are real alternatives that were built or tested, not strawmen.
 
 ## Decision Outcome
 
-The chosen options compose into a deterministic pipeline owned by dot-niwa with a
-thin conversational surface in shirabe:
+The chosen options compose into a deterministic pipeline whose logic lives in one
+shirabe-owned component, wired by thin niwa-owned hook registrations:
 
-- A **PostToolUse capture hook** (dot-niwa) matches PR-affecting `gh` commands,
-  extracts the PR reference from the command's output, and appends it to a
-  per-session ledger. It then invokes the render script and, when the gate
-  passes, emits the rendered block through `systemMessage` and a neutral
-  `additionalContext` echo.
-- A **render script** (dot-niwa, the single implementation) reads the ledger,
-  refreshes each item via live `gh`, and prints the standardized block. Its
-  `--help`/header is the format spec. It degrades to a ledger-only best-effort
-  block when `gh` is unreachable.
-- A **UserPromptSubmit hook** (dot-niwa) emits the block on the first prompt
-  after the absence threshold; a **SessionStart(compact) hook** re-injects the
-  model-context echo after compaction.
-- A **`/status` skill** (shirabe) relays the render script's output via dynamic
-  command injection, probing the well-known materialized script path and falling
-  back to a model-driven `gh` listing when the script is absent.
+- A **shirabe-shipped component** (`work-summary` scripts in the plugin) is the
+  single implementation of capture parsing, the ledger, the two-level gate, and
+  the renderer. Given a session id it appends captured PRs, and on render it reads
+  the ledger, refreshes each item via live `gh`, and prints the standardized
+  block with a freshness line. Its `--help`/header is the format spec. It
+  degrades to a ledger-only best-effort block when `gh` is unreachable.
+- A **PostToolUse capture hook** (dot-niwa, thin) matches PR-affecting `gh`
+  commands and invokes the shirabe component's capture+render entry point (path
+  resolved by niwa at apply time), emitting the rendered block through
+  `systemMessage` and a neutral `additionalContext` echo when the gate passes.
+- A **UserPromptSubmit hook** (dot-niwa, thin) invokes the same component on the
+  first prompt after the absence threshold; a **SessionStart(compact) hook**
+  re-injects the model-context echo after compaction.
+- A **`/status` skill** (shirabe) calls the same component via
+  `${CLAUDE_PLUGIN_ROOT}` and relays its output through dynamic command
+  injection, falling back to a repo-scoped `gh` listing (fail-closed, following
+  the same block spec) when live state is unreachable.
 - A **dispatch-brief rule** (niwa rootskill / shirabe convention) requires a
   background worker's final message to carry the block, since the systemMessage
   channel does not reach a dashboard row.
@@ -238,10 +252,11 @@ produces no hook event — PostToolUse fires only on the agent's own `gh` comman
 A status-only flip therefore surfaces at the next PR-affecting tool call, on
 return-after-absence, or on an on-demand `/status`, not at the instant GitHub
 changes; the `WS_RENDER_INTERVAL` second-level gate bounds the staleness. (2)
-R1's uniform block shape holds across every emission the render script produces;
-the shirabe-without-niwa degraded fallback (no render script present) follows the
-same block contract by carrying a copy of the format spec, so the shape stays
-consistent even in that mode.
+R1's uniform block shape holds across every emission because a single component
+produces them all — the ambient hooks and `/status` invoke the same renderer.
+Only the `/status` repo-scoped `gh` fallback (used when live state is entirely
+unreachable) formats independently, and it follows the same block contract, so
+the shape stays consistent even in that mode.
 
 ## Solution Architecture
 
@@ -249,59 +264,72 @@ consistent even in that mode.
 
 | Component | Repo | Responsibility |
 |-----------|------|----------------|
-| `capture-work-in-flight.sh` (PostToolUse) | dot-niwa `.niwa/hooks/post_tool_use/` | Extract PR ref from `gh pr create` output; append to ledger; invoke renderer; emit block on gate pass |
-| `work-summary-return.sh` (UserPromptSubmit) | dot-niwa `.niwa/hooks/user_prompt_submit/` | On first prompt after absence threshold, invoke renderer and emit block |
-| `work-summary-compact.sh` (SessionStart, `compact` matcher) | dot-niwa `.niwa/hooks/session_start/` | Re-inject `additionalContext` block after compaction |
-| `render-work-in-flight.sh` | dot-niwa, materialized to `.claude/hooks/render-work-in-flight.local.sh` | Single render implementation: ledger + live `gh` → block (with freshness line); gate logic; `--help` is the spec |
-| session ledger | per-user runtime dir, keyed by session id | Private scope record: one row per PR (repo, number, URL, first-seen, `terminal_shown` flag). Hook writes, renderer reads. Not a cross-layer contract |
-| gate state file | per-user runtime dir, keyed by session id | `flock`-protected: last-emitted ledger hash, last-rendered-block hash, last-render timestamp, `last_activity` timestamp. Shared by all three hooks; every fire refreshes `last_activity` |
-| `/status` skill | shirabe `skills/status/` | Relay the render script's output via `!` injection; `gh` fallback when absent |
+| `work-summary` component (capture + render scripts) | **shirabe** plugin (`${CLAUDE_PLUGIN_ROOT}`-resolvable) | **Single implementation** of capture parsing, ledger maintenance, two-level gate, and rendering (block + freshness line + `--help` spec). Invoked by the dot-niwa hooks and by `/status` |
+| capture hook (PostToolUse) | dot-niwa `.niwa/hooks/post_tool_use/`, thin | Match PR-affecting `gh` commands; invoke the shirabe component's capture+render; emit block on gate pass. Component path injected by niwa at apply time |
+| return hook (UserPromptSubmit) | dot-niwa `.niwa/hooks/user_prompt_submit/`, thin | On first prompt after absence threshold, invoke the component and emit block |
+| compaction hook (SessionStart, `compact` matcher) | dot-niwa `.niwa/hooks/session_start/`, thin | Re-inject `additionalContext` block after compaction |
+| session ledger | per-user runtime dir, keyed by session id | Private scope record: one row per PR (repo, number, URL, first-seen, `terminal_shown` flag). Written and read only by the shirabe component. Not a cross-layer contract |
+| gate state file | per-user runtime dir, keyed by session id | `flock`-protected: last-emitted ledger hash, last-rendered-block hash, last-render timestamp, `last_activity` timestamp. Every invocation (incl. suppressed) refreshes `last_activity` |
+| `/status` skill | shirabe `skills/status/` | Call the component via `${CLAUDE_PLUGIN_ROOT}` and relay its output via `!` injection; repo-scoped fail-closed `gh` fallback |
 | dispatch-brief final-message rule | niwa rootskill `dispatch` + shirabe convention | Require the block in a background worker's final message |
+| apply-time path injection | niwa | Resolve the shirabe component path and inject it into the thin hook registrations at `niwa apply` |
 
 ### Data Flow
 
 ```
-gh pr create ──▶ PostToolUse hook ──▶ extract PR ref ──▶ append to ledger (flock)
-                                                              │
-                          ┌───────────────────────────────────┘
-                          ▼
-   render script: read ledger ──▶ gh pr view (live state) ──▶ format block
-                          │
-          gate: ledger-hash or rendered-hash changed?
-                          │ yes
-                          ▼
+gh pr create ─▶ PostToolUse hook (thin) ─▶ shirabe component: capture+render
+                                                    │
+                     append PR to ledger (flock) ───┤
+                     read ledger ─▶ gh pr view ─────┤
+                     two-level gate ────────────────┘
+                                     │ changed
+                                     ▼
         emit systemMessage (user) + additionalContext echo (model)
 
-UserPromptSubmit (absence > threshold) ─▶ render ─▶ emit both channels
-SessionStart(compact) ────────────────▶ render ─▶ emit additionalContext only
-/status (user-invoked) ───────────────▶ render script via ! injection ─▶ relayed in reply
+UserPromptSubmit (absence > threshold) ─▶ component ─▶ emit both channels
+SessionStart(compact) ────────────────▶ component ─▶ emit additionalContext only
+/status (user-invoked) ──▶ component via ${CLAUDE_PLUGIN_ROOT} ─▶ relayed in reply
 background worker completion ─────────▶ model authors final-message block
 ```
 
+The dot-niwa hooks are thin shims: each resolves to the shirabe component path
+that niwa injected at apply time and execs it with the session id. The component
+owns everything downstream.
+
 ### Cross-Layer Contract
 
-The only coupling between dot-niwa and shirabe is:
+The coupling between the two layers is deliberately minimal:
 
-1. **A well-known path**: shirabe's `/status` probes
-   `${CLAUDE_PROJECT_DIR}/.claude/hooks/render-work-in-flight.local.sh` (the
-   `.local` infix is mandatory — niwa's file materializer forces it).
-2. **A self-describing block**: whatever the script prints, `/status` relays
+1. **A component entry point**: the shirabe-shipped `work-summary` scripts, with a
+   stable CLI (`capture`, `render <session-id>`). Both the dot-niwa hooks and the
+   `/status` skill invoke it — the hooks via a niwa-injected absolute path, the
+   skill via `${CLAUDE_PLUGIN_ROOT}`.
+2. **A self-describing block**: whatever the component prints, callers relay
    verbatim.
 
-There is no shared ledger schema. The ledger format is internal to dot-niwa's
-hook and renderer. When shirabe runs without niwa, `/status` degrades to a
-**repo-scoped** `gh` listing (never an author-scoped cross-repo search, which
-would over-collect private PRs into a public context — the rejected Decision 3
-Option B behavior); when niwa runs without shirabe, the ambient display still
-works and only the `/status` command is missing.
+There is no shared ledger schema across layers — the ledger is internal to the
+shirabe component, which both writes and reads it. niwa's only knowledge of the
+component is its resolved path, injected into the thin hook registrations at
+`niwa apply`.
 
-**Required control — script provenance.** `/status` executes the probed
-`render-work-in-flight.local.sh` only after verifying niwa's materialization
-fingerprint. The `.local` path is a naming convention, not a trust boundary: a
-file planted at that path by a malicious branch, PR checkout, or clone must not
-be executed. When the fingerprint is absent or mismatched, `/status` fails
-**closed to the repo-scoped `gh` fallback**, not to executing the file, and
-confirms the resolved path stays within the project root.
+**Trust boundary.** Because the render logic ships in the shirabe plugin and
+`/status` reaches it through `${CLAUDE_PLUGIN_ROOT}`, there is no execution of a
+script from the repo working tree — the trust anchor is the plugin install
+itself, not a file sitting in `.claude/` that a malicious branch or checkout
+could have planted. This removes the working-tree-execution surface (and the
+provenance-verification machinery it would have required) entirely. The dot-niwa
+hooks exec only the niwa-injected absolute path; niwa resolves that path from the
+prewarmed plugin cache at apply time, and a hook whose injected path is missing
+(plugin absent, or stale after a plugin bump before re-apply) fails safe to no
+capture rather than executing an untrusted fallback.
+
+**Degradation.** When shirabe runs without niwa, the ambient hooks are absent but
+`/status` still works from the plugin. When niwa runs without shirabe, the
+injected path resolves to nothing and the hooks no-op (fail-safe). The
+`/status` `gh` fallback is scoped to the current repo only — never an
+author-scoped cross-repo search, which would over-collect private PRs into a
+public context (the rejected Decision 3 Option B) — and applies F1 fail-closed
+redaction to any item whose visibility it cannot confirm.
 
 ### Key Interfaces
 
@@ -330,28 +358,27 @@ confirms the resolved path stays within the project root.
 ## Implementation Approach
 
 0. **Prerequisites (niwa, sequence first).** Two niwa-side dependencies gate the
-   rest and are sequenced ahead of the hooks that rely on them: (a) the
-   materializer duplicate-hook fix — a hook registered through both declared
-   config and auto-discovery currently loses its matcher and fires on every tool
-   call; (b) a machine-readable, single-file provenance-verification surface the
-   `/status` skill can query (if the chosen `/status` trust approach requires it —
-   see the Cross-Layer Contract). Where the plan cannot land a prerequisite
-   first, the dependent hook is authored defensively (idempotent, tool-type
-   tolerant) and the `/status` skill fails closed rather than assuming the surface
-   exists.
-1. **Render script + block format** (dot-niwa). Port the validated prototype:
-   ledger read, `gh pr view` refresh, block formatting with the marker, ordering,
-   terminal-drop (`terminal_shown`), freshness line, section escalation, and
-   offline degradation. Its `--help` is the format spec. Unit-test the capture
-   regex and the terminal-safety sanitizer against the fixture set.
-2. **Capture hook + ledger + gate** (dot-niwa). PostToolUse matcher on
-   PR-affecting `gh` commands; `flock`-protected ledger append and two-level gate
-   state (ledger hash / rendered hash / render interval); dual-channel emission
-   with neutral additionalContext phrasing; per-user 0700 storage.
-3. **Return + compaction hooks** (dot-niwa). UserPromptSubmit absence check
+   hooks and are sequenced ahead of them: (a) the materializer duplicate-hook fix
+   — a hook registered through both declared config and auto-discovery currently
+   loses its matcher and fires on every tool call; (b) apply-time resolution and
+   injection of the shirabe component path into the thin hook registrations (niwa
+   already prewarms and knows plugin cache paths). Where the plan cannot land a
+   prerequisite first, the dependent hook is authored defensively (idempotent,
+   tool-type tolerant) and fails safe when the injected path is absent.
+1. **`work-summary` component** (shirabe plugin). The single implementation:
+   capture parsing (anchored URL validation, session-id validation), ledger with
+   `terminal_shown`, two-level gate (ledger hash / rendered hash /
+   `WS_RENDER_INTERVAL`), renderer (marker, ordering, terminal-drop, freshness
+   line, section escalation), the terminal-safety sanitizer, offline degradation,
+   and per-user 0700 storage. `--help` is the format spec. Unit-test the capture
+   regex and sanitizer against the fixture set.
+2. **Thin capture hook** (dot-niwa). PostToolUse matcher on PR-affecting `gh`
+   commands; exec the injected component path; dual-channel emission with neutral
+   additionalContext phrasing.
+3. **Thin return + compaction hooks** (dot-niwa). UserPromptSubmit absence check
    against `WS_ABSENCE_THRESHOLD`; SessionStart(compact) re-injection.
-4. **`/status` skill** (shirabe). Injection-line probe of the well-known path per
-   the chosen trust approach; repo-scoped fail-closed `gh` fallback;
+4. **`/status` skill** (shirabe). Call the component via `${CLAUDE_PLUGIN_ROOT}`
+   through `!` injection; repo-scoped fail-closed `gh` fallback;
    `disable-model-invocation: true`.
 5. **Dispatch-brief rule** (niwa rootskill + shirabe convention). Final-message
    block requirement for background workers, with the same sanitization contract.
@@ -394,13 +421,17 @@ omitted from the model-facing echo or delimited as opaque untrusted labels, so a
 PR title cannot act as a prompt-injection instruction. The neutral hook framing
 governs the hook's own text, not embedded data.
 
-**Supply-chain trust of the render script.** `/status` executes the probed
-`render-work-in-flight.local.sh` only after verifying niwa's materialization
-fingerprint/provenance; the `.local` path is a naming convention, not a trust
-boundary, and a file planted by a malicious branch or clone must not be
-executed. If the fingerprint is absent or mismatched, `/status` fails closed to
-the read-only, repo-scoped `gh` fallback rather than executing the file, and
-confirms the resolved path stays within the project root.
+**Supply-chain trust of the render component.** The render logic ships in the
+shirabe plugin and is reached through `${CLAUDE_PLUGIN_ROOT}` (by `/status`) or
+through a niwa-injected absolute plugin path (by the hooks) — never from a script
+sitting in the repo working tree. This eliminates the working-tree-execution
+surface: a `render-*.sh` planted in `.claude/` by a malicious branch, PR
+checkout, or clone is never on the execution path, so no per-file
+provenance-verification machinery is required. The trust anchor is the plugin
+install itself. The niwa-injected path is resolved from the prewarmed plugin
+cache at `niwa apply`; a hook whose injected path is absent (plugin missing, or
+stale before re-apply) fails safe to no capture, never to an untrusted
+alternative, and the `/status` `gh` fallback is read-only and repo-scoped.
 
 **Visibility (R12).** The primary path is safe by construction: the ledger holds
 only PRs the session opened, so multi-repo collection never reaches beyond the
@@ -416,9 +447,10 @@ a per-user private directory (mode 0700, files 0600), opened with symlink-
 following disabled, so one local session or user cannot read another's tracked
 PR set from a predictable `/tmp` path.
 
-**Residual risk.** The feature trusts niwa's materialization provenance as the
-script-execution root; a compromise of the materializer or of `GH_TOKEN` is out
-of scope and inherited from the harness. Prompt-injection defense on the ambient
+**Residual risk.** The feature trusts the shirabe plugin install as the
+render-code root and niwa's apply-time path injection as the wiring; a compromise
+of the plugin distribution, the materializer, or of `GH_TOKEN` is out of scope
+and inherited from the harness. Prompt-injection defense on the ambient
 path is best-effort: sanitization and field-restriction reduce but do not
 eliminate the possibility that adversarial PR text influences the model's
 narrative, so no security decision is delegated to model interpretation of block
@@ -434,13 +466,16 @@ free text) is the mitigation of record.
 
 - The summary is deterministic: it reflects real captured PR state, not agent
   memory, and cannot emit a fabricated PR reference.
-- The layer split follows the existing architectural boundary and version-matches
-  the block spec to its single implementation, so the two layers cannot drift.
+- One implementation of the capture/render logic (the shirabe component) serves
+  every surface — the ambient hooks and `/status` — so the two layers cannot
+  drift, while registration/policy stays cleanly in niwa.
+- The render code never executes from the repo working tree, so there is no
+  planted-script surface and no per-file provenance machinery to build or trust.
 - Zero model-context cost for the user-facing display (systemMessage), with a
   small bounded echo (~200 tokens) only when there is news.
 - Works in background sessions through the transcript and final message.
 - Degrades cleanly: offline → best-effort block; shirabe-without-niwa → `/status`
-  only; niwa-without-shirabe → ambient display only.
+  only; niwa-without-shirabe → hooks no-op (fail-safe).
 
 ### Negative / Trade-offs
 
@@ -450,18 +485,25 @@ free text) is the mitigation of record.
 - The design depends on undocumented harness behavior (systemMessage persistence,
   additionalContext-in-`-p`, identical-command hook dedup) verified only at
   Claude Code 2.1.201; a harness upgrade could shift it. Mitigation: the
-  mechanics are isolated in dot-niwa hooks that can be re-verified in one place.
-- A prerequisite materializer fix is required for clean single-channel hook
-  registration; until then hooks must be idempotent and tool-type tolerant.
+  mechanics are isolated in the shirabe component and thin hooks, re-verifiable in
+  one place.
+- Two niwa prerequisites: the materializer duplicate-hook fix, and apply-time
+  injection of the shirabe component path into the thin hooks. Until both land,
+  hooks must be idempotent, tool-type tolerant, and fail-safe when the injected
+  path is absent.
+- The dot-niwa hook depends on the shirabe plugin being installed; in a long-lived
+  instance a plugin version bump leaves the injected path stale until the next
+  `niwa apply`. Mitigation: ephemeral dispatched instances resolve fresh each
+  time; long-lived instances re-apply; a stale path fails safe to no capture.
 - The background-worker path relies on the model authoring its final message
   correctly — the one place agent discipline remains, mitigated by the
   dispatch-brief rule making it a required instruction.
 
 ### Mitigations
 
-- Isolate all harness-version-sensitive mechanics in dot-niwa hooks for
-  single-point re-verification.
-- Sequence the materializer fix as a prerequisite in the plan, or author hooks
-  defensively against the current double-registration behavior.
-- Keep the block spec co-located with the single render implementation so no
+- Isolate all harness-version-sensitive mechanics in the shirabe component and
+  thin hooks for single-point re-verification.
+- Sequence the materializer fix and path-injection capability as prerequisites in
+  the plan, or author hooks defensively against the current behavior.
+- Keep the block spec co-located with the single component implementation so no
   second source of truth can drift.
