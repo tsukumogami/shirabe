@@ -22,13 +22,18 @@ coordination:
   created_at: 2026-07-04T00:00:00Z
 chain_ran:
   - brief
+  - prd
 child_snapshots:
   brief:
     status: Accepted
     content_hash: 06224ae6576857a9c0b871b4ad5339b0b717e9db
     captured_at: 2026-07-04T00:00:00Z
+  prd:
+    status: Accepted
+    content_hash: 68d1f6b1311509e824cc650863ce564b1952cad1
+    captured_at: 2026-07-04T00:00:00Z
 parent_orchestration:
-  invoking_child: prd
+  invoking_child: design
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 ```
