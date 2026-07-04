@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Draft
 problem: |
   In long agent sessions that open multiple pull requests, often across several
