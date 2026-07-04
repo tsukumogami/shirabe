@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 upstream: docs/prds/PRD-session-work-summary.md
 status: Proposed
 problem: |
