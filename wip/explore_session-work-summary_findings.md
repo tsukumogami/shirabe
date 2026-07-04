@@ -1,5 +1,7 @@
 # Exploration Findings: session-work-summary
 
+## Decision: Crystallize
+
 ## Core Question
 
 How should agent sessions periodically surface a standardized summary of the work
