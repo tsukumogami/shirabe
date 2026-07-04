@@ -74,9 +74,47 @@ The user's placement instinct was architectural: "shirabe has no knowledge of ho
 
 (round 2 ran autonomously per round 1 direction: validate mechanics and the layer contract)
 
+## Round 3 (deterministic pivot validation)
+
+### Key Insights
+
+- **systemMessage is viable as the deterministic display channel** (lead: systemmessage-semantics). Verified on 2.1.201: a PostToolUse or UserPromptSubmit hook's `systemMessage` is durably persisted in the session transcript JSONL as a first-class `hook_system_message` attachment (multi-line blocks round-trip intact; 10k-char documented cap; `suppressOutput` irrelevant). One emission can carry `systemMessage` (user channel) + `additionalContext` (model channel) and both take effect independently. Two caveats: it never appears on `claude -p` stdout, stderr, `claude logs`, or stream-json events — headless recovery must parse the transcript JSONL or keep the model-emitted final-message fallback; and Haiku flagged an imperative additionalContext as a prompt-injection attempt — the model-context half must be phrased as neutral state ("Current open PRs: ..."), never as instructions.
+- **The capture+render pipeline is proven end to end** (lead: render-pipeline; prototype committed to findings). All 12 capture fixtures pass, including rejecting `git push`'s "/pull/new/" hint URL; render produced correct state tokens against 5 real PRs across 3 public repos. Latency: capture 8–16ms, gate check 5ms, 5-PR multi-repo render 0.5–1.0s parallel (2.2s sequential), offline degradation 35ms with a graceful ledger-only block. Capture fits the PostToolUse hot path; render belongs at the display moment behind the gate. Benign gap: `gh pr merge <number>` leaves no capturable URL — fine, since PRs are captured at creation and render refreshes state live.
+- **`!`cmd`` dynamic injection works and is not permission-gated** (lead: layer-recut). Two live runs relayed real preprocessed command output with no `allowed-tools` and no permission bypass. So `/status` is a thin shirabe skill: one injection line probing a well-known path, relay verbatim, instructional `gh` fallback on `NO-RENDERER` or the `disableSkillShellExecution` policy string.
+- **The single render script lives in dot-niwa; the contract is a path + a self-describing block** (lead: layer-recut). Settings-registered hooks cannot resolve the shirabe plugin cache (`${CLAUDE_PLUGIN_ROOT}` only exists for plugin-registered hooks), while a shirabe skill CAN probe `${CLAUDE_PROJECT_DIR}/.claude/hooks/render-work-in-flight.local.sh` (the `[files]` channel's forced `.local` infix must be spelled in the contract). The ledger schema stays private to dot-niwa (hook writes, renderer reads) — honoring the workflow-continue.sh negative precedent. shirabe stays hook-free: a plugin hooks.json would double-register for dual-layer users.
+- **Round-2 correction**: Claude Code has no `.claude/hooks/` auto-discovery; niwa's discovery is its own config-repo mechanism and registration always lands in settings.local.json. "Single-channel registration" means: declare the hook in exactly one niwa channel (TOML or `.niwa/hooks/`, not both) until the materializer dedupes.
+
+### Component inventory (validated)
+
+| File | Repo | Role |
+|---|---|---|
+| `.niwa/hooks/post_tool_use/capture-work-in-flight.sh` | dot-niwa | Extract PR URL from tool output → session ledger; invoke renderer when gate passes; emit systemMessage + neutral additionalContext |
+| `scripts/render-work-in-flight.sh` → `.claude/hooks/render-work-in-flight.local.sh` via `[files]` | dot-niwa | Single render implementation; `--help` header is the format spec |
+| UserPromptSubmit return-after-absence hook | dot-niwa | Interactive-only refresh via same renderer |
+| `skills/status/SKILL.md` | shirabe | Injection-line probe + verbatim relay + gh fallback; `disable-model-invocation: true` |
+| dispatch brief final-message rule | shirabe/niwa rootskill | Instructional; the background-session guarantee |
+
+Degradation: both layers = full (ambient display + model awareness + /status). dot-niwa only = everything except the /status command. shirabe only = /status with model-driven gh fallback, no ambient display, no ledger. Neither = status quo.
+
+### Gaps
+
+- Interactive TUI rendering of hook_system_message inferred from docs + persistence, not directly observed (needs a pty test or just trying it).
+- Whether Agent View renders `hook_system_message` attachments from background transcripts.
+- additionalContext-on-every-fire needs an emit-on-change/throttle policy (dot-niwa internal).
+
+### Decisions
+
+- Deterministic architecture confirmed as the direction: hooks capture/render/display; the model relays only where scripts can't reach.
+- No `references/work-in-flight.md` in shirabe after all — the format spec lives with the single implementation (render script header); a shirabe-side spec would recreate two-sources-of-truth skew.
+- shirabe remains hook-free permanently in this design.
+
 ## Accumulated Understanding
 
-The design is now fully shaped, validated, and split along the workspace's existing architectural boundary (shirabe = instructions/templates/skills; niwa = harness wiring):
+**Final shape (post round 3): a deterministic pipeline owned by dot-niwa, with a thin conversational layer in shirabe.** The instruction-heavy round-2 design was superseded when the user asked how much could be mechanized: hooks now ARE the summarizer. A dot-niwa PostToolUse hook captures PR URLs mechanically from `gh pr create` output into a private session ledger (8–16ms), a single render script produces the `=== WORK IN FLIGHT ===` block from ledger + live gh (0.5–1s parallel, graceful offline mode), and the hook displays it via `systemMessage` (user-visible, durably persisted in transcript JSONL) while injecting the same block as *neutral-state* `additionalContext` (model awareness; imperative phrasing triggers injection-refusal). A UserPromptSubmit hook adds the return-after-absence refresh for interactive sessions. shirabe ships only `/status` (a `!`cmd`` injection line probing the well-known materialized script path, verbatim relay, gh fallback) and the dispatch-brief final-message rule — the one irreducibly instructional piece, since headless consumers never see systemMessage and Agent View reads the worker's own messages. The cross-layer contract is a well-known path plus a self-describing block — never a state-file schema. Every mechanical claim was validated empirically on Claude Code 2.1.201, including a working prototype tested against real PRs.
+
+The pre-pivot analysis (below, rounds 1–2) still holds for everything it settled: cadence philosophy (event-gated + return-after-absence; timers/turn-count rejected), the block grammar (pipe-lines, bare URLs last, attention-first, merged-once-then-drop), placement boundaries, and the byproduct bug findings.
+
+Historical (round 2) framing, superseded where it conflicts with the above:
 
 1. **shirabe owns the convention** (plugin release): `references/work-in-flight.md` defining the verbatim marker `=== WORK IN FLIGHT ===`, the pipe-line grammar (`- owner/repo#N | state-tokens | title | bare-URL`, extending the coordination PR Index grammar), state-token vocabulary, attention-first ordering, >6-item section escalation, and emission rules (emit on PR created/merged/closed, CI transition, changes-requested, pre-PR registration; final element of the triggering turn; never a footer; self-contained URLs every time; merged rows once then dropped). Skill bindings: one-line emission requirements at work-on's `pr_creation`/`ci_monitor`, execute's hand-backs and terminals. Plus a pull-side `/status` skill rendering the identical block from live `gh` reads with a freshness line.
 2. **dot-niwa owns delivery and cadence** (config-only, no niwa code): auto-discovered hook scripts — PostToolUse gated by `if: "Bash(gh pr create*)"` etc. setting a dirty flag (works in `-p` mode, empirically verified), UserPromptSubmit return-after-absence nudge (interactive-only by harness design). Nudge text names the shirabe convention with a `gh pr list` fallback; dedupe state is hook-private, session_id-keyed, outside the repo tree. Register via auto-discovery only until niwa dedupes declared+discovered hooks. The hook can grep the transcript tail for the marker to suppress redundant nudges.
