@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-session-work-summary.md
 problem: |
   A session's real PR set must be surfaced as a standardized, findable block
@@ -29,7 +29,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
