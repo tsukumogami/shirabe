@@ -24,8 +24,15 @@ After rebase: `git push --force-with-lease`.
 
 ## Create PR
 
-Title: conventional commits format. Body: apply the reasoning framework from
-your project's PR creation skill. Include `Fixes #<N>`.
+The **mechanical** title/body rule is single-sourced in
+`references/pr-body-conformance.md` (Conventional Commits title with no
+issue-number scope; a two-part body with exactly one `---` separator and a
+non-empty Part 1 that becomes the squash commit body; no AI-attribution
+footer). That rule is what `shirabe validate --pr-body` enforces in CI, so a
+PR authored to it passes the gate on the first run. For the **subjective**
+Part 2 section selection (which reviewer-context sections this change needs),
+apply the reasoning framework from your project's PR creation skill. Include
+`Fixes #<N>` in Part 2.
 
 ## CI Monitoring
 

@@ -20,6 +20,7 @@ pub mod gh;
 pub mod lifecycle;
 pub mod merge_gate;
 pub mod mermaid;
+pub mod pr_body;
 pub mod report;
 pub mod table;
 pub mod transition;
@@ -56,6 +57,7 @@ pub use merge_gate::{
     check_index_visibility, coordination_pr_visibility, run_merge_gate, split_pr_arg,
     GhVisibilityResolver, MergeGateOutcome,
 };
+pub use pr_body::{check_pr_body, PrBodyFinding};
 pub use report::{
     render_human, render_human_with_advisory, render_json, render_json_with_advisory,
 };

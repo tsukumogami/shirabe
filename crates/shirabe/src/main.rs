@@ -13,8 +13,8 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
-    check_coordination_body, check_slug_prefix, detect_format, detect_pr_draft, explain_advisory,
-    format_error, format_notice, is_known_check_code, is_notice, parse_doc,
+    check_coordination_body, check_pr_body, check_slug_prefix, detect_format, detect_pr_draft,
+    explain_advisory, format_error, format_notice, is_known_check_code, is_notice, parse_doc,
     render_human_with_advisory, render_json_with_advisory, run_lifecycle_chain_check,
     run_lifecycle_check, run_merge_gate, run_transition, validate_file, walk_chain_mode,
     AdvisoryReport, Config, Flags, GhSubprocessClient, GhVisibilityResolver, MergeGateOutcome,
@@ -305,6 +305,37 @@ struct ValidateArgs {
         conflicts_with = "merge_gate"
     )]
     coordination_body: Option<String>,
+
+    /// The static PR-body check mode. Reads an authored pull-request body from
+    /// FILE and checks the mechanical, objectively-decidable parts of the
+    /// two-part squash-merge convention **offline** (no `gh`): exactly one
+    /// top-level `---` separator with a non-empty Part 1, and no AI-attribution
+    /// / co-author footer. Pair with `--pr-title` to also check the title is
+    /// Conventional Commits. Subjective Part 2 section selection stays advisory
+    /// and is not gated. This is the static analog of `--coordination-body` for
+    /// a PR body — the single source both CI and the authoring skills consume
+    /// (see references/pr-body-conformance.md). Mutually exclusive with
+    /// `--lifecycle` / `--lifecycle-chain` / `--merge-gate` /
+    /// `--coordination-body` and with positional file arguments. The
+    /// `conflicts_with` for `coordination_body` is declared here explicitly:
+    /// clap needs the edge on the new field, not only on the old one.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with = "lifecycle",
+        conflicts_with = "lifecycle_chain",
+        conflicts_with = "merge_gate",
+        conflicts_with = "coordination_body"
+    )]
+    pr_body: Option<String>,
+
+    /// The PR title to check under `--pr-body` (PB1, Conventional Commits).
+    /// Only meaningful with `--pr-body`; supplying it without `--pr-body` is a
+    /// hard input error. When omitted, `--pr-body` checks only the body-level
+    /// rules so a caller can check a body-in-progress; the CI gate always
+    /// supplies both.
+    #[arg(long, value_name = "STRING", requires = "pr_body")]
+    pr_title: Option<String>,
 }
 
 fn main() -> ExitCode {
@@ -456,6 +487,13 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         eprintln!("--coordination-body is mutually exclusive with positional file arguments");
         return ValidateOutcome::ToolError.exit();
     }
+    // The static PR-body check is its own mode: it cannot combine with
+    // positional file arguments (clap already rejects the lifecycle/merge-gate/
+    // coordination-body combinations via `conflicts_with`).
+    if args.pr_body.is_some() && !args.files.is_empty() {
+        eprintln!("--pr-body is mutually exclusive with positional file arguments");
+        return ValidateOutcome::ToolError.exit();
+    }
 
     // Reject an unknown --check code up front: a typo like `FC1` must be a
     // tool error, not a silent clean pass. A valid but format-inapplicable
@@ -478,6 +516,10 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
 
     if let Some(file) = args.coordination_body.as_deref() {
         return run_coordination_body_mode(file, args.format);
+    }
+
+    if let Some(file) = args.pr_body.as_deref() {
+        return run_pr_body_mode(file, args.pr_title.as_deref(), args.format);
     }
 
     if args.merge_gate {
@@ -743,6 +785,71 @@ fn run_coordination_body_mode(file: &str, format: Format) -> ExitCode {
                     findings.len(),
                     file
                 );
+                for f in &findings {
+                    eprintln!("  - {}:{}: {}", file, f.line, f.message);
+                }
+            }
+        }
+    }
+
+    outcome.exit()
+}
+
+/// Runs the static `--pr-body` check mode. Reads the PR body from `file`,
+/// checks it (and the optional `title`) offline via
+/// [`check_pr_body`](shirabe_validate::check_pr_body), and renders findings
+/// through the same exit-code contract and formats as
+/// `run_coordination_body_mode`. The `annotation` arm emits the **fileless**
+/// `::error::` form because the body lives in a temp file with no path in the
+/// checked-out tree — a file-anchored annotation would point at a nonexistent
+/// source line.
+fn run_pr_body_mode(file: &str, title: Option<&str>, format: Format) -> ExitCode {
+    let body = match std::fs::read_to_string(file) {
+        Ok(b) => b,
+        Err(err) => {
+            eprintln!("--pr-body: could not read {}: {}", file, err);
+            return ValidateOutcome::ToolError.exit();
+        }
+    };
+
+    let findings = check_pr_body(&body, title);
+    let outcome = if findings.is_empty() {
+        ValidateOutcome::Clean
+    } else {
+        ValidateOutcome::Violations
+    };
+
+    match format {
+        Format::Json => {
+            let items: Vec<String> = findings
+                .iter()
+                .map(|f| {
+                    format!(
+                        "{{\"line\":{},\"message\":{}}}",
+                        f.line,
+                        json_string(&f.message)
+                    )
+                })
+                .collect();
+            println!(
+                "{{\"schema\":\"shirabe-pr-body/v1\",\"outcome\":{},\"findings\":[{}]}}",
+                json_string(outcome.label()),
+                items.join(",")
+            );
+        }
+        Format::Annotation => {
+            // GitHub Actions error annotations. Fileless: the body is a temp
+            // file with no path in the checked-out tree, so a file-anchored
+            // annotation would float against a nonexistent source line.
+            for f in &findings {
+                println!("::error::{}", f.message);
+            }
+        }
+        Format::Human => {
+            if findings.is_empty() {
+                println!("pr-body: clean ({})", file);
+            } else {
+                eprintln!("pr-body: {} finding(s) in {}", findings.len(), file);
                 for f in &findings {
                     eprintln!("  - {}:{}: {}", file, f.line, f.message);
                 }

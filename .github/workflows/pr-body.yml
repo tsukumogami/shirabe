@@ -1,0 +1,97 @@
+name: PR-body Conformance
+
+# Example caller (in a downstream repo's .github/workflows/pr-body.yml):
+#
+# name: Validate PR body
+# on:
+#   pull_request:
+#     types: [opened, edited, reopened, synchronize, ready_for_review]
+# jobs:
+#   pr-body:
+#     uses: tsukumogami/shirabe/.github/workflows/pr-body.yml@v0.13.0
+#
+# The reusable workflow runs `shirabe validate --pr-body` against the PR's
+# title and body — the mechanical, path-independent gate for PR-template
+# conformance (Conventional Commits title; one `---` separator with a
+# non-empty Part 1; no AI-attribution footer). It fires on any PR regardless
+# of which code path opened it, so a manual `gh pr create` or a dispatched
+# worker is checked the same as a skill-authored PR. The rule it enforces is
+# single-sourced in references/pr-body-conformance.md.
+
+on:
+  workflow_call:
+
+jobs:
+  pr-body:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check PR context
+        # The check only makes sense on a pull_request event; a non-PR
+        # trigger has no PR number to read a title/body from. Skip cleanly.
+        run: |
+          if [ -z "${{ github.event.pull_request.number }}" ]; then
+            echo "::notice::Skipping PR-body check: requires a PR context (no pull_request number)"
+            exit 0
+          fi
+
+      - name: Checkout caller repo
+        # The pr-body check does not read the working tree (it reads the PR
+        # title/body via gh), but the checkout mirrors the sibling workflows
+        # for consistency and gives gh a repo context.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Checkout shirabe
+        # job.workflow_repository / job.workflow_sha resolve to the called
+        # workflow's repo and commit. For external callers using
+        # `uses: tsukumogami/shirabe/.github/workflows/pr-body.yml@<ref>` this
+        # picks up shirabe at the called ref so the binary matches the workflow
+        # contract. For the local self-caller (`uses: ./...`) it resolves to
+        # this repo at the PR's head, which is what we want.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .shirabe-src
+
+      - name: Install Rust toolchain
+        # Reads .shirabe-src/rust-toolchain.toml and installs the pinned channel.
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Cache Cargo
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .shirabe-src/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('.shirabe-src/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build shirabe
+        run: |
+          cargo build --release --bin shirabe --manifest-path .shirabe-src/Cargo.toml
+          install -m 0755 .shirabe-src/target/release/shirabe /usr/local/bin/shirabe
+
+      - name: Run PR-body conformance check
+        # Injection-safe title handling (DESIGN D6): the PR number is a safe
+        # integer from the event payload; the title and body are fetched via
+        # `gh pr view` and never interpolated into this script as a `${{ }}`
+        # expression. The title reaches the validator as a quoted argv value
+        # (never eval-ed) and the body only as a file path. A non-zero exit
+        # (violations) fails the check; each finding surfaces as a fileless
+        # `::error::` annotation.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          BODY_FILE="$RUNNER_TEMP/pr-body.txt"
+          gh pr view "$PR_NUMBER" --json body --jq '.body' > "$BODY_FILE"
+          PR_TITLE="$(gh pr view "$PR_NUMBER" --json title --jq '.title')"
+          shirabe validate \
+            --pr-body "$BODY_FILE" \
+            --pr-title "$PR_TITLE" \
+            --format annotation

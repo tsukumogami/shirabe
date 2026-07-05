@@ -1,0 +1,30 @@
+name: Validate shirabe PR body
+
+# Self-caller: exercises the reusable pr-body.yml against shirabe's own PRs,
+# so the PR that ships the gate has CI signal on its own body. Downstream
+# repos use `tsukumogami/shirabe/.github/workflows/pr-body.yml@v0.13.0` (or
+# whichever release tag they pin). This self-caller uses the local relative
+# path so the PR exercises its own pre-release code.
+#
+# No `paths:` filter — the gate is path-independent by design. A malformed PR
+# body must be caught regardless of which files the diff touches.
+#
+# `types:` includes `edited` so a body edited after the PR opens is re-checked
+# (a body fixed in the GitHub UI re-runs the gate), and `ready_for_review` so
+# the check re-runs at the draft-to-ready flip.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+# Granted on the caller so the called reusable workflow's `permissions` block
+# (contents: read + pull-requests: read) is a subset of what this caller has.
+# A reusable workflow cannot request a permission the caller lacks; without
+# this block the call fails at startup under a restricted default token.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pr-body:
+    uses: ./.github/workflows/pr-body.yml
