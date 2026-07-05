@@ -22,6 +22,7 @@ use shirabe_validate::{
 };
 
 mod populate;
+mod work_summary;
 
 /// The maximum accepted size of the `--custom-statuses` value, matching the
 /// Go binary's 64 KiB guard.
@@ -81,6 +82,13 @@ enum Commands {
     /// pre-commit hook is left untouched and reported unless `--force` is
     /// given.
     InstallHooks(InstallHooksArgs),
+    /// Session "work in flight" summary component: capture PR identity from
+    /// `gh pr create` output into a private per-session ledger, gate
+    /// emissions, and render the standardized work-in-flight block. Backs
+    /// both the ambient dot-niwa hooks (`capture`/`absence`/`compact`, which
+    /// emit hook JSON) and the `/inflight` skill (`render`, which prints the
+    /// plain block). Every subcommand exits 0 (fail-safe).
+    WorkSummary(work_summary::WorkSummaryArgs),
 }
 
 #[derive(clap::Args)]
@@ -349,6 +357,7 @@ fn main() -> ExitCode {
         Some(Commands::FinalizeChain(args)) => run_finalize_chain_cmd(&args),
         Some(Commands::SlugPrefixDetect(args)) => run_slug_prefix_detect(&args),
         Some(Commands::InstallHooks(args)) => run_install_hooks_cmd(&args),
+        Some(Commands::WorkSummary(args)) => work_summary::run(&args.command),
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would
         // otherwise leave `command` as `None` and exit 0 silently.
