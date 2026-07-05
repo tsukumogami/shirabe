@@ -31,6 +31,14 @@ coordination state (the PR-index and the merge-order block). Per-repo
 implementation lands as separate PRs. The coordination PR merges **last**, and
 that merge is the effort's done-signal.
 
+Because it is gated on every indexed per-repo PR merging first, the coordination
+PR **stays draft until it merges last** — draft is its correct resting state
+throughout review, not an oversight. This is the standing exception to the
+[DRAFT-vs-READY discipline](../docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md):
+the per-repo implementation PRs each flip to ready-for-review at their own review
+handoff once their work is verified, while the coordination PR alone stays draft
+until last.
+
 Coordinated mode is the third `execution_mode` value (`single-pr | multi-pr |
 coordinated`). It is always multi-PR, and adds what `multi-pr` lacks: a
 coordination PR that merges last, cross-repo per-repo grouping, and a two-node

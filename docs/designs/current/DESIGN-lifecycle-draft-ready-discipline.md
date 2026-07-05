@@ -38,6 +38,39 @@ The DESIGN is at Planned while the implementation lands. On chain
 completion the file promotes to `docs/designs/current/` at status
 Current.
 
+## The Discipline
+
+The rule this design enforces is one sentence: **a PR flips from draft
+to ready-for-review at the moment verified work is handed to a human to
+review.** The flip is gated on verification passing — tests green, the
+adversarial review clean. Draft is *only* for work that is still in
+progress or not yet verified. The instant an agent asks a human to look,
+the PR must already read "ready": on GitHub a draft PR tells reviewers to
+hold off and suppresses review-request notifications and some CI, so
+handing a human a draft to review sends the opposite signal from the PR's
+own state.
+
+Two events are distinct and easy to conflate:
+
+- **Marking ready is the agent's signal** — "this is verified; review is
+  now invited." The agent does it at the handoff, gated on verification.
+- **Merging is the human's action**, taken after review.
+
+The agent marks ready; the human merges. An agent must never leave
+verified, review-ready work sitting in draft on the assumption that the
+human will "mark it ready and merge" — those are two different events with
+two different owners.
+
+**The one exception — the coordination PR.** In a coordinated multi-repo
+effort the per-repo implementation PRs follow the rule above: each flips
+to ready at its own review handoff. The coordination PR does not. It is
+docs-only and gated on every indexed per-repo PR merging first, so draft
+is its correct resting state throughout review — it **stays draft until it
+merges last**. The rule is therefore: per-repo impl PRs go ready at
+handoff; the coordination PR stays draft until it merges last. See
+[`references/coordination-strategy.md`](../../../references/coordination-strategy.md)
+for the merge-last contract.
+
 ## Context and Problem Statement
 
 The previous increment landed `shirabe validate --lifecycle <root>` —

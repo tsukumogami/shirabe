@@ -42,7 +42,11 @@ PR-Index and the merge-order block. Code never lands there.
 For each repository that needs changes, `/execute` works that repo in its own
 worktree on that repo's own branch and lands its changes as a separate per-repo PR.
 Cross-unit context flows through the coordination PR's durable state, not through a
-shared branch. The coordination PR merges last, once every per-repo PR has merged.
+shared branch. The coordination PR merges last, once every per-repo PR has merged —
+and it stays draft until then, while each per-repo PR flips to ready-for-review at
+its own review handoff. The coordination PR is the one PR whose correct resting
+state throughout review is draft; every other PR goes ready when its verified work
+is handed off.
 
 What this means for you: do not expect cross-repo code on the coordination branch.
 Each repo gets its own PR; the coordination PR is the index that ties them together
