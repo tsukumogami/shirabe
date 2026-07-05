@@ -1,10 +1,12 @@
 ---
 topic: pr-template-gate
 chain_started: 2026-07-05T03:06:30Z
-last_updated: 2026-07-05T03:09:00Z
-phase_pointer: phase-2
-exit: UNSET
-exit_artifacts: []
+last_updated: 2026-07-05T03:12:00Z
+phase_pointer: phase-3
+exit: full-run
+exit_artifacts:
+  - docs/plans/PLAN-pr-template-gate.md
+plan_execution_mode: single-pr
 visibility: Public
 planned_chain:
   - brief
@@ -16,6 +18,7 @@ chain_ran:
   - brief
   - prd
   - design
+  - plan
 child_snapshots:
   brief:
     status: Accepted
@@ -24,8 +27,11 @@ child_snapshots:
     status: Accepted
     path: docs/prds/PRD-pr-template-gate.md
   design:
-    status: Accepted
+    status: Planned
     path: docs/designs/DESIGN-pr-template-gate.md
+  plan:
+    status: Active
+    path: docs/plans/PLAN-pr-template-gate.md
 design_roster_shape:
   P1_architectural_alternatives: fires
   P2_new_component: does-not-fire
