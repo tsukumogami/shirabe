@@ -26,7 +26,7 @@ PR merges last per the merge order.
 Implements the deterministic work-in-flight PR summary across three repositories:
 the reusable capture/render component and `/inflight` command in shirabe, the
 thin hooks in dot-niwa, and the enabling niwa capabilities (materializer fix,
-apply-time path injection, dispatch-brief rule).
+shared-pipeline component-path injection, dispatch-brief rule).
 
 ## Decomposition Strategy
 
@@ -111,17 +111,25 @@ config and auto-discovery is not installed twice with a lost matcher.
 
 ### Issue 4: feat: inject resolved plugin component path into hook registrations
 
-**Goal**: Give niwa the apply-time capability to resolve the shirabe component
-path and inject it into the thin hook registrations.
+**Goal**: Give niwa the capability to resolve the shirabe component path and
+inject it into the thin hook registrations, in the shared provisioning pipeline
+so every instance-materializing command wires it identically.
 
 **Acceptance Criteria**:
-- [ ] At `niwa apply`, the resolved plugin component path is injected into the
-      materialized work-summary hook commands (settings-registered hooks receive
-      only `${CLAUDE_PROJECT_DIR}`, so the path cannot be self-resolved).
+- [ ] The injection lives in the shared `Applier.runPipeline` materialization
+      step (the `runRepoMaterializers` / settings-materializer path), NOT in an
+      apply-specific codepath — so `niwa create`, `niwa apply`, and `niwa dispatch`
+      (which provisions via `Applier.Create` → `runPipeline`) all produce a wired
+      instance from the one implementation.
+- [ ] Verified for all three entry points: an instance created by `create`, one
+      converged by `apply`, and one provisioned by `dispatch` each have the
+      resolved component path injected into the materialized work-summary hook
+      commands (settings-registered hooks receive only `${CLAUDE_PROJECT_DIR}`, so
+      the path cannot be self-resolved).
 - [ ] A missing/unresolvable component path yields a hook that fails safe (no
       capture), never an untrusted fallback; the injected path is confined to the
       resolved plugin cache location.
-- [ ] Re-apply refreshes the path after a plugin version bump.
+- [ ] Re-provisioning (apply/create) refreshes the path after a plugin bump.
 
 **Dependencies**: None
 
