@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   The mechanical parts of PR-template conformance (Conventional Commits
   title; a two-part body with one `---` separator and a non-empty Part 1;
@@ -28,7 +28,7 @@ user_visible_surface: true
 
 ## Status
 
-Planned
+Current
 
 The design settles the two questions the PRD tagged for it: where the
 mechanical/gated vs subjective/advisory boundary sits (exactly the three

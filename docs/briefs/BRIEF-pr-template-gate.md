@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   PR-template conformance — a Conventional Commits title plus the two-part
   squash-merge body — is enforced only on the automated skill path. A PR
@@ -25,7 +25,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 The framing carries the same structural correction #220 applied to the
 DRAFT-vs-READY discipline, now aimed at PR-template conformance: move the

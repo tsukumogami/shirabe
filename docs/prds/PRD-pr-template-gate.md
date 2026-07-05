@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   PR-template conformance (Conventional Commits title plus the two-part
   squash-merge body) is enforced only where an automated skill authors the
@@ -25,7 +25,7 @@ complexity: Complex
 
 ## Status
 
-Accepted
+Done
 
 The PRD operationalizes the upstream BRIEF's framing. Two questions are
 left open for the DESIGN to settle and are tagged in Decisions and
