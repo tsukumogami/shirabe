@@ -17,6 +17,14 @@ on:
   pull_request:
     types: [opened, edited, reopened, synchronize, ready_for_review]
 
+# Granted on the caller so the called reusable workflow's `permissions` block
+# (contents: read + pull-requests: read) is a subset of what this caller has.
+# A reusable workflow cannot request a permission the caller lacks; without
+# this block the call fails at startup under a restricted default token.
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   pr-body:
     uses: ./.github/workflows/pr-body.yml
