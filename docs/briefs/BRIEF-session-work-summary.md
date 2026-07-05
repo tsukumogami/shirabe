@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   Long agent sessions open multiple PRs, often across several repos, and the
   links scroll out of reach. Native affordances don't recover them: the footer
@@ -23,7 +23,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 The framing below was settled by a completed exploration; the downstream PRD
 owns requirements articulation, and the design records the validated
