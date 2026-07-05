@@ -5,10 +5,10 @@
       "id": 1,
       "name": "invoke-relays-component-block",
       "prompt": "/inflight",
-      "expected_output": "Invokes the work-summary component's render entry point via ${CLAUDE_PLUGIN_ROOT}/skills/inflight/scripts/inflight.sh dynamic injection and relays the standardized work-in-flight block verbatim, without reformatting or adding PRs from memory.",
+      "expected_output": "Invokes `shirabe work-summary render` via dynamic injection and relays the standardized work-in-flight block verbatim, without reformatting or adding PRs from memory.",
       "files": [],
       "expectations": [
-        "Transcript invokes ${CLAUDE_PLUGIN_ROOT}/skills/inflight/scripts/inflight.sh via ! dynamic command injection",
+        "Transcript invokes `shirabe work-summary render` via ! dynamic command injection",
         "Transcript relays the injected block verbatim (no reformatting or summarizing)",
         "Transcript does NOT add or infer PRs from the model's own memory",
         "Transcript identifies the fixed marker line === WORK IN FLIGHT === as the block landmark"
@@ -18,11 +18,11 @@
       "id": 2,
       "name": "session-id-from-env",
       "prompt": "/inflight -- how does it know which session's PRs to show?",
-      "expected_output": "The wrapper resolves the session id from the CLAUDE_CODE_SESSION_ID environment variable and passes it to work-summary.sh render --session <id>. That id must match the id the dot-niwa capture hook keys the ledger by (the PostToolUse hook stdin's session_id).",
+      "expected_output": "`shirabe work-summary render` resolves the session id itself from the CLAUDE_CODE_SESSION_ID environment variable (no --session argument needed). That id must match the id the dot-niwa capture hook keys the ledger by (the PostToolUse hook stdin's session_id).",
       "files": [],
       "expectations": [
         "Agent identifies CLAUDE_CODE_SESSION_ID as the session-id source for the primary path",
-        "Agent explains the id is passed to work-summary.sh render --session <id>",
+        "Agent explains `shirabe work-summary render` reads the session id from the environment itself",
         "Agent notes the id must match the id the capture hook keys the ledger by for the primary path to find PRs"
       ]
     },
@@ -55,10 +55,10 @@
       "id": 5,
       "name": "empty-session-no-noise",
       "prompt": "/inflight in a fresh session that has not opened any pull requests and where the current directory is not a GitHub repo.",
-      "expected_output": "The component render finds an empty ledger and the repo-scoped fallback cannot confirm a repo, so the wrapper emits nothing. The skill tells the user there are no pull requests in flight for this session rather than fabricating a block.",
+      "expected_output": "`shirabe work-summary render` finds an empty ledger and the repo-scoped fallback cannot confirm a repo, so it emits nothing. The skill tells the user there are no pull requests in flight for this session rather than fabricating a block.",
       "files": [],
       "expectations": [
-        "Transcript runs the inflight.sh injection and receives no block output",
+        "Transcript runs the `shirabe work-summary render` injection and receives no block output",
         "Transcript reports there are no PRs in flight for this session",
         "Transcript does NOT fabricate a work-in-flight block or invent PR references"
       ]
