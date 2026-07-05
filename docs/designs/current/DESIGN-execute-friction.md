@@ -170,7 +170,7 @@ branch; coordinated keeps code off the coordination branch entirely.
 
 - **(a) Fold the PR-template authoring into `pr_finalization` (chosen).** One file;
   the existing `gh pr edit` gains `--title` and a two-part body.
-- (b) Invoke the cross-plugin `/fix-pr` from `/execute`. Rejected: a second
+- (b) Invoke a cross-plugin PR-repair skill from `/execute`. Rejected: a second
   remediation pass (violates R4's "without a separate manual fix-up") and a runtime
   shirabe→tsukumogami coupling.
 
