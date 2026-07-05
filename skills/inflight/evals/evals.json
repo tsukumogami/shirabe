@@ -1,0 +1,67 @@
+{
+  "skill_name": "inflight",
+  "evals": [
+    {
+      "id": 1,
+      "name": "invoke-relays-component-block",
+      "prompt": "/inflight",
+      "expected_output": "Invokes the work-summary component's render entry point via ${CLAUDE_PLUGIN_ROOT}/skills/inflight/scripts/inflight.sh dynamic injection and relays the standardized work-in-flight block verbatim, without reformatting or adding PRs from memory.",
+      "files": [],
+      "expectations": [
+        "Transcript invokes ${CLAUDE_PLUGIN_ROOT}/skills/inflight/scripts/inflight.sh via ! dynamic command injection",
+        "Transcript relays the injected block verbatim (no reformatting or summarizing)",
+        "Transcript does NOT add or infer PRs from the model's own memory",
+        "Transcript identifies the fixed marker line === WORK IN FLIGHT === as the block landmark"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "session-id-from-env",
+      "prompt": "/inflight -- how does it know which session's PRs to show?",
+      "expected_output": "The wrapper resolves the session id from the CLAUDE_CODE_SESSION_ID environment variable and passes it to work-summary.sh render --session <id>. That id must match the id the dot-niwa capture hook keys the ledger by (the PostToolUse hook stdin's session_id).",
+      "files": [],
+      "expectations": [
+        "Agent identifies CLAUDE_CODE_SESSION_ID as the session-id source for the primary path",
+        "Agent explains the id is passed to work-summary.sh render --session <id>",
+        "Agent notes the id must match the id the capture hook keys the ledger by for the primary path to find PRs"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "repo-scoped-fallback-not-cross-repo",
+      "prompt": "/inflight -- what happens when there is no session ledger or live state is unreachable?",
+      "expected_output": "It degrades to a repo-scoped gh pr list --repo <current-repo> --author @me formatted to the same block spec. It is never an author-scoped cross-repo search, and it is fail-closed: if the current repo cannot be confirmed it emits nothing, and it lists only PRs whose URL belongs to the confirmed repo.",
+      "files": [],
+      "expectations": [
+        "Agent describes a repo-scoped gh pr list fallback for the current repository",
+        "Agent states the fallback is NEVER an author-scoped cross-repo search (visibility over-collection risk)",
+        "Agent states the fallback is fail-closed: no confirmed repo => no output",
+        "Agent states the fallback follows the same block spec as the primary render"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "user-invoked-only",
+      "prompt": "Should the agent proactively show the work-in-flight block on its own when it notices a PR was opened?",
+      "expected_output": "No. The /inflight skill sets disable-model-invocation: true, so it is user-invoked only. Automatic emission on state change is the job of the ambient dot-niwa hooks (which call the same component), not of the model invoking this skill.",
+      "files": [],
+      "expectations": [
+        "Agent states /inflight is user-invoked only (disable-model-invocation: true)",
+        "Agent does NOT propose that the model auto-invoke /inflight",
+        "Agent attributes automatic on-change emission to the ambient hooks calling the same component"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "empty-session-no-noise",
+      "prompt": "/inflight in a fresh session that has not opened any pull requests and where the current directory is not a GitHub repo.",
+      "expected_output": "The component render finds an empty ledger and the repo-scoped fallback cannot confirm a repo, so the wrapper emits nothing. The skill tells the user there are no pull requests in flight for this session rather than fabricating a block.",
+      "files": [],
+      "expectations": [
+        "Transcript runs the inflight.sh injection and receives no block output",
+        "Transcript reports there are no PRs in flight for this session",
+        "Transcript does NOT fabricate a work-in-flight block or invent PR references"
+      ]
+    }
+  ]
+}
