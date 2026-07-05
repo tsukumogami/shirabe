@@ -438,9 +438,10 @@ surface: a `render-*.sh` planted in `.claude/` by a malicious branch, PR
 checkout, or clone is never on the execution path, so no per-file
 provenance-verification machinery is required. The trust anchor is the plugin
 install itself. The niwa-injected path is resolved from the prewarmed plugin
-cache at `niwa apply`; a hook whose injected path is absent (plugin missing, or
-stale before re-apply) fails safe to no capture, never to an untrusted
-alternative, and the `/inflight` `gh` fallback is read-only and repo-scoped.
+cache during provisioning (the shared `create`/`apply`/`dispatch` pipeline); a
+hook whose injected path is absent (plugin missing, or stale before the next
+provision) fails safe to no capture, never to an untrusted alternative, and the
+`/inflight` `gh` fallback is read-only and repo-scoped.
 
 **Visibility (R12).** The primary path is safe by construction: the ledger holds
 only PRs the session opened, so multi-repo collection never reaches beyond the
