@@ -150,10 +150,14 @@ extract_pr_url() {
 #      sequences (0xC2 0x80 .. 0xC2 0x9F). These pass a C0-only filter yet drive
 #      OSC-8 hyperlinks / cursor moves on terminals honoring 8-bit C1. Done
 #      before the raw-byte pass so the lead 0xC2 is removed with its payload.
-#   3. Strip C0 controls, DEL, and any RAW C1 bytes (0x80-0x9F). Raw C1
-#      stripping is defense-in-depth for 8-bit / non-UTF-8 terminals; it may
-#      also drop a stray UTF-8 continuation byte, an acceptable trade for a
-#      terminal-safety filter over a truncated summary title.
+#   3. Strip C0 controls and DEL. Raw standalone C1 bytes (0x80-0x9F) cannot
+#      reach here in practice: titles are read via `gh --json ... --jq`, whose
+#      output is valid UTF-8 (any invalid byte is already U+FFFD), so the
+#      filter deliberately does NOT strip the raw 0x80-0x9F range -- doing so
+#      would corrupt legitimate multibyte UTF-8 (emoji, CJK) whose
+#      continuation bytes fall in that range. The C1 code points that are the
+#      actual terminal threat are removed in their UTF-8 two-byte form by
+#      step 2.
 #   4. Remove the `|` cell separator.
 #   5. Forbid the literal marker substring (so a crafted title cannot forge rows
 #      or inject a second marker).
@@ -163,7 +167,7 @@ sanitize() {
     local s="$1"
     s=$(printf '%s' "$s" | LC_ALL=C sed -E $'s/\x1b\\[[0-9;?=]*[A-Za-z]//g')
     s=$(printf '%s' "$s" | LC_ALL=C sed -E $'s/\xc2[\x80-\x9f]//g')
-    s=$(printf '%s' "$s" | LC_ALL=C tr -d '\000-\037\177\200-\237')
+    s=$(printf '%s' "$s" | LC_ALL=C tr -d '\000-\037\177')
     s=${s//|/}
     s=${s//"$MARKER"/}
     if (( ${#s} > 50 )); then

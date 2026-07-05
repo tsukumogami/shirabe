@@ -421,10 +421,12 @@ test_c1_strip() {
         pass "sanitizer leaves no UTF-8 C1 sequence"
     fi
 
-    # Raw C1 bytes (0x80-0x9F, not part of a UTF-8 sequence) are also stripped.
-    title=$(printf 'x\x9dy\x9bz')
+    # Legitimate multibyte UTF-8 whose continuation bytes fall in 0x80-0x9F
+    # (e.g. U+2764 heart = E2 9D A4, U+00E9 e-acute = C3 A9) is PRESERVED --
+    # only C1 code points (stripped in their two-byte form above) are removed.
+    title=$(printf 'a\xe2\x9d\xa4b\xc3\xa9c')
     out=$(sanitize "$title")
-    assert_eq "sanitizer strips raw C1 bytes" "xyz" "$out"
+    assert_eq "sanitizer preserves multibyte UTF-8" "$(printf 'a\xe2\x9d\xa4b\xc3\xa9c')" "$out"
 
     # End-to-end: a C1-laden PR title never reaches the rendered block.
     setup
