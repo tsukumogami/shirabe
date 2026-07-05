@@ -4,7 +4,7 @@ status: Draft
 execution_mode: coordinated
 upstream: docs/designs/DESIGN-session-work-summary.md
 milestone: "Session Work Summary"
-issue_count: 6
+issue_count: 5
 ---
 
 # PLAN: Session Work Summary
@@ -24,16 +24,19 @@ PR merges last per the merge order.
 ## Scope Summary
 
 Implements the deterministic work-in-flight PR summary across three repositories:
-the reusable capture/render component and `/inflight` command in shirabe, the
-thin hooks in dot-niwa, and the enabling niwa capabilities (materializer fix,
-shared-pipeline component-path injection, dispatch-brief rule).
+the `shirabe work-summary` CLI subcommand and `/inflight` command in shirabe, the
+thin hooks in dot-niwa, and the enabling niwa capabilities (materializer dedup +
+SessionStart-merge fix, dispatch-brief rule). The `shirabe` binary is already on
+PATH, so the hooks and `/inflight` invoke the subcommand directly with no path
+resolution.
 
 ## Decomposition Strategy
 
 **Horizontal.** The components are loosely coupled across repositories with
-defined interfaces: the shirabe component is the single implementation everything
-else invokes, so it is the prerequisite; the niwa capabilities are independent
-enablers; the dot-niwa hooks are thin shims that depend on both. This is a set of
+defined interfaces: the `shirabe work-summary` subcommand is the single
+implementation everything else invokes, so it is the prerequisite; the niwa
+capabilities are independent enablers; the dot-niwa hooks are thin shims that
+depend on both. This is a set of
 components with clear boundaries built to a settled design, which is the
 horizontal case rather than a single end-to-end runtime slice.
 
@@ -46,20 +49,27 @@ display once its prerequisites land. A coordination PR (this branch) merges last
 
 ## Issue Outlines
 
-### Issue 1: feat: work-summary capture/render component
+### Issue 1: feat: port the work-summary logic into the `shirabe work-summary` CLI subcommand
 
-**Goal**: Ship the single reusable component (capture parsing, ledger, two-level
-gate, renderer, terminal-safety sanitizer) in the shirabe plugin that every
-surface invokes.
+**Goal**: Ship the single reusable implementation (capture parsing, ledger,
+two-level gate, renderer, terminal-safety sanitizer, hook-JSON emission) as a
+`shirabe work-summary {capture,absence,compact,render,spec}` subcommand of the
+compiled `shirabe` binary (Rust) that every surface invokes bare from PATH. The
+security-critical, determinism-focused logic lives in typed Rust, not bash.
 
 **Acceptance Criteria**:
-- [ ] `capture` parses a PR URL from `gh pr create` output, validates it against
-      the anchored `^https://github\.com/<owner>/<repo>/pull/[0-9]+$` pattern
-      (rejecting non-matches and the `git push` `/pull/new/` hint), and appends a
-      ledger row (repo, number, URL, first-seen, `terminal_shown`).
-- [ ] `render <session-id>` reads the ledger, refreshes each item via live `gh`,
-      and prints the `=== WORK IN FLIGHT ===` block with attention-first ordering,
-      terminal-drop, section escalation above six items, and a freshness line.
+- [ ] `shirabe work-summary capture` parses a PR URL from `gh pr create` output,
+      validates it against the anchored
+      `^https://github\.com/<owner>/<repo>/pull/[0-9]+$` pattern (rejecting
+      non-matches and the `git push` `/pull/new/` hint), and appends a ledger row
+      (repo, number, URL, first-seen, `terminal_shown`).
+- [ ] `shirabe work-summary render <session-id>` reads the ledger, refreshes each
+      item via live `gh`, and prints the `=== WORK IN FLIGHT ===` block with
+      attention-first ordering, terminal-drop, section escalation above six items,
+      and a freshness line. `spec` prints the format spec.
+- [ ] `capture`/`absence` emit the hook JSON (systemMessage + neutral nonce-fenced
+      additionalContext) directly from the binary; `compact` emits
+      additionalContext only. The hooks carry no JSON/nonce/fence logic.
 - [ ] The terminal-safety sanitizer strips control/ANSI bytes (before truncation),
       removes newlines and `|`, and forbids the marker substring in any cell.
 - [ ] Two-level gate: cheap ledger-hash check every call; rendered-hash recompute
@@ -77,10 +87,10 @@ surface invokes.
 ### Issue 2: feat: /inflight on-demand work-summary command
 
 **Goal**: A shirabe `/inflight` skill that regenerates the block on demand from
-the same component.
+the same subcommand.
 
 **Acceptance Criteria**:
-- [ ] Invokes the component via `${CLAUDE_PLUGIN_ROOT}` through `!` dynamic
+- [ ] Calls `shirabe work-summary render` (on PATH) through `!` dynamic
       injection and relays its output verbatim.
 - [ ] On unreachable live state, falls back to a repo-scoped `gh` listing
       (never author-scoped cross-repo) following the same block spec, with F1
@@ -92,10 +102,12 @@ the same component.
 **Repo / Group**: tsukumogami/shirabe / default
 **Type**: code
 
-### Issue 3: fix: dedup declared and discovered hook registrations
+### Issue 3: fix: materializer hook-registration hygiene (dedup + SessionStart merge)
 
-**Goal**: Fix the niwa materializer so a hook registered through both declared
-config and auto-discovery is not installed twice with a lost matcher.
+**Goal**: Fix the two niwa materializer defects that gate the ambient hooks: a
+hook registered through both declared config and auto-discovery is installed
+twice with a lost matcher, and the SessionStart provisioning hook clobbers an
+installed `session_start` hook under ephemeral-session mode.
 
 **Acceptance Criteria**:
 - [ ] `runRepoMaterializers` (or its merge step) dedups by resolved script path so
@@ -103,40 +115,19 @@ config and auto-discovery is not installed twice with a lost matcher.
 - [ ] Regression test: a hook declared in `workspace.toml` with `matcher: Bash`
       and present under `.niwa/hooks/` materializes exactly one settings entry
       that retains the `Bash` matcher.
+- [ ] SessionStart merge: an installed `session_start` hook survives
+      ephemeral-session mode — the SessionStart provisioning hook merges with,
+      rather than overwrites, a registered work-summary `compact` hook.
+- [ ] Regression test: with ephemeral-session mode enabled, a registered
+      `session_start` `compact` hook is still present in the materialized
+      `settings.json` alongside the provisioning hook.
 
 **Dependencies**: None
 
 **Repo / Group**: tsukumogami/niwa / default
 **Type**: code
 
-### Issue 4: feat: inject resolved plugin component path into hook registrations
-
-**Goal**: Give niwa the capability to resolve the shirabe component path and
-inject it into the thin hook registrations, in the shared provisioning pipeline
-so every instance-materializing command wires it identically.
-
-**Acceptance Criteria**:
-- [ ] The injection lives in the shared `Applier.runPipeline` materialization
-      step (the `runRepoMaterializers` / settings-materializer path), NOT in an
-      apply-specific codepath — so `niwa create`, `niwa apply`, and `niwa dispatch`
-      (which provisions via `Applier.Create` → `runPipeline`) all produce a wired
-      instance from the one implementation.
-- [ ] Verified for all three entry points: an instance created by `create`, one
-      converged by `apply`, and one provisioned by `dispatch` each have the
-      resolved component path injected into the materialized work-summary hook
-      commands (settings-registered hooks receive only `${CLAUDE_PROJECT_DIR}`, so
-      the path cannot be self-resolved).
-- [ ] A missing/unresolvable component path yields a hook that fails safe (no
-      capture), never an untrusted fallback; the injected path is confined to the
-      resolved plugin cache location.
-- [ ] Re-provisioning (apply/create) refreshes the path after a plugin bump.
-
-**Dependencies**: None
-
-**Repo / Group**: tsukumogami/niwa / default
-**Type**: code
-
-### Issue 5: feat: dispatch-brief work-in-flight final-message rule
+### Issue 4: feat: dispatch-brief work-in-flight final-message rule
 
 **Goal**: Require a dispatched worker's final message to carry the work-in-flight
 block, via the niwa dispatch rootskill brief.
@@ -152,24 +143,25 @@ block, via the niwa dispatch rootskill brief.
 **Repo / Group**: tsukumogami/niwa / default
 **Type**: docs
 
-### Issue 6: feat: thin work-summary hooks and registration
+### Issue 5: feat: thin work-summary hooks and registration
 
-**Goal**: Ship the thin dot-niwa hooks that invoke the shirabe component and emit
-the block through the dual channels.
+**Goal**: Ship the thin dot-niwa hooks that pass through to the on-PATH `shirabe
+work-summary` subcommand, which does the emission.
 
 **Acceptance Criteria**:
 - [ ] PostToolUse capture hook (matcher on PR-affecting `gh` commands), a
-      UserPromptSubmit return hook (`WS_ABSENCE_THRESHOLD`, default 30 min), and a
-      SessionStart(`compact`) re-injection hook, registered via one channel in
-      `workspace.toml`/`.niwa/hooks/`.
-- [ ] Each hook execs the niwa-injected component path with the session id and
-      emits `systemMessage` plus a neutral-phrased `additionalContext` echo
-      (structured fields; free-text titles omitted or delimited as opaque).
+      UserPromptSubmit return hook, and a SessionStart(`compact`) re-injection
+      hook, registered via one channel in `workspace.toml`/`.niwa/hooks/`.
+- [ ] Each hook is a pure pass-through: `exec shirabe work-summary <mode>`
+      (`capture`/`absence`/`compact`) with a `command -v shirabe || exit 0`
+      fail-safe guard. No `[[claude.plugin_path_env]]` reference and no
+      JSON/nonce/fence logic in the hook — the binary emits `systemMessage` plus
+      the neutral `additionalContext` echo.
 - [ ] Hooks are idempotent and tool-type tolerant (defensive against the
-      pre-fix double-registration behavior) and fail safe when the injected path
-      is absent.
+      pre-fix double-registration behavior) and no-op when `shirabe` is absent
+      from PATH.
 
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:3>>, <<ISSUE:4>>
+**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:3>>
 
 **Repo / Group**: tsukumogami/dot-niwa / default
 **Type**: code
@@ -188,19 +180,17 @@ this table is populated with links, transitioning the PLAN to Active.
 
 ```mermaid
 graph TD
-    I1["#1 shirabe: component"]
+    I1["#1 shirabe: work-summary subcommand"]
     I2["#2 shirabe: /inflight"]
-    I3["#3 niwa: dedup hooks"]
-    I4["#4 niwa: path injection"]
-    I5["#5 niwa: dispatch rule"]
-    I6["#6 dot-niwa: thin hooks"]
+    I3["#3 niwa: materializer hygiene"]
+    I4["#4 niwa: dispatch rule"]
+    I5["#5 dot-niwa: thin hooks"]
 
     I1 --> I2
-    I1 --> I6
-    I3 --> I6
-    I4 --> I6
+    I1 --> I5
+    I3 --> I5
 
-    class I1,I2,I3,I4,I5,I6 ready;
+    class I1,I2,I3,I4,I5 ready;
 
     classDef done fill:#d4edda,stroke:#28a745,color:#333;
     classDef ready fill:#fff3cd,stroke:#d39e00,color:#333;
@@ -208,7 +198,7 @@ graph TD
 ```
 
 **Legend**: done (merged), ready (unblocked), blocked (waiting on a dependency).
-All six issues are `ready` (nothing created yet; no blockers exist at rest).
+All five issues are `ready` (nothing created yet; no blockers exist at rest).
 
 ## Merge Order
 
@@ -220,22 +210,22 @@ dot-niwa-default | unopened
 ```
 
 `shirabe-default` and `niwa-default` have no cross-repo predecessors and may land
-in parallel. `dot-niwa-default` merges only after both (it needs the component
-from shirabe and the materializer fix + path injection from niwa). The
-coordination PR merges last, after all three per-repo PRs.
+in parallel. `dot-niwa-default` merges only after both (it needs the
+`shirabe work-summary` subcommand from shirabe and the materializer hygiene fix
+from niwa). The coordination PR merges last, after all three per-repo PRs.
 
 ## Implementation Sequence
 
-**Critical path:** Issue 1 (shirabe component) → Issue 6 (dot-niwa hooks) →
-coordination PR. The component gates the hooks; the hooks are the last per-repo
-work.
+**Critical path:** Issue 1 (shirabe `work-summary` subcommand) → Issue 5 (dot-niwa
+hooks) → coordination PR. The subcommand gates the hooks; the hooks are the last
+per-repo work.
 
 **Parallelizable:**
-- The niwa work (Issues 3, 4, 5) runs concurrently with the shirabe work
+- The niwa work (Issues 3, 4) runs concurrently with the shirabe work
   (Issues 1, 2) — no cross-repo dependency between them.
 - Within shirabe, Issue 2 follows Issue 1.
-- Within niwa, the three issues are independent of each other.
+- Within niwa, the two issues are independent of each other.
 
-**Prerequisites first:** Issues 3 (materializer dedup) and 4 (path injection) are
-the niwa enablers the dot-niwa hooks require; landing them before Issue 6 keeps
-the dot-niwa PR unblocked as soon as shirabe lands.
+**Prerequisites first:** Issue 3 (materializer hygiene — dedup + SessionStart
+merge) is the niwa enabler the dot-niwa hooks require; landing it before Issue 5
+keeps the dot-niwa PR unblocked as soon as shirabe lands.
