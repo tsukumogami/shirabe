@@ -89,6 +89,19 @@ def norm:
 
 sha256() { sha256sum | awk '{print $1}'; }
 
+# Dedup hash of a rendered block for the emission gate. Hashes ONLY the PR-line
+# CONTENT: the volatile "updated <ISO>" freshness line and the offline
+# "(best-effort: live state unavailable)" marker line are excluded, so a stable
+# summary with no state change is not re-emitted every WS_RENDER_INTERVAL merely
+# because its timestamp advanced. The timestamp stays in the DISPLAYED block
+# (user-facing); it is kept out of the dedup key only.
+block_dedup_hash() {
+    printf '%s' "$1" \
+        | grep -vE '^updated ' \
+        | grep -vxF '(best-effort: live state unavailable)' \
+        | sha256
+}
+
 ws_now() {
     if [[ -n "${WS_NOW:-}" ]]; then
         printf '%s' "$WS_NOW"
@@ -132,17 +145,25 @@ extract_pr_url() {
 
 # Terminal-safety sanitizer. Every gh-sourced field (especially PR title) passes
 # through this before entering the block.
-#   1. Strip ANSI CSI escape sequences FIRST.
-#   2. Strip remaining control bytes (ESC, tab, newline, CR, ...).
-#   3. Remove the `|` cell separator.
-#   4. Forbid the literal marker substring (so a crafted title cannot forge rows
+#   1. Strip ANSI CSI escape sequences (7-bit ESC[ form) FIRST.
+#   2. Strip C1 controls (U+0080-U+009F) encoded as valid UTF-8 two-byte
+#      sequences (0xC2 0x80 .. 0xC2 0x9F). These pass a C0-only filter yet drive
+#      OSC-8 hyperlinks / cursor moves on terminals honoring 8-bit C1. Done
+#      before the raw-byte pass so the lead 0xC2 is removed with its payload.
+#   3. Strip C0 controls, DEL, and any RAW C1 bytes (0x80-0x9F). Raw C1
+#      stripping is defense-in-depth for 8-bit / non-UTF-8 terminals; it may
+#      also drop a stray UTF-8 continuation byte, an acceptable trade for a
+#      terminal-safety filter over a truncated summary title.
+#   4. Remove the `|` cell separator.
+#   5. Forbid the literal marker substring (so a crafted title cannot forge rows
 #      or inject a second marker).
-#   5. Truncate to ~50 chars LAST (strip-before-truncate: a multi-byte escape
-#      cannot survive by being split by truncation).
+#   6. Truncate to ~50 chars LAST (strip-before-truncate: all control stripping
+#      runs BEFORE truncation so a boundary split cannot leave a live sequence).
 sanitize() {
     local s="$1"
-    s=$(printf '%s' "$s" | sed -E $'s/\x1b\\[[0-9;?=]*[A-Za-z]//g')
-    s=$(printf '%s' "$s" | tr -d '\000-\037\177')
+    s=$(printf '%s' "$s" | LC_ALL=C sed -E $'s/\x1b\\[[0-9;?=]*[A-Za-z]//g')
+    s=$(printf '%s' "$s" | LC_ALL=C sed -E $'s/\xc2[\x80-\x9f]//g')
+    s=$(printf '%s' "$s" | LC_ALL=C tr -d '\000-\037\177\200-\237')
     s=${s//|/}
     s=${s//"$MARKER"/}
     if (( ${#s} > 50 )); then
@@ -151,13 +172,53 @@ sanitize() {
     printf '%s' "$s"
 }
 
-# Detect a PR-creating gh invocation. The anchored URL validation is the real
-# security gate; this only decides whether to scrape stdout at all.
+# Detect a command that actually INVOKES `gh ... pr create`. This gates only
+# whether capture scrapes stdout at all; the anchored URL validation remains the
+# real security boundary.
+#
+# Heuristic: split the command on shell boundaries (; | & and their doubled
+# forms, plus newlines), and for each segment strip leading `VAR=val `
+# env-assignments, then require the segment to START with the `gh` command and
+# to contain `pr` and `create` (in that order) as bare, whitespace-delimited
+# argv tokens -- NOT inside a quoted string. This rejects the obvious false
+# positives where `gh pr create` is data rather than the invoked command, e.g.
+# `grep 'gh pr create' notes.txt`, `cat gh-pr-create.log`, `echo gh pr create`.
+#
+# Residual (documented, accepted): this is not a real shell parser. `gh` reached
+# via an alias/function, or `pr`/`create` assembled from variables, may be
+# missed; a contrived unquoted `gh ... pr ... create` in a non-invoking position
+# may be mis-detected. Both are acceptable: the result only decides whether to
+# ATTEMPT a stdout scrape, and every captured URL is anchor-validated before use.
 is_pr_create() {
-    local cmd="$1"
-    [[ "$cmd" == *gh* ]] || return 1
-    [[ "$cmd" =~ pr[[:space:]]+create ]] || return 1
-    return 0
+    local cmd="$1" seg
+    local -a segs=()
+    # Over-splitting is safe: each segment is validated independently below.
+    mapfile -t segs < <(printf '%s\n' "$cmd" | tr ';|&' '\n\n\n')
+    for seg in "${segs[@]}"; do
+        # Strip leading whitespace.
+        seg="${seg#"${seg%%[![:space:]]*}"}"
+        # Strip any run of leading VAR=val env-assignments.
+        while [[ "$seg" =~ ^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+ ]]; do
+            seg="${seg#"${BASH_REMATCH[0]}"}"
+        done
+        # The leading token must be exactly the `gh` command.
+        [[ "$seg" =~ ^gh([[:space:]]|$) ]] || continue
+        # Drop single/double-quoted spans so a quoted `pr create` is not counted
+        # as argv tokens, then require pr then create as bare tokens.
+        local bare
+        bare=$(printf '%s' "$seg" | sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g")
+        local -a toks=()
+        read -ra toks <<< "$bare"
+        local pr_i=-1 cr_i=-1 j
+        for j in "${!toks[@]}"; do
+            if [[ "${toks[$j]}" == "pr" && $pr_i -lt 0 ]]; then pr_i=$j; fi
+            if [[ "${toks[$j]}" == "create" && $pr_i -ge 0 && $cr_i -lt 0 ]]; then cr_i=$j; fi
+        done
+        if (( pr_i >= 0 && cr_i > pr_i )); then
+            return 0
+        fi
+    done
+    return 1
 }
 
 # --- storage ---------------------------------------------------------------
@@ -176,6 +237,20 @@ ensure_store() {
 }
 
 ledger_path() { printf '%s/%s.ledger' "$1" "$2"; }
+
+# Defense-in-depth: refuse to operate through a symlinked per-session file. The
+# store dir is already symlink-checked, but the ledger/state/lock files are
+# opened with plain `>>`/`>`/`9>` redirections that would otherwise follow a
+# symlink to write outside the store. Same-user threat model; a check here plus
+# the 0700 store dir is enough. TOCTOU-tolerant on purpose: we are not defending
+# against the same user actively racing us, only against a pre-planted symlink.
+refuse_symlinked_files() {
+    local store="$1" sid="$2" p
+    for p in "$store/$sid.ledger" "$store/$sid.state" "$store/$sid.lock"; do
+        [[ -L "$p" ]] && return 1
+    done
+    return 0
+}
 
 # Hash of ledger contents (stable hash of "" when the ledger does not exist).
 ledger_hash() {
@@ -271,11 +346,19 @@ persist_ledger() {
     chmod 0600 "$ledger" 2>/dev/null || true
 }
 
-# Render the current block to stdout from the ledger + live gh reads. Mutates
-# the ledger's terminal_shown flags (terminal-drop, R3). Caller holds the lock.
-# Empty ledger => no output.
+# Render the current block to stdout from the ledger + live gh reads. Caller
+# holds the lock. Empty ledger => no output.
+#
+# Third arg `consume` (default 1) selects the AMBIENT vs ON-DEMAND semantics:
+#   consume=1 (ambient: capture/absence/compact) -- honors terminal-drop (R3):
+#     excludes a terminal PR already shown once, marks newly-shown terminal PRs,
+#     and rewrites the ledger's terminal_shown flags.
+#   consume=0 (on-demand: /inflight render) -- a pure READ: shows current
+#     terminal PRs WITHOUT marking them shown and WITHOUT rewriting the ledger,
+#     so repeated on-demand renders are idempotent and never consume R3's single
+#     post-transition showing that the ambient paths own.
 render_block() {
-    local store="$1" sid="$2"
+    local store="$1" sid="$2" consume="${3:-1}"
     local ledger; ledger=$(ledger_path "$store" "$sid")
     [[ -s "$ledger" ]] || return 0
 
@@ -309,8 +392,10 @@ render_block() {
         local terminal=0
         [[ "$st" == "MERGED" || "$st" == "CLOSED" ]] && terminal=1
 
-        # terminal-drop: a terminal PR already shown once is excluded.
-        if (( terminal )) && [[ "${a_shown[$i]}" == "1" ]]; then
+        # terminal-drop (ambient only): a terminal PR already shown once is
+        # excluded. On-demand render (consume=0) never drops, so an explicit
+        # read always reflects the current terminal PRs.
+        if (( consume )) && (( terminal )) && [[ "${a_shown[$i]}" == "1" ]]; then
             continue
         fi
 
@@ -320,9 +405,16 @@ render_block() {
         elif [[ "$isd" == "true" ]];  then base="draft"
         else base="open"; fi
 
+        # R2: every entry carries a status indication. Terminal PRs carry it
+        # via their base token (merged/closed); non-terminal PRs always show a
+        # ci:* token, falling back to ci:none when the rollup is empty.
         local tokens="$base"
-        if (( ! terminal )) && [[ -n "$ci" ]]; then
-            tokens="$tokens ci:$ci"
+        if (( ! terminal )); then
+            if [[ -n "$ci" ]]; then
+                tokens="$tokens ci:$ci"
+            else
+                tokens="$tokens ci:none"
+            fi
         fi
         local rvu="${rev^^}"
         if   [[ "$rvu" == "CHANGES_REQUESTED" ]]; then tokens="$tokens review:changes_requested"
@@ -344,7 +436,7 @@ render_block() {
         [[ "$seenv" =~ ^[0-9]+$ ]] || seenv=0
         o_seen+=("$seenv")
 
-        if (( terminal )) && [[ "${a_shown[$i]}" != "1" ]]; then
+        if (( consume )) && (( terminal )) && [[ "${a_shown[$i]}" != "1" ]]; then
             new_shown[$i]=1
         fi
     done
@@ -354,7 +446,7 @@ render_block() {
         return 0
     fi
 
-    persist_ledger "$ledger" a_repo a_num a_url a_seen new_shown
+    (( consume )) && persist_ledger "$ledger" a_repo a_num a_url a_seen new_shown
 
     local m=${#o_line[@]}
     (( m == 0 )) && return 0
@@ -418,7 +510,7 @@ _capture_locked() {
         # Cheap level: ledger changed -> render and emit.
         local block; block=$(render_block "$store" "$sid")
         [[ -n "$block" ]] && printf '%s\n' "$block"
-        ST_LR=$(printf '%s' "$block" | sha256)
+        ST_LR=$(block_dedup_hash "$block")
         ST_LTS="$now"
         ST_LE=$(ledger_hash "$ledger")
     elif (( now - ${ST_LTS:-0} > WS_RENDER_INTERVAL )); then
@@ -426,7 +518,7 @@ _capture_locked() {
         # emit only if the rendered block changed; update render ts regardless.
         local block bhash
         block=$(render_block "$store" "$sid")
-        bhash=$(printf '%s' "$block" | sha256)
+        bhash=$(block_dedup_hash "$block")
         if [[ -n "$block" && "$bhash" != "$ST_LR" ]]; then
             printf '%s\n' "$block"
         fi
@@ -438,21 +530,17 @@ _capture_locked() {
     write_state "$store" "$sid"
 }
 
+# On-demand render for /inflight. A pure READ: no ledger rewrite, no gate-state
+# write, no terminal_shown consumption. It shows the current terminal PRs
+# without consuming R3's single post-transition showing (owned by the ambient
+# paths) and without resetting the ambient emission gate (ST_LR/ST_LTS/ST_LE) or
+# activity clock (ST_LA). See render_block's consume=0 mode.
 _render_locked() {
     local sid="$1" store="$2"
     local ledger; ledger=$(ledger_path "$store" "$sid")
-    if [[ ! -s "$ledger" ]]; then
-        read_state "$store" "$sid"; ST_LA=$(ws_now); write_state "$store" "$sid"
-        return 0
-    fi
-    local block; block=$(render_block "$store" "$sid")
+    [[ -s "$ledger" ]] || return 0
+    local block; block=$(render_block "$store" "$sid" 0)
     [[ -n "$block" ]] && printf '%s\n' "$block"
-    read_state "$store" "$sid"
-    ST_LA=$(ws_now)
-    ST_LR=$(printf '%s' "$block" | sha256)
-    ST_LTS=$(ws_now)
-    ST_LE=$(ledger_hash "$ledger")
-    write_state "$store" "$sid"
 }
 
 _absence_locked() {
@@ -467,7 +555,7 @@ _absence_locked() {
     if (( elapsed > WS_ABSENCE_THRESHOLD )) && [[ -s "$ledger" ]]; then
         local block; block=$(render_block "$store" "$sid")
         [[ -n "$block" ]] && printf '%s\n' "$block"
-        ST_LR=$(printf '%s' "$block" | sha256)
+        ST_LR=$(block_dedup_hash "$block")
         ST_LTS="$now"
         ST_LE=$(ledger_hash "$ledger")
     fi
@@ -555,6 +643,7 @@ main() {
 
     local store
     store=$(ensure_store) || exit 0
+    refuse_symlinked_files "$store" "$sid" || exit 0
     local lock="$store/$sid.lock"
 
     case "$sub" in

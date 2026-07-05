@@ -70,7 +70,9 @@ while IFS= read -r item; do
     st="${st^^}"
     if   [[ "$isd" == "true" ]]; then base="draft"; else base="open"; fi
     tokens="$base"
-    [[ -n "$ci" ]] && tokens="$tokens ci:$ci"
+    # R2: every entry carries a status indication; fall back to ci:none when the
+    # rollup is empty (fallback lists only non-terminal open/draft PRs).
+    if [[ -n "$ci" ]]; then tokens="$tokens ci:$ci"; else tokens="$tokens ci:none"; fi
     rvu="${rev^^}"
     if   [[ "$rvu" == "CHANGES_REQUESTED" ]]; then tokens="$tokens review:changes_requested"
     elif [[ "$rvu" == "APPROVED" ]];          then tokens="$tokens review:approved"; fi
