@@ -778,3 +778,17 @@ fn concurrent_captures_produce_distinct_rows() {
         "no corrupted rows (every row has 5 fields)"
     );
 }
+
+#[test]
+fn help_prints_format_spec() {
+    let assert = Command::cargo_bin("shirabe")
+        .unwrap()
+        .args(["work-summary", "spec"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    assert!(stdout.contains(MARKER), "help missing marker: {stdout}");
+    for sub in ["capture", "absence", "compact", "render", "spec"] {
+        assert!(stdout.contains(sub), "help missing subcommand {sub}");
+    }
+}

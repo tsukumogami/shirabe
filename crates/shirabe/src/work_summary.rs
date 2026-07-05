@@ -90,6 +90,11 @@ pub enum WorkSummaryCommands {
     /// JSON) so the skill can relay it verbatim. Falls back to a repo-scoped
     /// `gh pr list` when the session ledger is empty or unreachable.
     Render(RenderArgs),
+    /// Print the work-in-flight block format spec (the single source of
+    /// truth for the marker, the per-line grammar, and the subcommand list).
+    /// Named `spec` (not `help`) to avoid clashing with clap's built-in
+    /// `help` subcommand.
+    Spec,
 }
 
 #[derive(Args)]
@@ -109,8 +114,20 @@ pub fn run(command: &WorkSummaryCommands) -> ExitCode {
         WorkSummaryCommands::Absence => cmd_absence(),
         WorkSummaryCommands::Compact => cmd_compact(),
         WorkSummaryCommands::Render(args) => cmd_render(args.session.as_deref()),
+        WorkSummaryCommands::Spec => cmd_spec(),
     }
     ExitCode::SUCCESS
+}
+
+/// Print the block-format spec: the single source of truth for the marker,
+/// the per-line grammar, the freshness line, and the subcommand list.
+fn cmd_spec() {
+    println!("{MARKER}");
+    println!("one line per pull request (attention-first):");
+    println!("  owner/repo#N | state-tokens | title | bare-URL");
+    println!("updated <ISO-8601 UTC>   (freshness line; a terminal PR shows once then drops)");
+    println!();
+    println!("Subcommands: capture, absence, compact, render, spec");
 }
 
 // --- regexes ---------------------------------------------------------------
@@ -262,9 +279,11 @@ fn extract_pr_url(text: &str) -> Option<String> {
 ///    valid multibyte UTF-8 (emoji, CJK, accented Latin) is PRESERVED --
 ///    the reference bash stripped raw bytes 0x80-0x9F and corrupted those.
 /// 3. Remove the `|` cell separator (and newlines, already gone via C0).
-/// 4. Forbid the literal marker substring.
-/// 5. Truncate to ~50 characters LAST (strip-before-truncate: a boundary
-///    split cannot leave a live escape).
+/// 4. Truncate to ~50 characters (strip-before-truncate: all control escapes
+///    are already gone, so a boundary split cannot leave one live).
+/// 5. Remove the literal marker substring LAST and to a fixed point -- so a
+///    title split across the marker cannot reassemble into a live marker
+///    after a single-pass removal, and truncation cannot leave one behind.
 fn sanitize(s: &str) -> String {
     let no_ansi = ANSI_RE.replace_all(s, "");
     let mut out: String = no_ansi
@@ -275,9 +294,11 @@ fn sanitize(s: &str) -> String {
         })
         .collect();
     out = out.replace('|', "");
-    out = out.replace(MARKER, "");
     if out.chars().count() > 50 {
         out = out.chars().take(50).collect();
+    }
+    while out.contains(MARKER) {
+        out = out.replace(MARKER, "");
     }
     out
 }
@@ -1194,7 +1215,16 @@ fn render_fallback() {
         let number = match item.get("number") {
             Some(n) if n.is_u64() => n.as_u64().unwrap().to_string(),
             Some(n) if n.is_i64() => n.as_i64().unwrap().to_string(),
-            Some(n) if n.is_string() => n.as_str().unwrap().to_string(),
+            Some(n) if n.is_string() => {
+                // Defense-in-depth: a string-typed number is not something a
+                // real `gh` returns; accept it only if it is all ASCII digits
+                // (so it can never carry `|`/newline/marker), else drop it.
+                let s = n.as_str().unwrap();
+                if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+                    continue;
+                }
+                s.to_string()
+            }
             _ => continue,
         };
         let url = item.get("url").and_then(|u| u.as_str()).unwrap_or("");
@@ -1348,6 +1378,15 @@ mod tests {
     fn sanitizer_forbids_marker() {
         let out = sanitize("before === WORK IN FLIGHT === after");
         assert!(!out.contains(MARKER));
+    }
+
+    #[test]
+    fn sanitizer_forbids_split_marker() {
+        // A title split across the marker must not reassemble into a live
+        // marker after a single-pass removal.
+        let input = format!("=== WORK IN FL{MARKER}IGHT ===");
+        let out = sanitize(&input);
+        assert!(!out.contains(MARKER), "split marker reassembled: {out:?}");
     }
 
     #[test]
