@@ -82,6 +82,10 @@ that:
   cross-plugin reference is replaced with the shirabe authority.
 - Subjective judgment — which Part 2 sections a change needs — stays with
   the author and is never gated. A legitimate minimal PR does not fail.
+- *(Increment)* The same mechanical rule is also enforced at authoring time
+  by an optional client-side hook, so a malformed PR is caught before it is
+  created — in any checkout, even one with no CI wired — turning a reactive
+  CI red into instant local feedback without a second copy of the rule.
 
 ## User Stories
 
@@ -191,6 +195,43 @@ Part 1 (fail R3); an AI-attribution footer (fail R4); and the docs-only
 minimal Part 2 (pass, R10). Skill-reference single-sourcing SHALL be covered
 by the relevant skill evals.
 
+### Client-side enforcement (increment)
+
+Added after the CI gate (R1–R12) shipped. These requirements bring the local
+PreToolUse hook — originally deferred in Out of Scope — into scope as a second
+enforcement surface that reuses the R1 engine.
+
+**R13.** shirabe SHALL provide a **PreToolUse hook adapter** that reuses the
+R2–R4 checks (the `check_pr_body` engine, NOT a reimplementation) to evaluate
+a `gh pr create` / `gh pr edit` command before it runs. The adapter SHALL be
+a fail-safe binary entrypoint (following the `work-summary` hook precedent):
+it reads a Claude Code hook JSON on stdin, always exits 0, and never aborts a
+turn with a non-zero code. It performs no network or `gh` call.
+
+**R14.** The adapter SHALL extract the submitted title and body from the
+command's argv — `--title`, `--body`, and `--body-file <path>` — by scanning
+argv tokens, never by shell-evaluating the command. A `--body-file` path is
+read from disk; `--fill`, `--web`, `--body-file -`, an unreadable file, or a
+command that is not a recognized `gh pr create`/`edit` SHALL be treated as
+"nothing to check" and allowed.
+
+**R15.** When a title and/or body is extractable and the R2–R4 checks return
+findings, the adapter SHALL **deny** the tool call and return the findings as
+the decision reason, so the agent sees what to fix and can re-issue a
+corrected command. When the checks are clean, or in any ambiguous case in
+R14, the adapter SHALL **allow** (fail-open). The choice of deny over
+advisory-warn, and of fail-open on ambiguity, SHALL be recorded in the
+DESIGN. The attacker-controlled title/body SHALL reach the decision reason
+only as a structured (JSON-encoded) value, never string-concatenated.
+
+**R16.** The hook **registration** (the settings wiring that installs the
+PreToolUse hook) SHALL be **delegated to `tsukumogami/dot-niwa`**, following
+the `work-summary` wiring precedent (`tsukumogami/dot-niwa#4`): shirabe owns
+the binary subcommand and the rule; dot-niwa owns the pass-through hook script
+and the `workspace.toml` registration that `niwa apply` projects into each
+repo. This PRD's implementation opens the dot-niwa issue/PR; the shirabe side
+builds and tests without it.
+
 ## Acceptance Criteria
 
 - [ ] `shirabe validate --pr-body <file>` exists, is offline, and is
@@ -223,6 +264,17 @@ by the relevant skill evals.
   cases.
 - [ ] All edits are public-visibility clean and use no banned writing-style
   words.
+- [ ] *(Increment)* A `shirabe pr-body-hook` PreToolUse adapter exists, reads
+  hook JSON on stdin, always exits 0, and reuses `check_pr_body` (no second
+  copy of PB1–PB3).
+- [ ] *(Increment)* A `gh pr create` with a malformed title or body is denied
+  with a reason naming the finding; a clean one is allowed with no output.
+- [ ] *(Increment)* A `gh pr edit` setting only a title runs PB1; setting only
+  a body runs PB2–PB3; a `gh pr edit` that changes neither is allowed.
+- [ ] *(Increment)* `--fill`/`--web`, an unreadable or `-` `--body-file`, a
+  non-`gh` command, and malformed stdin all fail open (allow, no output).
+- [ ] *(Increment)* The hook registration is delegated to `tsukumogami/dot-niwa`
+  via an opened issue/PR; the shirabe change builds and tests independently.
 
 ## Out of Scope
 
@@ -234,9 +286,11 @@ by the relevant skill evals.
   gate never inspects Part 2 section choice.
 - Modifying the downstream consumer's PR-creation skill. The mechanical
   logic is migrated into shirabe; the downstream skill is left untouched.
-- The optional local PreToolUse hook matching `gh pr create` / `gh pr edit`.
-  It is a convenience that turns a CI red into instant local feedback but is
-  not required for the path-independent gate; it can be a follow-up.
+- ~~The optional local PreToolUse hook matching `gh pr create` / `gh pr edit`.~~
+  **Now in scope** as the R13–R16 increment: the hook was originally deferred
+  here as a follow-up, and this PRD was extended to specify it once the CI
+  gate had shipped. It remains a convenience layer over the same rule, not a
+  replacement for the path-independent CI gate.
 - Closing the dispatch gap (routing dispatched PR-opening work through a
   template-applying skill or loading the PR-creation guidance in the brief).
   This is a workflow-authoring change orthogonal to the gate.

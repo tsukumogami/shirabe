@@ -22,6 +22,7 @@ use shirabe_validate::{
 };
 
 mod populate;
+mod pr_body_hook;
 mod work_summary;
 
 /// The maximum accepted size of the `--custom-statuses` value, matching the
@@ -89,6 +90,15 @@ enum Commands {
     /// emit hook JSON) and the `/inflight` skill (`render`, which prints the
     /// plain block). Every subcommand exits 0 (fail-safe).
     WorkSummary(work_summary::WorkSummaryArgs),
+    /// Client-side PreToolUse hook: gate a `gh pr create` / `gh pr edit`
+    /// command against the mechanical PR-body rule
+    /// (references/pr-body-conformance.md) before it runs. Reads a Claude Code
+    /// hook JSON on stdin, reuses the `validate --pr-body` engine, and emits a
+    /// PreToolUse `deny` decision naming the findings — or nothing (allow) when
+    /// the body/title is clean or cannot be confidently extracted. Fail-safe:
+    /// always exits 0. Registered via dot-niwa; the CI `pr-body.yml` gate is
+    /// the authoritative backstop.
+    PrBodyHook,
 }
 
 #[derive(clap::Args)]
@@ -358,6 +368,7 @@ fn main() -> ExitCode {
         Some(Commands::SlugPrefixDetect(args)) => run_slug_prefix_detect(&args),
         Some(Commands::InstallHooks(args)) => run_install_hooks_cmd(&args),
         Some(Commands::WorkSummary(args)) => work_summary::run(&args.command),
+        Some(Commands::PrBodyHook) => pr_body_hook::run(),
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would
         // otherwise leave `command` as `None` and exit 0 silently.
