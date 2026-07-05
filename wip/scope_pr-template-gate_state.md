@@ -14,10 +14,18 @@ planned_chain:
 chain_skipped: []
 chain_ran:
   - brief
+  - prd
+  - design
 child_snapshots:
   brief:
     status: Accepted
     path: docs/briefs/BRIEF-pr-template-gate.md
+  prd:
+    status: Accepted
+    path: docs/prds/PRD-pr-template-gate.md
+  design:
+    status: Accepted
+    path: docs/designs/DESIGN-pr-template-gate.md
 design_roster_shape:
   P1_architectural_alternatives: fires
   P2_new_component: does-not-fire
