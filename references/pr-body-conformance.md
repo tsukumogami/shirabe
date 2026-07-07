@@ -33,7 +33,7 @@ the squashed commit reads cleanly.
 
 ## The gated checks (mechanical)
 
-These three checks are objective — a machine decides them with no judgment — so
+These four checks are objective — a machine decides them with no judgment — so
 they are gated. `shirabe validate --pr-body <file> [--pr-title <string>]`
 enforces them offline (no `gh`, no network).
 
@@ -58,10 +58,25 @@ enforces them offline (no `gh`, no network).
   trailer attributing to an AI assistant (Claude/Anthropic) and no "Generated
   with Claude Code" line. The org convention forbids AI attribution and
   co-author lines.
+- **PB4 — no markdown section heading in Part 1.** Part 1 (the prospective
+  squash commit body) contains no markdown ATX heading line: a line whose first
+  non-whitespace content is a run of one-to-six `#` followed by a space (or is
+  the whole line), pinned to the CommonMark ATX shape. A clean commit message is
+  prose; a `## Root cause` / `## Fix`-style heading above the separator means
+  Part 1 was written as a template document rather than a commit body, and that
+  heading structure lands permanently on `main`. The check runs only when Part 1
+  is well-defined (exactly one separator, non-empty Part 1) and is scoped to the
+  text above the separator — Part 2 is reviewer context and may use `## Section`
+  headings freely. Why it is objective, not subjective: PB4 gates the *presence
+  of a heading construct*, which a parser decides with no judgment, not *which
+  sections Part 1 should have* or *how it should be worded* (those stay
+  advisory). A `#` that is not a heading — an issue reference (`#123`), a shebang
+  (`#!/bin/sh`), a preprocessor line (`#include`), or a run of seven or more `#` —
+  is not matched, so a prose Part 1 that mentions one is never a false positive.
 
-The structural checks (PB2, PB3) scan the body with fenced code blocks
-removed, so a `---` or a `Co-Authored-By:` line shown inside an example fence
-(as this document does) does not trip the check.
+The structural checks (PB2, PB3, PB4) scan the body with fenced code blocks
+removed, so a `---`, a `Co-Authored-By:` line, or a `##` shown inside an example
+fence (as this document does) does not trip the check.
 
 ## What stays advisory (subjective)
 
@@ -75,8 +90,15 @@ Everything else is judgment and is **not** gated:
   Part 1 and a Part 2 that is only `Fixes #N` passes.
 
 Gating any of these would fail correct PRs; the check deliberately confines
-itself to the three mechanical rules so it never false-positives on a
+itself to the four mechanical rules so it never false-positives on a
 well-formed minimal PR.
+
+PB4 moves one narrow, objective slice from advisory to gated: the *presence of a
+markdown section heading in Part 1*. That is a mechanical fact a parser decides,
+distinct from the subjective question of what Part 1 or Part 2 should say, which
+stays advisory. The boundary holds — PB4 never inspects Part 2 section choice or
+Part 1 wording; it only rejects a commit body that was structured as a
+headed document.
 
 ## Accepted residuals
 
@@ -88,8 +110,16 @@ fenced blocks:
   outside any fence, while not intending it structurally.
 - The same content inside a 4-space **indented** code block, which the
   fenced-only scan does not strip.
+- A **setext** heading in Part 1 (a text line underlined by `===` or `---`).
+  PB4 gates only ATX headings (`#`-prefixed), which is the shape the motivating
+  case used and the shape a template produces. A setext `---` underline is
+  indistinguishable from the PB2 Part-1/Part-2 separator — the `---` line is
+  parsed as the separator, not a heading rule — so it cannot be gated as a
+  heading without conflicting with PB2; a setext `===` underline is left out to
+  keep the check to the single common shape. Prose commit bodies essentially
+  never use setext.
 
-Either is low-likelihood and resolved by rewording one line or fencing the
+Any of these is low-likelihood and resolved by rewording one line or fencing the
 example.
 
 ## Consumers

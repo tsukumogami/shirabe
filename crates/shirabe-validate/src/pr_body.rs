@@ -7,7 +7,7 @@
 //! CI gate and the authoring skills consume; the rule it enforces is stated in
 //! prose in `references/pr-body-conformance.md`.
 //!
-//! Three checks are gated (DESIGN-pr-template-gate, PB1-PB3):
+//! Four checks are gated (DESIGN-pr-template-gate, PB1-PB4):
 //!
 //! 1. **PB1 — Conventional Commits title** (only when a title is supplied):
 //!    `<type>[optional scope][!]: <description>`, `<type>` in the accepted set,
@@ -17,15 +17,22 @@
 //!    squash commit body; everything from `---` down is deleted at merge.
 //! 3. **PB3 — no AI-attribution footer**: no `Co-Authored-By:` trailer
 //!    attributing to an AI assistant and no "Generated with Claude Code" line.
+//! 4. **PB4 — no markdown section heading in Part 1**: Part 1 (the squash
+//!    commit body) carries no markdown ATX heading line (`#`..`######` followed
+//!    by a space). A clean commit message is prose; only a template-style,
+//!    heading-structured Part 1 has one. Checked only when Part 1 is
+//!    well-defined (exactly one separator, non-empty Part 1) and scoped to the
+//!    text above the separator — Part 2 may use `## Section` headings freely.
 //!
 //! Everything else — which Part 2 sections a change needs, whether Part 1
 //! mentions an issue — is subjective and stays advisory, owned by the
 //! downstream PR-creation skill's reasoning framework, not this check.
 //!
-//! Structural scans (PB2, PB3) run over the body with fenced code blocks
-//! removed, so a `---` or a `Co-Authored-By:` line shown inside an example
-//! fence does not trip the check. Indented (4-space) code blocks are not
-//! stripped; that residual is documented in `references/pr-body-conformance.md`.
+//! Structural scans (PB2, PB3, PB4) run over the body with fenced code blocks
+//! removed, so a `---`, a `Co-Authored-By:` line, or a `##` shown inside an
+//! example fence does not trip the check. Indented (4-space) code blocks are
+//! not stripped; that residual is documented in
+//! `references/pr-body-conformance.md`.
 
 /// One finding from the static PR-body check. `line` is 1-based (or `1` for a
 /// title-level finding, which has no body line); `message` is an actionable
@@ -44,11 +51,11 @@ const CONVENTIONAL_TYPES: &[&str] = &[
 
 /// Statically check an authored PR `body` and optional `title`, offline.
 ///
-/// Runs PB1 (only when `title` is `Some`), PB2, and PB3 in that order and
-/// returns the findings in source order. An empty vec means the PR is
-/// mechanically conformant. The title check is skipped entirely when `title`
-/// is `None`, so a caller checking a body-in-progress gets only the body-level
-/// rules; the CI gate always supplies both.
+/// Runs PB1 (only when `title` is `Some`), PB2, PB4, and PB3 and returns the
+/// findings in source order. An empty vec means the PR is mechanically
+/// conformant. The title check is skipped entirely when `title` is `None`, so a
+/// caller checking a body-in-progress gets only the body-level rules; the CI
+/// gate always supplies both.
 pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
     let mut findings: Vec<PrBodyFinding> = Vec::new();
 
@@ -93,6 +100,28 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
                               description of the change; see references/pr-body-conformance.md."
                         .to_string(),
                 });
+            } else {
+                // PB4 — Part 1 carries no markdown section heading. A clean
+                // commit body is prose; an ATX heading (`#`..`######`) above the
+                // separator means the commit message was written as a
+                // template-style document. Scoped to the fence-stripped Part 1
+                // (lines above the separator); Part 2 headings are untouched.
+                if let Some((n, _)) = top_level
+                    .iter()
+                    .take_while(|(n, _)| *n < sep_line)
+                    .find(|(_, line)| is_atx_heading(line))
+                {
+                    findings.push(PrBodyFinding {
+                        line: *n,
+                        message: "Part 1 (the squash commit body, above the `---` separator) \
+                                  contains a markdown section heading. Part 1 lands permanently \
+                                  on `main` as the commit message and must be plain prose, not a \
+                                  heading-structured document; rewrite Part 1 as prose and move \
+                                  any `## Section` headings below the `---` into Part 2 (see \
+                                  references/pr-body-conformance.md)."
+                            .to_string(),
+                    });
+                }
             }
         }
         n => findings.push(PrBodyFinding {
@@ -229,6 +258,30 @@ fn is_attribution_line(line: &str) -> bool {
         return true;
     }
     lower.contains("generated with claude code") || lower.contains("\u{1f916} generated with")
+}
+
+/// PB4 predicate: is `line` a markdown ATX section heading? Matches CommonMark
+/// ATX: up to three leading spaces of indentation, a run of one-to-six `#`, then
+/// a space/tab or the end of the line. A `#` run of seven or more, or a `#`
+/// immediately followed by a non-space character (`#123`, `#!/bin/sh`,
+/// `#include`), is not a heading — so an issue reference, a shebang, or a
+/// preprocessor line in a prose commit body does not trip the check.
+fn is_atx_heading(line: &str) -> bool {
+    // CommonMark allows up to three spaces of indent; four or more makes the
+    // line an indented code block, not a heading.
+    let indent = line.len() - line.trim_start_matches(' ').len();
+    if indent > 3 {
+        return false;
+    }
+    let rest = &line[indent..];
+    let hashes = rest.bytes().take_while(|&b| b == b'#').count();
+    if hashes == 0 || hashes > 6 {
+        return false;
+    }
+    // The `#` run must be followed by a space/tab or be the whole line (an empty
+    // heading such as a bare `##` still counts).
+    let after = &rest[hashes..];
+    after.is_empty() || after.starts_with(' ') || after.starts_with('\t')
 }
 
 /// Yield the body's `(1-based line number, line)` pairs with fenced code
@@ -456,5 +509,137 @@ Fixes #9
         // But body rules still apply.
         let bad = check_pr_body("no separator here\n", None);
         assert!(messages(&bad).contains("no `---` separator"));
+    }
+
+    #[test]
+    fn heading_structured_part1_fails() {
+        // Part 1 written as markdown sections (ATX `##` headings) is not a
+        // clean commit body. It is mechanically conformant otherwise (one
+        // `---`, non-empty Part 1, Conventional title, no AI footer), so only
+        // PB4 catches it.
+        let body = "\
+## Root cause
+
+The reaper reclaimed an instance a live session was rooted in.
+
+## Fix
+
+Skip reclamation when a session is rooted in the instance.
+
+---
+
+## What this fixes
+
+Prevents a live session's instance from being reaped.
+
+Fixes #190
+";
+        let findings = check_pr_body(body, Some("fix(reap): never reclaim a rooted instance"));
+        assert!(
+            messages(&findings).contains("section heading"),
+            "expected a PB4 heading rejection, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn pr_190_regression_single_hash_and_atx_levels() {
+        // A Part 1 with a single `#` (h1) or a deeper `###` heading is rejected
+        // the same way; the level does not matter.
+        for part1 in ["# Summary\n\nText.", "### Detail\n\nText."] {
+            let body = format!("{}\n\n---\n\nFixes #1\n", part1);
+            let findings = check_pr_body(&body, Some("fix: thing"));
+            assert!(
+                messages(&findings).contains("section heading"),
+                "expected heading rejection for Part 1 {:?}, got: {:?}",
+                part1,
+                findings
+            );
+        }
+    }
+
+    #[test]
+    fn prose_part1_with_fenced_heading_passes() {
+        // A `##` shown inside a fenced example in Part 1 is not a real heading
+        // and must not trip PB4 (mirrors the PB2/PB3 fence-stripping behavior).
+        let body = "\
+Rework the reaper so a rooted instance is never reclaimed.
+
+An example of the shape we reject looks like:
+
+```md
+## Root cause
+## Fix
+```
+
+---
+
+Fixes #190
+";
+        let findings = check_pr_body(body, Some("fix(reap): never reclaim a rooted instance"));
+        assert!(
+            findings.is_empty(),
+            "fenced heading in Part 1 should be ignored, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn part2_headings_still_pass() {
+        // Part 2 (below the `---`) may use `## Section` headings freely; PB4 is
+        // scoped to Part 1 only. GOOD_BODY already exercises this, but assert it
+        // explicitly with several Part 2 headings.
+        let body = "\
+Prose Part 1 describing the change in plain sentences.
+
+---
+
+## What this fixes
+
+Text.
+
+## Test plan
+
+Text.
+
+Fixes #7
+";
+        let findings = check_pr_body(body, Some("fix: thing"));
+        assert!(
+            findings.is_empty(),
+            "Part 2 headings must pass, got: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn one_line_prose_part1_passes() {
+        // The minimal well-formed shape — a one-line prose Part 1, one `---`,
+        // and a Part 2 that is only `Fixes #N` — must keep passing.
+        let body = "Fix a typo in the installation guide.\n\n---\n\nFixes #42\n";
+        let findings = check_pr_body(body, Some("docs: fix a typo in the install guide"));
+        assert!(findings.is_empty(), "expected clean, got: {:?}", findings);
+    }
+
+    #[test]
+    fn hash_prefixed_prose_lines_are_not_headings() {
+        // A `#` that is not an ATX heading — an issue reference (`#123`), a
+        // shebang, a C preprocessor line, or a `#` run of seven or more — must
+        // not trip PB4 when it appears in a prose Part 1.
+        for part1 in [
+            "Resolves the crash reported in #123 during startup.",
+            "The recipe now emits `#!/bin/sh` at the top of the wrapper.",
+            "Guard the header with `#include <stdio.h>` as documented.",
+            "The banner uses ####### as a divider, not a heading.",
+        ] {
+            let body = format!("{}\n\n---\n\nFixes #1\n", part1);
+            let findings = check_pr_body(&body, Some("fix: thing"));
+            assert!(
+                findings.is_empty(),
+                "expected {:?} to pass PB4, got: {:?}",
+                part1,
+                findings
+            );
+        }
     }
 }
