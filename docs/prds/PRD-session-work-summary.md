@@ -239,3 +239,129 @@ to keep track of the work it produced.
   boundary is explicit and downstream design does not treat them as in-scope.
 - **The BRIEF carried no unresolved Open Questions.** The upstream framing was
   settled before this PRD; no deferred questions needed closure here.
+
+## Amendment — 2026-07-06: opt-out default and a complete cross-repo summary
+
+Two defects observed after the feature shipped drive new requirements. The
+requirements above are unchanged; these extend them. Both defects share one root
+cause — a session in a workspace that never registered the capture hook records
+no PRs, so it gets no ambient summary, and its on-demand summary, asked for while
+the shell was inside a single repo, listed only that repo's PRs even though the
+session had PRs in flight across several repos. The summary was **incomplete**,
+so the agent appended the missing cross-repo PRs to make the answer whole. The
+defect is the incompleteness; the agent's amendment is the symptom that exposed
+it. The upstream BRIEF amendment of the same date frames the two together.
+
+### New Requirements
+
+#### Functional
+
+- **R16 — Default-on ambient behavior for shirabe adopters, with an off switch.**
+  The ambient work-summary hooks SHALL be present by default in a
+  niwa-provisioned instance **for the repos and workspaces that install the
+  shirabe plugin**, so a shirabe adopter receives the summary behavior without
+  registering the hooks by hand. The default SHALL be gated on shirabe-plugin
+  installation: a workspace that does not install shirabe SHALL NOT receive the
+  hooks, since the work-summary feature belongs to shirabe and the ambient hooks
+  travel with the plugin rather than being injected into every provisioned
+  instance. A workspace that does install shirabe SHALL be able to turn the
+  behavior off through an explicit, documented switch. Default-on is bounded by
+  two further facts the requirement states rather than hides: the ambient summary
+  takes effect only where the render component is also available on PATH (the
+  hooks fail safe to no-op otherwise), and only in instances niwa provisions.
+  Flipping opt-in to opt-out — scoped to shirabe adoption — closes the gap where
+  a shirabe-using workspace that never adopted the registration got nothing, and,
+  because capture is what populates the cross-repo session ledger, it is the
+  precondition for R17's complete on-demand summary.
+- **R17 — The on-demand summary is complete across the session's repos.** The
+  on-demand summary SHALL report every pull request the session has in flight
+  across all repositories the session touched, independent of which repository
+  the session's shell is currently in. The authoritative source for this is the
+  cross-repo session ledger, which lists a PR the session opened in any repo. The
+  summary MUST NOT present a single-repository subset as though it were the
+  session's full set of in-flight PRs. This corrects the observed defect where a
+  session spanning multiple repos, asked for its summary from inside one repo,
+  received only that repo's PRs.
+- **R18 — No non-session-scoped fallback; an honest empty-state instead.** The
+  on-demand path SHALL NOT fall back to a repo-and-author listing (or any query
+  that is not session-scoped) when the session ledger is empty or unreachable.
+  Such a listing answers "what open PRs do I have in this repository?" — a
+  different question from "what has this session put in flight" — and so both
+  over-collects PRs from other sessions and omits the session's PRs in other
+  repositories, while presenting the result under the work-in-flight banner. No
+  `gh`-only query can be session-scoped, because `gh` has no session concept.
+  When the ledger is empty or unreachable, the on-demand path SHALL instead
+  report a session-scoped empty-state that says no PRs are tracked for this
+  session (and, where useful, why).
+- **R19 — A validated recovery path for PRs the hook did not capture.** Because
+  the on-demand component is invoked by the agent and its output returns to the
+  agent, the empty-state MAY invite the agent to submit the URLs of PRs it opened
+  this session. Each submitted URL SHALL be validated against real pull-request
+  state (the same anchored-URL and live `gh` verification the capture path uses)
+  before it is tracked, so a fabricated or malformed reference is rejected, not
+  rendered. A submitted PR SHALL then appear inside the standardized block like
+  any other, and MAY be marked as agent-asserted to distinguish it from a
+  hook-captured entry. This recovers the structural cases the capture hook cannot
+  see (a PR created via the web UI, an API call, or a subagent) by routing the
+  agent's session knowledge through the validated single-source path — rather
+  than around the block as free text.
+- **R20 — No PR reference outside the block.** No pull-request reference SHALL be
+  appended around the block on a model-framed surface (the on-demand relay, a
+  dispatched worker's final message) unless it corresponds to a real PR the block
+  itself lists. A PR the component did not capture SHALL be recovered by
+  submitting it through the validated path (R19), never reconstructed from the
+  agent's memory into free text — the same real-PR-only guarantee R5 makes for
+  the block's contents. The sanctioned channel for a missing PR is submit-then-
+  render, not narrate-around-block.
+- **R21 — Consistent session keying.** The session identity the on-demand render
+  keys on and the identity the capture path keys the ledger by SHALL be the same,
+  so a session that did capture PRs renders its complete ledger and is never
+  pushed to the empty-state by a keying mismatch.
+
+### New Acceptance Criteria
+
+- [ ] A freshly provisioned niwa instance that installs the shirabe plugin emits
+      the ambient summary without the workspace hand-registering the hooks, and a
+      documented off switch suppresses it.
+- [ ] A provisioned instance that does NOT install the shirabe plugin receives no
+      work-summary hooks.
+- [ ] Where the render component is absent from PATH, the default-on hooks
+      no-op and never abort a turn.
+- [ ] A session that opened PRs in two or more repositories, asked for its
+      on-demand summary from inside one of them, lists all of the session's
+      in-flight PRs across every repo — not just the current repository's.
+- [ ] A session that captured its PRs into the ledger renders from the ledger.
+- [ ] When the ledger is empty or unreachable, the on-demand path shows a
+      session-scoped empty-state ("no PRs tracked for this session"), never a
+      repo-and-author listing of PRs the session did not open.
+- [ ] The agent can submit a PR the session opened but the hook did not capture;
+      a valid URL is verified against live PR state and rendered inside the
+      block, while a fabricated or malformed URL is rejected.
+- [ ] No PR reference appears around the block, on the on-demand relay or a
+      worker's final message, that does not correspond to a real PR the block
+      lists.
+
+### Updated Known Limitations
+
+- Default-on reaches only shirabe adopters: instances that install the shirabe
+  plugin, that niwa provisions, and where the render component is on PATH. A
+  workspace that doesn't install shirabe, one niwa does not manage, or one
+  without the component installed sees nothing — opt-out changes the default
+  within the intersection of shirabe adoption and niwa's reach, not beyond it.
+- Cross-repo completeness (R17) depends on capture having run for the session's
+  PRs. When capture never ran (R16 off, or component absent), the on-demand path
+  shows the honest empty-state (R18) rather than a repo dump; the full cross-repo
+  set cannot be reconstructed from `gh` alone without risking the R12 visibility
+  violation. Completeness is a property of the ledger, so it follows capture.
+- The recovery path (R19) is agent-asserted, not mechanically captured: the CLI
+  verifies a submitted PR is real, but cannot verify the session actually opened
+  it. It is a deliberately softer guarantee than hook-capture, mitigated by
+  live validation and by marking recovered rows as agent-asserted, and it is the
+  exception (the structural tail of PRs the hook cannot see) once default-on
+  capture (R16) makes hook-capture the norm.
+- The R20 no-reference-outside-the-block guardrail is enforceable on the
+  component's output and the skill contract, but the background-worker
+  final-message path still has a model authoring the surrounding message; the
+  guarantee there is a required instruction plus the block being the only
+  sanctioned surface, not a mechanical impossibility, consistent with the
+  existing R11 final-message limitation.

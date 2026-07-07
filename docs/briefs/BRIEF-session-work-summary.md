@@ -154,3 +154,77 @@ freshness line says when it was computed.
   never from body text).
 - references/issues-table.md — the existing shirabe convention for
   standardized link-bearing status tables in committed documents.
+
+## Amendment — 2026-07-06: default-on hooks, and a complete cross-repo summary
+
+The feature shipped and two defects surfaced in real use. Both trace to the
+same gap, so this amendment frames them together rather than as two unrelated
+follow-ups. The original framing above is unchanged and stays the audit trail;
+this section extends the scope boundary.
+
+### What the two defects revealed
+
+A session run in a different niwa-provisioned workspace — one that never
+hand-registered the work-summary hooks — got no ambient summary at all. When the
+user asked for one on demand while the session's shell was inside a single repo,
+`/inflight` listed only *that* repo's pull requests, even though the session had
+PRs in flight across several repos. The summary was **incomplete**, so the agent
+appended the missing cross-repo PRs as free-text prose to make the answer whole.
+
+The headline of the second defect is that incompleteness, not the prose. The
+ambient behavior is **opt-in** today — the hooks exist only because one
+workspace's config repo declares them, so a workspace that hasn't adopted the
+registration captures nothing. With an empty session ledger, the on-demand path
+falls back to a repo-scoped listing that can only see the current repo's PRs. A
+session that spans multiple repos — the exact case this feature was built for —
+gets a partial list presented as if it were the whole picture, and the agent
+fills the gap from memory. One capture-availability gap produced both symptoms:
+no ambient summary, and an on-demand summary that under-reported the session's
+real in-flight work.
+
+### Scope-boundary changes
+
+Two additions to the in-scope list above:
+
+- **Default-on ambient behavior for shirabe adopters, with an explicit off
+  switch.** A niwa-provisioned instance should carry the work-summary hooks by
+  default **in the repos and workspaces that install the shirabe plugin**, so a
+  shirabe adopter gets the summary without hand-registering anything, and can
+  turn it off deliberately. This flips the feature from opt-in to opt-out, but
+  scoped to shirabe adoption: the work-summary feature is shirabe's, so the
+  ambient hooks travel with the plugin rather than being injected into every
+  instance niwa provisions. A workspace that does not install shirabe never gets
+  the hooks — which is also what a foreign workspace that doesn't want the
+  behavior needs. Beyond restoring ambient emission, this is what makes the
+  on-demand summary complete: capture populates a session ledger that spans every
+  repo the session touches, regardless of which repo the shell happens to be in,
+  so `/inflight` reports the whole session rather than falling back to one repo.
+  The boundary is honest: the ambient summary appears by default only where
+  shirabe is installed and the `shirabe` binary is on PATH (the hooks fail safe
+  to no-op otherwise), and only in instances niwa provisions.
+- **A session-scoped on-demand summary — drop the repo dump, add a validated
+  recovery.** The on-demand summary should report the pull requests *this
+  session* has in flight, across every repo it touched. The only source that
+  answers that question is the session ledger. The shipped fallback —
+  `gh pr list --repo <current-repo> --author @me --state open` — answers a
+  different question entirely: "what open PRs do I have in this repo?" That
+  conflates PRs from other sessions (over-inclusive) with a blind spot for the
+  session's PRs in other repos (under-inclusive), all under the "work in flight"
+  banner. It's noise dressed as session state, and no `gh`-only query can be
+  session-scoped because `gh` has no session concept. So this feature should
+  **remove the repo-scoped fallback**. When the ledger is empty or unreachable,
+  the honest answer is a session-scoped empty-state ("no PRs tracked for this
+  session") — not a repo listing. And because the component is invoked by the
+  agent (the `/inflight` skill runs the CLI and relays its output), the empty
+  case can **invite the agent to submit the PR URLs it opened this session**,
+  which the CLI validates against real PR state before tracking and renders
+  inside the block. That channels the agent's session knowledge through the
+  validated single-source path — the opposite of the invented Note, which put
+  unverified references *around* the block. The no-references-outside-the-block
+  guardrail stays: the sanctioned way to add a PR the hook missed is to submit it
+  through the CLI, not to narrate it as free text.
+
+These are distinct from the already-noted matcher-loss prerequisite in Out of
+scope above (a hook losing its matcher when registered through two channels);
+that is a different tooling bug. The opt-in/opt-out question and the cross-repo
+completeness of the on-demand summary are new scope, added here.
