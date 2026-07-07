@@ -31,10 +31,11 @@ the scope amendments settle.
 
 Fix the two shipped session-work-summary defects: the ambient hooks are opt-in
 and miss any shirabe-using workspace that never registered them, and the
-on-demand summary under-reports a multi-repo session because an unpopulated
-ledger forces a repo-scoped fallback. Both are cured primarily by making capture
-default-on in niwa for shirabe adopters, with supporting work in dot-niwa and
-shirabe.
+on-demand summary falls back to a non-session-scoped repo listing (the operator's
+open PRs in the current repo) that both over- and under-reports the session's
+work. Both are cured primarily by making capture default-on in niwa for shirabe
+adopters, with the on-demand path reworked in shirabe to drop the repo dump for a
+session-scoped empty-state plus a validated agent-submit recovery.
 
 ## Decomposition Strategy
 
@@ -115,43 +116,49 @@ merge gate).
 **Type**: code
 **Files**: `.niwa/workspace.toml`
 
-### Issue 3: shirabe — make the repo-scoped fallback label its own incompleteness
+### Issue 3: shirabe — replace the repo-scoped fallback with an empty-state and a validated submit verb
 
-**Goal**: Strengthen the render fallback's in-block stamp into an explicit caveat
-that it's a current-repository-only view which may omit this session's PRs in
-other repos, keeping it sanitized, fail-closed, and repo-scoped.
+**Goal**: Remove the non-session-scoped `render_fallback` (`gh pr list --repo ...
+--author @me`) and replace it with a session-scoped empty-state, plus a
+`shirabe work-summary track <url>...` verb that validates submitted PR URLs and
+appends them to the ledger, so a PR the hook could not capture can be recovered
+into the block.
 
 **Acceptance Criteria**:
-- [ ] In `crates/shirabe/src/work_summary.rs`, the fallback block states plainly
-      that it's partial and current-repo-only (extending the existing
-      `(repo-scoped fallback: <repo>)` stamp).
-- [ ] The caveat text passes the same terminal-safety sanitizer as the rest of
-      the block.
-- [ ] The fallback stays repo-scoped and fail-closed; no author-scoped cross-repo
-      `gh` query is introduced (the path rejected for visibility, PRD R12).
-- [ ] A unit test covers the caveat's presence and its sanitizer path.
+- [ ] In `crates/shirabe/src/work_summary.rs`, `render` no longer runs the
+      repo-and-author `gh pr list` fallback; on an empty/unreachable ledger it
+      emits a session-scoped empty-state ("no PRs tracked for this session").
+- [ ] A `shirabe work-summary track <url>...` verb validates each URL against the
+      anchored PR-URL pattern and a live `gh pr view`, appends valid ones to the
+      session ledger (dedup by URL), and rejects fabricated or malformed URLs.
+- [ ] A recovered entry renders inside the standardized block, sanitized like any
+      other, and is distinguishable as agent-asserted vs hook-captured.
+- [ ] Unit tests cover URL validation (accept/reject) and the empty-state output.
 
 **Dependencies**: None
 
 **Type**: code
 **Files**: `crates/shirabe/src/work_summary.rs`
 
-### Issue 4: shirabe — forbid PR references outside the block on model-framed paths
+### Issue 4: shirabe — update /inflight for the empty-state/submit flow and the no-references guardrail
 
-**Goal**: Add a checkable guardrail to the `/inflight` skill contract and the
-dispatch final-message rule: no PR reference may appear around the emitted block
-unless it's a real captured PR the block lists.
+**Goal**: Rewrite the `/inflight` SKILL.md contract for the empty-state + submit
+interaction (on an empty ledger, the agent may submit session PRs it opened, which
+flow through `track` into the block) and keep the checkable guardrail that no PR
+reference appears around the block unless it's a real PR the block lists — on both
+the relay and the dispatch final-message rule.
 
 **Acceptance Criteria**:
-- [ ] `skills/inflight/SKILL.md` states the no-unverified-reference rule
-      explicitly, framed as the safety net paired with completeness — not a
-      substitute for it.
-- [ ] The dispatch final-message rule carries the same prohibition (a cross-repo
-      item the component didn't capture is dropped, never narrated from memory).
-- [ ] The rule is phrased so a reviewer or a check can decide conformance
-      objectively.
+- [ ] `skills/inflight/SKILL.md` replaces the "repo-scoped fallback" description
+      with the empty-state-plus-submit flow, routing recovered PRs through
+      `shirabe work-summary track` rather than free-text prose.
+- [ ] The no-reference-outside-the-block rule is stated explicitly and applies to
+      the relay and the dispatch final-message rule.
+- [ ] The rules are phrased so a reviewer or a check can decide conformance
+      objectively; the sanctioned channel for a missing PR is submit-then-render.
 
-**Dependencies**: None
+**Dependencies**: Blocked by <<ISSUE:3>> (the `track` verb and empty-state the
+skill drives must exist first).
 
 **Type**: docs
 **Files**: `skills/inflight/SKILL.md`
@@ -183,15 +190,17 @@ cleanup). This is the only hard sequence — the niwa default must exist and mer
 before dot-niwa removes its explicit declaration, or the tsukumogami workspace
 loses its hooks in the gap.
 
-**Parallel:** Issues 1, 3, 4, and 5 can all start immediately. The three shirabe
+**Parallel:** Issues 1, 3, and 5 can start immediately; Issue 4 follows Issue 3
+(the skill drives the `track` verb and empty-state that Issue 3 adds). The shirabe
 issues share one PR (coarsest-legal grouping) and are independent of the
 niwa/dot-niwa sequence. Within that PR, Issues 3 and 5 both touch
 `work_summary.rs`, so they land in one coherent change rather than racing.
 
 **Priority signal:** Issue 1 is the highest-impact starting point — it's the
-primary fix for both defects and unblocks Issue 2. The shirabe issues harden the
-degraded path; they improve the fallback but don't, on their own, restore
-completeness (that comes from Issue 1).
+primary fix for both defects and unblocks Issue 2. The shirabe issues rework the
+on-demand path (drop the wrong-scoped fallback, add the validated recovery) but
+don't, on their own, restore completeness for the common case — that comes from
+Issue 1's default-on capture.
 
 **Coordinated two-node merge order:** niwa PR → dot-niwa PR; shirabe PR
 independent; coordination PR merges last.

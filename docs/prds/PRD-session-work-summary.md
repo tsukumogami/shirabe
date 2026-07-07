@@ -282,30 +282,41 @@ it. The upstream BRIEF amendment of the same date frames the two together.
   session's full set of in-flight PRs. This corrects the observed defect where a
   session spanning multiple repos, asked for its summary from inside one repo,
   received only that repo's PRs.
-- **R18 — Honest labeling of the degraded, repo-scoped view.** When the session
-  ledger is empty or unreachable and the on-demand path can only produce a
-  repo-scoped listing (only the current repository's PRs), the block SHALL state
-  plainly that it is a partial, current-repository-only view that may omit this
-  session's PRs in other repositories — so the reader understands it as
-  incomplete rather than whole. The repo-scoped fallback SHALL remain
-  fail-closed and MUST NOT widen into an author-scoped cross-repo search, which
-  would over-collect PRs across sessions and risk pulling a private-repo PR into
-  a public-visibility context (PRD R12); the way to make the summary complete is
-  to capture the session's PRs into the ledger (R16), not to broaden the
-  fallback's query.
-- **R19 — No unverified PR reference around the block.** As a guardrail paired
-  with R17-R18, no pull-request reference SHALL be appended around the block on a
-  model-framed surface (the on-demand relay, a dispatched worker's final
-  message) unless it corresponds to a real captured PR the block itself lists. A
-  cross-repo item the component did not capture SHALL NOT be reconstructed from
-  the agent's memory into free text — the same real-PR-only guarantee R5 makes
-  for the block's contents. This guardrail exists so that a degraded, honestly
-  labeled block (R18) is not quietly "completed" with unverified references; it
-  is the safety net, while R16-R17 are the actual fix for completeness.
-- **R20 — Consistent session keying.** The session identity the on-demand render
+- **R18 — No non-session-scoped fallback; an honest empty-state instead.** The
+  on-demand path SHALL NOT fall back to a repo-and-author listing (or any query
+  that is not session-scoped) when the session ledger is empty or unreachable.
+  Such a listing answers "what open PRs do I have in this repository?" — a
+  different question from "what has this session put in flight" — and so both
+  over-collects PRs from other sessions and omits the session's PRs in other
+  repositories, while presenting the result under the work-in-flight banner. No
+  `gh`-only query can be session-scoped, because `gh` has no session concept.
+  When the ledger is empty or unreachable, the on-demand path SHALL instead
+  report a session-scoped empty-state that says no PRs are tracked for this
+  session (and, where useful, why).
+- **R19 — A validated recovery path for PRs the hook did not capture.** Because
+  the on-demand component is invoked by the agent and its output returns to the
+  agent, the empty-state MAY invite the agent to submit the URLs of PRs it opened
+  this session. Each submitted URL SHALL be validated against real pull-request
+  state (the same anchored-URL and live `gh` verification the capture path uses)
+  before it is tracked, so a fabricated or malformed reference is rejected, not
+  rendered. A submitted PR SHALL then appear inside the standardized block like
+  any other, and MAY be marked as agent-asserted to distinguish it from a
+  hook-captured entry. This recovers the structural cases the capture hook cannot
+  see (a PR created via the web UI, an API call, or a subagent) by routing the
+  agent's session knowledge through the validated single-source path — rather
+  than around the block as free text.
+- **R20 — No PR reference outside the block.** No pull-request reference SHALL be
+  appended around the block on a model-framed surface (the on-demand relay, a
+  dispatched worker's final message) unless it corresponds to a real PR the block
+  itself lists. A PR the component did not capture SHALL be recovered by
+  submitting it through the validated path (R19), never reconstructed from the
+  agent's memory into free text — the same real-PR-only guarantee R5 makes for
+  the block's contents. The sanctioned channel for a missing PR is submit-then-
+  render, not narrate-around-block.
+- **R21 — Consistent session keying.** The session identity the on-demand render
   keys on and the identity the capture path keys the ledger by SHALL be the same,
   so a session that did capture PRs renders its complete ledger and is never
-  pushed to the degraded fallback by a keying mismatch.
+  pushed to the empty-state by a keying mismatch.
 
 ### New Acceptance Criteria
 
@@ -319,14 +330,16 @@ it. The upstream BRIEF amendment of the same date frames the two together.
 - [ ] A session that opened PRs in two or more repositories, asked for its
       on-demand summary from inside one of them, lists all of the session's
       in-flight PRs across every repo — not just the current repository's.
-- [ ] A session that captured its PRs into the ledger renders from the ledger
-      and does not fall back to the repo-scoped listing.
-- [ ] When the ledger is empty or unreachable, the repo-scoped fallback block is
-      clearly labeled as a partial, current-repository-only view that may omit
-      the session's PRs in other repos; it does not present itself as complete
-      and does not widen into an author-scoped cross-repo search.
+- [ ] A session that captured its PRs into the ledger renders from the ledger.
+- [ ] When the ledger is empty or unreachable, the on-demand path shows a
+      session-scoped empty-state ("no PRs tracked for this session"), never a
+      repo-and-author listing of PRs the session did not open.
+- [ ] The agent can submit a PR the session opened but the hook did not capture;
+      a valid URL is verified against live PR state and rendered inside the
+      block, while a fabricated or malformed URL is rejected.
 - [ ] No PR reference appears around the block, on the on-demand relay or a
-      worker's final message, that does not correspond to a real captured PR.
+      worker's final message, that does not correspond to a real PR the block
+      lists.
 
 ### Updated Known Limitations
 
@@ -336,14 +349,19 @@ it. The upstream BRIEF amendment of the same date frames the two together.
   without the component installed sees nothing — opt-out changes the default
   within the intersection of shirabe adoption and niwa's reach, not beyond it.
 - Cross-repo completeness (R17) depends on capture having run for the session's
-  PRs. When capture never ran (R16 off, or component absent) the on-demand path
-  can only offer the honestly-labeled partial view (R18); it cannot safely
-  reconstruct the full cross-repo set from `gh` alone without risking the R12
-  visibility violation. Completeness is a property of the ledger, so it follows
-  capture.
-- The R19 no-unverified-reference guardrail is enforceable on the component's
-  output and the skill contract, but the background-worker final-message path
-  still has a model authoring the surrounding message; the guarantee there is a
-  required instruction plus the block's self-describing labeling, not a
-  mechanical impossibility, consistent with the existing R11 final-message
-  limitation.
+  PRs. When capture never ran (R16 off, or component absent), the on-demand path
+  shows the honest empty-state (R18) rather than a repo dump; the full cross-repo
+  set cannot be reconstructed from `gh` alone without risking the R12 visibility
+  violation. Completeness is a property of the ledger, so it follows capture.
+- The recovery path (R19) is agent-asserted, not mechanically captured: the CLI
+  verifies a submitted PR is real, but cannot verify the session actually opened
+  it. It is a deliberately softer guarantee than hook-capture, mitigated by
+  live validation and by marking recovered rows as agent-asserted, and it is the
+  exception (the structural tail of PRs the hook cannot see) once default-on
+  capture (R16) makes hook-capture the norm.
+- The R20 no-reference-outside-the-block guardrail is enforceable on the
+  component's output and the skill contract, but the background-worker
+  final-message path still has a model authoring the surrounding message; the
+  guarantee there is a required instruction plus the block being the only
+  sanctioned surface, not a mechanical impossibility, consistent with the
+  existing R11 final-message limitation.

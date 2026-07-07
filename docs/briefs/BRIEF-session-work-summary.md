@@ -202,18 +202,27 @@ Two additions to the in-scope list above:
   The boundary is honest: the ambient summary appears by default only where
   shirabe is installed and the `shirabe` binary is on PATH (the hooks fail safe
   to no-op otherwise), and only in instances niwa provisions.
-- **A complete cross-repo on-demand summary, and honest labeling when it can't
-  be.** The on-demand summary should list every PR the session has in flight
-  across all repos it touched, not just the repo the shell is currently in. The
-  cross-repo-complete source is the session ledger; the repo-scoped fallback is
-  a degraded single-repo view used only when the ledger is empty or unreachable.
-  When the summary must degrade to that partial view, it should say so plainly —
-  that it lists only the current repo and may be missing this session's PRs in
-  other repos — so the user reads it as incomplete rather than whole. As a
-  supporting guardrail, nothing should append unverified PR references around the
-  block: the cure for an incomplete summary is capturing the session's PRs (so
-  the block is genuinely complete) and labeling the degraded mode, not having the
-  agent reconstruct the rest from memory.
+- **A session-scoped on-demand summary — drop the repo dump, add a validated
+  recovery.** The on-demand summary should report the pull requests *this
+  session* has in flight, across every repo it touched. The only source that
+  answers that question is the session ledger. The shipped fallback —
+  `gh pr list --repo <current-repo> --author @me --state open` — answers a
+  different question entirely: "what open PRs do I have in this repo?" That
+  conflates PRs from other sessions (over-inclusive) with a blind spot for the
+  session's PRs in other repos (under-inclusive), all under the "work in flight"
+  banner. It's noise dressed as session state, and no `gh`-only query can be
+  session-scoped because `gh` has no session concept. So this feature should
+  **remove the repo-scoped fallback**. When the ledger is empty or unreachable,
+  the honest answer is a session-scoped empty-state ("no PRs tracked for this
+  session") — not a repo listing. And because the component is invoked by the
+  agent (the `/inflight` skill runs the CLI and relays its output), the empty
+  case can **invite the agent to submit the PR URLs it opened this session**,
+  which the CLI validates against real PR state before tracking and renders
+  inside the block. That channels the agent's session knowledge through the
+  validated single-source path — the opposite of the invented Note, which put
+  unverified references *around* the block. The no-references-outside-the-block
+  guardrail stays: the sanctioned way to add a PR the hook missed is to submit it
+  through the CLI, not to narrate it as free text.
 
 These are distinct from the already-noted matcher-loss prerequisite in Out of
 scope above (a hook losing its matcher when registered through two channels);

@@ -581,28 +581,36 @@ incomplete for a multi-repo session, and the agent appended the missing
 cross-repo PRs to make its answer whole. The incompleteness is the defect; the
 agent's amendment is the symptom that exposed it.
 
-Two supporting findings frame the fix. First, the fallback's repo-scoping is
-deliberate, not a bug: an author-scoped cross-repo search was rejected in
-Decision 3 (Option B) because it over-collects across sessions and can pull a
-private-repo PR into a public-visibility summary (PRD R12). So the fallback
-cannot be safely widened to become complete — completeness has to come from the
-ledger. Second, on the mechanics of the "Note": `render_fallback` ends its output
-at the `updated <ISO> (repo-scoped fallback: <repo>)` line and prints nothing
-after it, and the `/inflight` SKILL.md already instructs the relay to present the
-block "exactly as produced ... do not reformat, summarize, or add PRs from
-memory." The note was therefore model-authored, appended around the block — an
-unverified cross-repo reference the determinism thesis and PRD R5 discourage.
-That is a real secondary hazard, but muzzling the model without fixing
-completeness would only make the block *silently* incomplete, which is worse than
-a visible gap; so the guardrail is paired with, not a substitute for, the
-completeness fix.
+Three supporting findings frame the fix. First — the sharpest one — the fallback
+is not just incomplete, it is answering the wrong question. `render_fallback`
+runs `gh pr list --repo <current-repo> --author @me --state open`: the operator's
+open PRs in the current repo. That is author-and-repo scope, not session scope, so
+it *over*-collects (PRs from other sessions) as well as *under*-collects (the
+session's PRs in other repos), all under the work-in-flight marker. No `gh`-only
+query can be session-scoped — `gh` has no session concept — so the fallback can
+never be made to answer "what did this session put in flight." Second, an
+author-scoped cross-repo search was also rejected in Decision 3 (Option B) because
+it over-collects across sessions and can pull a private-repo PR into a
+public-visibility summary (PRD R12). So neither the current repo-scoped query nor
+a widened one is session-correct — session scope lives only in the ledger. Third,
+on the mechanics of the "Note": `render_fallback` ends its output at the
+`updated <ISO> (repo-scoped fallback: <repo>)` line and prints nothing after it,
+and the `/inflight` SKILL.md already instructs the relay to present the block
+"exactly as produced ... do not reformat, summarize, or add PRs from memory." The
+note was therefore model-authored, appended around the block — an unverified
+reference the determinism thesis and PRD R5 discourage. The agent added it because
+the tool's answer was both wrong-scoped and incomplete; the durable fix is to make
+the tool answer the session question (the ledger) and to give the agent a
+validated channel to submit what the hook missed, not to have it narrate around
+the block.
 
-The two defects are one failure: no capture hook → empty ledger → the incomplete
-repo-scoped fallback → a model that fills the gap from memory. Fixing the capture
-gap (Decision 6) restores the ledger's cross-repo completeness and removes the
-fallback's role entirely for these sessions; Decision 7 makes the fallback honest
-about its incompleteness for the cases where it legitimately fires (a fresh
-session, `gh` offline) and adds the no-unverified-reference guardrail on top.
+The two defects are one failure: no capture hook → empty ledger → the wrong-scoped
+repo fallback → a model that fills the gap from memory. Fixing the capture gap
+(Decision 6) restores the ledger's cross-repo completeness and removes the
+fallback's role entirely for these sessions; Decision 7 replaces the repo dump
+with an honest empty-state plus a validated recovery for the cases where the
+ledger is genuinely empty (a fresh session, `gh` offline, a PR the hook could not
+capture) and keeps the no-reference-outside-the-block guardrail on top.
 
 ### Decision 6 — Hook-registration default (opt-in vs opt-out)
 
@@ -646,63 +654,98 @@ becomes redundant once niwa injects them by default; the implementation should
 retire the explicit declaration to avoid the double-registration Decision 1
 warned about, letting the niwa default be the single source of the registration.
 
-### Decision 7 — Completeness of the on-demand summary (and a guardrail on top)
+### Decision 7 — Replace the repo-scoped fallback with an honest empty-state and a validated recovery
 
 The problem this decision answers is that the on-demand summary under-reported a
-multi-repo session's in-flight PRs. It composes three moves, in priority order.
+multi-repo session's in-flight PRs, and the repo-scoped fallback that produced
+that under-report is answering the wrong question. `render_fallback` runs
+`gh pr list --repo <current-repo> --author @me --state open` — it lists the
+operator's open PRs in the current repo. That is not session scope: it includes
+PRs from other sessions (over-inclusive) and omits the session's PRs in other
+repos (under-inclusive), all under the "work in flight" marker. No `gh`-only
+query can be session-scoped, because `gh` has no session concept; only the ledger
+knows which PRs a session opened. Labeling that listing more honestly (an earlier
+draft of this amendment) treats a symptom — the fallback is the wrong
+abstraction. The decision, in priority order:
 
 - **Primary — completeness comes from the ledger, which Decision 6 populates.**
   The cross-repo-complete source is the session ledger, and the reason it was
   empty is the capture gap Decision 6 fixes. With default-on capture, the ledger
   holds every PR the session opened in any repo, so the on-demand render lists
-  the whole session regardless of the shell's current repo and never reaches the
-  fallback. This is the actual fix; the two moves below cover the residual cases.
-- **Secondary — the degraded fallback must label itself as incomplete.** When the
-  ledger is genuinely empty or unreachable (a fresh session, `gh` offline), the
-  path can only produce the repo-scoped listing. That listing is inherently
-  partial for a multi-repo session and cannot be safely widened — an author-scoped
-  cross-repo search was rejected in Decision 3 (Option B) for the R12 visibility
-  reason. So the fallback block must state plainly, inside the sanitized block,
-  that it is a current-repository-only view that may omit the session's PRs in
-  other repos. The existing `(repo-scoped fallback: <repo>)` stamp is the seam to
-  strengthen into that explicit incompleteness caveat. Honest labeling of a gap
-  beats presenting a partial list as whole.
-- **Guardrail — no unverified reference around the block.** The `/inflight` skill
-  contract and the dispatch final-message rule gain a checkable rule: no
-  pull-request reference may be appended around the block unless it is a real
-  captured PR the block already lists. This keeps the model from "completing" a
-  correctly-labeled partial block with references reconstructed from memory. It
-  is explicitly the safety net, not the fix — with capture on (the primary move)
-  the block is already complete and the guardrail rarely binds; it exists so a
-  degraded, honestly-labeled block is not quietly patched with unverified data.
+  the whole session regardless of the shell's current repo and the fallback is
+  not reached. This is the actual fix; the moves below cover the residual cases.
+- **Remove the repo-scoped fallback; show an honest empty-state.** When the
+  ledger is empty or unreachable (a fresh session, a keying mismatch, `gh`
+  offline), `render` emits a session-scoped empty-state — "no PRs tracked for
+  this session" — rather than a repo-and-author listing that masquerades as
+  session state. This also aligns the fallback path with the determinism thesis
+  and PRD R5: the repo dump surfaced real-but-not-necessarily-this-session PRs,
+  which R5's session-scoping spirit already argues against.
+- **Add a validated agent-submit recovery for the structural tail.** The
+  `/inflight` skill invokes `render` and its output returns to the agent (the
+  skill relays it). So the empty-state can invite the agent to submit the URLs of
+  PRs it opened this session; a new `shirabe work-summary track <url>...`
+  verb validates each against real PR state (the same anchored-URL check plus
+  live `gh pr view` capture already uses) and, on success, appends it to the
+  ledger so the next render shows it inside the block. This recovers the cases
+  the PostToolUse hook structurally cannot see — a PR created via the web UI, a
+  `gh api` call, or a subagent whose tool calls never hit this session's hook —
+  by routing the agent's session knowledge *through* the validated single-source
+  path. It is the exact inverse of the invented Note, which put unverified
+  references *around* the block. Recovered entries may be marked agent-asserted to
+  distinguish them from hook-captured ones.
+- **Guardrail — no reference outside the block.** The `/inflight` contract and the
+  dispatch final-message rule keep the checkable rule: no PR reference is appended
+  around the block unless it is a real PR the block lists. The sanctioned way to
+  add a PR the hook missed is to submit it (into the block, validated), never to
+  narrate it as free text.
 
-The ordering matters: muzzling the model without the completeness fix would trade
-a visible gap for a silent one. Completeness first (Decision 6 + the ledger),
-honest labeling second, guardrail last.
+The ordering matters: removing the repo dump without a recovery would trade noise
+for a blind spot in the structural-tail cases. Completeness first (Decision 6 +
+the ledger), honest empty-state second, validated recovery third, guardrail last.
+
+**Honest trade-off of the recovery path.** Agent-submit puts the agent back into
+the data path — the precise thing Decision Driver 1 works to avoid — so it is
+bounded deliberately. The CLI verifies a submitted URL resolves to a real PR, so
+a fabricated reference cannot enter the ledger; what it cannot verify is that the
+session actually opened that real PR. The guarantee is therefore "agent-asserted,
+CLI-verified," softer than hook-capture's "mechanically captured at creation," and
+recovered rows are labeled as such. This is accepted because it is strictly better
+than both the status quo (the repo dump asserts nothing about the session) and the
+invented Note (unverified entirely), and because Decision 6 makes it the exception
+rather than the norm.
 
 ### Impact on the acknowledged bounds
 
 The original "Two acknowledged bounds" section stands, with one sharpened: R1's
 uniform-shape claim relied on a single component producing every block and noted
 the `/inflight` repo-scoped fallback as the one independently-formatted path that
-still follows the block contract. Defect 2 shows the fallback carries a deeper
-limitation than formatting — it is *incomplete* for a multi-repo session, seeing
-only the current repo. R17-R19 (PRD) and Decision 7 add the missing half:
-completeness is a property of the ledger, the fallback is a labeled degradation,
-and nothing reconstructs the gap from memory.
+still follows the block contract. Defect 2 shows that fallback was worse than an
+independent format — it was answering a non-session question. Removing it (R18)
+means every on-demand emission is either the ledger-backed block, the recovered
+block, or an honest empty-state; nothing masquerades as session state, and
+R17-R21 (PRD) plus Decision 7 make completeness a property of the ledger with a
+validated recovery for what the hook can't capture.
 
 ### Security Considerations (extension)
 
-Two surfaces extend the original section. First, the model-authored addendum on
+Three surfaces extend the original section. First, the model-authored addendum on
 the on-demand and final-message paths is a determinism-and-injection surface the
 original covered for the block's own contents but not for text a model places
-around it; Decision 7's guardrail (no unverified PR reference around the block)
-plus the honest-incompleteness label remove the model's reason and authority to
-add references, without delegating a security decision to model interpretation of
-block contents. Crucially, the fallback stays fail-closed and repo-scoped — the
-fix for incompleteness is capturing into the ledger, never widening the fallback
-into an author-scoped cross-repo `gh` search, which is the rejected path that
-would breach R12 visibility. Second, default-on hook injection (Decision 6)
+around it; Decision 7's guardrail (no reference outside the block) plus the honest
+empty-state remove the model's reason and authority to add references, without
+delegating a security decision to model interpretation of block contents. Second,
+the new agent-submit recovery (`shirabe work-summary track <url>`) accepts
+attacker-influenceable input — a URL the agent proposes — so it applies the same
+controls as capture: the anchored `^https://github\.com/<owner>/<repo>/pull/[0-9]+$`
+validation (rejecting, not sanitizing, a non-match, and defeating `gh`
+flag-injection via the alphanumeric-first owner/repo anchor) before the URL
+reaches the ledger or any `gh` call, and a live `gh pr view` confirmation that the
+PR is real. A fabricated or malformed submission cannot enter the ledger; the
+residual is that the CLI cannot prove the session opened a real submitted PR
+(handled as an accepted, labeled trade-off in Decision 7). Removing the repo dump
+also removes a visibility footgun: the on-demand path no longer issues any
+non-session `gh` listing at all. Third, default-on hook injection (Decision 6)
 broadens the ambient-hook surface — a PostToolUse hook now present by default in
 provisioned instances that install shirabe — but the surface is bounded to
 shirabe adopters, each hook remains a pure pass-through behind the
@@ -727,12 +770,16 @@ here so the split is explicit for whoever plans and implements it:
 - **config repo (`workspace.toml`)** — retire the now-redundant explicit
   `[[claude.hooks.*]]` work-summary declarations once niwa injects them by
   default, so the registration has one source and cannot double-register.
-- **shirabe** — in `work_summary.rs`, strengthen the `render` fallback's in-block
-  stamp into an explicit incompleteness caveat (current-repository-only, may omit
-  the session's other-repo PRs), keeping it fail-closed and repo-scoped; and
-  tighten the `/inflight` SKILL.md contract plus the dispatch final-message rule
-  with the no-unverified-reference guardrail. The block renderer, the cross-repo
-  ledger, and the single-source guarantee are unchanged — the change is at the
-  fallback's honesty about its own incompleteness and the model-framed relay
-  contract. Completeness itself is delivered by niwa's capture default, not by
-  widening this fallback.
+- **shirabe** — in `work_summary.rs`, remove the repo-scoped `render_fallback`
+  (`gh pr list --repo ... --author @me`) and replace it with a session-scoped
+  empty-state; add a `shirabe work-summary track <url>...` verb that validates
+  each URL (anchored pattern + live `gh pr view`) and appends it to the ledger.
+  In `skills/inflight/SKILL.md`, replace the "repo-scoped fallback" description
+  with the empty-state-plus-submit interaction (on empty ledger, the agent may
+  submit session PRs it opened, which flow through `track` into the block), and
+  keep the no-reference-outside-the-block guardrail on both the relay and the
+  dispatch final-message rule. The block renderer, the cross-repo ledger, and the
+  single-source guarantee are unchanged — the change is deleting the non-session
+  fallback, adding the validated recovery, and updating the relay contract.
+  Completeness is delivered by niwa's capture default; the recovery handles only
+  the tail the hook can't capture.
