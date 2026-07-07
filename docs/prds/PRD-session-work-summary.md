@@ -256,15 +256,21 @@ it. The upstream BRIEF amendment of the same date frames the two together.
 
 #### Functional
 
-- **R16 — Default-on ambient behavior with an off switch.** The ambient
-  work-summary hooks SHALL be present by default in a niwa-provisioned instance,
-  so a workspace receives the summary behavior without registering the hooks by
-  hand. A workspace SHALL be able to turn the behavior off through an explicit,
-  documented switch. Default-on is bounded by two facts the requirement states
-  rather than hides: the ambient summary takes effect only where the render
-  component is also available on PATH (the hooks fail safe to no-op otherwise),
-  and only in instances niwa provisions. Flipping opt-in to opt-out closes the
-  gap where a workspace that never adopted the registration got nothing — and,
+- **R16 — Default-on ambient behavior for shirabe adopters, with an off switch.**
+  The ambient work-summary hooks SHALL be present by default in a
+  niwa-provisioned instance **for the repos and workspaces that install the
+  shirabe plugin**, so a shirabe adopter receives the summary behavior without
+  registering the hooks by hand. The default SHALL be gated on shirabe-plugin
+  installation: a workspace that does not install shirabe SHALL NOT receive the
+  hooks, since the work-summary feature belongs to shirabe and the ambient hooks
+  travel with the plugin rather than being injected into every provisioned
+  instance. A workspace that does install shirabe SHALL be able to turn the
+  behavior off through an explicit, documented switch. Default-on is bounded by
+  two further facts the requirement states rather than hides: the ambient summary
+  takes effect only where the render component is also available on PATH (the
+  hooks fail safe to no-op otherwise), and only in instances niwa provisions.
+  Flipping opt-in to opt-out — scoped to shirabe adoption — closes the gap where
+  a shirabe-using workspace that never adopted the registration got nothing, and,
   because capture is what populates the cross-repo session ledger, it is the
   precondition for R17's complete on-demand summary.
 - **R17 — The on-demand summary is complete across the session's repos.** The
@@ -303,9 +309,11 @@ it. The upstream BRIEF amendment of the same date frames the two together.
 
 ### New Acceptance Criteria
 
-- [ ] A freshly provisioned niwa instance emits the ambient summary without the
-      workspace hand-registering the hooks, and a documented off switch
-      suppresses it.
+- [ ] A freshly provisioned niwa instance that installs the shirabe plugin emits
+      the ambient summary without the workspace hand-registering the hooks, and a
+      documented off switch suppresses it.
+- [ ] A provisioned instance that does NOT install the shirabe plugin receives no
+      work-summary hooks.
 - [ ] Where the render component is absent from PATH, the default-on hooks
       no-op and never abort a turn.
 - [ ] A session that opened PRs in two or more repositories, asked for its
@@ -322,10 +330,11 @@ it. The upstream BRIEF amendment of the same date frames the two together.
 
 ### Updated Known Limitations
 
-- Default-on reaches only workspaces niwa provisions and only where the render
-  component is on PATH. A workspace niwa does not manage, or one without the
-  component installed, still sees nothing — opt-out changes the default within
-  niwa's reach, not beyond it.
+- Default-on reaches only shirabe adopters: instances that install the shirabe
+  plugin, that niwa provisions, and where the render component is on PATH. A
+  workspace that doesn't install shirabe, one niwa does not manage, or one
+  without the component installed sees nothing — opt-out changes the default
+  within the intersection of shirabe adoption and niwa's reach, not beyond it.
 - Cross-repo completeness (R17) depends on capture having run for the session's
   PRs. When capture never ran (R16 off, or component absent) the on-demand path
   can only offer the honestly-labeled partial view (R18); it cannot safely

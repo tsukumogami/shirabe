@@ -617,21 +617,29 @@ session, `gh` offline) and adds the no-unverified-reference guardrail on top.
   version-unstable plugin path. This is the failure the original design spent a
   decision avoiding; re-introducing it here would undo that.
 - **Option C (chosen): niwa injects the work-summary hook registrations by
-  default, with an explicit off switch.** niwa already injects workspace-root
-  session hooks by default independent of any `workspace.toml` declaration (the
-  ephemeral-session `SessionHooks` path in `materialize.go`). The work-summary
-  registrations follow that precedent: niwa carries the three thin pass-through
-  scripts and their event registrations as a built-in default, materialized into
-  every provisioned instance unless the workspace opts out. The off switch is a
-  workspace/instance preference resolved on the established
-  `flag > CLAUDE.md-header > default` stack, default on. Each injected hook keeps
-  its `command -v shirabe || exit 0` guard, so default-on is safe: where the
-  binary is absent, the hook no-ops. This preserves the design's layer split —
-  niwa still owns registration, shirabe still owns the render logic — while
-  moving the *default* from "declared per workspace" to "present unless
-  refused." Honest bounds carried into the PRD (R16): default-on takes effect
-  only where the `shirabe` binary is on PATH and only in instances niwa
-  provisions.
+  default for shirabe adopters, with an explicit off switch.** niwa already
+  injects workspace-root session hooks by default independent of any
+  `workspace.toml` declaration (the ephemeral-session `SessionHooks` path in
+  `materialize.go`). The work-summary registrations follow that precedent, but
+  **gated on shirabe-plugin installation**: niwa carries the three thin
+  pass-through scripts and their event registrations as a built-in default and
+  materializes them into a provisioned instance when that instance installs the
+  shirabe plugin (the `[claude] marketplaces`/`plugins` declaration niwa already
+  reads), unless the workspace opts out. Gating on plugin install is the right
+  boundary because the work-summary feature is shirabe's: the ambient hooks
+  should travel with shirabe adoption, not be injected into every instance niwa
+  provisions regardless of whether that workspace uses shirabe. It also gives a
+  foreign workspace that doesn't want the behavior the cleanest possible "off" —
+  don't install shirabe — while a shirabe adopter that wants it off uses the
+  switch. The off switch is a workspace/instance preference resolved on the
+  established `flag > CLAUDE.md-header > default` stack, default on. Each injected
+  hook keeps its `command -v shirabe || exit 0` guard, so default-on is safe:
+  where the binary is absent, the hook no-ops. This preserves the design's layer
+  split — niwa still owns registration, shirabe still owns the render logic —
+  while moving the *default* from "declared per workspace" to "present for
+  shirabe adopters unless refused." Honest bounds carried into the PRD (R16):
+  default-on takes effect only where the shirabe plugin is installed, the
+  `shirabe` binary is on PATH, and the instance is one niwa provisions.
 
 The config-repo `workspace.toml` declaration that currently carries these hooks
 becomes redundant once niwa injects them by default; the implementation should
@@ -695,11 +703,12 @@ block contents. Crucially, the fallback stays fail-closed and repo-scoped — th
 fix for incompleteness is capturing into the ledger, never widening the fallback
 into an author-scoped cross-repo `gh` search, which is the rejected path that
 would breach R12 visibility. Second, default-on hook injection (Decision 6)
-broadens the ambient-hook surface — a PostToolUse hook now present in every
-provisioned instance — but each hook remains a pure pass-through behind the
-`command -v shirabe || exit 0` fail-safe guard, and the off switch gives a
-workspace an explicit refusal; the trust anchor is unchanged (the installed
-binary, not a working-tree script).
+broadens the ambient-hook surface — a PostToolUse hook now present by default in
+provisioned instances that install shirabe — but the surface is bounded to
+shirabe adopters, each hook remains a pure pass-through behind the
+`command -v shirabe || exit 0` fail-safe guard, and the off switch gives an
+adopting workspace an explicit refusal; the trust anchor is unchanged (the
+installed binary, not a working-tree script).
 
 ### Cross-repo implementation implications
 
@@ -708,11 +717,13 @@ here so the split is explicit for whoever plans and implements it:
 
 - **niwa** — carry the three thin work-summary hook scripts and their event
   registrations as a built-in default injected by `materialize.go` (the
-  `SessionHooks` default-injection path is the precedent), gated by the off
-  switch resolved on `flag > CLAUDE.md-header > default`. This is the substance
-  of Decision 6 and the largest change. It is also the primary fix for Defect 2:
-  default-on capture is what makes the session ledger cross-repo-complete, so the
-  on-demand summary lists the whole session rather than one repo.
+  `SessionHooks` default-injection path is the precedent), **gated on the
+  instance installing the shirabe plugin** (read from the `[claude]`
+  marketplaces/plugins config niwa already merges) and on the off switch resolved
+  on `flag > CLAUDE.md-header > default`. This is the substance of Decision 6 and
+  the largest change. It is also the primary fix for Defect 2: default-on capture
+  is what makes the session ledger cross-repo-complete, so the on-demand summary
+  lists the whole session rather than one repo.
 - **config repo (`workspace.toml`)** — retire the now-redundant explicit
   `[[claude.hooks.*]]` work-summary declarations once niwa injects them by
   default, so the registration has one source and cannot double-register.

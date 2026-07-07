@@ -15,22 +15,26 @@ Active
 This plan decomposes the fix for the two defects scoped in the 2026-07-06
 amendments to `docs/briefs/BRIEF-session-work-summary.md`,
 `docs/prds/PRD-session-work-summary.md`, and
-`docs/designs/current/DESIGN-session-work-summary.md`. It's authored as a
-self-contained document: the issue outlines below carry the decomposition, and
-writing this plan creates no GitHub milestone or issues. The implementation
-itself spans three repos (niwa, dot-niwa, shirabe) and, when the team picks it
-up as tracked work, lands as a coordinated multi-repo effort — one PR per repo
-with a niwa-before-dot-niwa merge gate. That coordinated shape is described in
-Decomposition Strategy and Implementation Sequence below rather than spun up as
-cross-repo GitHub state here.
+`docs/designs/current/DESIGN-session-work-summary.md`. The issue outlines below
+carry the decomposition; writing this plan creates no GitHub milestone or issues.
+
+**Execution is coordinated (multi-repo).** The work spans three repositories
+(niwa, dot-niwa, shirabe) with a cross-repo merge gate, so the implementation
+lands as a coordinated effort — one PR per repo, sequenced by a two-node merge
+order, with a coordination PR merging last (see Implementation Sequence). This
+document is authored in the self-contained form so it can be reviewed alongside
+the scope amendments in one PR; the coordinated GitHub artifacts (milestone,
+per-repo issues, coordination PR) are created when the effort is started, after
+the scope amendments settle.
 
 ## Scope Summary
 
 Fix the two shipped session-work-summary defects: the ambient hooks are opt-in
-and miss any workspace that never registered them, and the on-demand summary
-under-reports a multi-repo session because an unpopulated ledger forces a
-repo-scoped fallback. Both are cured primarily by making capture default-on in
-niwa, with supporting work in dot-niwa and shirabe.
+and miss any shirabe-using workspace that never registered them, and the
+on-demand summary under-reports a multi-repo session because an unpopulated
+ledger forces a repo-scoped fallback. Both are cured primarily by making capture
+default-on in niwa for shirabe adopters, with supporting work in dot-niwa and
+shirabe.
 
 ## Decomposition Strategy
 
@@ -39,44 +43,50 @@ work splits cleanly along repository lines, and each piece has a stable interfac
 to the others (the `shirabe work-summary` CLI surface and the hook registration),
 so there's no integration-risk case for a walking skeleton.
 
-Issue 1 (niwa default-on capture) is the root: it's the primary fix for both
-defects, because the ambient hooks it injects are what populate the cross-repo
-session ledger. Issue 2 (dot-niwa cleanup) depends on it and carries the one real
-ordering constraint — the explicit declaration must not be removed until the niwa
-default exists, or a window opens with no hooks. Issues 3, 4, and 5 (shirabe) are
-independent of niwa and of each other's merge, and can proceed in parallel.
+Issue 1 (niwa default-on capture, gated on shirabe-plugin install) is the root:
+it's the primary fix for both defects, because the ambient hooks it injects are
+what populate the cross-repo session ledger. Issue 2 (dot-niwa cleanup) depends
+on it and carries the one real ordering constraint — the explicit declaration
+must not be removed until the niwa default exists, or a window opens with no
+hooks. Issues 3, 4, and 5 (shirabe) are independent of niwa and share one shirabe
+PR.
 
-When these outlines become tracked work, the coarsest-legal grouping is one PR
-per repo: a niwa PR (Issue 1), a dot-niwa PR (Issue 2), and one shirabe PR
-(Issues 3-5), with a coordination PR merging last. The cross-repo merge order is
-niwa before dot-niwa; the shirabe PR is independent. That's `coordinated`
-execution in shirabe's terms — recorded here in prose so this plan stays a
-self-contained review artifact.
+**Coordinated grouping.** Coarsest-legal grouping is one PR per repo: a niwa PR
+(Issue 1), a dot-niwa PR (Issue 2), and one shirabe PR (Issues 3-5). The
+issue-level graph contracts to a two-node merge order — the niwa PR merges before
+the dot-niwa PR (the hook-registration gate); the shirabe PR is independent; the
+coordination PR merges last. When these outlines are promoted to tracked work,
+the plan's `execution_mode` becomes `coordinated` and the GitHub milestone,
+per-repo issues, and coordination PR are created then.
 
 ## Issue Outlines
 
-### Issue 1: niwa — inject the work-summary hooks by default, with an off switch
+### Issue 1: niwa — inject the work-summary hooks by default for shirabe adopters, with an off switch
 
 **Goal**: Make the three work-summary hook registrations a niwa built-in default
-materialized into every provisioned instance, gated by an explicit off switch,
-so a workspace gets the ambient summary and a populated cross-repo ledger without
-declaring anything.
+materialized into a provisioned instance when that instance installs the shirabe
+plugin, gated by an explicit off switch, so a shirabe adopter gets the ambient
+summary and a populated cross-repo ledger without declaring anything.
 
 **Acceptance Criteria**:
-- [ ] A freshly provisioned instance materializes all three work-summary hooks
-      (PostToolUse capture on `Bash`, UserPromptSubmit absence, SessionStart
-      `compact`) with no workspace-level declaration, modeled on the existing
-      `SessionHooks` default-injection path in `internal/workspace/materialize.go`.
+- [ ] A freshly provisioned instance that installs the shirabe plugin
+      materializes all three work-summary hooks (PostToolUse capture on `Bash`,
+      UserPromptSubmit absence, SessionStart `compact`) with no workspace-level
+      declaration, modeled on the existing `SessionHooks` default-injection path
+      in `internal/workspace/materialize.go`.
+- [ ] The default is gated on shirabe-plugin installation (read from the
+      `[claude]` marketplaces/plugins config niwa already merges): an instance
+      that does not install shirabe receives none of the hooks.
 - [ ] niwa carries the three thin pass-through scripts, each
       `exec shirabe work-summary <mode>` behind a `command -v shirabe || exit 0`
       guard; where `shirabe` is absent from PATH the hook no-ops and never aborts
       a turn.
-- [ ] A documented off switch suppresses all three, resolved on
-      `flag > CLAUDE.md-header > default` with default on.
+- [ ] A documented off switch suppresses all three for an adopting workspace,
+      resolved on `flag > CLAUDE.md-header > default` with default on.
 - [ ] Default-on injection is idempotent against a workspace that still declares
       the hooks, so no hook double-registers (coordinates with Issue 2).
-- [ ] The broadened ambient-hook surface is documented as bounded by the
-      fail-safe guard and the off switch.
+- [ ] The broadened ambient-hook surface is documented as bounded to shirabe
+      adopters and by the fail-safe guard and the off switch.
 
 **Dependencies**: None
 
@@ -183,7 +193,5 @@ primary fix for both defects and unblocks Issue 2. The shirabe issues harden the
 degraded path; they improve the fallback but don't, on their own, restore
 completeness (that comes from Issue 1).
 
-**Coordinated grouping (follow-up).** One PR per repo — niwa (Issue 1), dot-niwa
-(Issue 2), shirabe (Issues 3-5) — with a coordination PR merging last if the team
-runs this as a tracked multi-repo effort. Merge order: niwa before dot-niwa;
-shirabe independent.
+**Coordinated two-node merge order:** niwa PR → dot-niwa PR; shirabe PR
+independent; coordination PR merges last.

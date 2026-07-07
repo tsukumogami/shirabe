@@ -186,17 +186,22 @@ real in-flight work.
 
 Two additions to the in-scope list above:
 
-- **Default-on ambient behavior with an explicit off switch.** A
-  niwa-provisioned instance should carry the work-summary hooks by default, so
-  a workspace gets the summary without hand-registering anything, and can turn
-  it off deliberately. This flips the feature from opt-in to opt-out. Beyond
-  restoring ambient emission, this is what makes the on-demand summary complete:
-  capture populates a session ledger that spans every repo the session touches,
-  regardless of which repo the shell happens to be in, so `/inflight` reports the
-  whole session rather than falling back to one repo. The boundary is honest: the
-  ambient summary appears by default only where the `shirabe` binary is also
-  present (the hooks fail safe to no-op otherwise), and only in workspaces niwa
-  provisions — a workspace niwa does not manage is out of reach either way.
+- **Default-on ambient behavior for shirabe adopters, with an explicit off
+  switch.** A niwa-provisioned instance should carry the work-summary hooks by
+  default **in the repos and workspaces that install the shirabe plugin**, so a
+  shirabe adopter gets the summary without hand-registering anything, and can
+  turn it off deliberately. This flips the feature from opt-in to opt-out, but
+  scoped to shirabe adoption: the work-summary feature is shirabe's, so the
+  ambient hooks travel with the plugin rather than being injected into every
+  instance niwa provisions. A workspace that does not install shirabe never gets
+  the hooks — which is also what a foreign workspace that doesn't want the
+  behavior needs. Beyond restoring ambient emission, this is what makes the
+  on-demand summary complete: capture populates a session ledger that spans every
+  repo the session touches, regardless of which repo the shell happens to be in,
+  so `/inflight` reports the whole session rather than falling back to one repo.
+  The boundary is honest: the ambient summary appears by default only where
+  shirabe is installed and the `shirabe` binary is on PATH (the hooks fail safe
+  to no-op otherwise), and only in instances niwa provisions.
 - **A complete cross-repo on-demand summary, and honest labeling when it can't
   be.** The on-demand summary should list every PR the session has in flight
   across all repos it touched, not just the repo the shell is currently in. The
