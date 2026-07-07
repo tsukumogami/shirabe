@@ -21,11 +21,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use assert_cmd::Command;
 
 const MARKER: &str = "=== WORK IN FLIGHT ===";
+const EMPTY_STATE: &str = "no pull requests tracked for this session";
 
 /// The gh stub: answers `pr view <url> --json ...` from a per-PR-number JSON
-/// file under `$GH_STATE_DIR`, `repo view --json nameWithOwner` from
-/// `$IF_REPO`, and `pr list ... --json ...` from `$IF_LIST`. `GH_FAIL`
-/// simulates an unreachable `gh`.
+/// file under `$GH_STATE_DIR`. `GH_FAIL` simulates an unreachable `gh`. The
+/// on-demand path no longer issues any non-session `gh` listing (the
+/// repo-scoped fallback was removed), so `repo view` / `pr list` are not
+/// stubbed.
 const GH_STUB: &str = r#"#!/usr/bin/env bash
 if [[ -n "${GH_FAIL:-}" ]]; then echo "offline" >&2; exit 1; fi
 case "$1 $2" in
@@ -36,12 +38,6 @@ case "$1 $2" in
     f="$GH_STATE_DIR/$num.json"
     if [[ -f "$f" ]]; then cat "$f"; exit 0; fi
     echo "no such PR" >&2; exit 1 ;;
-  "repo view")
-    [[ -n "${IF_REPO:-}" ]] || { echo "no repo" >&2; exit 1; }
-    printf '{"nameWithOwner":"%s"}\n' "$IF_REPO"; exit 0 ;;
-  "pr list")
-    if [[ -n "${IF_LIST:-}" && -f "$IF_LIST" ]]; then cat "$IF_LIST"; exit 0; fi
-    echo "[]"; exit 0 ;;
 esac
 echo unsupported >&2; exit 1
 "#;
@@ -77,7 +73,8 @@ impl Fx {
         c.env("WS_STORE_DIR", self.store())
             .env("WS_GH", self.dir.join("gh-stub.sh"))
             .env("GH_STATE_DIR", self.dir.join("ghstate"))
-            // Force the render fallback to fail-closed unless a test opts in.
+            // Clear the harness session env so render defaults to the
+            // empty-state unless a test sets a session id explicitly.
             .env_remove("CLAUDE_CODE_SESSION_ID")
             .env_remove("CLAUDE_SESSION_ID");
         for (k, v) in extra_env {
@@ -117,6 +114,18 @@ impl Fx {
         c.args(["work-summary", "render"]);
         if let Some(s) = sid {
             c.args(["--session", s]);
+        }
+        out(c)
+    }
+
+    fn track(&self, sid: Option<&str>, urls: &[&str], env: &[(&str, &str)]) -> String {
+        let mut c = self.cmd(env);
+        c.args(["work-summary", "track"]);
+        if let Some(s) = sid {
+            c.args(["--session", s]);
+        }
+        for u in urls {
+            c.arg(u);
         }
         out(c)
     }
@@ -493,11 +502,14 @@ fn render_offline_degradation() {
 }
 
 #[test]
-fn render_empty_ledger_is_silent() {
+fn render_empty_ledger_emits_empty_state() {
     let fx = Fx::new();
-    // No ledger, and the fallback cannot confirm a repo (no IF_REPO).
+    // No ledger => a session-scoped empty-state line, never a non-session
+    // `gh` listing. The block marker must not appear (nothing masquerades as
+    // session state).
     let out = fx.render(Some("sess-empty"), &[("WS_NOW", "1000")]);
-    assert_eq!(out, "", "empty ledger + no repo => silent");
+    assert_eq!(out.trim(), EMPTY_STATE, "empty ledger => empty-state line");
+    assert!(!out.contains(MARKER), "empty-state carries no block marker");
 }
 
 // --- terminal-drop and pure render -----------------------------------------
@@ -645,10 +657,10 @@ fn sid_validation_rejects_traversal() {
         &[("WS_NOW", "1000")],
     );
     assert_eq!(out, "", "invalid sid rejected silently");
-    // render with a traversal sid also stays silent (falls through to a
-    // fail-closed fallback with no confirmable repo).
+    // render with a traversal sid does not compose a path; it falls through
+    // to the session-scoped empty-state (no non-session `gh` listing).
     let out = fx.render(Some("bad;rm -rf"), &[("WS_NOW", "1000")]);
-    assert_eq!(out, "", "invalid sid render silent");
+    assert_eq!(out.trim(), EMPTY_STATE, "invalid sid render => empty-state");
 }
 
 #[test]
@@ -702,44 +714,130 @@ fn adversarial_title_stays_a_json_string() {
     assert_channels_ok(ctx, sysmsg);
 }
 
-// --- repo-scoped fallback (inflight.sh port) -------------------------------
+// --- empty-state (no non-session fallback) ---------------------------------
 
 #[test]
-fn render_fallback_fail_closed_when_repo_unknown() {
+fn render_no_session_emits_empty_state_not_gh_listing() {
     let fx = Fx::new();
-    // No session (forces fallback), and the stub's repo view fails (no
-    // IF_REPO) -> fail-closed, no output.
+    // No session id at all: the removed repo-scoped fallback would have run a
+    // `gh` listing here. Now the on-demand path emits only the session-scoped
+    // empty-state and issues no non-session `gh` query.
     let out = fx.render(None, &[]);
-    assert_eq!(out, "", "fallback fail-closed when repo unknown");
+    assert_eq!(out.trim(), EMPTY_STATE, "no session => empty-state");
+    assert!(!out.contains(MARKER), "no block marker");
+}
+
+// --- track: validated agent-submit recovery --------------------------------
+
+#[test]
+fn track_appends_valid_pr_and_renders_agent_asserted() {
+    let fx = Fx::new();
+    let sid = "sess-track";
+    fx.set_pr(50, &open_pr("recovered pr", true));
+
+    // Submit a PR the hook never captured; it validates (anchored pattern +
+    // live `gh pr view`) and lands in the ledger.
+    let out = fx.track(
+        Some(sid),
+        &["https://github.com/o/r/pull/50"],
+        &[("WS_NOW", "1000")],
+    );
+    assert!(out.contains("tracked:"), "track confirms the append: {out}");
+    assert_eq!(fx.ledger_lines(sid).len(), 1, "one ledger row appended");
+
+    // The recovered PR renders inside the normal block, marked
+    // agent-asserted to distinguish it from a hook-captured row.
+    let rendered = fx.render(Some(sid), &[("WS_NOW", "1100")]);
+    assert!(
+        rendered.contains(MARKER),
+        "recovered PR renders in the block"
+    );
+    assert!(
+        rendered.contains("o/r#50 | open ci:passing agent-asserted | recovered pr |"),
+        "recovered row labeled agent-asserted: {rendered}"
+    );
 }
 
 #[test]
-fn render_fallback_lists_current_repo_drops_cross_repo() {
+fn track_rejects_malformed_and_fabricated_urls() {
     let fx = Fx::new();
-    let listfile = fx.dir.join("if-list.json");
-    fs::write(
-        &listfile,
-        r#"[
-          {"number":10,"title":"good one","state":"OPEN","url":"https://github.com/o/r/pull/10","isDraft":false,"statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"}],"reviewDecision":""},
-          {"number":99,"title":"cross repo","state":"OPEN","url":"https://github.com/other/repo/pull/99","isDraft":false,"statusCheckRollup":[],"reviewDecision":""}
-        ]"#,
-    )
-    .unwrap();
+    let sid = "sess-track-bad";
+    // A live PR exists at /pull/1, but the submitted URLs are malformed,
+    // non-github, or flag-injection shaped -- none may enter the ledger, and
+    // the command must not abort (exit 0, handled by the `out` helper).
+    fx.set_pr(1, &open_pr("real", true));
+    let out = fx.track(
+        Some(sid),
+        &[
+            "https://github.com/o/r/pull/1/files",
+            "https://gitlab.com/o/r/pull/1",
+            "https://github.com/-x/r/pull/1",
+            "not-a-url",
+        ],
+        &[("WS_NOW", "1000")],
+    );
+    assert!(out.contains("rejected"), "malformed URLs reported rejected");
+    assert!(!fx.ledger_exists(sid), "no ledger row for any rejected URL");
+}
 
-    let out = fx.render(
-        None,
-        &[("IF_REPO", "o/r"), ("IF_LIST", listfile.to_str().unwrap())],
+#[test]
+fn track_rejects_anchored_but_nonexistent_pr() {
+    let fx = Fx::new();
+    let sid = "sess-track-ghost";
+    // A well-formed URL whose PR does not resolve via `gh pr view` (no stub
+    // json for #777) is rejected: the live confirmation is a hard gate.
+    let out = fx.track(
+        Some(sid),
+        &["https://github.com/o/r/pull/777"],
+        &[("WS_NOW", "1000")],
+    );
+    assert!(out.contains("rejected"), "nonexistent PR rejected: {out}");
+    assert!(!fx.ledger_exists(sid), "no ledger row for a ghost PR");
+}
+
+#[test]
+fn track_dedups_by_url() {
+    let fx = Fx::new();
+    let sid = "sess-track-dedup";
+    fx.set_pr(5, &open_pr("dup", true));
+    let url = "https://github.com/o/r/pull/5";
+    fx.track(Some(sid), &[url], &[("WS_NOW", "1000")]);
+    let out = fx.track(Some(sid), &[url], &[("WS_NOW", "1010")]);
+    assert!(
+        out.contains("already tracked"),
+        "second submit deduped: {out}"
+    );
+    assert_eq!(fx.ledger_lines(sid).len(), 1, "no duplicate ledger row");
+}
+
+// --- session keying consistency (Issue 5) ----------------------------------
+
+#[test]
+fn render_env_session_keying() {
+    // Capture keys the ledger by the PostToolUse stdin `session_id`; render
+    // resolves the session from `CLAUDE_CODE_SESSION_ID`. When they are the
+    // same identifier (the default-on provisioning path), a captured session
+    // renders its ledger rather than the empty-state.
+    let fx = Fx::new();
+    let sid = "sess-keying";
+    fx.set_pr(1, &open_pr("captured", true));
+    fx.capture(
+        sid,
+        "gh pr create",
+        "https://github.com/o/r/pull/1",
+        &[("WS_NOW", "1000")],
+    );
+
+    // Render WITHOUT --session, keyed only by the env var the harness exports.
+    let out = fx.render(None, &[("WS_NOW", "1100"), ("CLAUDE_CODE_SESSION_ID", sid)]);
+    assert!(
+        out.contains("o/r#1 | open ci:passing | captured |"),
+        "captured session renders from the ledger via env keying: {out}"
     );
     assert!(
-        out.contains("o/r#10 | open ci:passing"),
-        "lists current-repo PR"
+        !out.trim().eq(EMPTY_STATE),
+        "must not fall through to the empty-state"
     );
-    assert!(
-        out.contains("repo-scoped fallback: o/r"),
-        "labeled repo-scoped"
-    );
-    assert!(!out.contains("other/repo"), "drops cross-repo PR (repo)");
-    assert!(!out.contains("#99"), "drops cross-repo PR (num)");
 }
 
 // --- concurrency (flock contract) ------------------------------------------
@@ -774,8 +872,8 @@ fn concurrent_captures_produce_distinct_rows() {
         .collect();
     assert_eq!(distinct.len(), 8, "all rows distinct");
     assert!(
-        rows.iter().all(|l| l.split('\t').count() == 5),
-        "no corrupted rows (every row has 5 fields)"
+        rows.iter().all(|l| l.split('\t').count() == 6),
+        "no corrupted rows (every row has 6 fields incl. source)"
     );
 }
 
@@ -788,7 +886,7 @@ fn help_prints_format_spec() {
         .success();
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
     assert!(stdout.contains(MARKER), "help missing marker: {stdout}");
-    for sub in ["capture", "absence", "compact", "render", "spec"] {
+    for sub in ["capture", "absence", "compact", "render", "track", "spec"] {
         assert!(stdout.contains(sub), "help missing subcommand {sub}");
     }
 }
