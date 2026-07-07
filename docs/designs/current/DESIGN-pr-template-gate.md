@@ -17,7 +17,9 @@ decision: |
   Add a second, authoring-time enforcement surface — a `shirabe pr-body-hook`
   PreToolUse adapter (the fail-safe analog of `work-summary capture`) that
   reuses the same `check_pr_body` engine to gate `gh pr create` / `gh pr edit`
-  before the PR is opened, with the hook registration delegated to dot-niwa.
+  before the PR is opened, with the hook injected by niwa as a built-in default
+  for shirabe adopters (the same default-injection path as the work-summary
+  hooks).
 rationale: |
   A validate mode is the established single-source shape for a
   path-independent check (`--coordination-body` static, `--merge-gate` live);
@@ -317,12 +319,12 @@ whatever it can extract: a title-only edit runs PB1; a body-only edit runs
 PB2–PB3; a create with both runs all three. When neither is present (e.g.
 `gh pr edit 123 --add-label foo`) it allows.
 
-The hook registration is **delegated to dot-niwa** (see Solution
-Architecture), exactly as the `work-summary` hooks were wired via
-`tsukumogami/dot-niwa#4`: shirabe owns the binary subcommand and the rule;
-dot-niwa owns the `.niwa/hooks/pre_tool_use/` pass-through script and the
-`workspace.toml` registration that `niwa apply` projects into each repo's
-Claude settings.
+The hook registration is a **niwa built-in default** (see Solution
+Architecture), exactly as the `work-summary` hooks are injected by
+`tsukumogami/niwa#188`: shirabe owns the binary subcommand and the rule; niwa
+injects the inline PreToolUse pass-through into each shirabe-adopting repo's
+Claude settings during `niwa apply`, gated on the shirabe plugin and bounded by
+a `pr_body_hook` off switch.
 
 ## Solution Architecture
 
@@ -459,37 +461,41 @@ value. Env seam `PR_BODY_HOOK_DISABLE=1` short-circuits to allow, giving an
 operator a kill switch without unwiring the hook (mirrors the `WS_*` seams).
 Like `work-summary`, `run()` returns `ExitCode::SUCCESS` unconditionally.
 
-### Hook wiring: dot-niwa handoff (increment)
+### Hook wiring: niwa default injection (increment)
 
-shirabe ships the subcommand and a reference pass-through script under
-`references/` or documents the one-liner; it does **not** register the hook
-in any repo. Registration is dot-niwa's job, following the `work-summary`
-precedent (`tsukumogami/dot-niwa#4`):
+shirabe owns the subcommand and the rule; it does **not** register the hook in
+any repo. Registration is niwa's job, injected as a **built-in default** for
+shirabe adopters, following the `work-summary` default-injection precedent
+(`tsukumogami/niwa#188`):
 
-- add `dot-niwa/.niwa/hooks/pre_tool_use/pr-body-guard.sh`, a thin
-  pass-through in the spirit of `work-summary-capture.sh`, with one
-  PreToolUse-specific difference: it must **not** `exec` the binary. A
-  PostToolUse hook can `exec` because a non-zero exit there is harmless, but a
-  PreToolUse hook that exits non-zero *blocks* the tool call. Since the hook
-  matches every Bash command, an outdated `shirabe` that predates the
-  `pr-body-hook` subcommand (clap exits non-zero on an unknown subcommand)
-  would otherwise block every command. The script therefore guards the exit:
-  `command -v shirabe >/dev/null 2>&1 || exit 0` then `shirabe pr-body-hook
+- niwa's per-repo `SettingsMaterializer` injects a Bash-matched PreToolUse hook
+  into every provisioned instance that installs the shirabe plugin. It is an
+  inline pass-through — **no carried script file** — to the on-PATH
+  `shirabe pr-body-hook`, exactly like the work-summary hooks niwa injects.
+- One PreToolUse-specific difference from the work-summary PostToolUse
+  pass-through: the command must **not** `exec` the binary. A PostToolUse hook
+  can `exec` because a non-zero exit there is harmless, but a PreToolUse hook
+  that exits non-zero *blocks* the tool call. Since the hook matches every Bash
+  command, an outdated `shirabe` that predates the `pr-body-hook` subcommand
+  (clap exits non-zero on an unknown subcommand) would otherwise block every
+  command. The injected command therefore guards the exit:
+  `command -v shirabe >/dev/null 2>&1 || exit 0; shirabe pr-body-hook
   2>/dev/null || exit 0` (fall back to allow). The current binary always exits
-  0, so the guard only ever fires against a stale install;
-- register it in `dot-niwa/.niwa/workspace.toml` as a second
-  `[[claude.hooks.pre_tool_use]]` entry with `matcher = "Bash"` and
-  `scripts = ["hooks/pre_tool_use/pr-body-guard.sh"]` (Claude Code runs
-  multiple PreToolUse Bash hooks; it composes with the existing
-  `gate-online.sh` entry).
+  0, so the guard only ever fires against a stale install.
+- Injection is gated on the shirabe plugin, bounded by a
+  `[claude] pr_body_hook = false` off switch (default on), and deduped against
+  any pr-body hook a workspace still declares itself, so it never
+  double-registers. It is appended to the PreToolUse block, composing with an
+  existing `gate-online` entry (Claude Code runs multiple PreToolUse Bash
+  hooks).
 
-`niwa apply` then projects the script into each repo's
-`.claude/hooks/pre_tool_use/…local.sh` and adds the PreToolUse registration to
-`.claude/settings.local.json`, exactly as it already does for the
-`work-summary` hooks. The handoff boundary is clean: a shirabe release makes
-the subcommand available on PATH; a dot-niwa change turns it on across the
-workspace. This design's PR opens the dot-niwa issue/PR that carries the
-wiring; the shirabe side does not depend on it to build or test.
+The boundary is clean: a shirabe release makes the subcommand available on
+PATH; niwa's default injection turns it on across every shirabe-using workspace
+on the next `niwa apply`, with no per-workspace declaration. The trust anchor
+is the installed `shirabe` binary, never a working-tree script. This replaces
+the earlier dot-niwa `workspace.toml` / `pr-body-guard.sh` handoff — the same
+shirabe-owns-binary / niwa-owns-wiring split as `tsukumogami/niwa#188`. The
+shirabe side does not depend on the niwa change to build or test.
 
 ## Implementation Approach
 
@@ -524,11 +530,12 @@ authoring-time increment and depends only on Batch 1:
   `gh pr edit --add-label` (allow, nothing to check); a non-`gh` command
   (allow); a `--fill`/`--web` create and an unreadable `--body-file` (allow,
   fail-open); a malformed stdin (allow). Depends on Batch 1 for
-  `check_pr_body`. The dot-niwa registration (a thin pass-through script plus
-  a `workspace.toml` entry) is handed off as `tsukumogami/dot-niwa#<N>`,
-  landing independently once a shirabe release carries the subcommand — the
-  same shirabe-owns-binary / dot-niwa-owns-wiring split as
-  `tsukumogami/dot-niwa#4`.
+  `check_pr_body`. The registration is a niwa built-in default (the
+  `SettingsMaterializer` injects the inline PreToolUse pass-through for shirabe
+  adopters, `tsukumogami/niwa#189`), landing independently once a shirabe
+  release carries the subcommand — the same shirabe-owns-binary /
+  niwa-owns-wiring split as the work-summary default injection
+  (`tsukumogami/niwa#188`).
 
 ## Security Considerations
 
@@ -630,8 +637,10 @@ authoring-time increment and depends only on Batch 1:
   scans a `gh` command out of `tool_input.command` (`is_pr_create`), emits
   hook JSON built with `serde_json`, and always exits 0. `pr_body_hook.rs`
   reuses its stdin and argv-scan primitives.
-- `.niwa/hooks/pre_tool_use/gate-online.sh` and
-  `.niwa/hooks/post_tool_use/work-summary-capture.sh` (in `tsukumogami/dot-niwa`)
-  — the existing PreToolUse deny-shape and the thin pass-through pattern the
-  `pr-body-guard.sh` wiring copies; `tsukumogami/dot-niwa#4` is the
-  work-summary wiring PR this handoff parallels.
+- `internal/workspace/materialize.go` (in `tsukumogami/niwa`) — the
+  `SettingsMaterializer` default-injection path. `tsukumogami/niwa#188` made the
+  work-summary hooks a niwa built-in default for shirabe adopters; the pr-body
+  PreToolUse hook is injected the same way (`tsukumogami/niwa#189`), with the
+  PreToolUse-safe non-exec guard. The injected hook composes with the existing
+  `gate-online` PreToolUse entry (Claude Code runs multiple PreToolUse Bash
+  hooks).

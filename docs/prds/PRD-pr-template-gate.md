@@ -225,12 +225,13 @@ DESIGN. The attacker-controlled title/body SHALL reach the decision reason
 only as a structured (JSON-encoded) value, never string-concatenated.
 
 **R16.** The hook **registration** (the settings wiring that installs the
-PreToolUse hook) SHALL be **delegated to `tsukumogami/dot-niwa`**, following
-the `work-summary` wiring precedent (`tsukumogami/dot-niwa#4`): shirabe owns
-the binary subcommand and the rule; dot-niwa owns the pass-through hook script
-and the `workspace.toml` registration that `niwa apply` projects into each
-repo. This PRD's implementation opens the dot-niwa issue/PR; the shirabe side
-builds and tests without it.
+PreToolUse hook) SHALL be a **`tsukumogami/niwa` built-in default** for shirabe
+adopters, following the `work-summary` default-injection precedent
+(`tsukumogami/niwa#188`): shirabe owns the binary subcommand and the rule; niwa
+injects the inline PreToolUse pass-through during `niwa apply`, gated on the
+shirabe plugin and bounded by a `pr_body_hook` off switch. This PRD's
+implementation opens the niwa issue/PR; the shirabe side builds and tests
+without it.
 
 ## Acceptance Criteria
 
@@ -273,8 +274,9 @@ builds and tests without it.
   a body runs PB2–PB3; a `gh pr edit` that changes neither is allowed.
 - [ ] *(Increment)* `--fill`/`--web`, an unreadable or `-` `--body-file`, a
   non-`gh` command, and malformed stdin all fail open (allow, no output).
-- [ ] *(Increment)* The hook registration is delegated to `tsukumogami/dot-niwa`
-  via an opened issue/PR; the shirabe change builds and tests independently.
+- [ ] *(Increment)* The hook registration is a `tsukumogami/niwa` built-in
+  default (injected for shirabe adopters) via an opened issue/PR; the shirabe
+  change builds and tests independently.
 
 ## Out of Scope
 
