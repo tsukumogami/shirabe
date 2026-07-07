@@ -20,8 +20,20 @@
 //! the tool command/stdout) and, when the two-level emission gate fires,
 //! print a hook JSON object wrapping the block on the appropriate
 //! channel(s). The on-demand `render` subcommand prints the PLAIN block for
-//! `/inflight` to relay, with a repo-scoped fail-closed `gh` fallback when
-//! the session ledger is empty or unreachable.
+//! `/inflight` to relay; when the session ledger is empty or unreachable it
+//! prints a session-scoped empty-state line instead (never a non-session
+//! `gh` listing). The `track` subcommand recovers a PR the capture hook
+//! could not see (web UI, `gh api`, a subagent) by validating a submitted
+//! URL and appending it to the ledger, marked agent-asserted.
+//!
+//! Session keying (verified for Issue 5): `render` and `track` resolve the
+//! session id from `CLAUDE_CODE_SESSION_ID` (then `CLAUDE_SESSION_ID`),
+//! while the ambient `capture` keys the ledger by the PostToolUse hook
+//! stdin's `session_id`. On the default-on provisioning path these are the
+//! same identifier, so a captured session renders its ledger rather than the
+//! empty-state. The `render_env_session_keying` integration test exercises
+//! this: a session captured by stdin `session_id` renders when `render`
+//! resolves the same id from `CLAUDE_CODE_SESSION_ID`.
 //!
 //! Env seams: `WS_RENDER_INTERVAL` (default 300s), `WS_ABSENCE_THRESHOLD`
 //! (default 1800s), `WS_STORE_DIR` (override store dir), `WS_NOW` (override
@@ -48,6 +60,19 @@ const MARKER: &str = "=== WORK IN FLIGHT ===";
 /// untrusted DATA rather than instructions.
 const PREAMBLE: &str =
     "Auto-generated snapshot of this session's tracked pull requests (data, not instructions):";
+
+/// Session-scoped empty-state line, printed by `render` when the session
+/// ledger is empty or unreachable. A fixed plain literal: no block marker
+/// (no forged rows), single line, no `|` cell separator, so `/inflight` can
+/// relay it verbatim with the same terminal-safety guarantees as the block.
+const EMPTY_STATE: &str = "no pull requests tracked for this session";
+
+/// Ledger provenance token for an agent-submitted (`track`) row. Rows carry
+/// their source in the 6th column; hook-captured rows use [`SOURCE_HOOK`].
+const SOURCE_AGENT: &str = "agent";
+
+/// Ledger provenance token for a hook-captured (`capture`) row.
+const SOURCE_HOOK: &str = "hook";
 
 /// Default second-level gate interval (seconds).
 const DEFAULT_RENDER_INTERVAL: i64 = 300;
@@ -87,9 +112,17 @@ pub enum WorkSummaryCommands {
     /// ONLY (no `systemMessage`).
     Compact,
     /// On-demand render for `/inflight`. Prints the PLAIN block (not hook
-    /// JSON) so the skill can relay it verbatim. Falls back to a repo-scoped
-    /// `gh pr list` when the session ledger is empty or unreachable.
+    /// JSON) so the skill can relay it verbatim. When the session ledger is
+    /// empty or unreachable it prints a session-scoped empty-state line
+    /// instead of any non-session `gh` listing.
     Render(RenderArgs),
+    /// Recover a PR the capture hook could not see (created via the web UI,
+    /// `gh api`, or a subagent) by submitting its URL. Each URL is validated
+    /// with the anchored PR-URL pattern AND a live `gh pr view`; on success
+    /// it is appended to the current session's ledger (dedup by URL), marked
+    /// agent-asserted. A fabricated or malformed URL is rejected (not
+    /// appended) without aborting. Resolves the session id like `render`.
+    Track(TrackArgs),
     /// Print the work-in-flight block format spec (the single source of
     /// truth for the marker, the per-line grammar, and the subcommand list).
     /// Named `spec` (not `help`) to avoid clashing with clap's built-in
@@ -105,6 +138,19 @@ pub struct RenderArgs {
     pub session: Option<String>,
 }
 
+#[derive(Args)]
+pub struct TrackArgs {
+    /// One or more PR URLs to submit into the session ledger. Each is
+    /// validated (anchored pattern + live `gh pr view`) before it is
+    /// appended; invalid URLs are skipped, never appended.
+    #[arg(required = true)]
+    pub urls: Vec<String>,
+    /// Session id to record under. When omitted, the binary reads
+    /// `CLAUDE_CODE_SESSION_ID` (then `CLAUDE_SESSION_ID`) from the env.
+    #[arg(long)]
+    pub session: Option<String>,
+}
+
 /// Entrypoint for `shirabe work-summary`. Always returns
 /// `ExitCode::SUCCESS`: the component is fail-safe and must never abort a
 /// hook or turn with a non-zero code.
@@ -114,6 +160,7 @@ pub fn run(command: &WorkSummaryCommands) -> ExitCode {
         WorkSummaryCommands::Absence => cmd_absence(),
         WorkSummaryCommands::Compact => cmd_compact(),
         WorkSummaryCommands::Render(args) => cmd_render(args.session.as_deref()),
+        WorkSummaryCommands::Track(args) => cmd_track(&args.urls, args.session.as_deref()),
         WorkSummaryCommands::Spec => cmd_spec(),
     }
     ExitCode::SUCCESS
@@ -127,7 +174,7 @@ fn cmd_spec() {
     println!("  owner/repo#N | state-tokens | title | bare-URL");
     println!("updated <ISO-8601 UTC>   (freshness line; a terminal PR shows once then drops)");
     println!();
-    println!("Subcommands: capture, absence, compact, render, spec");
+    println!("Subcommands: capture, absence, compact, render, track, spec");
 }
 
 // --- regexes ---------------------------------------------------------------
@@ -519,13 +566,16 @@ fn write_state(store: &Path, sid: &str, st: &State) {
 // --- ledger ----------------------------------------------------------------
 
 /// One ledger row: `owner/repo \t number \t url \t first_seen \t
-/// terminal_shown`.
+/// terminal_shown \t source`. `source` is `hook` for a hook-captured row and
+/// `agent` for one recovered via `track`; it is the last column so a legacy
+/// 5-field row reads back as hook-captured (the safe default).
 struct Row {
     repo: String,
     num: String,
     url: String,
     seen: String,
     shown: String,
+    source: String,
 }
 
 fn read_ledger(path: &Path) -> Vec<Row> {
@@ -543,6 +593,7 @@ fn read_ledger(path: &Path) -> Vec<Row> {
                 url: url.to_string(),
                 seen: f.get(3).copied().unwrap_or("0").to_string(),
                 shown: f.get(4).copied().unwrap_or("0").to_string(),
+                source: f.get(5).copied().unwrap_or(SOURCE_HOOK).to_string(),
             });
         }
     }
@@ -553,14 +604,16 @@ fn ledger_nonempty(path: &Path) -> bool {
     fs::metadata(path).map(|m| m.len() > 0).unwrap_or(false)
 }
 
-/// Append a captured PR URL to the ledger, dedup by URL. owner/repo/number
-/// are derived from the already-validated URL.
-fn append_ledger(store: &Path, sid: &str, url: &str) {
+/// Append a PR URL to the ledger, dedup by URL. owner/repo/number are derived
+/// from the already-validated URL. `source` records provenance
+/// ([`SOURCE_HOOK`] for capture, [`SOURCE_AGENT`] for `track`). Returns
+/// `true` if a new row was appended, `false` if the URL was already present.
+fn append_ledger(store: &Path, sid: &str, url: &str, source: &str) -> bool {
     let path = ledger_path(store, sid);
     if let Ok(content) = fs::read_to_string(&path) {
         for line in content.lines() {
             if line.split('\t').nth(2) == Some(url) {
-                return;
+                return false;
             }
         }
     }
@@ -570,7 +623,7 @@ fn append_ledger(store: &Path, sid: &str, url: &str) {
     let repo = parts.next().unwrap_or("");
     let number = url.rsplit('/').next().unwrap_or("");
     let now = ws_now();
-    let row = format!("{owner}/{repo}\t{number}\t{url}\t{now}\t0\n");
+    let row = format!("{owner}/{repo}\t{number}\t{url}\t{now}\t0\t{source}\n");
     if let Ok(mut f) = fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -580,6 +633,7 @@ fn append_ledger(store: &Path, sid: &str, url: &str) {
         let _ = f.write_all(row.as_bytes());
     }
     let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    true
 }
 
 /// Rewrite the ledger with updated terminal_shown flags. Caller holds the
@@ -588,8 +642,8 @@ fn persist_ledger(path: &Path, rows: &[Row], new_shown: &[String]) {
     let mut content = String::new();
     for (r, shown) in rows.iter().zip(new_shown.iter()) {
         content.push_str(&format!(
-            "{}\t{}\t{}\t{}\t{}\n",
-            r.repo, r.num, r.url, r.seen, shown
+            "{}\t{}\t{}\t{}\t{}\t{}\n",
+            r.repo, r.num, r.url, r.seen, shown, r.source
         ));
     }
     if fs::write(path, content).is_ok() {
@@ -741,7 +795,15 @@ fn render_offline(rows: &[Row]) -> String {
     out.push('\n');
     out.push_str("(best-effort: live state unavailable)\n");
     for r in rows {
-        out.push_str(&format!("{}#{} | unknown | | {}\n", r.repo, r.num, r.url));
+        let tokens = if r.source == SOURCE_AGENT {
+            "unknown agent-asserted"
+        } else {
+            "unknown"
+        };
+        out.push_str(&format!(
+            "{}#{} | {} | | {}\n",
+            r.repo, r.num, tokens, r.url
+        ));
     }
     out.push_str(&format!("updated {}", ws_iso()));
     out
@@ -824,6 +886,13 @@ fn render_block(store: &Path, sid: &str, consume: bool) -> Option<String> {
         } else if rvu == "APPROVED" {
             tokens.push_str(" review:approved");
         }
+        // Provenance: an agent-submitted (`track`) recovery is
+        // "agent-asserted, CLI-verified" -- softer than hook-capture's
+        // "mechanically captured at creation" -- so it is labeled in the
+        // block to distinguish it from a hook-captured row.
+        if r.source == SOURCE_AGENT {
+            tokens.push_str(" agent-asserted");
+        }
 
         // attention-first buckets: 1=needs attention, 2=in progress,
         // 3=settled.
@@ -900,7 +969,7 @@ fn capture_locked(store: &Path, sid: &str, command: &str, stdout: &str) -> Optio
 
     if is_pr_create(command) {
         if let Some(url) = extract_pr_url(stdout) {
-            append_ledger(store, sid, &url);
+            append_ledger(store, sid, &url, SOURCE_HOOK);
         }
     }
 
@@ -1161,10 +1230,7 @@ fn cmd_compact() {
 }
 
 fn cmd_render(session: Option<&str>) {
-    let sid = session
-        .map(|s| s.to_string())
-        .or_else(|| nonempty_env("CLAUDE_CODE_SESSION_ID"))
-        .or_else(|| nonempty_env("CLAUDE_SESSION_ID"));
+    let sid = resolve_session(session);
 
     // Primary path: session-scoped component render.
     if let Some(ref sid) = sid {
@@ -1183,140 +1249,66 @@ fn cmd_render(session: Option<&str>) {
         }
     }
 
-    // Fallback path: repo-scoped gh listing (fail-closed).
-    render_fallback();
+    // Empty or unreachable ledger: a session-scoped empty-state, NOT a
+    // non-session `gh` listing. No `gh`-only query is session-scoped, so a
+    // repo-and-author dump would both over-report (other sessions' PRs) and
+    // under-report (this session's PRs in other repos). The sanctioned way to
+    // recover a PR the hook missed is `shirabe work-summary track <url>`.
+    println!("{EMPTY_STATE}");
 }
 
-/// Repo-scoped `gh` fallback for `render`. Fail-closed: when the current repo
-/// cannot be confirmed, emits nothing rather than risk surfacing PRs whose
-/// repository/visibility cannot be established. Only the confirmed current
-/// repo is listed; a PR whose URL is not under it is dropped.
-fn render_fallback() {
-    let repo = match gh_repo_view() {
-        Some(r) if !r.is_empty() => r,
+/// Recover PRs the capture hook could not see. For each submitted URL:
+/// validate against the anchored PR-URL pattern (rejecting, not sanitizing, a
+/// non-match) AND confirm it resolves to a real PR via a live `gh pr view`;
+/// on success append it to the current session's ledger (dedup by URL),
+/// marked agent-asserted. A fabricated or malformed URL is skipped without
+/// aborting. Always fail-safe (the caller returns exit 0 regardless).
+fn cmd_track(urls: &[String], session: Option<&str>) {
+    let sid = match resolve_session(session) {
+        Some(s) if validate_sid(&s) => s,
         _ => return,
     };
-    let list_json = match gh_pr_list(&repo) {
-        Some(j) => j,
+    let store = match ensure_store() {
+        Some(s) => s,
         None => return,
     };
-    let arr: serde_json::Value = match serde_json::from_str(&list_json) {
-        Ok(v) => v,
-        Err(_) => return,
-    };
-    let items = match arr.as_array() {
-        Some(a) if !a.is_empty() => a,
-        _ => return,
-    };
-
-    let prefix = format!("https://github.com/{repo}/pull/");
-    let mut lines: Vec<String> = Vec::new();
-    for item in items {
-        let number = match item.get("number") {
-            Some(n) if n.is_u64() => n.as_u64().unwrap().to_string(),
-            Some(n) if n.is_i64() => n.as_i64().unwrap().to_string(),
-            Some(n) if n.is_string() => {
-                // Defense-in-depth: a string-typed number is not something a
-                // real `gh` returns; accept it only if it is all ASCII digits
-                // (so it can never carry `|`/newline/marker), else drop it.
-                let s = n.as_str().unwrap();
-                if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
-                    continue;
-                }
-                s.to_string()
-            }
-            _ => continue,
-        };
-        let url = item.get("url").and_then(|u| u.as_str()).unwrap_or("");
-        if number.is_empty() || url.is_empty() {
-            continue;
-        }
-        // Confirm the URL belongs to the confirmed repo (fail-closed
-        // redaction). No cross-repo collection ever happens.
-        if !url.starts_with(&prefix) {
-            continue;
-        }
-        let info = state_info(item);
-        // The fallback lists only non-terminal open/draft PRs.
-        let base = if info.is_draft { "draft" } else { "open" };
-        let mut tokens = base.to_string();
-        if info.ci.is_empty() {
-            tokens.push_str(" ci:none");
-        } else {
-            tokens.push_str(&format!(" ci:{}", info.ci));
-        }
-        let rvu = info.review.to_ascii_uppercase();
-        if rvu == "CHANGES_REQUESTED" {
-            tokens.push_str(" review:changes_requested");
-        } else if rvu == "APPROVED" {
-            tokens.push_str(" review:approved");
-        }
-        let stitle = sanitize(&info.title);
-        lines.push(format!("{repo}#{number} | {tokens} | {stitle} | {url}"));
-    }
-
-    if lines.is_empty() {
+    if !refuse_symlinked_files(&store, &sid) {
         return;
     }
 
-    let mut out = String::new();
-    out.push_str(MARKER);
-    out.push('\n');
-    for l in &lines {
-        out.push_str(l);
-        out.push('\n');
+    for url in urls {
+        // Anchored validation first: a non-match is rejected outright (the
+        // alphanumeric-first owner/repo anchor also defeats `gh`
+        // flag-injection before the URL reaches any `gh` call).
+        if !validate_pr_url(url) {
+            println!("rejected (not a valid PR URL): {url}");
+            continue;
+        }
+        // Live confirmation the PR is real; an offline `gh` or a nonexistent
+        // PR yields no append (the fail-safe boundary, same as capture).
+        if gh_view_json(url).is_none() {
+            println!("rejected (PR not found or gh unavailable): {url}");
+            continue;
+        }
+        let appended = with_lock(&store, &sid, || {
+            append_ledger(&store, &sid, url, SOURCE_AGENT)
+        });
+        match appended {
+            Some(true) => println!("tracked: {url}"),
+            Some(false) => println!("already tracked: {url}"),
+            None => {} // lock unavailable: fail-safe, no output
+        }
     }
-    out.push_str(&format!(
-        "updated {} (repo-scoped fallback: {repo})",
-        ws_iso()
-    ));
-    println!("{out}");
 }
 
-/// Determine the current repo via `gh repo view --json nameWithOwner`.
-/// Returns `None` (fail-closed) when `gh` fails or the field is absent.
-fn gh_repo_view() -> Option<String> {
-    let out = Command::new(gh_bin())
-        .args(["repo", "view", "--json", "nameWithOwner"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let s = String::from_utf8_lossy(&out.stdout);
-    let v: serde_json::Value = serde_json::from_str(s.trim()).ok()?;
-    v.get("nameWithOwner")
-        .and_then(|x| x.as_str())
+/// Resolve the session id the way the on-demand paths do: an explicit
+/// `--session` argument, then `CLAUDE_CODE_SESSION_ID`, then
+/// `CLAUDE_SESSION_ID`.
+fn resolve_session(session: Option<&str>) -> Option<String> {
+    session
         .map(|s| s.to_string())
-}
-
-/// List the current repo's open PRs authored by the current user. Returns
-/// `None` on failure or an empty list.
-fn gh_pr_list(repo: &str) -> Option<String> {
-    let out = Command::new(gh_bin())
-        .args([
-            "pr",
-            "list",
-            "--repo",
-            repo,
-            "--author",
-            "@me",
-            "--state",
-            "open",
-            "--json",
-            "number,title,state,url,isDraft,statusCheckRollup,reviewDecision",
-        ])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if s.is_empty() || s == "[]" {
-        None
-    } else {
-        Some(s)
-    }
+        .or_else(|| nonempty_env("CLAUDE_CODE_SESSION_ID"))
+        .or_else(|| nonempty_env("CLAUDE_SESSION_ID"))
 }
 
 #[cfg(test)]
@@ -1361,6 +1353,36 @@ mod tests {
     #[test]
     fn validate_rejects_trailing_path() {
         assert!(!validate_pr_url("https://github.com/o/r/pull/7/files"));
+    }
+
+    #[test]
+    fn track_url_validation_accepts_and_rejects() {
+        // `track` gates every submitted URL through the same anchored
+        // validation capture uses. Accept a well-formed PR URL...
+        assert!(validate_pr_url("https://github.com/owner/repo/pull/42"));
+        assert!(validate_pr_url("https://github.com/a.b/c-d_e/pull/1"));
+        // ...and reject malformed/fabricated forms before any `gh` call:
+        assert!(!validate_pr_url(
+            "https://github.com/owner/repo/pull/42/files"
+        ));
+        assert!(!validate_pr_url("https://gitlab.com/owner/repo/pull/1"));
+        assert!(!validate_pr_url("https://github.com/-x/repo/pull/1")); // flag-injection owner
+        assert!(!validate_pr_url(
+            "https://github.com/owner/repo/pull/new/branch"
+        ));
+        assert!(!validate_pr_url("not a url at all"));
+        assert!(!validate_pr_url(""));
+    }
+
+    #[test]
+    fn empty_state_is_terminal_safe_plain_line() {
+        // The empty-state must never carry the block marker (no forged rows),
+        // and must be a single plain line with no `|` cell separator so
+        // `/inflight` can relay it verbatim.
+        assert!(!EMPTY_STATE.contains(MARKER));
+        assert!(!EMPTY_STATE.contains('\n'));
+        assert!(!EMPTY_STATE.contains('|'));
+        assert!(!EMPTY_STATE.is_empty());
     }
 
     #[test]

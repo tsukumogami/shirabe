@@ -28,15 +28,15 @@
     },
     {
       "id": 3,
-      "name": "repo-scoped-fallback-not-cross-repo",
+      "name": "empty-state-not-repo-fallback",
       "prompt": "/inflight -- what happens when there is no session ledger or live state is unreachable?",
-      "expected_output": "It degrades to a repo-scoped gh pr list --repo <current-repo> --author @me formatted to the same block spec. It is never an author-scoped cross-repo search, and it is fail-closed: if the current repo cannot be confirmed it emits nothing, and it lists only PRs whose URL belongs to the confirmed repo.",
+      "expected_output": "`render` prints a session-scoped empty-state line (for example 'no pull requests tracked for this session'). It does NOT fall back to a repo-and-author `gh pr list`, because no gh-only query is session-scoped: a repo dump would both over-report other sessions' PRs and under-report this session's PRs in other repos. To recover a PR the hook missed, submit it via `shirabe work-summary track <url>` (validated) and re-run render.",
       "files": [],
       "expectations": [
-        "Agent describes a repo-scoped gh pr list fallback for the current repository",
-        "Agent states the fallback is NEVER an author-scoped cross-repo search (visibility over-collection risk)",
-        "Agent states the fallback is fail-closed: no confirmed repo => no output",
-        "Agent states the fallback follows the same block spec as the primary render"
+        "Agent states render prints a session-scoped empty-state line when the ledger is empty or unreachable",
+        "Agent states there is NO repo-scoped gh pr list fallback and no non-session gh listing",
+        "Agent explains no gh-only query is session-scoped (over- and under-reporting risk)",
+        "Agent identifies `shirabe work-summary track <url>` as the validated way to recover a missed PR"
       ]
     },
     {
@@ -55,12 +55,25 @@
       "id": 5,
       "name": "empty-session-no-noise",
       "prompt": "/inflight in a fresh session that has not opened any pull requests and where the current directory is not a GitHub repo.",
-      "expected_output": "`shirabe work-summary render` finds an empty ledger and the repo-scoped fallback cannot confirm a repo, so it emits nothing. The skill tells the user there are no pull requests in flight for this session rather than fabricating a block.",
+      "expected_output": "`shirabe work-summary render` finds an empty ledger and prints the session-scoped empty-state line (for example 'no pull requests tracked for this session'). The skill relays that line verbatim rather than fabricating a block or inventing PR references.",
       "files": [],
       "expectations": [
-        "Transcript runs the `shirabe work-summary render` injection and receives no block output",
+        "Transcript runs the `shirabe work-summary render` injection and relays the session-scoped empty-state line",
         "Transcript reports there are no PRs in flight for this session",
         "Transcript does NOT fabricate a work-in-flight block or invent PR references"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "no-pr-reference-outside-the-block",
+      "prompt": "/inflight -- I opened a PR earlier this session through the GitHub web UI. Can you add it to the summary?",
+      "expected_output": "Not as free-text prose. No PR reference may appear around the block unless it is a real PR the block lists. The sanctioned move is to submit the URL through `shirabe work-summary track <url>`, which validates it (anchored pattern + live gh pr view) and appends it to the ledger, then re-run render so it shows inside the block. The same no-reference-outside-the-block rule applies to a dispatched session's final message.",
+      "files": [],
+      "expectations": [
+        "Agent refuses to narrate the PR as free text alongside the block",
+        "Agent routes the missing PR through `shirabe work-summary track <url>` then a re-run of render",
+        "Agent states the guardrail: no PR reference outside the block unless the block lists it",
+        "Agent notes the same rule governs the dispatch final-message text"
       ]
     }
   ]
