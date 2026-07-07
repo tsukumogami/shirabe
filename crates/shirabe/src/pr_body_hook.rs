@@ -8,7 +8,7 @@
 //! `validate` mode: it reads a hook JSON on stdin, emits hook JSON with a
 //! permission decision, and ALWAYS exits 0. It adds no rule — it reuses
 //! [`shirabe_validate::check_pr_body`] / [`shirabe_validate::check_pr_title`],
-//! the same engine `validate --pr-body` calls, so PB1-PB3 are stated once in
+//! the same engine `validate --pr-body` calls, so PB1-PB4 are stated once in
 //! `references/pr-body-conformance.md` and enforced by CI, the skills, and this
 //! hook alike.
 //!
