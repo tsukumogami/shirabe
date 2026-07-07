@@ -96,7 +96,12 @@ example.
 
 - **CI** runs the mode on `pull_request` (`.github/workflows/pr-body.yml` and
   its self-caller), fetching the title and body via `gh` — the path-independent
-  gate.
+  gate. Machine-authored PRs are exempt: a bot (dependabot, renovate, the
+  Actions bot) emits a fixed body shape that cannot carry the two-part `---`
+  convention, so gating it would false-positive every such PR. The reusable
+  workflow skips the built-in bot set and any author a caller adds through its
+  `exempt_authors` input; the rule itself (PB1–PB3) is unchanged — only the set
+  of PRs the CI surface applies it to.
 - **`/execute`** (`pr_finalization`) and **`/work-on`** (PR phase) cite this
   reference for the mechanical rule while authoring the title and two-part
   body, so the body they produce and the rule CI enforces come from one source.

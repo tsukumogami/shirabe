@@ -8,7 +8,12 @@ name: PR-body Conformance
 #     types: [opened, edited, reopened, synchronize, ready_for_review]
 # jobs:
 #   pr-body:
-#     uses: tsukumogami/shirabe/.github/workflows/pr-body.yml@v0.13.0
+#     uses: tsukumogami/shirabe/.github/workflows/pr-body.yml@main
+#
+# The tsukumogami adopters pin `@main` so the gate always runs the current
+# engine without per-release pin bumps, matching the validate-docs.yml
+# adoption. A consumer outside the org that wants a reproducible pin can use a
+# release tag (`@vX.Y.Z`) instead.
 #
 # The reusable workflow runs `shirabe validate --pr-body` against the PR's
 # title and body — the mechanical, path-independent gate for PR-template
@@ -17,9 +22,25 @@ name: PR-body Conformance
 # of which code path opened it, so a manual `gh pr create` or a dispatched
 # worker is checked the same as a skill-authored PR. The rule it enforces is
 # single-sourced in references/pr-body-conformance.md.
+#
+# Machine-authored PRs are exempt: a bot (dependabot, renovate, the Actions
+# bot) produces a fixed body shape that cannot follow the two-part `---`
+# convention, so the gate would false-positive every such PR into a red check.
+# The built-in exempt set is dependabot[bot], renovate[bot], and
+# github-actions[bot]; a caller adds more via the `exempt_authors` input.
 
 on:
   workflow_call:
+    inputs:
+      exempt_authors:
+        description: >-
+          Extra PR-author logins to exempt from the check, beyond the built-in
+          bots (dependabot[bot], renovate[bot], github-actions[bot]). Space- or
+          comma-separated. For machine-generated PRs whose bodies cannot follow
+          the two-part convention.
+        required: false
+        type: string
+        default: ""
 
 jobs:
   pr-body:
@@ -28,19 +49,47 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - name: Check PR context
-        # The check only makes sense on a pull_request event; a non-PR
-        # trigger has no PR number to read a title/body from. Skip cleanly.
+      - name: Determine whether to run
+        id: guard
+        # The check runs only for a human-authored PR. Two cases short-circuit
+        # to a clean skip (leaving the job green, so the check stays safe as a
+        # required status check): a non-PR trigger with no PR number, and a
+        # machine author whose fixed body shape cannot follow the two-part
+        # convention. The author login arrives via the environment (never
+        # interpolated into the script body) and bot logins are constrained, so
+        # there is no injection surface.
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          EXTRA_EXEMPT: ${{ inputs.exempt_authors }}
         run: |
-          if [ -z "${{ github.event.pull_request.number }}" ]; then
+          # Disable pathname expansion: bot logins such as `dependabot[bot]`
+          # contain glob metacharacters (`[bot]` is a character class), and the
+          # unquoted `for` word-split below would otherwise try to expand them
+          # against the working tree.
+          set -f
+          if [ -z "$PR_NUMBER" ]; then
             echo "::notice::Skipping PR-body check: requires a PR context (no pull_request number)"
+            echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Built-in bot exempt set, plus any caller-supplied logins. Commas in
+          # the input are normalized to spaces so both separators work.
+          EXEMPT="dependabot[bot] renovate[bot] github-actions[bot] ${EXTRA_EXEMPT//,/ }"
+          for a in $EXEMPT; do
+            if [ "$a" = "$PR_AUTHOR" ]; then
+              echo "::notice::Skipping PR-body check: author '$PR_AUTHOR' is exempt (machine-authored PR)"
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "run=true" >> "$GITHUB_OUTPUT"
 
       - name: Checkout caller repo
         # The pr-body check does not read the working tree (it reads the PR
         # title/body via gh), but the checkout mirrors the sibling workflows
         # for consistency and gives gh a repo context.
+        if: steps.guard.outputs.run == 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Checkout shirabe
@@ -50,6 +99,7 @@ jobs:
         # picks up shirabe at the called ref so the binary matches the workflow
         # contract. For the local self-caller (`uses: ./...`) it resolves to
         # this repo at the PR's head, which is what we want.
+        if: steps.guard.outputs.run == 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: ${{ job.workflow_repository }}
@@ -58,9 +108,11 @@ jobs:
 
       - name: Install Rust toolchain
         # Reads .shirabe-src/rust-toolchain.toml and installs the pinned channel.
+        if: steps.guard.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
 
       - name: Cache Cargo
+        if: steps.guard.outputs.run == 'true'
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
         with:
           path: |
@@ -72,6 +124,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build shirabe
+        if: steps.guard.outputs.run == 'true'
         run: |
           cargo build --release --bin shirabe --manifest-path .shirabe-src/Cargo.toml
           install -m 0755 .shirabe-src/target/release/shirabe /usr/local/bin/shirabe
@@ -84,6 +137,7 @@ jobs:
         # (never eval-ed) and the body only as a file path. A non-zero exit
         # (violations) fails the check; each finding surfaces as a fileless
         # `::error::` annotation.
+        if: steps.guard.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

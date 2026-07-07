@@ -2,8 +2,8 @@ name: Validate shirabe PR body
 
 # Self-caller: exercises the reusable pr-body.yml against shirabe's own PRs,
 # so the PR that ships the gate has CI signal on its own body. Downstream
-# repos use `tsukumogami/shirabe/.github/workflows/pr-body.yml@v0.13.0` (or
-# whichever release tag they pin). This self-caller uses the local relative
+# repos pin `tsukumogami/shirabe/.github/workflows/pr-body.yml@main` (matching
+# the validate-docs.yml adoption). This self-caller uses the local relative
 # path so the PR exercises its own pre-release code.
 #
 # No `paths:` filter — the gate is path-independent by design. A malformed PR
