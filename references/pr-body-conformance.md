@@ -105,3 +105,9 @@ example.
 - **`/execute`** (`pr_finalization`) and **`/work-on`** (PR phase) cite this
   reference for the mechanical rule while authoring the title and two-part
   body, so the body they produce and the rule CI enforces come from one source.
+- **The client-side PreToolUse hook** (`shirabe pr-body-hook`, wired via
+  `tsukumogami/dot-niwa`) runs the same `check_pr_body` engine against a
+  `gh pr create` / `gh pr edit` command before it executes, catching a
+  malformed PR at authoring time in any checkout. It reuses this rule, adding
+  no checks of its own — PB1–PB3 are stated here once and enforced by CI, the
+  skills, and the hook alike.

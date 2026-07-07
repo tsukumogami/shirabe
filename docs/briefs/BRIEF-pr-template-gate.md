@@ -132,6 +132,19 @@ check confirms a Conventional Commits `docs:` title, exactly one separator,
 a non-empty Part 1, and no attribution footer, and it never second-guesses
 the sparse Part 2. A correct minimal PR is not a false positive.
 
+### A contributor is stopped before opening a malformed PR
+
+A contributor — or a dispatched worker — runs `gh pr create` by hand with a
+body that has no `---` separator and a title of `Update the validator`. Before
+the command runs, an authoring-time check reads the title and body, finds the
+same mechanical violations the CI gate would, and stops the command with a
+message naming them. The contributor fixes the title and adds the separator,
+re-runs the command, and the PR opens clean on the first try. The malformed PR
+never reaches GitHub, so no CI run and no reviewer attention is spent on a
+defect a machine could name at the keystroke. This authoring-time surface
+reuses the same rule the CI gate enforces; it is a faster feedback path, not a
+different standard.
+
 ### A maintainer reads a failing check
 
 A maintainer looks at a red conformance check on someone else's PR. The
@@ -158,6 +171,11 @@ mechanical (fix the body) rather than a judgment call.
 - Path-independence as the acceptance property: the gate must catch a
   manual or dispatched PR, not only a skill-authored one, and must not
   fail a legitimate minimal PR.
+- A second, authoring-time enforcement surface — a client-side hook that runs
+  the same mechanical rule against a `gh pr create` / `gh pr edit` command
+  before it executes — so the defect is caught in any checkout, even one with
+  no CI wired. This was originally deferred (see below) and is now committed as
+  a follow-on increment; the downstream PRD and DESIGN own its exact shape.
 
 ### OUT of scope
 
@@ -169,10 +187,12 @@ mechanical (fix the body) rather than a judgment call.
 - Modifying the downstream consumer's PR-creation skill. The mechanical
   logic is migrated into shirabe so shirabe is self-authoritative; the
   downstream skill is left untouched rather than extended with new checks.
-- The exact enforcement surfaces beyond the CI gate — an optional local
-  pre-PR hook, and closing the dispatch gap so dispatched PR-opening work
-  routes through a template-applying skill — are secondary mechanisms the
-  downstream PRD and DESIGN decide on, not commitments of this framing.
+- The local pre-PR hook was originally deferred here as a secondary
+  mechanism; it is now committed (see IN scope) and specified by the
+  downstream PRD (R13–R16) and DESIGN. Closing the dispatch gap — routing
+  dispatched PR-opening work through a template-applying skill — remains out
+  of scope: it is an orthogonal workflow-authoring change, not part of this
+  enforcement work.
 - Requirements articulation and interface shape — the precise check set,
   the validator mode's flags, the CI trigger events — belong to the
   downstream PRD and DESIGN, one altitude down from this framing.

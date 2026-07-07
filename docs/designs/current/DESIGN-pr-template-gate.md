@@ -14,6 +14,10 @@ decision: |
   mode implements and the skills cite, replacing the dangling cross-plugin
   pointer. Wire a reusable `pr-body` CI workflow plus a self-caller on
   `pull_request` that fetches the PR title/body via `gh` and runs the mode.
+  Add a second, authoring-time enforcement surface — a `shirabe pr-body-hook`
+  PreToolUse adapter (the fail-safe analog of `work-summary capture`) that
+  reuses the same `check_pr_body` engine to gate `gh pr create` / `gh pr edit`
+  before the PR is opened, with the hook registration delegated to dot-niwa.
 rationale: |
   A validate mode is the established single-source shape for a
   path-independent check (`--coordination-body` static, `--merge-gate` live);
@@ -36,6 +40,17 @@ checks R2–R4, nothing more), and the interface by which the title and body
 reach the mode (`--pr-body <file>` for the body, an optional `--pr-title
 <string>` companion for the title). The downstream PLAN owns the atomic
 issue decomposition.
+
+This design was extended with a second enforcement increment after the CI
+gate shipped. The CI gate is path-independent but strictly *reactive*: it
+fires only once a PR exists, so a malformed body is created, then flagged.
+The increment adds an authoring-time surface — a client-side PreToolUse hook
+that runs the same `check_pr_body` engine against a `gh pr create` /
+`gh pr edit` command before it executes — so a malformed PR is caught at the
+keystroke, in any checkout, even one with no GitHub Actions workflow. The two
+surfaces share one engine and one reference; the CI gate stays the
+authoritative backstop. The client-side material below is labelled as the
+increment; the CI-gate decision is unchanged.
 
 ## Context and Problem Statement
 
@@ -96,6 +111,18 @@ of which path opened the PR (PRD goals; R7, R8).
   `lifecycle.yml` / `validate-docs.yml` pattern: build the binary from source
   at the called workflow's ref, SHA-pin every action, request least
   privilege.
+- **D8 — Authoring-time feedback (increment).** The CI gate is reactive: the
+  malformed PR is created, then a red check appears. Catching the same defect
+  *before* the PR exists — at the `gh pr create` keystroke, in any checkout,
+  independent of whether a GHA workflow is wired — needs a client-side hook
+  that intercepts the command. This is a convenience layer over the same
+  rule, not a second rule.
+- **D9 — Fail-safe ambient behavior (increment).** A client hook runs on
+  every Bash command in the session. It must never trap a legitimate flow or
+  break when it cannot understand its input: an unparseable command, an
+  unreadable `--body-file`, a `--fill`/`--web` create, or a missing binary
+  must degrade to "allow", exactly as shirabe's `work-summary` hooks degrade
+  to "no output". The CI gate is the backstop that makes fail-open safe.
 
 ## Considered Options
 
@@ -151,6 +178,56 @@ always covers all three checks. The title arrives as a value argument (argv,
 never shell-evaluated), and the workflow passes it through an environment
 variable rather than direct expression interpolation (D6).
 
+### Client-side surface: PreToolUse hook vs shell wrapper vs git hook (increment)
+
+The authoring-time surface (D8) needs to see the `gh pr create` / `gh pr edit`
+invocation and its `--body`/`--body-file`/`--title` arguments before the
+command runs. Three shapes were considered.
+
+A **git `pre-push` / `commit-msg` hook** was rejected: it sees commits, not
+the PR title/body, which are supplied to `gh` at PR-open time and never touch
+git. It cannot check the two-part body at all.
+
+A **shell alias/wrapper around `gh`** was rejected against portability and
+D9: it only fires in an interactive shell that sourced the wrapper, misses
+non-interactive and agent-driven `gh` calls, and has no clean fail-safe
+contract.
+
+The **chosen surface** is a **Claude Code PreToolUse hook matching the Bash
+tool**, the same mechanism shirabe's `work-summary` (PostToolUse) and the
+existing `gate-online` (PreToolUse) hooks already use. It receives the exact
+command string in the hook JSON before execution, fires for every Bash
+invocation regardless of how it was issued, and has a defined
+allow/ask/deny response contract. The logic lives in the on-PATH `shirabe`
+binary (a new `shirabe pr-body-hook` subcommand); the hook script is a thin
+pass-through, exactly like `work-summary-capture.sh`.
+
+### Hook response: block vs warn-only (increment)
+
+A PreToolUse hook can **deny** (abort the tool call with a reason the agent
+sees), **ask** (prompt a human), or **allow** — optionally attaching
+`additionalContext`. The design must pick what happens when the parsed body
+or title produces PB findings.
+
+**Warn-only** (allow + `additionalContext` naming the findings) was
+considered and rejected as the primary behavior: it does not stop the
+malformed PR from being created, so the client surface would be redundant
+with the CI gate rather than additive — the whole point of D8 is to catch the
+defect *before* the PR exists. **Ask** was rejected because the session runs
+under `bypassPermissions` and dispatched/headless agents have no human to
+prompt; an `ask` there stalls the turn.
+
+The **chosen response is deny, fail-open** (D9). When the hook can confidently
+extract a title/body and `check_pr_body` returns findings, it denies the
+`gh pr create` / `gh pr edit` call and returns the PB1–PB3 findings as the
+`permissionDecisionReason`, so the agent reads exactly what to fix and
+re-issues a corrected command. In every ambiguous case — the command is not a
+recognized create/edit, no title and no body can be extracted, a
+`--body-file` cannot be read, `--fill`/`--web`/`--body-file -` is used, or
+the parse is uncertain — the hook **allows** (emits nothing). This mirrors
+`gate-online`'s deny-known-bad / allow-otherwise shape and `work-summary`'s
+fail-safe posture, and the CI gate catches anything the hook fails open on.
+
 ## Decision Outcome
 
 Add `shirabe validate --pr-body <file> [--pr-title <string>]`: an offline
@@ -202,6 +279,50 @@ self-caller `.github/workflows/validate-pr-body.yml` invokes it on this
 repo's PRs on `pull_request` with `types: [opened, edited, reopened,
 synchronize, ready_for_review]` and no `paths:` filter. Permissions are
 `contents: read` + `pull-requests: read`.
+
+### Client-side PreToolUse hook (increment)
+
+A new `shirabe pr-body-hook` subcommand is the PreToolUse adapter. It is a
+fail-safe hook adapter in the shape of `work-summary capture`, **not** a
+`validate` mode: it reads a Claude Code hook JSON on stdin, and its output
+contract is hook JSON with a permission decision (and it always exits 0),
+which is the opposite of `validate`'s `ValidateOutcome` exit-code contract.
+It adds no rule — it reuses `check_pr_body` from `shirabe-validate`, the same
+engine `--pr-body` calls, so PB1–PB3 are stated once and consumed by CI, the
+skills, and the hook alike.
+
+The adapter:
+
+1. reads the hook JSON on stdin and extracts `tool_input.command` (the Bash
+   command about to run); on any parse failure it emits nothing (allow);
+2. detects a `gh ... pr create` or `gh ... pr edit` invocation using the same
+   shell-boundary / env-assignment / quote-stripping argv scan `work-summary`
+   already uses for `is_pr_create`, extended to also recognize `edit` and to
+   read the `--title`, `--body`, and `--body-file <path>` option values from
+   the argv tokens (never by shell-evaluating the command);
+3. resolves the body: `--body <str>` inline, or `--body-file <path>` read from
+   disk. A `--body-file -` (stdin), a heredoc/process-substitution body, a
+   `--fill`/`--web` create, or an unreadable file yields "no confidently
+   extractable body" → allow;
+4. when a title and/or body is extractable, runs `check_pr_body(body,
+   title)`. Empty findings → allow (emit nothing). Non-empty findings → emit a
+   PreToolUse hook JSON with `permissionDecision: "deny"` and a
+   `permissionDecisionReason` listing the PB findings (one per line, prefixed
+   so the agent sees "PR body check: …"). Output is terminal-safe: the
+   attacker-influenceable title/body reaches the reason only inside a
+   `serde_json` string value, never concatenated into a control sequence.
+
+Because a `gh pr edit` may set only a title or only a body, the hook checks
+whatever it can extract: a title-only edit runs PB1; a body-only edit runs
+PB2–PB3; a create with both runs all three. When neither is present (e.g.
+`gh pr edit 123 --add-label foo`) it allows.
+
+The hook registration is **delegated to dot-niwa** (see Solution
+Architecture), exactly as the `work-summary` hooks were wired via
+`tsukumogami/dot-niwa#4`: shirabe owns the binary subcommand and the rule;
+dot-niwa owns the `.niwa/hooks/pre_tool_use/` pass-through script and the
+`workspace.toml` registration that `niwa apply` projects into each repo's
+Claude settings.
 
 ## Solution Architecture
 
@@ -291,10 +412,90 @@ The PR number is a safe integer from the event payload; the title never
 enters the run script as an expression — it is read from the environment,
 closing the script-injection vector (D6).
 
+### Client-side hook adapter: `shirabe pr-body-hook` (increment)
+
+`crates/shirabe/src/main.rs` gains a `PrBodyHook` subcommand dispatched to a
+new `crates/shirabe/src/pr_body_hook.rs` module, structured like
+`work_summary`:
+
+```
+shirabe pr-body-hook          # PreToolUse adapter; reads hook JSON on stdin,
+                              # emits hook JSON on stdout, ALWAYS exits 0
+```
+
+The module reuses the `work_summary` primitives rather than duplicating them:
+`read_stdin` + `serde_json::from_str` for the hook JSON, and the
+shell-boundary/env-assignment/quote-stripping argv scan behind `is_pr_create`
+(generalized to a small `PrCommand` classifier that returns
+`Some(Create | Edit)` and the surviving argv tokens). From the tokens it
+reads the option values:
+
+```
+--title <STR>          -> title
+--body  <STR>          -> body (inline)
+--body-file <PATH>     -> body (read from PATH; unreadable or "-" => none)
+--fill | --web         -> no extractable body => allow
+```
+
+It then calls `shirabe_validate::check_pr_body(body, title.as_deref())` and
+maps the result:
+
+```
+findings.is_empty()  -> print nothing            (allow)
+!findings.is_empty() -> print deny hook JSON      (block, reason = findings)
+any error / ambiguity-> print nothing            (allow, fail-open)
+```
+
+The deny JSON matches the `gate-online` PreToolUse shape:
+
+```
+{"hookSpecificOutput":{"hookEventName":"PreToolUse",
+ "permissionDecision":"deny",
+ "permissionDecisionReason":"PR body check failed:\n- <PB finding>\n- <…>"}}
+```
+
+built with `serde_json::json!` so the title/body text is always a JSON string
+value. Env seam `PR_BODY_HOOK_DISABLE=1` short-circuits to allow, giving an
+operator a kill switch without unwiring the hook (mirrors the `WS_*` seams).
+Like `work-summary`, `run()` returns `ExitCode::SUCCESS` unconditionally.
+
+### Hook wiring: dot-niwa handoff (increment)
+
+shirabe ships the subcommand and a reference pass-through script under
+`references/` or documents the one-liner; it does **not** register the hook
+in any repo. Registration is dot-niwa's job, following the `work-summary`
+precedent (`tsukumogami/dot-niwa#4`):
+
+- add `dot-niwa/.niwa/hooks/pre_tool_use/pr-body-guard.sh`, a thin
+  pass-through in the spirit of `work-summary-capture.sh`, with one
+  PreToolUse-specific difference: it must **not** `exec` the binary. A
+  PostToolUse hook can `exec` because a non-zero exit there is harmless, but a
+  PreToolUse hook that exits non-zero *blocks* the tool call. Since the hook
+  matches every Bash command, an outdated `shirabe` that predates the
+  `pr-body-hook` subcommand (clap exits non-zero on an unknown subcommand)
+  would otherwise block every command. The script therefore guards the exit:
+  `command -v shirabe >/dev/null 2>&1 || exit 0` then `shirabe pr-body-hook
+  2>/dev/null || exit 0` (fall back to allow). The current binary always exits
+  0, so the guard only ever fires against a stale install;
+- register it in `dot-niwa/.niwa/workspace.toml` as a second
+  `[[claude.hooks.pre_tool_use]]` entry with `matcher = "Bash"` and
+  `scripts = ["hooks/pre_tool_use/pr-body-guard.sh"]` (Claude Code runs
+  multiple PreToolUse Bash hooks; it composes with the existing
+  `gate-online.sh` entry).
+
+`niwa apply` then projects the script into each repo's
+`.claude/hooks/pre_tool_use/…local.sh` and adds the PreToolUse registration to
+`.claude/settings.local.json`, exactly as it already does for the
+`work-summary` hooks. The handoff boundary is clean: a shirabe release makes
+the subcommand available on PATH; a dot-niwa change turns it on across the
+workspace. This design's PR opens the dot-niwa issue/PR that carries the
+wiring; the shirabe side does not depend on it to build or test.
+
 ## Implementation Approach
 
-Three batches, sequenced so each is independently reviewable and the gate is
-never half-wired:
+Four batches, sequenced so each is independently reviewable and the gate is
+never half-wired. Batches 1–3 shipped the CI gate; Batch 4 is the
+authoring-time increment and depends only on Batch 1:
 
 - **Batch 1 — validator mode.** `pr_body.rs` (`check_pr_body` + fence-strip
   helper + PB1/PB2/PB3), the `lib.rs` re-export, the `main.rs` args, guards,
@@ -314,6 +515,20 @@ never half-wired:
   `lifecycle.yml`/`validate-lifecycle.yml`. Lands last so the gate goes live
   once the mode and reference exist; the PR shipping this design self-tests
   the gate on its own body.
+- **Batch 4 — client-side PreToolUse hook (increment).** The
+  `shirabe pr-body-hook` subcommand (`pr_body_hook.rs`), the `main.rs`
+  dispatch, and unit tests: a `gh pr create` with a clean body/title (allow,
+  no output); a create with a non-conventional title (deny, reason names the
+  title); a create with no separator (deny); a `--body-file` pointing at a
+  clean and a malformed file; a `gh pr edit --title` (PB1 only); a
+  `gh pr edit --add-label` (allow, nothing to check); a non-`gh` command
+  (allow); a `--fill`/`--web` create and an unreadable `--body-file` (allow,
+  fail-open); a malformed stdin (allow). Depends on Batch 1 for
+  `check_pr_body`. The dot-niwa registration (a thin pass-through script plus
+  a `workspace.toml` entry) is handed off as `tsukumogami/dot-niwa#<N>`,
+  landing independently once a shirabe release carries the subcommand — the
+  same shirabe-owns-binary / dot-niwa-owns-wiring split as
+  `tsukumogami/dot-niwa#4`.
 
 ## Security Considerations
 
@@ -335,6 +550,17 @@ never half-wired:
   no network or `gh` call; the validator's output is a pure function of its
   file and title inputs, so it cannot be steered by anything but the PR
   content it is handed.
+- **Hook adapter, untrusted stdin and argv (increment, D6/D9).** The PreToolUse
+  adapter treats the command string, title, and body as attacker-controlled.
+  It never shell-evaluates the command — it scans argv tokens with the same
+  quote-aware splitter `work-summary` uses — so a body containing `$(…)` or a
+  `;` cannot cause execution. The deny reason is assembled with `serde_json`,
+  so the title/body is always a JSON string value, never concatenated into a
+  terminal control sequence. The adapter reads a `--body-file` path but writes
+  nothing and runs no subprocess. It always exits 0 and fails open on any
+  ambiguity (D9), so it can neither trap a legitimate `gh` call nor be turned
+  into a denial vector by a body it cannot parse; the CI gate remains the
+  authoritative check.
 - **Denial-of-input false positives.** The code-fence-exclusion in PB2/PB3 is
   a correctness-and-safety measure: without it, a PR whose Part 2 shows a
   YAML `---` or discusses a `Co-Authored-By:` line (as this very design does)
@@ -360,6 +586,11 @@ never half-wired:
   CLI concepts for a maintainer to learn.
 - A downstream repo can adopt the gate by calling the reusable workflow, the
   same way `lifecycle.yml` is consumed.
+- *(Increment)* The client-side hook catches the malformed PR at the
+  `gh pr create` keystroke, before it exists, in any checkout — including one
+  with no GitHub Actions — turning a CI red into instant, actionable local
+  feedback while reusing the one `check_pr_body` engine, so no rule is
+  duplicated across the two surfaces.
 
 **Negative, with mitigations.**
 
@@ -394,3 +625,13 @@ never half-wired:
 - `skills/execute/koto-templates/execute.md` — the `pr_finalization` state
   carrying the inline mechanical rule and the dangling
   `skills/pr-creation/SKILL.md` pointer this design single-sources.
+- `crates/shirabe/src/work_summary.rs` — the fail-safe hook-adapter precedent
+  the client-side increment mirrors: reads a Claude Code hook JSON on stdin,
+  scans a `gh` command out of `tool_input.command` (`is_pr_create`), emits
+  hook JSON built with `serde_json`, and always exits 0. `pr_body_hook.rs`
+  reuses its stdin and argv-scan primitives.
+- `.niwa/hooks/pre_tool_use/gate-online.sh` and
+  `.niwa/hooks/post_tool_use/work-summary-capture.sh` (in `tsukumogami/dot-niwa`)
+  — the existing PreToolUse deny-shape and the thin pass-through pattern the
+  `pr-body-guard.sh` wiring copies; `tsukumogami/dot-niwa#4` is the
+  work-summary wiring PR this handoff parallels.

@@ -124,6 +124,18 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
     findings
 }
 
+/// Check only PB1 (the Conventional Commits title) and nothing else.
+///
+/// This exposes the same title rule [`check_pr_body`] applies, without the
+/// body-level PB2/PB3 checks, for a caller that has a title but no body — for
+/// instance the client-side PreToolUse hook evaluating a `gh pr edit --title`
+/// that changes only the title. It reuses the existing private [`check_title`]
+/// scan; it does not restate PB1. Returns `Some(finding)` (with `line: 1`, the
+/// title-level line) when the title is non-conforming, `None` when it passes.
+pub fn check_pr_title(title: &str) -> Option<PrBodyFinding> {
+    check_title(title).map(|message| PrBodyFinding { line: 1, message })
+}
+
 /// PB1: return `Some(message)` when `title` is not a valid Conventional Commits
 /// header, `None` when it conforms. The parse is a small hand-written scan
 /// (no regex dependency), matching this crate's style.
