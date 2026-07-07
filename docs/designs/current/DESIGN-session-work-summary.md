@@ -539,3 +539,157 @@ free text) is the mitigation of record.
   behavior.
 - Keep the block spec co-located with the single subcommand implementation so no
   second source of truth can drift.
+
+## Amendment — 2026-07-06: opt-out hook registration and a references-outside-the-block guardrail
+
+Two defects observed after the feature shipped are recorded here with their
+root causes and the architectural decisions that answer them. The design above
+is unchanged; this amendment adds Decision 6 and Decision 7, and extends the
+acknowledged bounds and Security Considerations. Both defects share a single
+root cause, so they are scoped together (the upstream PRD and BRIEF amendments
+of the same date frame the pair).
+
+### Root-cause findings
+
+**Defect 1 — the ambient summary is opt-in, keyed to a config-repo
+registration.** The three thin hooks are installed by niwa's `HooksMaterializer`
+(`internal/workspace/materialize.go`), which copies into each repo's
+`.claude/hooks/` exactly the hooks the *merged workspace config* declares —
+nothing more. The declaration lives in the config repo's `workspace.toml`
+(`[[claude.hooks.post_tool_use]]` on `Bash`, `[[claude.hooks.user_prompt_submit]]`,
+and `[[claude.hooks.session_start]]` on `compact`), and the hook scripts
+themselves are config-repo assets. niwa ships no built-in default for these
+hooks. So a workspace whose config repo never declares them installs nothing:
+the feature is opt-in at the config-repo boundary. This is consistent with the
+design's own split ("niwa owns only hook-registration hygiene ... not path
+injection") — but that split left the *presence* of the registration to each
+workspace.
+
+**Defect 2 — the fallback fired because nothing was captured, and the "Note"
+was model-authored.** The on-demand `render` path
+(`crates/shirabe/src/work_summary.rs`, `cmd_render`) tries the session ledger
+first and calls `render_fallback` only when the ledger is empty or unreachable.
+In a workspace without the capture hook (Defect 1), no PR is ever appended to
+the ledger, so the ledger is empty and the repo-scoped fallback fires — this is
+the fallback working as designed, not a fallback bug. The decisive finding is
+the "Note": `render_fallback` ends its output at the
+`updated <ISO> (repo-scoped fallback: <repo>)` line and prints nothing after it.
+The multi-line note that named two other repos' PRs with URLs is therefore
+**not** produced by the binary or by the `/inflight` skill (whose SKILL.md
+already instructs the relay to present the block "exactly as produced ... do not
+reformat, summarize, or add PRs from memory"). It is model-authored commentary
+appended around the block — precisely the invented cross-repo reference the
+determinism thesis and PRD R5 forbid, resurfacing on the one path where a model
+still frames the turn. The owner's read that "the note is a bug" is confirmed;
+the bug is not in the fail-closed binary but in the absence of a hard rule that
+nothing may append references around the block.
+
+The two are one failure: no capture hook → empty ledger → repo-scoped fallback →
+a model that "knows" about other PRs narrates them back in. Fixing the capture
+gap (Decision 6) removes the trigger; the guardrail (Decision 7) holds even when
+the fallback legitimately fires (a fresh session, `gh` offline).
+
+### Decision 6 — Hook-registration default (opt-in vs opt-out)
+
+- **Option A: keep opt-in (status quo).** Each workspace's config repo declares
+  the three hooks. Rejected: a workspace that hasn't adopted the registration —
+  including any workspace niwa provisions from a different config repo — gets no
+  ambient summary, which is the reported defect.
+- **Option B: ship the hooks from the shirabe plugin so they travel with the
+  plugin.** Rejected for the same reason Decision 1 Option A was rejected:
+  plugin-shipped hooks double-register against niwa-injected hooks for the same
+  events with no dedup, and a settings-registered hook can't resolve the
+  version-unstable plugin path. This is the failure the original design spent a
+  decision avoiding; re-introducing it here would undo that.
+- **Option C (chosen): niwa injects the work-summary hook registrations by
+  default, with an explicit off switch.** niwa already injects workspace-root
+  session hooks by default independent of any `workspace.toml` declaration (the
+  ephemeral-session `SessionHooks` path in `materialize.go`). The work-summary
+  registrations follow that precedent: niwa carries the three thin pass-through
+  scripts and their event registrations as a built-in default, materialized into
+  every provisioned instance unless the workspace opts out. The off switch is a
+  workspace/instance preference resolved on the established
+  `flag > CLAUDE.md-header > default` stack, default on. Each injected hook keeps
+  its `command -v shirabe || exit 0` guard, so default-on is safe: where the
+  binary is absent, the hook no-ops. This preserves the design's layer split —
+  niwa still owns registration, shirabe still owns the render logic — while
+  moving the *default* from "declared per workspace" to "present unless
+  refused." Honest bounds carried into the PRD (R16): default-on takes effect
+  only where the `shirabe` binary is on PATH and only in instances niwa
+  provisions.
+
+The config-repo `workspace.toml` declaration that currently carries these hooks
+becomes redundant once niwa injects them by default; the implementation should
+retire the explicit declaration to avoid the double-registration Decision 1
+warned about, letting the niwa default be the single source of the registration.
+
+### Decision 7 — Keeping references inside the block
+
+- **Option A: rely on the skill's prose instruction.** SKILL.md already says
+  relay the block verbatim and add no PRs from memory. Rejected as sufficient on
+  its own: it is exactly the discipline-in-the-data-path dependency the feature
+  exists to remove, and it is what failed in Defect 2. Prose guidance stays, but
+  it can't be the only control.
+- **Option B (chosen, composed): make the block self-describing about its own
+  scope, and make "no references outside the block" a testable rule on every
+  model-framed surface.** Two moves. First, the repo-scoped fallback already
+  stamps `(repo-scoped fallback: <repo>)` inside the block; that in-block caveat
+  is the sanctioned way to say "this is repo-scoped only," so the legitimate
+  need the model was trying to fill is already met by the component — leaving no
+  gap for a model-authored note. The design strengthens this so the caveat
+  clearly communicates that other repos' PRs are deliberately not listed here,
+  inside the single-source-of-truth block, subject to the same sanitizer.
+  Second, the `/inflight` skill contract and the dispatch final-message rule gain
+  an explicit, checkable prohibition: no pull-request reference — URL, `owner/repo#N`,
+  or prose naming a PR — may appear outside the emitted block, and an unverified
+  cross-repo item is dropped rather than narrated. This closes the guardrail on
+  both model-framed paths (on-demand relay and background-worker final message)
+  without putting the model back in the data path for the block's own contents.
+
+### Impact on the acknowledged bounds
+
+The original "Two acknowledged bounds" section stands, with one sharpened: R1's
+uniform-shape claim relied on a single component producing every block and noted
+the `/inflight` repo-scoped fallback as the one independently-formatted path
+that still follows the block contract. Defect 2 shows that uniformity is
+necessary but not sufficient — a model can append content *around* a
+correctly-shaped block. R17 (PRD) and Decision 7 add the missing half: not only
+is every block shape-uniform, nothing may sit outside it on a model-framed
+surface.
+
+### Security Considerations (extension)
+
+The model-authored addendum on the on-demand and final-message paths is a
+determinism-and-injection surface the original Security Considerations implicitly
+covered for the block's own contents but not for text a model places around it.
+The mitigation of record is Decision 7's two moves: the component owns the only
+legitimate "this is repo-scoped" caveat (inside the sanitized block), and the
+skill/dispatch contracts forbid any PR reference outside the block, so an
+unverified cross-repo reference cannot be reintroduced as free text. This does
+not delegate a security decision to model interpretation of block contents; it
+removes the model's authority to add references at all. Default-on hook
+injection (Decision 6) broadens the ambient-hook surface — a PostToolUse hook
+now present in every provisioned instance — but each hook remains a pure
+pass-through behind the `command -v shirabe || exit 0` fail-safe guard, and the
+off switch gives a workspace an explicit refusal; the trust anchor is unchanged
+(the installed binary, not a working-tree script).
+
+### Cross-repo implementation implications
+
+The amendment lives in shirabe's docs, but the fix spans three repos. Recorded
+here so the split is explicit for whoever plans and implements it:
+
+- **niwa** — carry the three thin work-summary hook scripts and their event
+  registrations as a built-in default injected by `materialize.go` (the
+  `SessionHooks` default-injection path is the precedent), gated by the off
+  switch resolved on `flag > CLAUDE.md-header > default`. This is the substance
+  of Decision 6 and the largest change.
+- **config repo (`workspace.toml`)** — retire the now-redundant explicit
+  `[[claude.hooks.*]]` work-summary declarations once niwa injects them by
+  default, so the registration has one source and cannot double-register.
+- **shirabe** — strengthen the `render` fallback's in-block caveat (Decision 7,
+  first move) in `work_summary.rs`, and tighten the `/inflight` SKILL.md contract
+  plus the dispatch final-message rule to forbid any PR reference outside the
+  block (Decision 7, second move). The block renderer and its single-source
+  guarantee are unchanged; the change is at the fallback caveat and the
+  model-framed relay contract.

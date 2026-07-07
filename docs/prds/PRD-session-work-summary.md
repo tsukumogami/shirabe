@@ -239,3 +239,73 @@ to keep track of the work it produced.
   boundary is explicit and downstream design does not treat them as in-scope.
 - **The BRIEF carried no unresolved Open Questions.** The upstream framing was
   settled before this PRD; no deferred questions needed closure here.
+
+## Amendment — 2026-07-06: opt-out default and the block as sole reference surface
+
+Two defects observed after the feature shipped drive two new requirements. The
+requirements above are unchanged; these extend them. Both defects share one root
+cause — a session in a workspace that never registered the capture hook records
+no PRs, so it gets no ambient summary and its on-demand path falls back to a
+repo-scoped listing, around which the agent then narrated unverified cross-repo
+PRs. The upstream BRIEF amendment of the same date frames the two together.
+
+### New Requirements
+
+#### Functional
+
+- **R16 — Default-on ambient behavior with an off switch.** The ambient
+  work-summary hooks SHALL be present by default in a niwa-provisioned instance,
+  so a workspace receives the summary behavior without registering the hooks by
+  hand. A workspace SHALL be able to turn the behavior off through an explicit,
+  documented switch. Default-on is bounded by two facts the requirement states
+  rather than hides: the ambient summary takes effect only where the render
+  component is also available on PATH (the hooks fail safe to no-op otherwise),
+  and only in instances niwa provisions. Flipping opt-in to opt-out closes the
+  gap where a workspace that never adopted the registration got nothing.
+- **R17 — The emitted block is the only surface for PR references.** On any
+  surface where a model frames the output around the component's block — the
+  on-demand relay and a dispatched worker's final message — no pull-request
+  reference SHALL appear outside the block the component produced. When the
+  on-demand path degrades to the repo-scoped fallback, the block states its own
+  scope (that it lists only the current repo); the model MUST NOT add prose,
+  a note, or a supplementary list that names further pull requests. A cross-repo
+  item the component did not capture SHALL be dropped, never reconstructed from
+  the agent's memory into free text — the same real-PR-only guarantee R5 makes
+  for the block's contents, extended to everything a model emits around it.
+- **R18 — Fallback keying is a documented, narrow condition.** The on-demand
+  path SHALL fall back to the repo-scoped listing only when the session ledger
+  is genuinely empty or unreachable, and the conditions under which that happens
+  (a session whose PRs were never captured — for example one in a workspace
+  without the capture hook, addressed by R16, or before this session opened any
+  PR) SHALL be documented so the fallback is understood as an expected,
+  fail-closed degradation rather than a defect. The session identity the render
+  path keys on and the identity the capture path keys the ledger by SHALL be the
+  same, so a session that did capture PRs is never pushed to the fallback by a
+  keying mismatch.
+
+### New Acceptance Criteria
+
+- [ ] A freshly provisioned niwa instance emits the ambient summary without the
+      workspace hand-registering the hooks, and a documented off switch
+      suppresses it.
+- [ ] Where the render component is absent from PATH, the default-on hooks
+      no-op and never abort a turn.
+- [ ] The on-demand relay and a dispatched worker's final message contain no PR
+      reference outside the component's block; a repo-scoped fallback shows only
+      its own in-block caveat, with no model-authored note naming other repos'
+      PRs.
+- [ ] A session that captured its PRs into the ledger renders from the ledger
+      and does not fall back to the repo-scoped listing.
+
+### Updated Known Limitations
+
+- Default-on reaches only workspaces niwa provisions and only where the render
+  component is on PATH. A workspace niwa does not manage, or one without the
+  component installed, still sees nothing — opt-out changes the default within
+  niwa's reach, not beyond it.
+- The references-outside-the-block guarantee (R17) is enforceable on the
+  component's output and on the skill contract, but the background-worker
+  final-message path still has a model authoring the surrounding message; the
+  guarantee there is a required instruction plus the block's self-describing
+  caveat, not a mechanical impossibility, consistent with the existing R11
+  final-message limitation.
