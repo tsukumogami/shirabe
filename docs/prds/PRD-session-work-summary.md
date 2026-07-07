@@ -240,14 +240,17 @@ to keep track of the work it produced.
 - **The BRIEF carried no unresolved Open Questions.** The upstream framing was
   settled before this PRD; no deferred questions needed closure here.
 
-## Amendment — 2026-07-06: opt-out default and the block as sole reference surface
+## Amendment — 2026-07-06: opt-out default and a complete cross-repo summary
 
-Two defects observed after the feature shipped drive two new requirements. The
+Two defects observed after the feature shipped drive new requirements. The
 requirements above are unchanged; these extend them. Both defects share one root
 cause — a session in a workspace that never registered the capture hook records
-no PRs, so it gets no ambient summary and its on-demand path falls back to a
-repo-scoped listing, around which the agent then narrated unverified cross-repo
-PRs. The upstream BRIEF amendment of the same date frames the two together.
+no PRs, so it gets no ambient summary, and its on-demand summary, asked for while
+the shell was inside a single repo, listed only that repo's PRs even though the
+session had PRs in flight across several repos. The summary was **incomplete**,
+so the agent appended the missing cross-repo PRs to make the answer whole. The
+defect is the incompleteness; the agent's amendment is the symptom that exposed
+it. The upstream BRIEF amendment of the same date frames the two together.
 
 ### New Requirements
 
@@ -261,27 +264,42 @@ PRs. The upstream BRIEF amendment of the same date frames the two together.
   rather than hides: the ambient summary takes effect only where the render
   component is also available on PATH (the hooks fail safe to no-op otherwise),
   and only in instances niwa provisions. Flipping opt-in to opt-out closes the
-  gap where a workspace that never adopted the registration got nothing.
-- **R17 — The emitted block is the only surface for PR references.** On any
-  surface where a model frames the output around the component's block — the
-  on-demand relay and a dispatched worker's final message — no pull-request
-  reference SHALL appear outside the block the component produced. When the
-  on-demand path degrades to the repo-scoped fallback, the block states its own
-  scope (that it lists only the current repo); the model MUST NOT add prose,
-  a note, or a supplementary list that names further pull requests. A cross-repo
-  item the component did not capture SHALL be dropped, never reconstructed from
+  gap where a workspace that never adopted the registration got nothing — and,
+  because capture is what populates the cross-repo session ledger, it is the
+  precondition for R17's complete on-demand summary.
+- **R17 — The on-demand summary is complete across the session's repos.** The
+  on-demand summary SHALL report every pull request the session has in flight
+  across all repositories the session touched, independent of which repository
+  the session's shell is currently in. The authoritative source for this is the
+  cross-repo session ledger, which lists a PR the session opened in any repo. The
+  summary MUST NOT present a single-repository subset as though it were the
+  session's full set of in-flight PRs. This corrects the observed defect where a
+  session spanning multiple repos, asked for its summary from inside one repo,
+  received only that repo's PRs.
+- **R18 — Honest labeling of the degraded, repo-scoped view.** When the session
+  ledger is empty or unreachable and the on-demand path can only produce a
+  repo-scoped listing (only the current repository's PRs), the block SHALL state
+  plainly that it is a partial, current-repository-only view that may omit this
+  session's PRs in other repositories — so the reader understands it as
+  incomplete rather than whole. The repo-scoped fallback SHALL remain
+  fail-closed and MUST NOT widen into an author-scoped cross-repo search, which
+  would over-collect PRs across sessions and risk pulling a private-repo PR into
+  a public-visibility context (PRD R12); the way to make the summary complete is
+  to capture the session's PRs into the ledger (R16), not to broaden the
+  fallback's query.
+- **R19 — No unverified PR reference around the block.** As a guardrail paired
+  with R17-R18, no pull-request reference SHALL be appended around the block on a
+  model-framed surface (the on-demand relay, a dispatched worker's final
+  message) unless it corresponds to a real captured PR the block itself lists. A
+  cross-repo item the component did not capture SHALL NOT be reconstructed from
   the agent's memory into free text — the same real-PR-only guarantee R5 makes
-  for the block's contents, extended to everything a model emits around it.
-- **R18 — Fallback keying is a documented, narrow condition.** The on-demand
-  path SHALL fall back to the repo-scoped listing only when the session ledger
-  is genuinely empty or unreachable, and the conditions under which that happens
-  (a session whose PRs were never captured — for example one in a workspace
-  without the capture hook, addressed by R16, or before this session opened any
-  PR) SHALL be documented so the fallback is understood as an expected,
-  fail-closed degradation rather than a defect. The session identity the render
-  path keys on and the identity the capture path keys the ledger by SHALL be the
-  same, so a session that did capture PRs is never pushed to the fallback by a
-  keying mismatch.
+  for the block's contents. This guardrail exists so that a degraded, honestly
+  labeled block (R18) is not quietly "completed" with unverified references; it
+  is the safety net, while R16-R17 are the actual fix for completeness.
+- **R20 — Consistent session keying.** The session identity the on-demand render
+  keys on and the identity the capture path keys the ledger by SHALL be the same,
+  so a session that did capture PRs renders its complete ledger and is never
+  pushed to the degraded fallback by a keying mismatch.
 
 ### New Acceptance Criteria
 
@@ -290,12 +308,17 @@ PRs. The upstream BRIEF amendment of the same date frames the two together.
       suppresses it.
 - [ ] Where the render component is absent from PATH, the default-on hooks
       no-op and never abort a turn.
-- [ ] The on-demand relay and a dispatched worker's final message contain no PR
-      reference outside the component's block; a repo-scoped fallback shows only
-      its own in-block caveat, with no model-authored note naming other repos'
-      PRs.
+- [ ] A session that opened PRs in two or more repositories, asked for its
+      on-demand summary from inside one of them, lists all of the session's
+      in-flight PRs across every repo — not just the current repository's.
 - [ ] A session that captured its PRs into the ledger renders from the ledger
       and does not fall back to the repo-scoped listing.
+- [ ] When the ledger is empty or unreachable, the repo-scoped fallback block is
+      clearly labeled as a partial, current-repository-only view that may omit
+      the session's PRs in other repos; it does not present itself as complete
+      and does not widen into an author-scoped cross-repo search.
+- [ ] No PR reference appears around the block, on the on-demand relay or a
+      worker's final message, that does not correspond to a real captured PR.
 
 ### Updated Known Limitations
 
@@ -303,9 +326,15 @@ PRs. The upstream BRIEF amendment of the same date frames the two together.
   component is on PATH. A workspace niwa does not manage, or one without the
   component installed, still sees nothing — opt-out changes the default within
   niwa's reach, not beyond it.
-- The references-outside-the-block guarantee (R17) is enforceable on the
-  component's output and on the skill contract, but the background-worker
-  final-message path still has a model authoring the surrounding message; the
-  guarantee there is a required instruction plus the block's self-describing
-  caveat, not a mechanical impossibility, consistent with the existing R11
-  final-message limitation.
+- Cross-repo completeness (R17) depends on capture having run for the session's
+  PRs. When capture never ran (R16 off, or component absent) the on-demand path
+  can only offer the honestly-labeled partial view (R18); it cannot safely
+  reconstruct the full cross-repo set from `gh` alone without risking the R12
+  visibility violation. Completeness is a property of the ledger, so it follows
+  capture.
+- The R19 no-unverified-reference guardrail is enforceable on the component's
+  output and the skill contract, but the background-worker final-message path
+  still has a model authoring the surrounding message; the guarantee there is a
+  required instruction plus the block's self-describing labeling, not a
+  mechanical impossibility, consistent with the existing R11 final-message
+  limitation.

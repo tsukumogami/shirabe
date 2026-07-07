@@ -540,7 +540,7 @@ free text) is the mitigation of record.
 - Keep the block spec co-located with the single subcommand implementation so no
   second source of truth can drift.
 
-## Amendment — 2026-07-06: opt-out hook registration and a references-outside-the-block guardrail
+## Amendment — 2026-07-06: opt-out hook registration and a complete cross-repo summary
 
 Two defects observed after the feature shipped are recorded here with their
 root causes and the architectural decisions that answer them. The design above
@@ -565,29 +565,44 @@ design's own split ("niwa owns only hook-registration hygiene ... not path
 injection") — but that split left the *presence* of the registration to each
 workspace.
 
-**Defect 2 — the fallback fired because nothing was captured, and the "Note"
-was model-authored.** The on-demand `render` path
-(`crates/shirabe/src/work_summary.rs`, `cmd_render`) tries the session ledger
-first and calls `render_fallback` only when the ledger is empty or unreachable.
-In a workspace without the capture hook (Defect 1), no PR is ever appended to
-the ledger, so the ledger is empty and the repo-scoped fallback fires — this is
-the fallback working as designed, not a fallback bug. The decisive finding is
-the "Note": `render_fallback` ends its output at the
-`updated <ISO> (repo-scoped fallback: <repo>)` line and prints nothing after it.
-The multi-line note that named two other repos' PRs with URLs is therefore
-**not** produced by the binary or by the `/inflight` skill (whose SKILL.md
-already instructs the relay to present the block "exactly as produced ... do not
-reformat, summarize, or add PRs from memory"). It is model-authored commentary
-appended around the block — precisely the invented cross-repo reference the
-determinism thesis and PRD R5 forbid, resurfacing on the one path where a model
-still frames the turn. The owner's read that "the note is a bug" is confirmed;
-the bug is not in the fail-closed binary but in the absence of a hard rule that
-nothing may append references around the block.
+**Defect 2 — the on-demand summary was incomplete for a multi-repo session.**
+The observed session had PRs in flight across several repos but was asked for its
+summary while the shell was inside one repo, and it listed only that repo's PRs.
+The on-demand `render` path (`crates/shirabe/src/work_summary.rs`, `cmd_render`)
+reads the session ledger first and calls `render_fallback` only when the ledger
+is empty or unreachable. The ledger is the **cross-repo-complete** source: the
+capture path appends every `gh pr create` the session runs, in any repo, so a
+render from a populated ledger lists all of the session's in-flight PRs
+regardless of the shell's current repo. But in a workspace without the capture
+hook (Defect 1) nothing was ever appended, so the ledger was empty and the
+fallback fired — and `render_fallback` is `gh pr list --repo <current-repo>`,
+which by construction sees only the current repository. The block was therefore
+incomplete for a multi-repo session, and the agent appended the missing
+cross-repo PRs to make its answer whole. The incompleteness is the defect; the
+agent's amendment is the symptom that exposed it.
 
-The two are one failure: no capture hook → empty ledger → repo-scoped fallback →
-a model that "knows" about other PRs narrates them back in. Fixing the capture
-gap (Decision 6) removes the trigger; the guardrail (Decision 7) holds even when
-the fallback legitimately fires (a fresh session, `gh` offline).
+Two supporting findings frame the fix. First, the fallback's repo-scoping is
+deliberate, not a bug: an author-scoped cross-repo search was rejected in
+Decision 3 (Option B) because it over-collects across sessions and can pull a
+private-repo PR into a public-visibility summary (PRD R12). So the fallback
+cannot be safely widened to become complete — completeness has to come from the
+ledger. Second, on the mechanics of the "Note": `render_fallback` ends its output
+at the `updated <ISO> (repo-scoped fallback: <repo>)` line and prints nothing
+after it, and the `/inflight` SKILL.md already instructs the relay to present the
+block "exactly as produced ... do not reformat, summarize, or add PRs from
+memory." The note was therefore model-authored, appended around the block — an
+unverified cross-repo reference the determinism thesis and PRD R5 discourage.
+That is a real secondary hazard, but muzzling the model without fixing
+completeness would only make the block *silently* incomplete, which is worse than
+a visible gap; so the guardrail is paired with, not a substitute for, the
+completeness fix.
+
+The two defects are one failure: no capture hook → empty ledger → the incomplete
+repo-scoped fallback → a model that fills the gap from memory. Fixing the capture
+gap (Decision 6) restores the ledger's cross-repo completeness and removes the
+fallback's role entirely for these sessions; Decision 7 makes the fallback honest
+about its incompleteness for the cases where it legitimately fires (a fresh
+session, `gh` offline) and adds the no-unverified-reference guardrail on top.
 
 ### Decision 6 — Hook-registration default (opt-in vs opt-out)
 
@@ -623,56 +638,68 @@ becomes redundant once niwa injects them by default; the implementation should
 retire the explicit declaration to avoid the double-registration Decision 1
 warned about, letting the niwa default be the single source of the registration.
 
-### Decision 7 — Keeping references inside the block
+### Decision 7 — Completeness of the on-demand summary (and a guardrail on top)
 
-- **Option A: rely on the skill's prose instruction.** SKILL.md already says
-  relay the block verbatim and add no PRs from memory. Rejected as sufficient on
-  its own: it is exactly the discipline-in-the-data-path dependency the feature
-  exists to remove, and it is what failed in Defect 2. Prose guidance stays, but
-  it can't be the only control.
-- **Option B (chosen, composed): make the block self-describing about its own
-  scope, and make "no references outside the block" a testable rule on every
-  model-framed surface.** Two moves. First, the repo-scoped fallback already
-  stamps `(repo-scoped fallback: <repo>)` inside the block; that in-block caveat
-  is the sanctioned way to say "this is repo-scoped only," so the legitimate
-  need the model was trying to fill is already met by the component — leaving no
-  gap for a model-authored note. The design strengthens this so the caveat
-  clearly communicates that other repos' PRs are deliberately not listed here,
-  inside the single-source-of-truth block, subject to the same sanitizer.
-  Second, the `/inflight` skill contract and the dispatch final-message rule gain
-  an explicit, checkable prohibition: no pull-request reference — URL, `owner/repo#N`,
-  or prose naming a PR — may appear outside the emitted block, and an unverified
-  cross-repo item is dropped rather than narrated. This closes the guardrail on
-  both model-framed paths (on-demand relay and background-worker final message)
-  without putting the model back in the data path for the block's own contents.
+The problem this decision answers is that the on-demand summary under-reported a
+multi-repo session's in-flight PRs. It composes three moves, in priority order.
+
+- **Primary — completeness comes from the ledger, which Decision 6 populates.**
+  The cross-repo-complete source is the session ledger, and the reason it was
+  empty is the capture gap Decision 6 fixes. With default-on capture, the ledger
+  holds every PR the session opened in any repo, so the on-demand render lists
+  the whole session regardless of the shell's current repo and never reaches the
+  fallback. This is the actual fix; the two moves below cover the residual cases.
+- **Secondary — the degraded fallback must label itself as incomplete.** When the
+  ledger is genuinely empty or unreachable (a fresh session, `gh` offline), the
+  path can only produce the repo-scoped listing. That listing is inherently
+  partial for a multi-repo session and cannot be safely widened — an author-scoped
+  cross-repo search was rejected in Decision 3 (Option B) for the R12 visibility
+  reason. So the fallback block must state plainly, inside the sanitized block,
+  that it is a current-repository-only view that may omit the session's PRs in
+  other repos. The existing `(repo-scoped fallback: <repo>)` stamp is the seam to
+  strengthen into that explicit incompleteness caveat. Honest labeling of a gap
+  beats presenting a partial list as whole.
+- **Guardrail — no unverified reference around the block.** The `/inflight` skill
+  contract and the dispatch final-message rule gain a checkable rule: no
+  pull-request reference may be appended around the block unless it is a real
+  captured PR the block already lists. This keeps the model from "completing" a
+  correctly-labeled partial block with references reconstructed from memory. It
+  is explicitly the safety net, not the fix — with capture on (the primary move)
+  the block is already complete and the guardrail rarely binds; it exists so a
+  degraded, honestly-labeled block is not quietly patched with unverified data.
+
+The ordering matters: muzzling the model without the completeness fix would trade
+a visible gap for a silent one. Completeness first (Decision 6 + the ledger),
+honest labeling second, guardrail last.
 
 ### Impact on the acknowledged bounds
 
 The original "Two acknowledged bounds" section stands, with one sharpened: R1's
 uniform-shape claim relied on a single component producing every block and noted
-the `/inflight` repo-scoped fallback as the one independently-formatted path
-that still follows the block contract. Defect 2 shows that uniformity is
-necessary but not sufficient — a model can append content *around* a
-correctly-shaped block. R17 (PRD) and Decision 7 add the missing half: not only
-is every block shape-uniform, nothing may sit outside it on a model-framed
-surface.
+the `/inflight` repo-scoped fallback as the one independently-formatted path that
+still follows the block contract. Defect 2 shows the fallback carries a deeper
+limitation than formatting — it is *incomplete* for a multi-repo session, seeing
+only the current repo. R17-R19 (PRD) and Decision 7 add the missing half:
+completeness is a property of the ledger, the fallback is a labeled degradation,
+and nothing reconstructs the gap from memory.
 
 ### Security Considerations (extension)
 
-The model-authored addendum on the on-demand and final-message paths is a
-determinism-and-injection surface the original Security Considerations implicitly
-covered for the block's own contents but not for text a model places around it.
-The mitigation of record is Decision 7's two moves: the component owns the only
-legitimate "this is repo-scoped" caveat (inside the sanitized block), and the
-skill/dispatch contracts forbid any PR reference outside the block, so an
-unverified cross-repo reference cannot be reintroduced as free text. This does
-not delegate a security decision to model interpretation of block contents; it
-removes the model's authority to add references at all. Default-on hook
-injection (Decision 6) broadens the ambient-hook surface — a PostToolUse hook
-now present in every provisioned instance — but each hook remains a pure
-pass-through behind the `command -v shirabe || exit 0` fail-safe guard, and the
-off switch gives a workspace an explicit refusal; the trust anchor is unchanged
-(the installed binary, not a working-tree script).
+Two surfaces extend the original section. First, the model-authored addendum on
+the on-demand and final-message paths is a determinism-and-injection surface the
+original covered for the block's own contents but not for text a model places
+around it; Decision 7's guardrail (no unverified PR reference around the block)
+plus the honest-incompleteness label remove the model's reason and authority to
+add references, without delegating a security decision to model interpretation of
+block contents. Crucially, the fallback stays fail-closed and repo-scoped — the
+fix for incompleteness is capturing into the ledger, never widening the fallback
+into an author-scoped cross-repo `gh` search, which is the rejected path that
+would breach R12 visibility. Second, default-on hook injection (Decision 6)
+broadens the ambient-hook surface — a PostToolUse hook now present in every
+provisioned instance — but each hook remains a pure pass-through behind the
+`command -v shirabe || exit 0` fail-safe guard, and the off switch gives a
+workspace an explicit refusal; the trust anchor is unchanged (the installed
+binary, not a working-tree script).
 
 ### Cross-repo implementation implications
 
@@ -683,13 +710,18 @@ here so the split is explicit for whoever plans and implements it:
   registrations as a built-in default injected by `materialize.go` (the
   `SessionHooks` default-injection path is the precedent), gated by the off
   switch resolved on `flag > CLAUDE.md-header > default`. This is the substance
-  of Decision 6 and the largest change.
+  of Decision 6 and the largest change. It is also the primary fix for Defect 2:
+  default-on capture is what makes the session ledger cross-repo-complete, so the
+  on-demand summary lists the whole session rather than one repo.
 - **config repo (`workspace.toml`)** — retire the now-redundant explicit
   `[[claude.hooks.*]]` work-summary declarations once niwa injects them by
   default, so the registration has one source and cannot double-register.
-- **shirabe** — strengthen the `render` fallback's in-block caveat (Decision 7,
-  first move) in `work_summary.rs`, and tighten the `/inflight` SKILL.md contract
-  plus the dispatch final-message rule to forbid any PR reference outside the
-  block (Decision 7, second move). The block renderer and its single-source
-  guarantee are unchanged; the change is at the fallback caveat and the
-  model-framed relay contract.
+- **shirabe** — in `work_summary.rs`, strengthen the `render` fallback's in-block
+  stamp into an explicit incompleteness caveat (current-repository-only, may omit
+  the session's other-repo PRs), keeping it fail-closed and repo-scoped; and
+  tighten the `/inflight` SKILL.md contract plus the dispatch final-message rule
+  with the no-unverified-reference guardrail. The block renderer, the cross-repo
+  ledger, and the single-source guarantee are unchanged — the change is at the
+  fallback's honesty about its own incompleteness and the model-framed relay
+  contract. Completeness itself is delivered by niwa's capture default, not by
+  widening this fallback.

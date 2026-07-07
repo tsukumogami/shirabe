@@ -155,7 +155,7 @@ freshness line says when it was computed.
 - references/issues-table.md — the existing shirabe convention for
   standardized link-bearing status tables in committed documents.
 
-## Amendment — 2026-07-06: default-on hooks, and no references outside the block
+## Amendment — 2026-07-06: default-on hooks, and a complete cross-repo summary
 
 The feature shipped and two defects surfaced in real use. Both trace to the
 same gap, so this amendment frames them together rather than as two unrelated
@@ -165,19 +165,22 @@ this section extends the scope boundary.
 ### What the two defects revealed
 
 A session run in a different niwa-provisioned workspace — one that never
-hand-registered the work-summary hooks — got no ambient summary at all, and its
-on-demand `/inflight` produced a repo-scoped fallback block followed by
-free-text prose that named pull requests in other repos, with URLs, that the
-block itself never listed.
+hand-registered the work-summary hooks — got no ambient summary at all. When the
+user asked for one on demand while the session's shell was inside a single repo,
+`/inflight` listed only *that* repo's pull requests, even though the session had
+PRs in flight across several repos. The summary was **incomplete**, so the agent
+appended the missing cross-repo PRs as free-text prose to make the answer whole.
 
-Reading the two together: the ambient behavior is **opt-in** today. The hooks
-exist only because one workspace's config repo declares them; a workspace that
-hasn't adopted that registration gets nothing. And because that workspace
-captured no PRs into the session ledger, the on-demand path fell back to a
-repo-scoped listing — at which point the agent, seeing the fallback list only
-the current repo, editorialized the "missing" cross-repo PRs into prose around
-the block. One capture-availability gap produced both symptoms: no ambient
-summary, and a model tempted to reconstruct the rest from memory.
+The headline of the second defect is that incompleteness, not the prose. The
+ambient behavior is **opt-in** today — the hooks exist only because one
+workspace's config repo declares them, so a workspace that hasn't adopted the
+registration captures nothing. With an empty session ledger, the on-demand path
+falls back to a repo-scoped listing that can only see the current repo's PRs. A
+session that spans multiple repos — the exact case this feature was built for —
+gets a partial list presented as if it were the whole picture, and the agent
+fills the gap from memory. One capture-availability gap produced both symptoms:
+no ambient summary, and an on-demand summary that under-reported the session's
+real in-flight work.
 
 ### Scope-boundary changes
 
@@ -186,20 +189,28 @@ Two additions to the in-scope list above:
 - **Default-on ambient behavior with an explicit off switch.** A
   niwa-provisioned instance should carry the work-summary hooks by default, so
   a workspace gets the summary without hand-registering anything, and can turn
-  it off deliberately. This flips the feature from opt-in to opt-out. The
-  boundary is honest: the ambient summary appears by default only where the
-  `shirabe` binary is also present (the hooks fail safe to no-op otherwise), and
-  only in workspaces niwa provisions — a workspace niwa does not manage is out
-  of reach either way.
-- **No PR reference outside the single-source-of-truth block.** On every surface
-  where a model frames the output — the on-demand `/inflight` relay and a
-  background worker's final message — nothing may append a pull-request
-  reference around the block the component emitted. The block, including its own
-  "repo-scoped fallback" caveat when it degrades, is the only place PR
-  references appear. A cross-repo item the component did not capture and cannot
-  verify is dropped, never narrated back in from the agent's memory.
+  it off deliberately. This flips the feature from opt-in to opt-out. Beyond
+  restoring ambient emission, this is what makes the on-demand summary complete:
+  capture populates a session ledger that spans every repo the session touches,
+  regardless of which repo the shell happens to be in, so `/inflight` reports the
+  whole session rather than falling back to one repo. The boundary is honest: the
+  ambient summary appears by default only where the `shirabe` binary is also
+  present (the hooks fail safe to no-op otherwise), and only in workspaces niwa
+  provisions — a workspace niwa does not manage is out of reach either way.
+- **A complete cross-repo on-demand summary, and honest labeling when it can't
+  be.** The on-demand summary should list every PR the session has in flight
+  across all repos it touched, not just the repo the shell is currently in. The
+  cross-repo-complete source is the session ledger; the repo-scoped fallback is
+  a degraded single-repo view used only when the ledger is empty or unreachable.
+  When the summary must degrade to that partial view, it should say so plainly —
+  that it lists only the current repo and may be missing this session's PRs in
+  other repos — so the user reads it as incomplete rather than whole. As a
+  supporting guardrail, nothing should append unverified PR references around the
+  block: the cure for an incomplete summary is capturing the session's PRs (so
+  the block is genuinely complete) and labeling the degraded mode, not having the
+  agent reconstruct the rest from memory.
 
 These are distinct from the already-noted matcher-loss prerequisite in Out of
 scope above (a hook losing its matcher when registered through two channels);
-that is a different tooling bug. The opt-in/opt-out question and the
-references-outside-the-block guardrail are new scope, added here.
+that is a different tooling bug. The opt-in/opt-out question and the cross-repo
+completeness of the on-demand summary are new scope, added here.
