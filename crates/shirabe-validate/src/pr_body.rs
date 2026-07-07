@@ -39,7 +39,7 @@ pub struct PrBodyFinding {
 /// The Conventional Commits types accepted in a PR title (PB1). Mirrors the
 /// set the PR-creation guidance lists.
 const CONVENTIONAL_TYPES: &[&str] = &[
-    "feat", "fix", "docs", "style", "refactor", "perf", "test", "chore", "ci", "build",
+    "feat", "fix", "docs", "style", "refactor", "perf", "test", "chore", "ci", "build", "revert",
 ];
 
 /// Statically check an authored PR `body` and optional `title`, offline.
@@ -145,7 +145,7 @@ fn check_title(title: &str) -> Option<String> {
         format!(
             "PR title {:?} is not Conventional Commits. Use `<type>[optional scope]: \
              <description>` with <type> one of feat|fix|docs|style|refactor|perf|test|chore|\
-             ci|build; see references/pr-body-conformance.md.",
+             ci|build|revert; see references/pr-body-conformance.md.",
             title
         )
     };
@@ -317,6 +317,14 @@ Fixes #221
     fn unknown_type_fails() {
         let findings = check_pr_body(GOOD_BODY, Some("feet: add a mode"));
         assert!(messages(&findings).contains("not Conventional Commits"));
+    }
+
+    #[test]
+    fn revert_type_passes() {
+        // `revert` is a Conventional Commits type; a PR that reverts an earlier
+        // change titled `revert: ...` must pass PB1.
+        let findings = check_pr_body(GOOD_BODY, Some("revert: undo the pr-body mode"));
+        assert!(findings.is_empty(), "expected clean, got: {:?}", findings);
     }
 
     #[test]

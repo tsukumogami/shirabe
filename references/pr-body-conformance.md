@@ -40,7 +40,7 @@ enforces them offline (no `gh`, no network).
 - **PB1 — Conventional Commits title** (checked when a title is supplied). The
   title is `<type>[optional scope][!]: <description>` where:
   - `<type>` is one of `feat`, `fix`, `docs`, `style`, `refactor`, `perf`,
-    `test`, `chore`, `ci`, `build`;
+    `test`, `chore`, `ci`, `build`, `revert`;
   - the description after `: ` is non-empty;
   - the optional scope is not an **issue-number scope**. Issue numbers are
     never a scope — `docs(issue-8):`, `chore(#8):`, and `fix(8):` all fail.
