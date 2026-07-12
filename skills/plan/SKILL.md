@@ -454,11 +454,13 @@ Final artifacts depend on execution mode:
 - Source design doc status updated to "Planned"
 
 **multi-pr mode (roadmap input):**
-- Roadmap enriched directly -- Implementation Issues table and Dependency Graph
-  written into the roadmap's reserved sections (no separate PLAN doc)
-- GitHub milestone + per-feature planning issues with `needs-*` labels
-- Table uses `Feature | Issues | Dependencies | Status` format from `roadmap-format.md`
-- Roadmap stays Active (no status transition)
+- Populating the roadmap's reserved Implementation Issues and Dependency Graph
+  sections is owned by `/roadmap populate` (the `shirabe roadmap populate`
+  subcommand), not by this workflow
+- `/plan` on a roadmap produces the conventional PLAN artifact for a
+  roadmap-scoped slice (`docs/plans/PLAN-<topic>.md`, plus GitHub milestone and
+  issues), per `references/phases/phase-7-creation.md`; it no longer rewrites
+  the roadmap document itself
 
 **single-pr mode:**
 - `docs/plans/PLAN-<topic>.md` with status Draft
