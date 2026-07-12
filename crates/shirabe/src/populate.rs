@@ -30,6 +30,9 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
+use std::sync::LazyLock;
+
+use regex::Regex;
 
 use shirabe_validate::{
     extract_needs_label, parse_doc, parse_features, strip_label_decoration, Feature,
@@ -192,17 +195,32 @@ pub fn render_issueless_table(features: &[Feature], milestone: &str) -> String {
     s.push_str("|---------|--------|--------------|--------|\n");
     for f in features {
         let key = format!("F{}", f.id);
-        let issue_cell = match extract_needs_label(&f.needs) {
-            Some(label) => label,
-            None => "None".to_string(),
+        // A delivered feature no longer awaits an upstream artifact, so its
+        // Issues cell is `None`, never a leftover `needs-*` label.
+        let issue_cell = if feature_is_terminal(f) {
+            "None".to_string()
+        } else {
+            match extract_needs_label(&f.needs) {
+                Some(label) => label,
+                None => "None".to_string(),
+            }
         };
         let deps_cell = bare_feature_deps(&f.dependencies);
         let status_cell = pick_status_cell(f);
-        s.push_str(&format!(
-            "| {} | {} | {} | {} |\n",
-            key, issue_cell, deps_cell, status_cell
-        ));
-        s.push_str(&format!("| _{}_ | | | |\n", f.description));
+        let desc = concise_description(&f.description);
+        if feature_is_terminal(f) {
+            s.push_str(&format!(
+                "| ~~{}~~ | ~~{}~~ | ~~{}~~ | ~~{}~~ |\n",
+                key, issue_cell, deps_cell, status_cell
+            ));
+            s.push_str(&format!("| ~~_{}_~~ | | | |\n", desc));
+        } else {
+            s.push_str(&format!(
+                "| {} | {} | {} | {} |\n",
+                key, issue_cell, deps_cell, status_cell
+            ));
+            s.push_str(&format!("| _{}_ | | | |\n", desc));
+        }
     }
     s
 }
@@ -233,25 +251,27 @@ pub fn render_issueless_diagram(features: &[Feature]) -> String {
         }
     }
 
+    let mut assigned: Vec<&'static str> = Vec::new();
+    for f in features {
+        let class = pick_class(f, features);
+        if !assigned.contains(&class) {
+            assigned.push(class);
+        }
+    }
     s.push('\n');
-    s.push_str("    classDef done fill:#c8e6c9\n");
-    s.push_str("    classDef ready fill:#bbdefb\n");
-    s.push_str("    classDef blocked fill:#fff9c4\n");
-    s.push_str("    classDef needsDesign fill:#e1bee7\n");
-    s.push_str("    classDef needsPrd fill:#b3e5fc\n");
-    s.push_str("    classDef needsSpike fill:#ffcdd2\n");
-    s.push_str("    classDef needsDecision fill:#d1c4e9\n");
-    s.push_str("    classDef tracksDesign fill:#FFE0B2,stroke:#F57C00,color:#000\n");
-    s.push_str("    classDef tracksPlan fill:#FFE0B2,stroke:#F57C00,color:#000\n");
+    render_class_defs(&assigned, &mut s);
 
     s.push('\n');
     for f in features {
-        let class_name = pick_class(f);
-        s.push_str(&format!("    class F{} {}\n", f.id, class_name));
+        s.push_str(&format!(
+            "    class F{} {}\n",
+            f.id,
+            pick_class(f, features)
+        ));
     }
 
     s.push_str("```\n\n");
-    s.push_str("**Legend**: Green = done, Blue = ready, Yellow = blocked, Purple = needs-design, Orange = tracks-design/tracks-plan\n");
+    s.push_str(&render_legend(&assigned));
     s
 }
 
@@ -291,9 +311,9 @@ pub struct ManifestEntry {
     pub body: String,
 }
 
-/// Build the per-feature manifest from parsed features.
+/// Build the [`ManifestEntry`] for one feature.
 ///
-/// Each entry's `title` is `feat: <clean_label>`, complexity is hard-coded
+/// The entry's `title` is `feat: <clean_label>`, complexity is hard-coded
 /// to `"simple"` (R13 in the PRD), `needs_label` is extracted from the
 /// `**Needs:**` line, and `body` carries the `Roadmap:`/`Feature:`
 /// traceability lines. Cross-feature edges are NOT pushed into the
@@ -302,24 +322,19 @@ pub struct ManifestEntry {
 /// feature dependency like "Feature 1" is a label, not an issue id. The
 /// dependency edges live in the rendered table's `Dependencies` cell,
 /// where they are semantically correct.
-pub fn build_manifest_entries(features: &[Feature], roadmap_path: &str) -> Vec<ManifestEntry> {
-    features
-        .iter()
-        .map(|f| {
-            let clean = strip_label_decoration(&f.label);
-            let needs_label = extract_needs_label(&f.needs);
-            let body = build_issue_body(&f.description, roadmap_path, &clean, &f.dependencies);
-            ManifestEntry {
-                issue_id: f.id.to_string(),
-                title: format!("feat: {}", clean),
-                complexity: "simple".to_string(),
-                status: "PASS".to_string(),
-                dependencies: Vec::new(),
-                needs_label,
-                body,
-            }
-        })
-        .collect()
+fn manifest_entry_for(f: &Feature, roadmap_path: &str) -> ManifestEntry {
+    let clean = strip_label_decoration(&f.label);
+    let needs_label = extract_needs_label(&f.needs);
+    let body = build_issue_body(&f.description, roadmap_path, &clean, &f.dependencies);
+    ManifestEntry {
+        issue_id: f.id.to_string(),
+        title: format!("feat: {}", clean),
+        complexity: "simple".to_string(),
+        status: "PASS".to_string(),
+        dependencies: Vec::new(),
+        needs_label,
+        body,
+    }
 }
 
 fn build_issue_body(description: &str, roadmap: &str, label: &str, deps: &str) -> String {
@@ -349,27 +364,42 @@ fn build_issue_body(description: &str, roadmap: &str, label: &str, deps: &str) -
 /// deterministically sorted.
 pub type IssueMap = BTreeMap<String, u64>;
 
+/// Resolve the id -> GitHub issue number mapping for a populate run.
+///
+/// Any `--mapping` input seeds the result: it references features whose
+/// tracking work already exists (delivered or in flight), so those
+/// features are never re-created. Fresh issues are minted only for
+/// features that are BOTH absent from the seed AND not already terminal --
+/// an already-`Done` feature never gets a new open issue (issue #233), it
+/// is struck through in the table with an `Issues = None` (or seed-mapped)
+/// cell instead. Under `--dry-run` the same selection is made but the
+/// numbers are synthesized rather than created on GitHub.
 fn obtain_mapping(args: &PopulateArgs, features: &[Feature]) -> Result<IssueMap, String> {
+    let mut map = IssueMap::new();
     if !args.mapping.is_empty() {
         let raw = fs::read_to_string(&args.mapping)
             .map_err(|e| format!("read mapping file {}: {}", args.mapping, e))?;
-        return parse_mapping_json(&raw);
+        map = parse_mapping_json(&raw)?;
     }
-    if args.dry_run {
-        return Ok(synthesize_mapping(features));
-    }
-    create_issues_with_gh(args, features)
-}
 
-/// Synthesize a deterministic dry-run mapping so the renderer can exercise
-/// the full path without any `gh` side effects. Maps feature id N to
-/// GitHub number `1000 + N` (so id 1 -> #1001, id 2 -> #1002).
-pub fn synthesize_mapping(features: &[Feature]) -> IssueMap {
-    let mut map = IssueMap::new();
-    for f in features {
-        map.insert(f.id.to_string(), 1000_u64 + f.id as u64);
+    // Features still needing a fresh tracking issue.
+    let to_create: Vec<&Feature> = features
+        .iter()
+        .filter(|f| !map.contains_key(&f.id.to_string()) && !feature_is_terminal(f))
+        .collect();
+
+    if args.dry_run {
+        for f in &to_create {
+            map.insert(f.id.to_string(), 1000_u64 + f.id as u64);
+        }
+        return Ok(map);
     }
-    map
+
+    let created = create_issues_with_gh(args, &to_create)?;
+    for (k, v) in created {
+        map.insert(k, v);
+    }
+    Ok(map)
 }
 
 /// Parse a JSON object of `{"<id>": <github_number>, ...}` into an
@@ -428,9 +458,15 @@ fn write_mapping_json(path: &Path, map: &IssueMap) -> Result<(), String> {
         .map_err(|e| format!("write mapping {}: {}", path.display(), e))
 }
 
-fn create_issues_with_gh(args: &PopulateArgs, features: &[Feature]) -> Result<IssueMap, String> {
+/// Create one GitHub issue per feature in `features` (the subset selected
+/// by [`obtain_mapping`] -- never an already-terminal or already-mapped
+/// feature) and return the id -> issue-number mapping for those creations.
+fn create_issues_with_gh(args: &PopulateArgs, features: &[&Feature]) -> Result<IssueMap, String> {
     let mut map = IssueMap::new();
-    let entries = build_manifest_entries(features, &args.roadmap_path);
+    let entries: Vec<ManifestEntry> = features
+        .iter()
+        .map(|f| manifest_entry_for(f, &args.roadmap_path))
+        .collect();
 
     for entry in &entries {
         // Discrete-args invocation. Each .arg(...) call hands the OS a
@@ -537,17 +573,25 @@ pub fn render_table(
             Some(n) => format!("[#{}](https://github.com/{}/issues/{})", n, owner_repo, n),
             None => "None".to_string(),
         };
-        let deps_cell = if f.dependencies.is_empty() {
-            "None"
-        } else {
-            &f.dependencies
-        };
+        let deps_cell = render_deps_cell(&f.dependencies, features);
         let status_cell = pick_status_cell(f);
-        s.push_str(&format!(
-            "| {} | {} | {} | {} |\n",
-            clean, issue_cell, deps_cell, status_cell
-        ));
-        s.push_str(&format!("| _{}_ | | | |\n", f.description));
+        let desc = concise_description(&f.description);
+        if feature_is_terminal(f) {
+            // A delivered feature's rows are struck through per
+            // `references/issues-table.md`; the entity row and its
+            // description row are struck together.
+            s.push_str(&format!(
+                "| ~~{}~~ | ~~{}~~ | ~~{}~~ | ~~{}~~ |\n",
+                clean, issue_cell, deps_cell, status_cell
+            ));
+            s.push_str(&format!("| ~~_{}_~~ | | | |\n", desc));
+        } else {
+            s.push_str(&format!(
+                "| {} | {} | {} | {} |\n",
+                clean, issue_cell, deps_cell, status_cell
+            ));
+            s.push_str(&format!("| _{}_ | | | |\n", desc));
+        }
     }
     s
 }
@@ -567,61 +611,88 @@ fn pick_status_cell(f: &Feature) -> String {
 }
 
 /// Render the dependency diagram per the shared
-/// `references/dependency-diagram.md` convention -- feature node IDs F1,
-/// F2, ...; `graph LR`; the fixed status-class palette; class assignments
-/// driven by Status and Needs annotations.
+/// `references/dependency-diagram.md` convention.
+///
+/// Nodes use `I<issue-number>` ids so they bind to the `#n` links in the
+/// Implementation Issues table's Issues column (the FC07 roadmap
+/// bijection). Only features that decomposed into an issue (present in
+/// `mapping`) contribute a node; a delivered feature that was not given a
+/// tracking issue has an `Issues = None` row and therefore no node, exactly
+/// as the reference requires. Edges run blocker-to-dependent between
+/// issue-keyed nodes; class assignments come from [`pick_class`]; the
+/// `classDef` block and Legend name only the classes actually assigned so
+/// FC08 stays clean.
 pub fn render_diagram(features: &[Feature], mapping: &IssueMap) -> String {
     let mut s = String::new();
     s.push_str("```mermaid\n");
     s.push_str("graph LR\n");
 
+    // Nodes: one per feature that decomposed into an issue.
     for f in features {
-        let clean = strip_label_decoration(&f.label);
-        let label_text = match mapping.get(&f.id.to_string()) {
-            Some(n) => format!("#{}: {}", n, clean),
-            None => clean,
-        };
-        s.push_str(&format!(
-            "    F{}[\"{}\"]\n",
-            f.id,
-            truncate_label(&label_text)
-        ));
+        if let Some(n) = mapping.get(&f.id.to_string()) {
+            let clean = strip_label_decoration(&f.label);
+            let label_text = format!("#{}: {}", n, clean);
+            s.push_str(&format!(
+                "    I{}[\"{}\"]\n",
+                n,
+                truncate_label(&label_text)
+            ));
+        }
     }
 
+    // Edges: blocker --> dependent, only between issue-keyed nodes.
     s.push('\n');
     for f in features {
-        if f.dependencies.is_empty() || f.dependencies == "None" {
+        let Some(dependent) = mapping.get(&f.id.to_string()) else {
             continue;
-        }
-        for n in feature_refs_in(&f.dependencies) {
-            s.push_str(&format!("    F{} --> F{}\n", n, f.id));
+        };
+        for id in feature_refs_in(&f.dependencies) {
+            if let Some(dep) = features.iter().find(|g| g.id == id) {
+                if let Some(blocker) = mapping.get(&dep.id.to_string()) {
+                    s.push_str(&format!("    I{} --> I{}\n", blocker, dependent));
+                }
+            }
         }
     }
 
+    // Class definitions and assignments, restricted to assigned classes.
+    let mut assigned: Vec<&'static str> = Vec::new();
+    for f in features {
+        if mapping.contains_key(&f.id.to_string()) {
+            let class = pick_class(f, features);
+            if !assigned.contains(&class) {
+                assigned.push(class);
+            }
+        }
+    }
     s.push('\n');
-    s.push_str("    classDef done fill:#c8e6c9\n");
-    s.push_str("    classDef ready fill:#bbdefb\n");
-    s.push_str("    classDef blocked fill:#fff9c4\n");
-    s.push_str("    classDef needsDesign fill:#e1bee7\n");
-    s.push_str("    classDef needsPrd fill:#b3e5fc\n");
-    s.push_str("    classDef needsSpike fill:#ffcdd2\n");
-    s.push_str("    classDef needsDecision fill:#d1c4e9\n");
-    s.push_str("    classDef tracksDesign fill:#FFE0B2,stroke:#F57C00,color:#000\n");
-    s.push_str("    classDef tracksPlan fill:#FFE0B2,stroke:#F57C00,color:#000\n");
+    render_class_defs(&assigned, &mut s);
 
     s.push('\n');
     for f in features {
-        let class_name = pick_class(f);
-        s.push_str(&format!("    class F{} {}\n", f.id, class_name));
+        if let Some(n) = mapping.get(&f.id.to_string()) {
+            s.push_str(&format!("    class I{} {}\n", n, pick_class(f, features)));
+        }
     }
 
     s.push_str("```\n\n");
-    s.push_str("**Legend**: Green = done, Blue = ready, Yellow = blocked, Purple = needs-design, Orange = tracks-design/tracks-plan\n");
+    s.push_str(&render_legend(&assigned));
     s
 }
 
-fn pick_class(f: &Feature) -> &'static str {
-    if f.status == "Done" {
+/// Choose the diagram Status/pipeline class for a feature node.
+///
+/// A terminal feature is `done`; a feature awaiting an upstream artifact
+/// carries its pipeline-stage class (`needsDesign`, ...); otherwise the
+/// node is `ready` or `blocked` per its dependencies. The ready/blocked
+/// decision is dependency-aware and mirrors FC07's `expected_class`: a
+/// feature is `blocked` only while a dependency is still open (or a
+/// cross-repo dependency's state cannot be observed), and becomes `ready`
+/// once every local dependency is terminal. This keeps the emitted class
+/// consistent with the validator, including when a feature's only blocker
+/// has already shipped.
+fn pick_class(f: &Feature, features: &[Feature]) -> &'static str {
+    if feature_is_terminal(f) {
         return "done";
     }
     if let Some(label) = extract_needs_label(&f.needs) {
@@ -630,20 +701,32 @@ fn pick_class(f: &Feature) -> &'static str {
             "needs-prd" => "needsPrd",
             "needs-spike" => "needsSpike",
             "needs-decision" => "needsDecision",
-            _ => {
-                if f.dependencies.is_empty() || f.dependencies == "None" {
-                    "ready"
-                } else {
-                    "blocked"
-                }
-            }
+            "needs-planning" => "needsPlanning",
+            "needs-explore" => "needsExplore",
+            _ => ready_or_blocked(f, features),
         };
     }
-    if f.dependencies.is_empty() || f.dependencies == "None" {
-        "ready"
-    } else {
-        "blocked"
+    ready_or_blocked(f, features)
+}
+
+/// Resolve `ready` vs `blocked` from a feature's dependencies. Blocked
+/// while any local dependency is not yet terminal, or a cross-repo
+/// dependency is present (its state is unobservable from this doc);
+/// otherwise ready. Dependency ids that name no feature in this roadmap
+/// are ignored -- `render_deps_cell` drops them too, so the diagram and
+/// table stay in agreement.
+fn ready_or_blocked(f: &Feature, features: &[Feature]) -> &'static str {
+    if has_cross_repo_dep(&f.dependencies) {
+        return "blocked";
     }
+    for id in feature_refs_in(&f.dependencies) {
+        if let Some(dep) = features.iter().find(|g| g.id == id) {
+            if !feature_is_terminal(dep) {
+                return "blocked";
+            }
+        }
+    }
+    "ready"
 }
 
 /// Truncate a node label to 40 chars at the last word boundary, replacing
@@ -670,35 +753,216 @@ fn truncate_label(label: &str) -> String {
     truncated
 }
 
-/// Extract feature-id integers from a Dependencies cell. Matches the
-/// pattern `Feature <N>` so cross-repo refs like `tsukumogami/koto#65` are
-/// preserved without becoming diagram edges.
-fn feature_refs_in(deps: &str) -> Vec<usize> {
-    let mut out = Vec::new();
-    let bytes = deps.as_bytes();
-    let needle = b"Feature ";
-    let mut i = 0;
-    while i + needle.len() < bytes.len() {
-        if &bytes[i..i + needle.len()] == needle {
-            let start = i + needle.len();
-            let mut end = start;
-            while end < bytes.len() && bytes[end].is_ascii_digit() {
-                end += 1;
-            }
-            if end > start {
-                if let Ok(n) = std::str::from_utf8(&bytes[start..end])
-                    .unwrap()
-                    .parse::<usize>()
-                {
-                    out.push(n);
-                }
-                i = end;
-                continue;
+/// Derive a concise 1-sentence description for an entity row's italic
+/// description cell.
+///
+/// The Features-section parser collapses a feature's entire prose body
+/// into one string. Rendering that verbatim produces a multi-hundred-word
+/// cell (issue #232 defect b). Instead we prefer the feature's
+/// `**Functional outcome:**` sentence when present -- the single sentence
+/// stating what the feature delivers -- and fall back to the first
+/// sentence of the body otherwise, matching `issues-table.md`'s "1-3
+/// sentences" guideline for description rows.
+fn concise_description(desc: &str) -> String {
+    let text = desc.trim();
+    if text.is_empty() {
+        return String::new();
+    }
+    let body = match find_ci(text, "**functional outcome:**") {
+        Some(idx) => text[idx + "**functional outcome:**".len()..].trim_start(),
+        None => text,
+    };
+    let sentence = first_sentence(body);
+    if sentence.is_empty() {
+        text.to_string()
+    } else {
+        sentence
+    }
+}
+
+/// Case-insensitive ASCII substring search. `needle` must be lowercase
+/// ASCII. Returns the byte offset in `haystack` of the first match, which
+/// -- because the needle matches only ASCII bytes -- is always on a UTF-8
+/// character boundary. Total over arbitrary UTF-8 input.
+fn find_ci(haystack: &str, needle_lower: &str) -> Option<usize> {
+    let h = haystack.as_bytes();
+    let n = needle_lower.as_bytes();
+    if n.is_empty() || h.len() < n.len() {
+        return None;
+    }
+    (0..=h.len() - n.len()).find(|&i| {
+        h[i..i + n.len()]
+            .iter()
+            .zip(n)
+            .all(|(a, b)| a.to_ascii_lowercase() == *b)
+    })
+}
+
+/// Return the first sentence of `text` -- everything up to and including
+/// the first `.`, `!`, or `?` that is followed by whitespace or the end of
+/// the string. When no terminator is found, the whole (trimmed) string is
+/// returned. Sentence terminators are single-byte ASCII, so slicing on
+/// their index never splits a multi-byte character.
+fn first_sentence(text: &str) -> String {
+    let text = text.trim();
+    let bytes = text.as_bytes();
+    for (i, &c) in bytes.iter().enumerate() {
+        if c == b'.' || c == b'!' || c == b'?' {
+            let at_end = i + 1 >= bytes.len();
+            let followed_by_space = !at_end && bytes[i + 1].is_ascii_whitespace();
+            if at_end || followed_by_space {
+                return text[..=i].trim().to_string();
             }
         }
-        i += 1;
+    }
+    text.to_string()
+}
+
+/// Render an issue-creating-mode Dependencies cell that names actual table
+/// row keys.
+///
+/// Each `Feature N` reference resolves to that feature's clean label -- the
+/// same text the entity row's key column carries -- so FC06's
+/// cross-reference existence check passes (the raw `Feature N` token names
+/// no row; the label does). Cross-repo references (`owner/repo#N`) are
+/// preserved verbatim: FC06 treats them as non-local and skips them, and
+/// the roadmap corpus expects them to round-trip. Returns `None` when the
+/// cell resolves to no references.
+fn render_deps_cell(deps: &str, features: &[Feature]) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for id in feature_refs_in(deps) {
+        if let Some(f) = features.iter().find(|f| f.id == id) {
+            let label = strip_label_decoration(&f.label);
+            if !parts.contains(&label) {
+                parts.push(label);
+            }
+        }
+    }
+    for tok in deps.split(',') {
+        let tok = tok.trim();
+        if tok.is_empty() || tok.eq_ignore_ascii_case("none") {
+            continue;
+        }
+        if tok.contains('/') && !parts.iter().any(|p| p == tok) {
+            parts.push(tok.to_string());
+        }
+    }
+    if parts.is_empty() {
+        "None".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
+/// The canonical diagram class palette: `(class name, classDef style,
+/// legend color)` in the fixed order of `references/dependency-diagram.md`.
+/// Both diagram renderers emit `classDef` lines and a Legend line derived
+/// from this table, restricted to the classes actually assigned to nodes.
+/// Emitting only assigned classes keeps FC08 clean: every declared
+/// `classDef` outside the Status palette is named in the Legend (Sub-B),
+/// and the Legend names each class by its camelCase `classDef` identifier
+/// (Sub-C), never the kebab-case form.
+const CLASS_PALETTE: &[(&str, &str, &str)] = &[
+    ("done", "fill:#c8e6c9", "Green"),
+    ("ready", "fill:#bbdefb", "Blue"),
+    ("blocked", "fill:#fff9c4", "Yellow"),
+    ("needsDesign", "fill:#e1bee7", "Purple"),
+    ("needsPrd", "fill:#b3e5fc", "Cyan"),
+    ("needsSpike", "fill:#ffcdd2", "Red"),
+    ("needsDecision", "fill:#d1c4e9", "Indigo"),
+    ("needsPlanning", "fill:#fff9c4", "Yellow"),
+    ("needsExplore", "fill:#ffe0b2", "Orange"),
+    (
+        "tracksDesign",
+        "fill:#FFE0B2,stroke:#F57C00,color:#000",
+        "Orange",
+    ),
+    (
+        "tracksPlan",
+        "fill:#FFE0B2,stroke:#F57C00,color:#000",
+        "Orange",
+    ),
+];
+
+/// Emit the `classDef` block and the Legend line for the diagram, covering
+/// exactly the classes in `assigned` (in canonical palette order). A class
+/// assigned to a node but absent from [`CLASS_PALETTE`] is skipped -- the
+/// renderers only ever assign palette classes, so this cannot drop a class
+/// a node actually uses.
+fn render_class_defs(assigned: &[&str], out: &mut String) {
+    for (name, style, _color) in CLASS_PALETTE {
+        if assigned.contains(name) {
+            out.push_str(&format!("    classDef {} {}\n", name, style));
+        }
+    }
+}
+
+/// Build the Legend line naming each assigned class by its `classDef`
+/// identifier (camelCase for pipeline-stage classes), so FC08's
+/// Legend-vs-classDef reconciliation passes.
+fn render_legend(assigned: &[&str]) -> String {
+    let entries: Vec<String> = CLASS_PALETTE
+        .iter()
+        .filter(|(name, _, _)| assigned.contains(name))
+        .map(|(name, _, color)| format!("{} = {}", color, name))
+        .collect();
+    format!("**Legend**: {}\n", entries.join(", "))
+}
+
+/// Matches a `**Dependencies:**` reference to one or more features. The
+/// keyword is `Feature` or `Features` (case-insensitive), followed by a
+/// list of feature-index integers separated by commas, whitespace, or the
+/// word `and`. The capture group holds the raw number list, from which
+/// [`feature_refs_in`] extracts each integer. Cross-repo refs such as
+/// `tsukumogami/koto#65` carry no `Feature` keyword and so contribute no
+/// captures, keeping them out of the diagram edges.
+static FEATURE_DEP_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)features?\s+(\d+(?:[\s,]+(?:and[\s,]+)?\d+)*)").unwrap());
+
+/// Matches a run of ASCII digits, used to pull each integer out of a
+/// [`FEATURE_DEP_RE`] number list.
+static DIGITS_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d+").unwrap());
+
+/// Extract feature-id integers from a Dependencies cell.
+///
+/// Handles every standard `**Dependencies:**` shape: the singular
+/// `Feature N`, the plural `Features N, M`, comma lists (`Feature 1,
+/// Feature 2`), and `and` variants (`Features 2 and 3`, `Feature 1, 2 and
+/// 3`). Cross-repo refs like `tsukumogami/koto#65` carry no `Feature`
+/// keyword, so their trailing digits are never mistaken for feature
+/// indices. The returned ids preserve first-seen order and are
+/// de-duplicated, so a cell that names the same feature twice yields one
+/// edge.
+fn feature_refs_in(deps: &str) -> Vec<usize> {
+    let mut out: Vec<usize> = Vec::new();
+    for cap in FEATURE_DEP_RE.captures_iter(deps) {
+        for m in DIGITS_RE.find_iter(&cap[1]) {
+            if let Ok(n) = m.as_str().parse::<usize>() {
+                if !out.contains(&n) {
+                    out.push(n);
+                }
+            }
+        }
     }
     out
+}
+
+/// Reports whether a roadmap feature has reached a terminal (delivered)
+/// state. Mirrors `is_terminal_roadmap_status` in `shirabe-validate`'s
+/// table parser: `Done` and `Closed` (case-insensitive, trimmed) are
+/// terminal; every other Status value is open.
+fn feature_is_terminal(f: &Feature) -> bool {
+    let s = f.status.trim();
+    s.eq_ignore_ascii_case("Done") || s.eq_ignore_ascii_case("Closed")
+}
+
+/// Reports whether a Dependencies cell names at least one cross-repo
+/// reference (a comma-separated token containing `/`, such as
+/// `owner/repo#N`). The local diagram cannot observe a cross-repo
+/// dependency's state, so its presence forces the dependent node to
+/// `blocked` -- matching FC07's `expected_class` treatment.
+fn has_cross_repo_dep(deps: &str) -> bool {
+    deps.split(',').any(|tok| tok.trim().contains('/'))
 }
 
 fn wrap_section_body(body: &str) -> String {
@@ -876,30 +1140,28 @@ mod tests {
         }
     }
 
-    #[test]
-    fn synthesize_mapping_assigns_thousand_plus_id() {
-        let features = vec![
-            make_feature(1, "A", "", "None", "Not started", "A."),
-            make_feature(2, "B", "", "Feature 1", "Not started", "B."),
-        ];
-        let map = synthesize_mapping(&features);
-        assert_eq!(map.get("1"), Some(&1001));
-        assert_eq!(map.get("2"), Some(&1002));
+    /// Build a full id -> `1000 + id` mapping for a feature slice, matching
+    /// the dry-run number scheme. Test helper for exercising the renderers
+    /// with every feature carrying an issue number.
+    fn synthesize_mapping(features: &[Feature]) -> IssueMap {
+        let mut map = IssueMap::new();
+        for f in features {
+            map.insert(f.id.to_string(), 1000_u64 + f.id as u64);
+        }
+        map
     }
 
     #[test]
-    fn build_manifest_entries_carries_traceability() {
-        let features = vec![make_feature(
+    fn manifest_entry_for_carries_traceability() {
+        let feature = make_feature(
             1,
             "Foundation — [#5](url)",
             "`needs-design`",
             "None",
             "Not started",
             "Foundation body.",
-        )];
-        let entries = build_manifest_entries(&features, "docs/roadmaps/ROADMAP-x.md");
-        assert_eq!(entries.len(), 1);
-        let e = &entries[0];
+        );
+        let e = manifest_entry_for(&feature, "docs/roadmaps/ROADMAP-x.md");
         assert_eq!(e.issue_id, "1");
         assert_eq!(e.title, "feat: Foundation");
         assert_eq!(e.complexity, "simple");
@@ -937,8 +1199,10 @@ mod tests {
             "| Foundation | [#1001](https://github.com/owner/repo/issues/1001) | None | needs-design |"
         ));
         assert!(table.contains("| _Foundation._ | | | |"));
+        // The Dependencies cell names the depended-on feature's row key
+        // (its label), not the raw `Feature 1` token (which would trip FC06).
         assert!(table.contains(
-            "| Caching | [#1002](https://github.com/owner/repo/issues/1002) | Feature 1 | needs-spike |"
+            "| Caching | [#1002](https://github.com/owner/repo/issues/1002) | Foundation | needs-spike |"
         ));
     }
 
@@ -966,15 +1230,27 @@ mod tests {
         let map = synthesize_mapping(&features);
         let diagram = render_diagram(&features, &map);
         assert!(diagram.contains("graph LR"));
-        assert!(diagram.contains("F1[\"#1001: Foundation\"]"));
-        assert!(diagram.contains("F1 --> F2"));
-        assert!(diagram.contains("F1 --> F3"));
+        // Nodes are keyed `I<issue-number>` so they bind to the `#n` links
+        // in the table's Issues column (FC07 roadmap bijection).
+        assert!(diagram.contains("I1001[\"#1001: Foundation\"]"));
+        assert!(diagram.contains("I1001 --> I1002"));
+        assert!(diagram.contains("I1001 --> I1003"));
+        // Only assigned classes get a classDef; unused palette entries
+        // (needsPrd, needsDecision, tracks*) are omitted so FC08 Sub-B
+        // stays clean.
         assert!(diagram.contains("classDef done fill:#c8e6c9"));
         assert!(diagram.contains("classDef needsSpike fill:#ffcdd2"));
-        assert!(diagram.contains("class F1 needsDesign"));
-        assert!(diagram.contains("class F2 needsSpike"));
-        assert!(diagram.contains("class F3 done"));
+        assert!(diagram.contains("classDef needsDesign fill:#e1bee7"));
+        assert!(!diagram.contains("classDef needsDecision"));
+        assert!(!diagram.contains("classDef tracksPlan"));
+        assert!(diagram.contains("class I1001 needsDesign"));
+        assert!(diagram.contains("class I1002 needsSpike"));
+        assert!(diagram.contains("class I1003 done"));
+        // The Legend names classes by their camelCase classDef id (FC08
+        // Sub-C), never the kebab-case form.
         assert!(diagram.contains("**Legend**:"));
+        assert!(diagram.contains("= needsSpike"));
+        assert!(!diagram.contains("needs-design"));
     }
 
     #[test]
@@ -1261,6 +1537,260 @@ mod tests {
             feature_refs_in("tsukumogami/koto#65, Feature 1, Feature 22"),
             vec![1, 22]
         );
+    }
+
+    #[test]
+    fn feature_refs_in_handles_plural_comma_and_variants() {
+        // issue #232 defect a: the plural `Features N, M` form and `and`
+        // variants must each map to the right feature ids. The old
+        // `Feature ` byte-scan dropped every one of these silently.
+        assert_eq!(feature_refs_in("Features 2, 3"), vec![2, 3]);
+        assert_eq!(feature_refs_in("Features 2 and 3"), vec![2, 3]);
+        assert_eq!(feature_refs_in("Feature 1, 2 and 3"), vec![1, 2, 3]);
+        assert_eq!(feature_refs_in("Feature 1 and Feature 2"), vec![1, 2]);
+        assert_eq!(feature_refs_in("features 4, features 5"), vec![4, 5]);
+        // De-duplicates while preserving first-seen order.
+        assert_eq!(
+            feature_refs_in("Feature 2, Feature 2, Feature 1"),
+            vec![2, 1]
+        );
+        // A cross-repo issue number is never mistaken for a feature id.
+        assert_eq!(feature_refs_in("owner/repo#7"), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn concise_description_prefers_functional_outcome_sentence() {
+        // issue #232 defect b: the whole prose body must NOT land in the
+        // description cell. The Functional outcome sentence is preferred.
+        let body = "**Functional outcome:** Users get the base abstractions. \
+                    The foundation layer delivers the base abstractions and much \
+                    more rambling prose that should not appear in the cell.";
+        assert_eq!(
+            concise_description(body),
+            "Users get the base abstractions."
+        );
+        // No Functional outcome marker: fall back to the first sentence.
+        assert_eq!(
+            concise_description("Adds a cache. More detail follows here."),
+            "Adds a cache."
+        );
+        // A single-sentence body with no terminator round-trips whole.
+        assert_eq!(concise_description("Just one clause"), "Just one clause");
+    }
+
+    #[test]
+    fn render_deps_cell_maps_features_to_row_keys_and_keeps_cross_repo() {
+        let features = vec![
+            make_feature(1, "Foundation layer", "", "None", "Not started", "x."),
+            make_feature(2, "Caching layer", "", "Feature 1", "Not started", "x."),
+            make_feature(3, "Metrics", "", "Feature 1", "Not started", "x."),
+        ];
+        // A plural reference resolves to each depended-on feature's label
+        // (its row key) so FC06 passes.
+        let f4 = make_feature(4, "Dash", "", "Features 2, 3", "Not started", "x.");
+        assert_eq!(
+            render_deps_cell(&f4.dependencies, &features),
+            "Caching layer, Metrics"
+        );
+        // Cross-repo refs are preserved verbatim alongside resolved labels.
+        assert_eq!(
+            render_deps_cell("tsukumogami/koto#65, Feature 1", &features),
+            "Foundation layer, tsukumogami/koto#65"
+        );
+        assert_eq!(render_deps_cell("None", &features), "None");
+    }
+
+    #[test]
+    fn pick_class_is_dependency_aware_and_terminal_aware() {
+        // A blocker that has already shipped makes the dependent `ready`,
+        // not `blocked` -- matching FC07's expected_class.
+        let features = vec![
+            make_feature(1, "Done dep", "None", "None", "Done", "x."),
+            make_feature(2, "Open dep", "None", "None", "Not started", "x."),
+            make_feature(3, "On done", "None", "Feature 1", "Not started", "x."),
+            make_feature(4, "On open", "None", "Feature 2", "Not started", "x."),
+            make_feature(5, "Cross", "None", "owner/repo#9", "Not started", "x."),
+        ];
+        assert_eq!(pick_class(&features[0], &features), "done");
+        assert_eq!(pick_class(&features[2], &features), "ready");
+        assert_eq!(pick_class(&features[3], &features), "blocked");
+        // A cross-repo dependency's state is unobservable here -> blocked.
+        assert_eq!(pick_class(&features[4], &features), "blocked");
+    }
+
+    #[test]
+    fn render_table_strikes_through_done_feature_rows() {
+        // issue #233: a delivered feature's rows are struck through.
+        let features = vec![make_feature(
+            1,
+            "Shipped",
+            "None",
+            "None",
+            "Done",
+            "**Functional outcome:** It shipped. Trailing prose.",
+        )];
+        let mut map = IssueMap::new();
+        map.insert("1".to_string(), 900);
+        let table = render_table(&features, &map, "owner/repo", "");
+        assert!(table.contains(
+            "| ~~Shipped~~ | ~~[#900](https://github.com/owner/repo/issues/900)~~ | ~~None~~ | ~~Done~~ |"
+        ));
+        assert!(table.contains("| ~~_It shipped._~~ | | | |"));
+    }
+
+    #[test]
+    fn status_cell_passes_rich_multi_clause_status_through_faithfully() {
+        // issue #232 defect c: a rich, multi-clause Status value must reach
+        // the Status column verbatim -- never truncated mid-clause.
+        let rich = "In progress -- designed, implemented, and in review as a \
+                    single PR off main; becomes Done at merge.";
+        let f = make_feature(1, "Caching", "`needs-spike`", "None", rich, "x.");
+        assert_eq!(pick_status_cell(&f), rich);
+        let map = {
+            let mut m = IssueMap::new();
+            m.insert("1".to_string(), 42);
+            m
+        };
+        let table = render_table(&[f], &map, "owner/repo", "");
+        assert!(
+            table.contains(rich),
+            "rich status must appear verbatim in the table:\n{}",
+            table
+        );
+    }
+
+    #[test]
+    fn render_issueless_table_done_feature_has_no_needs_label_and_is_struck() {
+        // issue #232 defect c + #233: a Done feature must not carry a
+        // `needs-*` label in the Issues column, and its rows are struck.
+        let features = vec![make_feature(
+            1,
+            "Shipped",
+            "`needs-design`",
+            "None",
+            "Done",
+            "Body.",
+        )];
+        let table = render_issueless_table(&features, "");
+        assert!(table.contains("| ~~F1~~ | ~~None~~ | ~~None~~ | ~~Done~~ |"));
+        assert!(!table.contains("needs-design"));
+    }
+
+    #[test]
+    fn obtain_mapping_skips_done_and_honors_seed() {
+        // issue #233: a seed maps already-delivered work; fresh numbers are
+        // synthesized only for non-terminal, non-seeded features. A Done
+        // feature absent from the seed gets NO fresh issue.
+        let dir = tempdir();
+        let seed_path = dir.join("seed.json");
+        fs::write(&seed_path, r#"{"2": 500}"#).unwrap();
+        let features = vec![
+            make_feature(1, "Done thing", "None", "None", "Done", "x."),
+            make_feature(2, "Seeded", "None", "None", "In Progress", "x."),
+            make_feature(3, "Fresh", "None", "None", "Not started", "x."),
+        ];
+        let args = PopulateArgs {
+            roadmap_path: "ROADMAP.md".to_string(),
+            milestone: String::new(),
+            milestone_description: String::new(),
+            mapping: seed_path.to_string_lossy().to_string(),
+            output_map: String::new(),
+            repo: String::new(),
+            dry_run: true,
+            no_issues: false,
+        };
+        let map = obtain_mapping(&args, &features).unwrap();
+        assert_eq!(map.get("1"), None, "Done feature must not be created");
+        assert_eq!(map.get("2"), Some(&500), "seed entry preserved");
+        assert_eq!(map.get("3"), Some(&1003), "fresh feature synthesized");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn run_issue_creating_render_validates_clean() {
+        // Round-trip: feed the issue-creating renderer's own output through
+        // the validator. FC05/FC06/FC07/FC08 must all be clean so the
+        // renderer cannot drift from its own validator. Covers a plural
+        // dependency, a Done feature (struck, no fresh issue), and a
+        // feature whose only blocker is Done (ready, not blocked).
+        use shirabe_validate::{detect_format, validate_file, Config};
+
+        let dir = tempdir();
+        let path = dir.join("ROADMAP-ic.md");
+        let original = concat!(
+            "---\n",
+            "schema: roadmap/v1\n",
+            "status: Active\n",
+            "theme: |\n  theme.\n",
+            "scope: |\n  scope.\n",
+            "---\n\n",
+            "# ROADMAP: ic\n\n",
+            "## Status\n\nActive\n\n",
+            "## Theme\n\nThe theme.\n\n",
+            "## Features\n\n",
+            "### Feature 1: Foundation\n",
+            "**Needs:** None\n",
+            "**Dependencies:** None\n",
+            "**Status:** Done\n\n",
+            "**Functional outcome:** Delivers the base. Rambling trailer.\n\n",
+            "### Feature 2: Caching\n",
+            "**Needs:** `needs-spike`\n",
+            "**Dependencies:** Feature 1\n",
+            "**Status:** Not started\n\n",
+            "**Functional outcome:** Adds a cache. Trailer prose.\n\n",
+            "### Feature 3: Metrics\n",
+            "**Needs:** None\n",
+            "**Dependencies:** Feature 1\n",
+            "**Status:** Not started\n\n",
+            "**Functional outcome:** Emits metrics. Trailer prose.\n\n",
+            "### Feature 4: Dashboard\n",
+            "**Needs:** None\n",
+            "**Dependencies:** Features 2, 3\n",
+            "**Status:** Not started\n\n",
+            "**Functional outcome:** Shows a dashboard. Trailer prose.\n\n",
+            "## Sequencing Rationale\n\nFoundation first.\n\n",
+            "## Progress\n\nFeature 1 done.\n\n",
+            "## Implementation Issues\n\n",
+            "<!-- placeholder -->\n\n",
+            "## Dependency Graph\n\n",
+            "<!-- placeholder -->\n",
+        );
+        fs::write(&path, original).unwrap();
+
+        let args = PopulateArgs {
+            roadmap_path: path.to_string_lossy().to_string(),
+            milestone: String::new(),
+            milestone_description: String::new(),
+            mapping: String::new(),
+            output_map: String::new(),
+            repo: "owner/repo".to_string(),
+            dry_run: true,
+            no_issues: false,
+        };
+        assert_eq!(run(&args), ExitCode::SUCCESS);
+
+        let path_str = path.to_string_lossy().to_string();
+        let doc = parse_doc(&path_str).expect("re-parse populated roadmap");
+        let spec = detect_format("ROADMAP-ic.md").expect("roadmap format detected");
+        let cfg = Config {
+            custom_statuses: Default::default(),
+            visibility: "public".to_string(),
+            allow_untracked_acs: false,
+        };
+        let findings = validate_file(&doc, &spec, &cfg);
+        // Assert the table/diagram reconciliation checks are all clean --
+        // including the notice-level FC07/FC08 that the round-trip is meant
+        // to guard (the error-only filter would miss those).
+        let relevant: Vec<_> = findings
+            .iter()
+            .filter(|e| matches!(e.code.as_str(), "FC05" | "FC06" | "FC07" | "FC08"))
+            .collect();
+        assert!(
+            relevant.is_empty(),
+            "expected clean FC05/FC06/FC07/FC08, got: {:?}",
+            relevant
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
