@@ -6,9 +6,20 @@ name: Lifecycle Check
 # on:
 #   pull_request:
 #     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+# permissions:
+#   contents: read
+#   pull-requests: read
 # jobs:
 #   lifecycle:
 #     uses: tsukumogami/shirabe/.github/workflows/lifecycle.yml@v0.10.0
+#
+# The caller must grant `pull-requests: read` (as above): a reusable workflow
+# cannot request a permission the caller lacks, and the coordination merge-last
+# gate below needs it for its live `gh` queries on a coordination PR. A
+# single-repo consumer that never opens a coordination PR can grant only
+# `contents: read` — the gate detects the non-coordination case from the event
+# payload and skips before touching the API (see that step's comment). This
+# mirrors how validate-pr-body.yml documents the caller-permissions contract.
 #
 # The reusable workflow runs the chain-aware passing-state check
 # (`shirabe validate --lifecycle .`) against the caller repo's working
@@ -31,6 +42,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Needed only by the coordination merge-last gate's live `gh` queries on
+      # a genuine coordination PR. Declared here so the scope is not downscoped
+      # away for coordination callers; the non-coordination skip path never
+      # exercises it (it detects from the event payload). A caller that grants
+      # only `contents: read` still runs the skip path cleanly.
+      pull-requests: read
     steps:
       - name: Check PR context
         # Non-PR triggers (workflow_dispatch, etc.) have no pull_request
@@ -137,19 +154,36 @@ jobs:
         # workflow skill from the template in references/coordination-strategy.md)
         # carries a fixed declaration line — the blockquote "This is a
         # **coordination PR** for a coordinated multi-repo effort." We grep the
-        # live PR body for that marker rather than relying on a label, so the
-        # signal travels with the durable skill-authored body. A PR without the
-        # marker is not a coordination PR and the gate is skipped (a no-op for
-        # ordinary lifecycle PRs).
+        # PR body for that marker rather than relying on a label, so the signal
+        # travels with the durable skill-authored body. A PR without the marker
+        # is not a coordination PR and the gate is skipped (a no-op for ordinary
+        # lifecycle PRs).
+        #
+        # Detection reads the body from the EVENT PAYLOAD (the PR_BODY env var),
+        # not a live `gh pr view`. That is the fix for the merge-gate hard-fail:
+        # the skip path for an ordinary PR must never shell out to the API, or a
+        # downstream single-repo consumer that grants no `pull-requests` scope
+        # dies at `gh pr view` under `set -e` before its own skip guard can run.
+        # Reading the event payload lets the non-coordination case exit 0 with
+        # zero API calls and zero PR permission. The body is passed through env
+        # (never interpolated inline into the script) so an untrusted PR body
+        # cannot reach the shell as code — the same injection-safe posture the
+        # pr-body.yml author-login guard uses.
         #
         # F4: status is recomputed live by `shirabe validate --merge-gate` from
         # `gh`, never from the (editable) PR body — the body supplies only the
         # list of refs the step passes in. Fail closed: any unresolvable
         # PR/upstream blocks.
         env:
-          # `gh` reads the PR body via the API; the token is consumed by the
-          # subprocess only, never held by the validator process (gh.rs model).
+          # `gh` reads live PR/upstream status via the API on the coordination
+          # path; the token is consumed by the subprocess only, never held by
+          # the validator process (gh.rs model).
           GH_TOKEN: ${{ github.token }}
+          # Coordination detection reads the PR body from the event payload
+          # through this env var (never interpolated inline — injection surface).
+          # The skip path for an ordinary PR consults only this and makes no API
+          # call, so it needs no `pull-requests` scope.
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           # Only ready PRs run the gate (strict-mode pinned, mirrors the check
           # above). A draft PR is not mergeable, so the gate is moot there.
@@ -158,15 +192,25 @@ jobs:
             exit 0
           fi
 
-          # Detect a coordination PR by the fixed declaration line in its body.
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-          BODY="$(gh pr view "$PR_NUMBER" --json body --jq '.body')"
-          if ! printf '%s' "$BODY" | grep -qF 'This is a **coordination PR**'; then
+          # Detect a coordination PR by the fixed declaration line in the
+          # event-payload body. No `gh` here: an ordinary PR must skip without
+          # any API call (see this step's comment). `printf | grep` inside the
+          # `if !` condition is exempt from `set -e`, so a non-match (grep exit
+          # 1) drives the skip branch instead of aborting the step.
+          if ! printf '%s' "$PR_BODY" | grep -qF 'This is a **coordination PR**'; then
             echo "Not a coordination PR (no declaration marker); skipping merge-last gate."
             exit 0
           fi
 
           echo "Coordination PR detected and ready; running the merge-last gate."
+
+          # A genuine coordination PR: re-read the body LIVE for ref extraction.
+          # The index may have been edited after the triggering event, and this
+          # path (unlike detection) is entitled to the API — a coordination PR
+          # is fail-closed, so a missing `pull-requests` scope here SHOULD abort
+          # the step (gh fails, command substitution non-zero, `set -e` exits).
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          BODY="$(gh pr view "$PR_NUMBER" --json body --jq '.body')"
 
           # The coordination PR body's PR-index lines carry the durable list of
           # `owner/repo:path#number` refs. Extract them as the index ONLY —
