@@ -19,10 +19,16 @@
 //! <one or more lines of description prose>
 //! ```
 //!
+//! The heading also accepts the strategy-derived prefix form
+//! `### <PREFIX><N>: <label>` (e.g. `### ED1:`, `### SE2:`), where `<PREFIX>`
+//! is a short alphabetic tag immediately followed by the feature number. Both
+//! forms number features positionally, so a `Feature M` dependency edge still
+//! resolves against a prefixed roadmap.
+//!
 //! Order matters only for the heading line; the three bolded annotation
 //! lines and the description are matched by their leading marker, not by
 //! position, so an author writing them in a different order still parses.
-//! The label captures everything after `### Feature N: ` up to end-of-line
+//! The label captures everything after the heading's colon up to end-of-line
 //! and may include an inline issue link (e.g. `... — [#42](url)`); the
 //! caller strips the link for downstream uses where the bare label is
 //! wanted.
@@ -37,7 +43,8 @@ pub struct Feature {
     /// against; `Feature 1` in a Dependencies cell means the feature with
     /// `id == 1`.
     pub id: usize,
-    /// The full label text from the heading after `### Feature N: `.
+    /// The full label text from the heading, after the `### Feature N: ` (or
+    /// `### <PREFIX><N>: `) prefix and colon.
     /// May contain trailing decoration (an em-dash plus an issue link),
     /// which the caller is expected to strip when a bare label is wanted.
     pub label: String,
@@ -61,7 +68,8 @@ pub struct Feature {
 
 /// Parse the `## Features` section of `doc` into an ordered list of
 /// [`Feature`]s. Returns an empty vector when the section is missing or
-/// contains no `### Feature N:` headings.
+/// contains no feature headings (neither `### Feature N:` nor the
+/// strategy-derived `### <PREFIX><N>:` form).
 pub fn parse_features(doc: &Doc) -> Vec<Feature> {
     let Some((start_idx, end_idx, _heading_line)) = find_features_section(doc) else {
         return Vec::new();
@@ -272,26 +280,65 @@ fn absolute_line(doc: &Doc, body_idx: usize) -> usize {
     features_heading + body_idx.saturating_sub(features_body_idx)
 }
 
-/// Recognize `### Feature N: <label>` and return the label.
+/// Recognize a feature heading and return its label. Two forms are accepted:
+///
+/// - `### Feature <N>: <label>` -- the classic numbered form.
+/// - `### <PREFIX><N>: <label>` -- the strategy-derived prefix form, where
+///   `<PREFIX>` is a short alphabetic tag (e.g. `ED`, `SE`, `SR`, `NW`)
+///   immediately followed by the feature number with no space between them.
+///
+/// In both forms the returned label is everything after the colon, trimmed.
 fn parse_feature_heading(line: &str) -> Option<String> {
-    let rest = line.strip_prefix("### Feature ")?;
-    // Read decimal digits, then ":", then optional whitespace, then label.
-    let mut chars = rest.char_indices();
-    let mut last_digit_end: Option<usize> = None;
-    while let Some((idx, c)) = chars.next() {
-        if c.is_ascii_digit() {
-            last_digit_end = Some(idx + c.len_utf8());
+    let rest = line.strip_prefix("### ")?;
+
+    // Classic form: the literal word `Feature`, a space, then `<N>: <label>`.
+    if let Some(after) = rest.strip_prefix("Feature ") {
+        return parse_number_colon_label(after);
+    }
+
+    // Prefix form: an alphabetic tag immediately followed by the number, then
+    // `: <label>`. Require at least one leading ASCII-alphabetic character so
+    // a tag-less `### 1: x` is not mistaken for a feature.
+    let mut alpha_end = 0;
+    for (idx, c) in rest.char_indices() {
+        if c.is_ascii_alphabetic() {
+            alpha_end = idx + c.len_utf8();
         } else {
             break;
         }
     }
-    let digit_end = last_digit_end?;
+    if alpha_end == 0 {
+        return None;
+    }
+    parse_number_colon_label(&rest[alpha_end..])
+}
+
+/// Given text positioned at `<N>: <label>`, read the decimal number, require
+/// the `:` delimiter, and return the trimmed label. `None` if the number or
+/// colon is missing.
+fn parse_number_colon_label(s: &str) -> Option<String> {
+    let mut digit_end = 0;
+    for (idx, c) in s.char_indices() {
+        if c.is_ascii_digit() {
+            digit_end = idx + c.len_utf8();
+        } else {
+            break;
+        }
+    }
     if digit_end == 0 {
         return None;
     }
-    let after_digits = &rest[digit_end..];
-    let after_colon = after_digits.strip_prefix(':')?;
+    let after_colon = s[digit_end..].strip_prefix(':')?;
     Some(after_colon.trim().to_string())
+}
+
+/// True when `line` is a feature heading recognized by [`parse_features`]:
+/// either the classic `### Feature <N>:` form or the strategy-derived
+/// `### <PREFIX><N>:` prefix form. `shirabe transition` uses this to count
+/// features with the same prefix grammar the parser applies, so a roadmap
+/// that activates is also one the parser can read.
+pub fn is_feature_heading(line: &str) -> bool {
+    parse_feature_heading(line).is_some()
 }
 
 /// If `line` begins with the bold marker (e.g. `**Needs:**`), return the
@@ -434,6 +481,62 @@ mod tests {
         assert_eq!(strip_label_decoration("Foo -- [#1](url)"), "Foo");
         assert_eq!(strip_label_decoration("Foo — [#1](url)"), "Foo");
         assert_eq!(strip_label_decoration("Foo [#1](url)"), "Foo");
+    }
+
+    #[test]
+    fn parse_features_accepts_strategy_derived_prefix_headings() {
+        // The strategy-derived roadmap variant names features with a short
+        // alphabetic prefix + number (`### ED1:`, `### ED2:`) instead of the
+        // classic `### Feature N:`. The parser must recognize them, number
+        // them positionally, and capture the label after the colon.
+        let body = vec![
+            "## Features",
+            "",
+            "### ED1: Dispatch event bus",
+            "**Needs:** `needs-design`",
+            "**Dependencies:** None",
+            "**Status:** Not started",
+            "",
+            "The event bus.",
+            "",
+            "### ED2: Worker pool",
+            "**Needs:** None",
+            "**Dependencies:** Feature 1",
+            "**Status:** Not started",
+            "",
+            "Runs workers.",
+            "",
+            "## Sequencing Rationale",
+        ];
+        let doc = make_doc(body, vec![("Features", 1), ("Sequencing Rationale", 17)]);
+        let features = parse_features(&doc);
+        assert_eq!(features.len(), 2);
+        assert_eq!(features[0].id, 1);
+        assert_eq!(features[0].label, "Dispatch event bus");
+        assert_eq!(features[0].status, "Not started");
+        assert_eq!(features[0].description, "The event bus.");
+        assert_eq!(features[1].id, 2);
+        assert_eq!(features[1].label, "Worker pool");
+    }
+
+    #[test]
+    fn is_feature_heading_recognizes_both_forms() {
+        // Classic numbered form.
+        assert!(is_feature_heading("### Feature 1: Foundation"));
+        assert!(is_feature_heading("### Feature 12: Caching"));
+        // Strategy-derived prefix form (short alpha tag + number, no space).
+        assert!(is_feature_heading("### ED1: Dispatch"));
+        assert!(is_feature_heading("### SE2: Skills"));
+        assert!(is_feature_heading("### SR10: Consolidation"));
+        assert!(is_feature_heading("### NW1: Networking"));
+        assert!(is_feature_heading("### A1: Single-letter tag"));
+        // Non-headings and near-misses.
+        assert!(!is_feature_heading("### Feature A")); // no number/colon
+        assert!(!is_feature_heading("### Milestone: Foo")); // no number
+        assert!(!is_feature_heading("### 1: No tag")); // no alpha prefix
+        assert!(!is_feature_heading("### ED1 Dispatch")); // no colon
+        assert!(!is_feature_heading("### Sequencing Rationale"));
+        assert!(!is_feature_heading("## Features")); // wrong heading level
     }
 
     #[test]

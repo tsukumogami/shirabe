@@ -113,7 +113,8 @@ pub enum Precondition {
     None,
     /// Open Questions must be resolved (vision/strategy Draft -> Accepted).
     OpenQuestionsResolved,
-    /// At least N `### Feature` headings (roadmap Draft -> Active, N = 2).
+    /// At least N feature headings -- classic `### Feature N:` or the
+    /// strategy-derived `### <PREFIX><N>:` form (roadmap Draft -> Active, N = 2).
     MinFeatures(usize),
 }
 
@@ -936,14 +937,20 @@ fn validate_open_questions_resolved(doc: &crate::Doc) -> Result<(), TransitionEr
     Ok(())
 }
 
-/// Port of the scripts' `validate_features_count`: count `### Feature` headings
-/// (lines starting with `### Feature`); fewer than `min` is exit 2 with the
-/// script's `Found <count>.` message.
+/// Port of the scripts' `validate_features_count`: count feature headings;
+/// fewer than `min` is exit 2 with the script's `Found <count>.` message.
+///
+/// A heading counts when it is either the classic `### Feature` form (matched
+/// leniently, as the original shell script did) or the strategy-derived
+/// `### <PREFIX><N>:` prefix form (e.g. `### ED1:`, `### SE2:`). The prefix
+/// form is recognized with the same grammar the feature parser uses
+/// ([`crate::features::is_feature_heading`]) so a roadmap that activates is
+/// also one `roadmap populate` can parse.
 fn validate_features_count(doc: &crate::Doc, min: usize) -> Result<(), TransitionError> {
     let count = doc
         .body
         .iter()
-        .filter(|l| l.starts_with("### Feature"))
+        .filter(|l| l.starts_with("### Feature") || crate::features::is_feature_heading(l))
         .count();
 
     if count < min {
@@ -1856,6 +1863,33 @@ mod tests {
         let path = write_doc("ROADMAP-twofeat.md", doc);
         let outcome = run_transition(&path, "Active", &Flags::default()).expect("ok");
         assert_eq!(outcome.new_status, "Active");
+    }
+
+    #[test]
+    fn roadmap_draft_to_active_passes_with_prefix_convention_features() {
+        // Strategy-derived roadmaps name features `### ED1:`, `### ED2:`, ...
+        // instead of `### Feature N:`. Draft -> Active must recognize them so
+        // the count gate does not wrongly report "Found 0".
+        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n## Features\n\n### ED1: Dispatch event bus\n### ED2: Worker pool\n";
+        let path = write_doc("ROADMAP-prefix.md", doc);
+        let outcome = run_transition(&path, "Active", &Flags::default()).expect("ok");
+        assert_eq!(outcome.new_status, "Active");
+    }
+
+    #[test]
+    fn roadmap_draft_to_active_blocked_with_one_prefix_feature() {
+        // A single prefixed feature is still too few: the negative case must
+        // fail exactly as the classic form does.
+        let doc =
+            "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n## Features\n\n### SE1: Only one\n";
+        let path = write_doc("ROADMAP-oneprefix.md", doc);
+        let err = run_transition(&path, "Active", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert_eq!(
+            err.message,
+            "Draft -> Active requires at least 2 ### Feature headings in the Features \
+             section. Found 1."
+        );
     }
 
     // ---- idempotent no-op skips graph + preconditions (Issue 2) ----

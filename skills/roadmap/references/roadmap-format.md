@@ -113,6 +113,25 @@ The `Needs` annotation is optional. Features without it are treated
 as ready for direct implementation. When present, it determines which
 `needs-*` label gets applied during issue creation.
 
+#### Heading forms
+
+A feature heading uses one of two forms:
+
+- **Classic:** `### Feature <N>: <label>` -- the default, where `<N>`
+  is the 1-based feature number.
+- **Strategy-derived prefix:** `### <PREFIX><N>: <label>` -- a short
+  alphabetic tag immediately followed by the feature number, no space
+  between them (e.g. `### ED1:`, `### SE2:`, `### SR10:`, `### NW1:`).
+  This variant fits product-spanning roadmaps derived from a strategy,
+  where a per-direction prefix keeps features grouped by their strategic
+  building block.
+
+Both forms are equivalent to the tooling: features are numbered
+positionally in source order regardless of the tag, so a
+`**Dependencies:** Feature 1` edge resolves against the first feature
+whether it is written `### Feature 1:` or `### ED1:`. Pick one form per
+roadmap and use it consistently.
+
 ## Reserved Sections
 
 Two sections follow Progress. They're structurally part of the
