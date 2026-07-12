@@ -141,14 +141,19 @@ fn features_parsed_and_table_rendered() {
         "expected Foundation row in:\n{}",
         out
     );
+    // The Dependencies cell names the depended-on feature's row key (its
+    // label), not the raw `Feature 1` token that would trip FC06.
     assert!(
-        out.contains("| Caching layer | [#1002](https://github.com/example/repo/issues/1002) | Feature 1 | needs-spike |"),
+        out.contains("| Caching layer | [#1002](https://github.com/example/repo/issues/1002) | Foundation layer | needs-spike |"),
         "expected Caching row in:\n{}",
         out
     );
+    // Feature 3 is Done: it is NOT given a fresh tracking issue (issue
+    // #233), and its rows are struck through with an Issues = None cell.
+    // Its cross-repo dependency is preserved verbatim.
     assert!(
-        out.contains("| Cross-repo bridge | [#1003](https://github.com/example/repo/issues/1003) | tsukumogami/koto#65, Feature 1 | Done |"),
-        "expected Bridge row in:\n{}",
+        out.contains("| ~~Cross-repo bridge~~ | ~~None~~ | ~~Foundation layer, tsukumogami/koto#65~~ | ~~Done~~ |"),
+        "expected struck Bridge row in:\n{}",
         out
     );
     assert!(out.contains("| _The foundation layer delivers the base abstractions._ |"));
@@ -211,26 +216,48 @@ fn dependency_diagram_has_nodes_edges_palette_and_classes() {
         .assert()
         .success();
     let out = fs::read_to_string(&path).unwrap();
-    assert!(out.contains("F1[\"#1001: Foundation layer\"]"));
-    assert!(out.contains("F2[\"#1002: Caching layer\"]"));
-    assert!(out.contains("F3[\"#1003: Cross-repo bridge\"]"));
-    assert!(out.contains("    F1 --> F2"));
-    assert!(out.contains("    F1 --> F3"));
-    // Full palette per dependency-diagram.md.
-    assert!(out.contains("classDef done fill:#c8e6c9"));
-    assert!(out.contains("classDef ready fill:#bbdefb"));
-    assert!(out.contains("classDef blocked fill:#fff9c4"));
+    // Nodes are keyed `I<issue-number>` (FC07 roadmap bijection). Feature 3
+    // is Done and got no fresh issue, so it contributes no node.
+    assert!(out.contains("I1001[\"#1001: Foundation layer\"]"));
+    assert!(out.contains("I1002[\"#1002: Caching layer\"]"));
+    assert!(!out.contains("Cross-repo bridge\"]"));
+    assert!(out.contains("    I1001 --> I1002"));
+    // Only the classes actually assigned get a classDef (FC08 Sub-B); the
+    // Legend names them by camelCase classDef id (FC08 Sub-C).
     assert!(out.contains("classDef needsDesign fill:#e1bee7"));
-    assert!(out.contains("classDef needsPrd fill:#b3e5fc"));
     assert!(out.contains("classDef needsSpike fill:#ffcdd2"));
-    assert!(out.contains("classDef needsDecision fill:#d1c4e9"));
-    assert!(out.contains("classDef tracksDesign"));
-    assert!(out.contains("classDef tracksPlan"));
-    // Classes by status / needs.
-    assert!(out.contains("    class F1 needsDesign"));
-    assert!(out.contains("    class F2 needsSpike"));
-    assert!(out.contains("    class F3 done"));
+    assert!(!out.contains("classDef needsDecision"));
+    assert!(!out.contains("classDef tracksPlan"));
+    assert!(out.contains("    class I1001 needsDesign"));
+    assert!(out.contains("    class I1002 needsSpike"));
     assert!(out.contains("**Legend**:"));
+    // The Legend uses the camelCase classDef id, not the kebab form.
+    assert!(out.contains("= needsSpike"));
+    assert!(!out.contains("= needs-design"));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn populated_output_passes_validate() {
+    // CLI-level round-trip: populate, then run `shirabe validate` over the
+    // populated roadmap. The renderer's own output must satisfy the
+    // validator (no FC06 errors -> exit 0). Guards against the renderer
+    // drifting from the checks it feeds.
+    let dir = tempdir();
+    let path = write_basic_fixture(&dir);
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .args(["--dry-run", "--repo", "example/repo"])
+        .assert()
+        .success();
+    // `validate` exits 0 when there are no error-level findings (notices,
+    // such as the FC09 no-PR-context skip, do not fail the run).
+    shirabe()
+        .args(["validate", "--format", "human"])
+        .arg(&path)
+        .assert()
+        .success();
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -373,10 +400,11 @@ fn output_map_writes_parseable_mapping() {
     let body = fs::read_to_string(&map_path).unwrap();
     assert!(body.starts_with('{'));
     assert!(body.ends_with('}'));
-    // Three feature IDs.
+    // Features 1 and 2 are not-yet-done, so they get fresh issues. Feature
+    // 3 is Done and gets no fresh issue (issue #233), so it is absent.
     assert!(body.contains("\"1\": 1001"));
     assert!(body.contains("\"2\": 1002"));
-    assert!(body.contains("\"3\": 1003"));
+    assert!(!body.contains("\"3\":"));
     let _ = fs::remove_dir_all(&dir);
 }
 
