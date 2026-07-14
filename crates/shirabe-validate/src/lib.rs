@@ -25,6 +25,7 @@ pub mod report;
 pub mod table;
 pub mod transition;
 pub mod validate;
+pub mod visibility;
 
 // Crate root re-exports. This list mirrors the design's intended public
 // surface (DESIGN §"crates/shirabe-validate (library)"). Every export is
@@ -70,3 +71,4 @@ pub use validate::{
     effective_severity, is_known_check_code, is_notice, posture_class, validate_file, PostureClass,
     ReviewPosture, Severity,
 };
+pub use visibility::resolve_doc_visibility;

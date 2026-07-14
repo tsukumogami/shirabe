@@ -15,10 +15,10 @@ use saphyr::{LoadableYamlNode, Yaml};
 use shirabe_validate::{
     check_coordination_body, check_pr_body, check_slug_prefix, detect_format, detect_pr_draft,
     explain_advisory, format_error, format_notice, is_known_check_code, is_notice, parse_doc,
-    render_human_with_advisory, render_json_with_advisory, run_lifecycle_chain_check,
-    run_lifecycle_check, run_merge_gate, run_transition, validate_file, walk_chain_mode,
-    AdvisoryReport, Config, Flags, GhSubprocessClient, GhVisibilityResolver, MergeGateOutcome,
-    Mode, ParseError, PrPosture, ReviewPosture, SlugPrefixCheck, ValidationError,
+    render_human_with_advisory, render_json_with_advisory, resolve_doc_visibility,
+    run_lifecycle_chain_check, run_lifecycle_check, run_merge_gate, run_transition, validate_file,
+    walk_chain_mode, AdvisoryReport, Config, Flags, GhSubprocessClient, GhVisibilityResolver,
+    MergeGateOutcome, Mode, ParseError, PrPosture, ReviewPosture, SlugPrefixCheck, ValidationError,
 };
 
 mod populate;
@@ -218,7 +218,11 @@ struct ValidateArgs {
     check: Vec<String>,
 
     /// Visibility context; only 'private' bypasses public-repo checks
-    /// (unset is treated as public).
+    /// (R7/R8/R9). When unset, visibility is auto-detected per file from the
+    /// doc's owning repo the same way the shirabe skills detect it: read the
+    /// repo's `CLAUDE.md`/`CLAUDE.local.md` `## Repo Visibility:` header, else
+    /// infer from the path (`private`/`public` component), else default to
+    /// 'private'. Passing the flag overrides detection for every file.
     #[arg(long, default_value = "")]
     visibility: String,
 
@@ -578,10 +582,15 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
         }
     };
 
-    let cfg = Config {
-        custom_statuses,
-        visibility: args.visibility.clone(),
-        allow_untracked_acs: args.allow_untracked_acs,
+    // An explicit `--visibility` overrides detection for every file; when the
+    // flag is unset, visibility is resolved per file from the doc's owning repo
+    // (CLAUDE.md `## Repo Visibility:` header, then path inference, then a
+    // Private default). Per-file resolution is required because a single run can
+    // span docs in repos of differing visibility.
+    let explicit_visibility = if args.visibility.is_empty() {
+        None
+    } else {
+        Some(args.visibility.clone())
     };
 
     // Collect every emitted finding across all files first, then render
@@ -611,6 +620,16 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
                 worst = worst.merge(ValidateOutcome::ToolError);
                 continue;
             }
+        };
+
+        let visibility = match &explicit_visibility {
+            Some(v) => v.clone(),
+            None => resolve_doc_visibility(std::path::Path::new(path)),
+        };
+        let cfg = Config {
+            custom_statuses: custom_statuses.clone(),
+            visibility,
+            allow_untracked_acs: args.allow_untracked_acs,
         };
 
         for ve in validate_file(&doc, &spec, &cfg) {

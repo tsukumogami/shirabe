@@ -227,3 +227,75 @@ fn allow_untracked_acs_flag_is_accepted() {
         .failure()
         .stdout(contains("[L05]"));
 }
+
+/// A minimal STRATEGY doc that carries the R8-gated `Competitive
+/// Considerations` section. The `--check R8` runs filter every other finding,
+/// so only R8's presence/absence is observed.
+const STRATEGY_WITH_COMPETITIVE: &str = "---\nschema: strategy/v1\nbet: A bet.\nscope: A scope.\nstatus: Active\n---\n\n# STRATEGY: visibility autodetect\n\n## Competitive Considerations\n\nPrivate-only section.\n";
+
+/// Create an isolated repo directory under the temp dir with the given
+/// CLAUDE.md body and a STRATEGY doc, returning the doc path. The directory
+/// name is derived from `tag` (cleaned first) so parallel test runs stay
+/// isolated without a randomness source.
+fn make_repo_with_doc(tag: &str, claude_md: &str) -> std::path::PathBuf {
+    let repo = std::env::temp_dir().join(format!("shirabe-cli-visibility-{tag}"));
+    let _ = std::fs::remove_dir_all(&repo);
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::write(repo.join("CLAUDE.md"), claude_md).unwrap();
+    let doc = repo.join("STRATEGY-visibility.md");
+    std::fs::write(&doc, STRATEGY_WITH_COMPETITIVE).unwrap();
+    doc
+}
+
+#[test]
+fn visibility_autodetected_private_repo_strategy_passes_r8_without_flag() {
+    // The R8 false-positive fix: with no `--visibility` flag, a STRATEGY that
+    // lives in a repo whose CLAUDE.md declares `## Repo Visibility: Private`
+    // must NOT trip R8 for its Competitive Considerations section. Visibility
+    // is auto-detected from the owning repo's CLAUDE.md header.
+    let doc = make_repo_with_doc("private-passes", "# repo\n\n## Repo Visibility: Private\n");
+    shirabe()
+        .arg("validate")
+        .arg("--check")
+        .arg("R8")
+        .arg(&doc)
+        .assert()
+        .success()
+        .stdout("");
+}
+
+#[test]
+fn visibility_autodetected_public_repo_strategy_still_fails_r8() {
+    // The fix must not neuter R8 for genuinely public repos: with no
+    // `--visibility` flag, a STRATEGY in a repo whose CLAUDE.md declares
+    // `## Repo Visibility: Public` must still trip R8 on its Competitive
+    // Considerations section.
+    let doc = make_repo_with_doc("public-fails", "# repo\n\n## Repo Visibility: Public\n");
+    shirabe()
+        .arg("validate")
+        .arg("--check")
+        .arg("R8")
+        .arg(&doc)
+        .assert()
+        .failure()
+        .stdout(contains("[R8]"))
+        .stdout(contains("Competitive Considerations"));
+}
+
+#[test]
+fn visibility_explicit_flag_overrides_autodetection() {
+    // An explicit `--visibility public` overrides the Private header, so R8
+    // fires even though the owning repo's CLAUDE.md says Private. This locks
+    // the precedence: flag beats detection.
+    let doc = make_repo_with_doc("flag-override", "## Repo Visibility: Private\n");
+    shirabe()
+        .arg("validate")
+        .arg("--visibility")
+        .arg("public")
+        .arg("--check")
+        .arg("R8")
+        .arg(&doc)
+        .assert()
+        .failure()
+        .stdout(contains("[R8]"));
+}
