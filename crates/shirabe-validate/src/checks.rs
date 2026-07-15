@@ -279,6 +279,172 @@ pub fn check_fc15(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     }]
 }
 
+// =============================================================================
+// FC16 -- roadmap reserved-section shape check
+// =============================================================================
+
+/// The absolute (1-indexed) line of the `## <name>` section, or `None` when
+/// the doc has no section with that name.
+fn section_line(doc: &Doc, name: &str) -> Option<usize> {
+    doc.sections.iter().find(|s| s.name == name).map(|s| s.line)
+}
+
+/// The `[start, end)` range into `doc.body` bounding the body of the `## `
+/// heading `heading` -- the lines after the heading up to the next `## `
+/// heading or the end of the body. `None` when the heading is not present in
+/// the body. Mirrors the section-walk in `table::find_issues_table_section`
+/// and `mermaid::section_body_range` (both private to their modules).
+fn body_range(doc: &Doc, heading: &str) -> Option<(usize, usize)> {
+    let mut start: Option<usize> = None;
+    let mut end = doc.body.len();
+    for (i, line) in doc.body.iter().enumerate() {
+        if start.is_none() {
+            if line.trim_end_matches([' ', '\t']) == heading {
+                start = Some(i + 1);
+            }
+            continue;
+        }
+        if line.starts_with("## ") {
+            end = i;
+            break;
+        }
+    }
+    start.map(|s| (s, end))
+}
+
+/// Reports whether the `## ` section `heading` carries a substantive prose
+/// line -- a non-blank body line that is neither part of an HTML comment nor a
+/// GFM table row. This is the discriminant that separates a hand-authored
+/// prose Implementation Issues (which FC16 flags) from the legitimate empty
+/// skeleton: a marker-only section (just the `<!-- Populated by ... -->`
+/// comment) and a header-only section (marker plus the empty
+/// `| Feature | Issues | Dependencies | Status |` header) both have no such
+/// prose line and are not flagged.
+fn section_has_prose(doc: &Doc, heading: &str) -> bool {
+    let (start, end) = match body_range(doc, heading) {
+        Some(r) => r,
+        None => return false,
+    };
+    let mut in_comment = false;
+    for line in &doc.body[start..end] {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if in_comment {
+            // Inside a multi-line HTML comment; it ends on the line that
+            // closes it.
+            if trimmed.contains("-->") {
+                in_comment = false;
+            }
+            continue;
+        }
+        if trimmed.starts_with("<!--") {
+            if !trimmed.contains("-->") {
+                in_comment = true;
+            }
+            continue;
+        }
+        // A GFM table row (header, separator, or body) is not prose.
+        if trimmed.starts_with('|') {
+            continue;
+        }
+        return true;
+    }
+    false
+}
+
+/// The info string (fence language) of the first fenced code block in the
+/// `## ` section `heading`, or `None` when the section has no fence. A plain
+/// ` ``` ` fence returns `Some("")`; a ` ```mermaid ` fence returns
+/// `Some("mermaid")`. FC16 uses this to catch a Dependency Graph fenced as a
+/// plain (non-mermaid) block while leaving a marker-only section (no fence)
+/// and the canonical ` ```mermaid ` skeleton untouched.
+fn first_fence_info(doc: &Doc, heading: &str) -> Option<String> {
+    let (start, end) = body_range(doc, heading)?;
+    for line in &doc.body[start..end] {
+        if let Some(rest) = line.trim().strip_prefix("```") {
+            return Some(rest.trim().to_string());
+        }
+    }
+    None
+}
+
+/// FC16 -- roadmap reserved-section shape check.
+///
+/// The roadmap reserved sections (`## Implementation Issues` and
+/// `## Dependency Graph`) are tool-populated skeletons: at creation they hold a
+/// marker comment plus an empty issues-table header and an empty ` ```mermaid `
+/// / `graph TD` block (see `skills/roadmap/references/roadmap-format.md`).
+/// FC05/FC06 validate a *present* issues table and FC07 reconciles a *present*
+/// mermaid diagram, but all three no-op when a reserved section was
+/// hand-authored in the wrong *shape* -- a prose Implementation Issues with no
+/// table (FC05/FC06 parse the section to `None` and return early), or a
+/// Dependency Graph fenced as a plain code block instead of mermaid (FC07's
+/// missing-mermaid notice is gated behind the same absent-table short-circuit).
+/// FC16 closes that gap.
+///
+/// Two independent sub-checks, both roadmap-only, both gated on *shape* rather
+/// than status so an empty skeleton passes at any lifecycle state:
+///   - **Implementation Issues**: the section is present, no canonical issues
+///     table parses (`parse_issues_table` is `None`), yet the body carries
+///     prose (a non-blank line that is neither an HTML comment nor a table
+///     row). The empty skeleton -- marker-only or the empty header -- has no
+///     such prose and passes; a populated table parses to `Some` and never
+///     reaches the prose test. Both issue modes (`I<n>` required, `F<n>`
+///     optional) render a table, so both pass.
+///   - **Dependency Graph**: the section is present and its first fenced code
+///     block is not ` ```mermaid `. The empty ` ```mermaid ` / `graph TD`
+///     skeleton passes; a marker-only section with no fence passes.
+///
+/// FC16 is error-level: unlike the FC07-FC15 advisory family it is *not*
+/// registered in `is_intrinsic_notice`, so a malformed roadmap reserved
+/// section fails CI rather than emitting an advisory notice. The empty
+/// skeleton and every populated-and-valid roadmap pass, so the error only
+/// fires on a genuinely wrong shape. One consuming-corpus doc carries this
+/// drift (a private-repo roadmap with a prose Implementation Issues and an
+/// ASCII Dependency Graph); it must be brought to the canonical skeleton
+/// before that repo adopts a shirabe ref carrying this check.
+pub fn check_roadmap_reserved_sections(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    if spec.schema_version != "roadmap/v1" {
+        return Vec::new();
+    }
+    let mut errs = Vec::new();
+
+    // Implementation Issues: prose where the canonical table belongs.
+    if let Some(line) = section_line(doc, "Implementation Issues") {
+        if parse_issues_table(doc).is_none() && section_has_prose(doc, "## Implementation Issues") {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line,
+                code: "FC16".to_string(),
+                message:
+                    "[FC16] '## Implementation Issues' holds prose but no canonical issues table; the reserved section must be the empty skeleton (marker comment + '| Feature | Issues | Dependencies | Status |' header) or a tool-populated table -- see skills/roadmap/references/roadmap-format.md"
+                        .to_string(),
+            });
+        }
+    }
+
+    // Dependency Graph: a non-mermaid fenced block where mermaid belongs.
+    if let Some(line) = section_line(doc, "Dependency Graph") {
+        if let Some(lang) = first_fence_info(doc, "## Dependency Graph") {
+            if lang != "mermaid" {
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line,
+                    code: "FC16".to_string(),
+                    message: format!(
+                        "[FC16] '## Dependency Graph' opens a '```{}' block, not '```mermaid'; the reserved section must hold a mermaid 'graph TD' diagram (empty at creation) -- see skills/roadmap/references/roadmap-format.md",
+                        lang
+                    ),
+                });
+            }
+        }
+    }
+
+    errs
+}
+
 /// Validates that the Implementation Issues table header matches the
 /// format's required column contract (R6). The profile is selected by
 /// `spec.issues_table_columns` -- absent (empty) means the format has no
@@ -6323,5 +6489,146 @@ mod tests {
             is_notice(&e, ReviewPosture::Draft),
             "FC14 should be notice-level in is_notice"
         );
+    }
+
+    // --- FC16 (check_roadmap_reserved_sections) ---
+
+    /// Assemble a roadmap doc whose two reserved sections carry the given
+    /// bodies (the text between each heading and the next `##`). The check
+    /// reads only `doc.sections` and `doc.body`, so the surrounding required
+    /// sections are minimal.
+    fn roadmap_doc(ii_body: &str, dg_body: &str) -> Doc {
+        let md = format!(
+            "---\nschema: roadmap/v1\nstatus: Draft\ntheme: t\nscope: s\n---\n\n\
+             ## Status\n\nDraft\n\n\
+             ## Features\n\n### Feature 1: a\n\n\
+             ## Implementation Issues\n\n{ii}\n\n\
+             ## Dependency Graph\n\n{dg}\n",
+            ii = ii_body,
+            dg = dg_body,
+        );
+        doc_md(&md)
+    }
+
+    // Canonical empty-skeleton fragments (marker + empty header / empty
+    // mermaid block), per skills/roadmap/references/roadmap-format.md.
+    const II_MARKER: &str = "<!-- Populated by /plan during decomposition. Do not fill manually. -->";
+    const II_EMPTY_HEADER: &str = "<!-- Populated by /plan during decomposition. Do not fill manually. -->\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|";
+    const DG_EMPTY_MERMAID: &str = "<!-- Populated by /plan during decomposition. Do not fill manually. -->\n\n```mermaid\ngraph TD\n```";
+
+    fn fc16(doc: &Doc) -> Vec<ValidationError> {
+        check_roadmap_reserved_sections(doc, &spec_for("roadmap/v1"))
+    }
+
+    #[test]
+    fn fc16_prose_implementation_issues_fires() {
+        // Prose where the canonical table belongs, DG left as the valid
+        // empty skeleton: exactly one FC16 for the Implementation Issues.
+        let doc = roadmap_doc(
+            "Feature 1 will be split into a rendering issue and a layout issue. Filed later once the design settles.",
+            DG_EMPTY_MERMAID,
+        );
+        let errs = fc16(&doc);
+        assert_eq!(errs.len(), 1, "expected one FC16, got {:?}", errs);
+        assert_eq!(errs[0].code, "FC16");
+        assert!(errs[0].message.contains("Implementation Issues"));
+    }
+
+    #[test]
+    fn fc16_plain_fence_dependency_graph_fires() {
+        // Valid empty II skeleton, DG fenced as a plain (non-mermaid) block:
+        // exactly one FC16 for the Dependency Graph.
+        let doc = roadmap_doc(II_EMPTY_HEADER, "```\nFeature 1 --> Feature 2\n```");
+        let errs = fc16(&doc);
+        assert_eq!(errs.len(), 1, "expected one FC16, got {:?}", errs);
+        assert_eq!(errs[0].code, "FC16");
+        assert!(errs[0].message.contains("Dependency Graph"));
+    }
+
+    #[test]
+    fn fc16_both_malformed_fires_twice() {
+        // The reproduction shape: prose II + plain-fence DG -> two FC16.
+        let doc = roadmap_doc(
+            "These issues will be filed once the design settles.",
+            "```\nFeature 1 --> Feature 2\n```",
+        );
+        let errs = fc16(&doc);
+        assert_eq!(errs.len(), 2, "expected two FC16, got {:?}", errs);
+        assert!(errs.iter().all(|e| e.code == "FC16"));
+    }
+
+    #[test]
+    fn fc16_empty_skeleton_header_passes() {
+        // Canonical empty skeleton: marker + empty header table + empty
+        // ```mermaid graph TD. Must pass at any status.
+        let doc = roadmap_doc(II_EMPTY_HEADER, DG_EMPTY_MERMAID);
+        assert!(fc16(&doc).is_empty(), "empty header skeleton must pass");
+    }
+
+    #[test]
+    fn fc16_empty_skeleton_marker_only_passes() {
+        // The marker-only skeleton (no header table, no fence) is also
+        // legitimate empty-at-creation and must not fire. This is the shape
+        // the parser's parse_issues_table_empty_section_returns_none covers.
+        let doc = roadmap_doc(II_MARKER, II_MARKER);
+        assert!(fc16(&doc).is_empty(), "marker-only skeleton must pass");
+    }
+
+    #[test]
+    fn fc16_populated_required_mode_passes() {
+        // Issue-keyed (`I<n>` / `#n`) populated roadmap: table present, DG
+        // mermaid. No FC16.
+        let ii = "| Feature | Issues | Dependencies | Status |\n\
+                  |---------|--------|--------------|--------|\n\
+                  | F1: renderer | [#1](https://example.com/1) | None | Not started |\n\
+                  | _The widget renderer._ | | | |";
+        let dg = "```mermaid\ngraph TD\n  I1[\"#1 renderer\"]\n```";
+        let doc = roadmap_doc(ii, dg);
+        assert!(fc16(&doc).is_empty(), "populated required-mode must pass");
+    }
+
+    #[test]
+    fn fc16_issueless_optional_mode_passes() {
+        // Feature-keyed (`F<n>`) issueless roadmap: table present with a
+        // needs-* label in the Issues column, F-node mermaid. No FC16.
+        let ii = "| Feature | Issues | Dependencies | Status |\n\
+                  |---------|--------|--------------|--------|\n\
+                  | F1: renderer | needs-design | None | Not started |\n\
+                  | _The widget renderer._ | | | |";
+        let dg = "```mermaid\ngraph TD\n  F1[\"F1 renderer\"]\n```";
+        let doc = roadmap_doc(ii, dg);
+        assert!(fc16(&doc).is_empty(), "populated optional-mode must pass");
+    }
+
+    #[test]
+    fn fc16_prose_preamble_with_table_passes() {
+        // A `### Milestone:` prose preamble ahead of a valid table is a
+        // committed real-corpus shape; the table parses, so FC16 does not
+        // fire on the Implementation Issues.
+        let ii = "### Milestone: [Widgets](https://example.com/m/1)\n\n\
+                  | Feature | Issues | Dependencies | Status |\n\
+                  |---------|--------|--------------|--------|\n\
+                  | F1: renderer | [#1](https://example.com/1) | None | Done |\n\
+                  | _The widget renderer._ | | | |";
+        let doc = roadmap_doc(ii, DG_EMPTY_MERMAID);
+        assert!(fc16(&doc).is_empty(), "prose preamble + table must pass");
+    }
+
+    #[test]
+    fn fc16_non_roadmap_schema_is_noop() {
+        // FC16 is roadmap-only: a plan/v1 spec never fires even on a prose
+        // Implementation Issues (plan structure is FC11's concern).
+        let doc = roadmap_doc("Prose, no table.", "```\nascii\n```");
+        let errs = check_roadmap_reserved_sections(&doc, &spec_for("plan/v1"));
+        assert!(errs.is_empty(), "non-roadmap spec must be a no-op");
+    }
+
+    #[test]
+    fn fc16_absent_reserved_sections_is_noop() {
+        // If a reserved section heading is absent entirely, FC16 says nothing
+        // (FC04 owns required-section presence).
+        let md = "---\nschema: roadmap/v1\nstatus: Draft\ntheme: t\nscope: s\n---\n\n## Status\n\nDraft\n";
+        let doc = doc_md(md);
+        assert!(fc16(&doc).is_empty(), "absent sections must be a no-op");
     }
 }
