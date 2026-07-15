@@ -267,7 +267,11 @@ directory movement based on status -- all roadmaps stay in
 - Frontmatter has `schema`, `status`, `theme`, `scope` fields
 - Frontmatter status matches Status section in body
 - All 5 required sections present (FC04) and in canonical order (FC15)
-- Both reserved sections present (may be empty)
+- Both reserved sections present (may be empty) and in the canonical
+  *shape* (FC16): Implementation Issues is the empty skeleton (marker +
+  `| Feature | Issues | Dependencies | Status |` header) or a
+  tool-populated table -- never hand-authored prose; Dependency Graph is a
+  ` ```mermaid ` block -- never a plain fenced code block
 - Status is "Draft"
 - At least 2 features listed (single-feature work doesn't need a
   roadmap)
@@ -288,10 +292,26 @@ directory movement based on status -- all roadmaps stay in
 
 ### Validation enforcement
 
-The validator runs FC05 (issues-table schema conformance) and FC06
-(cross-reference existence) on roadmap docs. See
-`${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` for the canonical
-roadmap profile contract those checks enforce.
+The validator runs FC05 (issues-table schema conformance), FC06
+(cross-reference existence), and FC16 (reserved-section shape) on roadmap
+docs. See `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` for the
+canonical roadmap profile contract FC05/FC06 enforce.
+
+FC05 and FC06 validate a *present* issues table and FC07 reconciles a
+*present* mermaid diagram, but all three no-op when a reserved section was
+hand-authored in the wrong shape -- a prose Implementation Issues with no
+table, or a Dependency Graph fenced as a plain code block instead of
+mermaid. FC16 covers that gap. It fires only on genuinely wrong shapes:
+
+- **Implementation Issues** carries prose (a non-blank line that is neither
+  an HTML comment nor a table row) while no canonical table parses.
+- **Dependency Graph** opens a non-` ```mermaid ` fenced block.
+
+FC16 is shape-gated, not status-gated: the empty skeleton passes at every
+lifecycle state, and both issue modes (`## Roadmap Issues: required` with
+`I<n>` rows, `## Roadmap Issues: optional` with `F<n>` rows) render a table
+and mermaid diagram, so both pass. FC16 is error-level -- a malformed
+reserved section fails the build, not just an advisory notice.
 
 ### Dependencies cells in issueless mode
 

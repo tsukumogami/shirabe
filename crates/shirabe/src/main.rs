@@ -525,7 +525,7 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     for code in &args.check {
         if !is_known_check_code(code) {
             eprintln!(
-                "unknown --check code {:?}; valid codes: SCHEMA, FC01-FC13, FC-CONVENTIONS, R6-R9",
+                "unknown --check code {:?}; valid codes: SCHEMA, FC01-FC16, FC-CONVENTIONS, R6-R9",
                 code
             );
             return ValidateOutcome::ToolError.exit();

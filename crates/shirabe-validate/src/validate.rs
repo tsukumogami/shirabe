@@ -10,8 +10,8 @@ use crate::checks::{
     check_claude_md_conventions, check_eval_fixture_frontmatter, check_fc01, check_fc02,
     check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09, check_fc14,
     check_fc15, check_plan_design_field_consistency, check_plan_section_structure,
-    check_plan_upstream, check_private_only, check_schema, check_strategy_public,
-    check_vision_public, check_writing_style,
+    check_plan_upstream, check_private_only, check_roadmap_reserved_sections, check_schema,
+    check_strategy_public, check_vision_public, check_writing_style,
 };
 use crate::doc::{Doc, ValidationError};
 use crate::formats::FormatSpec;
@@ -76,7 +76,10 @@ pub enum PostureClass {
 ///
 /// `SCHEMA` is the long-standing notice; `FC07` through `FC15` and
 /// `FC-CONVENTIONS` are notice-level additions pending their respective
-/// corpus-cleanup PRs. These remain notices in both postures.
+/// corpus-cleanup PRs. These remain notices in both postures. `FC16`
+/// (roadmap reserved-section shape) is intentionally *absent* here: it
+/// ships error-level, so a malformed roadmap reserved section fails the
+/// build rather than emitting an advisory notice.
 fn is_intrinsic_notice(code: &str) -> bool {
     matches!(
         code,
@@ -141,7 +144,7 @@ pub fn is_notice(err: &ValidationError, posture: ReviewPosture) -> bool {
 
 /// Reports whether `code` is a known per-file check code that the `--check`
 /// selector can address. The set is the codes the per-file validation pass
-/// can emit: `SCHEMA`, `FC01`-`FC15`, `FC-CONVENTIONS`, and `R6`-`R9`. The
+/// can emit: `SCHEMA`, `FC01`-`FC16`, `FC-CONVENTIONS`, and `R6`-`R9`. The
 /// lifecycle codes (`L01`-`L05`) are produced by the `--lifecycle` traversal
 /// modes, not the per-file pass, so they are not selectable here.
 pub fn is_known_check_code(code: &str) -> bool {
@@ -163,6 +166,7 @@ pub fn is_known_check_code(code: &str) -> bool {
             | "FC13"
             | "FC14"
             | "FC15"
+            | "FC16"
             | "FC-CONVENTIONS"
             | "R6"
             | "R7"
@@ -239,6 +243,10 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
             let fc09_client = GhSubprocessClient::new();
             let fc09_ctx = detect_pr_context();
             errs.extend(check_fc09(doc, spec, &fc09_client, fc09_ctx.as_ref()));
+            // FC16: roadmap reserved-section shape (prose Implementation
+            // Issues / non-mermaid Dependency Graph). The FC11 analog for
+            // roadmaps; error-level (absent from is_intrinsic_notice).
+            errs.extend(check_roadmap_reserved_sections(doc, spec));
         }
         "VISION" => {
             errs.extend(check_vision_public(doc, cfg));
@@ -337,8 +345,8 @@ mod tests {
         // they are draft-tolerable and surface as notices under Draft (see
         // draft_tolerable_codes_are_notices_under_draft_only below).
         for code in [
-            "FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "L01", "L03", "L04", "L05", "R6", "R7",
-            "R8", "R9",
+            "FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "FC16", "L01", "L03", "L04", "L05",
+            "R6", "R7", "R8", "R9",
         ] {
             assert!(
                 !is_notice(
@@ -497,6 +505,7 @@ mod tests {
             "FC13",
             "FC14",
             "FC15",
+            "FC16",
             "FC-CONVENTIONS",
             "R6",
             "R7",
