@@ -10,7 +10,6 @@ goals: |
   Convert all shirabe skills to use koto for state persistence, phase gatekeeping,
   and deterministic verification. File koto feature requests for missing primitives.
   Phase the work so skills convert as koto features become available.
-upstream: docs/roadmaps/ROADMAP-koto-adoption.md
 ---
 
 # PRD: Koto Adoption for Shirabe Skills

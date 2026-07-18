@@ -60,7 +60,7 @@ The directional rule:
 | Artifact | upstream value | Meaning |
 |----------|---------------|---------|
 | Roadmap in shirabe | `docs/visions/VISION-pipeline.md` | Same-repo VISION |
-| PRD in shirabe | `docs/roadmaps/ROADMAP-strategic-pipeline.md` | Same-repo Roadmap |
+| PRD in shirabe | `docs/roadmaps/ROADMAP-pipeline.md` | Same-repo Roadmap |
 | Design in shirabe | `docs/prds/PRD-traceability.md` | Same-repo PRD |
 | Roadmap in private vision repo | `tsukumogami/shirabe:docs/roadmaps/ROADMAP-foo.md` | Cross-repo, private -> public |
 

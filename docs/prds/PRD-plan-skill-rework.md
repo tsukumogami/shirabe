@@ -10,7 +10,6 @@ goals: |
   Rework /plan's roadmap mode to enrich the roadmap directly (no separate
   PLAN doc), always use multi-pr, and create per-feature GitHub issues.
   Preserve existing behavior for design doc and PRD inputs.
-upstream: docs/roadmaps/ROADMAP-strategic-pipeline.md
 ---
 
 # PRD: Plan Skill Rework

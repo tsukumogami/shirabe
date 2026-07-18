@@ -10,7 +10,6 @@ goals: |
   Expand the routing model to 5 levels with observable signals for each,
   so agents classify incoming work into the right pipeline path. Fix stale
   type counts in Phase 4.
-upstream: docs/roadmaps/ROADMAP-strategic-pipeline.md
 ---
 
 # PRD: Complexity Routing Expansion
