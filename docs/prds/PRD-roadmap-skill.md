@@ -9,7 +9,6 @@ problem: |
 goals: |
   Define what a roadmap is, how it's created, and how its lifecycle works
   -- everything the /roadmap skill needs to own.
-upstream: docs/roadmaps/ROADMAP-strategic-pipeline.md
 ---
 
 # PRD: Roadmap Skill

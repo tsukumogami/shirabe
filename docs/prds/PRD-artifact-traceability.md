@@ -10,7 +10,6 @@ goals: |
   Close the traceability chain so every artifact can point to its parent.
   Document a cross-repo reference convention that all skills can use.
   Make creation workflows consistently set upstream at creation time.
-upstream: docs/roadmaps/ROADMAP-strategic-pipeline.md
 ---
 
 # PRD: Artifact Traceability
