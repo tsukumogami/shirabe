@@ -1,6 +1,6 @@
 ---
 schema: roadmap/v1
-status: Active
+status: Done
 theme: |
   Complete the strategic-to-tactical pipeline by adding the missing inception
   layer and closing gaps in traceability, routing, and artifact production.
@@ -19,7 +19,48 @@ scope: |
 
 ## Status
 
-Active
+Done
+
+**Closed out as superseded -- not a clean "all features shipped"
+completion.** This roadmap is retained for audit trail only. It is no
+longer a live plan -- do not pick work from it without re-validating
+against the current pipeline first. The roadmap schema has no dedicated
+"Superseded" or "Dropped" state (that lifecycle gap is itself one of the
+open items this roadmap named, Feature 11), so `Done` is used as the
+terminal status; the paragraphs below record what actually shipped
+versus what was absorbed elsewhere or left open.
+
+It has been overtaken by the shirabe pipeline's own evolution. When this
+roadmap was written the pipeline ran VISION -> Roadmap -> PRD -> Design
+-> Plan and the open work was "finish the Stage 1 inception layer." That
+pipeline has since been extended well past what this roadmap set out to
+complete. The current chain is VISION -> STRATEGY -> ROADMAP -> BRIEF ->
+PRD -> DESIGN -> PLAN (documented in `CLAUDE.md`), and the skills that
+realize it already ship under `skills/` -- including `strategy`,
+`charter` (the strategic-chain parent), `scope` (the tactical-chain
+parent), `brief`, `comp`, `execute`, and `inflight`, none of which
+existed in this roadmap's model. The two parent skills (`charter`,
+`scope`) and the STRATEGY and BRIEF artifact types are the substantive
+additions that this roadmap's three-diamond model never anticipated.
+
+Reconciliation with reality:
+
+- Features 1-6 shipped as planned (the VISION and Roadmap skills, the
+  traceability chain, complexity routing, the plan rework, and the
+  pipeline reference doc all exist under `skills/` and `references/`).
+- The cross-cutting work Features 1-6 seeded also landed: the completion
+  cascade (Feature 8) and lifecycle-script hardening (Feature 11) shipped
+  through the /work-on cascade and the transition-script consolidation.
+  Their "In Progress" / "Not Started" rows in the tables below therefore
+  understate reality and should be read as historical, not current.
+- One item never got built and still has standalone value if the need
+  recurs: **Feature 12 (Artifact Type Decision Reference,
+  `references/artifact-type-signals.md`)** -- the shared observable-signal
+  reference that /plan, /explore, and /triage could each consume instead
+  of carrying their own ad-hoc artifact-type logic. This file does not
+  exist. Feature 7 (crystallize calibration) is also still open but
+  lower-value. Everything else here is either shipped or absorbed into
+  the current pipeline.
 
 ## Theme
 
@@ -436,4 +477,31 @@ ad-hoc progress notes and is currently empty.
 
 ```mermaid
 graph TD
+    F1["F1: VISION Artifact Type"]
+    F2["F2: Roadmap Creation Skill"]
+    F3["F3: Artifact Traceability"]
+    F4["F4: Complexity Routing Expansion"]
+    F5["F5: Plan Skill Rework"]
+    F6["F6: Pipeline Documentation"]
+    F7["F7: Crystallize Framework Calibration"]
+    F8["F8: Completion Cascade Automation"]
+    F9["F9: Upstream Context Propagation"]
+    F10["F10: Progress Consistency"]
+    F11["F11: Lifecycle Script Hardening"]
+    F12["F12: Artifact Type Decision Reference"]
+
+    F1 --> F3
+    F1 --> F4
+    F1 --> F6
+    F2 --> F5
+    F2 --> F6
+    F3 --> F6
+    F4 --> F6
+    F3 --> F8
+    F5 --> F8
+    F5 --> F9
+    F8 --> F10
 ```
+
+Features 7, 11, and 12 are independent (no upstream feature dependency)
+and render as isolated nodes.

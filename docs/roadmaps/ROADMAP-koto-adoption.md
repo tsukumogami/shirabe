@@ -1,6 +1,6 @@
 ---
 schema: roadmap/v1
-status: Active
+status: Done
 theme: |
   Convert shirabe skills from prose-based workflow management to koto-orchestrated
   workflows. Skills define what to achieve; koto workflows define how to get there.
@@ -18,7 +18,40 @@ scope: |
 
 ## Status
 
-Active
+Done
+
+**Closed out as superseded -- not a clean "all features shipped"
+completion.** This roadmap is retained for audit trail only. It is no
+longer a live plan -- do not pick work from it without re-validating
+against the current koto-orchestration approach first. The roadmap
+schema has no dedicated "Superseded" or "Dropped" state, so `Done` is
+used as the terminal status; most of the conversions below never
+shipped and are recorded here for history.
+
+It has been overtaken on three fronts:
+
+- **Its scope is frozen at a smaller world.** The scope names "all 7
+  non-koto shirabe skills." `skills/` now holds roughly nineteen skills;
+  the seven-skill framing predates `strategy`, `charter`, `scope`,
+  `brief`, `comp`, `execute`, and `inflight`.
+- **The conversion pattern it set out to validate is already proven.**
+  Features 1-2 existed to de-risk koto conversion "using koto today."
+  That risk is retired: `skills/work-on/koto-templates/` and
+  `skills/execute/koto-templates/` both ship working koto templates, so
+  the pattern is demonstrated outside this roadmap's frame.
+- **Its dependency state is stale.** Two of the koto features that
+  gated the middle group have since shipped: koto#65 (variables) and
+  koto#107 (content-match) are closed. That unblocks Feature 5 (plan)
+  and Feature 7 (design linear), whose only koto dependency was koto#65
+  -- both are now ready rather than blocked. Feature 4 (prd) and
+  Feature 6 (explore) additionally need koto#87 (evidence promotion),
+  which is still open, so they remain blocked. The koto primitives for
+  the advanced modes (bounded iteration, glob gates, polling gates)
+  remain unshipped.
+
+If this line of work is revived, do it against the current skill
+catalog and the current koto capability set rather than the tables
+below, which reflect the state as of the roadmap's last update.
 
 ## Theme
 
@@ -46,8 +79,8 @@ deferred to Feature 9.
 **Status:** Not started
 
 The decision skill's core flow has two conditional paths from the alternatives
-state: fast-path (tier=standard) skips bakeoff/revision/examination, full-path
-(tier=critical) runs all. Koto's `when` guards handle this. Persistent validators
+state: the fast-path (standard mode) skips bakeoff/revision/examination, the
+full-path (critical mode) runs all. Koto's `when` guards handle this. Persistent validators
 (which span multiple states) are deferred to Feature 10. Disposable agents per
 state is a workable degradation for now.
 
@@ -144,6 +177,50 @@ zero wip/ files, and heavy reliance on external state (draft releases, CI
 status, tag existence). Needs polling gates for CI monitoring and content-match
 gates for version validation. Converts last.
 
+## Sequencing Rationale
+
+The ordering follows three principles:
+
+**1. Convert what works today first.** Features 1-2 (review-plan fast-path,
+decision without validators) use koto's current capabilities. They validate
+the conversion pattern and surface integration issues before committing to
+harder conversions.
+
+**2. Koto features gate the middle group.** Features 4-7 (prd, plan, explore
+basic, design linear) need tsukumogami/koto#65 (variables) and tsukumogami/koto#87 (evidence promotion).
+These are the highest-value conversions (the most-used skills) but can't start
+until the koto features ship. Feature 3 (filing the requests) is already done.
+
+**3. Advanced modes come last.** Features 8-12 need new koto primitives
+(bounded iteration, glob gates, polling gates) or solve hard problems (cross-state
+agent persistence). These build on the basic conversions and deliver incremental
+improvements rather than foundational capability.
+
+Hard dependencies:
+- Features 4-7 are blocked by tsukumogami/koto#65 and tsukumogami/koto#87
+- Features 8, 9, 11 are blocked by tsukumogami/koto#105 or tsukumogami/koto#106
+- Feature 12 is blocked by tsukumogami/koto#104 and tsukumogami/koto#107
+- Features 1-2 have no koto dependencies
+
+Parallel opportunities:
+- Features 1 and 2 can proceed in parallel (no shared dependencies)
+- Features 4, 5, 6, 7 can proceed in parallel once tsukumogami/koto#65/#87 ship
+- Features 8, 9, 11 can proceed in parallel once tsukumogami/koto#105/#106 ship
+
+## Progress
+
+Historical, as of this roadmap's supersession (see Status):
+
+- Feature 3 (#51, koto feature requests): **Done** -- all 8 issues filed.
+- Features 1-2 (#49, #50): **Ready** -- no koto dependencies; the
+  conversion pattern they de-risk is already proven by the shipped
+  work-on and execute koto templates.
+- Features 5 and 7 (#53, #55): **Ready** -- their only koto dependency,
+  koto#65, has shipped.
+- Features 4 and 6 (#52, #54): **Blocked** -- still need koto#87.
+- Features 8-12: **Blocked** -- waiting on unshipped koto primitives
+  (koto#104 / #105 / #106) or an unresolved spike.
+
 ## Implementation Issues
 
 ### Milestone: [Koto Adoption](https://github.com/tsukumogami/shirabe/milestone/3)
@@ -227,40 +304,8 @@ graph LR
     class K65,K87,K104,K105,K106,K107 koto
 ```
 
-**Legend**: Green = done, Blue = ready, Yellow = blocked by koto features, Orange = koto feature (external)
+**Legend**: Green = done, Blue = ready, Yellow = blocked, Orange = koto
 
-## Sequencing Rationale
-
-The ordering follows three principles:
-
-**1. Convert what works today first.** Features 1-2 (review-plan fast-path,
-decision without validators) use koto's current capabilities. They validate
-the conversion pattern and surface integration issues before committing to
-harder conversions.
-
-**2. Koto features gate the middle tier.** Features 4-7 (prd, plan, explore
-basic, design linear) need tsukumogami/koto#65 (variables) and tsukumogami/koto#87 (evidence promotion).
-These are the highest-value conversions (the most-used skills) but can't start
-until the koto features ship. Feature 3 (filing the requests) is already done.
-
-**3. Advanced modes come last.** Features 8-12 need new koto primitives
-(bounded iteration, glob gates, polling gates) or solve hard problems (cross-state
-agent persistence). These build on the basic conversions and deliver incremental
-improvements rather than foundational capability.
-
-Hard dependencies:
-- Features 4-7 are blocked by tsukumogami/koto#65 and tsukumogami/koto#87
-- Features 8, 9, 11 are blocked by tsukumogami/koto#105 or tsukumogami/koto#106
-- Feature 12 is blocked by tsukumogami/koto#104 and tsukumogami/koto#107
-- Features 1-2 have no koto dependencies
-
-Parallel opportunities:
-- Features 1 and 2 can proceed in parallel (no shared dependencies)
-- Features 4, 5, 6, 7 can proceed in parallel once tsukumogami/koto#65/#87 ship
-- Features 8, 9, 11 can proceed in parallel once tsukumogami/koto#105/#106 ship
-
-## Progress
-
-- Feature 3 (#51, koto feature requests): **Done** — all 8 issues filed
-- Features 1-2 (#49, #50): **Ready** — no koto dependencies
-- Features 4-12: **Blocked** — waiting on koto features
+(Blocked nodes wait on an unshipped koto feature; koto nodes are the
+external koto issues that gate them. The classes reflect the state as of
+this roadmap's last update -- see Status for what has shipped since.)
