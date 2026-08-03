@@ -275,12 +275,13 @@ noop
 EOF
 run_multi_test "check4: unshared gate names are not compared" 0 "$T/a.md" "$T/b.md"
 
-# Passing: a single template has nothing to compare against
+# Passing: a single template with one gate has nothing to disagree with
 T=$(mktemp -d "$TMPDIR_ROOT/check4-single.XXXXXX")
 write_gate_template "$T/a.md" "$GATE_CMD"
-run_multi_test "check4: single template skipped (passes)" 0 "$T/a.md"
+run_multi_test "check4: single template with one gate passes" 0 "$T/a.md"
 
-# Failing: the same gate name drifts within one template
+# A gate name repeated within one template must agree with itself, and the
+# result must not depend on how many files were passed on the command line.
 T=$(mktemp -d "$TMPDIR_ROOT/check4-intrafile.XXXXXX")
 cat > "$T/a.md" <<'EOF'
 ---
@@ -304,6 +305,25 @@ noop
 EOF
 write_gate_template "$T/b.md" "$GATE_CMD"
 run_multi_test "check4: gate drifting within one template fails" 1 "$T/a.md" "$T/b.md"
+run_multi_test "check4: intra-file drift is caught with one file too" 1 "$T/a.md"
+
+# Failing: the template declares gates but the reader matched none of them,
+# which means koto's layout moved and the check is no longer reading anything.
+T=$(mktemp -d "$TMPDIR_ROOT/check4-parserrot.XXXXXX")
+cat > "$T/a.md" <<'EOF'
+---
+name: gate-wf
+states:
+  ci_monitor:
+    gates:
+        ci_passing:
+            type: command
+            command: "true"
+---
+## ci_monitor
+noop
+EOF
+run_multi_test "check4: declared but unreadable gates are reported, not passed" 1 "$T/a.md"
 
 # Failing: a block scalar puts the command body out of reach, so two different
 # commands would compare as equal. The check must refuse to read it rather than

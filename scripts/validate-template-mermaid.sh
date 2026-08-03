@@ -158,72 +158,61 @@ check_hardcoded_names() {
 # silently disagree about what a gate means -- that is how issue #244 got two
 # templates gating CI on the same wrong expression. This check makes the
 # duplication mechanical rather than a matter of remembering.
+#
+# The reader lives in scripts/lib/koto-gates.sh so that this script and
+# scripts/ci-gate-expression_test.sh share one description of koto's layout.
 # ---------------------------------------------------------------------------
 
-# Emits one "<gate-name>\t<command>" line per gate that defines a command.
-#
-# Only the single-line `command: "..."` form is understood, which is the form
-# every gate in this repo uses. A YAML block scalar (`command: >` or `command: |`)
-# would put the body on following lines where this cannot see it, and comparing
-# the empty remainders would make two different commands look identical. So a
-# block scalar is reported as its own error rather than quietly compared: the
-# whole point of this check is that it must not pass on something it did not read.
-extract_gate_commands() {
-    local template="$1"
-    awk '
-        /^    gates:[[:space:]]*$/ { in_gates = 1; gate = ""; next }
-        in_gates && /^      [a-z_][a-z_0-9]*:[[:space:]]*$/ {
-            gate = $0
-            sub(/:.*/, "", gate)
-            sub(/^[[:space:]]+/, "", gate)
-            next
-        }
-        in_gates && gate != "" && /^        command:/ {
-            cmd = $0
-            sub(/^        command:[[:space:]]*/, "", cmd)
-            if (cmd ~ /^[|>][0-9+-]*[[:space:]]*$/ || cmd == "") {
-                print "UNREADABLE\t" gate "\t"
-            } else {
-                print "COMMAND\t" gate "\t" cmd
-            }
-            next
-        }
-        /^  [a-z_]/ { in_gates = 0 }
-    ' "$template"
-}
+# shellcheck source=lib/koto-gates.sh
+. "$(dirname "$0")/lib/koto-gates.sh"
 
 check_shared_gate_commands() {
     local templates=("$@")
 
-    # Fewer than two templates means there is nothing to compare against.
-    if [[ ${#templates[@]} -lt 2 ]]; then
-        return 0
-    fi
+    [[ ${#templates[@]} -eq 0 ]] && return 0
 
-    # Each row is "<template>\t<kind>\t<gate>\t<command>", where kind is COMMAND
-    # for a gate this can read and UNREADABLE for one it cannot.
+    # Each row is "<template>\t<kind>\t<gate>\t<command>", where kind is
+    # COMMAND for a gate the reader could read and UNREADABLE for one it
+    # could not.
     local rows=""
     local t line
     for t in "${templates[@]}"; do
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue
             rows+="${t}"$'\t'"${line}"$'\n'
-        done < <(extract_gate_commands "$t")
+        done < <(koto_gate_rows "$t")
     done
 
-    [[ -z "$rows" ]] && return 0
+    # No gate anywhere in a non-empty template set means the reader matched
+    # nothing. That is far more likely to be a layout change in koto than a
+    # repo with no gates, and reporting "all valid" would hide it.
+    if [[ -z "$rows" ]]; then
+        local any_gates=0
+        for t in "${templates[@]}"; do
+            if grep -q "^    gates:" "$t" 2>/dev/null; then
+                any_gates=1
+                break
+            fi
+        done
+        if [[ $any_gates -eq 1 ]]; then
+            echo "ERROR: templates declare gates but none could be read"
+            echo "  scripts/lib/koto-gates.sh no longer matches koto's template layout"
+            ERRORS=$((ERRORS + 1))
+        fi
+        return 0
+    fi
 
     # A gate whose command could not be read cannot be compared, so say so
     # rather than treating it as agreeing with everything.
     local unreadable
     unreadable=$(printf '%s' "$rows" | awk -F'\t' '$2 == "UNREADABLE" { print "  " $1 ": " $3 }' | sort -u)
     if [[ -n "$unreadable" ]]; then
-        echo "ERROR: gate command is not a single-line scalar, so it cannot be compared across templates"
+        echo "ERROR: gate command is not a single-line scalar, so it cannot be compared"
         printf '%s\n' "$unreadable"
         ERRORS=$((ERRORS + 1))
     fi
 
-    local gate variants
+    local gate variants owners
     while IFS= read -r gate; do
         [[ -z "$gate" ]] && continue
 
@@ -231,12 +220,12 @@ check_shared_gate_commands() {
             | awk -F'\t' -v g="$gate" '$2 == "COMMAND" && $3 == g { print $4 }' | sort -u)
 
         if [[ $(printf '%s\n' "$variants" | wc -l) -gt 1 ]]; then
-            echo "ERROR: gate '$gate' has drifted between templates"
-            local owner
-            while IFS= read -r owner; do
-                echo "  $owner"
-            done < <(printf '%s' "$rows" \
+            echo "ERROR: gate '$gate' is defined more than once with different commands"
+            owners=$(printf '%s' "$rows" \
                 | awk -F'\t' -v g="$gate" '$2 == "COMMAND" && $3 == g { print $1 ": " $4 }' | sort -u)
+            printf '%s\n' "$owners" | sed 's/^/  /'
+            echo "  A gate name is shared across templates, so the same name must mean"
+            echo "  the same command. If the difference is deliberate, rename one gate."
             ERRORS=$((ERRORS + 1))
         fi
     done < <(printf '%s' "$rows" | awk -F'\t' '$2 == "COMMAND" { print $3 }' | sort | uniq -d)

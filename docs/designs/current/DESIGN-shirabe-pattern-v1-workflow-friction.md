@@ -545,6 +545,12 @@ Edit `skills/work-on/koto-templates/work-on-plan.md` `ci_monitor`
 state (lines 84-111) to add a second gate that checks merge state
 before evaluating check-runs. The new gate logic:
 
+> Note: the `ci_passing` command shown below is the one this design
+> proposed. Issue #244 later replaced the `--json state` filter with a
+> `--json bucket` one, because the state filter counted every SKIPPED
+> check as a failure. Read the templates, not this snippet, for the
+> current command.
+
 ```yaml
 ci_monitor:
   gates:
