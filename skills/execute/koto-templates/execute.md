@@ -167,9 +167,20 @@ states:
 
   ci_monitor:
     gates:
+      # Gate on `bucket`, not `state`: gh folds the check states into
+      # pass / skipping / fail / cancel / pending and buckets anything it
+      # doesn't recognize as `pending`, so this survives GitHub adding a
+      # state. Green means every check is pass or skipping. Skipping covers
+      # SKIPPED and NEUTRAL -- a repo with conditional jobs skips checks on
+      # every PR, and the old state filter counted each one as a failure
+      # (#244). Pending and cancel deliberately gate: a check that's still
+      # running isn't green, and a cancelled one returned no verdict. Don't
+      # rewrite this as "nothing is in the fail bucket" -- that would let an
+      # all-queued PR report green. Keep byte-identical to the copy in
+      # work-on.md; the validator's shared-gate check enforces it.
       ci_passing:
         type: command
-        command: "gh pr checks $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json state --jq '[.[] | select(.state != \"SUCCESS\")] | length == 0' | grep -q true"
+        command: "gh pr checks $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true"
       merge_state_clean:
         type: command
         command: "[ \"$(gh pr view --json mergeStateStatus --jq .mergeStateStatus)\" != \"DIRTY\" ]"

@@ -6,6 +6,9 @@ on:
       - 'skills/*/koto-templates/**'
       - 'skills/*/koto-templates/*.mermaid.md'
       - 'scripts/validate-template-mermaid.sh'
+      - 'scripts/validate-template-mermaid_test.sh'
+      - 'scripts/ci-gate-expression_test.sh'
+      - '.github/workflows/check-template-consistency.yml'
 
 jobs:
   check-template-consistency:
@@ -13,5 +16,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
       - name: Validate koto template consistency
         run: bash scripts/validate-template-mermaid.sh
+
+      - name: Test the validator
+        run: bash scripts/validate-template-mermaid_test.sh
+
+      - name: Test the CI gate expression
+        run: bash scripts/ci-gate-expression_test.sh
