@@ -6,6 +6,8 @@
 #      (skipped if no .mermaid.md companion exists)
 #   2. default_template: references point to existing files
 #   3. No hardcoded workflow names in koto next calls (use {{SESSION_NAME}})
+#   4. A gate name used by more than one template carries the same command in
+#      all of them (only meaningful when several templates are validated at once)
 #
 # Usage:
 #   validate-template-mermaid.sh [file ...]
@@ -149,6 +151,87 @@ check_hardcoded_names() {
 }
 
 # ---------------------------------------------------------------------------
+# Check 4: gate commands shared across templates stay identical
+#
+# Some templates are near-copies of one another and carry the same gate under
+# the same name. When one copy is fixed and the other is not, the workflows
+# silently disagree about what a gate means -- that is how issue #244 got two
+# templates gating CI on the same wrong expression. This check makes the
+# duplication mechanical rather than a matter of remembering.
+#
+# The reader lives in scripts/lib/koto-gates.sh so that this script and
+# scripts/ci-gate-expression_test.sh share one description of koto's layout.
+# ---------------------------------------------------------------------------
+
+# shellcheck source=lib/koto-gates.sh
+. "$(dirname "$0")/lib/koto-gates.sh"
+
+check_shared_gate_commands() {
+    local templates=("$@")
+
+    [[ ${#templates[@]} -eq 0 ]] && return 0
+
+    # Each row is "<template>\t<kind>\t<gate>\t<command>", where kind is
+    # COMMAND for a gate the reader could read and UNREADABLE for one it
+    # could not.
+    local rows=""
+    local t line
+    for t in "${templates[@]}"; do
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            rows+="${t}"$'\t'"${line}"$'\n'
+        done < <(koto_gate_rows "$t")
+    done
+
+    # No gate anywhere in a non-empty template set means the reader matched
+    # nothing. That is far more likely to be a layout change in koto than a
+    # repo with no gates, and reporting "all valid" would hide it.
+    if [[ -z "$rows" ]]; then
+        local any_gates=0
+        for t in "${templates[@]}"; do
+            if grep -q "^    gates:" "$t" 2>/dev/null; then
+                any_gates=1
+                break
+            fi
+        done
+        if [[ $any_gates -eq 1 ]]; then
+            echo "ERROR: templates declare gates but none could be read"
+            echo "  scripts/lib/koto-gates.sh no longer matches koto's template layout"
+            ERRORS=$((ERRORS + 1))
+        fi
+        return 0
+    fi
+
+    # A gate whose command could not be read cannot be compared, so say so
+    # rather than treating it as agreeing with everything.
+    local unreadable
+    unreadable=$(printf '%s' "$rows" | awk -F'\t' '$2 == "UNREADABLE" { print "  " $1 ": " $3 }' | sort -u)
+    if [[ -n "$unreadable" ]]; then
+        echo "ERROR: gate command is not a single-line scalar, so it cannot be compared"
+        printf '%s\n' "$unreadable"
+        ERRORS=$((ERRORS + 1))
+    fi
+
+    local gate variants owners
+    while IFS= read -r gate; do
+        [[ -z "$gate" ]] && continue
+
+        variants=$(printf '%s' "$rows" \
+            | awk -F'\t' -v g="$gate" '$2 == "COMMAND" && $3 == g { print $4 }' | sort -u)
+
+        if [[ $(printf '%s\n' "$variants" | wc -l) -gt 1 ]]; then
+            echo "ERROR: gate '$gate' is defined more than once with different commands"
+            owners=$(printf '%s' "$rows" \
+                | awk -F'\t' -v g="$gate" '$2 == "COMMAND" && $3 == g { print $1 ": " $4 }' | sort -u)
+            printf '%s\n' "$owners" | sed 's/^/  /'
+            echo "  A gate name is shared across templates, so the same name must mean"
+            echo "  the same command. If the difference is deliberate, rename one gate."
+            ERRORS=$((ERRORS + 1))
+        fi
+    done < <(printf '%s' "$rows" | awk -F'\t' '$2 == "COMMAND" { print $3 }' | sort | uniq -d)
+}
+
+# ---------------------------------------------------------------------------
 # Main: determine files to validate
 # ---------------------------------------------------------------------------
 
@@ -172,15 +255,22 @@ check_template() {
     check_hardcoded_names "$template"
 }
 
+TEMPLATE_SET=()
+
 if [[ $# -gt 0 ]]; then
-    for f in "$@"; do
-        check_template "$f"
-    done
+    TEMPLATE_SET=("$@")
 else
     while IFS= read -r f; do
-        check_template "$f"
+        TEMPLATE_SET+=("$f")
     done < <(find . -path "*/koto-templates/*.md" ! -name "*.mermaid.md" -type f 2>/dev/null | sort)
 fi
+
+for f in "${TEMPLATE_SET[@]+"${TEMPLATE_SET[@]}"}"; do
+    check_template "$f"
+done
+
+# Check 4 compares templates against each other, so it runs once over the set.
+check_shared_gate_commands "${TEMPLATE_SET[@]+"${TEMPLATE_SET[@]}"}"
 
 if [[ $ERRORS -gt 0 ]]; then
     echo ""

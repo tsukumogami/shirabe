@@ -106,7 +106,7 @@ case "$ARGS" in
       exit 0
     fi
     ;;
-  # gh pr checks <number> --json state --jq '...'
+  # gh pr checks <number> --json bucket --jq '...'
   # Used by the ci_monitor ci_passing gate. A scenario-local empty check-runs
   # array models the DIRTY silent-success surface (GitHub suppresses new
   # check-runs on a conflicted PR, so length == 0 evaluates true).
