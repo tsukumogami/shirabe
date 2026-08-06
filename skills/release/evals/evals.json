@@ -65,6 +65,27 @@
         "Lists the specific blocker issues found",
         "Stops execution and does not proceed to note generation"
       ]
+    },
+    {
+      "id": 7,
+      "name": "sync-callers-on-success",
+      "prompt": "/release 0.6.0 (in the shirabe repo, workflow dispatch succeeds in Phase 6)",
+      "expected_output": "After Phase 6 confirms success, runs skills/release/scripts/bump-callers.sh v0.6.0 and reports which callers got a PR, were already up to date, or were skipped.",
+      "assertions": [
+        "Runs the caller-sync step only after Phase 6 reports success",
+        "Invokes bump-callers.sh with the new tag",
+        "Reports a per-caller result (PR opened, already up to date, or skipped) rather than a single pass/fail"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "sync-callers-skipped-outside-shirabe",
+      "prompt": "/release 1.2.0 (in the tsuku repo, workflow dispatch succeeds in Phase 6)",
+      "expected_output": "Completes Phase 6 and does not attempt Phase 7, since caller-syncing only applies to shirabe's own releases.",
+      "assertions": [
+        "Does not run bump-callers.sh or attempt to open caller PRs",
+        "Does not reference skills/release/callers.json outside the shirabe repo"
+      ]
     }
   ]
 }

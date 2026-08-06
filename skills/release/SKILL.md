@@ -3,8 +3,9 @@ name: release
 description: >-
   Release workflow. Analyzes commits to recommend a version, generates
   release notes for review, creates a draft GitHub release, dispatches
-  the reusable workflow, and monitors progress. Falls back to draft +
-  manual tag when no workflow is detected.
+  the reusable workflow, and monitors progress. In shirabe itself, also
+  opens bump PRs for repos pinned to the reusable workflow. Falls back
+  to draft + manual tag when no workflow is detected.
 argument-hint: '[version] [--dry-run]'
 ---
 
@@ -153,12 +154,52 @@ Draft release with notes: <url>
    - **Failure**: Print details. Suggest `gh run view <id> --log-failed`.
    - **Timeout**: Print run URL: "Workflow still running -- monitor at <url>"
 
+### Phase 7: Sync Callers
+
+Only runs in the `shirabe` repo itself, and only after Phase 6 reports
+success. The gate is repo identity alone: if the current repo isn't the
+one that owns and publishes `release.yml`, skip Phase 7 without reading
+`skills/release/callers.json` or otherwise reasoning about its contents
+-- that file is Phase 7's input, not a signal for whether Phase 7 applies.
+Other repos releasing through the reusable workflow don't have callers of
+their own to sync.
+
+Downstream repos pin the reusable workflow to a specific tag rather than
+tracking `@main` (see `docs/prds/PRD-reusable-release-system.md`, US8) so
+that an unreleased or unvetted change to `release.yml` can't break their
+release pipeline out from under them -- nothing in shirabe's own CI
+exercises `release.yml` end-to-end before a merge, so a tagged release is
+the first point a change is known-good. That means every new tag needs its
+own follow-up to move callers forward; left manual, this lags silently.
+
+Run the sync script to open that follow-up automatically:
+
+```bash
+skills/release/scripts/bump-callers.sh v<version>
+```
+
+The script reads the caller registry (`skills/release/callers.json`),
+and for each entry not already pinned to the new tag: shallow-clones the
+repo, updates the `uses:` line in its workflow file, and opens a PR. A
+caller already on the new tag, or whose workflow file no longer
+references the reusable workflow, is skipped and reported rather than
+treated as a failure. A caller with an already-open bump PR for this tag
+is also skipped, so re-running after a partial failure is safe.
+
+Print the script's summary (PR opened, already up to date, or skipped)
+for each caller so the user can see what happened without digging into
+logs.
+
+**New callers**: when another repo starts calling
+`tsukumogami/shirabe/.github/workflows/release.yml`, add it to
+`skills/release/callers.json` so future releases sync it too.
+
 ## Dry-Run Mode
 
 When `--dry-run` is passed:
 
 - Phases 1-3 run normally (version analysis, checks, notes + confirmation)
-- Phase 4-6 are skipped (no draft, no dispatch)
+- Phase 4-7 are skipped (no draft, no dispatch, no caller PRs)
 - Print what would happen: which files change, what tag, what dev version
 
 ## Error Recovery
@@ -174,3 +215,5 @@ When `--dry-run` is passed:
 | 5 | Dispatch fails | Check workflow exists and permissions |
 | 6 | Workflow fails | `gh run view <id> --log-failed` |
 | 6 | Timeout | Check URL printed at timeout |
+| 7 | Clone or push fails for a caller | Re-run `bump-callers.sh v<version>`; other callers already synced are skipped as up to date |
+| 7 | PR create fails after push | Branch is already pushed; open the PR manually or re-run the script |

@@ -1,0 +1,16 @@
+{
+  "callers": [
+    {
+      "repo": "tsukumogami/koto",
+      "workflow": ".github/workflows/prepare-release.yml"
+    },
+    {
+      "repo": "tsukumogami/niwa",
+      "workflow": ".github/workflows/prepare-release.yml"
+    },
+    {
+      "repo": "tsukumogami/tsuku",
+      "workflow": ".github/workflows/release-prepare.yml"
+    }
+  ]
+}
