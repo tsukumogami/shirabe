@@ -116,13 +116,13 @@ jobs:
         run: |
           # gh release view can't find drafts by tag when the git tag doesn't
           # exist yet. Use gh release list with jq filter instead.
-          DRAFT_TAG=$(gh release list --json tagName,isDraft \
+          DRAFT_TAG=$(gh release list --repo "${{ github.repository }}" --json tagName,isDraft \
             --jq '.[] | select(.tagName == "${{ inputs.tag }}" and .isDraft) | .tagName' \
             2>/dev/null || echo "")
 
           if [ -z "$DRAFT_TAG" ]; then
             # Check if a non-draft release exists (already published)
-            PUBLISHED=$(gh release list --json tagName,isDraft \
+            PUBLISHED=$(gh release list --repo "${{ github.repository }}" --json tagName,isDraft \
               --jq '.[] | select(.tagName == "${{ inputs.tag }}" and (.isDraft | not)) | .tagName' \
               2>/dev/null || echo "")
             if [ -n "$PUBLISHED" ]; then
