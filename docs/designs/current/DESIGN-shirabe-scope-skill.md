@@ -453,7 +453,11 @@ predicate verdicts as the skip reason.
 This is recommended because the walk is pattern-coherent with
 `/charter`'s shape-dependent gate evaluation (both parent
 skills evaluate shape-dependent gates inline during Phase 1
-against named upstream-artifact sections), it costs zero
+against named upstream-artifact sections — superseded
+2026-08-07: `/charter` no longer evaluates any gate against an
+upstream-artifact section, so `/scope` is now the only parent
+doing this; the walk's own justification is unaffected), it
+costs zero
 per-invocation overhead beyond the existing Phase 1
 conversation, and it produces the chain-proposal one-liner as
 its primary output rather than a derivative summary. Worked
@@ -1014,6 +1018,16 @@ The edit surface across the four pattern reference files:
 
 **A. `references/parent-skill-pattern.md`.**
 
+> **Partially superseded, 2026-08-07.** The Gate Vocabulary section
+> this design specifies now reads differently on two entries.
+> `/charter`'s `/roadmap` invocation moved from **shape-dependent**
+> to **ALWAYS** when its Building-Blocks threshold was removed, and
+> the shape-dependent canonical example is now `/scope`'s `/design`.
+> The four shape names and the Mandatory-with-auto-skip binding
+> described here are unchanged. Read
+> `references/parent-skill-pattern.md` for the current content; the
+> text below records what this design specified at the time.
+
 A.1. **New Gate Vocabulary section.** Inserted between the
 existing "Three Exit Paths" and "Conditional Feeder Invocation
 Shape" sections. Lists all four gate shapes (EITHER-signal,
@@ -1367,7 +1381,9 @@ shape:
   scope R4).
 - **ALWAYS** — `/charter`'s `/strategy` invocation (R6).
 - **shape-dependent** — `/charter`'s `/roadmap` invocation
-  (R7) and `/scope`'s `/design` invocation (R6).
+  (R7) and `/scope`'s `/design` invocation (R6). *(Superseded
+  2026-08-07: `/roadmap` is now ALWAYS; `/scope`'s `/design` is
+  the sole canonical example.)*
 - **Mandatory-with-auto-skip** — `/scope`'s `/prd` invocation
   (R5). Semantics: "The child SHALL be invoked unless its
   durable artifact already exists in the published-Accepted

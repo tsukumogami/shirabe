@@ -114,6 +114,19 @@ optional `/comp` if competitive analysis is warranted, required
 into coordinated multi-block work. The author never has to remember
 the order; the skill enforces it.
 
+> **Superseded, 2026-08-07 — the `/roadmap` gate described in this
+> document no longer reflects shipped behavior.** This BRIEF is
+> `status: Done` and is preserved as the framing that produced
+> `/charter`; it is not updated in place. The conditional `/roadmap`
+> gate ("if the strategy decomposes into coordinated multi-block
+> work", rendered as a decision node in the two diagrams below and
+> narrated as the causal reason in Journey 1) was removed:
+> `/roadmap` now fires on every full-run chain, and the only skip is
+> an explicit author declination. The current specification is R7 in
+> `docs/prds/PRD-shirabe-charter-skill.md` and
+> `skills/charter/references/phases/phase-2-chain-orchestration.md`.
+> Read the gate below as history, not as contract.
+
 ```mermaid
 flowchart LR
     A([/charter topic]) --> P[Phase 1<br/>Discovery]
