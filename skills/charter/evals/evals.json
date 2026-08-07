@@ -114,7 +114,7 @@
         "docs/strategies/STRATEGY-test-topic.md"
       ],
       "expectations": [
-        "Plan detects the Accepted STRATEGY at docs/strategies/STRATEGY-test-topic.md and fires resume-ladder row 5 with the entry prompt offering Re-evaluate / Revise / Bail (case-insensitive substrings present)",
+        "Plan detects the Accepted STRATEGY at docs/strategies/STRATEGY-test-topic.md and fires resume-ladder row 5 with an entry prompt whose option line is the contiguous literal \"Re-evaluate / Revise / Bail\" (case-insensitive, separator \" / \" exactly)",
         "Plan ensures the row-5 prompt does NOT contain the substring \"Continue / Start fresh\" \u2014 that is /strategy's status-aware re-entry vocabulary, not /charter's",
         "Plan rejects the PRD US-2 \"Do you want to revise?\" default as the entry prompt; the three options are co-equal with no leading question",
         "Plan walks the existing STRATEGY's Bet-Specific Falsifiability claims when Re-evaluate is selected and concludes whether all claims still hold",

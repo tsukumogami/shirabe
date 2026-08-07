@@ -940,10 +940,15 @@ requirement that motivates them and the user story they exercise
   exit per AC14 (writes the marker, sets state-file fields).
   `[automated-eval]` (R11, R16, US-3b)
 - [ ] **AC18** When `docs/strategies/STRATEGY-<topic>.md` is
-  Accepted/Active, the entry prompt MUST contain the literal
-  substrings "Re-evaluate", "Revise", and "Bail"
-  (case-insensitive) as the three options offered, AND MUST NOT
-  contain the literal substring "Continue / Start fresh".
+  Accepted/Active, the entry prompt MUST contain the contiguous
+  literal substring "Re-evaluate / Revise / Bail"
+  (case-insensitive, separator ` / ` exactly) as the option line
+  offering the three choices, AND MUST NOT contain the literal
+  substring "Continue / Start fresh". The contiguous form is
+  required because it is the mechanical proxy for the co-equality
+  US-2 makes contractual here — an option line cannot rank or bury
+  its options, and per-token checking cannot tell a co-equal menu
+  from three words buried in leading prose.
   `[automated-eval]` (R11, US-2 wording is load-bearing)
 - [ ] **AC18b** US-3a/AC13 verification: when `/strategy` Phase 5
   fires Reject outside a `/charter` chain (the author invokes

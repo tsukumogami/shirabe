@@ -51,7 +51,7 @@ child-internals isolation rule is cited from
 2.  state file has exit field set                         -> Exit-value-specific re-entry prompt
 3.  state file exists, last_updated < 7d                  -> Resume at recorded phase_pointer (no prompt)
 4.  state file exists, last_updated >= 7d                 -> Resume / Force-materialize / Discard prompt
-5.  STRATEGY-<topic>.md Accepted/Active                   -> "Re-evaluate" / "Revise" / "Bail" prompt
+5.  STRATEGY-<topic>.md Accepted/Active                   -> Re-evaluate / Revise / Bail prompt
 6.  STRATEGY-<topic>.md Draft                             -> continue-or-start-fresh prompt
 7.  wip/strategy_<topic>_discover.md exists               -> Resume into /strategy
 8.  wip/vision_<topic>_scope.md exists                    -> Resume into /vision
@@ -169,10 +169,18 @@ fresh.
 `Accepted` or `Active`. The author has invoked `/charter <topic>`
 against a settled upstream.
 
-**Action.** Surface a three-option entry prompt with the literal
-substrings "Re-evaluate", "Revise", and "Bail" (case-insensitive
-match). The three options are co-equal — there is no recommended
-default.
+**Action.** Surface a three-option entry prompt that CLOSES with the
+contiguous literal option line `Re-evaluate / Revise / Bail`
+(case-insensitive, separator ` / ` exactly). The bullets below are
+explanatory gloss, not the option surface — the closing line is what
+offers the options, and it is what the eval greps.
+
+The three options are co-equal — there is no recommended default, and
+the contiguous line is how that co-equality is made checkable. A
+single option line cannot rank or bury its options; prose can. See the
+Gate Vocabulary companion note on prompt vocabulary in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` for the rule
+that scopes contiguity to co-equal, default-free prompts.
 
 - **Re-evaluate** — `/charter` writes a re-evaluation Decision
   Record stating the bet still holds; the existing STRATEGY stays

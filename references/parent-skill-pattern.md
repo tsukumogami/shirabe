@@ -515,6 +515,33 @@ Bail" triad against an Accepted upstream artifact), so the eval surface
 can grep-check the prompt vocabulary and downstream parents inherit the
 discipline.
 
+**Which literal form to require.** Specify an option triad as ONE
+contiguous literal (separator ` / ` exactly) where the contract
+requires the options be **co-equal with no default**; specify it as
+independent per-token substrings everywhere else. Contiguity is not a
+style preference — it is the mechanical proxy for co-equality, because
+a single option line cannot rank or bury its options while prose can,
+and per-token checking cannot tell a co-equal menu from three words
+buried in a leading question.
+
+The rule classifies the existing triads without exemptions:
+
+| Prompt | Co-equal, no default? | Form |
+|--------|----------------------|------|
+| Status-aware re-entry (`Re-evaluate / Revise / Bail`) | yes — the parent PRDs make co-equality contractual | contiguous |
+| Chain proposal (`Proceed` / `Adjust` / `Bail`) | no — Proceed is the expected path, and a parent MAY render an interstitial label such as "Adjust chain" | per-token |
+| Per-child confirmation prompts carrying an explicit default | no — the default marker is the point | per-token |
+| Drift detection (`Re-run` / `Accept` / `Proceed without`) | no | per-token |
+
+Do NOT generalize contiguity to a triad in the per-token rows: a
+parent whose chain-proposal prompt renders "Adjust chain" would fail a
+contiguous check against its own canonical example.
+
+Note that the SHALL-NOT constraints naming this triad (the
+refuse-and-redirect rows) are **conceptual**, not byte-literal — they
+forbid *offering* the triad, however rendered — so they neither depend
+on nor are weakened by the positive form chosen here.
+
 ## Team-Lead Operating Discipline
 
 The pattern names a parent-skill discipline that binds the team-lead of
