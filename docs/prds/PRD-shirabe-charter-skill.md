@@ -357,11 +357,12 @@ A declination SHALL be recorded in the state file's
 `chain_skipped:` list as a `{child: roadmap, reason: <declination>}`
 entry, and the chain SHALL complete at full-run with STRATEGY only.
 `roadmap` remains in `planned_chain` and is absent from
-`chain_ran`. The
-declination is how an author marks a STRATEGY **non-actionable** —
-one that records a bet without heading toward execution.
-`/charter` does not infer that condition from the document; the
-author declares it.
+`chain_ran`.
+
+The declination is how an author marks a STRATEGY
+**non-actionable** — one that records a bet without heading toward
+execution. `/charter` does not infer that condition from the
+document; the author declares it.
 
 `/charter` SHALL pass `/roadmap` two things together:
 - `--upstream <strategy-path>` flag pointing at the just-produced
@@ -851,8 +852,9 @@ requirement that motivates them and the user story they exercise
 
 ### Exit-path enforcement
 
-- [ ] **AC11a** After a chain the author declined `/roadmap` on
-  (the exception path per R7), `wip/charter_<topic>_state.md`
+- [ ] **AC11a** After a chain where the author declined
+  `/roadmap` (the exception path per R7),
+  `wip/charter_<topic>_state.md`
   contains `exit: full-run` and `exit_artifacts` lists exactly one
   entry pointing to `docs/strategies/STRATEGY-<topic>.md`.
   `[automated-eval]` (R8, R10, US-1)
