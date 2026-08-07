@@ -12,4 +12,4 @@ This file is `@`-imported by the work-on skill, so it stays minimal.
 
 - `cargo test --workspace`
 - `skills/plan/scripts/plan-to-tasks_test.sh`
-- `skills/work-on/scripts/run-cascade_test.sh`
+- `skills/execute/scripts/run-cascade_test.sh`
