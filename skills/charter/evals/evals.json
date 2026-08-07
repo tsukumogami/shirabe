@@ -205,6 +205,19 @@
         "Plan invokes /roadmap with --upstream pointing at the just-produced STRATEGY and a pre-populated wip/roadmap_test-topic_scope.md handoff file",
         "Plan writes state file with exit: full-run and exit_artifacts containing two entries (STRATEGY and ROADMAP, each status Draft); chain_skipped contains no roadmap entry"
       ]
+    },
+    {
+      "id": 14,
+      "name": "ac10d-chain-proposal-triad",
+      "prompt": "/charter test-topic",
+      "expected_output": "Cold start under public-repo visibility. Phase 1 discovery concludes with the chain-proposal confirmation prompt (the \"chain proposal output\") per R7.5/AC10d. The prompt lists the children /charter will invoke, in chain order, and offers three options carrying the literal substrings \"Proceed\", \"Adjust\", and \"Bail\" (case-insensitive). Per the Gate Vocabulary's prompt-vocabulary rule in references/parent-skill-pattern.md, this triad is asserted PER-TOKEN rather than as one contiguous string: the chain proposal is not a co-equal menu (Proceed is the expected path), and /charter's canonical rendering is \"Proceed / Adjust chain / Bail?\", which carries an interstitial word in the Adjust label and so contains no contiguous \"Proceed / Adjust / Bail\". /strategy and /roadmap both appear as \"run\" because both gates are unconditional; a skipped child appears with its skip reason. The prompt fires BEFORE any child is invoked.",
+      "files": [],
+      "expectations": [
+        "Plan emits the chain-proposal confirmation prompt at the end of Phase 1 discovery, before any child skill is invoked",
+        "Plan's prompt contains the literal substrings \"Proceed\", \"Adjust\", and \"Bail\" (case-insensitive), asserted individually rather than as one contiguous slash-joined string",
+        "Plan does NOT require a contiguous \"Proceed / Adjust / Bail\" string, and tolerates the canonical rendering \"Proceed / Adjust chain / Bail?\" whose Adjust label carries an interstitial word",
+        "Plan lists the children in chain order, with /strategy and /roadmap both shown as running because their gates are unconditional"
+      ]
     }
   ]
 }
