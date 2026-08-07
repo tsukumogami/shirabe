@@ -64,13 +64,13 @@ below produces the writes; the R9 check validates them.
 ### Trigger
 
 Exit 1 fires when `/strategy` completes with a Draft STRATEGY and no
-`/strategy` Phase 5 Reject occurs. `/roadmap` MAY also fire per the
-R7 gates in
-`skills/charter/references/phases/phase-2-chain-orchestration.md`
-(both Building Blocks ≥ 3 and at least one non-empty Coordination
-Dependencies entry). When `/roadmap`'s gates hold, the chain
-completes through STRATEGY + ROADMAP; when they don't, the chain
-completes through STRATEGY alone.
+`/strategy` Phase 5 Reject occurs. `/roadmap` then fires
+unconditionally per R7 in
+`skills/charter/references/phases/phase-2-chain-orchestration.md`,
+so the chain completes through STRATEGY + ROADMAP (AC11b below).
+The chain completes through STRATEGY alone only when the author
+declined `/roadmap` at its confirmation prompt (AC11a below) — the
+exception path, not the common one.
 
 ### State-Field Assignments
 
@@ -79,28 +79,20 @@ The state file at `wip/charter_<topic>_state.md` is written with:
 - `exit: full-run`
 - `chain_completed: <ISO-8601 timestamp>` (set at the finalization
   moment)
-- `chain_ran: [<children that ran>]` (`/strategy` always; `/vision`
-  if R4 fired; `/roadmap` if R7 gates held; the gated feeder if its
-  three-condition gate held)
+- `chain_ran: [<children that ran>]` (`/strategy` always;
+  `/roadmap` always unless the author declined it; `/vision` if R4
+  fired; the gated feeder if its three-condition gate held)
+- `chain_skipped:` carries a `{child: roadmap, reason: <the
+  author's declination>}` entry when the author declined
+  `/roadmap`, and is otherwise empty of any `roadmap` entry
 - `exit_artifacts:` populated per the chain shape (see AC coverage
   below)
 
-### AC11a — STRATEGY-only Full-Run
+### AC11b — STRATEGY + ROADMAP Full-Run (the default)
 
-When the chain completes through STRATEGY alone (no `/roadmap`), the
-`exit_artifacts` list contains exactly one entry:
-
-```yaml
-exit_artifacts:
-  - path: docs/strategies/STRATEGY-<topic>.md
-    status: Draft
-```
-
-### AC11b — STRATEGY + ROADMAP Full-Run
-
-When the chain completes through both children, the `exit_artifacts`
-list contains exactly two entries (STRATEGY first, ROADMAP second,
-each with its own status):
+This is the shape every full-run chain lands at unless the author
+declined `/roadmap`. The `exit_artifacts` list contains exactly two
+entries (STRATEGY first, ROADMAP second, each with its own status):
 
 ```yaml
 exit_artifacts:
@@ -109,6 +101,25 @@ exit_artifacts:
   - path: docs/roadmaps/ROADMAP-<topic>.md
     status: Draft
 ```
+
+### AC11a — STRATEGY-only Full-Run (the declined-roadmap exception)
+
+When the author declined `/roadmap` at its confirmation prompt —
+marking the STRATEGY non-actionable, per R7 — the chain completes
+through STRATEGY alone and the `exit_artifacts` list contains
+exactly one entry:
+
+```yaml
+exit_artifacts:
+  - path: docs/strategies/STRATEGY-<topic>.md
+    status: Draft
+```
+
+A one-entry `exit_artifacts` under `exit: full-run` is valid ONLY
+alongside the matching `chain_skipped:` declination entry. A
+STRATEGY-only full-run with no recorded declination means
+`/roadmap` was dropped without the author asking, which is a
+contract violation rather than a permitted shape.
 
 ### Conditional-Field Absence (R9)
 

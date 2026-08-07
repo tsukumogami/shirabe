@@ -117,19 +117,20 @@ exit, and what an author reviews after the run.
 As a **skill author** with a strategic bet to pressure-test from
 scratch, I want to invoke `/charter <topic-slug>` and be walked
 through discovery, optional `/vision`, optional `/comp` (private
-repos only), required `/strategy`, and optional `/roadmap` without
+repos only), required `/strategy`, and `/roadmap` without
 remembering the chain order or the artifact-decision rules, so that
-I land at one or two Draft artifacts ready for human review.
+I land at two Draft artifacts ready for human review.
 
 Chain shape: `/charter` Phase 1 discovery → optional `/vision` (only
 if thesis-shift signal surfaces in discovery) → optional `/comp`
 (private repos with `/comp` shipped only) → `/strategy` (always) →
-optional `/roadmap` (only if STRATEGY's Building Blocks count is 3+
-with explicit Coordination Dependencies) → full-run exit.
+`/roadmap` (always, unless I decline it at the roadmap confirmation
+prompt) → full-run exit.
 
 What I review at end: the Draft STRATEGY at
-`docs/strategies/STRATEGY-<topic>.md`, plus the Draft ROADMAP at
-`docs/roadmaps/ROADMAP-<topic>.md` if `/roadmap` ran. State file at
+`docs/strategies/STRATEGY-<topic>.md` plus the Draft ROADMAP at
+`docs/roadmaps/ROADMAP-<topic>.md`. If I declined `/roadmap`, the
+STRATEGY stands alone. State file at
 `wip/charter_<topic>_state.md` records `exit: full-run`.
 
 ### US-2: Re-evaluation (the load-bearing story)
@@ -325,8 +326,9 @@ live with no `/charter` change.
 
 **R6 [/charter-specific].** `/charter` SHALL always invoke
 `/strategy` as the load-bearing child of the chain. The chain
-completes either at `/strategy`'s exit (no `/roadmap` warranted) or
-continues to `/roadmap`. `/charter` SHALL pass `/strategy` one of:
+continues to `/roadmap` on `/strategy`'s completion, or completes
+at `/strategy`'s exit when the author declined `/roadmap` per R7.
+`/charter` SHALL pass `/strategy` one of:
 - a freeform topic string (no upstream), OR
 - a VISION path (Input Mode 3 of `/strategy`) if `/vision` ran in
   the chain or if an existing VISION was identified during
@@ -338,14 +340,28 @@ continues to `/roadmap`. `/charter` SHALL pass `/strategy` one of:
 paths are `/strategy`'s lifecycle-verb mode (Input Mode 2), not the
 create-new mode.
 
-**R7 [/charter-specific].** `/charter` SHALL invoke `/roadmap` when
-the just-produced STRATEGY's Building Blocks section contains 3 or
-more blocks AND the STRATEGY's Coordination Dependencies section
-contains at least one non-empty entry that references another
-Building Block by name. If only 1-2 Building Blocks, OR no
-Coordination Dependencies section, OR a Coordination Dependencies
-section with no qualifying entries, `/charter` SHALL skip
-`/roadmap` and complete the chain at full-run with STRATEGY only.
+**R7 [/charter-specific].** `/charter` SHALL invoke `/roadmap` on
+every full-run chain. The invocation is unconditional with respect
+to STRATEGY content: `/charter` SHALL NOT read the STRATEGY's
+Building Blocks count, its Coordination Dependencies section, or
+any other document property to decide whether `/roadmap` fires.
+
+The single skip path is an explicit author declination.
+Immediately before invoking `/roadmap`, `/charter` SHALL surface a
+one-line roadmap confirmation prompt whose default is to proceed.
+`/charter` SHALL skip `/roadmap` if and only if the author
+declines at that prompt. In `--auto` mode the prompt does not
+fire and `/roadmap` always runs.
+
+A declination SHALL be recorded in the state file's
+`chain_skipped:` list as a `{child: roadmap, reason: <declination>}`
+entry, and the chain SHALL complete at full-run with STRATEGY only.
+`roadmap` remains in `planned_chain` and is absent from
+`chain_ran`. The
+declination is how an author marks a STRATEGY **non-actionable** —
+one that records a bet without heading toward execution.
+`/charter` does not infer that condition from the document; the
+author declares it.
 
 `/charter` SHALL pass `/roadmap` two things together:
 - `--upstream <strategy-path>` flag pointing at the just-produced
@@ -371,12 +387,14 @@ The prompt MUST identify itself as the **chain proposal output**
 contain the literal substrings "Proceed", "Adjust", and "Bail"
 (case-insensitive) as the three options. The prompt MUST list,
 in order, the children `/charter` plans to invoke (skipping
-those determined by R4/R5/R7 not to fire). Example shape:
+those determined by R4/R5 not to fire). `/strategy` and
+`/roadmap` always appear as "run" — their gates are
+unconditional, and the author's opportunity to drop `/roadmap`
+comes later, at R7's roadmap confirmation prompt. Example shape:
 
 > Based on our conversation, here's the chain I propose: [skip
 > `/vision` because <reason> | run `/vision`], run `/strategy`,
-> [run `/roadmap` because <reason> | skip `/roadmap` because
-> <reason>]. Proceed / Adjust chain / Bail?
+> run `/roadmap`. Proceed / Adjust chain / Bail?
 
 "Adjust" routes the author back to Phase 1 discovery for chain-shape
 redirection (e.g., force `/vision` on, opt `/comp` out) before any
@@ -787,17 +805,22 @@ requirement that motivates them and the user story they exercise
   `skills/comp/SKILL.md` absent, the chain proposal output (the
   R7.5 prompt's content) is byte-identical to a public-repo
   invocation for the same topic. `[automated-eval]` (R5)
-- [ ] **AC9** When the just-produced STRATEGY has fewer than 3
-  Building Blocks OR no Coordination Dependencies section OR a
-  Coordination Dependencies section with no qualifying entry
-  (per R7), `/charter` skips `/roadmap` and exits at full-run
-  with STRATEGY only. `[automated-eval]` (R7, US-1)
-- [ ] **AC10** When the just-produced STRATEGY has 3+ Building
-  Blocks AND a Coordination Dependencies section with at least
-  one non-empty entry referencing another Building Block by name,
-  `/charter` invokes `/roadmap` with `--upstream <strategy-path>`
-  AND a pre-populated `wip/roadmap_<topic>_scope.md`.
+- [ ] **AC9** When the author declines at the roadmap
+  confirmation prompt (per R7), `/charter` skips `/roadmap` and
+  exits at full-run with STRATEGY only. `chain_skipped:` records
+  a `{child: roadmap, reason: <declination>}` entry, and
+  `chain_ran` omits `roadmap`.
   `[automated-eval]` (R7, US-1)
+- [ ] **AC10** On every full-run chain where the author does not
+  decline, `/charter` invokes `/roadmap` with
+  `--upstream <strategy-path>` AND a pre-populated
+  `wip/roadmap_<topic>_scope.md`. No property of the just-produced
+  STRATEGY — Building Blocks count, Coordination Dependencies
+  content, or otherwise — changes whether the invocation fires.
+  `[automated-eval]` (R7, US-1)
+- [ ] **AC10a** Under `--auto`, the roadmap confirmation prompt
+  does not fire and `/roadmap` always runs; `chain_skipped:`
+  contains no `roadmap` entry. `[automated-eval]` (R7)
 - [ ] **AC10b** When `/charter` Phase 1 identifies an existing PRD
   as the chain's framing, `/strategy` is invoked with the PRD
   path as upstream (per R6's three valid input shapes — freeform
@@ -828,16 +851,17 @@ requirement that motivates them and the user story they exercise
 
 ### Exit-path enforcement
 
-- [ ] **AC11a** After a chain that completes with STRATEGY only
-  (no ROADMAP), `wip/charter_<topic>_state.md` contains
-  `exit: full-run` and `exit_artifacts` lists exactly one entry
-  pointing to `docs/strategies/STRATEGY-<topic>.md`.
+- [ ] **AC11a** After a chain the author declined `/roadmap` on
+  (the exception path per R7), `wip/charter_<topic>_state.md`
+  contains `exit: full-run` and `exit_artifacts` lists exactly one
+  entry pointing to `docs/strategies/STRATEGY-<topic>.md`.
   `[automated-eval]` (R8, R10, US-1)
 - [ ] **AC11b** After a chain that completes with STRATEGY AND
-  ROADMAP, `wip/charter_<topic>_state.md` contains
-  `exit: full-run` and `exit_artifacts` lists two entries: the
-  STRATEGY path and the ROADMAP path, each with the correct
-  status. `[automated-eval]` (R8, R10, US-1)
+  ROADMAP (the default path per R7),
+  `wip/charter_<topic>_state.md` contains `exit: full-run` and
+  `exit_artifacts` lists two entries: the STRATEGY path and the
+  ROADMAP path, each with the correct status.
+  `[automated-eval]` (R8, R10, US-1)
 - [ ] **AC12** After a re-evaluation chain that confirms the bet
   holds,
   `docs/decisions/DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`

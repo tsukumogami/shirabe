@@ -229,26 +229,29 @@ proposal output: `/vision`, `/strategy`, and `/roadmap`. The
 prompt lists them in that order, in order to match the chain's
 sequenced execution; entries for skipped children include the
 reason the gate did not hold (e.g., "skip `/vision` because an
-Accepted VISION already exists" or "skip `/roadmap` because the
-STRATEGY's Building Blocks section has fewer than three blocks").
+Accepted VISION already exists"). `/strategy` and `/roadmap`
+always appear as "run" — both gates are unconditional. The author's
+opportunity to drop `/roadmap` comes later, at the roadmap
+confirmation prompt documented in
+`skills/charter/references/phases/phase-2-chain-orchestration.md`,
+not here.
 
 ### Example Shape
 
 The prompt's surface phrasing follows this template (the example
-shows a chain where `/vision` is skipped, `/strategy` runs, and
-`/roadmap` is skipped because the STRATEGY shape gate failed):
+shows a chain where `/vision` is skipped and `/strategy` and
+`/roadmap` run):
 
 > *"Based on our conversation, here's the chain I propose: skip
 > `/vision` because an Accepted VISION already exists, run
-> `/strategy`, skip `/roadmap` because the STRATEGY's Building
-> Blocks section has fewer than three blocks. Proceed / Adjust
-> chain / Bail?"*
+> `/strategy`, run `/roadmap`. Proceed / Adjust chain / Bail?"*
 
 Variations on this template are produced by different gate
 outcomes: when `/vision` fires the entry reads "run `/vision`"
-without a skip reason; when `/roadmap` fires the entry reads "run
-`/roadmap`"; and so on. The three options at the end of the
-prompt — Proceed, Adjust, Bail — are stable across all variations.
+without a skip reason, and so on. The `/strategy` and `/roadmap`
+entries do not vary — both read "run" on every proposal. The three
+options at the end of the prompt — Proceed, Adjust, Bail — are
+stable across all variations.
 
 ### The Three Options
 

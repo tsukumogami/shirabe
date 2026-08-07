@@ -160,6 +160,13 @@ expands into rows 7-8 for `/strategy` vs `/vision`; slot 7
 (feeder-doc-detected) is unfilled because `/charter` has no
 feeder-doc case.
 
+Because `/roadmap` runs on every full-run chain, an interrupted
+chain commonly leaves a Draft STRATEGY on disk with `/roadmap`
+still in flight. Row 6 carries the mid-roadmap disambiguation:
+"Continue draft" resumes into `/roadmap` when the handoff file
+`wip/roadmap_<topic>_scope.md` exists and no published ROADMAP
+does, and into `/strategy` otherwise.
+
 `/charter`'s stale-session threshold is 7 days: state with
 `last_updated` ≥ 7 days old surfaces the Resume / Force-materialize
 / Discard prompt; fresher state silently resumes.

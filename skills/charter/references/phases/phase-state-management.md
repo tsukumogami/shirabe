@@ -126,10 +126,14 @@ file at every phase pointer.
   check.
 - **`planned_chain`** — ordered list of child-name strings naming
   which children are in scope for this run. Values are drawn from
-  `{vision?, comp?, strategy, roadmap?}` (children with `?` are
-  conditional on Phase 1 signals; `strategy` is unconditional). Set
-  at Phase 1 chain-proposal acceptance; modified only if the author
-  re-proposes the chain.
+  `{vision?, comp?, strategy, roadmap}` (children with `?` are
+  conditional on Phase 1 signals; `strategy` and `roadmap` are
+  unconditional). Set at Phase 1 chain-proposal acceptance;
+  modified only if the author re-proposes the chain. `roadmap` is
+  planned on every chain even though the author may later decline
+  it at the Phase 2 roadmap confirmation prompt — a declination
+  moves `roadmap` into `chain_skipped`, it does not retract the
+  plan.
 - **`chain_ran`** — ordered sub-list of `planned_chain` naming the
   children whose invocations completed (the child wrote its durable
   artifact and `/charter` recorded the result). Appended-to as each
@@ -218,7 +222,7 @@ phase_pointer: N
 chain_started: <ISO-8601 timestamp>
 chain_completed: <ISO-8601 timestamp>
 last_updated: <ISO-8601 timestamp>
-planned_chain: [vision?, comp?, strategy, roadmap?]
+planned_chain: [vision?, comp?, strategy, roadmap]
 chain_ran: [<sub-list of completed children>]
 chain_skipped:
   - child: <name>

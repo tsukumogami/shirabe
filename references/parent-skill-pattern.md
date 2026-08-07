@@ -128,15 +128,20 @@ introduces a category the existing shapes already cover.
 - **ALWAYS** — the child is invoked unconditionally on every chain
   run; no gate exists. Canonical example: `/charter`'s `/strategy`
   invocation, which is the main-chain spine and runs whether or not
-  upstream VISION or ROADMAP exists.
+  upstream VISION or ROADMAP exists. `/charter`'s `/roadmap`
+  invocation is ALWAYS as well: the parent inspects nothing in the
+  STRATEGY to decide, and an author declining the roadmap
+  confirmation prompt is an author intervention (the same class as
+  Bail), not a computed gate — every ALWAYS-gated child is
+  interruptible that way.
 
 - **shape-dependent** — the child invocation's *form* (which sub-
   shape of the child fires, with how many peers, against which set
   of inputs) is determined by an upstream-recorded predicate on the
   chain. The gate is not whether-to-invoke but how-to-invoke.
-  Canonical example: `/charter`'s `/roadmap` invocation, whose
-  feature-decomposition shape depends on the STRATEGY's recorded
-  building-block count.
+  Canonical example: `/scope`'s `/design` invocation, whose form is
+  determined by the R6 predicates recorded during Phase 1
+  discovery.
 
 - **Mandatory-with-auto-skip** — the child SHALL be invoked unless
   its durable artifact already exists at the published-Accepted

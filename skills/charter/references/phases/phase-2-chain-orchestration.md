@@ -5,11 +5,15 @@ invocation is gated by a parent-specific rule that determines whether
 the child fires for this run; when a gate does not hold, the chain
 silently skips the child and continues. The chain is sequenced; the
 gating decisions are made BEFORE Phase 1's chain-proposal confirmation
-prompt fires, and Phase 2 simply executes the accepted plan.
+prompt fires, and Phase 2 simply executes the accepted plan. The one
+in-Phase-2 author decision is `/roadmap`'s confirmation prompt (R7),
+which is a declination offer rather than a gate — `/roadmap` has no
+computed gate to evaluate.
 
 This file documents the four per-child invocation rules: `/vision`
 (R4), `/comp` (R5 + R12), `/strategy` (R6, the load-bearing child), and
-`/roadmap` (R7 with handoff pre-population). The chain-proposal output
+`/roadmap` (R7, unconditional with handoff pre-population). The
+chain-proposal output
 that confirms the accepted plan is documented in section 1.5 of
 `skills/charter/references/phases/phase-1-discovery.md`; this file
 documents the per-child internal logic that the chain proposal
@@ -77,9 +81,9 @@ behavior:
   output emitted to the author is byte-identical between public-
   repo invocations and private-repo-without-feeder invocations for
   the same topic. Neither output contains any feeder-related
-  substring; the proposal lists `/strategy` (and `/vision` /
-  `/roadmap` per their own gates) without mentioning the gated
-  child or naming the gate.
+  substring; the proposal lists `/strategy` and `/roadmap` (and
+  `/vision` per its own gate) without mentioning the gated child
+  or naming the gate.
 - **No "skill not yet shipped" message.** `/charter` MUST NOT
   emit prose like "the feeder skill is not yet available" or "the
   visibility gate did not pass" or any other surfacing of the
@@ -111,11 +115,12 @@ contract.
 See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
 
 `/charter` ALWAYS invokes `/strategy`. It is the load-bearing
-child of the chain; the chain completes either at `/strategy`'s
-exit (when no `/roadmap` is warranted) or continues to `/roadmap`
-on `/strategy`'s completion. There is no condition under which
-`/charter` skips `/strategy`; if `/strategy` cannot run to
-completion the chain enters the abandonment-forced exit path
+child of the chain; the chain continues to `/roadmap` on
+`/strategy`'s completion, or completes at `/strategy`'s exit when
+the author declines `/roadmap` at its confirmation prompt. There
+is no condition under which `/charter` skips `/strategy`; if
+`/strategy` cannot run to completion the chain enters the
+abandonment-forced exit path
 (documented in a companion outline owning the exit-path
 orchestration).
 
@@ -146,23 +151,59 @@ than into the chain-orchestration flow `/charter` is driving.
 
 See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
 
-`/charter` invokes `/roadmap` when ALL of the following shape gates
-hold against the just-produced STRATEGY:
+`/charter` ALWAYS invokes `/roadmap` on a full-run chain. No
+property of the just-produced STRATEGY feeds the decision:
+`/charter` does NOT count Building Blocks, does NOT test the
+Coordination Dependencies section for qualifying entries, and does
+NOT parse the document for feature-sequencing surface. The chain
+that produced a STRATEGY produces a ROADMAP.
 
-1. The STRATEGY's Building Blocks section contains 3 or more blocks.
-2. The STRATEGY's Coordination Dependencies section contains at
-   least one non-empty entry that references another Building
-   Block by name.
+`/charter` still READS those sections — the handoff
+pre-population below derives Candidate Features from Building
+Blocks and the Dependency Sketch from Coordination Dependencies.
+The distinction is what the reading is for: filling in the
+handoff, never deciding whether the invocation happens.
 
-When either shape gate does not hold (1-2 Building Blocks, OR no
-Coordination Dependencies section, OR a Coordination Dependencies
-section with no qualifying entries), `/charter` SHALL skip
-`/roadmap` and complete the chain at the full-run exit with the
-STRATEGY as the sole `exit_artifacts` entry. Skipping `/roadmap`
-when the shape gates fail is correct behavior, not a degraded
-path — `/roadmap`'s value depends on the upstream STRATEGY
-exhibiting feature-sequencing surface, and a STRATEGY without
-that surface has no roadmap to derive.
+### The Roadmap Confirmation Prompt
+
+The one path that skips `/roadmap` is an explicit author
+declination. Immediately before the invocation — after `/strategy`
+has completed and the Draft STRATEGY is on disk, so the author can
+actually read what the roadmap would sequence — `/charter` surfaces
+a one-line confirmation whose default is to proceed:
+
+> *"This strategy is about to get a ROADMAP. Proceed, or skip for
+> now?"* — default **Proceed**.
+
+`/charter` skips `/roadmap` if and only if the author declines
+here. In `--auto` mode the prompt does not fire at all and
+`/roadmap` always runs; the declination is an interactive choice,
+never an inference.
+
+A declination is recorded in the state file's `chain_skipped:`
+list as a `{child, reason}` entry. `roadmap` stays in
+`planned_chain` — the plan was to run it; the author declined —
+and is absent from `chain_ran`:
+
+```yaml
+chain_skipped:
+  - child: roadmap
+    reason: author declined the roadmap at the confirmation prompt
+```
+
+The chain then completes at the full-run exit with the STRATEGY as
+the sole `exit_artifacts` entry (the AC11a shape in
+`skills/charter/references/phases/phase-finalization.md`).
+
+The declination is how an author marks a STRATEGY **non-actionable**
+— one that records a bet without heading toward execution at all.
+It is not a judgment about the STRATEGY being too small or too
+simple to sequence; a one-block strategy still gets a ROADMAP
+unless the author says the work is not headed for execution.
+Phase 1's "Adjust" option remains available for an author who
+already knows at discovery time that no roadmap is wanted; the
+confirmation prompt is the later, better-informed moment for the
+same decision.
 
 ### Handoff Pre-Population
 
@@ -200,14 +241,26 @@ STRATEGY content the chain has already produced.
 - **Coverage Notes** — any gaps or open questions the discovery
   flagged that the roadmap author should resolve.
 
-### Why /roadmap Is Conditional
+### Why /roadmap Is Unconditional
 
-`/roadmap` is conditional rather than always-fires because the
-roadmap altitude is meaningful only when the upstream STRATEGY
-has feature-sequencing surface. A STRATEGY with a single Building
-Block, or no Coordination Dependencies, does not have a sequence
-to ROADMAP about; the chain completes at STRATEGY with no
-artificial roadmap padding. The author can run `/roadmap`
-manually later if the STRATEGY's structure changes (the manual-
-fallback non-interference rule documented in `phase-1-discovery.md`
-section 1.2 covers this case).
+`/roadmap` fires by default because a ROADMAP is a **working
+artifact**, not a durable one. Per the `## Artifact Lifecycle`
+model in the repository's CLAUDE.md, ROADMAP (like PLAN on the
+tactical side) exists while its job is in flight and the cascade
+deletes it once its features are done. It is cheap to produce and
+cheap to throw away.
+
+An earlier revision gated the invocation on the STRATEGY's shape —
+three or more Building Blocks plus a qualifying Coordination
+Dependencies entry. That threshold cost more than it saved. Every
+author and every agent reasoning about the chain had to hold two
+counting rules in their head to predict what `/charter` would do,
+and the payoff was skipping a small, disposable document. "The
+chain that produces a STRATEGY produces a ROADMAP" is one sentence
+and needs no arithmetic.
+
+The author keeps the escape hatch: the confirmation prompt above
+skips `/roadmap` on request, and the manual-fallback
+non-interference rule documented in `phase-1-discovery.md` section
+1.2 means a declined roadmap can always be produced later by
+running `/roadmap` directly.

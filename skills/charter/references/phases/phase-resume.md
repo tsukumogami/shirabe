@@ -213,10 +213,10 @@ that did not finish through to acceptance.
 continue from the existing draft or to start a fresh chain that
 supersedes it. The two options are:
 
-- **Continue draft** — resume into `/strategy`'s phase ladder
-  against the existing Draft STRATEGY. `/strategy`'s own resume
-  logic detects the draft and routes to the appropriate
-  continuation phase.
+- **Continue draft** — resume into the phase ladder of whichever
+  child the chain was inside when it stopped (see the mid-roadmap
+  disambiguation below). The child's own resume logic detects its
+  draft and routes to the appropriate continuation phase.
 - **Start fresh** — discard the Draft STRATEGY (the discard is
   recorded as a commit) and begin a new chain from Phase 0.
 
@@ -225,6 +225,30 @@ slot for partial-child-run plus draft-upstream cases. The
 specific prompt wording uses the row's two options as named above
 (neither is the literal phrase that row 5 explicitly excludes —
 see the negative-vocabulary rule documented under row 5).
+
+**Mid-roadmap disambiguation.** A Draft STRATEGY on disk no longer
+implies `/strategy` is the child to resume into. `/roadmap` fires
+on every full-run chain (R7), so an interrupted chain routinely
+leaves a Draft STRATEGY behind with `/roadmap` still in flight.
+"Continue draft" resolves the target this way:
+
+1. If `wip/roadmap_<topic>_scope.md` exists on disk AND no ROADMAP
+   exists at `docs/roadmaps/ROADMAP-<topic>.md`, the chain got as
+   far as `/charter`'s handoff pre-population and `/roadmap` was
+   mid-run. Resume into `/roadmap`, passing
+   `--upstream docs/strategies/STRATEGY-<topic>.md` and the
+   existing handoff file; `/roadmap`'s own resume logic continues
+   from the phase its partial-run artifacts indicate.
+2. Otherwise, resume into `/strategy`'s phase ladder against the
+   existing Draft STRATEGY, as before.
+
+Resuming into `/strategy` in case 1 would re-run a child that
+already finished, so the handoff-artifact check runs first. The
+check lives in this row rather than in a new ladder row because
+rows 7-8 both require *no* STRATEGY at the published path and so
+can never match the mid-roadmap case, and because rows 9-10 are
+pattern-level meta-ladder rows that renumbering would disturb for
+`/scope` as well as `/charter`.
 
 ## Row 7 — `/strategy` Partial Run
 
