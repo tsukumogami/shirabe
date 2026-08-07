@@ -139,9 +139,10 @@ introduces a category the existing shapes already cover.
   shape of the child fires, with how many peers, against which set
   of inputs) is determined by an upstream-recorded predicate on the
   chain. The gate is not whether-to-invoke but how-to-invoke.
-  Canonical example: `/scope`'s `/design` invocation, whose form is
-  determined by the R6 predicates recorded during Phase 1
-  discovery.
+  Canonical example: `/scope`'s `/design` invocation, whose
+  decision-roster shape is determined by the R6 predicates
+  (architectural-alternatives count, new-component references,
+  Complex classification) recorded during Phase 1 discovery.
 
 - **Mandatory-with-auto-skip** — the child SHALL be invoked unless
   its durable artifact already exists at the published-Accepted
