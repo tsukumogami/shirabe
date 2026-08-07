@@ -470,7 +470,7 @@ topic: <topic-slug>
 chain_started: <ISO-8601 timestamp>
 chain_completed: <ISO-8601 timestamp>  # set at finalization
 last_updated: <ISO-8601 timestamp>     # set on every write
-planned_chain: [vision?, comp?, strategy, roadmap?]  # which children in scope
+planned_chain: [vision?, comp?, strategy, roadmap]   # which children in scope
 chain_ran: [<sub-list of completed children>]
 chain_skipped:                          # free-text reasons for humans; not parsed
   - child: <name>
