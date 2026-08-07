@@ -88,26 +88,12 @@ The state file at `wip/charter_<topic>_state.md` is written with:
 - `exit_artifacts:` populated per the chain shape (see AC coverage
   below)
 
-### AC11b — STRATEGY + ROADMAP Full-Run (the default)
-
-This is the shape every full-run chain lands at unless the author
-declined `/roadmap`. The `exit_artifacts` list contains exactly two
-entries (STRATEGY first, ROADMAP second, each with its own status):
-
-```yaml
-exit_artifacts:
-  - path: docs/strategies/STRATEGY-<topic>.md
-    status: Draft
-  - path: docs/roadmaps/ROADMAP-<topic>.md
-    status: Draft
-```
-
 ### AC11a — STRATEGY-only Full-Run (the declined-roadmap exception)
 
-When the author declined `/roadmap` at its confirmation prompt —
-marking the STRATEGY non-actionable, per R7 — the chain completes
-through STRATEGY alone and the `exit_artifacts` list contains
-exactly one entry:
+The rarer of the two shapes. When the author declined `/roadmap` at
+its confirmation prompt — marking the STRATEGY non-actionable, per
+R7 — the chain completes through STRATEGY alone and the
+`exit_artifacts` list contains exactly one entry:
 
 ```yaml
 exit_artifacts:
@@ -120,6 +106,20 @@ alongside the matching `chain_skipped:` declination entry. A
 STRATEGY-only full-run with no recorded declination means
 `/roadmap` was dropped without the author asking, which is a
 contract violation rather than a permitted shape.
+
+### AC11b — STRATEGY + ROADMAP Full-Run (the default)
+
+The shape every full-run chain lands at unless the author declined
+`/roadmap`. The `exit_artifacts` list contains exactly two entries
+(STRATEGY first, ROADMAP second, each with its own status):
+
+```yaml
+exit_artifacts:
+  - path: docs/strategies/STRATEGY-<topic>.md
+    status: Draft
+  - path: docs/roadmaps/ROADMAP-<topic>.md
+    status: Draft
+```
 
 ### Conditional-Field Absence (R9)
 
