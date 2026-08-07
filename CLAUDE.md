@@ -118,11 +118,11 @@ strategic chain (VISION → STRATEGY → ROADMAP) as a single
 conversation, holding state across child boundaries and producing
 a durable STRATEGY as its terminal artifact. A full run also
 produces a ROADMAP — `/roadmap` fires on every chain unless the
-author declines it — but that ROADMAP is a working artifact the
-cascade later deletes, which is why the STRATEGY is the one the
-chain is named for. Use it when the conversation needs strategic
-framing decided in one sitting rather than reached for child-skill
-at a time.
+author declines it — but that ROADMAP is a working artifact that
+drives work rather than recording it, which is why the STRATEGY is
+the one the chain is named for. Use it when the conversation needs
+strategic framing decided in one sitting rather than reached for
+child-skill at a time.
 
 Reach for `/charter` when an author says any of:
 

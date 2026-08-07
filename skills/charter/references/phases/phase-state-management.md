@@ -152,8 +152,11 @@ file at every phase pointer.
   `docs/strategies/STRATEGY-<topic>.md`); `status` is drawn from
   `{Draft, Accepted, Active}` (the durable artifact's frontmatter
   status value at the moment of finalization). For `exit:
-  full-run` the list may be one entry (STRATEGY only) or two
-  entries (STRATEGY + ROADMAP) depending on the chain shape.
+  full-run` the list is two entries (STRATEGY + ROADMAP) by
+  default; it is one entry (STRATEGY only) ONLY when the author
+  declined `/roadmap`, in which case a matching `chain_skipped:`
+  entry MUST be present. A one-entry full-run without that
+  declination entry is a contract violation, not a chain shape.
 - **`child_snapshots`** — mapping from child-name to a `{path,
   status, content_hash}` block, with one entry per child in
   `planned_chain`. The `path` is the child's durable doc path;
@@ -240,10 +243,11 @@ child_snapshots:
 referenced_strategy: docs/strategies/STRATEGY-<topic>.md
 ```
 
-The shape of `exit_artifacts` for a STRATEGY-only full-run is one
-entry (the STRATEGY path). The shape for a STRATEGY + ROADMAP
-full-run is two entries (the STRATEGY path and the ROADMAP path,
-each with its own status). The shape for re-evaluation is one
+The default shape of `exit_artifacts` for a full-run is two entries
+(the STRATEGY path and the ROADMAP path, each with its own status).
+The STRATEGY-only shape is one entry (the STRATEGY path) and is
+valid only alongside the `/roadmap` declination entry in
+`chain_skipped:`. The shape for re-evaluation is one
 entry (the Decision Record path). The shape for
 abandonment-forced is one entry (the schema-compliant partial
 artifact path).

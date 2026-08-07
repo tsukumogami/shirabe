@@ -198,12 +198,51 @@ the sole `exit_artifacts` entry (the AC11a shape in
 The declination is how an author marks a STRATEGY **non-actionable**
 — one that records a bet without heading toward execution at all.
 It is not a judgment about the STRATEGY being too small or too
-simple to sequence; a one-block strategy still gets a ROADMAP
-unless the author says the work is not headed for execution.
-Phase 1's "Adjust" option remains available for an author who
-already knows at discovery time that no roadmap is wanted; the
-confirmation prompt is the later, better-informed moment for the
-same decision.
+simple to sequence.
+
+### Interaction With /roadmap's Two-Feature Minimum
+
+`/roadmap` refuses to build a single-feature roadmap. Its own
+`## Critical Requirements` set a minimum of 2 features, its Phase 2
+and Phase 3 flag a shorter list as blocking, its Phase 4 jury
+treats it as a FAIL, and `shirabe transition <roadmap> Active` is
+rejected in code by `validate_features_count`.
+
+Because the handoff derives Candidate Features from the STRATEGY's
+Building Blocks, a STRATEGY with one Building Block produces one
+candidate feature and cannot yield a valid ROADMAP.
+
+`/charter` does NOT re-implement that minimum as a gate — the
+child owns its own contract, and re-deriving it parent-side would
+reintroduce exactly the content-counting this rule removed.
+Instead, when the pre-populated handoff carries fewer than two
+Candidate Features, `/charter` SHALL say so in the confirmation
+prompt so the author decides with the constraint in view:
+
+> *"This strategy has one building block, so `/roadmap` has nothing
+> to sequence — it needs at least two features. Skip the roadmap,
+> or proceed anyway?"* — default **Skip** in this case only.
+
+This is not a computed gate: `/charter` still invokes `/roadmap` if
+the author proceeds, and the STRATEGY's content never decides on
+the author's behalf. It changes which answer is pre-selected, not
+who answers. In `--auto` mode, where no prompt fires, the
+sub-two-feature case skips `/roadmap` and records the skip in
+`chain_skipped` with the reason naming the two-feature minimum —
+the one place `/charter` acts on the count, because the
+alternative is driving `/roadmap` into a guaranteed refusal with
+no author present to resolve it.
+
+The confirmation prompt is the ONLY path that skips `/roadmap`.
+Phase 1's "Adjust" option re-shapes the chain before any child
+fires, but it cannot drop `/roadmap`: `/roadmap` has no Phase 1
+gate to adjust, and a chain that reached full-run without a
+recorded declination would land a one-entry `exit_artifacts` with
+no matching `chain_skipped:` entry — the contract violation
+`skills/charter/references/phases/phase-finalization.md` names
+under AC11a. An author who already knows at discovery time that no
+roadmap is wanted still declines at the confirmation prompt; that
+is what records the decision.
 
 ### Handoff Pre-Population
 
@@ -246,9 +285,19 @@ STRATEGY content the chain has already produced.
 `/roadmap` fires by default because a ROADMAP is a **working
 artifact**, not a durable one. Per the `## Artifact Lifecycle`
 model in the repository's CLAUDE.md, ROADMAP (like PLAN on the
-tactical side) exists while its job is in flight and the cascade
-deletes it once its features are done. It is cheap to produce and
-cheap to throw away.
+tactical side) drives work rather than serving as the audit trail;
+`/strategy`'s STRATEGY is what the chain leaves behind for the
+record. A ROADMAP is small, and producing one commits the author to
+nothing.
+
+Be precise about what "working" buys, though: it does NOT mean the
+document reliably disposes of itself. The completion cascade only
+reaches a ROADMAP through a finished downstream PLAN, and deletes
+it only when every feature is Done AND every referenced GitHub
+issue is closed; otherwise it just updates that feature's progress.
+A ROADMAP nobody plans against is never visited at all. The
+argument for firing unconditionally rests on the document being
+cheap and non-authoritative, not on it being auto-reclaimed.
 
 An earlier revision gated the invocation on the STRATEGY's shape —
 three or more Building Blocks plus a qualifying Coordination

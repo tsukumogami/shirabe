@@ -44,7 +44,7 @@ below produces the writes; the R9 check validates them.
 ## Three Exits + One Fallthrough
 
 - **Exit 1 — full-run** — the chain completes through its terminal
-  artifact (STRATEGY, optionally plus ROADMAP).
+  artifact (STRATEGY, plus ROADMAP unless the author declined it).
 - **Exit 2 — re-evaluation** — the chain produces a Decision Record
   rather than re-authoring an artifact. Two sub-shapes:
   - **re-evaluation sub-shape** — the existing STRATEGY's bet still

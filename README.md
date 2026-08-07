@@ -39,7 +39,7 @@ in one sitting, plus the child skills you can also reach for directly.
 
 | Skill | What it does |
 |-------|-------------|
-| `/execute` | Parent skill: drives a finished PLAN to merged code, delegating each issue to `/work-on`; owns single-repo and coordinated multi-repo runs |
+| `/execute` | Parent skill: drives a finished PLAN to merged code, delegating each issue to `/work-on`; owns single-pr and coordinated multi-repo plans (a multi-pr plan runs under `/work-on` instead) |
 | `/work-on` | Implement a GitHub issue, milestone, or full plan end-to-end: branch, analysis, code, three-panel review, tests, and pull request |
 | `/review-plan` | Adversarial review of a plan across scope, design fidelity, acceptance criteria, and sequencing, before issues get created |
 
@@ -73,13 +73,18 @@ what makes the chains resumable: a `/execute` run picks up a PLAN by reading
 its status, and `/plan` refuses to run against a DESIGN that isn't Accepted
 yet.
 
-Artifacts come in two kinds, and the difference explains why some of them
-vanish. **Durable** artifacts stay in `docs/` after the work ships and serve as
-the audit trail: VISION, STRATEGY, BRIEF, PRD, DESIGN, COMP. **Working**
-artifacts exist only while their job is in flight -- ROADMAP and PLAN -- and
-the completion cascade deletes them once their features are done. That is why
-a chain producing a ROADMAP is cheap: it is a scratch document with a
-lifecycle, not a permanent record.
+Artifacts come in two kinds. **Durable** artifacts stay in `docs/` after the
+work ships and serve as the audit trail: VISION, STRATEGY, BRIEF, PRD, DESIGN,
+COMP. **Working** artifacts -- ROADMAP and PLAN -- are not part of that audit
+trail; they exist to drive work, and the completion cascade can retire them
+once it is done.
+
+Retirement is conditional, not automatic. A PLAN is `git rm`'d when its work
+merges. A ROADMAP is only reached by the cascade when a plan downstream of it
+finishes, and it is deleted only once every feature on it is Done *and* every
+GitHub issue it references is closed; short of that the cascade just updates
+the matching feature's progress. A ROADMAP that never gets planned against is
+never visited by any cascade and stays on disk until someone removes it.
 
 | Prefix | Produced by | Captures |
 |--------|-------------|----------|
@@ -101,10 +106,11 @@ roadmap's progress.
 
 ## Coordinated multi-repo
 
-`/scope --coordinated` and `/work-on --coordinated` extend the chain across
-repositories: a single coordination PR is created up front to hold the plan and
-its framing, per-repo work is grouped to the coarsest legal unit and merged in a
-derived order, and the coordination PR merges last as the one completion signal.
+`/scope --coordinated` extends the chain across repositories, and `/execute`
+drives the resulting coordinated plan: a single coordination PR is created up
+front to hold the plan and its framing, per-repo work is grouped to the coarsest
+legal unit and merged in a derived order, and the coordination PR merges last as
+the one completion signal.
 A non-bypassable merge-last gate (`shirabe validate --merge-gate`) enforces it in
 CI -- the coordination PR cannot merge until every indexed per-repo PR has.
 See [`docs/guides/coordinated-multi-repo.md`](docs/guides/coordinated-multi-repo.md)
@@ -152,11 +158,11 @@ issue.
 If `/plan` produced a self-contained PLAN doc instead, you hand the whole thing
 to `/execute docs/plans/PLAN-plugin-system.md`. That mode runs the plan as a
 batch: shirabe creates one shared branch and draft PR, spawns a child workflow
-per issue with dependency-aware scheduling through `/work-on`, and once CI
-passes on the ready PR it walks the plan's upstream chain (design, PRD, brief),
-transitions each to its terminal status, and pushes those changes as a final
-commit on the same PR. The PR then merges with the upstream artifacts already
-transitioned. Issues tagged `docs` or `task` skip the code-review panels so
+per issue with dependency-aware scheduling through `/work-on`, then walks the
+plan's upstream chain (design, PRD, brief) while the PR is still a draft,
+transitioning each to its terminal status and staging those changes as a final
+commit. Only then does the PR flip to ready, so CI runs against the finalized
+chain rather than ahead of it. Issues tagged `docs` or `task` skip the code-review panels so
 documentation-only work doesn't pay for gates it doesn't need.
 
 The whole process produces a paper trail -- PRD, design doc, plan, and focused
@@ -185,7 +191,7 @@ Claude Code session:
 ## Requirements
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-- [koto](https://github.com/tsukumogami/koto) >= 0.2.1 (for `/work-on`;
+- [koto](https://github.com/tsukumogami/koto) >= 0.3.3 (for `/work-on`;
   installed automatically if missing)
 
 ## CLI and doc validation

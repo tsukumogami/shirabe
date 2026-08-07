@@ -116,13 +116,14 @@ exit, and what an author reviews after the run.
 
 As a **skill author** with a strategic bet to pressure-test from
 scratch, I want to invoke `/charter <topic-slug>` and be walked
-through discovery, optional `/vision`, optional `/comp` (private
+through discovery, conditional `/vision`, optional `/comp` (private
 repos only), required `/strategy`, and `/roadmap` without
 remembering the chain order or the artifact-decision rules, so that
 I land at two Draft artifacts ready for human review.
 
-Chain shape: `/charter` Phase 1 discovery → optional `/vision` (only
-if thesis-shift signal surfaces in discovery) → optional `/comp`
+Chain shape: `/charter` Phase 1 discovery → `/vision` (per R4's two
+independent signals: no Accepted or Active VISION at the published
+path, OR a thesis-shift signal in discovery) → optional `/comp`
 (private repos with `/comp` shipped only) → `/strategy` (always) →
 `/roadmap` (always, unless I decline it at the roadmap confirmation
 prompt) → full-run exit.
@@ -407,8 +408,9 @@ one of three named exit paths. Every chain MUST land at a durable
 file on disk; git history alone does not satisfy the
 terminal-artifact contract.
 
-- **Full-run.** A Draft STRATEGY landed (and optionally a Draft
-  ROADMAP). The chain halts at the durable artifact(s).
+- **Full-run.** A Draft STRATEGY landed, plus a Draft ROADMAP
+  unless the author declined it per R7. The chain halts at the
+  durable artifact(s).
 - **Re-evaluation.** `/charter` wrote a durable Decision Record at
   `docs/decisions/DECISION-strategy-<topic>-<sub-shape>-<YYYY-MM-DD>.md`.
   The re-evaluation exit has two first-class sub-shapes that share

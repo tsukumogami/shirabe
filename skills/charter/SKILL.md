@@ -26,10 +26,16 @@ durable terminal artifact.
 A full run also produces a ROADMAP, which `/roadmap` writes on every
 chain unless the author declines it (R7). STRATEGY is still the
 *durable* terminal artifact even though `/roadmap` runs after
-`/strategy`: the ROADMAP is a working artifact that the completion
-cascade deletes once its features land, while the STRATEGY stays in
+`/strategy`: the ROADMAP is a working artifact that drives work
+rather than recording it, while the STRATEGY stays in
 `docs/strategies/` as the audit trail. Both appear in
 `exit_artifacts:`.
+
+A working artifact is not a self-disposing one. `/roadmap`'s own
+`## Artifact Lifecycle` section owns the completion condition, and
+the cascade only retires a ROADMAP through a finished downstream
+PLAN — a ROADMAP nobody plans against persists until someone
+removes it.
 
 The pattern-level contract surface is documented in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` and its

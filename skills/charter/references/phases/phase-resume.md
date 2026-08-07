@@ -227,9 +227,18 @@ specific prompt wording uses the row's two options as named above
 see the negative-vocabulary rule documented under row 5).
 
 **Mid-roadmap disambiguation.** A Draft STRATEGY on disk no longer
-implies `/strategy` is the child to resume into. `/roadmap` fires
-on every full-run chain (R7), so an interrupted chain routinely
-leaves a Draft STRATEGY behind with `/roadmap` still in flight.
+implies `/strategy` is the child to resume into, because `/roadmap`
+fires on every full-run chain (R7) and can be interrupted with the
+STRATEGY already written.
+
+This row is the only place the ambiguity bites. A `/charter` chain
+interrupted mid-`/roadmap` normally still has its state file, so
+rows 3-4 match first and resume at the recorded `phase_pointer`
+(`2`, chain orchestration), with `chain_ran` already naming
+`/strategy` as complete — that is enough to route to `/roadmap`
+without inspecting the filesystem. Row 6 is the case where no state
+file survives, so there is no `phase_pointer` and no `chain_ran` to
+consult and the on-disk artifacts are the only evidence.
 "Continue draft" resolves the target this way:
 
 1. If `wip/roadmap_<topic>_scope.md` exists on disk AND no ROADMAP
@@ -246,9 +255,9 @@ Resuming into `/strategy` in case 1 would re-run a child that
 already finished, so the handoff-artifact check runs first. The
 check lives in this row rather than in a new ladder row because
 rows 7-8 both require *no* STRATEGY at the published path and so
-can never match the mid-roadmap case, and because rows 9-10 are
-pattern-level meta-ladder rows that renumbering would disturb for
-`/scope` as well as `/charter`.
+can never match, rows 3-4 already cover the state-file case through
+`phase_pointer`, and rows 9-10 are pattern-level meta-ladder rows
+that renumbering would disturb for `/scope` as well as `/charter`.
 
 ## Row 7 — `/strategy` Partial Run
 

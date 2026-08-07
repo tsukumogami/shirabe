@@ -130,10 +130,14 @@ introduces a category the existing shapes already cover.
   invocation, which is the main-chain spine and runs whether or not
   upstream VISION or ROADMAP exists. `/charter`'s `/roadmap`
   invocation is ALWAYS as well: the parent inspects nothing in the
-  STRATEGY to decide, and an author declining the roadmap
-  confirmation prompt is an author intervention (the same class as
-  Bail), not a computed gate — every ALWAYS-gated child is
-  interruptible that way.
+  upstream STRATEGY to decide. A parent MAY additionally offer the
+  author an explicit declination for an ALWAYS child (`/charter`
+  does, for `/roadmap`); that is author-supplied input, not a
+  predicate the parent computes, and unlike an exit-path
+  intervention such as Bail it leaves the chain on its normal exit
+  with the skip recorded in `chain_skipped`. Offering a declination
+  is per-parent and optional — `/scope`'s `/plan` is ALWAYS with no
+  declination surface.
 
 - **shape-dependent** — the child invocation's *form* (which sub-
   shape of the child fires, with how many peers, against which set
