@@ -20,7 +20,7 @@ in one sitting, plus the child skills you can also reach for directly.
 
 | Skill | What it does |
 |-------|-------------|
-| `/charter` | Parent skill: walks VISION -> STRATEGY -> ROADMAP in one sitting; produces STRATEGY as the terminal artifact |
+| `/charter` | Parent skill: walks VISION -> STRATEGY -> ROADMAP in one sitting; every run lands a STRATEGY and a ROADMAP unless you decline the roadmap when asked |
 | `/vision` | Capture why a project should exist -- thesis, audience, org fit -- via scoping, research agents, and jury review |
 | `/strategy` | Define a medium-term defensible bet that operationalizes a slice of a VISION, with a building-blocks decomposition and invalidation conditions |
 | `/roadmap` | Sequence multiple features into one initiative with dependency tracking and sequencing rationale |
@@ -66,12 +66,20 @@ get created.
 
 ## Documents
 
-Every skill above produces a durable Markdown artifact -- versioned frontmatter,
-a fixed set of required sections, and a status field that moves through a
+Every skill above produces a Markdown artifact -- versioned frontmatter, a
+fixed set of required sections, and a status field that moves through a
 defined lifecycle. That's what `shirabe validate` checks (see below), and it's
 what makes the chains resumable: a `/execute` run picks up a PLAN by reading
 its status, and `/plan` refuses to run against a DESIGN that isn't Accepted
 yet.
+
+Artifacts come in two kinds, and the difference explains why some of them
+vanish. **Durable** artifacts stay in `docs/` after the work ships and serve as
+the audit trail: VISION, STRATEGY, BRIEF, PRD, DESIGN, COMP. **Working**
+artifacts exist only while their job is in flight -- ROADMAP and PLAN -- and
+the completion cascade deletes them once their features are done. That is why
+a chain producing a ROADMAP is cheap: it is a scratch document with a
+lifecycle, not a permanent record.
 
 | Prefix | Produced by | Captures |
 |--------|-------------|----------|

@@ -3,8 +3,8 @@ name: charter
 description: >-
   Parent skill for the strategic chain. Walks an author through
   VISION → STRATEGY → ROADMAP as a single conversation, holding state
-  across child boundaries and producing a STRATEGY as the terminal
-  artifact. Use when an author needs strategic framing decided in one
+  across child boundaries and producing a durable STRATEGY plus a
+  working ROADMAP. Use when an author needs strategic framing decided in one
   sitting rather than reached for one child skill at a time. Triggers
   on "start a strategic conversation about X", "open a charter for
   Y", "I need to think through the bet on Z", or direct
@@ -21,7 +21,15 @@ pattern. It walks an author through the strategic chain
 (VISION → STRATEGY → ROADMAP), holding state across child boundaries,
 enforcing pattern-level invariants (state schema, resume ladder,
 exit paths, child inspection), and producing a STRATEGY as the
-terminal artifact.
+durable terminal artifact.
+
+A full run also produces a ROADMAP, which `/roadmap` writes on every
+chain unless the author declines it (R7). STRATEGY is still the
+*durable* terminal artifact even though `/roadmap` runs after
+`/strategy`: the ROADMAP is a working artifact that the completion
+cascade deletes once its features land, while the STRATEGY stays in
+`docs/strategies/` as the audit trail. Both appear in
+`exit_artifacts:`.
 
 The pattern-level contract surface is documented in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` and its
