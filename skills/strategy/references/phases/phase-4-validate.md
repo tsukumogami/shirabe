@@ -194,7 +194,7 @@ ROADMAP-altitude feature work).
 [Contents of docs/strategies/STRATEGY-<topic>.md]
 
 ## Upstream Context (if applicable)
-[Contents of the upstream VISION or PRD if one is declared in frontmatter; otherwise "no upstream declared"]
+[Contents of the grounding document — the upstream VISION declared in frontmatter, or the PRD recorded at Phase 0 in grounding-PRD mode; otherwise "no upstream declared"]
 
 ## Building Blocks Granularity Rubric
 

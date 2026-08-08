@@ -34,7 +34,8 @@ Read all available context:
 
 - `wip/strategy_<topic>_context.md` (Phase 0)
 - `wip/strategy_<topic>_discover.md` (Phase 1)
-- The upstream document (VISION or PRD) if Phase 0 recorded one
+- The grounding document (VISION or PRD) if Phase 0 recorded one, at the
+  `## Grounding Path` key
 - `skills/strategy/references/strategy-format.md` (format specification —
   load this in full at Phase 2 since the section-by-section guidance lives
   there)
@@ -47,7 +48,7 @@ appropriate content governance skill:
 
 ## 2.2 Private-Upstream Sanitization Warning
 
-When Phase 0 recorded an upstream path inside a private repo AND the current
+When Phase 0 recorded a grounding path inside a private repo AND the current
 repo's visibility is Public, surface a warning to the user before drafting:
 
 > The upstream `<path>` lives in a private repo. Quoting verbatim from a
@@ -74,9 +75,23 @@ status: Draft
 bet: |
   <one-paragraph falsifiable hypothesis with explicit invalidation conditions>
 scope: <project | org>
-upstream: <path to upstream VISION or PRD, omit field if none>
+upstream: <path to the upstream VISION, omit field if none>
 ---
 ```
+
+`upstream:` takes a VISION and nothing else. The field names the strategy's
+immediate neighbour one level up the strategic chain (VISION -> STRATEGY ->
+ROADMAP), so a reader who follows it lands on the altitude above this one.
+Read `## Recorded Upstream` from `wip/strategy_<topic>_context.md` and write
+that value: Phase 0 already resolved it, and it is `none` in every mode but
+upstream-VISION.
+
+When Phase 0 recorded a grounding PRD instead, omit the field. Do not
+substitute the PRD path — the PRD grounded the bet and belongs in Strategic
+Context prose, but as an `upstream:` value it would point a chain walk down
+into the tactical chain rather than up. Omitting is the correct shape, not a
+gap: the field is optional precisely so a strategy grounded in something
+other than a VISION has a right answer available.
 
 The `bet` field is a paragraph-length YAML literal block (`|`). It carries
 the same content the Defensibility Thesis section elaborates in prose; the
@@ -101,8 +116,11 @@ content properties.
 - If an upstream VISION exists, carry forward its essential framing (the
   audience, the value proposition, the org fit). Paraphrase rather than
   quote when the upstream is in a private repo and the strategy is public.
-- If no upstream VISION exists (org-scope case), ground the context in the
-  org artifacts and framings recorded at Phase 1.
+- If no upstream VISION exists, ground the context in whatever Phase 1
+  recorded as the anchor instead: the grounding PRD, or the org artifacts
+  and framings of the org-scope case. A grounding PRD gets named here in
+  prose, since Strategic Context is the only place it appears in the
+  finished document.
 - Identify the slice of the upstream framing this strategy operationalizes.
   STRATEGY does not re-justify the long-term thesis; it picks up a piece
   and articulates the medium-term bet about realizing that piece.

@@ -15,7 +15,7 @@ description: >-
   requirements (/prd), or open-ended exploration (/explore). Drives a
   six-phase workflow: conversational scoping, structured drafting,
   Building Blocks decomposition, three-reviewer jury, finalization.
-argument-hint: '<project or org topic, optional VISION path, or STRATEGY path + lifecycle verb>'
+argument-hint: '<project or org topic, optional VISION or PRD path, or STRATEGY path + lifecycle verb>'
 ---
 
 @.claude/shirabe-extensions/strategy.md
@@ -38,6 +38,14 @@ ROADMAP hits every altitude in order rather than landing two levels down
 with the reasoning in between skipped. The ROADMAP is the boundary
 between the strategic chain and the tactical one, and `/brief` is what
 crosses it, so a STRATEGY never links a PRD, DESIGN, or PLAN directly.
+
+A PRD can still ground the conversation — `/strategy
+docs/prds/PRD-<name>.md` reads one to derive the bet, and an author
+holding a feature PRD who wants the medium-term bet behind it has a
+real strategy to write. But reading a document and recording it as the
+strategy's parent are different acts. `upstream:` takes a VISION or
+nothing; a strategy grounded in a PRD with no VISION above it omits the
+field and names the PRD in Strategic Context prose.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
@@ -104,8 +112,13 @@ From `$ARGUMENTS`:
    reason: `shirabe transition <strategy-path> Sunset --reason "<text>"`.
 3. **Path to a VISION document** (matches `docs/visions/VISION-*.md`)
    — treat as the upstream VISION for the new STRATEGY; derive the
-   bet candidate from upstream content during Phase 1.
-4. **Anything else** — use as the starting topic for Phase 1 scoping.
+   bet candidate from upstream content during Phase 1, and record the
+   path as the draft's `upstream:`.
+4. **Path to a PRD document** (matches `docs/prds/PRD-*.md`) — read as
+   grounding for the bet during Phase 1. The PRD is not recorded as the
+   STRATEGY's `upstream`, per the read-vs-record rule above; if no
+   VISION sits above the strategy, the draft omits the field.
+5. **Anything else** — use as the starting topic for Phase 1 scoping.
 
 ### Context Resolution
 
@@ -122,8 +135,8 @@ rejecting any topic that contains other characters, including `.`,
 `/`, `_`, or whitespace. Without the constraint, `../`-shaped topics
 could redirect verdict writes outside `wip/research/`.
 
-**Path canonicalization.** Any user-supplied PRD or VISION upstream
-path (Input Mode 3) must be canonicalized at Phase 0 and rejected if
+**Path canonicalization.** Any user-supplied VISION or PRD path (Input
+Modes 3 and 4) must be canonicalized at Phase 0 and rejected if
 the canonical path resolves outside the repo working tree. Symlinks
 resolving to arbitrary filesystem content would otherwise leak into a
 public commit.

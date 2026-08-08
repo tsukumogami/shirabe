@@ -83,8 +83,8 @@ an author-chosen visual.
 
 - Prose describing dependency directions. Which blocks must land before
   which? Which blocks can ship in parallel? Which depend on work outside
-  the strategy's scope (an upstream PRD that must accept first, a
-  cross-repo capability that must ship)?
+  the strategy's scope (a PRD that must accept first, a cross-repo
+  capability that must ship)?
 - A visual showing the dependency graph. The format reference allows
   either ASCII (layered diagram) or Mermaid (`graph` directive).
   Authors pick whichever is more readable for their graph shape.

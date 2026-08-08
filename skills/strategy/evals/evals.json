@@ -121,6 +121,22 @@
         "Plan acknowledges the cross-product threshold (under 20% of total)",
         "Plan describes the altitude reviewer at Phase 4 applying the rubric"
       ]
+    },
+    {
+      "id": 9,
+      "name": "grounding-prd-not-recorded-as-upstream",
+      "prompt": "/strategy docs/prds/PRD-checkout.md",
+      "expected_output": "Phase 0 accepts the PRD path in grounding-PRD mode and canonicalizes it. Phase 1 reads the PRD to derive the bet candidate and the Strategic Context anchor. The PRD is NOT written into the draft's upstream frontmatter field: upstream names the strategy's immediate neighbour one level up the strategic chain (VISION -> STRATEGY -> ROADMAP), and a PRD is neither one level up nor on that chain. With no VISION above the strategy, Phase 2 omits the upstream field entirely and the PRD is named in Strategic Context prose instead. The PRD also never becomes a Downstream Artifacts entry.",
+      "files": ["docs/prds/PRD-checkout.md"],
+      "expectations": [
+        "Plan accepts the PRD path as grounding rather than rejecting it",
+        "Plan reads the PRD during Phase 1 to derive the bet candidate and the Strategic Context anchor",
+        "Plan does NOT write the PRD path into the STRATEGY's upstream frontmatter field",
+        "Plan omits the upstream field entirely because no VISION grounds the strategy",
+        "Plan explains that upstream names the immediate neighbour one level up the strategic chain (VISION -> STRATEGY -> ROADMAP) and a PRD is not that",
+        "Plan names the PRD in Strategic Context prose rather than in frontmatter",
+        "Plan does NOT list the PRD as a Downstream Artifacts entry"
+      ]
     }
   ]
 }

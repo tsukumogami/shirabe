@@ -41,10 +41,17 @@ Required fields: `schema`, `status`, `bet`, `scope`. Optional: `upstream`.
   `org` (operationalizes an org-level VISION).
 - **upstream** -- path to an upstream VISION, the strategy's immediate
   neighbour one level up the strategic chain (VISION -> STRATEGY ->
-  ROADMAP). Optional because org-scope
-  strategies may ground their context in first-principles framing or
-  multiple antecedents rather than a single parent. Cross-repo upstream
-  references use the `owner/repo:path` convention; see
+  ROADMAP). A VISION or nothing: never a PRD, a DESIGN, or anything
+  else on the tactical chain, since a reader follows this field looking
+  for the altitude above and would land below instead. Optional because
+  org-scope strategies may ground their context in first-principles
+  framing or multiple antecedents rather than a single parent, and
+  because a strategy may be grounded in a feature PRD -- `/strategy`
+  reads such a PRD to derive the bet, but reading it is not recording
+  it, and a strategy grounded that way with no VISION above it omits
+  the field and names the PRD in Strategic Context prose instead.
+  Cross-repo upstream references use the `owner/repo:path` convention;
+  see
   `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` for the
   visibility-direction rules.
 

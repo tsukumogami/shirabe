@@ -10,7 +10,7 @@ phases.
 Establish the runtime context for the rest of the workflow:
 
 - Identify which entry mode this invocation falls into (cold start, freeform topic,
-  or upstream PRD/VISION path).
+  an upstream VISION path, or a grounding PRD path).
 - Detect repo visibility (`Public` or `Private`) from CLAUDE.md.
 - Detect the strategy's scope (`project` or `org`) from inputs and CLAUDE.md
   context.
@@ -21,7 +21,7 @@ Establish the runtime context for the rest of the workflow:
   detection.
 
 By the end of this phase, downstream phases can assume `<topic>` is safe to splice
-into paths and that any upstream path argument refers to a file inside the repo.
+into paths and that any path argument refers to a file inside the repo.
 
 ## Resume Check
 
@@ -37,13 +37,14 @@ red flag worth surfacing.
 
 ## 0.1 Detect Entry Mode
 
-Parse `$ARGUMENTS` and classify into one of three modes:
+Parse `$ARGUMENTS` and classify into one of four modes:
 
 | Mode | Trigger | Phase 1 behavior |
 |------|---------|------------------|
 | **Cold start** | `$ARGUMENTS` is empty or whitespace only | Phase 1 asks the user what strategic conversation they want to have |
 | **Freeform topic** | `$ARGUMENTS` is a string with no path separators and does not match an existing file path | Phase 1 prompts for bet articulation grounded in the topic |
-| **Upstream path** | `$ARGUMENTS` resolves to an existing file under `docs/prds/` or `docs/visions/` | Phase 1 derives the bet candidate from the upstream's content |
+| **Upstream VISION** | `$ARGUMENTS` resolves to an existing file under `docs/visions/` | Phase 1 derives the bet candidate from the VISION's content |
+| **Grounding PRD** | `$ARGUMENTS` resolves to an existing file under `docs/prds/` | Phase 1 derives the bet candidate from the PRD's content |
 
 When `$ARGUMENTS` looks like a path (contains `/` or ends in `.md`) but the file
 does not exist, do not fall through to freeform-topic mode silently. Ask the user
@@ -52,6 +53,29 @@ the same name.
 
 Record the detected mode in `wip/strategy_<topic>_context.md` (created in step
 0.5) so resume logic can route back to the same Phase 1 branch.
+
+### Reading a document vs. recording it as `upstream`
+
+Both path modes read the file they are handed. Only one of them ever writes
+that path into the draft's `upstream:` frontmatter field, and the two acts are
+not the same act.
+
+- A **VISION is read and recorded.** `upstream:` names the strategy's
+  immediate neighbour one level up the strategic chain (VISION -> STRATEGY ->
+  ROADMAP), and a VISION is exactly that.
+- A **PRD is read only.** It grounds the Phase 1 conversation and informs the
+  bet, and there it stops. A PRD sits two altitudes below a STRATEGY and on
+  the tactical chain rather than the strategic one. Record it as the
+  strategy's parent and a reader who follows `upstream:` looking for the
+  altitude above lands below where they started instead, in the chain the
+  STRATEGY is meant to feed rather than descend from.
+
+Grounding a strategy in a PRD stays supported -- an author holding a feature
+PRD who wants the medium-term bet behind it has a real strategy to write. What
+the PRD never becomes is the recorded parent. When a PRD grounds the bet and
+no VISION sits above it, the draft omits `upstream:` entirely and names the
+PRD in Strategic Context prose, which is where the grounding is legible to a
+reader anyway.
 
 ## 0.2 Constrain the `<topic>` Slug
 
@@ -64,8 +88,10 @@ intended `wip/research/` directory.
 
 Derive the slug as follows:
 
-1. If `$ARGUMENTS` is an upstream path, take the basename, strip the
-   `PRD-` or `VISION-` prefix and `.md` suffix, and use the remainder.
+1. If `$ARGUMENTS` is a path argument, take the basename, strip the
+   `VISION-` or `PRD-` prefix and `.md` suffix, and use the remainder. Both
+   path modes derive the slug the same way -- the slug names the strategy's
+   topic, and says nothing about what ends up in `upstream:`.
 2. If `$ARGUMENTS` is a freeform topic string, lowercase it, replace whitespace
    and underscores with `-`, and strip any character outside `[a-z0-9-]`.
 3. If `$ARGUMENTS` is empty, ask the user to name the strategy and re-derive
@@ -77,9 +103,9 @@ with `-`, reject the invocation and ask the user for a clean slug. Do not fall
 through to a "best effort" slug — silent normalization hides input the user did
 not intend.
 
-## 0.3 Canonicalize Upstream Path
+## 0.3 Canonicalize the Path Argument
 
-If Phase 0 detected upstream-path mode, canonicalize the path before any read:
+If Phase 0 detected either path mode, canonicalize the path before any read:
 
 1. Resolve the path against the repo root (the working directory the skill
    was invoked from).
@@ -88,9 +114,11 @@ If Phase 0 detected upstream-path mode, canonicalize the path before any read:
    the invocation if it resolves outside (e.g., a symlink pointing to
    `/etc/passwd` or to a sibling repo).
 4. Verify the file exists and is readable.
-5. Verify the basename starts with `PRD-` or `VISION-`. Other prefixes indicate
+5. Verify the basename starts with `VISION-` or `PRD-`. Other prefixes indicate
    the user pointed at the wrong artifact type and the bet derivation will
-   misfire.
+   misfire. The prefix also selects the mode: `VISION-` is an upstream to
+   record, `PRD-` is grounding to read. See "Reading a document vs. recording
+   it as `upstream`" in 0.1.
 
 On any rejection, abort with a message that names the offending path and the
 reason. Do not silently fall back to freeform-topic mode — the user provided a
@@ -120,8 +148,10 @@ value.
    carries `scope: org`, default scope to `org`.
 2. If `$ARGUMENTS` is an upstream VISION path with `scope: project` or no
    scope field, default scope to `project`.
-3. If `$ARGUMENTS` is an upstream PRD path, default scope to `project` (PRDs
-   live below STRATEGY-altitude work).
+3. If `$ARGUMENTS` is a grounding PRD path, default scope to `project` (PRDs
+   live below STRATEGY-altitude work). The PRD informs the scope default the
+   same way it informs the bet, and -- like the bet -- that reading never
+   turns into an `upstream:` value.
 4. If `$ARGUMENTS` is empty or freeform, leave scope undetermined; Phase 1
    asks the user to confirm.
 
@@ -145,10 +175,14 @@ Write `wip/strategy_<topic>_context.md` with the following keys:
 # /strategy Context: <topic>
 
 ## Entry Mode
-<cold | freeform | upstream-prd | upstream-vision>
+<cold | freeform | grounding-prd | upstream-vision>
 
-## Upstream Path
-<canonical path, or "none">
+## Grounding Path
+<canonical path of the VISION or PRD Phase 1 reads, or "none">
+
+## Recorded Upstream
+<the VISION path Phase 2 writes into the draft's `upstream:` frontmatter,
+or "none" -- always "none" in grounding-prd mode>
 
 ## Topic Slug
 <topic>
@@ -176,7 +210,13 @@ Surface the detected context to the user in one short message:
 
 > Setting up `/strategy` for topic `<topic>`.
 > Entry mode: <mode>. Visibility: <visibility>. Scope: <scope or "to be confirmed">.
-> Upstream: <path or "none">.
+> Grounding: <path or "none">. Recorded upstream: <VISION path or "none">.
+
+In grounding-PRD mode the two lines differ, and that is worth saying out loud
+rather than letting the author discover it in the frontmatter later:
+
+> Grounding: `docs/prds/PRD-<name>.md`. Recorded upstream: none -- the PRD
+> grounds the bet but `upstream:` takes a VISION, so the draft omits it.
 
 Do not block on confirmation for routine cases. If any detection produced an
 unexpected value (visibility defaulted to Private because CLAUDE.md was
@@ -188,8 +228,10 @@ direction.
 
 Before proceeding:
 - [ ] `<topic>` slug matches `^[a-z0-9-]+$`
-- [ ] Upstream path (if provided) is canonicalized and inside the repo working tree
-- [ ] Upstream file (if provided) exists and has a `PRD-` or `VISION-` basename
+- [ ] Path argument (if provided) is canonicalized and inside the repo working tree
+- [ ] Path argument (if provided) exists and has a `VISION-` or `PRD-` basename
+- [ ] `## Recorded Upstream` holds the VISION path in upstream-VISION mode and
+      `none` in every other mode, grounding-PRD included
 - [ ] Visibility is recorded (Public or Private, never empty)
 - [ ] Scope is recorded as `project`, `org`, or `undetermined`
 - [ ] `wip/strategy_<topic>_context.md` exists with the keys above
