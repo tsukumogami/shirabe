@@ -23,6 +23,12 @@ summarizes.
 
 See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
 
+The `/vision` gate is the Mandatory-with-auto-skip shape from the
+Gate Vocabulary in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`, with
+the thesis-shift signal as its override. The settled statuses
+`/charter` skips against are Accepted and Active.
+
 `/charter` invokes `/vision` unless an Accepted or Active VISION
 already exists at the published path. Phase 1 inspects
 `docs/visions/VISION-<topic>.md` for the topic slug; if nothing
@@ -33,11 +39,19 @@ that.
 
 When an Accepted or Active VISION *does* exist at that path, the
 thesis-shift question decides whether `/vision` runs anyway. A
-positive signal overrides the existing VISION and fires the
-invocation; no signal leaves the existing VISION in place and the
-chain skips the child. The question is an override on an existing
-VISION, not a second route into the child, and this is the only
-case where the answer changes what the chain does.
+positive signal overrides the auto-skip and fires the invocation;
+no signal leaves the existing VISION in place and the chain skips
+the child, recording it in `chain_skipped`. The question is an
+override on an existing VISION, not a second route into the child,
+and this is the only case where the answer changes what the chain
+does.
+
+An earlier revision of the pattern classified this gate as
+EITHER-signal, reading the thesis-shift question and the
+absence-of-a-VISION condition as two independent routes into the
+child. They never were, and the shape was retired 2026-08-08 (see
+the Gate Vocabulary's dated note). The gate fires on exactly the
+same runs under either name.
 
 The question is still surfaced on every run: `phase-1-discovery.md`
 section 1.4 requires it verbatim ("Is the long-term thesis shifting,

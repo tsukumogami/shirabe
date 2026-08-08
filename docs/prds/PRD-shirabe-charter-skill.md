@@ -300,6 +300,14 @@ child and leave the existing VISION in place. The thesis-shift
 answer therefore decides the invocation only in the
 existing-VISION case.
 
+The gate is the pattern's Mandatory-with-auto-skip shape with the
+thesis-shift signal as its override — classified 2026-08-08, when
+EITHER-signal was retired and the auto-skip shape widened to admit
+an optional override. See the `## Gate Vocabulary` section of
+`references/parent-skill-pattern.md`, where this gate is the
+canonical with-override example. The requirement above is
+unchanged; only its shape name is new.
+
 The thesis-shift signal is an author-stated condition surfaced
 through Phase 1 discovery. `/charter`'s discovery prompt MUST
 include a question of the form "Is the long-term thesis shifting,

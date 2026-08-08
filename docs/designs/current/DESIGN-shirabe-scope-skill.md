@@ -113,6 +113,14 @@ pattern's gate vocabulary needs a fourth entry
 (Mandatory-with-auto-skip) so the gate is named honestly inside
 the pattern doc, not jammed into a misnamed third gate.
 
+*Superseded 2026-08-08 (the vocabulary count only): the pattern
+carries three gate shapes today. EITHER-signal was retired into
+Mandatory-with-auto-skip, which widened to admit an optional
+per-parent override signal; `/prd`'s gate and the honest-naming
+argument above are unaffected. See the dated note in the
+`## Gate Vocabulary` section of
+`references/parent-skill-pattern.md`.*
+
 System boundaries touched by this design:
 
 - `skills/scope/SKILL.md` (new) — the loadable skill body, with
@@ -1027,6 +1035,17 @@ The edit surface across the four pattern reference files:
 > described here are unchanged. Read
 > `references/parent-skill-pattern.md` for the current content; the
 > text below records what this design specified at the time.
+>
+> **Further superseded, 2026-08-08 — there are three shapes now,
+> not four.** EITHER-signal was retired. Both gates it named
+> (`/charter`'s `/vision`, `/scope`'s `/brief`) are auto-skip gates
+> whose signal only matters when a settled artifact is already on
+> disk, so Mandatory-with-auto-skip widened to admit an optional
+> per-parent override signal and absorbed them. `/scope`'s `/prd`
+> remains the canonical no-override example; `/charter`'s `/vision`
+> is the canonical with-override example. No gate's behavior
+> changed — every child still fires on the same set of runs. Read
+> the shape list below as history.
 
 A.1. **New Gate Vocabulary section.** Inserted between the
 existing "Three Exit Paths" and "Conditional Feeder Invocation
@@ -1378,7 +1397,10 @@ shape:
 
 - **EITHER-signal** — `/charter`'s `/vision` invocation
   (PRD-charter R4) and `/scope`'s `/brief` invocation (PRD-
-  scope R4).
+  scope R4). *(Superseded 2026-08-08: the shape is retired.
+  Both gates are Mandatory-with-auto-skip with an override
+  signal — the thesis shift and the framing shift only decide
+  the case where a settled artifact is already on disk.)*
 - **ALWAYS** — `/charter`'s `/strategy` invocation (R6).
 - **shape-dependent** — `/charter`'s `/roadmap` invocation
   (R7) and `/scope`'s `/design` invocation (R6). *(Superseded

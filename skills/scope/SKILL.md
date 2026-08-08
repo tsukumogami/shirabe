@@ -36,7 +36,8 @@ after `/charter`; the seven SKILL.md structural elements below align
 section-by-section with the pattern's required structural elements,
 and the prose contracts after them bind the `/scope`-specific
 asymmetries the tactical chain introduces (two settled-upstream
-boundaries, a Mandatory-with-auto-skip gate on `/prd`, a refuse-
+boundaries, Mandatory-with-auto-skip gates on `/brief` and
+`/prd`, a refuse-
 and-redirect Slot 5 shape for PLAN's downstream-owned lifecycle
 states, and a terminal child with two output modes).
 

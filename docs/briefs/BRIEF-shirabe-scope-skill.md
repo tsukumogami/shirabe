@@ -103,6 +103,21 @@ grows a fourth entry (Mandatory-with-auto-skip), or `/prd`'s gate
 unifies into EITHER-signal with a contrived "requirements-shift"
 signal that doesn't actually match `/prd`'s resume semantics.
 
+> **Superseded, 2026-08-08 — the gate vocabulary this document
+> frames as three-going-on-four is three shapes today.** The
+> fourth entry landed as this brief anticipated, and then
+> EITHER-signal was retired into it: both gates that carried the
+> EITHER-signal label (`/charter`'s `/vision`, `/scope`'s
+> `/brief`) turned out to be auto-skip gates whose signal only
+> decides the case where a settled artifact is already on disk, so
+> Mandatory-with-auto-skip widened to admit an optional per-parent
+> override and absorbed them. The current vocabulary is ALWAYS,
+> shape-dependent, and Mandatory-with-auto-skip. The
+> "Feeder-EITHER signal for `/brief`" line further down reads the
+> same way. No gate's behavior changed; the current specification
+> is the `## Gate Vocabulary` section of
+> `references/parent-skill-pattern.md`.
+
 The remaining gap has five parts:
 
 - **No parent skill entry point.** Future tactical-chain authors

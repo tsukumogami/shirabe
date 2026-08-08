@@ -113,17 +113,10 @@ wrong outcome.
 ## Gate Vocabulary
 
 Parents invoke children behind named gates. The pattern recognizes
-four gate shapes; every child-invocation gate in every parent SHALL
-be one of these four. Naming the shapes pattern-side keeps reviewers
+three gate shapes; every child-invocation gate in every parent SHALL
+be one of these three. Naming the shapes pattern-side keeps reviewers
 from inventing per-parent vocabulary when a parent's chain shape
 introduces a category the existing shapes already cover.
-
-- **EITHER-signal** — the child is invoked when a parent-defined
-  signal fires OR an upstream condition holds, with either signal
-  sufficient to open the gate. Canonical example: `/charter`'s
-  `/vision` invocation, where the gate opens on either a Phase 1
-  discovery signal or the absence of a published upstream VISION at
-  the canonical path.
 
 - **ALWAYS** — the child is invoked unconditionally on every chain
   run; no gate exists. Canonical example: `/charter`'s `/strategy`
@@ -155,16 +148,51 @@ introduces a category the existing shapes already cover.
 - **Mandatory-with-auto-skip** — the child SHALL be invoked unless
   its durable artifact already exists at the published-Accepted
   status at the canonical path, in which case the child is recorded
-  in `chain_skipped` and the chain proceeds to the next gate.
-  Canonical example: `/scope`'s `/prd` invocation, where an
-  Accepted PRD at `docs/prds/PRD-<topic>.md` causes the gate to
-  auto-skip and the chain continues to `/design`; absent that
-  artifact, `/prd` runs.
+  in `chain_skipped` and the chain proceeds to the next gate. A
+  parent MAY additionally define a signal that overrides the skip
+  and invokes the child anyway. The override is optional per-parent:
+  a gate that defines none is still this shape. A parent whose
+  child's lifecycle carries a further settled status MAY name it in
+  its own binding (`/charter` skips against an Active VISION as well
+  as an Accepted one); the shape requires only that the settled set
+  be fixed before the run.
+  Canonical example without an override: `/scope`'s `/prd`
+  invocation, where an Accepted PRD at `docs/prds/PRD-<topic>.md`
+  causes the gate to auto-skip and the chain continues to
+  `/design`; absent that artifact, `/prd` runs. Canonical example
+  with an override: `/charter`'s `/vision` invocation, which skips
+  against an Accepted or Active VISION at
+  `docs/visions/VISION-<topic>.md` and runs anyway when Phase 1
+  discovery surfaces a thesis shift. `/scope`'s `/brief` is the
+  same shape with a framing-shift override.
 
-The four shapes are stable across parents. Each shape's
+The three shapes are stable across parents. Each shape's
 canonical example fixes the meaning against an existing parent's
 SKILL.md so a reviewer can grep the example to confirm the shape
 identifier matches the binding.
+
+An override is not a second route into the child. It can only fire
+in the case the auto-skip would otherwise have closed the gate — a
+settled artifact already on disk — so a cold start fires the child
+whatever the signal says. A parent MAY still surface the override
+question on every run for the framing it gives the conversation; it
+just cannot change the outcome when there is nothing to skip.
+
+*EITHER-signal retired 2026-08-08.* An earlier revision named a
+fourth shape, EITHER-signal: "the child is invoked when a
+parent-defined signal fires OR an upstream condition holds, with
+either signal sufficient to open the gate," with `/charter`'s
+`/vision` as its canonical example. Once each gate carrying that
+label was written out as its own rule, every one of them
+(`/charter`'s `/vision`, `/scope`'s `/brief`) turned out to be an
+auto-skip gate with an override: the artifact state decides, and the
+signal matters only when a settled artifact is already on disk. No
+gate in any parent invoked its child on a signal alone, so the shape
+had no examples left and was folded into Mandatory-with-auto-skip's
+optional-override clause. Skill files and durable docs written before
+that date may still call these gates EITHER-signal; read the label as
+this shape. No gate's behavior changed — the same children fire on
+the same runs.
 
 ## Conditional Feeder Invocation Shape
 

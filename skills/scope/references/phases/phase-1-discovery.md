@@ -26,11 +26,11 @@ to the author with its frontmatter `status:` value, so the
 author's framing-shift answer is informed by the current state
 of the chain on disk.
 
-The framing-shift answer feeds R4's EITHER-signal for `/brief`.
-A positive answer alone fires `/brief` even when an Accepted
-BRIEF exists at the canonical path (the framing shift overrides
-the upstream-exists signal). The full literal prompt text is
-captured here for eval-grep checking against the contract.
+The framing-shift answer feeds R4's override for `/brief`. A
+positive answer fires `/brief` even when an Accepted BRIEF exists
+at the canonical path — the framing shift overrides the auto-skip.
+The full literal prompt text is captured here for eval-grep
+checking against the contract.
 
 ## Cold-Start Projected-PRD Evaluation
 
@@ -65,24 +65,32 @@ When the post-PRD predicates match the pre-PRD projection,
 `chain_revised:` stays unset and the chain proceeds without
 re-narration.
 
-## R4 EITHER-Signal Evaluation for `/brief`
+## R4 Mandatory-with-Auto-Skip Evaluation for `/brief`
 
-The `/brief` invocation gate is an EITHER-signal gate per the
-Gate Vocabulary in
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`. Two
-independent signals open the gate:
+The `/brief` invocation gate is the Mandatory-with-auto-skip
+shape per the Gate Vocabulary in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`, with
+the framing-shift signal as its override. The gate semantics:
 
-1. **No upstream BRIEF at the canonical path** — `docs/briefs/BRIEF-<topic>.md`
-   does not exist, or exists at a non-Accepted status.
-2. **Framing-shift signal positive** — the author's answer to
-   the framing-shift question indicates the topic's framing has
-   shifted enough to warrant a fresh BRIEF.
+1. **No settled upstream BRIEF at the canonical path** —
+   `docs/briefs/BRIEF-<topic>.md` does not exist, or exists at a
+   non-Accepted status. `/brief` fires.
+2. **Framing-shift override** — an Accepted BRIEF is on disk, but
+   the author's answer to the framing-shift question indicates the
+   topic's framing has shifted enough to warrant a fresh BRIEF.
+   The override fires `/brief` anyway.
 
-Either signal alone fires `/brief`; both signals holding fires
-`/brief` once (not twice). When neither signal holds (Accepted
-BRIEF exists AND the framing has not shifted), `/brief` is
-recorded in `chain_skipped:` with reason `accepted-brief-at-
-canonical-path-with-no-framing-shift`.
+When neither holds (Accepted BRIEF exists AND the framing has not
+shifted), `/brief` is recorded in `chain_skipped:` with reason
+`accepted-brief-at-canonical-path-with-no-framing-shift`. A cold
+start always fires `/brief`, and the framing-shift answer cannot
+change that — there is nothing on disk for it to override.
+
+An earlier revision called this gate EITHER-signal, on the reading
+that the two conditions were independent routes into the child.
+They are not: the framing shift only ever decides the case where a
+settled BRIEF is already on disk. The shape name changed
+2026-08-08; the gate fires on exactly the same runs it always did.
 
 ## R5 Mandatory-with-Auto-Skip Evaluation for `/prd`
 
@@ -217,7 +225,8 @@ per AC9).
 Example output skeleton:
 
 > Planned chain:
->   /brief — fires (R4 EITHER-signal: no upstream BRIEF)
+>   /brief — fires (R4 mandatory-with-auto-skip: no upstream
+>     BRIEF)
 >   /prd — fires (R5: no Accepted PRD at canonical path)
 >   /design — fires (R7 shape-dependent: P1 fires, P2 fires,
 >     P3 does-not-fire)
@@ -301,7 +310,7 @@ chain run.
 ## References
 
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` —
-  Gate Vocabulary (EITHER-signal, ALWAYS, shape-dependent,
+  Gate Vocabulary (ALWAYS, shape-dependent,
   Mandatory-with-auto-skip), Conditional Feeder Invocation Shape.
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
   — `planned_chain:` / `chain_ran:` / `chain_skipped:` triad,
