@@ -158,27 +158,97 @@ Coordination Dependencies section for qualifying entries, and does
 NOT parse the document for feature-sequencing surface. The chain
 that produced a STRATEGY produces a ROADMAP.
 
-`/charter` still READS those sections — the handoff
-pre-population below derives Candidate Features from Building
-Blocks and the Dependency Sketch from Coordination Dependencies.
-The distinction is what the reading is for: filling in the
-handoff, never deciding whether the invocation happens.
+`/charter` still READS those sections. The handoff pre-population
+below derives Candidate Features from Building Blocks and the
+Dependency Sketch from Coordination Dependencies, and the
+confirmation prompt's observation walk reads the STRATEGY to tell
+the author what it saw. The distinction is what the reading is
+for: filling in the handoff and informing the author, never
+deciding whether the invocation happens.
 
 ### The Roadmap Confirmation Prompt
 
 The one path that skips `/roadmap` is an explicit author
 declination. Immediately before the invocation — after `/strategy`
-has completed and the Draft STRATEGY is on disk, so the author can
-actually read what the roadmap would sequence — `/charter` surfaces
-a one-line confirmation whose default is to proceed:
+has completed and the Draft STRATEGY is on disk — `/charter` reads
+that STRATEGY, says what it observed, and asks. The default is to
+proceed; the author's answer is the only thing that decides.
 
-> *"This strategy is about to get a ROADMAP. Proceed, or skip for
+The question the prompt asks is NOT "is this strategy big enough to
+sequence." Size never disqualifies a ROADMAP. The question is
+whether the strategy is **headed for execution at all** — a STRATEGY
+that records a bet nobody intends to act on is the one case that
+legitimately gets no ROADMAP.
+
+#### Observation Walk
+
+`/charter` reads three observations out of the Draft STRATEGY before
+asking. Each emits a verdict (`headed-for-execution` /
+`not-headed-for-execution`) and a one-line reason; the reasons go
+into the prompt verbatim so the author sees the reading rather than
+a label. The shape follows `/scope`'s R6 predicate walk (see
+`skills/scope/references/phases/phase-1-discovery.md`).
+
+- **O1 — Building Blocks describe deliverables.** Read the
+  STRATEGY's Building Blocks. A block naming something to build
+  ("ship the merge-gate check in `shirabe validate`") reads
+  headed-for-execution; a block naming a question to answer first
+  ("determine whether adopters want a merge gate") reads
+  not-headed-for-execution.
+- **O2 — Invalidation conditions read as things you would act on.**
+  Read the per-direction invalidation conditions. A condition
+  naming a signal someone would watch ("a second adopter rejects
+  the gate") reads headed-for-execution; a condition with no
+  observable signal behind it reads not-headed-for-execution.
+- **O3 — The STRATEGY does not defer its own work.** Read for an
+  explicit park ("revisit next planning round", "nobody is picking
+  this up this cycle"). Its presence is the strongest
+  not-headed-for-execution signal. Its absence is neutral, not
+  positive — most STRATEGYs say nothing about their own timing.
+
+Roll the three up as headed-for-execution unless O3 fires, or O1 and
+O2 both read not-headed-for-execution.
+
+#### Prompt Shape
+
+The prompt states the verdict, grounds it in the observations, and
+offers the two answers with Proceed pre-selected. It follows the
+house convention in
+[`${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`](${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md):
+form a reading, ground it in what you found, let the author
+override.
+
+Headed for execution (the common case):
+
+> *"I read the Draft STRATEGY first. Its Building Blocks name things
+> to build (`<block>`, `<block>`), and its invalidation conditions
+> name signals you would act on (`<condition>`). That reads as
+> headed for execution, so it's worth sequencing now. Proceed with
+> `/roadmap`, or skip it for now?"* — default **Proceed**.
+
+Not headed for execution:
+
+> *"I read the Draft STRATEGY first. Its Building Blocks read as
+> open questions rather than deliverables (`<block>`), and
+> `<the O2 or O3 reason>`. That reads as a bet being recorded rather
+> than one headed for execution, which is the one case a ROADMAP
+> doesn't help. Worth knowing before you answer: a ROADMAP is the
+> only bridge from a STRATEGY into the tactical chain, so skipping
+> leaves this work with no path forward until someone runs
+> `/roadmap` by hand. Proceed with `/roadmap`, or skip it for
 > now?"* — default **Proceed**.
+
+The default is **Proceed** in both readings. A negative reading
+changes what `/charter` says, never which answer is pre-selected —
+the observations inform the author, they do not vote. And the
+observation walk is not a gate: whatever it reads, `/charter` still
+invokes `/roadmap` unless the author says otherwise.
 
 `/charter` skips `/roadmap` if and only if the author declines
 here. In `--auto` mode the prompt does not fire at all and
-`/roadmap` always runs; the declination is an interactive choice,
-never an inference.
+`/roadmap` always runs — there is no roadmap-specific `--auto`
+special case, and no observation the walk can produce creates one.
+The declination is an interactive choice, never an inference.
 
 A declination is recorded in the state file's `chain_skipped:`
 list as a `{child, reason}` entry. `roadmap` stays in
@@ -199,39 +269,6 @@ The declination is how an author marks a STRATEGY **non-actionable**
 — one that records a bet without heading toward execution at all.
 It is not a judgment about the STRATEGY being too small or too
 simple to sequence.
-
-### Interaction With /roadmap's Two-Feature Minimum
-
-`/roadmap` refuses to build a single-feature roadmap. Its own
-`## Critical Requirements` set a minimum of 2 features, its Phase 2
-and Phase 3 flag a shorter list as blocking, its Phase 4 jury
-treats it as a FAIL, and `shirabe transition <roadmap> Active` is
-rejected in code by `validate_features_count`.
-
-Because the handoff derives Candidate Features from the STRATEGY's
-Building Blocks, a STRATEGY with one Building Block produces one
-candidate feature and cannot yield a valid ROADMAP.
-
-`/charter` does NOT re-implement that minimum as a gate — the
-child owns its own contract, and re-deriving it parent-side would
-reintroduce exactly the content-counting this rule removed.
-Instead, when the pre-populated handoff carries fewer than two
-Candidate Features, `/charter` SHALL say so in the confirmation
-prompt so the author decides with the constraint in view:
-
-> *"This strategy has one building block, so `/roadmap` has nothing
-> to sequence — it needs at least two features. Skip the roadmap,
-> or proceed anyway?"* — default **Skip** in this case only.
-
-This is not a computed gate: `/charter` still invokes `/roadmap` if
-the author proceeds, and the STRATEGY's content never decides on
-the author's behalf. It changes which answer is pre-selected, not
-who answers. In `--auto` mode, where no prompt fires, the
-sub-two-feature case skips `/roadmap` and records the skip in
-`chain_skipped` with the reason naming the two-feature minimum —
-the one place `/charter` acts on the count, because the
-alternative is driving `/roadmap` into a guaranteed refusal with
-no author present to resolve it.
 
 The confirmation prompt is the ONLY path that skips `/roadmap`.
 Phase 1's "Adjust" option re-shapes the chain before any child
@@ -298,6 +335,21 @@ issue is closed; otherwise it just updates that feature's progress.
 A ROADMAP nobody plans against is never visited at all. The
 argument for firing unconditionally rests on the document being
 cheap and non-authoritative, not on it being auto-reclaimed.
+
+The stronger reason is that a ROADMAP is the only bridge from a
+STRATEGY into the tactical chain. `/brief` accepts a ROADMAP or a
+PRD as upstream and never a STRATEGY (see the Input Modes section
+of `skills/brief/SKILL.md`), so a chain that ends at a STRATEGY
+alone strands whatever it made actionable: no downstream artifact
+can pick the work up, and nothing tracks its progress. Skipping the
+ROADMAP is only correct when there is no work to strand, which is
+exactly what the confirmation prompt asks about.
+
+Nothing about the STRATEGY's size changes that. A one-block
+STRATEGY yields a one-feature ROADMAP, and a one-feature ROADMAP is
+a valid document — `/roadmap` has no minimum feature count to trip
+over. Parent-side arithmetic on Building Blocks would buy nothing
+and cost the author a rule to remember.
 
 An earlier revision gated the invocation on the STRATEGY's shape —
 three or more Building Blocks plus a qualifying Coordination

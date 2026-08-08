@@ -343,16 +343,38 @@ create-new mode.
 
 **R7 [/charter-specific].** `/charter` SHALL invoke `/roadmap` on
 every full-run chain. The invocation is unconditional with respect
-to STRATEGY content: `/charter` SHALL NOT read the STRATEGY's
-Building Blocks count, its Coordination Dependencies section, or
-any other document property to decide whether `/roadmap` fires.
+to STRATEGY content: no document property — the Building Blocks
+count, the Coordination Dependencies section, or anything else —
+SHALL decide whether `/roadmap` fires. A ROADMAP is the only bridge
+from a STRATEGY into the tactical chain (`/brief` accepts a ROADMAP
+or a PRD as upstream, never a STRATEGY), so a chain that drops it
+strands whatever work the STRATEGY made actionable.
 
 The single skip path is an explicit author declination.
 Immediately before invoking `/roadmap`, `/charter` SHALL surface a
-one-line roadmap confirmation prompt whose default is to proceed.
-`/charter` SHALL skip `/roadmap` if and only if the author
-declines at that prompt. In `--auto` mode the prompt does not
-fire and `/roadmap` always runs.
+roadmap confirmation prompt whose default is to proceed. `/charter`
+SHALL skip `/roadmap` if and only if the author declines at that
+prompt. In `--auto` mode the prompt does not fire and `/roadmap`
+always runs; there is no roadmap-specific `--auto` special case.
+
+The prompt SHALL be informed rather than content-blind. Before
+asking, `/charter` SHALL read the just-produced Draft STRATEGY and
+walk three observations bearing on whether the strategy is headed
+for execution at all: whether the Building Blocks describe
+deliverables or open research questions, whether the invalidation
+conditions name signals someone would act on, and whether the
+STRATEGY explicitly defers its own work. Each observation SHALL
+emit a verdict and a one-line reason, and the prompt SHALL state
+the rolled-up verdict with its reasons surfaced verbatim — the
+shape `/scope` uses for its R6 predicate walk, and the grounded-
+recommendation convention in `references/decision-presentation.md`.
+
+The observations inform the author; they never decide. The default
+SHALL remain proceed regardless of what the walk reads, and the
+author's answer SHALL be the only thing that skips `/roadmap`. The
+question the prompt asks is not whether the strategy is large
+enough to sequence — a one-feature ROADMAP is a valid document —
+but whether it is headed for execution at all.
 
 A declination SHALL be recorded in the state file's
 `chain_skipped:` list as a `{child: roadmap, reason: <declination>}`
@@ -812,8 +834,9 @@ requirement that motivates them and the user story they exercise
   confirmation prompt (per R7), `/charter` skips `/roadmap` and
   exits at full-run with STRATEGY only. `chain_skipped:` records
   a `{child: roadmap, reason: <declination>}` entry, and
-  `chain_ran` omits `roadmap`.
-  `[automated-eval]` (R7, US-1)
+  `chain_ran` omits `roadmap`. The declination is the only thing
+  that produces the skip; no reading of the STRATEGY skips
+  `/roadmap` on the author's behalf. `[automated-eval]` (R7, US-1)
 - [ ] **AC10** On every full-run chain where the author does not
   decline, `/charter` invokes `/roadmap` with
   `--upstream <strategy-path>` AND a pre-populated
@@ -824,6 +847,19 @@ requirement that motivates them and the user story they exercise
 - [ ] **AC10a** Under `--auto`, the roadmap confirmation prompt
   does not fire and `/roadmap` always runs; `chain_skipped:`
   contains no `roadmap` entry. `[automated-eval]` (R7)
+- [ ] **AC10a-i** The roadmap confirmation prompt names what
+  `/charter` read in the Draft STRATEGY: it states a verdict on
+  whether the strategy is headed for execution and surfaces the
+  per-observation reasons behind it (Building Blocks as
+  deliverables or open questions, invalidation conditions as
+  actionable signals, an explicit deferral of the work). The
+  prompt is not the same text on every run.
+  `[automated-eval]` (R7)
+- [ ] **AC10a-ii** The prompt's default is proceed on every run,
+  including runs where the observation walk reads
+  not-headed-for-execution. The reading changes the prompt's
+  prose, never the pre-selected answer, and never the invocation
+  itself. `[automated-eval]` (R7)
 - [ ] **AC10b** When `/charter` Phase 1 identifies an existing PRD
   as the chain's framing, `/strategy` is invoked with the PRD
   path as upstream (per R6's three valid input shapes — freeform

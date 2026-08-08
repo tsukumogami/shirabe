@@ -99,7 +99,7 @@
         "Plan walks Phase 1 discovery, surfaces the literal question \"Is the long-term thesis shifting, or is this an operational layer below it?\", and invokes /vision because R4's signal 1 fires on a cold start -- no Accepted or Active VISION exists at the published path",
         "Plan does not invoke the gated feeder under public-repo visibility \u2014 the chain-proposal output omits any reference to it per the degenerate-silence rule",
         "Plan invokes /strategy per R6 with one of three valid upstream shapes (freeform topic, VISION path, or PRD path); plan does NOT pass a STRATEGY path",
-        "Plan invokes /roadmap on this chain without inspecting the produced STRATEGY's Building Blocks count or Coordination Dependencies section; the only skip path named is an explicit author declination at the roadmap confirmation prompt, whose default is Proceed",
+        "Plan invokes /roadmap on this chain without letting any property of the produced STRATEGY decide whether the invocation fires; the only skip path named is an explicit author declination at the roadmap confirmation prompt, whose default is Proceed",
         "Plan invokes shirabe validate --format json --visibility=public as a sub-process against the Draft STRATEGY before declaring full-run success, parses the shirabe-validate/v1 envelope, and branches on the multi-level exit code: clean (0) proceeds; violations (2) block finalization and surface each error-severity finding readably as message (file:line) \u2014 the message already embeds the check code, so it is not prepended again \u2014 rather than verbatim annotation text; tool-error (1) halts as a tool failure distinct from a content violation",
         "Plan writes state file with exit: full-run; exit_artifacts contains exactly two entries (STRATEGY path and ROADMAP path, each with status Draft) because the author did not decline /roadmap; chain_skipped contains no roadmap entry",
         "Plan keeps conditional fields decision_record_sub_shape, referenced_strategy, discard_commit_sha, rejection_rationale, triggering_child, and partial_phase_reached ABSENT from the state file per R9 conditional-field gating"
@@ -184,18 +184,46 @@
       "id": 12,
       "name": "r7-roadmap-declined-non-actionable",
       "prompt": "/charter test-topic",
-      "expected_output": "Cold-start invocation under public-repo visibility, same shape as the full-run scenario, except that the author declines at the roadmap confirmation prompt: the strategy records a bet the team is not going to execute against this cycle, so no ROADMAP is wanted. /charter surfaces the one-line confirmation immediately before invoking /roadmap (default Proceed), the author picks skip, and /charter does NOT invoke /roadmap. The declination is the ONLY path that skips /roadmap; /charter must not justify the skip by reading the STRATEGY's Building Blocks count, its Coordination Dependencies section, or any other document property. The chain completes at the full-run exit with STRATEGY alone (the AC11a shape). State file: exit: full-run, exit_artifacts lists exactly one entry (docs/strategies/STRATEGY-test-topic.md, status Draft), chain_ran omits /roadmap, and chain_skipped carries a { child: roadmap, reason: <declination> } entry.",
+      "expected_output": "Cold-start invocation under public-repo visibility, same shape as the full-run scenario, except that the author declines at the roadmap confirmation prompt: the strategy records a bet the team is not going to execute against this cycle, so no ROADMAP is wanted. Immediately before invoking /roadmap, /charter reads the Draft STRATEGY, states what that reading says about whether the strategy is headed for execution, and asks with Proceed as the default. The author picks skip, and /charter does NOT invoke /roadmap. The declination is the ONLY path that skips /roadmap: the reading informs the author but never decides, and /charter must not justify the skip as its own conclusion about the STRATEGY's shape or size. The chain completes at the full-run exit with STRATEGY alone (the AC11a shape). State file: exit: full-run, exit_artifacts lists exactly one entry (docs/strategies/STRATEGY-test-topic.md, status Draft), chain_ran omits /roadmap, and chain_skipped carries a { child: roadmap, reason: <declination> } entry.",
       "files": [],
       "expectations": [
         "Plan surfaces a roadmap confirmation prompt immediately before /roadmap would fire, after the Draft STRATEGY is on disk, with proceeding as the default",
-        "Plan skips /roadmap because the author declined, and does NOT derive the skip from the STRATEGY's Building Blocks count, Coordination Dependencies section, or any other document property",
+        "Plan skips /roadmap because the author declined, and attributes the skip to the author's answer rather than to its own reading of the STRATEGY",
         "Plan records the declination in chain_skipped as a { child: roadmap, reason: ... } entry, and omits /roadmap from chain_ran",
         "Plan writes state file with exit: full-run and exit_artifacts containing exactly one entry (STRATEGY path with status Draft) per AC11a",
-        "Plan treats the STRATEGY-only full-run as the exception path rather than the default, and does not describe a Building-Blocks or Coordination-Dependencies threshold as the reason /roadmap was skipped"
+        "Plan treats the STRATEGY-only full-run as the exception path rather than the default, and does not describe any threshold on Building Blocks, Coordination Dependencies, or feature count as the reason /roadmap was skipped"
       ]
     },
     {
       "id": 13,
+      "name": "r7-informed-prompt-headed-for-execution",
+      "prompt": "/charter test-topic",
+      "expected_output": "Cold-start full-run under public-repo visibility. /strategy lands a Draft STRATEGY at docs/strategies/STRATEGY-test-topic.md whose Building Blocks name deliverables ('ship the merge-gate check in shirabe validate', 'add the --coordination-body mode') and whose invalidation conditions name signals someone would act on ('a second adopter rejects the merge gate'). Nothing in the document defers the work. Before invoking /roadmap, /charter reads that STRATEGY and walks three observations bearing on whether the strategy is headed for execution: Building Blocks as deliverables versus open research questions, invalidation conditions as actionable signals versus abstract hypotheticals, and an explicit deferral of the work. It rolls them up to a headed-for-execution verdict and surfaces that verdict in the prompt with the per-observation reasons stated in the author's terms, not as an opaque label. The default is Proceed. The author proceeds and /roadmap runs.",
+      "files": [],
+      "expectations": [
+        "Transcript reads the just-produced Draft STRATEGY before surfacing the roadmap confirmation prompt, rather than asking the same content-blind question on every run",
+        "Transcript states a verdict on whether the strategy is headed for execution, and that verdict is headed-for-execution for this STRATEGY",
+        "Transcript grounds the verdict in named observations from the document (Building Blocks reading as deliverables, invalidation conditions naming actionable signals) and surfaces those reasons to the author rather than only the rolled-up label",
+        "Transcript frames the question as whether the strategy is headed for execution at all, NOT as whether it is large enough or has enough features to sequence",
+        "Transcript keeps Proceed as the default and treats the author's answer as the only thing that decides"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "r7-negative-reading-still-invokes-roadmap",
+      "prompt": "/charter test-topic",
+      "expected_output": "Negative control on the observation walk. Cold-start full-run under public-repo visibility; the Draft STRATEGY /strategy lands has a single Building Block phrased as an open research question ('determine whether adopters want a merge gate at all'), invalidation conditions with no observable signal behind them, and a line saying the team revisits this next planning round. /charter's observation walk reads not-headed-for-execution and says so in the prompt, naming which observations produced that reading and noting that a ROADMAP is the only bridge from a STRATEGY into the tactical chain. The default stays Proceed. The author proceeds anyway, and /charter invokes /roadmap with --upstream docs/strategies/STRATEGY-test-topic.md plus the pre-populated wip/roadmap_test-topic_scope.md. A negative reading changes the prose, never the pre-selected answer, and never the invocation. The single Building Block is not a reason to skip: a one-feature roadmap is a valid document and /charter performs no feature-count arithmetic.",
+      "files": [],
+      "expectations": [
+        "Transcript surfaces a not-headed-for-execution verdict and names which observations produced it (open-question Building Block, invalidation conditions with no signal, the explicit deferral)",
+        "Transcript keeps the default at Proceed despite the negative reading; it does NOT flip the default to skip and does NOT pre-select the skip answer",
+        "Transcript invokes /roadmap when the author proceeds, with --upstream pointing at the Draft STRATEGY and the pre-populated wip/roadmap_test-topic_scope.md handoff",
+        "Transcript does NOT treat the single Building Block or a single candidate feature as a reason to skip, and states no minimum feature count for a roadmap",
+        "Transcript writes state file with exit: full-run and exit_artifacts containing two entries (STRATEGY and ROADMAP, each status Draft); chain_skipped contains no roadmap entry"
+      ]
+    },
+    {
+      "id": 15,
       "name": "r7-roadmap-auto-mode-no-prompt",
       "prompt": "/charter test-topic --auto",
       "expected_output": "Cold-start invocation under public-repo visibility in --auto mode. The roadmap confirmation prompt is interactive-only: under --auto it does not fire at all and /roadmap always runs. /charter invokes /strategy per R6, then /roadmap per R7 with --upstream docs/strategies/STRATEGY-test-topic.md and a pre-populated wip/roadmap_test-topic_scope.md, with no author decision point in between. State file: exit: full-run, exit_artifacts lists both docs/strategies/STRATEGY-test-topic.md and docs/roadmaps/ROADMAP-test-topic.md; chain_skipped contains no roadmap entry.",
@@ -207,7 +235,7 @@
       ]
     },
     {
-      "id": 14,
+      "id": 16,
       "name": "ac10d-chain-proposal-triad",
       "prompt": "/charter test-topic",
       "expected_output": "Cold start under public-repo visibility. Phase 1 discovery concludes with the chain-proposal confirmation prompt (the \"chain proposal output\") per R7.5/AC10d. The prompt lists the children /charter will invoke, in chain order, and offers three options carrying the literal substrings \"Proceed\", \"Adjust\", and \"Bail\" (case-insensitive). Per the Gate Vocabulary's prompt-vocabulary rule in references/parent-skill-pattern.md, this triad is asserted PER-TOKEN rather than as one contiguous string: the chain proposal is not a co-equal menu (Proceed is the expected path), and /charter's canonical rendering is \"Proceed / Adjust chain / Bail?\", which carries an interstitial word in the Adjust label and so contains no contiguous \"Proceed / Adjust / Bail\". /strategy and /roadmap both appear as \"run\" because both gates are unconditional; a skipped child appears with its skip reason. The prompt fires BEFORE any child is invoked.",

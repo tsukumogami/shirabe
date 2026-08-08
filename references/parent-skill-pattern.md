@@ -135,9 +135,13 @@ introduces a category the existing shapes already cover.
   does, for `/roadmap`); that is author-supplied input, not a
   predicate the parent computes, and unlike an exit-path
   intervention such as Bail it leaves the chain on its normal exit
-  with the skip recorded in `chain_skipped`. Offering a declination
-  is per-parent and optional — `/scope`'s `/plan` is ALWAYS with no
-  declination surface.
+  with the skip recorded in `chain_skipped`. A parent MAY read the
+  upstream artifact to inform what it tells the author at that
+  declination prompt — reading for the prompt is not reading for
+  the gate, and the gate stays ALWAYS as long as no reading can
+  change the pre-selected answer or skip the child on its own.
+  Offering a declination is per-parent and optional — `/scope`'s
+  `/plan` is ALWAYS with no declination surface.
 
 - **shape-dependent** — the child invocation's *form* (which sub-
   shape of the child fires, with how many peers, against which set

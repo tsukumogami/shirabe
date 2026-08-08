@@ -204,9 +204,11 @@ Execute phases sequentially by reading the corresponding phase file:
 2. **Chain orchestration** — invoke the planned chain
    (`/vision` → `/strategy` → `/roadmap`, skipping per the chain
    plan), surface the roadmap confirmation prompt before
-   `/roadmap` fires, inspect child durable artifacts after each
-   step per the widened R14 rule, advance the `phase_pointer`
-   after each child completes.
+   `/roadmap` fires — reading the Draft STRATEGY first and stating
+   what that reading says about whether the strategy is headed for
+   execution, with proceed as the default either way — inspect
+   child durable artifacts after each step per the widened R14
+   rule, advance the `phase_pointer` after each child completes.
    - Instructions: `skills/charter/references/phases/phase-2-chain-orchestration.md`
 
 N. **Finalization** — set the `exit:` field to one of `full-run`,
