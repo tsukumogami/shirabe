@@ -50,6 +50,11 @@ pattern established by /vision.
   directory movement
 - Must produce output that /plan can consume (features with needs-* labels)
 - Minimum 2 features (single-feature work doesn't need a roadmap)
+  - *Superseded 2026-08-07: the floor is now one feature. A roadmap is
+    also the progress ledger for a strategy's execution and the only
+    bridge from a STRATEGY into the tactical chain, so the two-feature
+    floor stranded single-feature work. Zero features is still rejected.
+    See `skills/roadmap/SKILL.md` for the current rule.*
 
 ## Considered Options
 
