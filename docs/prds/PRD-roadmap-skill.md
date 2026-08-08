@@ -102,8 +102,24 @@ defines the format; /plan populates it (see PRD-plan-skill-rework.md).
 /roadmap). Replaces the current inline production in
 phase-5-produce-deferred.md.
 
-**R8. Minimum 2 features.** A roadmap must have at least 2 features.
-Single-feature work doesn't need a roadmap — use a PRD.
+**R8. At least one feature.** A roadmap must have at least one feature.
+There is no two-feature floor.
+
+Sequencing is only half of what a roadmap does. The other half is that it
+is the progress ledger for a strategy's execution — its per-feature status
+is the only place recording how far along the work is, and the completion
+cascade updates it as downstream plans land. It is also the only bridge
+from the strategic chain to the tactical one: `/brief` accepts a ROADMAP or
+a PRD as upstream, never a STRATEGY. A strategy whose work is a single
+feature would therefore be stranded under a two-feature rule — no legal
+path into `/scope`, and no progress tracking — for no benefit, since one
+feature is a perfectly coherent ledger.
+
+Most roadmaps do sequence several features, and coordinated multi-feature
+work is where the sequencing rationale earns the most; that stays quality
+guidance, not a gate. A roadmap with zero features is still malformed:
+nothing to sequence, nothing to track, nothing to hand downstream. That is
+the only count `shirabe transition <path> Active` rejects.
 
 ### Non-Functional
 
@@ -127,7 +143,8 @@ output format, error reporting).
       Mermaid dependency graph (empty at creation, populated by /plan)
 - [ ] /explore Phase 5 hands off to /roadmap (auto-continue, not inline)
 - [ ] Inline roadmap production removed from phase-5-produce-deferred.md
-- [ ] Roadmap validation rejects fewer than 2 features
+- [ ] Roadmap validation rejects a roadmap with zero features and accepts a
+      one-feature roadmap through Draft -> Active
 - [ ] Transition script matches design doc script's interface conventions
 
 ## Out of Scope

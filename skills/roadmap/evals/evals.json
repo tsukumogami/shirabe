@@ -34,13 +34,13 @@
       "id": 3,
       "name": "lifecycle-activate",
       "prompt": "/roadmap activate docs/roadmaps/ROADMAP-release-automation.md",
-      "expected_output": "Detects 'activate' as a lifecycle verb. Validates at least 2 features exist. Runs shirabe transition to transition from Draft to Active. Reports success.",
+      "expected_output": "Detects 'activate' as a lifecycle verb. Validates at least one feature exists. Runs shirabe transition to transition from Draft to Active. Reports success.",
       "files": [
         "docs/roadmaps/ROADMAP-release-automation.md"
       ],
       "expectations": [
         "Transcript identifies 'activate' as a lifecycle verb from the arguments",
-        "Transcript plans to validate that at least 2 features exist in the roadmap",
+        "Transcript plans to validate that at least one feature exists in the roadmap",
         "Transcript plans to run shirabe transition to perform the Draft to Active transition",
         "Transcript does NOT plan to execute the full creation workflow (Phases 1-4)"
       ]
@@ -62,15 +62,15 @@
     },
     {
       "id": 5,
-      "name": "minimum-features-validation",
+      "name": "single-feature-roadmap-is-valid",
       "prompt": "/roadmap --auto single-feature-project",
-      "expected_output": "During Phase 4 validation, the jury catches that fewer than 2 features exist. Validation fails. The roadmap is not finalized until at least 2 features are present.",
+      "expected_output": "The strategy's work is one feature. The skill drafts a one-feature ROADMAP, passes Phase 4 jury validation without flagging the feature count, and activates it via shirabe transition. It does not redirect the author to a PRD and does not push for a second feature to clear a floor that no longer exists.",
       "files": [],
       "expectations": [
         "Transcript recognizes the --auto flag and plans to operate in auto mode",
-        "Transcript includes Phase 4 jury validation as a required step",
-        "Transcript mentions the minimum 2 features requirement as a validation check",
-        "Transcript describes what happens when fewer than 2 features are found (validation failure or redirect to PRD)"
+        "Transcript drafts a ROADMAP containing a single feature rather than refusing or redirecting the author to /prd",
+        "Transcript does NOT assert a two-feature minimum or invent a second feature to satisfy one",
+        "Transcript treats the one-feature roadmap as valid at Phase 4 jury validation and plans to transition it Draft -> Active via shirabe transition"
       ]
     },
     {
@@ -154,6 +154,21 @@
         "Transcript states that no GitHub issues are created and no `gh issue create` runs in this mode",
         "Transcript does not present or wait on the R14 approval gate, noting R14 gates issue creation which does not occur here",
         "Transcript describes a feature-keyed table and `F`-node dependency diagram with bare-key dependency cells, written by structural section replacement"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "empty-feature-list-blocked",
+      "prompt": "/roadmap activate docs/roadmaps/ROADMAP-no-features.md",
+      "expected_output": "The roadmap's Features section holds prose but no feature headings. `shirabe transition` blocks Draft -> Active with exit 2 and 'requires at least 1 ### Feature heading in the Features section. Found 0.' The skill reports the failure and asks the author to add a feature rather than working around the gate.",
+      "files": [
+        "docs/roadmaps/ROADMAP-no-features.md"
+      ],
+      "expectations": [
+        "Transcript identifies 'activate' as a lifecycle verb from the arguments",
+        "Transcript observes that the roadmap has zero feature headings",
+        "Transcript reports the Draft -> Active transition as blocked because a roadmap with no features has nothing to track",
+        "Transcript does NOT attempt to bypass the gate by editing the status field directly"
       ]
     }
   ]

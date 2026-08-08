@@ -89,9 +89,14 @@ Every roadmap has these sections in order:
    downstream artifact (PRD, design doc, or plan) when one exists.
 4. **Sequencing Rationale** -- why features are ordered this way.
    What constraints drive the ordering: technical dependencies, user
-   value delivery, risk reduction?
+   value delivery, risk reduction? On a one-feature roadmap there is
+   no ordering to justify; the section instead says why this feature
+   is the whole of the strategy's work and what would have to change
+   for a second feature to join it.
 5. **Progress** -- current state of the roadmap. Which features are
    done, in progress, or not started. Updated as work progresses.
+   This is the ledger: it, and the per-feature statuses it mirrors,
+   are the only record of how far along the strategy's execution is.
 
 ### Per-Feature Format
 
@@ -205,22 +210,45 @@ These sections must appear in every roadmap file, even when empty.
 Their presence signals that the roadmap is structurally complete and
 ready for downstream planning workflows.
 
+### One-feature roadmaps
+
+A one-feature roadmap fills both sections the same way, and neither
+degenerates. The Implementation Issues table gets one row with `None`
+in its Dependencies cell. The dependency graph gets one node and no
+edges -- a single-node `graph TD` is valid mermaid and the validator's
+FC07 reconciliation treats it as any other diagram, matching the table
+row for row. Nothing about the shape assumes a second feature to point
+at.
+
 ## Content Boundaries
 
 A roadmap is NOT:
 
-- **A PRD**: PRDs define requirements for a single feature. Roadmaps
-  sequence multiple features. If you're writing detailed
-  requirements, that's a PRD.
+- **A PRD**: PRDs define requirements for a feature. Roadmaps name
+  features and track them; they never say what a feature must do. If
+  you're writing detailed requirements, that's a PRD.
 - **A plan**: Plans break a single artifact into implementable
-  issues. Roadmaps operate one level above, coordinating across
-  multiple PRDs or design docs.
+  issues. Roadmaps operate one level above, coordinating across the
+  PRDs or design docs their features fan out into.
 - **A project timeline**: Roadmaps don't include dates or time
   estimates. They capture ordering and dependencies, not schedules.
 
-If you're defining requirements for one feature, write a PRD. If
-you're breaking one design into issues, write a plan. If you're
-sequencing multiple features with dependencies, write a roadmap.
+Routing, then: if you're defining requirements, write a PRD. If
+you're breaking one design into issues, write a plan. If you need a
+strategy's work sequenced, tracked, and handed into the tactical
+chain, write a roadmap.
+
+**A one-feature roadmap is legitimate.** The routing rule is about
+altitude, not feature count. A roadmap does two jobs a PRD cannot: it
+is the progress ledger for a strategy's execution (its per-feature
+status is the only record of how far along the work is, and the
+completion cascade updates it as downstream plans land), and it is
+the only bridge from the strategic chain to the tactical one --
+`/brief` accepts a ROADMAP or a PRD as upstream, never a STRATEGY. A
+strategy whose work is a single feature still needs both, so it still
+gets a roadmap. Most roadmaps do sequence several features and that
+is where the sequencing rationale earns its keep, but there is no
+two-feature floor. A roadmap with zero features is malformed.
 
 ## Lifecycle
 
@@ -273,8 +301,11 @@ directory movement based on status -- all roadmaps stay in
   tool-populated table -- never hand-authored prose; Dependency Graph is a
   ` ```mermaid ` block -- never a plain fenced code block
 - Status is "Draft"
-- At least 2 features listed (single-feature work doesn't need a
-  roadmap)
+- At least one feature listed. `shirabe transition <path> Active`
+  rejects a roadmap with zero features and nothing else -- one
+  feature activates. See [Content
+  Boundaries](#content-boundaries) for why there is no two-feature
+  floor.
 
 ### When referenced by downstream workflows
 
@@ -334,7 +365,8 @@ the reasoning in prose.
 - Identifies a coherent capability area, not a grab-bag of unrelated
   work
 - Explains why coordination matters (shared infrastructure,
-  user-facing story)
+  user-facing story), or -- on a one-feature roadmap -- why this
+  feature is the whole of the initiative
 - Scoped to one initiative -- don't combine unrelated streams
 
 ### Features
@@ -350,6 +382,8 @@ the reasoning in prose.
 - Distinguishes hard dependencies (technical blockers) from soft
   preferences (nice-to-have ordering)
 - Acknowledges where parallel execution is possible
+- On a one-feature roadmap, says why the work is one feature rather
+  than several -- not "N/A"
 
 ### Progress
 

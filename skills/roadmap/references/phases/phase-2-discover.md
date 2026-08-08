@@ -47,7 +47,9 @@ the perspective of a feature completeness analyst.
    - Is each feature at the right granularity? Too broad (should be split) or too
      narrow (should be merged)?
    - Is each feature independently describable at PRD level?
-   - Are there at least 2 features? If not, flag this as a blocking issue.
+   - Is there at least one feature? A roadmap with none has nothing to track --
+     flag that as a blocking issue. One feature is fine; a one-feature roadmap
+     is a legitimate progress ledger, so do not flag it.
 3. For each finding, capture: what you found, implications for the roadmap,
    open questions
 

@@ -49,9 +49,12 @@ right level of granularity.
 2. Is each feature independently describable at PRD level? A feature that can't
    stand alone as a PRD is too granular. A feature that would need multiple PRDs
    is too broad.
-3. Are there at least 2 features? Single-feature work doesn't need a roadmap.
-4. Is the theme itself coherent? Does it explain WHY these features need
-   coordinated sequencing rather than independent delivery?
+3. Is there at least one feature? A roadmap with none has nothing to track.
+   A one-feature roadmap is legitimate -- it is still the progress ledger for
+   the strategy's execution and still the bridge into the tactical chain --
+   so do not fail a roadmap for having exactly one feature.
+4. Is the theme itself coherent? Does it explain WHY this is one tracked
+   initiative rather than unrelated independent work?
 5. Are feature rationales specific to this roadmap, or could they apply to any
    project? Generic rationales suggest weak theme coherence.
 

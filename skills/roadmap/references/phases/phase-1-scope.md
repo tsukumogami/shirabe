@@ -7,7 +7,7 @@ and sequencing constraints, producing candidate features for Phase 2.
 
 Develop a shared understanding of WHAT this roadmap coordinates and WHY the features
 belong together. By the end of this phase you should have: a clear theme, an initial
-feature list (minimum 2), dependency sketch, sequencing constraints, and downstream
+feature list (at least one), dependency sketch, sequencing constraints, and downstream
 artifact state for each feature.
 
 ## Roadmap Issues Preference
@@ -39,8 +39,8 @@ weave them into the conversation naturally. Circle back to gaps when appropriate
 
 | Dimension | What to understand |
 |-----------|-------------------|
-| Theme clarity | What initiative ties these features together? Why do they need coordinated sequencing rather than independent delivery? |
-| Feature identification | What are the features? Are there at least 2? Are any missing? Is each one independently describable at PRD level? |
+| Theme clarity | What initiative ties these features together? Why is this one tracked initiative rather than unrelated independent work? |
+| Feature identification | What are the features? Are any missing? Is each one independently describable at PRD level? |
 | Dependency awareness | Which features depend on each other? Are there external dependencies outside this roadmap? |
 | Sequencing constraints | What must come first? Are constraints hard blockers or soft preferences? What can run in parallel? |
 | Downstream artifact state | What does each feature need next? Which have PRDs, designs, or implementations already? What needs-* labels apply? |
@@ -59,14 +59,18 @@ weave them into the conversation naturally. Circle back to gaps when appropriate
 - **Use concrete examples**: Ask for scenarios ("Walk me through what happens if
   feature X ships before feature Y") to ground abstract dependencies
 - **2-4 questions per turn**: Don't overwhelm. Group related questions naturally.
-- **Push for at least 2 features**: Single-feature work doesn't need a roadmap. If
-  the user describes only one, ask what else fits the theme.
+- **Probe for missing features, don't demand a second one**: If the user describes
+  only one feature, ask what else fits the theme -- gaps are common at this stage.
+  But a strategy whose work genuinely is one feature gets a one-feature roadmap,
+  which is a legitimate progress ledger and the only bridge into `/scope`. Don't
+  push the user to invent a second feature to clear a bar that doesn't exist.
 
 ### When to Stop Scoping
 
 Stop when you have enough to brief a research team. Signals:
 - All 6 dimensions have at least surface coverage
-- You have at least 2 candidate features with rough descriptions
+- You have at least one candidate feature with a rough description, and probing
+  for more is no longer turning any up
 - Dependencies and sequencing constraints are sketched (even if not final)
 - The user isn't revealing new features or constraints with additional questions
 - The theme feels clear enough to test (even if feature details need refinement)
@@ -128,7 +132,7 @@ Commit: `docs(roadmap): capture scope for <topic>`
 
 Before proceeding:
 - [ ] All 6 coverage dimensions have at least surface coverage
-- [ ] At least 2 candidate features identified
+- [ ] At least one candidate feature identified
 - [ ] Each feature is independently describable (not a sub-task of another)
 - [ ] Dependencies sketched, even if approximate
 - [ ] Downstream artifact state noted for each feature

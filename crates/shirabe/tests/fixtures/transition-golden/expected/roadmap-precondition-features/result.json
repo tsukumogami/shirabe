@@ -1,5 +1,5 @@
 {
   "code": 2,
-  "error": "Draft -> Active requires at least 2 ### Feature headings in the Features section. Found 1.",
+  "error": "Draft -> Active requires at least 1 ### Feature heading in the Features section. Found 0.",
   "success": false
 }

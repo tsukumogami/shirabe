@@ -106,7 +106,7 @@ impl Graph {
 ///
 /// Stub for Issue 2. The design limits preconditions to checks that need no
 /// network or other documents (the existing Open-Questions-resolved and
-/// >=2-features gates).
+/// non-empty-features gates).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Precondition {
     /// No precondition.
@@ -114,7 +114,10 @@ pub enum Precondition {
     /// Open Questions must be resolved (vision/strategy Draft -> Accepted).
     OpenQuestionsResolved,
     /// At least N feature headings -- classic `### Feature N:` or the
-    /// strategy-derived `### <PREFIX><N>:` form (roadmap Draft -> Active, N = 2).
+    /// strategy-derived `### <PREFIX><N>:` form (roadmap Draft -> Active,
+    /// N = 1). A roadmap is a strategy's progress ledger, so one feature is
+    /// a coherent roadmap; the gate only rejects a roadmap with no features
+    /// at all, which has nothing to track.
     MinFeatures(usize),
 }
 
@@ -374,7 +377,7 @@ pub fn transition_table() -> Vec<TransitionSpec> {
                     ("Active", "Draft", "Active cannot regress to Draft"),
                 ]),
             }),
-            precondition: Precondition::MinFeatures(2),
+            precondition: Precondition::MinFeatures(1),
             moves: Moves::default(),
             extra_input: ExtraInput::None,
             body_template: BodyTemplate::BareStatus,
@@ -937,8 +940,14 @@ fn validate_open_questions_resolved(doc: &crate::Doc) -> Result<(), TransitionEr
     Ok(())
 }
 
-/// Port of the scripts' `validate_features_count`: count feature headings;
-/// fewer than `min` is exit 2 with the script's `Found <count>.` message.
+/// Count feature headings; fewer than `min` is exit 2 with a `Found <count>.`
+/// message.
+///
+/// The roadmap gate is `min == 1`: it rejects only a roadmap with no features
+/// at all. A roadmap is the progress ledger for a strategy's execution and the
+/// only bridge from the strategic chain into the tactical one, so a
+/// single-feature roadmap is legitimate -- but a roadmap with zero features has
+/// nothing to sequence, nothing to track, and nothing to hand downstream.
 ///
 /// A heading counts when it is either the classic `### Feature` form (matched
 /// leniently, as the original shell script did) or the strategy-derived
@@ -954,12 +963,13 @@ fn validate_features_count(doc: &crate::Doc, min: usize) -> Result<(), Transitio
         .count();
 
     if count < min {
+        let noun = if min == 1 { "heading" } else { "headings" };
         return Err(TransitionError::new(
             2,
             format!(
-                "Draft -> Active requires at least {} ### Feature headings in the Features \
+                "Draft -> Active requires at least {} ### Feature {} in the Features \
                  section. Found {}.",
-                min, count
+                min, noun, count
             ),
         ));
     }
@@ -1845,16 +1855,28 @@ mod tests {
     }
 
     #[test]
-    fn roadmap_draft_to_active_blocked_by_too_few_features() {
-        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n### Feature A\n";
-        let path = write_doc("ROADMAP-onefeat.md", doc);
+    fn roadmap_draft_to_active_blocked_by_zero_features() {
+        // Zero features is the only count the gate rejects: nothing to
+        // sequence, nothing to track, nothing to hand downstream.
+        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n## Features\n\nTBD.\n";
+        let path = write_doc("ROADMAP-nofeat.md", doc);
         let err = run_transition(&path, "Active", &Flags::default()).expect_err("err");
         assert_eq!(err.code, 2);
         assert_eq!(
             err.message,
-            "Draft -> Active requires at least 2 ### Feature headings in the Features \
-             section. Found 1."
+            "Draft -> Active requires at least 1 ### Feature heading in the Features \
+             section. Found 0."
         );
+    }
+
+    #[test]
+    fn roadmap_draft_to_active_passes_with_one_feature() {
+        // A roadmap is a strategy's progress ledger and its only bridge into
+        // the tactical chain, so a single-feature roadmap activates.
+        let doc = "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n### Feature A\n";
+        let path = write_doc("ROADMAP-onefeat.md", doc);
+        let outcome = run_transition(&path, "Active", &Flags::default()).expect("ok");
+        assert_eq!(outcome.new_status, "Active");
     }
 
     #[test]
@@ -1877,19 +1899,15 @@ mod tests {
     }
 
     #[test]
-    fn roadmap_draft_to_active_blocked_with_one_prefix_feature() {
-        // A single prefixed feature is still too few: the negative case must
-        // fail exactly as the classic form does.
+    fn roadmap_draft_to_active_passes_with_one_prefix_feature() {
+        // A single prefixed feature activates just as the classic form does --
+        // the prefix grammar must not turn a legal one-feature roadmap into a
+        // "Found 0" rejection.
         let doc =
             "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n## Features\n\n### SE1: Only one\n";
         let path = write_doc("ROADMAP-oneprefix.md", doc);
-        let err = run_transition(&path, "Active", &Flags::default()).expect_err("err");
-        assert_eq!(err.code, 2);
-        assert_eq!(
-            err.message,
-            "Draft -> Active requires at least 2 ### Feature headings in the Features \
-             section. Found 1."
-        );
+        let outcome = run_transition(&path, "Active", &Flags::default()).expect("ok");
+        assert_eq!(outcome.new_status, "Active");
     }
 
     // ---- idempotent no-op skips graph + preconditions (Issue 2) ----
