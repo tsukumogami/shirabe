@@ -194,7 +194,7 @@ sections; Phase 2 stubs them with placeholder content:
 
 ## Downstream Artifacts
 
-<Phase 3 will list ROADMAPs, DESIGNs, and PRDs flowing from this strategy.>
+<Phase 3 will list the ROADMAPs that sequence this strategy's work.>
 ```
 
 The stubs satisfy the structural validator but make obvious to a reader

@@ -39,7 +39,9 @@ Required fields: `schema`, `status`, `bet`, `scope`. Optional: `upstream`.
   block scalar (`|`). Matches the Defensibility Thesis section body.
 - **scope** -- `project` (operationalizes a project-level VISION) or
   `org` (operationalizes an org-level VISION).
-- **upstream** -- path to an upstream VISION. Optional because org-scope
+- **upstream** -- path to an upstream VISION, the strategy's immediate
+  neighbour one level up the strategic chain (VISION -> STRATEGY ->
+  ROADMAP). Optional because org-scope
   strategies may ground their context in first-principles framing or
   multiple antecedents rather than a single parent. Cross-repo upstream
   references use the `owner/repo:path` convention; see
@@ -68,8 +70,8 @@ Every strategy document has these sections in order:
    conditions and corrective actions for each load-bearing claim
 7. **Non-Goals** -- what this strategy deliberately is NOT, each with
    reasoning that ties back to the bet
-8. **Downstream Artifacts** -- typed link list of ROADMAP, DESIGN, or
-   PRD documents that operationalize this strategy
+8. **Downstream Artifacts** -- typed link list of the ROADMAP documents
+   that sequence this strategy's work, and nothing else
 
 ### Per-section content rules
 
@@ -124,6 +126,18 @@ specify what content must appear, not how prose must be shaped.
   description of what the linked artifact does. Entries must point at
   durable paths -- not `wip/...` paths, not private-from-public
   references. The structural reviewer parses each entry for durability.
+
+  Every entry is a ROADMAP. The strategic chain runs VISION -> STRATEGY ->
+  ROADMAP and each document links only to its immediate neighbour, so a
+  reader walking the chain hits every altitude in order rather than
+  landing two levels down with the reasoning in between skipped. Listing
+  a PRD or a DESIGN here would skip the ROADMAP -- which is the progress
+  ledger for this strategy's execution, so skipping it hides how far
+  along the work is -- and would also cross out of the strategic chain
+  into the tactical one. The ROADMAP is the boundary: `/brief` crosses it
+  by taking a ROADMAP as its upstream, and no strategic document reaches
+  past it. To find the PRDs and designs under a strategy, open its
+  ROADMAP and follow the per-feature entries.
 
 ## Optional Sections
 
@@ -193,8 +207,10 @@ STRATEGY does NOT contain:
 
 If a STRATEGY draft starts accumulating feature lists, requirements,
 technical decisions, or implementation breakdowns, those belong
-downstream. Extract them into Downstream Artifacts pointers (when the
-downstream doc exists) or Open Questions (when it doesn't yet).
+downstream. Hand them to the ROADMAP and let its per-feature entries
+carry them onward; park them in Open Questions until that ROADMAP
+exists. They never become Downstream Artifacts entries of their own --
+that section lists ROADMAPs only.
 
 ## Lifecycle
 
@@ -204,7 +220,7 @@ downstream doc exists) or Open Questions (when it doesn't yet).
 |-------|---------|
 | Draft | Under development. May have Open Questions. |
 | Accepted | Bet endorsed. Open Questions resolved. Jury PASS recorded. Ready for downstream work. |
-| Active | Downstream artifacts (ROADMAPs, DESIGNs) reference and operationalize this STRATEGY. |
+| Active | A ROADMAP references this STRATEGY as its upstream and is sequencing its work. |
 | Sunset | Bet invalidated, pivoted, or abandoned. Terminal state. |
 
 ### Transitions
@@ -346,11 +362,13 @@ authors should check these during drafting and validation.
   - **Block count.** 5-8 blocks is typical. Fewer than 3 risks
     under-decomposition (a single block masquerading as a strategy);
     more than 10 risks being a roadmap in disguise.
-  - **Downstream-artifact ratio.** Each block should map to 1-2
-    downstream design docs minimum. Blocks with no plausible
-    downstream design are framing statements rather than coherent
-    units of work; blocks decomposing into 5+ design docs are likely
-    conflating multiple blocks.
+  - **Downstream work volume.** Each block should map to 1-2 design
+    docs minimum once it reaches the tactical chain. Blocks with no
+    plausible downstream design are framing statements rather than
+    coherent units of work; blocks decomposing into 5+ design docs
+    are likely conflating multiple blocks. This is a sizing
+    heuristic, not a link rule -- those design docs are reached
+    through the ROADMAP and never appear in Downstream Artifacts.
   - **Scope coherence.** Single-product blocks are the norm.
     Cross-product blocks (spanning 2 repos) are permitted but should
     be exceptional (under 20% of total). Blocks that span 3 or more
@@ -397,8 +415,10 @@ authors should check these during drafting and validation.
 - Typed link list. Each entry: durable path + one-sentence purpose.
 - Paths are repo-relative and durable. `wip/...` paths fail the
   structural-reviewer check.
-- Empty at draft creation; populated as downstream ROADMAPs, DESIGNs,
-  and PRDs land that reference this STRATEGY.
+- Empty at draft creation; populated as downstream ROADMAPs land that
+  reference this STRATEGY as their upstream. ROADMAPs only -- a PRD or
+  DESIGN entry skips the ROADMAP and crosses into the tactical chain.
+  See the per-section content rule above for why.
 
 ### Competitive Considerations (private only)
 

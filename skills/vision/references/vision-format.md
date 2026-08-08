@@ -62,8 +62,20 @@ Every vision document has these sections in order:
 
 - **Open Questions** -- Draft status only. Must be resolved (section removed or
   emptied) before transitioning to Accepted.
-- **Downstream Artifacts** -- added when downstream work (PRDs, designs, plans)
-  starts. Lists paths to artifacts that depend on this VISION.
+- **Downstream Artifacts** -- added when the first STRATEGY that operationalizes
+  this VISION exists. Lists paths to the STRATEGY documents that carry the
+  thesis forward, and nothing else.
+
+  The list is one level deep on purpose. The strategic chain runs VISION ->
+  STRATEGY -> ROADMAP, and each document links only to its immediate neighbour,
+  so a reader walking the chain hits every altitude in order instead of landing
+  two levels down with the reasoning in between skipped. A VISION that also
+  listed the ROADMAPs, PRDs, and designs under it would go stale on every
+  feature that lands, and it would hide the STRATEGY that is supposed to explain
+  why that feature exists. The ROADMAP is where the strategic chain hands off to
+  the tactical one -- `/brief` crosses that boundary by taking a ROADMAP as its
+  upstream -- so no strategic document reaches past it. To find the PRDs and
+  designs under a VISION, follow the chain: read the STRATEGY, then its ROADMAP.
 
 ## Visibility-Gated Sections
 
@@ -95,6 +107,9 @@ during validation, flag as an error.
 
 VISION does NOT contain:
 
+- **The medium-term bet** -- belongs in a STRATEGY. A VISION says why the
+  project should exist; the falsifiable bet on how it wins over the next few
+  quarters is the next altitude down.
 - **Feature requirements or user stories** -- belongs in a PRD
 - **Feature sequencing or timelines** -- belongs in a Roadmap
 - **Technical architecture decisions** -- belongs in a Design Doc
@@ -103,8 +118,9 @@ VISION does NOT contain:
   positioning but not duplicate analysis
 
 If a VISION draft starts accumulating feature lists, user stories, or technical
-decisions, those belong in downstream artifacts. Extract them into Open Questions
-or Downstream Artifacts pointers.
+decisions, those belong downstream. Park them in Open Questions until a STRATEGY
+picks them up. They do not become Downstream Artifacts entries -- that section
+lists STRATEGY documents only.
 
 ## Lifecycle
 
@@ -114,7 +130,7 @@ or Downstream Artifacts pointers.
 |-------|---------|
 | Draft | Under development. May have Open Questions. |
 | Accepted | Thesis endorsed. Open Questions resolved. Ready for downstream work. |
-| Active | Downstream artifacts (PRDs, designs) reference this VISION. |
+| Active | At least one STRATEGY references this VISION as its upstream. |
 | Sunset | Terminated -- abandoned, pivoted, or invalidated. Terminal state. |
 
 ### Transitions
@@ -166,7 +182,8 @@ One Active VISION per project at a time.
 - Draft: all 7 required sections present; Open Questions allowed
 - Accepted: all 7 required sections present; Open Questions resolved (removed
   or empty)
-- Active: same as Accepted, plus at least one Downstream Artifact entry
+- Active: same as Accepted, plus at least one Downstream Artifact entry (a
+  STRATEGY)
 - Sunset: Status section includes reason (abandoned, pivoted, or invalidated)
 
 ## Quality Guidance

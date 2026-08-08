@@ -36,7 +36,7 @@ involved.
 | Simple | /work-on with issue | 3 only | Issue -> implement -> ship |
 | Medium | /design | 2-3 | Design -> plan -> implement |
 | Complex | /explore | 1-2-3 | Explore -> crystallize -> specify -> implement |
-| Strategic | /explore --strategic | 1-2-3 with branching | VISION or Roadmap -> per-feature pipeline |
+| Strategic | /explore --strategic | 1-2-3 with branching | VISION -> STRATEGY -> Roadmap -> per-feature pipeline |
 
 Detection runs top-down (Strategic first, Trivial last). The full detection
 algorithm and tiebreaker rules live in `/explore SKILL.md` under "Detection
@@ -76,6 +76,7 @@ draft, accepted/active, in-progress, completed.
 | Artifact | States | Terminal |
 |----------|--------|----------|
 | VISION | Draft -> Accepted -> Active -> Sunset | Sunset |
+| Strategy | Draft -> Accepted -> Active -> Sunset | Sunset |
 | Roadmap | Draft -> Active -> Done | Done |
 | PRD | Draft -> Accepted -> In Progress -> Done | Done |
 | Design Doc | Proposed -> Accepted -> Planned -> Current (or Superseded) | Current |
@@ -107,14 +108,25 @@ a chain from strategic intent to implementation.
 
 ```
 VISION
-  └── Roadmap (upstream: VISION)
-        └── PRD (upstream: Roadmap, per feature)
-              └── Design Doc (upstream: PRD)
-                    └── Plan (upstream: Design Doc)
-                          └── GitHub Issues (upstream: Plan)
+  └── Strategy (upstream: VISION)
+        └── Roadmap (upstream: Strategy)
+              └── PRD (upstream: Roadmap, per feature)
+                    └── Design Doc (upstream: PRD)
+                          └── Plan (upstream: Design Doc)
+                                └── GitHub Issues (upstream: Plan)
 ```
 
-Each artifact's `upstream` field points to its parent. The chain enables:
+Each artifact's `upstream` field points to its immediate parent, one level
+up -- never two. The strategic chain (VISION -> Strategy -> Roadmap) is
+strict about this in both directions: a VISION's downstream artifacts are
+STRATEGYs, a STRATEGY's are Roadmaps, and a Roadmap's upstream is the
+STRATEGY it sequences. A link that skipped a level would leave the
+reasoning at the skipped altitude unreachable from the path a reader
+walks. The Roadmap is where the strategic chain hands off to the tactical
+one; `/brief` crosses that boundary by taking a Roadmap as its upstream,
+and no strategic document reaches past the Roadmap.
+
+The chain enables:
 - Finding all downstream work from a VISION
 - Tracing an implementation issue back to its strategic justification
 - Completion cascades (when issues close, propagate status upstream)
@@ -156,7 +168,8 @@ skills apply and in what order.
 | Full plan ready to ship | /execute PLAN-*.md (plan orchestrator) -> /release |
 | Known approach, design decisions exist | /design -> /plan -> /work-on |
 | Shape unclear, multiple unknowns | /explore -> (crystallize) -> /prd or /design -> /plan -> /work-on |
-| New project, thesis needed | /explore --strategic -> /vision -> /roadmap -> per-feature pipeline |
+| New project, thesis needed | /explore --strategic -> /vision -> /strategy -> /roadmap -> per-feature pipeline |
+| Whole strategic chain in one sitting | /charter -> VISION -> STRATEGY -> ROADMAP |
 | Multi-feature initiative | /roadmap -> /plan (enriches roadmap) -> per-feature /prd, /design, /plan |
 | Feasibility unknown | /explore -> (crystallize) -> spike report |
 | Single contested choice | /explore -> (crystallize) -> /decision |

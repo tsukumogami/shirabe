@@ -146,17 +146,28 @@ non-goal explains WHY the strategy excludes it, tying back to the bet.
 
 ## 3.5 Draft Downstream Artifacts
 
-Downstream Artifacts lists the downstream documents flowing from this
-strategy. The shape mirrors VISION's Downstream pattern: typed link list
+Downstream Artifacts lists the ROADMAPs that sequence this strategy's
+work. The shape mirrors VISION's Downstream pattern: typed link list
 with one-sentence purpose per entry.
+
+**Every entry is a ROADMAP.** The strategic chain runs VISION ->
+STRATEGY -> ROADMAP and each document links only to its immediate
+neighbour, so a reader walking the chain hits every altitude in order
+instead of landing two levels down with the reasoning in between
+skipped. A DESIGN or PRD entry would skip the ROADMAP -- the progress
+ledger for this strategy's execution -- and cross out of the strategic
+chain into the tactical one. The ROADMAP is the boundary: `/brief`
+crosses it by taking a ROADMAP as upstream, and no strategic document
+reaches past it. If a Building Block already has a design or a PRD, it
+belongs on the ROADMAP's per-feature entry, not here.
 
 **Required content properties:**
 
 - Each entry is a markdown link to a durable repo path.
-- Each entry has a one-sentence description of the artifact's purpose
-  and its tie to a Building Block.
-- Entries are grouped by artifact type (ROADMAP, DESIGN, PRD) when
-  helpful, or listed flat when the strategy has few downstream artifacts.
+- Each entry has a one-sentence description of the ROADMAP's purpose
+  and which Building Blocks it sequences.
+- Most strategies have one ROADMAP. A strategy whose blocks split across
+  independently sequenced initiatives may list more.
 
 **Durability rule:** every link MUST point to a durable path. Specifically:
 
@@ -178,10 +189,7 @@ Phase 4's structural reviewer checks durability per entry.
 Forthcoming work flowing from this strategy:
 
 - **`docs/roadmaps/ROADMAP-<name>.md`** (planned) — sequences the
-  Building Blocks across releases.
-- **`docs/designs/DESIGN-<name>.md`** (planned) — picks up Building
-  Block B and decomposes implementation.
-- ...
+  Building Blocks across releases and tracks their progress.
 ```
 
 ## 3.6 Re-read the Full Draft

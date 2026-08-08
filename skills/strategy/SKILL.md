@@ -31,6 +31,14 @@ falsifiable hypothesis, decomposes it into coherent building blocks,
 maps coordination dependencies, and lists per-direction invalidation
 conditions so the team can recognize when the bet has been wrong.
 
+A STRATEGY links one level in each direction: its upstream is a VISION,
+and its Downstream Artifacts are ROADMAPs. Keeping the links strict is
+what makes the chain walkable -- a reader moving VISION -> STRATEGY ->
+ROADMAP hits every altitude in order rather than landing two levels down
+with the reasoning in between skipped. The ROADMAP is the boundary
+between the strategic chain and the tactical one, and `/brief` is what
+crosses it, so a STRATEGY never links a PRD, DESIGN, or PLAN directly.
+
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
 ## Artifact Lifecycle

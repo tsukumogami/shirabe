@@ -86,14 +86,15 @@ Return only the verdict, issue count, and summary to this conversation.
 
 ```
 You are reviewing a VISION document for content boundary violations. Your job is
-to catch content that belongs in downstream artifacts (PRDs, designs, roadmaps,
-plans) rather than in a VISION.
+to catch content that belongs in downstream artifacts (strategies, roadmaps,
+PRDs, designs, plans) rather than in a VISION.
 
 ## VISION to Review
 [Contents of docs/visions/VISION-<topic>.md]
 
 ## Content Boundaries (from format reference)
 VISION does NOT contain:
+- The medium-term falsifiable bet (belongs in a STRATEGY)
 - Feature requirements or user stories (belongs in a PRD)
 - Feature sequencing or timelines (belongs in a Roadmap)
 - Technical architecture decisions (belongs in a Design Doc)

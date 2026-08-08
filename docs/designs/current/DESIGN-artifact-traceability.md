@@ -257,6 +257,17 @@ When present, it points to a VISION document (the natural parent of a
 roadmap in the traceability chain). Cross-repo references use the
 `owner/repo:path` convention from the shared reference.
 
+*Superseded 2026-08-08: a roadmap's upstream is now a STRATEGY, not a
+VISION. This design shipped before the STRATEGY artifact type existed, so
+a VISION was then the roadmap's immediate parent. The strategic chain now
+runs VISION -> STRATEGY -> ROADMAP and every link is exactly one level
+deep, so pointing a roadmap at a VISION would skip the bet that chose its
+features. Everywhere below where this document writes
+`--upstream docs/visions/VISION-<name>.md` for a roadmap, read
+`--upstream docs/strategies/STRATEGY-<name>.md`. The `--upstream`
+mechanism, the cross-repo convention, and the PRD-side flow are unchanged.
+See `skills/roadmap/references/roadmap-format.md` for the current rule.*
+
 **Explore handoff enrichment.** The `phase-5-produce-roadmap.md` handler
 passes `--upstream <vision-path>` when invoking `/shirabe:roadmap <topic>`.
 The VISION path comes from the explore findings or crystallize artifact —
@@ -373,6 +384,9 @@ fetching referenced files), it should sanitize against directory traversal.
 
 - The traceability chain is complete: VISION -> Roadmap -> PRD -> Design
   -> Plan, with every link machine-readable via `upstream` frontmatter
+  - *Superseded 2026-08-08: the chain now runs VISION -> STRATEGY ->
+    ROADMAP -> PRD -> DESIGN -> PLAN. See the note under Roadmap
+    Frontmatter above.*
 - Creation workflows consistently set upstream at creation time, following
   one pattern (the /design Phase 0 model)
 - Cross-repo references have a documented convention instead of ad-hoc

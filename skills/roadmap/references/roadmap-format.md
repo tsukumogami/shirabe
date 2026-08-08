@@ -57,21 +57,43 @@ theme: |
 scope: |
   1 paragraph bounding what's included and excluded. Which features
   are in this roadmap, and what adjacent work is deliberately left out?
-upstream: docs/visions/VISION-<name>.md  # optional
+upstream: docs/strategies/STRATEGY-<name>.md  # optional
 ---
 ```
 
 Required fields: `schema`, `status`, `theme`, `scope`. Optional:
-`upstream` (path to the VISION document that this roadmap traces to,
-when one exists). Each field other than `schema` should be 1
-paragraph using YAML literal block scalars (`|`).
+`upstream` (path to the STRATEGY document that this roadmap sequences
+the work for, when one exists). Each field other than `schema` should
+be 1 paragraph using YAML literal block scalars (`|`).
 
 The `upstream` field links the roadmap to the strategic artifact that
-motivated it. When present, it points to a VISION document (the
-natural parent in the traceability chain). Roadmaps that emerge from
-exploration without a formal VISION omit this field. For cross-repo
-upstream references and the visibility-direction rules, see
-`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
+motivated it. When present, it points to a **STRATEGY** -- the
+roadmap's immediate neighbour one level up the strategic chain, which
+runs VISION -> STRATEGY -> ROADMAP. `/charter` sets it this way on
+every chain it runs, so a STRATEGY upstream is the common case.
+
+Point it at the immediate neighbour, not at whatever strategic
+document happens to be handy. A ROADMAP whose upstream skipped to the
+VISION would leave the bet it is sequencing unreachable from the
+roadmap: a reader would jump from sequenced features straight to the
+long-term thesis, with the falsifiable claim that chose those features
+missing from the path. The links stay one level deep in both
+directions -- a STRATEGY's Downstream Artifacts list ROADMAPs, and a
+ROADMAP's upstream is that STRATEGY -- so the chain reads the same
+walked either way.
+
+A roadmap written without a STRATEGY -- one that emerged from
+exploration, or that traces only to a VISION -- omits the field
+rather than reaching past its neighbour. Recording the VISION here
+would claim a link the chain does not have.
+
+The ROADMAP is the last link in the strategic chain. Downstream of it
+the tactical chain takes over, and `/brief` is what crosses the
+boundary by taking a ROADMAP as its own upstream; no strategic
+document reaches past the ROADMAP to a BRIEF, PRD, DESIGN, or PLAN.
+
+For cross-repo upstream references and the visibility-direction rules,
+see `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
 
 Frontmatter status must match the Status section in the body --
 agent workflows parse frontmatter to determine lifecycle state, so
@@ -86,7 +108,11 @@ Every roadmap has these sections in order:
    sequencing matters
 3. **Features** -- ordered list of features with names, descriptions,
    dependencies, and status. Each feature should reference its
-   downstream artifact (PRD, design doc, or plan) when one exists.
+   downstream artifact (brief, PRD, design doc, or plan) when one
+   exists. These per-feature entries are how the tactical chain is
+   reached from the strategic one -- the roadmap is the only place
+   the two meet, which is why no document above it links a brief,
+   PRD, design, or plan directly.
 4. **Sequencing Rationale** -- why features are ordered this way.
    What constraints drive the ordering: technical dependencies, user
    value delivery, risk reduction? On a one-feature roadmap there is

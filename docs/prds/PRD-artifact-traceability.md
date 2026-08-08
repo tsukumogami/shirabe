@@ -79,6 +79,15 @@ with a VISION context (via /explore handoff or explicit argument), the
 creation workflow sets `upstream` in the frontmatter. When invoked
 standalone without VISION context, `upstream` is omitted.
 
+*Superseded 2026-08-08 (R1 and R2 only): the value is now a STRATEGY path
+(`docs/strategies/STRATEGY-<name>.md`), and the context /roadmap reads is a
+STRATEGY. This PRD shipped before the STRATEGY artifact type existed, when a
+VISION was a roadmap's immediate parent. The strategic chain now runs VISION
+-> STRATEGY -> ROADMAP with every link exactly one level deep, so a roadmap
+pointing at a VISION would skip the bet that chose its features. The rest of
+the requirements are unaffected. See
+`skills/roadmap/references/roadmap-format.md` for the current rule.*
+
 **R3. /prd creation workflow sets upstream.** When /prd is invoked from a
 roadmap feature (via /plan issue or explicit argument), the creation
 workflow sets `upstream` to the roadmap path. When invoked standalone

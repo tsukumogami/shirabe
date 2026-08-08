@@ -31,9 +31,10 @@ Read all available context:
 
 **Detect upstream:** Check `$ARGUMENTS` for an `--upstream <path>` flag. If
 present, store the path for inclusion in frontmatter (step 3.2). The upstream
-path typically points to a VISION document passed by /explore or by the user
-in standalone invocation. If `--upstream` is not provided, omit the field from
-frontmatter.
+path points to the STRATEGY this roadmap sequences -- passed by `/charter` on
+every chain, or by the user in standalone invocation. If `--upstream` is not
+provided, omit the field from frontmatter; do not substitute a VISION path,
+which would skip a level of the chain.
 
 ### 3.2 Draft the ROADMAP
 

@@ -61,8 +61,9 @@ load.
 The user invoked `/strategy <path>` where `<path>` resolves to a
 `docs/prds/PRD-*.md` file inside the repo. This is less common but supported:
 the user wants a STRATEGY that operationalizes a PRD's bet at medium-term
-altitude (the PRD's requirements then become some — not all — of the
-Downstream Artifacts).
+altitude. The PRD supplies framing only — it never becomes a Downstream
+Artifacts entry. Downstream Artifacts lists ROADMAPs and nothing else,
+whatever the upstream was.
 
 1. Load the upstream PRD and read its Problem Statement, Goals, and Decisions
    and Trade-offs sections.
