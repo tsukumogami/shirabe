@@ -20,7 +20,7 @@ The input `$ARGUMENTS` can be an issue reference or a milestone reference.
 
 ### Handling `needs-triage` Issues
 
-If the selected issue has a `needs-triage` label, the issue needs classification before implementation. Read CLAUDE.md and check its `## Label Vocabulary` section for the routing options available. If your project's extension file defines a triage workflow, invoke it now. Otherwise, ask the user whether to proceed directly or reclassify the issue.
+If the selected issue has a `needs-triage` label, the issue needs classification before implementation. Read CLAUDE.md and check its `## Label Vocabulary` section for the routing options available. If your project's extension file defines a triage workflow, invoke it now. Otherwise, read the issue body and present the routing decision with AskUserQuestion following the pattern in `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`. Recommend one: "Proceed directly (Recommended)" when the issue body already states what to build and the change is bounded, "Reclassify (Recommended)" when the body leaves the requirements or the approach open. Ground the recommendation in the issue body — quote the sentence that settles it, or name what the body leaves unanswered — and give the option that ranks lower a short reason. If the body is genuinely borderline, say so, still recommend one, and name the tiebreaker.
 
 ### Handling Blocking Labels
 

@@ -62,8 +62,21 @@ All must pass before proceeding:
 5. **No release blockers**: Query `gh issue list --label blocks-release --state open`.
    If any exist, list them and stop. Also check `gh issue list --label priority:critical --state open`.
 6. **Security-labeled PRs**: Query `gh pr list --state merged --search "label:security merged:>$LAST_TAG_DATE"`.
-   If found, flag them and ask the user how to handle in release notes (standard description,
-   redacted, or excluded).
+   If found, flag them and use AskUserQuestion to decide how each is handled in the
+   release notes, following the pattern in
+   `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`. Read the PR before
+   asking, and recommend one of the three treatments rather than listing them:
+
+   - **Standard description (Recommended)** when the PR is a hardening change with
+     no exploitable window in a released version
+   - **Redacted** when the PR fixes a live vulnerability and the detail would arm an
+     attacker before users upgrade
+   - **Excluded** when naming the change at all would point at an unfixed surface
+
+   Ground the recommendation in what the PR actually did -- cite the change and
+   whether an affected version already shipped. If it is genuinely borderline, say
+   so, still recommend one, and name the tiebreaker (default to the more
+   conservative treatment).
 
 Report the specific failure and stop on any check.
 

@@ -203,7 +203,12 @@ Determine consensus:
 | All 3 pass | Proceed to finalization |
 | 1-2 fail with minor issues | Fix issues, briefly show fixes to user, proceed |
 | Any fail with significant issues | Present issues to user, incorporate fixes, re-validate if changes are substantial |
-| Agents disagree on same issue | Present both perspectives to user, let user decide |
+| Agents disagree on same issue | Present both perspectives, recommend the better-supported one, let the user override |
+
+**Reviewer disagreement:** quote both perspectives, then say which one you find
+better supported and why, citing the specific verdict finding that decides it.
+If the two are genuinely balanced, say so explicitly, still recommend one, and
+name the tiebreaker. The user overrides if they disagree.
 
 **For minor issues** (wording fixes, sharpening a non-goal's reasoning, clarifying
 audience description): Fix directly, update the VISION, show the user what changed.
@@ -230,10 +235,18 @@ Present a brief summary:
 - Success criteria count
 - Any known open questions remaining
 
-Use AskUserQuestion to ask for approval. Provide context explaining the VISION is
-validated and ready for acceptance. Options:
-- **Approve** -- status changes to Accepted, ready for downstream work
+Use AskUserQuestion to ask for approval. Frame the question as the agent
+recommending acceptance based on the jury verdicts, not neutrally presenting
+options; the user's verdict is the gate. Options:
+- **Approve (Recommended)** -- status changes to Accepted, ready for downstream work
 - **Request changes** -- specify what needs to change
+
+**Description field:** Ground the recommendation in the jury verdicts -- name
+which reviewers passed and any finding they flagged as non-blocking (e.g., "All
+three reviewers passed; the thesis reviewer flagged success criterion S3 as
+hard to measure but not blocking. Recommending Approve."). If a reviewer's
+residual concern makes acceptance the weaker call, recommend Request changes
+instead and cite the finding that drove it.
 
 ### 4.6 Handle Approval
 

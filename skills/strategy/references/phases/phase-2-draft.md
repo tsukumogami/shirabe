@@ -232,6 +232,18 @@ Surface thematic questions the user should weigh in on. Use AskUserQuestion
 for questions that have a tradeoff shape. Avoid rehashing the draft
 ("does the thesis look right?") — the user can read the draft themselves.
 
+Read `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md` for how to
+structure these. Frame each one as the agent recommending based on evidence,
+not neutrally presenting options. For each question, provide:
+- A paragraph of context explaining the question and why it matters
+- A recommended answer marked "(Recommended)", grounded in what Phase 1's
+  discovery turned up — cite the upstream VISION, the scoping conversation, or
+  the specific claim that decides it
+- Alternative answers, each with a short justification for why it ranks lower
+
+If the discovery genuinely doesn't favor one answer, say so, still recommend
+one, and name the tiebreaker.
+
 Good questions target the bet:
 - "The invalidation condition for Claim 2 names a 6-month signal. Is that
   the right time horizon, or should the strategy commit to a shorter

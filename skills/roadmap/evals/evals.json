@@ -170,6 +170,36 @@
         "Transcript reports the Draft -> Active transition as blocked because a roadmap with no features has nothing to track",
         "Transcript does NOT attempt to bypass the gate by editing the status field directly"
       ]
+    },
+    {
+      "id": 13,
+      "name": "activation-gate-recommends-and-cites-verdicts",
+      "prompt": "/roadmap q4-platform -- the Phase 4 jury has returned all three verdicts, with the dependency validator flagging Feature C's external-API stub as borderline but not blocking.",
+      "expected_output": "Phase 4 step 4.5 asks for approval as the agent recommending activation, not as a neutral pair of options. Approve is marked '(Recommended)' and the description cites the jury verdicts: which reviewers passed and the dependency validator's non-blocking flag on Feature C. The user's verdict remains the gate -- Request changes stays available and the status does not move without it.",
+      "files": [],
+      "expectations": [
+        "Transcript marks Approve '(Recommended)' rather than listing Approve and Request changes unranked",
+        "Transcript grounds the recommendation in the jury verdicts, naming which reviewers passed and any finding flagged as non-blocking",
+        "Transcript's grounding cites a specific reviewer finding rather than asserting the ROADMAP is 'validated and ready'",
+        "Transcript recommends Request changes instead, with the finding that drove it, when a residual concern makes activation the weaker call",
+        "Transcript still requires the user's verdict before transitioning to Active",
+        "Transcript does NOT present the approval as a neutral choice with no stated recommendation"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "jury-disagreement-carries-a-recommendation",
+      "prompt": "/roadmap q4-platform -- the Phase 4 jury returns one reviewer calling the Feature D split unjustified and another reading the same split as load-bearing for sequencing.",
+      "expected_output": "Phase 4 step 4.3 hits the agents-disagree row. The transcript quotes both perspectives, then states which one it finds better supported and why, citing the specific verdict finding that decides it. The recommendation is made even though the reviewers split; the user overrides if they disagree. If the two readings are genuinely balanced, the transcript says so explicitly, still recommends one, and names the tiebreaker.",
+      "files": [],
+      "expectations": [
+        "Transcript surfaces both reviewer perspectives rather than silently picking one",
+        "Transcript states which perspective it finds better supported instead of leaving the call to the user unaided",
+        "Transcript's reasoning cites the specific verdict finding that decides the disagreement, not the fact that the reviewers disagreed",
+        "Transcript says so explicitly and names a tiebreaker if the two perspectives are genuinely balanced, rather than manufacturing a preference",
+        "Transcript preserves the user's ability to override the recommendation",
+        "Transcript does NOT present the disagreement as 'let user decide' with no recommendation attached"
+      ]
     }
   ]
 }

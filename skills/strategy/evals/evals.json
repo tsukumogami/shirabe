@@ -137,6 +137,36 @@
         "Plan names the PRD in Strategic Context prose rather than in frontmatter",
         "Plan does NOT list the PRD as a Downstream Artifacts entry"
       ]
+    },
+    {
+      "id": 10,
+      "name": "jury-disagreement-carries-a-recommendation",
+      "prompt": "/strategy edge-runtime -- the Phase 4 jury returns a bet-quality verdict calling Claim 3 an execution risk rather than a thesis-failure mode, and an altitude verdict that reads the same claim as correctly pitched.",
+      "expected_output": "Phase 4 step 4.3 hits the reviewers-disagree row. The plan quotes both verdicts, then states which reading is better supported and why, citing the specific verdict finding that decides it. The recommendation is made even though the reviewers split; the user overrides if they disagree. If the two readings are genuinely balanced, the plan says so explicitly, still recommends one, and names the tiebreaker.",
+      "files": [],
+      "expectations": [
+        "Plan surfaces both reviewer perspectives rather than silently picking one",
+        "Plan states which perspective it finds better supported instead of leaving the call to the user unaided",
+        "Plan's reasoning cites the specific verdict finding that decides the disagreement, not the fact that the reviewers disagreed",
+        "Plan says so explicitly and names a tiebreaker if the two perspectives are genuinely balanced, rather than manufacturing a preference",
+        "Plan preserves the user's ability to override the recommendation",
+        "Plan does NOT present the disagreement as 'user decides' with no recommendation attached"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "phase-2-questions-carry-recommended-answers",
+      "prompt": "/strategy edge-runtime -- Phase 2 has written Strategic Context, Defensibility Thesis, and Bet-Specific Falsifiability, and step 2.8 needs to surface a tradeoff-shaped question about the bet to the author.",
+      "expected_output": "Step 2.8 surfaces the question with a recommended answer marked '(Recommended)', grounded in what Phase 1 discovery turned up -- the upstream VISION, the scoping conversation, or the specific claim that decides it -- with each alternative carrying a short reason for ranking lower. If discovery does not favor an answer, the plan says so, still recommends one, and names the tiebreaker.",
+      "files": [],
+      "expectations": [
+        "Plan marks one answer '(Recommended)' rather than offering the alternatives unranked",
+        "Plan grounds the recommended answer in a specific Phase 1 discovery detail (upstream VISION, scoping conversation, or a named claim), not in an abstract tradeoff list",
+        "Plan gives each alternative a short reason for ranking lower",
+        "Plan still asks the author, treating the recommendation as overridable rather than as the decision",
+        "Plan does NOT ask a rehash question such as 'does the thesis look right?'",
+        "Plan does NOT present the alternatives side by side with no stated preference"
+      ]
     }
   ]
 }

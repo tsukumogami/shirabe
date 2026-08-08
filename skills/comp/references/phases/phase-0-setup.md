@@ -33,18 +33,34 @@ parsing:
 [/comp] WARNING <topic>: visibility=public
 ```
 
-Then say this to the author, and wait for their answer:
+Then present the decision using AskUserQuestion, following the pattern in
+`${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`, and wait for
+the author's answer. Recommend stopping — the detected visibility is
+what grounds that recommendation, and nothing the skill can do here
+changes the validator's answer downstream:
 
 > *"This repo is public. A COMP is competitive content and belongs in a
 > private repo: `shirabe validate` rejects a COMP under public
 > visibility (R9), so an analysis written here can't be finalized in
 > place — and CI's guardrail fails the PR. If you want the competitive
 > question on the record in this repo, a BRIEF or PRD can reference it
-> without carrying the analysis. Do you want to continue here anyway,
-> or stop?"*
+> without carrying the analysis."*
 
-`/comp` does **not** exit on its own. The author decides. The check is
-fail-closed in what it treats as public — any non-`private` value,
+**Options:**
+1. "Stop here (Recommended)" — take the analysis to a private repo, or
+   write a public BRIEF/PRD that references the competitive question
+2. "Continue anyway" — draft the COMP here knowing it cannot be
+   finalized in place
+
+**Description field:** Name how visibility was resolved — the CLAUDE.md
+`## Repo Visibility:` header, the inferred repo path, or the absent
+header that defaulted the check — so the author can spot a mis-set
+header and override on an informed basis.
+
+Recommending "Stop here" is not the same as stopping: `/comp` does
+**not** exit on its own, and "Continue anyway" proceeds normally. The
+author decides. The check is fail-closed in what it treats as
+public — any non-`private` value,
 including an unset or unrecognized visibility, warrants the warning —
 but fail-closed here means "warn", not "terminate".
 

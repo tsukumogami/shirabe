@@ -216,9 +216,15 @@ Run a complexity assessment based on the design's implementation scope:
 | API changes | None | Surface changes |
 | Cross-package | No | Yes |
 
-Present an AskUserQuestion with the assessment and options:
+Present an AskUserQuestion with the assessment and options, following the pattern
+in `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`:
 - If Simple: "Plan (Recommended)" / "Approve only"
 - If Complex: "Plan (Recommended)" / "Approve only"
+
+**Description field:** Ground the recommendation in the complexity assessment --
+name the criteria that landed the design where it did (which files it touches,
+whether it changes an API surface, whether it crosses packages), not the Simple
+or Complex label alone.
 
 **"Plan":** suggest running `/plan <design-doc-path>` to create implementation issues.
 The PR should NOT be merged yet — `/plan` will add an "Implementation Issues" section.

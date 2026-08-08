@@ -135,10 +135,21 @@ After agents respond, synthesize:
 
 If the result is **needs investigation**, proceed to Step 0.5.
 
-If the result is **needs breakdown** or **ready**, present to the user using
-AskUserQuestion:
-- **Break down** -- create sub-issues, then use /work-on for each
-- **Implement directly** -- skip exploration; use /work-on
+If the result is **needs breakdown** or **ready**, present the routing decision
+using AskUserQuestion following the pattern in
+`${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`.
+
+**Recommendation heuristic:** If Stage 1 landed on **needs breakdown**, recommend
+"Break down." If it landed on **ready**, recommend "Implement directly."
+
+**Options (order by recommendation heuristic):**
+1. "Break down (Recommended)" or "Implement directly (Recommended)" -- based on
+   the heuristic above
+2. The other option, with a brief justification for why it ranks lower
+
+**Description field:** Ground the recommendation in the Stage 1 assessments --
+cite the specific signals the agents named (scope breadth, dissent, whether the
+issue body already states what to build), not the category label alone.
 
 Route based on the user's choice:
 - **Break down:** Create sub-issues from the original. Stop and suggest the user
@@ -210,14 +221,21 @@ After agents respond, synthesize:
    needs-design, needs-design before needs-spike)
 
 Present the assessments side-by-side and recommend the strongest one. Ask the user
-to confirm via AskUserQuestion:
+to confirm via AskUserQuestion, following the pattern in
+`${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`:
 
 > Based on the assessments, this issue looks like it **[needs a PRD / needs design /
 > needs a spike / needs a decision record]**. How would you like to proceed?
 >
-> 1. **Explore** -- continue with /explore to produce the artifact
+> 1. **Explore (Recommended)** -- continue with /explore to produce the artifact
 > 2. **Different type** -- you see a different need (user can override the recommendation)
 > 3. **Implement directly** -- skip investigation; use /work-on
+
+**Description field:** Ground the recommendation in the Stage 2 assessments --
+name which agent's argument carried, quote the specific gap it identified, and
+say what the dissenting agents were weighing against it. If the assessments were
+a three-way split with no clear winner, say so, name the primary-gap heuristic as
+the tiebreaker, and still recommend the type it selects.
 
 Route based on the user's choice:
 

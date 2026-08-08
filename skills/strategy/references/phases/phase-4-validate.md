@@ -426,7 +426,12 @@ Apply the following aggregation table:
 | All 3 PASS | Proceed to step 4.4 (Apply Minor Fixes if any) then to Phase 5 |
 | 1-2 FAIL with minor issues only | Fix issues in place, surface brief summary to user, proceed to Phase 5 |
 | Any FAIL with significant issues | Surface to user via AskUserQuestion with option to loop back to Phase 2 or Phase 3 |
-| Reviewers disagree on the same issue | Surface both perspectives to user; user decides |
+| Reviewers disagree on the same issue | Surface both perspectives, recommend the better-supported one, and let the user override |
+
+**Reviewer disagreement:** quote both perspectives, then say which one you find
+better supported and why, citing the specific verdict finding that decides it.
+If the two are genuinely balanced, say so explicitly, still recommend one, and
+name the tiebreaker. The user overrides if they disagree.
 
 **Minor issues:** wording fixes, sharpening a non-goal's rationale, adding
 an "(planned)" annotation to a Downstream Artifact entry, clarifying a

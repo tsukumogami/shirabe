@@ -92,15 +92,33 @@
       "id": 8,
       "name": "public-repo-skill-warning",
       "prompt": "/comp acme-widgets",
-      "expected_output": "Invoked in a public repo, the /comp skill detects non-private visibility at Phase 0 and warns rather than refusing: it emits '[/comp] WARNING acme-widgets: visibility=public' to stdout as a machine-readable signal, tells the author this repo is public and that COMP content is competitive and belongs in a private repo, names the consequence (shirabe validate rejects a COMP under public visibility via R9, and the CI guardrail fails the PR, so the analysis cannot be finalized here), points at the alternative of a BRIEF or PRD that references the competitive question without carrying the analysis, and asks whether to continue. The skill does not exit on its own; the author decides. The warning fires before any file is created or wip/ is initialized.",
+      "expected_output": "Invoked in a public repo, the /comp skill detects non-private visibility at Phase 0 and warns rather than refusing: it emits '[/comp] WARNING acme-widgets: visibility=public' to stdout as a machine-readable signal, tells the author this repo is public and that COMP content is competitive and belongs in a private repo, names the consequence (shirabe validate rejects a COMP under public visibility via R9, and the CI guardrail fails the PR, so the analysis cannot be finalized here), points at the alternative of a BRIEF or PRD that references the competitive question without carrying the analysis, and asks whether to continue. The decision is presented with a recommendation rather than as a bare continue-or-stop pair: 'Stop here (Recommended)' ranks first, grounded in how visibility was resolved (the CLAUDE.md header, the inferred repo path, or an absent header), with 'Continue anyway' available. Recommending stop is not stopping -- the skill does not exit on its own; the author decides. The warning fires before any file is created or wip/ is initialized.",
       "files": [],
       "expectations": [
         "Plan detects repo visibility at Phase 0 from CLAUDE.md or repo path",
         "Plan warns at Phase 0, before creating any file or initializing wip/",
         "Plan emits the exact stdout signal '[/comp] WARNING acme-widgets: visibility=public'",
-        "Plan does NOT terminate the invocation on its own; it asks the author whether to continue",
+        "Plan marks 'Stop here' as the recommended option rather than presenting continue and stop as an unranked pair",
+        "Plan grounds the recommendation by naming how visibility was resolved (CLAUDE.md header, inferred repo path, or absent header), so the author can spot a mis-set header",
+        "Plan does NOT terminate the invocation on its own; 'Continue anyway' remains available and the author decides",
         "Plan names the alternatives (a BRIEF or PRD referencing the competitive question without the analysis)",
-        "Plan names the enforcement that still holds: validate's R9 gate and the CI guardrail reject a COMP under public visibility"
+        "Plan names the enforcement that still holds: validate's R9 gate and the CI guardrail reject a COMP under public visibility",
+        "Plan does NOT ask a bare 'continue or stop?' with no stated preference"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "significant-fail-recommends-a-path",
+      "prompt": "/comp acme-widgets -- the Phase 4 jury returns a significant FAIL: the competitive-framing reviewer finds every Opportunity entry aspirational, naming no competitor that lacks the capability.",
+      "expected_output": "Phase 4 step 4.3 presents the significant-FAIL decision as the agent recommending a path, not as a neutral loop-back-or-reject pair. Because the failing checks are repairable by re-drafting the same competitors and dimensions, 'Loop back to Phase 3 (Recommended)' ranks first and Reject follows with a reason for ranking lower. The description names the failing check and quotes the offending Opportunity entry the reviewer flagged.",
+      "files": [],
+      "expectations": [
+        "Plan marks one path '(Recommended)' rather than offering loop-back and reject unranked",
+        "Plan applies the heuristic: repairable checks favor looping back to Phase 3, a wrong competitive question favors rejecting",
+        "Plan's description names the failing rubric check and quotes the offending section or entry the reviewer flagged",
+        "Plan gives the non-recommended path a stated reason for ranking lower",
+        "Plan says so and names a tiebreaker if the two paths are genuinely balanced, rather than manufacturing a preference",
+        "Plan does NOT present loop-back and reject as equally weighted options with no recommendation"
       ]
     }
   ]

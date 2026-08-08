@@ -175,7 +175,12 @@ Determine consensus:
 | All 3 pass | Proceed to finalization |
 | 1-2 fail with minor issues | Fix issues, briefly show fixes to user, proceed |
 | Any fail with significant issues | Present issues to user, incorporate fixes, re-validate if changes are substantial |
-| Agents disagree on same issue | Present both perspectives to user, let user decide |
+| Agents disagree on same issue | Present both perspectives, recommend the better-supported one, let the user override |
+
+**Reviewer disagreement:** quote both perspectives, then say which one you find
+better supported and why, citing the specific verdict finding that decides it.
+If the two are genuinely balanced, say so explicitly, still recommend one, and
+name the tiebreaker. The user overrides if they disagree.
 
 **For minor issues** (wording fixes, adding a missing AC, clarifying a requirement):
 Fix directly, update the PRD, show the user what changed.
