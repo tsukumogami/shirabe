@@ -10,7 +10,7 @@ write, and records the bootstrap context for later phases.
 Establish the runtime context for the rest of the workflow:
 
 - Identify which entry mode this invocation falls into (cold start, freeform
-  topic, or upstream ROADMAP/PRD path).
+  topic, or upstream ROADMAP path).
 - Detect repo visibility (`Public` or `Private`) from CLAUDE.md.
 - Constrain the `<topic>` slug to a safe character set.
 - Canonicalize any `<path>` argument and reject paths resolving outside the repo
@@ -49,7 +49,17 @@ Parse `$ARGUMENTS` and classify into one of three modes:
 |------|---------|------------------|
 | **Cold start** | `$ARGUMENTS` is empty or whitespace only | Phase 1 asks the user which feature they want to frame |
 | **Freeform topic** | `$ARGUMENTS` is a string with no path separators and does not match an existing file path | Phase 1 grounds the problem/outcome pair in the topic |
-| **Upstream path** | `$ARGUMENTS` resolves to an existing file under `docs/roadmaps/` or `docs/prds/` | Phase 1 derives the problem/outcome candidate from the upstream's content |
+| **Upstream path** | `$ARGUMENTS` resolves to an existing file under `docs/roadmaps/` | Phase 1 derives the problem/outcome candidate from the upstream's content |
+
+A ROADMAP is the only document the upstream-path entry mode accepts. A
+`docs/prds/PRD-*.md` path is not an upstream mode — it is rejected at step 0.3.
+
+This is a statement about the entry mode, not about every value the
+`upstream:` field may ever hold. A follow-up brief born out of downstream
+work can carry a cross-chain reference (the lifecycle walker treats a
+BRIEF as a chain anchor and does not follow its `upstream:` as a
+chain-membership edge). What is never legal is a PRD: that inverts the
+chain the brief sits in.
 
 When `$ARGUMENTS` looks like a path (contains `/` or ends in `.md`) but the file
 does not exist, do not fall through to freeform-topic mode silently. Ask the user
@@ -70,8 +80,8 @@ Phase 4, and in the final artifact filename. Without constraint, a slug containi
 
 Derive the slug as follows:
 
-1. If `$ARGUMENTS` is an upstream path, take the basename, strip the `ROADMAP-` or
-   `PRD-` prefix and `.md` suffix, and use the remainder.
+1. If `$ARGUMENTS` is an upstream path, take the basename, strip the `ROADMAP-`
+   prefix and `.md` suffix, and use the remainder.
 2. If `$ARGUMENTS` is a freeform topic string, lowercase it, replace whitespace
    and underscores with `-`, and strip any character outside `[a-z0-9-]`.
 3. If `$ARGUMENTS` is empty, ask the user to name the feature and re-derive from
@@ -93,14 +103,28 @@ If Phase 0 detected upstream-path mode, canonicalize the path before any read:
    invocation if it resolves outside (e.g., a symlink pointing to `/etc/passwd` or
    to a sibling repo).
 4. Verify the file exists and is readable.
-5. Verify the basename starts with `ROADMAP-` or `PRD-`. Other prefixes indicate
-   the user pointed at the wrong artifact type and the problem/outcome derivation
-   will misfire.
+5. Verify the basename starts with `ROADMAP-`. Other prefixes indicate the user
+   pointed at the wrong artifact type and the problem/outcome derivation will
+   misfire.
 
 On any rejection, abort with a message that names the offending path and the
 reason. Do not silently fall back to freeform-topic mode — the user provided a
 path; misinterpreting it as a topic string would produce confusing downstream
 behavior.
+
+**A `PRD-` basename gets its own rejection.** A PRD is not a wrong-artifact
+accident the way a DESIGN or a PLAN path is — it is the artifact directly
+downstream of the brief, and pointing `/brief` at it inverts the chain. Reject
+with:
+
+> `<path>` is downstream of a BRIEF, not upstream of it. The tactical chain runs
+> ROADMAP → BRIEF → PRD: a PRD's requirements are written from the brief's
+> problem, outcome, journeys, and scope boundary, so deriving that framing back
+> out of the PRD inverts the chain. Write the brief from the feature topic
+> (`/brief <topic>`) or from the ROADMAP entry that names it
+> (`/brief docs/roadmaps/ROADMAP-<name>.md`), then point the PRD at the brief.
+
+Stop there. Do not offer to proceed with the PRD as upstream anyway.
 
 ## 0.4 Detect Repo Visibility
 
@@ -141,10 +165,10 @@ Run the decision as follows:
      yet. Produce a standalone brief. Proceed normally.
    - **Upstream ROADMAP path.** A roadmap names the feature but rarely frames its
      problem and outcome. The framing gap is real. Produce a standalone brief.
-   - **Upstream PRD path, or an input that already reads as a framed feature
-     (problem and outcome both stated, but in an issue, a message, or another
-     ephemeral source).** The raw content largely exists; it just isn't persisted
-     as a project artifact yet. Continue to step 2 to decide where to persist it.
+   - **An input that already reads as a framed feature** (problem and outcome
+     both stated, but in an issue, a message, or another ephemeral source). The
+     raw content largely exists; it just isn't persisted as a project artifact
+     yet. Continue to step 2 to decide where to persist it.
 
 2. **Decide where the durable framing lives.** When the raw framing largely exists
    in ephemeral form, choose its persistent home:
@@ -189,7 +213,7 @@ Write `wip/brief_<topic>_context.md` with the following keys:
 # /brief Context: <topic>
 
 ## Entry Mode
-<cold | freeform | upstream-roadmap | upstream-prd>
+<cold | freeform | upstream-roadmap>
 
 ## Upstream Path
 <canonical path, or "none">
@@ -232,7 +256,8 @@ can correct it before Phase 1 commits to a direction.
 Before proceeding:
 - [ ] `<topic>` slug matches `^[a-z0-9-]+$`
 - [ ] Upstream path (if provided) is canonicalized and inside the repo working tree
-- [ ] Upstream file (if provided) exists and has a `ROADMAP-` or `PRD-` basename
+- [ ] Upstream file (if provided) exists and has a `ROADMAP-` basename; a `PRD-`
+      basename was rejected with the chain-inversion message
 - [ ] Visibility is recorded (Public or Private, never empty)
 - [ ] The artifact decision is recorded (`produce` or `handed-off`)
 - [ ] `wip/brief_<topic>_context.md` exists with the keys above

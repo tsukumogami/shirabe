@@ -30,7 +30,7 @@ Read all available context:
 
 - `wip/brief_<topic>_context.md` (Phase 0)
 - `wip/brief_<topic>_discover.md` (Phase 1)
-- The upstream document (ROADMAP or PRD) if Phase 0 recorded one
+- The upstream ROADMAP if Phase 0 recorded one
 - `skills/brief/references/brief-format.md` (format specification — load this in
   full at Phase 2 since the section-by-section guidance lives there)
 
@@ -72,7 +72,7 @@ problem: |
 outcome: |
   <2-4 line summary of the outcome a user should experience; same content the
   User Outcome section elaborates in prose>
-upstream: <path to upstream ROADMAP or PRD, omit field if none or if private>
+upstream: <path to upstream ROADMAP, omit field if none or if private>
 ---
 ```
 

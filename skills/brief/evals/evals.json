@@ -5,7 +5,7 @@
       "id": 1,
       "name": "standalone-creation",
       "prompt": "/brief checkout-flow",
-      "expected_output": "Detects no upstream ROADMAP or PRD and no existing BRIEF. Validates the topic slug 'checkout-flow' matches [a-z0-9-]+ at Phase 0. Starts Phase 1 (discover) to ground the feature's problem and outcome conversationally. Produces a BRIEF doc with all five required sections at docs/briefs/BRIEF-checkout-flow.md. Phase 4 spawns two reviewer agents in parallel (content quality, structural format).",
+      "expected_output": "Detects no upstream ROADMAP and no existing BRIEF. Validates the topic slug 'checkout-flow' matches [a-z0-9-]+ at Phase 0. Starts Phase 1 (discover) to ground the feature's problem and outcome conversationally. Produces a BRIEF doc with all five required sections at docs/briefs/BRIEF-checkout-flow.md. Phase 4 spawns two reviewer agents in parallel (content quality, structural format).",
       "files": [],
       "expectations": [
         "Plan validates the topic slug 'checkout-flow' matches [a-z0-9-]+ at Phase 0",
@@ -120,6 +120,21 @@
         "Plan stops before drafting begins",
         "Plan does NOT create a BRIEF document",
         "Plan explains the slug constraint to the user"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "prd-upstream-rejection",
+      "prompt": "/brief docs/prds/PRD-checkout.md",
+      "expected_output": "Phase 0 rejects the PRD path instead of treating it as an upstream. A PRD is downstream of a BRIEF in the tactical chain (ROADMAP -> BRIEF -> PRD), so deriving the feature's framing out of the PRD's requirements inverts the chain. The rejection message names the offending path, explains the inversion, and points the author at writing the brief from the feature topic or from the ROADMAP entry that names it. No BRIEF document is created and Phase 1 never runs.",
+      "files": ["docs/prds/PRD-checkout.md"],
+      "expectations": [
+        "Plan rejects the PRD path rather than accepting it as the BRIEF's upstream",
+        "Plan explains that a PRD is downstream of a BRIEF (chain runs ROADMAP -> BRIEF -> PRD) so using it as upstream inverts the chain",
+        "Plan points the author at writing the brief from the feature topic or from the ROADMAP entry that names the feature",
+        "Plan stops at Phase 0 without entering Phase 1 discovery",
+        "Plan does NOT create a BRIEF document",
+        "Plan does NOT offer to proceed with the PRD as upstream anyway"
       ]
     }
   ]

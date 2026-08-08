@@ -49,12 +49,14 @@ Required fields: `status`, `problem`, `outcome`. Optional:
   body.
 - **outcome** -- the outcome a user should experience. A 2-4 line YAML
   literal block scalar (`|`). Matches the User Outcome section body.
-- **upstream** -- path to an upstream artifact such as a ROADMAP.
+- **upstream** -- path to the ROADMAP the feature was sequenced in.
   Optional because a brief may be authored from a freeform topic with
-  no single upstream document. Omit the field entirely when the
-  upstream is a private artifact a public brief cannot name -- a public
-  brief never points at a private path. Cross-repo upstream references
-  use the `owner/repo:path` convention; see
+  no single upstream document. Never a PRD: the chain runs ROADMAP ->
+  BRIEF -> PRD, so a PRD is written from the brief's framing and
+  pointing back at it inverts the chain. Omit the field entirely when
+  the upstream is a private artifact a public brief cannot name -- a
+  public brief never points at a private path. Cross-repo upstream
+  references use the `owner/repo:path` convention; see
   `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` for the
   visibility-direction rules.
 

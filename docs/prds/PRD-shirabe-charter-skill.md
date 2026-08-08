@@ -346,8 +346,8 @@ every full-run chain. The invocation is unconditional with respect
 to STRATEGY content: no document property — the Building Blocks
 count, the Coordination Dependencies section, or anything else —
 SHALL decide whether `/roadmap` fires. A ROADMAP is the only bridge
-from a STRATEGY into the tactical chain (`/brief` accepts a ROADMAP
-or a PRD as upstream, never a STRATEGY), so a chain that drops it
+from a STRATEGY into the tactical chain (`/brief` takes a ROADMAP as
+its upstream, never a STRATEGY), so a chain that drops it
 strands whatever work the STRATEGY made actionable.
 
 The single skip path is an explicit author declination.

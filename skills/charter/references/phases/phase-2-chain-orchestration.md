@@ -337,8 +337,8 @@ argument for firing unconditionally rests on the document being
 cheap and non-authoritative, not on it being auto-reclaimed.
 
 The stronger reason is that a ROADMAP is the only bridge from a
-STRATEGY into the tactical chain. `/brief` accepts a ROADMAP or a
-PRD as upstream and never a STRATEGY (see the Input Modes section
+STRATEGY into the tactical chain. `/brief` takes a ROADMAP as its
+upstream and never a STRATEGY (see the Input Modes section
 of `skills/brief/SKILL.md`), so a chain that ends at a STRATEGY
 alone strands whatever it made actionable: no downstream artifact
 can pick the work up, and nothing tracks its progress. Skipping the
