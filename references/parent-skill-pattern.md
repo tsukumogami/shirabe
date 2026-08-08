@@ -184,10 +184,34 @@ offered:
 3. A parent-defined visibility gate passes (using the workspace
    `## Repo Visibility:` mechanism).
 
-When any of the three conditions fails, the parent's discovery prompts
-SHALL NOT reference the feeder skill or its content surface (the
-degenerate-silence rule). The author hears about the feeder only when all
-three gates open.
+When any of the three conditions fails, the parent SHALL state the skip
+in its conversational output, naming the child and the condition that
+failed (the stated-skip rule). A step the author might reasonably expect
+does not disappear without explanation, and two different failing
+conditions do not produce the same message.
+
+The statement is conversational and is **never recorded**. Nothing that
+gets committed carries it: not the parent's state file (no
+`chain_skipped:` entry — a child whose gate never opened was never
+planned, so there is nothing to record), not the chain's durable
+artifacts, not anything landing under `docs/`. The split is what makes
+the rule safe. The workspace visibility rule governs **document
+references** — a document in a public repo must not name documents,
+paths, or content from a private repo — and says nothing about what the
+agent may say to the author. Honest conversation and clean artifacts are
+not in tension once the two surfaces are kept apart.
+
+An earlier revision of this pattern required the opposite (a
+"degenerate-silence" rule: byte-identical output across failing
+conditions, no surfacing of the gate). It was removed 2026-08-08. It
+rested on reading the visibility rule as a constraint on speech, and it
+cost the author any signal that a step had been dropped.
+
+A parent's visibility gate is not made redundant by a feeder skill
+running its own visibility check. A directly-invocable feeder checks
+because it can be reached with no parent involved; a parent checks
+because it should not route an author toward a gated artifact type in
+the first place. Both are load-bearing.
 
 **Parents do not extend children's input surfaces** with parent-
 specific flags or arguments. A pattern-level suppression signal —

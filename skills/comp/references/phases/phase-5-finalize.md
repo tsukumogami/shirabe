@@ -56,15 +56,31 @@ The `summary` paragraph synthesizes the survey's finding and its leading
 implication — enough for the parent to inject downstream without
 re-reading the whole document.
 
-### Refusal case
+### Public-visibility case
 
-If the workflow reached Phase 5 only to discover a visibility violation
-(it should have been caught in Phase 0, but as defense-in-depth), emit
-the refusal signal instead and create no PR:
+If the workflow reaches Phase 5 under non-private visibility — either
+because Phase 0 warned and the author chose to continue, or because the
+visibility changed mid-run — emit the same signal line Phase 0 emits,
+and emit no FINALIZED block, because nothing was finalized:
 
 ```
-[/comp] REFUSED <topic>: visibility=public
+[/comp] WARNING <topic>: visibility=public
 ```
+
+Say the consequence plainly at the approval gate, before the author
+ratifies: `shirabe validate` rejects this document under public
+visibility (R9), and the CI guardrail fails a PR carrying it, so there
+is no path to merging it in this repo. Offer the two things that
+actually work — move the analysis to a private repo and finalize it
+there, or keep the draft as a working note and land only a BRIEF or PRD
+here that references the competitive question.
+
+The skill does not terminate the invocation on its own here any more
+than it does at Phase 0; what stops a COMP from landing in a public repo
+is the validator and CI, and both are still in force. Do not run
+`shirabe transition` and do not open a PR — not as a skill-level
+refusal, but because the transition's own validation will reject the
+document and the PR could not merge.
 
 ## Output
 

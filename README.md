@@ -49,7 +49,7 @@ in one sitting, plus the child skills you can also reach for directly.
 |-------|-------------|
 | `/explore` | Fan out research agents to investigate options and figure out which artifact to produce next |
 | `/decision` | Structured decision-making for contested choices with adversarial agents, cross-examination, and synthesis (also callable from inside `/design`) |
-| `/comp` | Private-only competitive-analysis artifact comparing competitors along explicit dimensions; refuses to run in public repos |
+| `/comp` | Private-only competitive-analysis artifact comparing competitors along explicit dimensions; warns when run in a public repo, where the result cannot be finalized |
 | `/release` | Recommend a version, generate release notes, draft a GitHub release, dispatch the release workflow, and monitor it |
 | `/inflight` | Report this session's in-flight PRs across repos: number, state, CI and review status |
 

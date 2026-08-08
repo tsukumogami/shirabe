@@ -106,7 +106,7 @@ those findings into implications for our own choices — distinct from
 a PRD (what one feature does), a BRIEF (a single feature's framing),
 or a DESIGN (technical architecture). Because COMP content is
 competitive, the artifact is private-only: invoked in a public repo,
-`/comp` refuses and emits `[/comp] REFUSED <topic>: visibility=public`,
+`/comp` warns and emits `[/comp] WARNING <topic>: visibility=public`,
 redirecting the author to a public BRIEF or PRD that references the
 competitive question without containing the analysis. The same
 private-only contract is enforced at validation time by the R9 check.

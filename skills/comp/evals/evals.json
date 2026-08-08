@@ -90,16 +90,17 @@
     },
     {
       "id": 8,
-      "name": "public-repo-skill-refusal",
+      "name": "public-repo-skill-warning",
       "prompt": "/comp acme-widgets",
-      "expected_output": "Invoked in a public repo, the /comp skill detects non-private visibility at Phase 0 and refuses: it emits '[/comp] REFUSED acme-widgets: visibility=public' to stdout, creates no COMP file, and redirects the author to a public BRIEF or PRD that references the competitive question without containing the analysis.",
+      "expected_output": "Invoked in a public repo, the /comp skill detects non-private visibility at Phase 0 and warns rather than refusing: it emits '[/comp] WARNING acme-widgets: visibility=public' to stdout as a machine-readable signal, tells the author this repo is public and that COMP content is competitive and belongs in a private repo, names the consequence (shirabe validate rejects a COMP under public visibility via R9, and the CI guardrail fails the PR, so the analysis cannot be finalized here), points at the alternative of a BRIEF or PRD that references the competitive question without carrying the analysis, and asks whether to continue. The skill does not exit on its own; the author decides. The warning fires before any file is created or wip/ is initialized.",
       "files": [],
       "expectations": [
         "Plan detects repo visibility at Phase 0 from CLAUDE.md or repo path",
-        "Plan refuses because visibility is not private, before creating any file",
-        "Plan emits the exact stdout signal '[/comp] REFUSED acme-widgets: visibility=public'",
-        "Plan creates no COMP-acme-widgets.md file",
-        "Plan redirects the author to alternatives (a public BRIEF or PRD)"
+        "Plan warns at Phase 0, before creating any file or initializing wip/",
+        "Plan emits the exact stdout signal '[/comp] WARNING acme-widgets: visibility=public'",
+        "Plan does NOT terminate the invocation on its own; it asks the author whether to continue",
+        "Plan names the alternatives (a BRIEF or PRD referencing the competitive question without the analysis)",
+        "Plan names the enforcement that still holds: validate's R9 gate and the CI guardrail reject a COMP under public visibility"
       ]
     }
   ]

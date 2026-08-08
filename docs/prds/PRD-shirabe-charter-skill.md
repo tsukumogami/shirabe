@@ -317,13 +317,19 @@ both conditions hold:
   Visibility:` header), AND
 - `skills/comp/SKILL.md` exists on disk.
 
-When the `/comp` skill is not yet shipped, `/charter` SHALL silently
-skip the `/comp` step. The author MUST NOT see a "skill not yet
-shipped" message or any reference to competitive analysis. In public
-repos, the same silence applies regardless of `/comp`'s shipping
-status. This degenerate-silence shape ensures `/charter` v1 ships
-without coupling to `/comp`; when `/comp` ships, the integration is
-live with no `/charter` change.
+When either condition fails, `/charter` SHALL skip the `/comp` step
+and SHALL state the skip in its conversational output, naming the
+condition that failed — a public repo and a missing `/comp` skill
+are different reasons and produce different messages. The statement
+is conversational only: it MUST NOT appear in
+`wip/charter_<topic>_state.md` (no `chain_skipped:` entry, and
+`comp` absent from `planned_chain`) or in any artifact the chain
+writes under `docs/`. The visibility rule governs what a document
+in a public repo may reference, not what `/charter` may say to the
+author; keeping the two surfaces apart gives an honest conversation
+and clean artifacts at the same time. The gate reads `/comp`'s
+presence off the filesystem, so `/charter` needs no edit when the
+skill is installed or removed.
 
 **R6 [/charter-specific].** `/charter` SHALL always invoke
 `/strategy` as the load-bearing child of the chain. The chain
@@ -820,16 +826,23 @@ requirement that motivates them and the user story they exercise
   "/vision". The invocation passes only the topic slug; no
   API-level "treat as revision" signal is required.
   `[automated-eval]` (R4)
-- [ ] **AC7** When invoked in a public repo, `/charter`'s Phase 1
-  discovery and chain proposal output do NOT contain any of the
-  literal substrings: "/comp", "competitive analysis",
-  "competitive framing". This holds regardless of input text
-  (including a topic slug that mentions a competitor's name).
-  `[automated-eval]` (R5, R12)
+- [ ] **AC7** When invoked in a public repo, `/charter`'s chain
+  proposal output states that the competitive-analysis step is
+  skipped and names the repo's visibility as the reason. The
+  observable: the chain proposal output contains a skip entry for
+  `/comp` carrying a public-visibility reason. No committed output
+  mentions it — `wip/charter_<topic>_state.md` has no
+  `chain_skipped:` entry for `comp` and no `comp` in
+  `planned_chain`, and no artifact the chain writes under `docs/`
+  references `/comp` or its content surface. `[automated-eval]`
+  (R5, R12)
 - [ ] **AC8** When invoked in a private repo with
   `skills/comp/SKILL.md` absent, the chain proposal output (the
-  R7.5 prompt's content) is byte-identical to a public-repo
-  invocation for the same topic. `[automated-eval]` (R5)
+  R7.5 prompt's content) states the skip and names the missing
+  skill as the reason. It is NOT byte-identical to a public-repo
+  invocation for the same topic: the two runs fail different gate
+  conditions and each output names its own. `[automated-eval]`
+  (R5)
 - [ ] **AC9** When the author declines at the roadmap
   confirmation prompt (per R7), `/charter` skips `/roadmap` and
   exits at full-run with STRATEGY only. `chain_skipped:` records
@@ -1331,6 +1344,18 @@ second PR. (b) Block `/charter` shipping until `/comp` ships — gates
 intent: in private repos `/comp` is an optional discovery feeder
 when shipped; otherwise the chain is silent about it. The
 skill-existence flip is the only change needed when `/comp` lands.
+
+*Superseded 2026-08-08 (the silence half only): the skill-existence
+gate stands, but `/charter` no longer stays silent when it fails. It
+states the skip and names the reason — a public repo and a missing
+`/comp` are different conditions and get different messages. The
+silence rested on reading the visibility rule, which governs what a
+document may reference, as a constraint on what the agent may say;
+a step the author might expect was dropped with no explanation. The
+statement is conversational only, so the state file and everything
+under `docs/` stay as clean as before. See R5 above and the
+Stated-Skip Rule in
+`skills/charter/references/phases/phase-2-chain-orchestration.md`.*
 
 ### Decision 3: Hard finalization check on exit-tracking field
 

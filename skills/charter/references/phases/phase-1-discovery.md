@@ -224,12 +224,13 @@ would be invoked, with each entry annotated by either "run" or
 "skip" plus a one-line reason; the entry text is consistent across
 runs so authors recognize the shape across re-invocations.
 
-Three children are eligible to appear by name in the chain-
-proposal output: `/vision`, `/strategy`, and `/roadmap`. The
-prompt lists them in that order, in order to match the chain's
+Four children are eligible to appear by name in the chain-
+proposal output: `/vision`, `/comp`, `/strategy`, and `/roadmap`.
+The prompt lists them in that order, in order to match the chain's
 sequenced execution; entries for skipped children include the
 reason the gate did not hold (e.g., "skip `/vision` because an
-Accepted VISION already exists"). `/strategy` and `/roadmap`
+Accepted VISION already exists", "skip `/comp` because this repo
+is public and a COMP is private-only"). `/strategy` and `/roadmap`
 always appear as "run" — both gates are unconditional. The author's
 opportunity to drop `/roadmap` comes later, at the roadmap
 confirmation prompt documented in
@@ -239,12 +240,14 @@ not here.
 ### Example Shape
 
 The prompt's surface phrasing follows this template (the example
-shows a chain where `/vision` is skipped and `/strategy` and
-`/roadmap` run):
+shows a public-repo chain where `/vision` and `/comp` are skipped
+and `/strategy` and `/roadmap` run):
 
 > *"Based on our conversation, here's the chain I propose: skip
-> `/vision` because an Accepted VISION already exists, run
-> `/strategy`, run `/roadmap`. Proceed / Adjust chain / Bail?"*
+> `/vision` because an Accepted VISION already exists, skip
+> `/comp` because this repo is public and a COMP is private-only,
+> run `/strategy`, run `/roadmap`. Proceed / Adjust chain /
+> Bail?"*
 
 Variations on this template are produced by different gate
 outcomes: when `/vision` fires the entry reads "run `/vision`"
@@ -252,6 +255,17 @@ without a skip reason, and so on. The `/strategy` and `/roadmap`
 entries do not vary — both read "run" on every proposal. The three
 options at the end of the prompt — Proceed, Adjust, Bail — are
 stable across all variations.
+
+The skip entries state the reason rather than omitting the child.
+A public-repo proposal and a private-repo-without-`/comp` proposal
+therefore differ, and each names its own reason — the two
+conditions are unrelated and an author is owed the actual one. The
+rule and the reasoning behind it are documented under Stated-Skip
+Rule in
+`skills/charter/references/phases/phase-2-chain-orchestration.md`.
+The reason lands in the conversation only; the chain's committed
+output (the state file and everything under `docs/`) carries no
+trace of the skipped child.
 
 ### The Three Options
 

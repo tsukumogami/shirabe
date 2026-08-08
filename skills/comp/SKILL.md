@@ -11,8 +11,9 @@ description: >-
   the market for Z", "what's the competitive landscape", or "COMP-<name>".
   Do NOT use for feature requirements (/prd), technical architecture
   (/design), feature framing (/brief), or open-ended exploration
-  (/explore). COMP is private-only: in a public repo the skill refuses
-  and emits a redirect to alternatives.
+  (/explore). COMP is private-only: in a public repo the skill warns,
+  names the alternatives, and lets the author decide whether to
+  continue.
 argument-hint: <topic-slug> [--upstream <path>]
 ---
 
@@ -61,13 +62,28 @@ detects repo visibility from CLAUDE.md (`## Repo Visibility:
 Public|Private`); if not found, it infers from the repo path (`private/`
 -> Private, `public/` -> Public; default to Private).
 
-If visibility is anything other than `private`, the skill refuses: it
-emits `[/comp] REFUSED <topic>: visibility=public` to stdout and exits
-before creating any file or doing any other work. A public-repo author
-is redirected to alternatives (a public BRIEF/PRD that references the
-competitive question without containing the analysis). This refusal is
-the skill-side half of the same private-only contract the validator
-enforces with R9.
+If visibility is anything other than `private`, the skill **warns** — it
+emits `[/comp] WARNING <topic>: visibility=public` to stdout as a
+machine-readable signal, tells the author that COMP content is
+competitive and belongs in a private repo, names the alternatives (a
+public BRIEF/PRD that references the competitive question without
+containing the analysis), and lets the author decide whether to
+continue. It does not terminate the invocation on its own.
+
+Warning is not a loosened contract. What keeps a COMP out of a public
+repo is the validator's R9 gate and the CI guardrail, and both still
+reject a COMP under public visibility — an analysis drafted in a public
+repo cannot be transitioned or merged there. The skill's check exists to
+put that in front of the author at Phase 0, before the session is spent,
+rather than to make the call for them.
+
+`/comp` is directly invocable, which is why it carries its own check: an
+author can reach it without any parent skill having evaluated
+visibility first. A parent that routes toward `/comp` (today,
+`/charter`) carries its own visibility gate for a different reason —
+it should not steer an author toward a private-only artifact type in a
+public repo at all. Two checks, two jobs; neither is redundant with the
+other.
 
 ## Phases
 
@@ -75,7 +91,7 @@ The workflow runs six phases. Each phase file lives in
 `references/phases/` and is loaded when the phase begins:
 
 1. `phase-0-setup.md` — input-mode detection, the private-only visibility
-   refusal, topic-slug validation, optional parent-orchestration sentinel
+   warning, topic-slug validation, optional parent-orchestration sentinel
    read, and `wip/` initialization.
 2. `phase-1-scope.md` — conversational scoping: the competitive question,
    the market slice, and the boundary of what is surveyed.
@@ -112,13 +128,16 @@ topic cannot redirect verdict writes outside `wip/research/`.
 `/comp` can run standalone or as a child of a parent skill (today,
 `/charter`). When a parent invokes it, the parent writes a sentinel at
 `wip/<parent>_<topic>_state.md`; Phase 0 reads it (optionally) for
-upstream injection and resume context. Phase 5 always emits the
-`[/comp] FINALIZED` block (or `[/comp] REFUSED` on a visibility refusal)
-to stdout so the parent can capture the outcome by shell parsing. The
-sentinel read is optional — `/comp` works the same standalone.
+upstream injection and resume context. Phase 5 emits the `[/comp]
+FINALIZED` block to stdout so the parent can capture the outcome by
+shell parsing; under non-private visibility it emits `[/comp] WARNING
+<topic>: visibility=public` instead, which a parent can detect the same
+way. The sentinel read is optional — `/comp` works the same standalone.
 
 ## Output
 
 A COMP document at `docs/competitive/COMP-<topic>.md`, jury-cleared and
-human-ratified, plus a PR. On a public-repo invocation, no file is
-created and the skill emits the `[/comp] REFUSED` signal instead.
+human-ratified, plus a PR. On a public-repo invocation the skill emits
+the `[/comp] WARNING` signal, states the consequence, and proceeds only
+if the author says so; finalization in that case stops at the validator
+rather than landing a COMP in a public repo.

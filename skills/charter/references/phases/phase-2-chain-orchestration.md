@@ -3,7 +3,7 @@
 Phase 2 invokes the children Phase 1's chain proposal committed to. Each
 invocation is gated by a parent-specific rule that determines whether
 the child fires for this run; when a gate does not hold, the chain
-silently skips the child and continues. The chain is sequenced; the
+skips the child, says so, and continues. The chain is sequenced; the
 gating decisions are made BEFORE Phase 1's chain-proposal confirmation
 prompt fires, and Phase 2 simply executes the accepted plan. The one
 in-Phase-2 author decision is `/roadmap`'s confirmation prompt (R7),
@@ -70,41 +70,90 @@ condition gate per the pattern reference; future revisions MAY
 add an explicit discovery signal without changing the gate's
 overall shape.
 
-### Degenerate-Silence Rule
+### Stated-Skip Rule
 
-When either gate condition fails (public repo, or private repo
-without the feeder skill on disk), `/charter` SHALL silently skip
-the `/comp` step. Three properties bind the degenerate-silence
-behavior:
+When either gate condition fails, `/charter` SHALL state the skip
+in its conversational output and continue the chain. The statement
+names the child and the reason:
 
-- **Byte-identical chain-proposal output.** The chain-proposal
-  output emitted to the author is byte-identical between public-
-  repo invocations and private-repo-without-feeder invocations for
-  the same topic. Neither output contains any feeder-related
-  substring; the proposal lists `/strategy` and `/roadmap` (and
-  `/vision` per its own gate) without mentioning the gated child
-  or naming the gate.
-- **No "skill not yet shipped" message.** `/charter` MUST NOT
-  emit prose like "the feeder skill is not yet available" or "the
-  visibility gate did not pass" or any other surfacing of the
-  gate. The author hears about the feeder ONLY when all three
-  conditions hold.
-- **No internal-prose leakage into user-facing output.** The
-  per-child invocation logic in THIS file is allowed to name the
-  feeder skill and the visibility gate for documentation
-  purposes; the chain-proposal output prose authored in
-  `phase-1-discovery.md` section 1.5 (the user-facing surface)
-  MUST omit these substrings when the gate fails.
+- **Public repo.** *"Skipping competitive analysis — `/comp`
+  writes a private-only artifact and this repo is public. The
+  chain continues without it."*
+- **Feeder skill not on disk.** *"Skipping competitive analysis —
+  the `/comp` skill isn't installed in this workspace. The chain
+  continues without it."*
 
-The degenerate-silence shape ensures `/charter` v1 ships without
-coupling to the feeder skill's existence on disk. When the
-feeder lands, the integration is live with no `/charter`-side
-change — the gate flips from skip to invoke based on file
-existence, not on a code release.
+The reason is stated, not implied. An author who expected a
+competitive step and gets none deserves to know a rule dropped it
+rather than being left to wonder whether `/charter` considered the
+question at all.
+
+#### The Statement Is Conversational, Never Recorded
+
+The skip statement lives in the conversation and nowhere else.
+Nothing that gets committed carries it:
+
+- `wip/charter_<topic>_state.md` — no `chain_skipped:` entry for
+  `comp`, and `comp` is absent from `planned_chain`. The state
+  file is durably public from feature-branch push time (see the
+  security discussion in
+  `skills/charter/references/phases/phase-state-management.md`),
+  and `chain_skipped[].reason` is free text that lands in the
+  repo. A child whose gate never opened was never planned, so
+  there is nothing to record; `chain_skipped:` is for children
+  that were planned and then dropped, like a declined `/roadmap`.
+- The STRATEGY, the ROADMAP, and anything else the chain writes
+  under `docs/` — no mention of the skipped child, the gate, or
+  the reason.
+
+#### Why Stating It Is Correct
+
+The visibility rule governs **document references**: a document in
+a public repo must not name documents, paths, or content belonging
+to a private repo. It says nothing about what the agent may say to
+the author sitting in front of it. Reading it as a gag order was
+the mistake the earlier degenerate-silence rule made, and the cost
+was real — a step the author might reasonably expect vanished with
+no explanation, and the same silence covered two unrelated
+conditions (a public repo and a missing skill) that call for
+different responses.
+
+Splitting the two surfaces gets both properties at once: the
+conversation is honest about what ran and what didn't, and the
+artifacts in the repo stay clean. Neither the sentence
+`"skipping competitive analysis"` nor the word `/comp` reaches a
+committed file, so nothing in the public repo points at a
+private-only artifact type or at any private document.
+
+#### Why /charter Checks Visibility At All
+
+`/comp` runs its own visibility check (see
+`skills/comp/references/phases/phase-0-setup.md` section 0.2), and
+that is not a duplicate of this gate. The two checks do different
+jobs:
+
+- `/comp` is directly invocable. An author can reach it with no
+  parent involved, so it has to evaluate visibility itself. Its
+  response is a **warning**: it names the consequence and lets the
+  author decide.
+- `/charter` is the thing steering the author. Its job is to not
+  route someone toward a private-only artifact type in a public
+  repo in the first place. Its response is a **skip**, decided by
+  the parent, stated to the author.
+
+Neither check is a workaround for the other's absence, and
+removing either one leaves a real hole: drop `/comp`'s and a
+direct invocation gets no warning at all; drop `/charter`'s and
+the chain proposes a step that cannot land.
+
+The gate reads the feeder skill's presence off the filesystem, so
+installing or removing `/comp` changes `/charter`'s behavior with
+no `/charter`-side edit.
 
 ### Citation
 
-The three-condition gate is documented at the pattern level in
+The three-condition gate and the stated-skip rule are documented at
+the pattern level in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`
 (Conditional Feeder Invocation Shape section). `/charter`'s feeder
 invocation rule above is the first concrete consumer of that
