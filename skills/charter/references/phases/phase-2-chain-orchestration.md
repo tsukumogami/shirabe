@@ -23,28 +23,36 @@ summarizes.
 
 See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
 
-`/charter` invokes `/vision` when EITHER of two signals is present.
-Both signals are independent — either one alone fires the invocation;
-both holding simultaneously also fires it (and does so exactly once).
+`/charter` invokes `/vision` unless an Accepted or Active VISION
+already exists at the published path. Phase 1 inspects
+`docs/visions/VISION-<topic>.md` for the topic slug; if nothing
+Accepted or Active is there, `/vision` runs. A cold start is
+therefore always a `/vision` run — there is no upstream thesis to
+build on, and nothing the author says about the thesis changes
+that.
 
-1. **No upstream VISION at the published path.** Phase 1 inspects
-   `docs/visions/VISION-<topic>.md` for the topic slug; if no
-   Accepted or Active VISION exists at that path, signal 1 is
-   positive.
-2. **Thesis-shift signal surfaced during Phase 1 discovery.** The
-   thesis-shift signal detection itself is authored in
-   `phase-1-discovery.md` section 1.4 (the literal question "Is the
-   long-term thesis shifting, or is this an operational layer below
-   it?" plus the three positive-signal categories). When the agent
-   classifies the author's response into any of the three positive
-   categories, signal 2 is positive.
+When an Accepted or Active VISION *does* exist at that path, the
+thesis-shift question decides whether `/vision` runs anyway. A
+positive signal overrides the existing VISION and fires the
+invocation; no signal leaves the existing VISION in place and the
+chain skips the child. The question is an override on an existing
+VISION, not a second route into the child, and this is the only
+case where the answer changes what the chain does.
+
+The question is still surfaced on every run: `phase-1-discovery.md`
+section 1.4 requires it verbatim ("Is the long-term thesis shifting,
+or is this an operational layer below it?") and owns the detection
+machinery — the literal wording and the three positive-signal
+categories the response is classified into. This rule only consumes
+that classification, and on a cold start the classification cannot
+change the outcome.
 
 The invocation passes ONLY the topic slug. `/charter` does NOT pass
 an API-level "treat as revision" flag because `/vision` has no such
 API surface. `/vision`'s own Resume Logic detects the existing-
 VISION case (Draft / Accepted / Active) when one is present at the
 published path; the parent's responsibility is only to fire the
-invocation when one or both signals hold. The downstream `/vision`
+invocation when this rule says it fires. The downstream `/vision`
 run decides how to handle the existing artifact (revise, force-
 abandon and rewrite, etc.) per `/vision`'s own contract.
 

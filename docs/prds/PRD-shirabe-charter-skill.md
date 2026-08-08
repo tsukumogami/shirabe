@@ -121,9 +121,9 @@ repos only), required `/strategy`, and `/roadmap` without
 remembering the chain order or the artifact-decision rules, so that
 I land at two Draft artifacts ready for human review.
 
-Chain shape: `/charter` Phase 1 discovery → `/vision` (per R4's two
-independent signals: no Accepted or Active VISION at the published
-path, OR a thesis-shift signal in discovery) → optional `/comp`
+Chain shape: `/charter` Phase 1 discovery → `/vision` (per R4: it
+runs here because this is a cold start, with no Accepted or Active
+VISION at the published path) → optional `/comp`
 (private repos with `/comp` shipped only) → `/strategy` (always) →
 `/roadmap` (always, unless I decline it at the roadmap confirmation
 prompt) → full-run exit.
@@ -287,11 +287,18 @@ matches `/strategy`'s constraint so the same slug flows through the
 chain. Slugs failing the constraint MUST be rejected at Phase 0;
 `/charter` MUST NOT proceed silently.
 
-**R4 [/charter-specific].** `/charter` SHALL invoke `/vision` when
-either signal is present:
-- No Accepted/Active VISION exists at `docs/visions/VISION-<topic>.md`
-  matching the chain's scope, OR
-- The author's Phase 1 discovery surfaces a thesis-shift signal.
+**R4 [/charter-specific].** `/charter` SHALL invoke `/vision`
+unless an Accepted or Active VISION already exists at
+`docs/visions/VISION-<topic>.md` matching the chain's scope. A cold
+start — nothing Accepted or Active at that path — SHALL always
+invoke `/vision`.
+
+When such a VISION does exist, a thesis-shift signal surfaced
+during the author's Phase 1 discovery SHALL override it and invoke
+`/vision` anyway; absent that signal, `/charter` SHALL skip the
+child and leave the existing VISION in place. The thesis-shift
+answer therefore decides the invocation only in the
+existing-VISION case.
 
 The thesis-shift signal is an author-stated condition surfaced
 through Phase 1 discovery. `/charter`'s discovery prompt MUST
@@ -814,16 +821,26 @@ requirement that motivates them and the user story they exercise
 
 ### Child invocation signals
 
-- [ ] **AC5** When `docs/visions/VISION-<topic>.md` does not exist
-  AND the author's Phase 1 discovery does not surface thesis-shift,
-  the chain proposal does not include `/vision`. The observable:
-  the chain proposal output (R7.5) does NOT contain the literal
-  substring "/vision". `[automated-eval]` (R4, US-1)
-- [ ] **AC6** When the author's Phase 1 discovery surfaces a
-  thesis-shift signal (per R4's three utterance categories), the
-  chain proposal includes `/vision`. The observable: the chain
-  proposal output (R7.5) contains the literal substring
-  "/vision". The invocation passes only the topic slug; no
+- [ ] **AC5** When no Accepted or Active VISION exists at
+  `docs/visions/VISION-<topic>.md` (the cold start), the chain
+  proposal includes `/vision` as a run entry — whatever the author
+  answered to the thesis-shift question. The observable: the chain
+  proposal output (R7.5) carries a run entry for `/vision`, and the
+  run happens on the missing-VISION condition alone.
+  `[automated-eval]` (R4, US-1)
+- [ ] **AC5b** When an Accepted or Active VISION exists at
+  `docs/visions/VISION-<topic>.md` AND the author's Phase 1
+  discovery does not surface thesis-shift, the chain proposal skips
+  `/vision`. The observable: the chain proposal output (R7.5)
+  carries a skip entry for `/vision` naming the existing VISION as
+  the reason, per the stated-skip rule. `[automated-eval]` (R4)
+- [ ] **AC6** When an Accepted or Active VISION exists at
+  `docs/visions/VISION-<topic>.md` AND the author's Phase 1
+  discovery surfaces a thesis-shift signal (per R4's three
+  utterance categories), the signal overrides the existing VISION
+  and the chain proposal includes `/vision` as a run entry. The
+  observable: the chain proposal output (R7.5) carries a run entry
+  for `/vision`. The invocation passes only the topic slug; no
   API-level "treat as revision" signal is required.
   `[automated-eval]` (R4)
 - [ ] **AC7** When invoked in a public repo, `/charter`'s chain

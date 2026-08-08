@@ -148,7 +148,11 @@ the `/vision` invocation decision the chain-shape gate consumes.
 The question is asked once per `/charter` run during Phase 1
 discovery; the author's response is then classified by agent
 judgment into one of three positive-signal categories or the
-default no-signal path.
+default no-signal path. The classification decides the `/vision`
+invocation only when an Accepted or Active VISION already exists
+at `docs/visions/VISION-<topic>.md` — a positive signal overrides
+it. On a cold start `/vision` runs regardless, and the question is
+asked for the framing it gives the conversation.
 
 ### Positive-Signal Categories
 
@@ -174,8 +178,12 @@ not keyword lists.
    VISION-`<topic>` captures" fall here.
 
 When none of the three categories fits the author's response, the
-default is no-signal: the chain proposal proceeds without inviting
-`/vision` as a candidate.
+default is no-signal. What no-signal costs depends on what is
+already on disk: it drops `/vision` from the chain proposal when an
+Accepted or Active VISION exists at the published path, and changes
+nothing on a cold start, where `/vision` runs either way (see the
+`/vision` Invocation Rule in
+`skills/charter/references/phases/phase-2-chain-orchestration.md`).
 
 Signal detection is agent judgment. The pattern-level requirement
 is: the thesis-shift question is SURFACED to the author (verbatim
@@ -229,8 +237,13 @@ proposal output: `/vision`, `/comp`, `/strategy`, and `/roadmap`.
 The prompt lists them in that order, in order to match the chain's
 sequenced execution; entries for skipped children include the
 reason the gate did not hold (e.g., "skip `/vision` because an
-Accepted VISION already exists", "skip `/comp` because this repo
-is public and a COMP is private-only"). `/strategy` and `/roadmap`
+Accepted VISION already exists and the thesis isn't shifting",
+"skip `/comp` because this repo is public and a COMP is
+private-only"). `/vision` is the only child whose entry turns on
+what is already on disk: it reads "run" on every cold start, and
+reads "skip" only when an Accepted or Active VISION exists at the
+published path and discovery surfaced no thesis shift.
+`/strategy` and `/roadmap`
 always appear as "run" — both gates are unconditional. The author's
 opportunity to drop `/roadmap` comes later, at the roadmap
 confirmation prompt documented in
@@ -244,14 +257,17 @@ shows a public-repo chain where `/vision` and `/comp` are skipped
 and `/strategy` and `/roadmap` run):
 
 > *"Based on our conversation, here's the chain I propose: skip
-> `/vision` because an Accepted VISION already exists, skip
-> `/comp` because this repo is public and a COMP is private-only,
-> run `/strategy`, run `/roadmap`. Proceed / Adjust chain /
-> Bail?"*
+> `/vision` because an Accepted VISION already exists and the
+> thesis isn't shifting, skip `/comp` because this repo is public
+> and a COMP is private-only, run `/strategy`, run `/roadmap`.
+> Proceed / Adjust chain / Bail?"*
 
 Variations on this template are produced by different gate
 outcomes: when `/vision` fires the entry reads "run `/vision`"
-without a skip reason, and so on. The `/strategy` and `/roadmap`
+without a skip reason, and so on. A cold-start proposal in the same
+public repo therefore reads "run `/vision`, skip `/comp` because
+this repo is public and a COMP is private-only, run `/strategy`,
+run `/roadmap`". The `/strategy` and `/roadmap`
 entries do not vary — both read "run" on every proposal. The three
 options at the end of the prompt — Proceed, Adjust, Bail — are
 stable across all variations.

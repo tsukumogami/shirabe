@@ -127,7 +127,7 @@ file at every phase pointer.
 - **`planned_chain`** — ordered list of child-name strings naming
   which children are in scope for this run. Values are drawn from
   `{vision?, comp?, strategy, roadmap}` (children with `?` are
-  conditional on Phase 1 signals; `strategy` and `roadmap` are
+  conditional on their Phase 1 gates; `strategy` and `roadmap` are
   unconditional). Set at Phase 1 chain-proposal acceptance;
   modified only if the author re-proposes the chain. `roadmap` is
   planned on every chain even though the author may later decline
