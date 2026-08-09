@@ -110,21 +110,33 @@ a chain from strategic intent to implementation.
 VISION
   └── Strategy (upstream: VISION)
         └── Roadmap (upstream: Strategy)
-              └── PRD (upstream: Roadmap, per feature)
-                    └── Design Doc (upstream: PRD)
-                          └── Plan (upstream: Design Doc)
-                                └── GitHub Issues (upstream: Plan)
+              └── Brief (upstream: Roadmap, per feature)
+                    └── PRD (upstream: Brief)
+                          └── Design Doc (upstream: PRD)
+                                └── Plan (upstream: Design Doc)
+                                      └── GitHub Issues (upstream: Plan)
 ```
 
-Each artifact's `upstream` field points to its immediate parent, one level
-up -- never two. The strategic chain (VISION -> Strategy -> Roadmap) is
-strict about this in both directions: a VISION's downstream artifacts are
-STRATEGYs, a STRATEGY's are Roadmaps, and a Roadmap's upstream is the
-STRATEGY it sequences. A link that skipped a level would leave the
-reasoning at the skipped altitude unreachable from the path a reader
-walks. The Roadmap is where the strategic chain hands off to the tactical
-one; `/brief` crosses that boundary by taking a Roadmap as its upstream,
-and no strategic document reaches past the Roadmap.
+The diagram above is the full chain, not a mandatory one. Each artifact's
+`upstream` field points to the nearest artifact actually produced above it,
+and the field is omitted when nothing was.
+
+The strategic chain (VISION -> Strategy -> Roadmap) is strict in both
+directions: a VISION's downstream artifacts are STRATEGYs, a STRATEGY's are
+Roadmaps, and a Roadmap's upstream is the STRATEGY it sequences. Skipping an
+altitude there would leave the reasoning at the skipped altitude unreachable
+from the path a reader walks.
+
+The tactical chain is not strict, because its steps are not all mandatory. A
+feature framed directly in its PRD has no BRIEF, so that PRD's upstream is the
+Roadmap; a feature that needs no architectural decision has no DESIGN, so the
+PLAN's upstream is whatever preceded it. The field records the chain that was
+actually walked. What no artifact does is point downward or sideways -- a
+BRIEF never points at a PRD, which is written from the brief's framing.
+
+The Roadmap is where the strategic chain hands off to the tactical one;
+`/brief` crosses that boundary by taking a Roadmap as its upstream, and no
+strategic document reaches past the Roadmap.
 
 The chain enables:
 - Finding all downstream work from a VISION

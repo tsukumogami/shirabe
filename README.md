@@ -98,13 +98,18 @@ never visited by any cascade and stays on disk until someone removes it.
 | `PLAN-` | `/plan` | Decomposition strategy, issue outlines or an issues table, dependency graph, implementation sequence |
 | `COMP-` | `/comp` | Competitive landscape, comparative matrix, implications for our own choices -- private repos only |
 
-Artifacts reference each other through an `upstream:` frontmatter field, and
-each one points at its immediate neighbour rather than skipping levels. The
-whole chain is one line: a STRATEGY points at a VISION, a ROADMAP at a
-STRATEGY, a BRIEF at a ROADMAP, a PRD at its BRIEF, a DESIGN at its PRD, and a
-PLAN at its DESIGN. The ROADMAP is where the strategic chain hands off to the
-tactical one -- nothing above it reaches past it into feature-level documents,
-and nothing below it points back up past its own parent. That
+Artifacts reference each other through an `upstream:` frontmatter field.
+Each one points at the nearest artifact actually produced above it, and omits
+the field when nothing was. Not every step runs: a feature framed directly in
+its PRD has no BRIEF, so that PRD points at the ROADMAP instead, and a
+straightforward feature may skip the DESIGN entirely. The field records what
+the chain really did, not an idealized shape.
+
+What it never does is point downward or sideways. A BRIEF does not point at a
+PRD, which is written from the brief's framing rather than the other way
+round, and nothing on the strategic chain points into feature-level documents
+at all. The ROADMAP is the boundary: the strategic chain hands off there, and
+`/brief` is what crosses it. That
 chain is what `/execute` walks after a plan's work merges: it transitions
 each upstream node to its terminal status (DESIGN to Current, PRD to Done,
 BRIEF to Done) and, if the chain traces back to a ROADMAP, updates that

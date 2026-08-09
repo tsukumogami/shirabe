@@ -24,7 +24,9 @@ problem: |
   1 paragraph: who is affected, what's broken or missing, why now.
 goals: |
   1 paragraph: what success looks like at a high level.
-upstream: docs/roadmaps/ROADMAP-<name>.md  # optional
+upstream: docs/briefs/BRIEF-<name>.md     # optional; nearest parent
+                                          # produced above this PRD -- a
+                                          # ROADMAP when no BRIEF was written
 source_issue: 123  # optional, GitHub issue number that triggered this PRD
 motivating_context: |                       # optional
   1 paragraph: why this PRD exists -- the situation or signal
