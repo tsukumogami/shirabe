@@ -456,8 +456,8 @@ the exit produces:
 - **`full-run`** — the chain completes through `/plan`. Terminal
   artifact is `docs/plans/PLAN-<topic>.md` (status Draft when
   `plan_execution_mode: single-pr`; status Active when
-  `plan_execution_mode: multi-pr`, with an accompanying GitHub
-  milestone created by `/plan`). The `exit_artifacts:` list
+  `plan_execution_mode: multi-pr` or `coordinated`, with an
+  accompanying GitHub milestone created by `/plan`). The `exit_artifacts:` list
   records the PLAN doc's path.
 - **`re-evaluation`** — the chain ends at a settled-upstream
   boundary with a Decision Record written at

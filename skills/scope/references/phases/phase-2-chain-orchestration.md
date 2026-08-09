@@ -209,8 +209,17 @@ durable artifact exists at:
 
 - `docs/briefs/BRIEF-<topic>.md` for `/brief`.
 - `docs/prds/PRD-<topic>.md` for `/prd`.
-- `docs/designs/DESIGN-<topic>.md` for `/design`.
+- `docs/designs/DESIGN-<topic>.md` for `/design`, falling back to
+  `docs/designs/current/DESIGN-<topic>.md`.
 - `docs/plans/PLAN-<topic>.md` for `/plan`.
+
+The DESIGN entry names two paths because `/design`'s own File
+Location contract moves the artifact: an active DESIGN lives at
+`docs/designs/DESIGN-<topic>.md` and a Current one at
+`docs/designs/current/DESIGN-<topic>.md`. A freshly-produced
+DESIGN is always at the first; the second is what a chain
+re-entered against an already-Current DESIGN finds. Both count as
+present for R20, and Phase 1's discovery globs the same pair.
 
 When the artifact is present, Phase 2 proceeds to sentinel
 cleanup and snapshot capture. When the artifact is absent —
@@ -521,7 +530,12 @@ its declared enum:
 - `decision_record_sub_shape:` against
   `{re-evaluation, rejection}`.
 - `triggering_child:` against `{brief, prd, design, plan}`.
-- `plan_execution_mode:` against `{single-pr, multi-pr}`.
+- `plan_execution_mode:` against
+  `{single-pr, multi-pr, coordinated}`. `coordinated` is the
+  multi-repo generalization of `multi-pr`; a coordinated chain
+  records it, and omitting it from the enum would fail the
+  re-validation on exactly the runs `/scope`'s coordination
+  intent produces.
 - `entry_altitude:` against `{brief, prd, design, plan}`. It
   selects which child receives the topic slug and which receive
   an artifact path, so it reaches emitted invocations the same

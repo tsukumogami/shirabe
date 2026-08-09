@@ -16,6 +16,12 @@ state-schema reference).
   for the abandonment-forced marker substitution.
 - **`chain_completed`** — ISO-8601 timestamp recorded at Phase 3
   when `exit: full-run` fires.
+- **`visibility`** — the repo visibility Phase 0 detected from
+  CLAUDE.md's `## Repo Visibility:` header. Values: `Public |
+  Private`, defaulting to `Private` when the header is absent.
+  Phase 2's validator pass-through reads it back for
+  `shirabe validate --visibility=<value>`, so it is a recorded
+  field rather than a per-phase re-detection.
 - **`entry_altitude`** — where the chain starts. Values:
   `brief | prd | design | plan`. Decided once at Phase 1 and
   fixed for the run; the chain invokes every child from this
@@ -72,8 +78,12 @@ state-schema reference).
   `boundary:` and `decision_record_sub_shape:` to be set when
   `exit: re-evaluation` fires.
 - **`plan_execution_mode`** — conditional on `/plan` appearing in
-  `chain_ran`. Values: `single-pr | multi-pr`. Records the
-  output-mode selection of the terminal child. Gated per
+  `chain_ran`. Values: `single-pr | multi-pr | coordinated`.
+  Records the output-mode selection of the terminal child.
+  `coordinated` is the multi-repo generalization of `multi-pr`
+  and is the value a coordinated chain records; the Plan format
+  profile recognizes all three
+  (`crates/shirabe-validate/src/formats.rs`). Gated per
   state-schema R9 Part 3's chain-membership-gated extension.
 - **`referenced_artifact`** — conditional on `exit: re-evaluation`.
   The path of the settled-upstream artifact the Decision Record

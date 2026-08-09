@@ -38,14 +38,14 @@ the R9 hard-finalization check (see below).
 
 The chain completed through `/plan`. The PLAN already lives at
 `docs/plans/PLAN-<topic>.md` (Draft when `plan_execution_mode:
-single-pr`; Active when `plan_execution_mode: multi-pr`, with
-an accompanying GitHub milestone created by `/plan`). Phase 3
-populates the state file with:
+single-pr`; Active when `plan_execution_mode: multi-pr` or
+`coordinated`, with an accompanying GitHub milestone created by
+`/plan`). Phase 3 populates the state file with:
 
 ```yaml
 exit: full-run
 chain_completed: <ISO-8601 timestamp>
-plan_execution_mode: single-pr | multi-pr
+plan_execution_mode: single-pr | multi-pr | coordinated
 exit_artifacts:
   - path: docs/plans/PLAN-<topic>.md
     status: Draft | Active
@@ -318,7 +318,8 @@ against their declared enums:
 - `triggering_child:` against `{brief, prd, design, plan}` (when
   the exit is abandonment-forced and the field is interpolated
   into the force-materialization path).
-- `plan_execution_mode:` against `{single-pr, multi-pr}` (when
+- `plan_execution_mode:` against
+  `{single-pr, multi-pr, coordinated}` (when
   the field is interpolated into any post-finalization commit
   body).
 
