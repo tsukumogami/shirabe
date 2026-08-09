@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Planned
 complexity: Complex
 upstream: docs/prds/PRD-scope-consolidation-over-skipping.md
 decision_provenance: inline-resolved
@@ -35,7 +35,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Planned
 
 Technical design for replacing `/scope`'s produce-or-skip gates. Decisions
 were resolved inline under parent-chain dispatch
