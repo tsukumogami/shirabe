@@ -60,17 +60,46 @@ repo.
 Write a complete PRD draft following the `prd` skill structure. Use the Write tool to
 create `docs/prds/PRD-<topic>.md`.
 
+**When an upstream BRIEF exists (Input Mode 2), read it first.** The brief already
+settled this feature's framing, and four of its five required sections map onto
+sections this PRD must carry:
+
+| BRIEF section | PRD section |
+|---|---|
+| Problem Statement | Problem Statement |
+| User Outcome | Goals |
+| User Journeys | User Stories |
+| Scope Boundary (in-list / out-list) | Requirements / Out of Scope |
+
+Draw those four sections from the brief's body, not from this PRD's own Phase 1
+conversation. Re-deriving framing the brief already wrote is what makes a BRIEF
+and its PRD read as two documents saying one thing — and it leaves the two
+documents disagreeing whenever the re-derivation drifts. Carry the brief's content
+forward, sharpen it to requirements altitude, and add what the brief does not
+own: the numbered requirements, the acceptance criteria, and the non-functional
+constraints.
+
+Carrying the framing forward properly is also what makes the downstream
+consolidation judgment usable. `/scope` checks section by section whether this PRD
+carries the brief's four concerns before it removes a redundant brief; a PRD
+written without reading its brief fails that check, and both documents stay.
+
 **Drafting guidelines:**
-- **Problem Statement**: Draw from Phase 1 scope. Be specific about who and why now.
-- **Goals**: Distill from the scope's success criteria. High-level outcomes only.
-- **User Stories**: Create 3-5 stories covering the primary scenarios. Use real role names
-  from the problem space, not generic "user."
+- **Problem Statement**: Draw from the upstream BRIEF when one exists, otherwise
+  from Phase 1 scope. Be specific about who and why now.
+- **Goals**: Draw from the BRIEF's User Outcome when one exists, otherwise distill
+  from the scope's success criteria. High-level outcomes only.
+- **User Stories**: Draw from the BRIEF's User Journeys when one exists — each
+  journey names a user, a trigger, and an outcome shape, which is the story's
+  three parts. Otherwise create 3-5 stories covering the primary scenarios. Use
+  real role names from the problem space, not generic "user."
 - **Requirements**: Number them R1, R2, etc. Draw from both the scope and research
   findings. Separate functional from non-functional. Each requirement should be testable.
 - **Acceptance Criteria**: Derive from requirements. Each criterion is binary pass/fail.
   Cover happy path and important edge cases.
-- **Out of Scope**: Include items from the scope document plus anything the research
-  revealed should be excluded.
+- **Out of Scope**: Draw from the BRIEF's Scope Boundary out-list when one exists,
+  plus items from the scope document and anything the research revealed should be
+  excluded.
 - **Open Questions**: Include any unresolved items from research synthesis.
 - **Known Limitations**: Include trade-offs identified during research.
 - **Decisions and Trade-offs**: Populate from Phase 2 research findings. For each

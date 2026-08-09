@@ -1,11 +1,30 @@
 # Phase 1 — Discovery and Chain Proposal
 
 Phase 1 turns the topic slug into a planned chain. It runs the
-discovery prompt to surface a framing-shift signal, evaluates
-the four child gates per the Gate Vocabulary, walks the R6
-shape-predicate inline, captures initial child-snapshots for
-any pre-existing durable artifacts, and emits a chain-proposal
-output the author confirms (Proceed / Adjust / Bail).
+discovery prompt to surface a framing-shift signal, walks the R6
+shape-predicates inline, decides the chain's **entry altitude**,
+evaluates the re-entry protection each child carries, captures
+initial child-snapshots for any pre-existing durable artifacts,
+and emits a chain-proposal output the author confirms (Proceed /
+Adjust / Bail).
+
+## What Phase 1 Decides, and What It Does Not
+
+Phase 1 decides **where the chain starts**. It does not decide,
+per hop, whether a child's artifact is worth producing. That
+distinction is the point of this phase's shape: a judgment about
+whether a document would have carried anything can only be made
+against a document that exists, and at Phase 1 none of them do.
+
+Every child from the entry altitude through `/plan` is invoked.
+The only thing that stops a child from running is that its
+durable artifact is already on disk at a settled status, which is
+re-entry protection against overwriting settled work — not a
+verdict on the artifact's worth. See "Re-Entry Protection" below.
+
+Reducing the artifact set is Phase 2's job, after the artifacts
+exist. See the Consolidation Judgment section of
+`skills/scope/references/phases/phase-2-chain-orchestration.md`.
 
 ## Discovery Prompt Structure
 
@@ -48,73 +67,89 @@ When the cold-start discovery yields empty results — no on-disk
 artifacts AND the author answers the framing-shift question with
 "no signal yet" — Phase 1 short-circuits the rest of the
 discovery walk. The state file records `phase-1: empty-cold-start`
-and the chain proposal opens with `/brief` as the entry child
-(the framing-shift answer is deferred to the BRIEF authoring
+and the entry-altitude recommendation resolves to `brief` (the
+framing-shift answer is deferred to the BRIEF authoring
 conversation).
 
 ## Post-`/prd` Re-evaluation Gate
 
-After `/prd` returns Accepted, Phase 1 re-evaluates whether the
-chain's R6 shape predicates still hold. If the PRD's accepted
-shape changed any of P1/P2/P3 verdicts vs the pre-PRD projection,
-the gate writes `chain_revised: true` into the state file and
-re-narrates the planned chain. The author confirms the revised
-chain before Phase 2 proceeds.
+After `/prd` returns Accepted, Phase 1 re-evaluates the R6 shape
+predicates against the real PRD body rather than the pre-PRD
+projection. If any P1/P2/P3 verdict changed, the gate writes
+`chain_revised: true` into the state file and re-narrates
+`/design`'s roster shape. The author confirms the revised shape
+before Phase 2 proceeds.
 
 When the post-PRD predicates match the pre-PRD projection,
 `chain_revised:` stays unset and the chain proceeds without
 re-narration.
 
-## R4 Mandatory-with-Auto-Skip Evaluation for `/brief`
+The re-evaluation changes `/design`'s roster size, never whether
+`/design` runs. `planned_chain:` was fixed by the entry altitude
+and is not revised here.
 
-The `/brief` invocation gate is the Mandatory-with-auto-skip
-shape per the Gate Vocabulary in
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`, with
-the framing-shift signal as its override. The gate semantics:
+## Re-Entry Protection (R4, R5)
 
-1. **No settled upstream BRIEF at the canonical path** —
-   `docs/briefs/BRIEF-<topic>.md` does not exist, or exists at a
-   non-Accepted status. `/brief` fires.
-2. **Framing-shift override** — an Accepted BRIEF is on disk, but
-   the author's answer to the framing-shift question indicates the
-   topic's framing has shifted enough to warrant a fresh BRIEF.
-   The override fires `/brief` anyway.
+Every child in `planned_chain:` carries the same protection: the
+parent MUST NOT silently overwrite a settled durable artifact. A
+child whose artifact already exists at a settled status at the
+canonical path is skipped and recorded in `chain_skipped:` with
+reason `settled-artifact-at-canonical-path-reentry-protection`.
 
-When neither holds (Accepted BRIEF exists AND the framing has not
-shifted), `/brief` is recorded in `chain_skipped:` with reason
-`accepted-brief-at-canonical-path-with-no-framing-shift`. A cold
-start always fires `/brief`, and the framing-shift answer cannot
-change that — there is nothing on disk for it to override.
+The settled statuses per child:
 
-An earlier revision called this gate EITHER-signal, on the reading
-that the two conditions were independent routes into the child.
-They are not: the framing shift only ever decides the case where a
-settled BRIEF is already on disk. The shape name changed
-2026-08-08; the gate fires on exactly the same runs it always did.
+| Child | Canonical path | Settled at |
+|---|---|---|
+| `/brief` | `docs/briefs/BRIEF-<topic>.md` | Accepted, Done |
+| `/prd` | `docs/prds/PRD-<topic>.md` | Accepted, In Progress, Done |
+| `/design` | `docs/designs/DESIGN-<topic>.md`, `docs/designs/current/DESIGN-<topic>.md` | Accepted, Planned, Current |
+| `/plan` | `docs/plans/PLAN-<topic>.md` | Active, Done |
 
-## R5 Mandatory-with-Auto-Skip Evaluation for `/prd`
+The gate shape is Mandatory-with-auto-skip per the Gate
+Vocabulary in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`.
+`/brief` carries the framing-shift override: an Accepted BRIEF on
+disk plus an author answer indicating the topic's framing has
+shifted fires `/brief` anyway. The override can only ever fire in
+the case the auto-skip would otherwise have closed, so a cold
+start fires `/brief` whatever the answer says.
 
-The `/prd` invocation gate is the Mandatory-with-auto-skip shape
-from the Gate Vocabulary. The gate semantics:
+**This is not a worth-producing judgment.** The skip means "a
+settled document is already here, and re-running would clobber
+it." It does not mean "this artifact would not have been worth
+writing." Nothing at Phase 1 is in a position to make the second
+claim, because the artifact it would be about does not exist. An
+earlier revision of this file recorded the same behaviour under
+a rationale that read as reader economy; the reason it gives now
+is the reason it always had.
 
-- If `docs/prds/PRD-<topic>.md` exists at status `Accepted`,
-  record `/prd` in `chain_skipped:` with reason
-  `accepted-prd-at-canonical-path` and proceed to the next gate.
-- If the canonical path has no PRD, OR the PRD is at any non-
-  Accepted status (`Draft`, `Proposed`, etc.), the gate fires
-  and `/prd` is invoked.
+An earlier revision also called `/brief`'s gate EITHER-signal, on
+the reading that the artifact state and the framing shift were
+independent routes into the child. They are not; the shape name
+changed 2026-08-08 and the gate fires on exactly the same runs it
+always did.
 
-The parent MUST NOT silently overwrite an Accepted durable
-artifact. The Mandatory-with-auto-skip shape is the contract
-that protects settled-upstream artifacts from being clobbered by
-a re-running chain.
-
-## R6 Shape-Predicate Walk for `/design`'s Roster Shape
+## R6 Shape-Predicate Walk
 
 R6 walks three predicates inline. Each predicate emits a
-`fires` or `does-not-fire` verdict and a one-line reason; the
-per-predicate verdicts feed R7's gate decision for `/design`
-and the chain-proposal's shape-dependent narration.
+`fires` or `does-not-fire` verdict and a one-line reason. The
+verdicts feed two consumers: the entry-altitude recommendation
+below, and `/design`'s decision-roster shape (which
+decision-researcher roster fires, against which inputs) when
+`/design` runs.
+
+The predicates do **not** decide whether `/design` is invoked.
+`/design` runs on every chain entered at or above the design
+altitude. R7 previously read these verdicts as a produce-or-skip
+gate; that reading is retired, and "shape-dependent" now means
+what it says in the Gate Vocabulary — the gate governs *how* a
+child is invoked, not whether.
+
+When the PRD does not exist yet (a chain entered at `brief` or
+`prd`), the predicates are evaluated against the projected PRD
+shape from the cold-start projection and the discovery
+conversation, and re-evaluated against the real PRD by the
+post-`/prd` gate below.
 
 ### P1 — Architectural-Alternatives Count
 
@@ -198,39 +233,99 @@ Worked examples:
 
 ## R7 Shape-Dependent Evaluation for `/design`
 
-R7 evaluates `/design`'s gate using the R6 per-predicate
-verdicts. When one or more R6 predicates fire, `/design` fires
-and its sub-shape (which decision-researcher roster, against
-which inputs) is determined by which predicates fired. When
-zero R6 predicates fire, `/design` is recorded in
-`chain_skipped:` with the per-predicate verdicts as the skip
-reason (e.g., "P1: does-not-fire (zero alternatives); P2:
-does-not-fire (no new components); P3: does-not-fire
-(complexity: Simple)").
+R7 sizes `/design`'s decision roster from the R6 per-predicate
+verdicts: which decision-researcher roster fires, with how many
+peers, against which inputs. All-negative verdicts still invoke
+`/design`; they size it down to the minimum roster, and the
+resulting DESIGN records the one live option and why no
+alternative was live. That is a shorter document than a
+contested design, and it is a better audit trail than the
+silence it replaces.
 
 The shape-dependent identifier is the Gate Vocabulary entry
 from `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`;
 the predicate verdicts feed both the chain-proposal narration
 and `/design`'s decision roster cardinality.
 
+## Entry-Altitude Decision
+
+The chain's entry altitude is decided once, here, and the chain
+then runs every child from that altitude through `/plan`. The
+four altitudes are `brief`, `prd`, `design`, and `plan`, and the
+value is recorded in the state file's `entry_altitude:` field.
+
+The decision is a question about the conversation the author is
+having, not about the contents of a document nobody has written.
+That is what makes it answerable at Phase 1 when a
+worth-producing judgment is not.
+
+**Inputs.** Four, all already gathered by this phase:
+
+- the on-disk survey (which of BRIEF / PRD / DESIGN / PLAN exist
+  at the canonical paths, and at what status);
+- the R6 predicate verdicts;
+- the cold-start projected-PRD keyword projection;
+- the author's framing-shift answer.
+
+**Recommendation.** Phase 1 marks exactly one altitude
+recommended and states its reasons, per the decision-presentation
+convention in
+`${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`: pick
+the best option, say why, let the author override. In `--auto`
+mode the recommendation is taken without prompting.
+
+| Situation | Recommended entry |
+|---|---|
+| Nothing on disk and the framing is not settled | `brief` |
+| The framing is settled, or a BRIEF is already on disk | `prd` |
+| The requirements are settled, or a PRD is already on disk | `design` |
+| The architecture is settled, or a DESIGN is already on disk | `plan` |
+
+"Settled" means the author can state the thing without further
+conversation, not that it is written down. An author who says
+"the problem is obvious, I want to talk about requirements" has a
+settled framing; the chain enters at `prd` and the framing is
+captured in the PRD's Problem Statement.
+
+**The no-durable-artifact warning.** When the recommendation
+resolves to `plan` and no durable artifact exists at any canonical
+path for the topic, the proposal SHALL state that the run will
+leave no durable artifact behind, because the PLAN is deleted once
+its work is implemented. The warning is informational; the author
+may proceed. It fires only in that case — a chain entered at
+`plan` against an existing DESIGN leaves that DESIGN, so no
+warning is surfaced.
+
+No reduction of the artifact set can produce this outcome on its
+own: the consolidation judgment in Phase 2 can only absorb at a
+hop where the downstream type has a home for every one of the
+upstream's required sections, and no hop above `plan` qualifies.
+A chain entered above `plan` always leaves a durable artifact.
+
 ## Chain-Proposal Output
 
-After the four gates evaluate, Phase 1 emits a chain-proposal
-output naming the planned children, the gate verdict for each,
-the R6 per-predicate verdicts, and the offered options. The
-output's options block contains the literal substrings
-`Proceed`, `Adjust`, and `Bail` (case-sensitive, exact spelling
-per AC9).
+After the entry altitude is chosen and the re-entry protections
+evaluate, Phase 1 emits a chain-proposal output naming the entry
+altitude and its reasons, the planned children, the re-entry
+verdict for each, the R6 per-predicate verdicts, and the offered
+options. The output's options block contains the literal
+substrings `Proceed`, `Adjust`, and `Bail` (case-sensitive, exact
+spelling per AC9).
 
 Example output skeleton:
 
+> Entry altitude: **brief** (recommended)
+>   Nothing on disk for this topic, and the framing-shift answer
+>   says the problem shape is still being settled.
+>   Alternatives: prd (if the framing is settled and you want to
+>   go straight to requirements), design, plan.
+>
 > Planned chain:
->   /brief — fires (R4 mandatory-with-auto-skip: no upstream
->     BRIEF)
->   /prd — fires (R5: no Accepted PRD at canonical path)
->   /design — fires (R7 shape-dependent: P1 fires, P2 fires,
->     P3 does-not-fire)
->   /plan — fires (ALWAYS)
+>   /brief — runs (no settled artifact at the canonical path)
+>   /prd — runs (no settled artifact at the canonical path)
+>   /design — runs; roster shape from P1 fires, P2 does-not-fire,
+>     P3 fires
+>   /plan — runs (ALWAYS)
 >
 > Proceed / Adjust / Bail?
 
@@ -247,13 +342,14 @@ The three branch behaviors:
 
 ## `planned_chain:` Population
 
-Phase 1 writes `planned_chain:` in the state file as the list
-of children whose gates fired. Skipped children appear in
-`chain_skipped:` with their per-gate skip reason, not in
-`planned_chain:`. The two lists together cover the full Phase
-1 verdict surface.
+Phase 1 writes `planned_chain:` in the state file as every child
+from `entry_altitude:` through `plan`, in chain order, minus any
+child held back by re-entry protection. Held-back children appear
+in `chain_skipped:` with their reason, not in `planned_chain:`.
+The two lists together cover the full Phase 1 verdict surface.
 
 ```yaml
+entry_altitude: brief
 planned_chain:
   - brief
   - prd
@@ -262,18 +358,32 @@ planned_chain:
 chain_skipped: []
 ```
 
-When a gate auto-skips, the entry shape is:
+A chain entered at `design` writes the suffix from that altitude:
+
+```yaml
+entry_altitude: design
+planned_chain:
+  - design
+  - plan
+chain_skipped: []
+```
+
+When re-entry protection holds a child back, the entry shape is:
 
 ```yaml
 chain_skipped:
   - name: prd
-    reason: accepted-prd-at-canonical-path
+    reason: settled-artifact-at-canonical-path-reentry-protection
 ```
 
+That reason is the only one a `chain_skipped:` entry carries. A
+child is never recorded there because Phase 1 judged its artifact
+not worth producing; Phase 1 makes no such judgment.
+
 Phase 2 reads `planned_chain:` and invokes the listed children
-in order; it does NOT re-walk Phase 1's gate evaluations per
-child. Phase 1's verdicts are the cached chain-shape; Phase 2
-consumes them.
+in order; it does NOT re-walk Phase 1's evaluations per child.
+Phase 1's verdicts are the cached chain-shape; Phase 2 consumes
+them.
 
 ## Initial `child_snapshots:` Capture
 
@@ -300,7 +410,9 @@ body edit at the same status.
 
 When the author selects Adjust, Phase 1 re-enters at the
 discovery prompt with the author's adjustment input merged in.
-Re-entry re-runs R6 predicates and re-emits the chain proposal;
+Adjust is also how an author changes the entry altitude away
+from the recommended one. Re-entry re-runs the R6 predicates,
+re-derives the recommendation, and re-emits the chain proposal;
 the loop continues until the author selects Proceed or Bail.
 There is no implicit limit on Adjust iterations; the
 `--max-rounds=N` flag governs re-evaluation iterations across
@@ -312,6 +424,12 @@ chain run.
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` —
   Gate Vocabulary (ALWAYS, shape-dependent,
   Mandatory-with-auto-skip), Conditional Feeder Invocation Shape.
+- `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md` —
+  the recommend-then-let-the-author-override shape the
+  entry-altitude decision follows.
+- `skills/scope/references/phases/phase-2-chain-orchestration.md`
+  — the Consolidation Judgment that reduces the artifact set
+  after the artifacts exist.
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
   — `planned_chain:` / `chain_ran:` / `chain_skipped:` triad,
   per-child snapshot dual-check.

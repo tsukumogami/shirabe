@@ -10,8 +10,8 @@ use crate::checks::{
     check_claude_md_conventions, check_eval_fixture_frontmatter, check_fc01, check_fc02,
     check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09, check_fc14,
     check_fc15, check_plan_design_field_consistency, check_plan_section_structure,
-    check_plan_upstream, check_private_only, check_roadmap_reserved_sections, check_schema,
-    check_strategy_public, check_vision_public, check_writing_style,
+    check_private_only, check_roadmap_reserved_sections, check_schema, check_strategy_public,
+    check_upstream_resolves, check_vision_public, check_writing_style,
 };
 use crate::doc::{Doc, ValidationError};
 use crate::formats::FormatSpec;
@@ -209,6 +209,13 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
     errs.extend(check_eval_fixture_frontmatter(doc, spec));
     errs.extend(check_claude_md_conventions(doc, spec));
 
+    // 2b. (R6) The `upstream` field resolves for every format that carries
+    // it, not just Plan. A dangling link is wrong however it arose, and
+    // /scope's consolidation step re-points an `upstream` after absorbing an
+    // artifact -- a missed re-point has to fail here rather than survive to
+    // the finalize-chain walk at cascade time.
+    errs.extend(check_upstream_resolves(doc));
+
     // 3. Format-specific checks dispatched by spec.name.
     // Casing is intentional per the formats-map entries -- existing names
     // mix conventions ("VISION" all-caps, "Roadmap" / "Strategy" / "Plan" /
@@ -216,7 +223,6 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
     // updating formats().
     match spec.name.as_str() {
         "Plan" => {
-            errs.extend(check_plan_upstream(doc));
             errs.extend(check_fc05(doc, spec));
             errs.extend(check_fc06(doc, spec));
             errs.extend(check_fc07(doc, spec));

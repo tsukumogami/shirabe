@@ -6,9 +6,18 @@ worktree-staleness check from the canonical worktree-discipline
 reference; immediately around the invocation, Phase 2 writes
 and clears the `parent_orchestration:` sentinel; after each
 invocation Phase 2 runs the R20 structural file-existence check,
-captures the child snapshot, and routes through the validator
-pass-through. Phase-N Reject from `/prd` or `/design` is
-observed via `git log` against the discard commit.
+captures the child snapshot, routes through the validator
+pass-through, and runs the consolidation judgment against the
+nearest surviving artifact above the one that just landed.
+Phase-N Reject from `/prd` or `/design` is observed via
+`git log` against the discard commit.
+
+Two things make this phase different from the one it replaces.
+Children are invoked with the artifact this chain produced above
+them rather than with the bare topic slug, so each consumes its
+upstream instead of re-deriving it. And the artifact set is
+reduced *here*, after the artifacts exist, rather than at Phase 1
+before any of them do.
 
 ## Table of Contents
 
@@ -21,6 +30,7 @@ observed via `git log` against the discard commit.
 - [Child-Snapshot Capture](#child-snapshot-capture)
 - [Phase-N Reject Handling](#phase-n-reject-handling)
 - [Validator Pass-Through](#validator-pass-through)
+- [Consolidation Judgment](#consolidation-judgment)
 - [Per-Child Gates from `planned_chain:`, Not Re-Walked](#per-child-gates-from-planned_chain-not-re-walked)
 - [State-File Enum Re-Validation Before Path Interpolation](#state-file-enum-re-validation-before-path-interpolation)
 - [References](#references)
@@ -28,7 +38,7 @@ observed via `git log` against the discard commit.
 ## Per-Child Invocation Loop Ordering
 
 For each child name in `planned_chain:` in order, Phase 2 runs
-seven steps in sequence:
+eight steps in sequence:
 
 1. **Worktree-staleness check.** Run the three-phase flow
    (Rebase phase → Impact-analysis phase → Escalation phase)
@@ -37,7 +47,8 @@ seven steps in sequence:
 2. **`parent_orchestration:` sentinel write.** Write the block
    to the state file immediately before invoking the child.
 3. **Child invocation.** Invoke the child via its existing
-   input mode (topic-slug argument).
+   input mode: the topic slug for the entry child, the nearest
+   produced upstream artifact's path for every later child.
 4. **R20 structural file-existence check.** Confirm the child's
    canonical durable artifact exists after the child returns.
 5. **`parent_orchestration:` cleanup.** Remove the sentinel
@@ -48,8 +59,13 @@ seven steps in sequence:
    json` against the new intermediate, parse the envelope, and
    branch on the multi-level exit code; a `violations` or
    tool-error result halts the chain.
+8. **Consolidation judgment.** Compare the artifact that just
+   landed against the nearest surviving durable artifact this
+   chain produced above it, and reach a `keep` or `absorb`
+   verdict. Skipped when this chain produced no artifact above
+   the current one.
 
-The seven-step ordering is the contract. Steps that depend on
+The eight-step ordering is the contract. Steps that depend on
 the state file (write/clear of `parent_orchestration:`, child-
 snapshot capture) bracket the child invocation in a way that
 keeps the sentinel ephemeral: present ONLY while a child is in
@@ -142,16 +158,49 @@ the child to route its own Slot 2 behavior).
 
 See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.
 
-Phase 2 invokes the child via the child's existing input mode:
-`/<child-name> <topic-slug>`. R14 child-isolation is preserved
-— `/scope` reads only the child's durable artifact's
-frontmatter `status:` value plus the artifact's git blob hash;
-`/scope` does NOT extend the child's `$ARGUMENTS` parser, does
-NOT add env-var consumption, does NOT add flags or arguments per
-the L13 amendment in
+Phase 2 invokes the child via the child's existing input mode.
+Which mode depends on whether this chain produced an upstream
+for that child:
+
+- **The entry child** — invoked with the topic slug,
+  `/<child-name> <topic-slug>`. There is nothing above it in
+  this chain to hand it.
+- **Every later child** — invoked with the path of the nearest
+  artifact this chain produced above it:
+
+  | Child | Argument |
+  |---|---|
+  | `/prd` | `docs/briefs/BRIEF-<topic>.md` |
+  | `/design` | `docs/prds/PRD-<topic>.md` |
+  | `/plan` | `docs/designs/DESIGN-<topic>.md` |
+
+  When an artifact above the child was absorbed at an earlier
+  hop, the argument is the surviving artifact's path — that is
+  what "nearest artifact this chain produced" resolves to once
+  an absorb has happened.
+
+These are input modes each child already ships: `/prd`'s Input
+Mode 2 takes a BRIEF path and transitions it Draft to Accepted,
+`/design`'s PRD mode reads the accepted PRD and bumps it to In
+Progress, `/plan` accepts a DESIGN path. Passing the path is
+choosing among a child's shipped modes, not extending its input
+surface.
+
+R14 child-isolation is preserved — `/scope` reads only the
+child's durable artifact's frontmatter `status:` value plus the
+artifact's git blob hash; `/scope` does NOT extend the child's
+`$ARGUMENTS` parser, does NOT add env-var consumption, does NOT
+add flags or arguments per the L13 amendment in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`. The
 sentinel is the pattern-level convention every child reads
 identically; the child's input surface is untouched.
+
+Invoking every child in its cold-start mode was the mechanical
+cause of the duplication this skill's consolidation judgment
+now reduces: a child handed a bare slug re-derives the framing
+its upstream already settled, and records no `upstream:` link
+back to it. The paths above are what let each artifact cite the
+one above it instead of repeating it.
 
 ## R20 Structural File-Existence Check
 
@@ -318,25 +367,147 @@ remains halted until the author addresses the failure (typically
 by re-running the child with corrections, or by re-invoking
 `/scope` from the beginning with a re-framed topic).
 
+## Consolidation Judgment
+
+Step 8 is where the artifact set shrinks. It runs after the
+validator pass-through clears, and only when this chain produced
+a durable artifact above the one that just landed.
+
+**Why it exists.** Three documents restating one problem at three
+altitudes cost a reader three reads for one idea, and an obvious
+concept articulated three times reads as ceremony. Reducing the
+set is worth doing for the reader. It is only honest to do it
+*here* — against two bodies that exist, where the question "does
+the upstream do work the downstream does not?" has an answer. The
+same question asked at Phase 1, before either document is
+written, has no answer, and answering it anyway is how content
+gets lost.
+
+### Stage 1 — Absorbability
+
+Look the hop up in the mapping table. Absorption is available
+only where the downstream type's required sections provide a home
+for **every** required section of the upstream type, so an absorb
+never has to discard content or invent somewhere to put it.
+
+| Hop | Mapping | Absorbable |
+|---|---|---|
+| BRIEF to PRD | Problem Statement to Problem Statement; User Outcome to Goals; User Journeys to User Stories; Scope Boundary to Requirements (the in-list) and Out of Scope (the out-list) | Yes |
+| PRD to DESIGN | Problem Statement to Context and Problem Statement; Goals, User Stories, Requirements, Acceptance Criteria and Out of Scope have no home | No |
+| DESIGN to PLAN | Decision Drivers, Considered Options, Decision Outcome, Solution Architecture, Security Considerations and Consequences have no home | No |
+
+The verdicts are derived from the per-type required-section
+contracts in `crates/shirabe-validate/src/formats.rs`, not
+enumerated by hand. If a format ever grows a section, re-derive
+the table rather than trusting this snapshot.
+
+When the mapping is not total, the only available verdict is
+`keep`. Record it with the reason naming the unmapped sections
+and stop.
+
+### Stage 2 — Judgment
+
+Read both bodies. The question is whether the upstream artifact
+does work the downstream does not: does any required section of
+the upstream carry content, detail, or framing the downstream
+does not also carry?
+
+- **No** — verdict `absorb`. Continue to stage 3.
+- **Yes** — verdict `keep`, with a finding naming what the
+  upstream holds that the survivor does not.
+
+At the BRIEF-to-PRD hop the prior leans toward `absorb`: four of
+the BRIEF's five required sections are renamed PRD sections with
+equivalent content rules, so a BRIEF that fed one PRD and did no
+independent framing work is a redundant document rather than a
+redundant paragraph. A BRIEF whose journeys drove the requirement
+set, or whose framing settled something contested, has earned its
+own document and keeps it.
+
+### Stage 3 — Carry check and absorb
+
+On `absorb`, walk the upstream's required sections one at a time
+and record where each landed. This is the receiving mechanism: an
+absorb that is not itemized is a recommendation, and a
+recommendation with nothing confirming the transfer is how
+content goes missing.
+
+```yaml
+consolidation_judgments:
+  - hop: brief->prd
+    absorbable: true
+    carry_check:
+      Problem Statement: {target: Problem Statement, carried: true}
+      User Outcome:      {target: Goals, carried: true}
+      User Journeys:     {target: User Stories, carried: true}
+      Scope Boundary:    {target: Requirements + Out of Scope, carried: true}
+    verdict: absorb
+    absorbed: docs/briefs/BRIEF-<topic>.md
+    into: docs/prds/PRD-<topic>.md
+```
+
+Any `carried: false` **aborts the absorb**: the verdict is
+downgraded to `keep`, the finding names the section that did not
+arrive, and both artifacts stay on disk. Nothing is deleted on a
+failed carry check.
+
+When every section is carried, complete the absorb:
+
+1. Read the absorbed artifact's own `upstream:` value.
+2. Set the survivor's `upstream:` to that value, or remove the
+   field when the absorbed artifact had none. This is the settled
+   nearest-produced rule from
+   `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`, not a
+   new convention.
+3. `git rm` the absorbed artifact.
+4. Re-run `shirabe validate` on the survivor. A non-zero exit
+   reverts the absorb (restore the artifact, restore the
+   `upstream:` value) and routes to R8 bail-handling.
+
+Step 4 is load-bearing: the validator's `R6` check requires an
+`upstream:` value to resolve to a tracked file, so a survivor
+whose re-point was missed fails validation and the absorb does
+not land.
+
+### Cascade across hops
+
+There is no cascade to reason about. `absorb` means the upstream's
+content is *in* the survivor, not annotated as living elsewhere,
+so a later hop judging that survivor is judging a body that
+already includes everything absorbed into it. Nothing rides along
+separately and there is no chain of pointers to follow.
+
+### Manual-fallback boundary
+
+Step 8 lives here and nowhere else. A child invoked directly,
+outside `/scope`, runs no consolidation judgment and writes no
+`/scope` state — not because a code path is suppressed, but
+because there is no consolidation code path inside a child. That
+is the same reason the judgment is not implemented in one: a
+child cannot see the chain, and a parent's invocation shape
+decides whether the child's branch is reachable at all.
+
 ## Per-Child Gates from `planned_chain:`, Not Re-Walked
 
 Phase 2 reads `planned_chain:` from the state file (populated
 by Phase 1) and invokes the listed children in order. The
-per-child gate-evaluation rules (`/brief` R4 Mandatory-with-auto-
-skip with a framing-shift override, `/prd` R5 Mandatory-with-auto-
-skip, `/design` R6/R7 shape-dependent, `/plan` ALWAYS) are NOT
-re-walked at Phase 2 — they
-are cached in Phase 1's verdicts. The state-file fields driving
-the cache:
+entry-altitude decision and the per-child re-entry protection
+are NOT re-walked at Phase 2 — they are cached in Phase 1's
+verdicts. The state-file fields driving the cache:
 
-- `planned_chain:` — children whose gates fired in Phase 1.
-- `chain_skipped:` — children whose gates auto-skipped in
-  Phase 1 (e.g., `/prd` skipped against an Accepted PRD).
+- `entry_altitude:` — where the chain starts; also selects which
+  child receives the topic slug and which receive an artifact
+  path.
+- `planned_chain:` — every child from the entry altitude through
+  `plan`, minus any held back by re-entry protection.
+- `chain_skipped:` — children held back by re-entry protection
+  (e.g. `/prd` against an Accepted PRD), carrying the reason
+  `settled-artifact-at-canonical-path-reentry-protection`.
 - `child_snapshots:` — initial snapshots of pre-existing
   durable artifacts Phase 1 discovered.
 
 Phase 2's job is iterative invocation against the cached
-chain shape, not re-evaluation of the gate decisions.
+chain shape, not re-evaluation of Phase 1's decisions.
 
 ## State-File Enum Re-Validation Before Path Interpolation
 
@@ -351,6 +522,10 @@ its declared enum:
   `{re-evaluation, rejection}`.
 - `triggering_child:` against `{brief, prd, design, plan}`.
 - `plan_execution_mode:` against `{single-pr, multi-pr}`.
+- `entry_altitude:` against `{brief, prd, design, plan}`. It
+  selects which child receives the topic slug and which receive
+  an artifact path, so it reaches emitted invocations the same
+  way the others reach emitted paths.
 
 Out-of-enum values fail the operation and route to R8 bail-
 handling. The re-validation closes the state-file-tampering
@@ -376,3 +551,10 @@ metacharacter into a field that later becomes a path component.
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
   — `child_snapshots:`, `parent_orchestration:`,
   `chain_ran:` semantics consumed by this phase.
+- `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md` — the
+  settled `upstream:` rule the absorb's re-point applies.
+- `crates/shirabe-validate/src/formats.rs` — the per-type
+  required-section contracts the absorbability mapping is
+  derived from.
+- `skills/scope/references/state-schema.md` — `entry_altitude:`
+  and `consolidation_judgments:` field definitions.

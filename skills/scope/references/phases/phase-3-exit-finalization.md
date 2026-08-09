@@ -51,10 +51,29 @@ exit_artifacts:
     status: Draft | Active
 ```
 
+`exit_artifacts:` lists every durable artifact the run leaves
+behind, not only the PLAN: a chain that produced a BRIEF, a PRD,
+and a DESIGN records all three alongside it, and one whose BRIEF
+was absorbed records the surviving PRD without it.
+
 `plan_execution_mode:` is gated by `/plan` appearing in
 `chain_ran:` per R9 Part 3's chain-membership-gated extension
 in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`.
+
+#### Durable record of what the chain produced
+
+Phase 4 removes the state file, so the record of which artifacts
+were produced and which were absorbed has to leave `wip/` before
+then. Phase 3 writes it into the run's pull-request body: every
+artifact in `chain_ran:`, every entry in `chain_skipped:` with its
+re-entry-protection reason, and every entry in
+`consolidation_judgments:` with its verdict, its finding, and —
+on a completed absorb — what was absorbed into what.
+
+Without it, a reviewer reading the PR cannot tell an artifact that
+was absorbed from one that was never produced. The two look
+identical on disk and mean opposite things.
 
 ### Re-Evaluation Exit
 
@@ -270,6 +289,12 @@ The allowed write targets:
 - `wip/scope_<topic>_*` — state file
   (`wip/scope_<topic>_state.md`) and ancillary scratch the
   substrate may write under the same prefix.
+
+Phase 2's consolidation judgment adds one deletion target,
+`docs/briefs/BRIEF-<topic>.md`, on a completed absorb. The path is
+composed from the validated topic slug, never from author-supplied
+text, so the set stays closed and enumerable. Phase 3 does not
+delete; it records the deletion the judgment already performed.
 
 The PLAN artifact at `docs/plans/PLAN-<topic>.md` is produced
 by `/plan` (not directly by Phase 3); Phase 3's full-run exit

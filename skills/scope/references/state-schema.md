@@ -16,14 +16,49 @@ state-schema reference).
   for the abandonment-forced marker substitution.
 - **`chain_completed`** — ISO-8601 timestamp recorded at Phase 3
   when `exit: full-run` fires.
-- **`planned_chain`** — list of child names the chain planned to
-  invoke (output of Phase 1's chain-proposal).
+- **`entry_altitude`** — where the chain starts. Values:
+  `brief | prd | design | plan`. Decided once at Phase 1 and
+  fixed for the run; the chain invokes every child from this
+  altitude through `plan`. Phase 2 re-validates the value against
+  the enum before it selects which child receives the topic slug
+  and which receive an artifact path.
+- **`planned_chain`** — list of child names the chain plans to
+  invoke: every child from `entry_altitude` through `plan`, minus
+  any held back by re-entry protection (output of Phase 1's
+  chain-proposal).
 - **`chain_ran`** — list of child names whose invocations
   completed.
 - **`chain_skipped`** — list of `{name, reason}` entries for
-  children the chain decided to skip (e.g., `/prd` skipped when an
+  children held back by re-entry protection (e.g. `/prd` when an
   Accepted PRD already exists at the canonical path, per the
   Mandatory-with-auto-skip gate from `parent-skill-pattern.md`).
+  The reason is always
+  `settled-artifact-at-canonical-path-reentry-protection`: a
+  child is never recorded here because the chain judged its
+  artifact not worth producing. `/scope` makes no such judgment
+  before an artifact exists.
+- **`consolidation_judgments`** — conditional list. One entry per
+  hop at which Phase 2's consolidation judgment ran, appended in
+  chain order. Absent when the chain produced fewer than two
+  durable artifacts. Each entry records:
+
+  ```yaml
+  consolidation_judgments:
+    - hop: brief->prd            # <upstream-type>-><downstream-type>
+      absorbable: true           # is the required-section mapping total?
+      verdict: absorb            # absorb | keep
+      carry_check:               # present only when verdict is absorb
+        <upstream section>: {target: <downstream section>, carried: <bool>}
+      absorbed: docs/briefs/BRIEF-<topic>.md   # present on a completed absorb
+      into: docs/prds/PRD-<topic>.md           # present on a completed absorb
+      finding: <free text>       # why keep, or which section failed to carry
+  ```
+
+  A `keep` entry carries `hop`, `absorbable`, `verdict`, and
+  `finding`. An aborted absorb is recorded as `verdict: keep`
+  with the carry check that failed, so the abort is auditable
+  rather than indistinguishable from a judgment that never
+  considered absorbing.
 - **`boundary`** — conditional on `exit: re-evaluation`. Values:
   `prd | design`. Discriminates which upstream boundary the
   Decision Record attaches to. Gated per the state-schema
@@ -80,6 +115,12 @@ state-schema reference).
   returns. Names the invoking child, the suppress-status-aware-
   prompt boolean, and the rationale (`fresh-chain | revise`) per
   the L13 amendment in `parent-skill-pattern.md`.
+
+Phase 3 copies `chain_ran`, `chain_skipped`, and
+`consolidation_judgments` into the run's PR body before Phase 4
+removes the state file. The `wip/` copy is scratch; the PR body
+is where a reviewer can tell "not produced" from "absorbed into
+this other document" after the scratch is gone.
 
 The state file is the externally-visible parent surface children
 read at child Phase 0 to consult the `parent_orchestration:`

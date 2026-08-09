@@ -92,6 +92,26 @@ Include when relevant:
 - **Downstream Artifacts** -- added when downstream work starts. Links to design
   docs, plans, issues, or PRs that implement this PRD.
 
+## Citation vs Restatement
+
+A PRD states its own problem in full: a reader landing on it cold
+should grasp what's broken without opening the upstream BRIEF.
+That obligation covers the Problem Statement, and stops there.
+
+Everything else the upstream already says is **cited, not
+restated**. Where an upstream BRIEF exists, its framing is carried
+forward into the PRD's own sections (see
+`skills/prd/references/phases/phase-3-draft.md`) rather than
+summarized alongside them, and downstream artifacts cite this
+PRD's requirement numbers rather than re-narrating the
+requirements.
+
+The two rules are not in tension once the scope is clear.
+Restating the problem costs a reader one short section and buys
+them a document that stands on its own; restating requirements,
+journeys, or decisions costs them a second read of something they
+can open, and creates a second copy that drifts.
+
 ## Content Boundaries
 
 A PRD does NOT contain:

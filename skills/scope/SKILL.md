@@ -36,10 +36,12 @@ after `/charter`; the seven SKILL.md structural elements below align
 section-by-section with the pattern's required structural elements,
 and the prose contracts after them bind the `/scope`-specific
 asymmetries the tactical chain introduces (two settled-upstream
-boundaries, Mandatory-with-auto-skip gates on `/brief` and
-`/prd`, a refuse-
-and-redirect Slot 5 shape for PLAN's downstream-owned lifecycle
-states, and a terminal child with two output modes).
+boundaries, an entry-altitude decision that fixes the chain
+suffix, Mandatory-with-auto-skip re-entry protection on every
+child, a post-hoc consolidation judgment that reduces the
+artifact set after the artifacts exist, a refuse-and-redirect
+Slot 5 shape for PLAN's downstream-owned lifecycle states, and a
+terminal child with two output modes).
 
 ## Team Shape
 
@@ -210,8 +212,8 @@ Phase 0: SETUP  -> Phase 1: DISCOVER  -> Phase 2: CHAIN  -> Phase 3: FINALIZE  -
 | Phase | Purpose | Reference |
 |-------|---------|-----------|
 | 0. Setup | Slug validation; state-file creation; stale `parent_orchestration:` self-heal | `skills/scope/references/phases/phase-0-setup.md` |
-| 1. Discover + Chain Proposal | Visibility detection; topic-related child-doc discovery; R6 shape-predicate evaluation; R7.5 chain-proposal output | `skills/scope/references/phases/phase-1-discovery.md` |
-| 2. Child Invocation Loop | Per-child: worktree-staleness check (Rebase / Impact-analysis / Escalation per `worktree-discipline.md`); write `parent_orchestration:` sentinel; invoke child; structural file-existence check per R20; clear sentinel; capture child snapshot; validator pass-through | `skills/scope/references/phases/phase-2-chain-orchestration.md` |
+| 1. Discover + Chain Proposal | Visibility detection; topic-related child-doc discovery; R6 shape-predicate evaluation; entry-altitude decision; chain-proposal output | `skills/scope/references/phases/phase-1-discovery.md` |
+| 2. Child Invocation Loop | Per-child: worktree-staleness check (Rebase / Impact-analysis / Escalation per `worktree-discipline.md`); write `parent_orchestration:` sentinel; invoke child with its upstream artifact's path; structural file-existence check per R20; clear sentinel; capture child snapshot; validator pass-through; consolidation judgment | `skills/scope/references/phases/phase-2-chain-orchestration.md` |
 | 3. Exit Finalization | Set `exit:` field; write `exit_artifacts:`; run R9 hard-finalization check | `skills/scope/references/phases/phase-3-exit-finalization.md` |
 | 4. wip Cleanup | Remove the topic's wip/ scratch artifacts; preserve durable Decision Records and force-materialized partials in `docs/` | `skills/scope/references/phases/phase-4-cleanup.md` |
 
@@ -282,16 +284,19 @@ Execute phases sequentially by reading the corresponding phase file:
 
 1. **Discover + Chain Proposal** — visibility detection, topic-
    related child-doc discovery, R6 shape-predicate evaluation,
-   chain-proposal output (Proceed / Adjust / Bail triad).
+   the entry-altitude decision, chain-proposal output
+   (Proceed / Adjust / Bail triad).
    - Instructions: `skills/scope/references/phases/phase-1-discovery.md`
 
-2. **Child Invocation Loop** — invoke the planned chain
-   (`/brief` → `/prd` → `/design` → `/plan`, skipping per the chain
-   plan), running the worktree-staleness check before each
-   invocation, writing the `parent_orchestration:` sentinel
-   immediately before invoking, clearing the sentinel immediately
-   after, capturing the child snapshot, and running the validator
-   pass-through against each intermediate.
+2. **Child Invocation Loop** — invoke the planned chain (every
+   child from the entry altitude through `/plan`, minus any held
+   back by re-entry protection), running the worktree-staleness
+   check before each invocation, writing the
+   `parent_orchestration:` sentinel immediately before invoking,
+   clearing the sentinel immediately after, capturing the child
+   snapshot, running the validator pass-through against each
+   intermediate, and running the consolidation judgment against
+   the nearest surviving artifact above it.
    - Instructions: `skills/scope/references/phases/phase-2-chain-orchestration.md`
 
 3. **Exit Finalization** — set the `exit:` field to one of
@@ -325,27 +330,38 @@ Execute phases sequentially by reading the corresponding phase file:
 | `skills/scope/references/phases/phase-3-exit-finalization.md` | Phase 3 |
 | `skills/scope/references/phases/phase-4-cleanup.md` | Phase 4 |
 | `skills/scope/references/phases/phase-resume.md` | Resume Logic — Slot 5 (9 rows), Slot 6 (4 rows), Slot 7 (vacuous), Drift Detection (Re-run / Accept / Proceed-without) |
-| `skills/scope/references/state-schema.md` | All phases — `/scope`-specific state-file field enumeration (exit discriminators, worktree audit fields, `drift_acknowledged:`, `parent_orchestration:` sentinel) |
+| `skills/scope/references/state-schema.md` | All phases — `/scope`-specific state-file field enumeration (`entry_altitude:`, `consolidation_judgments:`, exit discriminators, worktree audit fields, `drift_acknowledged:`, `parent_orchestration:` sentinel) |
+| `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md` | Phase 1 — the recommend-then-let-the-author-override shape the entry-altitude decision follows |
 
 ## Chain-Proposal Output
 
 At the end of Phase 1 discovery, `/scope` emits a chain-proposal
-output naming the children it intends to invoke, the gate for each
-(per the Gate Vocabulary section of `parent-skill-pattern.md`), and
-the per-predicate reasons feeding R6's shape-dependent verdict for
+output naming the **entry altitude** it recommends and why, the
+children it intends to invoke, the re-entry verdict for each (per
+the Gate Vocabulary section of `parent-skill-pattern.md`), and the
+per-predicate reasons feeding R6's shape-dependent verdict for
 `/design`'s decision-roster shape (architectural-alternatives
 count, new-component references, Complex classification). The
 output ends with a confirmation prompt containing the literal
 substrings **Proceed**, **Adjust**, and **Bail** (case-insensitive)
 in the offered options.
 
+The entry altitude is one of `brief | prd | design | plan`, and
+the chain runs every child from it through `/plan`. Exactly one
+altitude is marked recommended, with its reasons, per the
+decision-presentation convention in
+`${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`; the
+author overrides via **Adjust**, and `--auto` takes the
+recommendation.
+
 The three branch behaviors:
 
 - **Proceed** — confirm the proposed chain; advance to Phase 2 and
   begin invoking children in order.
 - **Adjust** — return to Phase 1 discovery with the author's
-  adjustment input; re-emit the proposal after re-running R6
-  predicates against the adjusted scope.
+  adjustment input, including a different entry altitude; re-emit
+  the proposal after re-running R6 predicates and re-deriving the
+  recommendation against the adjusted scope.
 - **Bail** — route to R8 bail-handling. If any wip state exists
   for the topic (the state file, any child intermediate, or any
   research scratch), the bail records `exit: abandonment-forced`
@@ -357,6 +373,77 @@ The per-predicate reasons feeding the shape-dependent verdict are
 surfaced verbatim so the author sees the predicate verdicts
 behind the chain shape rather than an opaque "Complex" or
 "Simple" label.
+
+## Why the Artifact Set Shrinks
+
+Three documents that restate one problem at three altitudes cost a
+reader three reads for one idea, and an obvious concept articulated
+three times reads as ceremony. Sparing the reader that is worth
+doing, and it is the only reason `/scope` ever ends a run with
+fewer documents than the chain has altitudes.
+
+It is not a way to save the chain work. That distinction decides
+*when* the reduction can happen. A judgment about whether a
+document would have carried anything a later one does not is only
+answerable against a document that exists — so the reduction runs
+in Phase 2, after each artifact lands, never at Phase 1 against
+artifacts nobody has written. An earlier revision of this skill
+decided per hop, before each artifact existed, whether the child
+was worth invoking; the party making that call was the one that
+benefited from not doing the work, and nothing it read could tell
+it what was being lost.
+
+Two mechanisms follow from that:
+
+- **The entry altitude** (Phase 1) decides where the chain starts.
+  This is a question about the conversation the author is having,
+  not about a document's future contents, which is why it *is*
+  answerable up front. A chain entered at `design` produces a
+  DESIGN and a PLAN because the author says the framing and the
+  requirements are settled — not because `/scope` guessed a BRIEF
+  would have been thin.
+- **The consolidation judgment** (Phase 2) reduces the set after
+  the fact. It reads two written bodies and asks whether the
+  upstream does work the downstream does not. It can only absorb
+  where the downstream type's required sections have a home for
+  every one of the upstream's, so absorbing never discards content
+  or invents somewhere to put it.
+
+Anything held back for any other reason is re-entry protection —
+a settled artifact is already on disk and re-running would clobber
+it — and it is recorded under its own name so the two never blur
+again.
+
+## Consolidation Judgment
+
+After each child returns and its artifact validates, Phase 2
+compares that artifact against the nearest surviving durable
+artifact this chain produced above it and reaches one of two
+verdicts:
+
+- **`keep`** — both artifacts stay. Either the hop is not
+  absorbable, or the upstream does work the downstream does not.
+- **`absorb`** — the upstream's durable content is confirmed
+  present in the downstream artifact, section by section, and the
+  upstream is then removed and every link to it re-pointed.
+
+Absorption is available only where a total mapping exists from the
+upstream type's required sections into the downstream type's.
+Against the current formats that is BRIEF into PRD alone: a PRD
+has a home for a BRIEF's problem, outcome, journeys, and boundary,
+while a DESIGN has none for a PRD's requirements or acceptance
+criteria, and a PLAN has none for a DESIGN's decisions or
+architecture.
+
+Before any deletion, a per-section carry check records where each
+of the absorbed artifact's concerns landed. A section that did not
+arrive aborts the absorb and leaves both artifacts in place — the
+check is the receiving mechanism, and an absorb without one is a
+recommendation that nothing confirms.
+
+The mechanism, the mapping table, the carry-check schema, and the
+re-point rule live in the Consolidation Judgment section of
+`skills/scope/references/phases/phase-2-chain-orchestration.md`.
 
 ## Three Exit Paths
 
@@ -581,8 +668,12 @@ to public-repo tactical chains exclusively; the closed write-target
 set is the concrete enumeration in the pattern reference applied
 to `/scope`'s chain shape (Decision Records under
 `docs/decisions/`, the terminal PLAN under `docs/plans/`, force-
-materialized partials under `docs/{briefs,prds,designs}/`, and
-state-file plus child-wip cleanup under `wip/`). Future cross-
+materialized partials under `docs/{briefs,prds,designs}/`, the
+consolidation judgment's deletion of an absorbed artifact under
+`docs/briefs/`, and state-file plus child-wip cleanup under
+`wip/`). The absorbed artifact's path is composed from the
+validated topic slug, never from author-supplied text, so the
+write-target set stays closed and enumerable. Future cross-
 visibility extension MUST re-state placement discipline in its
 own PR with explicit public-vs-private content-governance review.
 

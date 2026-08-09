@@ -98,8 +98,10 @@ If they name a roadmap, ask for the path and re-enter Upstream ROADMAP mode. If
 they name a feature, derive a slug (subject to the Phase 0 constraint) and re-enter
 Freeform Topic mode. If they're genuinely uncertain whether a brief is the right
 artifact — for instance, the framing already exists and a PRD is the real need —
-revisit the Phase 0 artifact decision, or suggest `/explore` if the conversation is
-still open-ended.
+point them at `/prd <topic>` directly, or suggest `/explore` if the conversation is
+still open-ended. `/brief` itself has no branch that declines to write a brief; a
+brief that turns out to be fully carried by its PRD is removed by `/scope`'s
+consolidation judgment after both exist, not skipped before either does.
 
 ## 1.2 Problem-vs-Solution Check
 
