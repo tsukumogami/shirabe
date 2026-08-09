@@ -88,13 +88,14 @@
       "id": 11,
       "name": "brief-input-transitions-draft-to-accepted",
       "prompt": "/prd --auto docs/briefs/BRIEF-search-indexing.md",
-      "expected_output": "Detects Input Mode 2 (BRIEF path). Phase 0 setup transitions the brief from Draft to Accepted by invoking shirabe transition on the brief path with target Accepted. Both frontmatter status: and the body ## Status line are updated atomically so the FC03 cross-check stays consistent. The brief path is also stored for use as the PRD's upstream in Phase 3.",
+      "expected_output": "Detects Input Mode 2 (BRIEF path). Phase 0 setup transitions the brief from Draft to Accepted by invoking shirabe transition on the brief path with target Accepted. Both frontmatter status: and the body ## Status line are updated atomically so the FC03 cross-check stays consistent. The brief path is also stored for use as the PRD's upstream in Phase 3, and Phase 3 reads the brief's body to draft the PRD's Problem Statement, Goals, User Stories and Out of Scope.",
       "files": [],
       "expectations": [
         "Transcript detects the input as a BRIEF path (Input Mode 2)",
         "Transcript describes running shirabe transition on the brief with target Accepted in Phase 0",
-        "Transcript notes that both frontmatter and body status fields are updated atomically",
-        "Transcript describes propagating the brief path forward as the PRD's upstream"
+        "Transcript describes updating both the frontmatter status and the body Status line atomically",
+        "Transcript describes propagating the brief path forward as the PRD's upstream",
+        "Transcript describes Phase 3 reading the brief's body rather than re-deriving the framing"
       ]
     },
     {
@@ -151,6 +152,36 @@
         "Transcript says so explicitly and names a tiebreaker if the two perspectives are genuinely balanced, rather than manufacturing a preference",
         "Transcript preserves the user's ability to override the recommendation",
         "Transcript does NOT present the disagreement as 'let user decide' with no recommendation attached"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "brief-upstream-drives-drafting",
+      "prompt": "/prd --auto docs/briefs/BRIEF-search-indexing.md",
+      "expected_output": "Phase 3 drafts the PRD from the upstream BRIEF's body rather than from the PRD's own Phase 1 conversation. The mapping is explicit: the BRIEF's Problem Statement becomes the PRD's Problem Statement, its User Outcome becomes Goals, its User Journeys become User Stories, and its Scope Boundary supplies Requirements (the in-list) and Out of Scope (the out-list). The PRD adds what the brief does not own -- numbered requirements, acceptance criteria, non-functional constraints. Re-deriving the framing is what makes a BRIEF and its PRD read as two documents saying one thing, and it leaves them disagreeing when the re-derivation drifts.",
+      "files": [
+        "docs/briefs/BRIEF-search-indexing.md"
+      ],
+      "expectations": [
+        "Transcript describes reading the upstream BRIEF's body before drafting",
+        "Transcript maps the BRIEF's four content sections onto the PRD's Problem Statement, Goals, User Stories and Out of Scope",
+        "Transcript describes NOT re-deriving the framing from the PRD's own scoping conversation when a BRIEF exists",
+        "Transcript describes adding the requirements, acceptance criteria and non-functional constraints the brief does not own"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "problem-restated-everything-else-cited",
+      "prompt": "/prd --auto docs/briefs/BRIEF-search-indexing.md",
+      "expected_output": "The PRD states its own problem in full, so a reader landing on it cold understands what is broken without opening the BRIEF. That obligation covers the Problem Statement and stops there: everything else the upstream already says is cited rather than restated, and downstream artifacts cite this PRD's requirement numbers rather than re-narrating the requirements. Restating the problem costs one short section and buys a document that stands on its own; restating requirements or journeys costs a second read and creates a copy that drifts.",
+      "files": [
+        "docs/briefs/BRIEF-search-indexing.md"
+      ],
+      "expectations": [
+        "Transcript states the PRD's problem in full so the document stands alone",
+        "Transcript scopes the standalone-readability obligation to the problem statement",
+        "Transcript describes citing rather than restating the rest of what the upstream says",
+        "Transcript gives the reason: a restated copy costs a second read and drifts"
       ]
     }
   ]

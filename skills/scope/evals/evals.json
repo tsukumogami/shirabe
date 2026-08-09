@@ -21,7 +21,9 @@
       "name": "baseline-malformed-state",
       "prompt": "/scope test-topic",
       "expected_output": "wip/scope_test-topic_state.md exists but is malformed (unparseable YAML, missing required field for the recorded phase_pointer, or invalid exit / decision_record_sub_shape / boundary combination). The resume ladder fires row 1, surfaces a hard error naming the specific malformation, and offers Discard as the recovery path. /scope MUST NOT silently fall through to Phase 0 (row 9); malformed state is a contract violation surface, not a missing-state surface.",
-      "files": ["wip/scope_test-topic_state.md"],
+      "files": [
+        "wip/scope_test-topic_state.md"
+      ],
       "expectations": [
         "Plan detects the malformed state file at row 1 of the resume ladder and surfaces a hard error naming the specific malformation (e.g., unparseable YAML, missing required field, invalid exit / boundary / decision_record_sub_shape combo)",
         "Plan offers Discard as the recovery path on row 1; the author confirms before the state file is removed",
@@ -76,7 +78,9 @@
       "name": "baseline-default-option-wording",
       "prompt": "/scope test-topic",
       "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md. /scope's resume ladder fires Slot 5 row 5.6 (PRD-Accepted) and surfaces the entry-router prompt against the existing upstream. The prompt MUST contain the literal substring \"Re-evaluate / Revise / Bail\" (case-insensitive components allowed). The prompt MUST NOT contain the literal substring \"Continue / Start fresh\" — that vocabulary belongs to /prd's status-aware re-entry and would hijack /scope's flow. The three options Re-evaluate, Revise, and Bail are co-equal with no leading question; default-option wording is part of /scope's contract surface, not a UX detail. The same contract holds at row 5.4 (DESIGN-Accepted boundary) substituting DESIGN-boundary identification for PRD-boundary.",
-      "files": ["docs/prds/PRD-test-topic.md"],
+      "files": [
+        "docs/prds/PRD-test-topic.md"
+      ],
       "expectations": [
         "Plan ensures the entry-router prompt against an existing Accepted PRD contains the literal substring \"Re-evaluate / Revise / Bail\" (case-insensitive components allowed)",
         "Plan ensures the entry-router prompt MUST NOT contain the literal substring \"Continue / Start fresh\" — that vocabulary belongs to /prd and would hijack /scope's flow",
@@ -88,31 +92,35 @@
       "id": 7,
       "name": "us-1-cold-standalone-full-run",
       "prompt": "/scope test-topic",
-      "expected_output": "Cold-start invocation against a fresh worktree under public-repo visibility: no wip/scope_test-topic_state.md exists, no upstream BRIEF/PRD/DESIGN/PLAN exists at the canonical paths. /scope walks Phase 1 discovery surfacing the framing-shift question, evaluates the four child gates (R4 Mandatory-with-auto-skip plus framing-shift override for /brief, R5 Mandatory-with-auto-skip for /prd, R7 shape-dependent for /design via R6 predicates P1+P2+P3, ALWAYS for /plan), emits the chain-proposal output containing the literal Proceed / Adjust / Bail substrings. The author selects Proceed; Phase 2 invokes /brief -> /prd -> /design -> /plan in sequence; each invocation writes parent_orchestration: sentinel immediately before, clears it immediately after; shirabe validate --format json --visibility=public runs against each intermediate, with /scope parsing the shirabe-validate/v1 envelope and advancing on a clean (exit 0) result. The terminal PLAN lives at docs/plans/PLAN-test-topic.md (status Draft when plan_execution_mode: single-pr; status Active when plan_execution_mode: multi-pr). State file: exit: full-run, exit_artifacts lists docs/plans/PLAN-test-topic.md, plan_execution_mode set, chain_started + chain_completed timestamps populated.",
+      "expected_output": "Cold-start invocation against a fresh worktree under public-repo visibility: no wip/scope_test-topic_state.md exists, no upstream BRIEF/PRD/DESIGN/PLAN exists at the canonical paths. /scope walks Phase 1 discovery surfacing the framing-shift question, walks the R6 predicates (P1/P2/P3) to feed the entry-altitude recommendation and /design's decision-roster shape, and decides the entry altitude: nothing on disk and the framing unsettled recommends 'brief'. planned_chain becomes every child from that altitude through plan. The chain-proposal output names the recommended altitude with its reasons and contains the literal Proceed / Adjust / Bail substrings. The author selects Proceed; Phase 2 invokes /brief with the topic slug and then /prd, /design and /plan each with the path of the artifact the chain produced above it; each invocation writes the parent_orchestration: sentinel immediately before and clears it immediately after; shirabe validate --format json --visibility=public runs against each intermediate; the consolidation judgment runs after each artifact lands. The terminal PLAN lives at docs/plans/PLAN-test-topic.md. State file: entry_altitude: brief, exit: full-run, exit_artifacts lists the surviving durable artifacts plus the PLAN, plan_execution_mode set, and consolidation_judgments records a verdict per hop.",
       "files": [],
       "expectations": [
-        "Plan starts from Phase 0 (fresh worktree; no state file, no upstream artifacts) and validates the test-topic slug against ^[a-z0-9-]+$",
-        "Plan walks Phase 1 discovery, surfaces the framing-shift question, and evaluates the four child gates per the Gate Vocabulary (Mandatory-with-auto-skip for /brief, with the framing-shift signal as its override; Mandatory-with-auto-skip for /prd; shape-dependent for /design; ALWAYS for /plan)",
-        "Plan emits the chain-proposal output containing the literal substrings Proceed, Adjust, and Bail; the author selects Proceed and Phase 2 begins",
-        "Plan invokes /brief, /prd, /design, /plan in order via each child's existing input mode (topic-slug argument), writing parent_orchestration: sentinel immediately before each invocation and clearing it immediately after",
-        "Plan runs shirabe validate --format json --visibility=public against each intermediate after the structural file-existence check passes, parses the shirabe-validate/v1 envelope, and branches on the multi-level exit code: clean (0) advances to the next child; violations (2) halt the chain and route to R8 bail-handling, surfacing each error-severity finding readably as message (file:line) — the message already embeds the check code, so it is not prepended again — rather than verbatim annotation text; tool-error (1) halts as a tool failure distinct from a content violation",
-        "Plan writes the terminal PLAN at docs/plans/PLAN-test-topic.md (Draft for single-pr; Active for multi-pr alongside a GitHub milestone)",
-        "Plan writes state file with exit: full-run; exit_artifacts contains the PLAN path with its status; plan_execution_mode is set per the selection; conditional fields boundary, decision_record_sub_shape, discard_commit_sha, rejection_rationale, triggering_child, partial_phase_reached are ABSENT per R9 conditional-field gating"
+        "Plan decides an entry altitude at Phase 1 and records it in entry_altitude:",
+        "Plan recommends exactly one altitude with its reasons and offers the author the alternatives, rather than presenting them neutrally",
+        "Plan populates planned_chain: as every child from the entry altitude through plan",
+        "Plan does NOT decide per hop, before an artifact exists, whether that artifact is worth producing",
+        "Plan invokes the entry child with the topic slug and every later child with the path of the artifact the chain produced above it",
+        "Plan emits a chain-proposal output containing the literal substrings Proceed, Adjust and Bail",
+        "Plan runs the consolidation judgment after each artifact lands and records the verdict in consolidation_judgments:",
+        "Plan records exit: full-run with exit_artifacts listing the surviving durable artifacts"
       ]
     },
     {
       "id": 8,
       "name": "us-2-prd-auto-skip",
       "prompt": "/scope test-topic",
-      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists. /scope's Phase 1 evaluates R5 (Mandatory-with-auto-skip for /prd) and records /prd in chain_skipped with reason 'accepted-prd-at-canonical-path'. The chain proceeds to the next gate. /scope MUST NOT silently overwrite the Accepted PRD. The remaining chain invokes /design (per R7 shape-dependent if R6 predicates fire; chain_skipped otherwise) and /plan (ALWAYS). State file: chain_skipped contains an entry { name: prd, reason: accepted-prd-at-canonical-path }; planned_chain contains the children whose gates fired (not /prd). When PLAN reaches Active status under /work-on, a subsequent /scope test-topic invocation fires Slot 5 row 5.1 (PLAN-Active) and surfaces a refuse-and-redirect prompt containing the literal substring 'redirect to /work-on' (case-insensitive); the Re-evaluate / Revise / Bail triad MUST NOT appear at that row.",
-      "files": ["docs/prds/PRD-test-topic.md"],
+      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists. /scope's Phase 1 holds /prd back under re-entry protection and records it in chain_skipped with reason 'settled-artifact-at-canonical-path-reentry-protection'. The recorded reason and the surrounding prose say this protects a settled document from being overwritten; it is NOT a judgment that the PRD would not have been worth producing. The chain proceeds; /design and /plan both run. State file: chain_skipped contains { name: prd, reason: settled-artifact-at-canonical-path-reentry-protection }; planned_chain contains the children that run (not /prd). When PLAN reaches Active status under /work-on, a subsequent /scope test-topic invocation fires Slot 5 row 5.1 (PLAN-Active) and surfaces a refuse-and-redirect prompt containing the literal substring 'redirect to /work-on' (case-insensitive); the Re-evaluate / Revise / Bail triad MUST NOT appear at that row.",
+      "files": [
+        "docs/prds/PRD-test-topic.md"
+      ],
       "expectations": [
-        "Plan detects the Accepted PRD at docs/prds/PRD-test-topic.md and records /prd in chain_skipped: with reason 'accepted-prd-at-canonical-path' per the Mandatory-with-auto-skip gate semantics",
-        "Plan MUST NOT silently overwrite the Accepted PRD; the auto-skip protects settled-upstream artifacts from being clobbered",
-        "Plan's planned_chain: contains the children whose gates fired (not /prd); chain_skipped: holds the /prd entry with its reason",
+        "Plan detects the Accepted PRD and records /prd in chain_skipped: with reason 'settled-artifact-at-canonical-path-reentry-protection'",
+        "Plan MUST NOT silently overwrite the Accepted PRD; the auto-skip protects settled artifacts from being clobbered",
+        "Plan states that re-entry protection is not a judgment about whether the artifact was worth producing",
+        "Plan runs /design and /plan; neither is declined on a predicate evaluated before its artifact exists",
         "Plan ensures a later invocation against PLAN-Active fires Slot 5 row 5.1 and surfaces a prompt containing 'redirect to /work-on' (case-insensitive)",
         "Plan ensures a later invocation against PLAN-Done fires Slot 5 row 5.2 and surfaces a prompt containing 'redirect to /release' (case-insensitive)",
-        "Plan ensures neither PLAN-Active nor PLAN-Done rows contain the 'Re-evaluate / Revise / Bail' triad — refuse-and-redirect is not a re-evaluation exit per AC17c"
+        "Plan ensures neither PLAN-Active nor PLAN-Done rows contain the 'Re-evaluate / Revise / Bail' triad -- refuse-and-redirect is not a re-evaluation exit per AC17c"
       ]
     },
     {
@@ -120,7 +128,9 @@
       "name": "us-3a-prd-boundary-re-evaluation",
       "prompt": "/scope test-topic",
       "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists at docs/designs/current/DESIGN-test-topic.md. /scope's resume ladder fires Slot 5 row 5.6 (PRD-Accepted) and surfaces an entry prompt containing the literal substrings 'Re-evaluate', 'Revise', and 'Bail' (case-insensitive) identifying the boundary as PRD-boundary. The prompt MUST NOT contain 'Continue / Start fresh'. The author selects Re-evaluate; /scope walks the existing PRD's acceptance criteria, finds them still warranted, and writes a re-evaluation Decision Record at docs/decisions/DECISION-prd-test-topic-re-evaluation-<YYYY-MM-DD>.md referencing the existing PRD by path (referenced_artifact:). The child /prd is NOT invoked; /scope authors the Decision Record directly using the template at skills/scope/references/decision-record-prd-re-evaluation.md. State file: exit: re-evaluation, boundary: prd, decision_record_sub_shape: re-evaluation, referenced_artifact: docs/prds/PRD-test-topic.md.",
-      "files": ["docs/prds/PRD-test-topic.md"],
+      "files": [
+        "docs/prds/PRD-test-topic.md"
+      ],
       "expectations": [
         "Plan detects the Accepted PRD and fires resume-ladder Slot 5 row 5.6 with the prompt offering Re-evaluate / Revise / Bail (case-insensitive substrings present) identifying the PRD-boundary",
         "Plan ensures the row 5.6 prompt does NOT contain 'Continue / Start fresh' — that is /prd's status-aware re-entry vocabulary, not /scope's",
@@ -137,7 +147,10 @@
       "name": "us-3b-design-boundary-re-evaluation",
       "prompt": "/scope test-topic",
       "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md AND an Accepted DESIGN exists at docs/designs/current/DESIGN-test-topic.md. /scope's resume ladder fires Slot 5 row 5.4 (DESIGN-Accepted) BEFORE row 5.6 (PRD-Accepted) per the most-downstream-first ordering (AC17b). The prompt offered identifies the boundary as DESIGN-boundary and contains 'Re-evaluate / Revise / Bail'; it does NOT contain 'Continue / Start fresh'. The author selects Re-evaluate; /scope writes a Decision Record at docs/decisions/DECISION-design-test-topic-re-evaluation-<YYYY-MM-DD>.md using the template at skills/scope/references/decision-record-design-re-evaluation.md. State file: exit: re-evaluation, boundary: design, decision_record_sub_shape: re-evaluation, referenced_artifact: docs/designs/current/DESIGN-test-topic.md. The PLAN authored against this DESIGN remains untouched.",
-      "files": ["docs/prds/PRD-test-topic.md", "docs/designs/current/DESIGN-test-topic.md"],
+      "files": [
+        "docs/prds/PRD-test-topic.md",
+        "docs/designs/current/DESIGN-test-topic.md"
+      ],
       "expectations": [
         "Plan detects both Accepted artifacts and fires Slot 5 row 5.4 (DESIGN-Accepted) BEFORE row 5.6 (PRD-Accepted) per the most-downstream-first first-match-wins ordering (AC17b)",
         "Plan's row 5.4 prompt identifies the boundary as DESIGN-boundary and contains the literal substring 'Re-evaluate / Revise / Bail' (case-insensitive)",
@@ -170,7 +183,9 @@
       "name": "us-5-mid-chain-abandonment-forced",
       "prompt": "/scope test-topic",
       "expected_output": "wip/scope_test-topic_state.md exists with phase_pointer past Phase 0, exit: UNSET, and last_updated more than 7 days old. /scope's resume ladder fires row 4 (state file stale) and surfaces the three-option prompt Resume / Force-materialize / Discard. The author selects Force-materialize. /scope resolves the most-recently-running child via R8's tie-break (the child whose Phase 2 invocation began most recently per the state-file's chain_ran timestamps; tie-break on identical timestamps goes to the later child in planned_chain). /scope force-materializes that child's intermediate as a schema-compliant Draft artifact at the canonical path (docs/{briefs|prds|designs|plans}/<TYPE>-test-topic.md). The Draft contains a single-line HTML-comment marker <!-- scope-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> --> at the END of the artifact's existing Status section (not in a new section that would invalidate the host artifact-type's schema validator). The marker uniformly applies to all four artifact types (BRIEF/PRD/DESIGN/PLAN). State file: exit: abandonment-forced, triggering_child: <child-name>, partial_phase_reached: <phase-name>.",
-      "files": ["wip/scope_test-topic_state.md"],
+      "files": [
+        "wip/scope_test-topic_state.md"
+      ],
       "expectations": [
         "Plan detects last_updated >= 7 days old at row 4 of the resume ladder and surfaces the three-option prompt Resume / Force-materialize / Discard",
         "Plan routes Force-materialize into the abandonment-forced exit and resolves the triggering child via R8's most-recently-running tie-break (state-file timestamps; secondary order by planned_chain position)",
@@ -188,7 +203,10 @@
       "name": "us-6-manual-fallback-reviewer-redirect",
       "prompt": "/scope test-topic",
       "expected_output": "Pre-populated: docs/prds/PRD-test-topic.md at status Accepted, and wip/scope_test-topic_state.md whose child_snapshots.prd records path: docs/prds/PRD-test-topic.md plus status: Accepted plus content_hash matching the PRD's git hash-object value at snapshot time. A reviewer invokes /prd docs/prds/PRD-test-topic.md directly outside /scope; /prd produces a revised Draft, flipping the frontmatter status: from Accepted to Draft and rewriting the body. The live git hash-object now differs from the snapshot's content_hash. /scope does NOT interfere with the manual /prd invocation: no warning, no state-file write, no block. On the next /scope test-topic invocation, the resume ladder runs drift detection (dual check: status OR content_hash differs from the snapshot) and surfaces the three-option staleness prompt Re-run / Accept / Proceed-without.",
-      "files": ["docs/prds/PRD-test-topic.md", "wip/scope_test-topic_state.md"],
+      "files": [
+        "docs/prds/PRD-test-topic.md",
+        "wip/scope_test-topic_state.md"
+      ],
       "expectations": [
         "Plan respects R13 manual-fallback non-interference: when the reviewer invokes /prd directly outside /scope, /scope emits no warning, performs no state-file write against the manual invocation, and does NOT block direct child invocation",
         "Plan reads the child doc's frontmatter status: and computes the child doc's git hash-object (read-only) at the published path on resume, then compares both against the recorded child_snapshots.prd entry (path + status + content_hash)",
@@ -239,6 +257,87 @@
         "Plan distinguishes smart defaults (announce-on-activation, per-invocation override) from the durable workspace preferences (PR-grouping policy, reviewability ceiling) resolved on flag > CLAUDE.md-header > default",
         "Plan recognizes --no-coordinated as the per-invocation override that forces the single-repo path even when a workspace default enables coordination",
         "Plan does NOT silently activate a smart default without announcing it"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "entry-altitude-design-runs-chain-suffix",
+      "prompt": "/scope refactor-topic  (the author says the problem and the requirements are settled; they want to talk about architecture)",
+      "expected_output": "Phase 1 recommends entry altitude 'design' because the author states the framing and the requirements are settled. planned_chain becomes [design, plan] -- the suffix of the chain from that altitude. /brief and /prd are not invoked and are NOT recorded in chain_skipped, because they were never in the chain; chain_skipped records only re-entry protection. /design is invoked with the topic slug (it is the entry child, so there is no produced upstream to hand it) and /plan with the DESIGN's path.",
+      "files": [],
+      "expectations": [
+        "Plan recommends entry altitude design and records entry_altitude: design",
+        "Plan populates planned_chain: as [design, plan]",
+        "Plan does not record /brief or /prd in chain_skipped:, because they were never in the chain",
+        "Plan invokes /design with the topic slug as the entry child and /plan with the DESIGN's path",
+        "Plan produces both a DESIGN and a PLAN"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "entry-altitude-plan-warns-no-durable-artifact",
+      "prompt": "/scope throwaway-topic  (the author wants to go straight to a plan and nothing exists on disk for the topic)",
+      "expected_output": "Phase 1 resolves the entry-altitude recommendation to 'plan' and, because no durable artifact exists at any canonical path for the topic, the chain proposal states that the run will leave no durable artifact behind -- the PLAN is deleted once its work is implemented. The warning is informational and the author may proceed. The same warning does NOT fire when a DESIGN already exists for the topic, because that DESIGN survives the run.",
+      "files": [],
+      "expectations": [
+        "Plan surfaces a warning that the run will leave no durable artifact behind because the PLAN is deleted after implementation",
+        "Plan states the warning is informational and the author may proceed",
+        "Plan notes the warning fires only when no durable artifact exists at any canonical path for the topic",
+        "Plan does not reach a PLAN-alone outcome by reducing the artifact set; only an explicit entry at plan produces it"
+      ]
+    },
+    {
+      "id": 19,
+      "name": "consolidation-absorb-brief-into-prd",
+      "prompt": "/scope small-topic  (a feature whose framing is two uncontested paragraphs)",
+      "expected_output": "The chain writes the BRIEF, then invokes /prd with the BRIEF's path so the PRD is drafted from the brief's body. After the PRD lands and validates, the consolidation judgment runs on the brief->prd hop. Stage 1 finds the mapping total (Problem Statement to Problem Statement, User Outcome to Goals, User Journeys to User Stories, Scope Boundary to Requirements and Out of Scope), so absorb is available. Stage 2 finds the BRIEF does no work the PRD does not, so the verdict is absorb. Stage 3 runs the per-section carry check, records where each of the four concerns landed, then sets the PRD's upstream to the BRIEF's own upstream (or removes the field), removes the BRIEF from the repository, and re-runs shirabe validate on the PRD. consolidation_judgments records the hop, the carry check, the verdict, what was absorbed and into what.",
+      "files": [],
+      "expectations": [
+        "Plan runs the consolidation judgment after the PRD lands, not before the BRIEF was written",
+        "Plan finds the brief->prd mapping total and treats absorb as available at that hop",
+        "Plan runs a per-section carry check before removing anything and records where each of the BRIEF's four concerns landed in the PRD",
+        "Plan re-points the PRD's upstream to the BRIEF's own upstream, or removes the field when the BRIEF had none",
+        "Plan re-runs shirabe validate on the surviving PRD after the absorb",
+        "Plan records the verdict and the carry check in consolidation_judgments:"
+      ]
+    },
+    {
+      "id": 20,
+      "name": "consolidation-keep-at-unmapped-hop",
+      "prompt": "/scope mapped-topic  (a full chain that reaches the PRD-to-DESIGN hop)",
+      "expected_output": "After the DESIGN lands, the consolidation judgment runs on the prd->design hop. Stage 1 finds the mapping is not total: a DESIGN has a home for the PRD's Problem Statement in Context and Problem Statement, but none for Goals, User Stories, Requirements, Acceptance Criteria or Out of Scope. Absorb is unavailable, the only verdict is keep, and the finding names the unmapped sections. The same holds at the design->plan hop. Both artifacts stay in place at each hop.",
+      "files": [],
+      "expectations": [
+        "Plan finds the prd->design mapping is not total and records absorbable: false",
+        "Plan reaches verdict keep and names the unmapped sections in the finding",
+        "Plan applies the same rule at the design->plan hop",
+        "Plan derives absorbability from the per-type required-section contracts rather than a hard-coded list of hops"
+      ]
+    },
+    {
+      "id": 21,
+      "name": "consolidation-carry-check-failure-aborts-absorb",
+      "prompt": "/scope partial-topic  (a BRIEF whose User Journeys carry detail the PRD's User Stories drop)",
+      "expected_output": "The consolidation judgment reaches absorb at stage 2, then the per-section carry check finds the PRD's User Stories do not carry the BRIEF's User Journeys. The absorb ABORTS: the verdict is downgraded to keep, the finding names the section that did not arrive, both artifacts stay in place, and nothing is removed. The recorded entry keeps the failed carry check so the abort is auditable rather than indistinguishable from a judgment that never considered absorbing.",
+      "files": [],
+      "expectations": [
+        "Plan aborts the absorb when any section of the carry check is not carried",
+        "Plan leaves both artifacts in place and removes nothing on a failed carry check",
+        "Plan downgrades the verdict to keep and names the section that did not arrive",
+        "Plan records the failed carry check so the abort is distinguishable from a judgment that never considered absorbing"
+      ]
+    },
+    {
+      "id": 22,
+      "name": "upstream-path-invocation-preserves-child-isolation",
+      "prompt": "/scope chain-topic",
+      "expected_output": "Phase 2 invokes /prd with docs/briefs/BRIEF-chain-topic.md, /design with docs/prds/PRD-chain-topic.md, and /plan with docs/designs/DESIGN-chain-topic.md -- input modes each child already ships. No flag, argument, environment variable or new parse branch is added to any child. R14 child isolation is preserved: /scope still reads only each child's frontmatter status and git blob hash.",
+      "files": [],
+      "expectations": [
+        "Plan invokes each non-entry child with the path of the artifact the chain produced above it",
+        "Plan states these are input modes the children already ship, not new ones",
+        "Plan adds no flag, argument or environment variable to any child",
+        "Plan preserves R14 child isolation: /scope reads only frontmatter status and the git blob hash"
       ]
     }
   ]

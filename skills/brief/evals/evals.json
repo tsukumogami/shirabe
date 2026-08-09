@@ -26,7 +26,9 @@
       "name": "upstream-roadmap-grounding",
       "prompt": "/brief docs/roadmaps/ROADMAP-checkout.md",
       "expected_output": "Detects the ROADMAP path as upstream input. Canonicalizes the path at Phase 0 and confirms it resolves inside the repo working tree. Reads the ROADMAP content to derive the feature's problem/outcome candidate during Phase 1. Carries forward the upstream framing into the BRIEF's Problem Statement. Declares the ROADMAP path as the BRIEF's frontmatter `upstream`.",
-      "files": ["docs/roadmaps/ROADMAP-checkout.md"],
+      "files": [
+        "docs/roadmaps/ROADMAP-checkout.md"
+      ],
       "expectations": [
         "Plan detects the ROADMAP path argument as upstream input",
         "Plan canonicalizes the upstream path at Phase 0 and bounds-checks it against the repo working tree",
@@ -37,17 +39,17 @@
     },
     {
       "id": 3,
-      "name": "artifact-decision-from-rich-issue",
+      "name": "rich-issue-still-produces-a-brief",
       "prompt": "/brief A PRD-ready feature request: the search box should debounce input and the team already wrote a detailed problem and outcome in the issue body.",
-      "expected_output": "Phase 0 surfaces the produce-vs-hand-off artifact decision because the chain is entered partway up — the supplied evidence already implies both the feature's problem and its outcome. The skill weighs whether to produce a durable brief or hand the existing evidence forward to the PRD, rather than writing a brief by reflex. It records the decision (produce or handed-off) before proceeding.",
+      "expected_output": "Phase 0 records the artifact decision as 'produce' and continues. There is no branch that declines to write a brief: the fold-into-PRD path was retired because it fired before any brief existed (so nothing it read could tell whether the brief would have carried something the PRD would not) and nothing received what it folded (/prd had no absorb step and no input mode for folded framing). A rich issue body is ephemeral evidence, not a durable artifact, so the framing is written down here. If that framing turns out to be fully carried by the downstream PRD, /scope's consolidation judgment removes the brief after both documents exist and after a per-section carry check confirms the content arrived. Phase 5 ends by recommending /prd <brief-path>.",
       "files": [],
       "expectations": [
-        "Plan recognizes that the chain is being entered partway up (a rich issue body already implies problem and outcome)",
-        "Plan surfaces the produce-vs-hand-off artifact decision at Phase 0",
-        "Plan weighs whether to produce a durable brief or hand the existing evidence forward to the PRD",
-        "Plan notes that writing a brief by reflex is not the goal",
-        "Plan records the artifact decision (produce or handed-off) before proceeding",
-        "Plan describes the hand-off path exiting the workflow without producing a brief when the framing already exists"
+        "Plan records the artifact decision as produce and proceeds to Phase 1",
+        "Plan describes no branch that exits Phase 0 without producing a brief",
+        "Plan explains that a rich issue body is ephemeral evidence rather than a durable artifact",
+        "Plan points at /scope's consolidation judgment as where a redundant brief is removed, after both documents exist",
+        "Plan notes the removal is gated on a per-section carry check confirming the PRD carries the brief's concerns",
+        "Plan ends by recommending /prd with the brief's path as the next step"
       ]
     },
     {
@@ -98,7 +100,9 @@
       "name": "lifecycle-accept-verb",
       "prompt": "/brief accept docs/briefs/BRIEF-checkout-flow.md",
       "expected_output": "Detects 'accept' as a lifecycle verb rather than starting the creation workflow. Validates the Open Questions section is empty or removed before transition. Runs shirabe transition with target Accepted. The file stays in docs/briefs/ (no directory movement for any brief transition).",
-      "files": ["docs/briefs/BRIEF-checkout-flow.md"],
+      "files": [
+        "docs/briefs/BRIEF-checkout-flow.md"
+      ],
       "expectations": [
         "Plan detects 'accept' as a lifecycle verb rather than starting the creation workflow",
         "Plan validates the Open Questions section is empty or removed before transition",
@@ -127,7 +131,9 @@
       "name": "prd-upstream-rejection",
       "prompt": "/brief docs/prds/PRD-checkout.md",
       "expected_output": "Phase 0 rejects the PRD path instead of treating it as an upstream. A PRD is downstream of a BRIEF in the tactical chain (ROADMAP -> BRIEF -> PRD), so deriving the feature's framing out of the PRD's requirements inverts the chain. The rejection message names the offending path, explains the inversion, and points the author at writing the brief from the feature topic or from the ROADMAP entry that names it. No BRIEF document is created and Phase 1 never runs.",
-      "files": ["docs/prds/PRD-checkout.md"],
+      "files": [
+        "docs/prds/PRD-checkout.md"
+      ],
       "expectations": [
         "Plan rejects the PRD path rather than accepting it as the BRIEF's upstream",
         "Plan explains that a PRD is downstream of a BRIEF (chain runs ROADMAP -> BRIEF -> PRD) so using it as upstream inverts the chain",
