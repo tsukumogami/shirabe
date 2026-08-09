@@ -270,7 +270,8 @@ is the progress ledger for a strategy's execution (its per-feature
 status is the only record of how far along the work is, and the
 completion cascade updates it as downstream plans land), and it is
 the only bridge from the strategic chain to the tactical one --
-`/brief` accepts a ROADMAP or a PRD as upstream, never a STRATEGY. A
+`/brief` takes a ROADMAP as its upstream, never a STRATEGY and never a
+PRD. A
 strategy whose work is a single feature still needs both, so it still
 gets a roadmap. Most roadmaps do sequence several features and that
 is where the sequencing rationale earns its keep, but there is no

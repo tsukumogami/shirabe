@@ -40,10 +40,10 @@ much:
   records how far along the work is, and the completion cascade updates it
   as downstream plans land. Without a roadmap, a strategy has no ledger.
 - **It is the only bridge from the strategic chain to the tactical one.**
-  `/brief` accepts a ROADMAP or a PRD as upstream -- it does not accept a
-  STRATEGY. A strategy whose work is a single feature would be stranded if
-  it could not have a roadmap: no legal path into `/scope`, and no progress
-  tracking.
+  `/brief` takes a ROADMAP as its upstream -- never a STRATEGY, and never
+  a PRD, which sits downstream of a BRIEF rather than above it. A strategy
+  whose work is a single feature would be stranded if it could not have a
+  roadmap: no legal path into `/scope`, and no progress tracking.
 
 Both jobs work with one feature. **A roadmap requires at least one feature;
 there is no two-feature floor.** Most roadmaps do sequence several features,

@@ -109,8 +109,8 @@ Sequencing is only half of what a roadmap does. The other half is that it
 is the progress ledger for a strategy's execution — its per-feature status
 is the only place recording how far along the work is, and the completion
 cascade updates it as downstream plans land. It is also the only bridge
-from the strategic chain to the tactical one: `/brief` accepts a ROADMAP or
-a PRD as upstream, never a STRATEGY. A strategy whose work is a single
+from the strategic chain to the tactical one: `/brief` takes a ROADMAP as
+its upstream, never a STRATEGY and never a PRD. A strategy whose work is a single
 feature would therefore be stranded under a two-feature rule — no legal
 path into `/scope`, and no progress tracking — for no benefit, since one
 feature is a perfectly coherent ledger.

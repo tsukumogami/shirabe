@@ -98,11 +98,12 @@ never visited by any cascade and stays on disk until someone removes it.
 | `COMP-` | `/comp` | Competitive landscape, comparative matrix, implications for our own choices -- private repos only |
 
 Artifacts reference each other through an `upstream:` frontmatter field, and
-each one points at its immediate neighbour rather than skipping levels: a
-STRATEGY points at a VISION, a ROADMAP at a STRATEGY, a BRIEF at a ROADMAP, and
-a PLAN at its DESIGN which points at its PRD. The ROADMAP is where the
-strategic chain hands off to the tactical one -- nothing above it reaches past
-it into feature-level documents. That
+each one points at its immediate neighbour rather than skipping levels. The
+whole chain is one line: a STRATEGY points at a VISION, a ROADMAP at a
+STRATEGY, a BRIEF at a ROADMAP, a PRD at its BRIEF, a DESIGN at its PRD, and a
+PLAN at its DESIGN. The ROADMAP is where the strategic chain hands off to the
+tactical one -- nothing above it reaches past it into feature-level documents,
+and nothing below it points back up past its own parent. That
 chain is what `/execute` walks after a plan's work merges: it transitions
 each upstream node to its terminal status (DESIGN to Current, PRD to Done,
 BRIEF to Done) and, if the chain traces back to a ROADMAP, updates that

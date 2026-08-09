@@ -67,7 +67,8 @@ tool to create `docs/roadmaps/ROADMAP-<topic>.md`.
 the list to zero, flag this to the user -- a roadmap with no features has nothing to
 sequence and nothing to track. One feature is enough: the roadmap is still the
 progress ledger for the strategy's execution and still the bridge into `/scope`,
-which `/brief` reaches through a ROADMAP or a PRD but never a STRATEGY.
+which `/brief` reaches through a ROADMAP, never a STRATEGY and never a
+PRD.
 
 **All features start as "Not Started."** The roadmap is a plan, not a progress
 tracker at creation time. Features move through statuses as work proceeds.
