@@ -22,6 +22,7 @@ in one sitting, plus the child skills you can also reach for directly.
 |-------|-------------|
 | `/charter` | Parent skill: walks VISION -> STRATEGY -> ROADMAP in one sitting; every run lands a STRATEGY and a ROADMAP unless you decline the roadmap when asked |
 | `/vision` | Capture why a project should exist -- thesis, audience, org fit -- via scoping, research agents, and jury review |
+| `/comp` | Survey competitors along explicit dimensions and turn the gaps into implications for your own choices. Private repos only: `/charter` runs it after `/vision` when the skill is installed, and says so when it skips. Warns if invoked directly in a public repo, where the result cannot be finalized |
 | `/strategy` | Define a medium-term defensible bet that operationalizes a slice of a VISION, with a building-blocks decomposition and invalidation conditions |
 | `/roadmap` | Sequence a strategy's features into one initiative with dependency tracking, and track how far along the work is; one feature is enough |
 
@@ -49,7 +50,6 @@ in one sitting, plus the child skills you can also reach for directly.
 |-------|-------------|
 | `/explore` | Fan out research agents to investigate options and figure out which artifact to produce next |
 | `/decision` | Structured decision-making for contested choices with adversarial agents, cross-examination, and synthesis (also callable from inside `/design`) |
-| `/comp` | Private-only competitive-analysis artifact comparing competitors along explicit dimensions; warns when run in a public repo, where the result cannot be finalized |
 | `/release` | Recommend a version, generate release notes, draft a GitHub release, dispatch the release workflow, and monitor it |
 | `/inflight` | Report this session's in-flight PRs across repos: number, state, CI and review status |
 
