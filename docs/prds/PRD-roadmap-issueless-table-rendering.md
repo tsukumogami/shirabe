@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   `shirabe roadmap populate --no-issues` renders an Implementation Issues table
   whose rows can't be identified from the table itself: the key column carries
@@ -27,7 +27,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 ## Problem Statement
 

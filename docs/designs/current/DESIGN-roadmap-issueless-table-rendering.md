@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-roadmap-issueless-table-rendering.md
 problem: |
   `shirabe roadmap populate --no-issues` renders an Implementation Issues table
@@ -34,7 +34,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
