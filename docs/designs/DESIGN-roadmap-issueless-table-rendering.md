@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 upstream: docs/prds/PRD-roadmap-issueless-table-rendering.md
 problem: |
   `shirabe roadmap populate --no-issues` renders an Implementation Issues table
@@ -34,7 +34,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
@@ -125,11 +125,20 @@ are recorded per question; the summaries below carry the shape.
 - **B2: Renderers return `(String, Vec<String>)`.** Rejected against D6: it
   churns two public signatures and every test calling them, buying nothing over
   B3, because the warnings are derivable from `&[Feature]` alone.
-- **B3: A separate pure `render_warnings(features) -> Vec<String>` the run paths
-  print.** **Chosen.** Pure, directly unit-testable for content and ordering,
-  renderer signatures untouched. R18's ordering falls out of iterating features
-  in order. The cost is that the description derivation runs twice per feature,
-  which is not worth avoiding at this scale.
+- **B3: Separate pure warnings functions the run paths print.** **Chosen.** Pure,
+  directly unit-testable for content and ordering, renderer signatures untouched.
+  R18's ordering falls out of iterating features in order. The cost is that the
+  description derivation runs twice per feature, which is not worth avoiding at
+  this scale.
+
+  The jury caught that a single `render_warnings(features)` would be wrong: the
+  fallback diagnostic must fire only where the fallback is applied, and under R24
+  issue-creating mode never applies it. Splitting into `truncation_warnings` and
+  `key_fallback_warnings` is what lets each run path print exactly what it did.
+  The middle option not walked here is an `&mut Vec<String>` out-parameter on the
+  renderers, which beats B2 on churn and B3 on the double derivation; it was not
+  reached because it reintroduces B2's signature change on the two functions with
+  the most existing tests.
 
 ### Decision C — Whether issue-creating mode adopts the fallback
 
