@@ -948,6 +948,33 @@ contract. On refusal (public-repo visibility violation) the skill
 emits `[/comp] REFUSED <topic>: visibility=public` instead, which
 the parent recognizes as the skip signal.
 
+*Superseded 2026-08-08: `/comp` warns under non-private visibility
+instead of refusing, and the signal line is now `[/comp] WARNING
+<topic>: visibility=public`. Everywhere below where this document
+writes `[/comp] REFUSED`, a refusal, or an exit at the Phase 0
+visibility check, read: the skill emits the WARNING line, tells the
+author that a COMP is competitive content belonging in a private
+repo, names the alternatives, and lets the author decide whether to
+continue — it does not terminate the invocation itself. The
+protection is unchanged, because it never lived in the skill: the
+validator's R9 gate and the CI guardrail still reject a COMP under
+public visibility, so a public repo cannot gain the artifact.*
+
+*The `/charter`-side half of this section describes a path that was
+never built. `/charter` does not invoke `/comp` and then consume a
+refusal signal; it evaluates its own visibility gate first and
+skips the child before any invocation, and as of 2026-08-08 it
+states that skip to the author. So the sentence "on REFUSED,
+/charter records skip in its state and continues" in the delegation
+flow below is wrong twice over — there is no REFUSED to consume,
+and a gate-failed child is recorded nowhere (see the Stated-Skip
+Rule in
+`skills/charter/references/phases/phase-2-chain-orchestration.md`).
+The two skills' visibility checks are independent by design and
+neither is redundant: `/comp` checks because it is directly
+invocable; `/charter` checks so it never routes an author toward a
+private-only artifact type in a public repo.*
+
 ### Data Flow
 
 **Authoring flow (`/comp` invocation, private repo):**

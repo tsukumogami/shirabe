@@ -94,15 +94,26 @@ decomposition: walking-skeleton  # or: horizontal
 - Feature is simple enough that layer-by-layer makes sense
 - Decomposition would produce only 1-2 issues
 
-**If ambiguous**, use AskUserQuestion:
+**If ambiguous**, use AskUserQuestion, following the pattern in
+`${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`. Recommend the strategy
+whose criteria the design matches on more counts, and cite the specific design
+content behind each match:
 ```
-This design could use either decomposition strategy:
+This design could use either decomposition strategy. I recommend
+**<Walking Skeleton|Horizontal>**: <one sentence citing the design content that
+decided it -- the layers it names, the refactor it describes, the issue count the
+decomposition produces>.
 
-Walking Skeleton: Issue #1 creates minimal e2e flow with stubs, subsequent issues refine
+Walking Skeleton (Recommended): Issue #1 creates minimal e2e flow with stubs, subsequent issues refine
 Horizontal: Issues created layer-by-layer (data model, then API, then UI)
+  -- ranks lower here because <reason>
 
-Which approach fits this design better?
+Use <recommended strategy>, or override?
 ```
+
+If the design matches both lists equally, say so, still recommend one, and name
+the tiebreaker (issue count is the usual one: 3+ issues favors walking skeleton,
+1-2 favors horizontal).
 
 Record your decision with rationale.
 

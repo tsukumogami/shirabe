@@ -137,7 +137,14 @@ Identify and document:
     2. Feature description content (requirements unclear -> needs-prd, approach
        unclear -> needs-design, feasibility unknown -> needs-spike, single choice
        between options -> needs-decision)
-    3. If ambiguous, use AskUserQuestion for each unclear feature
+    3. If ambiguous, use AskUserQuestion for each unclear feature. Do not present
+       the labels as a bare list: pick the one the feature description best
+       supports, mark it "(Recommended)", and ground the pick in the specific
+       wording that decided it (quote the phrase from the feature description or
+       roadmap annotation). Give each alternative a short reason for ranking
+       lower. If the description genuinely doesn't discriminate, say so, still
+       recommend one, and name the tiebreaker -- default to the earlier-stage
+       artifact (needs-prd before needs-design, needs-design before needs-spike)
   - Reference to your project's label vocabulary (see `## Label Vocabulary` in your CLAUDE.md)
 - **Sequencing Rationale**: Copy from roadmap's Sequencing Rationale section
 - **Progress**: Current state from roadmap's Progress section

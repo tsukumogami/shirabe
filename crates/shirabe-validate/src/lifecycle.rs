@@ -526,7 +526,17 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
             // at a parent DESIGN to record an amendment relationship),
             // that's a cross-chain reference, not a chain-membership
             // edge, and we do not follow it.
-            if matches!(node.format.as_str(), "Brief") {
+            //
+            // Stop at a ROADMAP for the same reason at the other end.
+            // A ROADMAP roots the tactical chain, and its own
+            // `upstream:` points at the STRATEGY it operationalizes —
+            // a member of the strategic chain, which this walk does
+            // not model. `build_doc_index` never indexes
+            // `docs/strategies/` or `docs/visions/`, so following that
+            // edge reports a present file as a missing chain member
+            // (L04). The strategic chain is out of scope here, not
+            // absent.
+            if matches!(node.format.as_str(), "Brief" | "Roadmap") {
                 break;
             }
             cur = node.upstreams.first().cloned();
@@ -1889,6 +1899,25 @@ mod tests {
         assert!(
             errors.iter().any(|e| e.code == "L03"),
             "expected L03 cycle, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn roadmap_upstream_strategy_does_not_produce_l04() {
+        // A ROADMAP's `upstream:` names the STRATEGY it operationalizes.
+        // `docs/strategies/` is outside the doc index by design, so the
+        // walk must stop at the ROADMAP rather than report a present
+        // STRATEGY as a missing chain member.
+        let root = build_tree(&[(
+            "docs/roadmaps/ROADMAP-foo.md",
+            "---\nschema: roadmap/v1\nstatus: Active\nupstream: docs/strategies/STRATEGY-foo.md\n---\n",
+            "\n# Roadmap: foo\n\n## Features\n\n### Feature 1: A\n\n**Status:** Not Started\n",
+        )]);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            !errors.iter().any(|e| e.code == "L04"),
+            "STRATEGY upstream must not read as a missing chain member, got {:?}",
             errors
         );
     }

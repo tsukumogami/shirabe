@@ -199,14 +199,25 @@ Display the design summary:
 **Rationale:** <frontmatter rationale field>
 ```
 
-Ask user for the verdict using AskUserQuestion. The prompt copy MUST advise
-the author that any rejection rationale becomes part of the repository's
-permanent git history, so private content must not be included:
+Ask user for the verdict using AskUserQuestion, following the pattern in
+`${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`. Frame the question
+as the agent recommending a verdict based on the Phase 6 review agents, not
+neutrally presenting options; the user's verdict is the gate. The prompt copy
+MUST advise the author that any rejection rationale becomes part of the
+repository's permanent git history, so private content must not be included:
 
 > Rationale will be committed to git history. Do not include secrets,
 > customer identifiers, or content you intend to keep private.
 
-Options:
+**Description field:** Ground the recommendation in the step 6.2 consolidated
+feedback -- name which reviewers raised findings, what was applied, and any
+residual concern left standing (e.g., "Architecture and structural-format
+cleared after the two applied fixes; security flagged the token path as
+worth revisiting post-merge but not blocking. Recommending Approved."). If a
+residual finding makes acceptance the weaker call, recommend Continue-revising
+instead and cite the finding that drove it.
+
+Options (mark the recommended one "(Recommended)"):
 
 - **Approved**: The design is ready; proceed to acceptance and routing.
 - **Reject**: Terminal verdict. The Draft DESIGN is discarded via `git rm`

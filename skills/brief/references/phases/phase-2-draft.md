@@ -30,7 +30,7 @@ Read all available context:
 
 - `wip/brief_<topic>_context.md` (Phase 0)
 - `wip/brief_<topic>_discover.md` (Phase 1)
-- The upstream document (ROADMAP or PRD) if Phase 0 recorded one
+- The upstream ROADMAP if Phase 0 recorded one
 - `skills/brief/references/brief-format.md` (format specification — load this in
   full at Phase 2 since the section-by-section guidance lives there)
 
@@ -72,7 +72,7 @@ problem: |
 outcome: |
   <2-4 line summary of the outcome a user should experience; same content the
   User Outcome section elaborates in prose>
-upstream: <path to upstream ROADMAP or PRD, omit field if none or if private>
+upstream: <path to upstream ROADMAP, omit field if none or if private>
 ---
 ```
 
@@ -182,6 +182,17 @@ Tell the user the partial draft is ready:
 Surface thematic questions the user should weigh in on. Use AskUserQuestion for
 questions that have a tradeoff shape. Avoid rehashing the draft ("does the problem
 look right?") — the user can read the draft themselves.
+
+Read `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md` for how to structure
+these. Frame each one as the agent recommending based on evidence, not neutrally
+presenting options. For each question, provide:
+- A paragraph of context explaining the question and why it matters
+- A recommended answer marked "(Recommended)", grounded in what Phase 1's discovery
+  turned up — cite the upstream artifact, issue, or conversation detail that decides it
+- Alternative answers, each with a short justification for why it ranks lower
+
+If the discovery genuinely doesn't favor one answer, say so, still recommend one,
+and name the tiebreaker.
 
 Good questions target the framing:
 - "The Problem Statement frames this as a discoverability problem. Is the real

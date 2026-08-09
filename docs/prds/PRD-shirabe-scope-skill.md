@@ -105,6 +105,17 @@ for the topic; the auto-skip is real and load-bearing. The
 pattern's gate vocabulary grows a fourth entry
 (Mandatory-with-auto-skip) to name it explicitly.
 
+*Superseded 2026-08-08 (the vocabulary count only): the gate
+vocabulary is three shapes, not four. EITHER-signal was retired
+once every gate carrying that label — `/charter`'s `/vision` and
+this PRD's `/brief` — turned out to be an auto-skip gate whose
+signal only matters when a settled artifact is already on disk.
+Mandatory-with-auto-skip widened to admit an optional per-parent
+override signal and absorbed both. Nothing about `/prd`'s gate
+changed, and no child fires on a different set of runs. The dated
+note in the `## Gate Vocabulary` section of
+`references/parent-skill-pattern.md` carries the reasoning.*
+
 Downstream, `/scope`'s shipping ratifies the parent-skill pattern
 v1 for the parent skills that follow. The amplifier-layer parent
 skill (the `/work-on` migration that follows) cannot inherit from a
@@ -165,9 +176,10 @@ Draft or Active PLAN (depending on `/plan`'s output mode) with the
 intermediate BRIEF, PRD, and DESIGN settled at their accepted
 statuses.
 
-Chain shape: `/scope` Phase 1 discovery → `/brief` (EITHER-signal
-gate; fires when no Accepted BRIEF exists OR framing-shift signal
-surfaces) → `/prd` (Mandatory-with-auto-skip; fires unless an
+Chain shape: `/scope` Phase 1 discovery → `/brief`
+(Mandatory-with-auto-skip; fires unless an Accepted BRIEF exists,
+and fires anyway when a framing-shift signal surfaces against one)
+→ `/prd` (Mandatory-with-auto-skip; fires unless an
 Accepted PRD already exists) → `/design` (shape-dependent; fires
 when the just-produced PRD exposes architectural-decision surface)
 → `/plan` (ALWAYS-when-reached; terminal) → full-run exit.
@@ -390,10 +402,20 @@ chain. Slugs failing the constraint MUST be rejected at Phase 0;
 `/scope` MUST NOT proceed silently.
 
 **R4 [/scope-specific].** `/scope` SHALL invoke `/brief` when
-either signal is present (Feeder-EITHER gate shape):
+either condition is present (Mandatory-with-auto-skip gate shape,
+with the framing-shift signal as its override):
 - No Accepted/Done BRIEF exists at `docs/briefs/BRIEF-<topic>.md`,
   OR
 - The author's Phase 1 discovery surfaces a framing-shift signal.
+
+*Reclassified 2026-08-08 (the gate-shape label only): this gate
+was written as "Feeder-EITHER" / EITHER-signal. The two conditions
+are not independent routes into the child — the framing-shift
+signal can only decide the case where a settled BRIEF is already on
+disk, and a cold start fires `/brief` whatever the answer. That is
+the Mandatory-with-auto-skip shape with an override, which the
+pattern widened to admit. The conditions above, and the runs
+`/brief` fires on, are unchanged.*
 
 The framing-shift signal is an author-stated condition surfaced
 through Phase 1 discovery. `/scope`'s discovery prompt MUST
@@ -1596,9 +1618,18 @@ migration, the review-time redirect, and follow-up pattern
 ergonomics. The "stay narrow" velocity gain is one-time; the
 contract symmetry pays off across every downstream parent.
 
+*Superseded 2026-08-08 (the vocabulary arithmetic only): the
+vocabulary went from three shapes to four here and back to three on
+2026-08-08, when EITHER-signal was retired into
+Mandatory-with-auto-skip's optional-override clause. The decision to
+name `/prd`'s gate honestly rather than force it into an existing
+shape is what stands; the count in this paragraph is history.*
+
 ### Decision 2: BRIEF is treated as a chain member, not a feeder
 
-**Decided.** `/brief` is a chain member with EITHER-signal gate;
+**Decided.** `/brief` is a chain member with an EITHER-signal gate
+(relabelled Mandatory-with-auto-skip-with-override on 2026-08-08 —
+see R4 above; the chain-member half of this decision is unaffected);
 its skipped-vs-ran disposition is recorded symmetrically with
 `/prd`, `/design`, and `/plan` in `chain_ran` and
 `chain_skipped`. "Brief-only" runs (the chain runs `/brief` and
@@ -1727,6 +1758,15 @@ EITHER-signal unification would mislead future parent-skill
 authors who consult the pattern doc. Adding a fourth gate type
 is the smaller change relative to forcing a misnamed third gate
 type.
+
+*Superseded 2026-08-08 (the alternative's fate only): the decision
+holds — `/prd`'s gate is Mandatory-with-auto-skip and never became
+an EITHER-signal gate. What changed is the other side. EITHER-signal
+was itself retired once its remaining gates (`/charter`'s `/vision`,
+`/scope`'s `/brief`) were written out and read as auto-skip gates
+with an override signal. Mandatory-with-auto-skip widened to admit
+that optional override and absorbed them, leaving three shapes. The
+honest-framing argument above is what drove both moves.*
 
 ### Decision 7: Two folds added as new requirements; two folds embedded as authoring discipline
 

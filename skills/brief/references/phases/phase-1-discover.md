@@ -16,7 +16,7 @@ By the end of Phase 1 the workflow should have:
   it.
 - An **outcome candidate**: a one-paragraph statement of what a user should
   experience once the feature exists, framed as an outcome — not a feature list.
-- An anchor for grounding: either an upstream ROADMAP or PRD (when the feature is
+- An anchor for grounding: either an upstream ROADMAP (when the feature is
   already named in the chain), or — for freeform and cold-start invocations — the
   conversation itself.
 - A rough sense of the journeys the feature serves. Phase 3 owns the actual User
@@ -58,21 +58,12 @@ Present the problem and outcome candidates to the user in a single message. Ask
 them to confirm or redirect. Do not prompt through every dimension — the roadmap
 carries the naming load.
 
-### Mode: Upstream PRD
+### No Upstream-PRD Mode
 
-The user invoked `/brief <path>` where `<path>` resolves to a `docs/prds/PRD-*.md`
-file inside the repo. Less common, and Phase 0's artifact decision may already have
-recommended hand-off for this case (a PRD usually means the framing exists). If the
-decision was `produce`, the user wants a brief that captures framing the PRD
-assumed but never wrote down.
-
-1. Load the upstream PRD and read its Problem Statement, Goals, and User Stories.
-2. Extract the feature framing the PRD took as given: the problem it solves and the
-   outcome it targets. The PRD encodes both implicitly in its requirements; the
-   brief makes the framing explicit and standalone.
-3. Draft problem and outcome candidates grounded in that framing.
-
-Confirm the candidates with the user as in the ROADMAP mode.
+A PRD sits downstream of the brief: its requirements are written from the brief's
+framing, so deriving that framing back out of the PRD inverts the chain. Phase 0
+rejects a `docs/prds/PRD-*.md` argument before Phase 1 runs, so this router never
+sees one.
 
 ### Mode: Freeform Topic
 
@@ -100,10 +91,10 @@ owns the drafting.
 `$ARGUMENTS` was empty. Ask the user which feature they want to frame, then
 redirect to the appropriate mode:
 
-> "Are you starting from a roadmap entry, an existing PRD, or a feature you'd like
-> to frame from scratch?"
+> "Are you starting from a roadmap entry, or a feature you'd like to frame from
+> scratch?"
 
-If they name an upstream, ask for the path and re-enter the corresponding mode. If
+If they name a roadmap, ask for the path and re-enter Upstream ROADMAP mode. If
 they name a feature, derive a slug (subject to the Phase 0 constraint) and re-enter
 Freeform Topic mode. If they're genuinely uncertain whether a brief is the right
 artifact — for instance, the framing already exists and a PRD is the real need —
@@ -151,7 +142,7 @@ Write `wip/brief_<topic>_discover.md` with the following:
 <one-paragraph statement of what a user should experience>
 
 ## Grounding Anchor
-<upstream ROADMAP path, OR upstream PRD path, OR "conversation only">
+<upstream ROADMAP path, OR "conversation only">
 
 ## Journey Sketch
 - <who triggers the feature, and what they get>

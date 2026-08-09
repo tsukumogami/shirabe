@@ -98,6 +98,35 @@
       "prompt": "/design cli-export-command",
       "expected_output": "The design introduces a new CLI command users read about in a guide. The authoring phase sets the optional boolean frontmatter field user_visible_surface: true on the DESIGN, per skills/design/references/design-format.md. The field is documented as the authoritative signal the downstream /plan reads in its Phase 3 docs-coverage emit step: true means the design adds user-visible surface, so /plan emits a docs work item; a design with no user-facing surface sets it false so /plan's prose fallback is not consulted; omitting it defaults to 'unknown' and /plan falls back to scanning the body for a docs/guides/* reference. The field is optional and does not change the required-section set.",
       "files": []
+    },
+    {
+      "id": 15,
+      "name": "phase-6-verdict-recommends-and-cites-review",
+      "prompt": "/design cli-export-command -- Phase 6 review agents have returned: architecture and structural-format clear after two applied fixes, security flags the token path as worth revisiting post-merge but not blocking.",
+      "expected_output": "Step 6.7 asks for the verdict as the agent recommending one, not as a neutral three-option list. Approved is marked '(Recommended)' and the description cites the step 6.2 consolidated feedback: which reviewers raised findings, what was applied, and the security reviewer's residual non-blocking concern. The git-history disclaimer for rejection rationale is still surfaced verbatim, and Reject and Continue-revising remain available so the author's verdict is the gate.",
+      "files": [],
+      "expectations": [
+        "Transcript marks one verdict option '(Recommended)' rather than listing Approved, Reject, and Continue-revising unranked",
+        "Transcript grounds the recommendation in the step 6.2 consolidated review feedback, naming which reviewers raised findings and what was applied",
+        "Transcript's grounding names the residual non-blocking concern rather than asserting the design is simply ready",
+        "Transcript recommends Continue-revising instead, citing the finding that drove it, when a residual finding makes acceptance the weaker call",
+        "Transcript still surfaces the verbatim disclaimer 'Rationale will be committed to git history'",
+        "Transcript still treats the author's verdict as the gate; the recommendation does not transition the status",
+        "Transcript does NOT present the three verdicts neutrally with no stated recommendation"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "complexity-routing-grounded-in-assessment",
+      "prompt": "/design cli-export-command -- the design is complete and the complexity assessment must be presented with the Plan / Approve only routing options.",
+      "expected_output": "The routing AskUserQuestion marks 'Plan' as '(Recommended)' and grounds it in the complexity assessment criteria that landed the design where it did -- which files it touches, whether it changes an API surface, whether it crosses packages -- rather than restating the Simple or Complex label alone. 'Approve only' remains available.",
+      "files": [],
+      "expectations": [
+        "Transcript marks 'Plan' as the recommended routing option",
+        "Transcript grounds the recommendation in the named complexity criteria (files to modify, API changes, cross-package), not in the Simple/Complex label alone",
+        "Transcript keeps 'Approve only' available so the user can override",
+        "Transcript does NOT present the routing options with only a bare '(Recommended)' marker and no cited assessment"
+      ]
     }
   ]
 }

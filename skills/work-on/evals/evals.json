@@ -463,6 +463,24 @@
         "Without approval the agent reports the issue blocked, not done",
         "Agent does not introduce unapproved caveat or hedge language into the shipped artifacts"
       ]
+    },
+    {
+      "id": 38,
+      "name": "needs-triage-routing-recommends",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #144 -- the issue carries a needs-triage label, the project defines no triage workflow in its extension file, and the issue body states the desired behavior but not the approach.",
+      "expected_output": "With no project triage workflow to invoke, the agent reads the issue body and presents the routing decision with a recommendation rather than a bare proceed-or-reclassify pair. Because the body leaves the approach open, 'Reclassify (Recommended)' ranks first, grounded in what the body leaves unanswered, and 'Proceed directly' follows with a reason for ranking lower. The user still chooses; the recommendation does not remove or apply the label on its own.",
+      "files": [],
+      "expectations": [
+        "Agent marks one route '(Recommended)' rather than asking whether to proceed directly or reclassify with no stated preference",
+        "Agent grounds the recommendation in the issue body -- quoting the sentence that settles it or naming what the body leaves unanswered",
+        "Agent's grounding is about the issue's content, not about the presence of the needs-triage label alone",
+        "Agent gives the non-recommended route a stated reason for ranking lower",
+        "Agent says so and names a tiebreaker when the body is genuinely borderline, rather than manufacturing a preference",
+        "Agent still routes on the user's choice; the recommendation does not reclassify the issue on its own",
+        "Agent does NOT present the two routes neutrally and ask the user to pick"
+      ]
     }
   ]
 }

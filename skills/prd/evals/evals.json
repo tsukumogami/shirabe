@@ -137,6 +137,21 @@
         "Transcript describes the discard commit landing on the current branch with subject `docs(prd): discard PRD draft for deprecated-feature-flag` so a `git log` search by `/scope`'s Component 7.7 (in-chain) or an out-of-chain author (out-of-chain) finds it — AC30c symmetric observable",
         "Transcript describes the Reject branch exiting the workflow without running step 4.7 cleanup (which is reserved for the Approve path)"
       ]
+    },
+    {
+      "id": 15,
+      "name": "jury-disagreement-carries-a-recommendation",
+      "prompt": "/prd offline-sync -- the Phase 4 jury returns one reviewer calling requirement R3 untestable as written and another reading the same acceptance criterion as testable.",
+      "expected_output": "Phase 4 step 4.3 hits the agents-disagree row. The transcript quotes both perspectives, then states which one it finds better supported and why, citing the specific verdict finding that decides it (what the criterion would be measured against). The recommendation is made even though the reviewers split; the user overrides if they disagree. If the two readings are genuinely balanced, the transcript says so explicitly, still recommends one, and names the tiebreaker.",
+      "files": [],
+      "expectations": [
+        "Transcript surfaces both reviewer perspectives rather than silently picking one",
+        "Transcript states which perspective it finds better supported instead of leaving the call to the user unaided",
+        "Transcript's reasoning cites the specific verdict finding that decides the disagreement, not the fact that the reviewers disagreed",
+        "Transcript says so explicitly and names a tiebreaker if the two perspectives are genuinely balanced, rather than manufacturing a preference",
+        "Transcript preserves the user's ability to override the recommendation",
+        "Transcript does NOT present the disagreement as 'let user decide' with no recommendation attached"
+      ]
     }
   ]
 }

@@ -11,7 +11,7 @@ name: Validate Docs
 #     uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v0.6.0
 #     with:
 #       custom-statuses: |
-#         prd: [Draft, Accepted, In Progress, Done, Delivered]
+#         prd/v1: [Draft, Accepted, In Progress, Done, Delivered]
 
 on:
   workflow_call:

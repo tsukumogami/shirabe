@@ -18,9 +18,16 @@ argument-hint: '<project or org topic>'
 # Vision Documents
 
 Vision documents capture WHY a project or organization should exist -- the core
-thesis, audience, value proposition, org fit, and success criteria. They sit
-upstream of PRDs (which capture WHAT to build) and are the strategic foundation
-that justifies writing requirements in the first place.
+thesis, audience, value proposition, org fit, and success criteria. They sit at
+the head of the strategic chain -- VISION -> STRATEGY -> ROADMAP -- and are the
+strategic foundation that justifies writing requirements in the first place.
+
+A VISION's immediate downstream neighbour is a STRATEGY, and that is the only
+artifact type its Downstream Artifacts section lists. The chain links one level
+at a time so a reader walking it hits every altitude in order; the PRDs and
+designs under a VISION are reached through its STRATEGY and that STRATEGY's
+ROADMAP, not linked directly. See `references/vision-format.md` for the full
+rule.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 

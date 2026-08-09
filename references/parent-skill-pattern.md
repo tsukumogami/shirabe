@@ -113,44 +113,86 @@ wrong outcome.
 ## Gate Vocabulary
 
 Parents invoke children behind named gates. The pattern recognizes
-four gate shapes; every child-invocation gate in every parent SHALL
-be one of these four. Naming the shapes pattern-side keeps reviewers
+three gate shapes; every child-invocation gate in every parent SHALL
+be one of these three. Naming the shapes pattern-side keeps reviewers
 from inventing per-parent vocabulary when a parent's chain shape
 introduces a category the existing shapes already cover.
-
-- **EITHER-signal** — the child is invoked when a parent-defined
-  signal fires OR an upstream condition holds, with either signal
-  sufficient to open the gate. Canonical example: `/charter`'s
-  `/vision` invocation, where the gate opens on either a Phase 1
-  discovery signal or the absence of a published upstream VISION at
-  the canonical path.
 
 - **ALWAYS** — the child is invoked unconditionally on every chain
   run; no gate exists. Canonical example: `/charter`'s `/strategy`
   invocation, which is the main-chain spine and runs whether or not
-  upstream VISION or ROADMAP exists.
+  upstream VISION or ROADMAP exists. `/charter`'s `/roadmap`
+  invocation is ALWAYS as well: the parent inspects nothing in the
+  upstream STRATEGY to decide. A parent MAY additionally offer the
+  author an explicit declination for an ALWAYS child (`/charter`
+  does, for `/roadmap`); that is author-supplied input, not a
+  predicate the parent computes, and unlike an exit-path
+  intervention such as Bail it leaves the chain on its normal exit
+  with the skip recorded in `chain_skipped`. A parent MAY read the
+  upstream artifact to inform what it tells the author at that
+  declination prompt — reading for the prompt is not reading for
+  the gate, and the gate stays ALWAYS as long as no reading can
+  change the pre-selected answer or skip the child on its own.
+  Offering a declination is per-parent and optional — `/scope`'s
+  `/plan` is ALWAYS with no declination surface.
 
 - **shape-dependent** — the child invocation's *form* (which sub-
   shape of the child fires, with how many peers, against which set
   of inputs) is determined by an upstream-recorded predicate on the
   chain. The gate is not whether-to-invoke but how-to-invoke.
-  Canonical example: `/charter`'s `/roadmap` invocation, whose
-  feature-decomposition shape depends on the STRATEGY's recorded
-  building-block count.
+  Canonical example: `/scope`'s `/design` invocation, whose
+  decision-roster shape is determined by the R6 predicates
+  (architectural-alternatives count, new-component references,
+  Complex classification) recorded during Phase 1 discovery.
 
 - **Mandatory-with-auto-skip** — the child SHALL be invoked unless
   its durable artifact already exists at the published-Accepted
   status at the canonical path, in which case the child is recorded
-  in `chain_skipped` and the chain proceeds to the next gate.
-  Canonical example: `/scope`'s `/prd` invocation, where an
-  Accepted PRD at `docs/prds/PRD-<topic>.md` causes the gate to
-  auto-skip and the chain continues to `/design`; absent that
-  artifact, `/prd` runs.
+  in `chain_skipped` and the chain proceeds to the next gate. A
+  parent MAY additionally define a signal that overrides the skip
+  and invokes the child anyway. The override is optional per-parent:
+  a gate that defines none is still this shape. A parent whose
+  child's lifecycle carries a further settled status MAY name it in
+  its own binding (`/charter` skips against an Active VISION as well
+  as an Accepted one); the shape requires only that the settled set
+  be fixed before the run.
+  Canonical example without an override: `/scope`'s `/prd`
+  invocation, where an Accepted PRD at `docs/prds/PRD-<topic>.md`
+  causes the gate to auto-skip and the chain continues to
+  `/design`; absent that artifact, `/prd` runs. Canonical example
+  with an override: `/charter`'s `/vision` invocation, which skips
+  against an Accepted or Active VISION at
+  `docs/visions/VISION-<topic>.md` and runs anyway when Phase 1
+  discovery surfaces a thesis shift. `/scope`'s `/brief` is the
+  same shape with a framing-shift override.
 
-The four shapes are stable across parents. Each shape's
+The three shapes are stable across parents. Each shape's
 canonical example fixes the meaning against an existing parent's
 SKILL.md so a reviewer can grep the example to confirm the shape
 identifier matches the binding.
+
+An override is not a second route into the child. It can only fire
+in the case the auto-skip would otherwise have closed the gate — a
+settled artifact already on disk — so a cold start fires the child
+whatever the signal says. A parent MAY still surface the override
+question on every run for the framing it gives the conversation; it
+just cannot change the outcome when there is nothing to skip.
+
+*EITHER-signal retired 2026-08-08.* An earlier revision named a
+fourth shape, EITHER-signal: "the child is invoked when a
+parent-defined signal fires OR an upstream condition holds, with
+either signal sufficient to open the gate," with `/charter`'s
+`/vision` as its canonical example. Once each gate carrying that
+label was written out as its own rule, every one of them
+(`/charter`'s `/vision`, `/scope`'s `/brief`) turned out to be an
+auto-skip gate with an override: the artifact state decides, and the
+signal matters only when a settled artifact is already on disk. No
+gate in any parent invoked its child on a signal alone, so the shape
+had no examples left and was folded into Mandatory-with-auto-skip's
+optional-override clause. Skill files and durable docs written before
+that date may still call these gates EITHER-signal; read the label as
+this shape. No gate's behavior changed — the same children fire on
+the same runs.
 
 ## Conditional Feeder Invocation Shape
 
@@ -170,10 +212,34 @@ offered:
 3. A parent-defined visibility gate passes (using the workspace
    `## Repo Visibility:` mechanism).
 
-When any of the three conditions fails, the parent's discovery prompts
-SHALL NOT reference the feeder skill or its content surface (the
-degenerate-silence rule). The author hears about the feeder only when all
-three gates open.
+When any of the three conditions fails, the parent SHALL state the skip
+in its conversational output, naming the child and the condition that
+failed (the stated-skip rule). A step the author might reasonably expect
+does not disappear without explanation, and two different failing
+conditions do not produce the same message.
+
+The statement is conversational and is **never recorded**. Nothing that
+gets committed carries it: not the parent's state file (no
+`chain_skipped:` entry — a child whose gate never opened was never
+planned, so there is nothing to record), not the chain's durable
+artifacts, not anything landing under `docs/`. The split is what makes
+the rule safe. The workspace visibility rule governs **document
+references** — a document in a public repo must not name documents,
+paths, or content from a private repo — and says nothing about what the
+agent may say to the author. Honest conversation and clean artifacts are
+not in tension once the two surfaces are kept apart.
+
+An earlier revision of this pattern required the opposite (a
+"degenerate-silence" rule: byte-identical output across failing
+conditions, no surfacing of the gate). It was removed 2026-08-08. It
+rested on reading the visibility rule as a constraint on speech, and it
+cost the author any signal that a step had been dropped.
+
+A parent's visibility gate is not made redundant by a feeder skill
+running its own visibility check. A directly-invocable feeder checks
+because it can be reached with no parent involved; a parent checks
+because it should not route an author toward a gated artifact type in
+the first place. Both are load-bearing.
 
 **Parents do not extend children's input surfaces** with parent-
 specific flags or arguments. A pattern-level suppression signal —
@@ -504,6 +570,33 @@ literal-substring requirements in ACs (e.g., the "Re-evaluate / Revise /
 Bail" triad against an Accepted upstream artifact), so the eval surface
 can grep-check the prompt vocabulary and downstream parents inherit the
 discipline.
+
+**Which literal form to require.** Specify an option triad as ONE
+contiguous literal (separator ` / ` exactly) where the contract
+requires the options be **co-equal with no default**; specify it as
+independent per-token substrings everywhere else. Contiguity is not a
+style preference — it is the mechanical proxy for co-equality, because
+a single option line cannot rank or bury its options while prose can,
+and per-token checking cannot tell a co-equal menu from three words
+buried in a leading question.
+
+The rule classifies the existing triads without exemptions:
+
+| Prompt | Co-equal, no default? | Form |
+|--------|----------------------|------|
+| Status-aware re-entry (`Re-evaluate / Revise / Bail`) | yes — the parent PRDs make co-equality contractual | contiguous |
+| Chain proposal (`Proceed` / `Adjust` / `Bail`) | no — Proceed is the expected path, and a parent MAY render an interstitial label such as "Adjust chain" | per-token |
+| Per-child confirmation prompts carrying an explicit default | no — the default marker is the point | per-token |
+| Drift detection (`Re-run` / `Accept` / `Proceed without`) | no | per-token |
+
+Do NOT generalize contiguity to a triad in the per-token rows: a
+parent whose chain-proposal prompt renders "Adjust chain" would fail a
+contiguous check against its own canonical example.
+
+Note that the SHALL-NOT constraints naming this triad (the
+refuse-and-redirect rows) are **conceptual**, not byte-literal — they
+forbid *offering* the triad, however rendered — so they neither depend
+on nor are weakened by the positive form chosen here.
 
 ## Team-Lead Operating Discipline
 

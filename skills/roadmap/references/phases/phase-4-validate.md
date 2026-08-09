@@ -49,9 +49,12 @@ right level of granularity.
 2. Is each feature independently describable at PRD level? A feature that can't
    stand alone as a PRD is too granular. A feature that would need multiple PRDs
    is too broad.
-3. Are there at least 2 features? Single-feature work doesn't need a roadmap.
-4. Is the theme itself coherent? Does it explain WHY these features need
-   coordinated sequencing rather than independent delivery?
+3. Is there at least one feature? A roadmap with none has nothing to track.
+   A one-feature roadmap is legitimate -- it is still the progress ledger for
+   the strategy's execution and still the bridge into the tactical chain --
+   so do not fail a roadmap for having exactly one feature.
+4. Is the theme itself coherent? Does it explain WHY this is one tracked
+   initiative rather than unrelated independent work?
 5. Are feature rationales specific to this roadmap, or could they apply to any
    project? Generic rationales suggest weak theme coherence.
 
@@ -188,7 +191,12 @@ Determine consensus:
 | All 3 pass | Proceed to finalization |
 | 1-2 fail with minor issues | Fix issues, briefly show fixes to user, proceed |
 | Any fail with significant issues | Present issues to user, incorporate fixes, re-validate if changes are substantial |
-| Agents disagree on same issue | Present both perspectives to user, let user decide |
+| Agents disagree on same issue | Present both perspectives, recommend the better-supported one, let the user override |
+
+**Reviewer disagreement:** quote both perspectives, then say which one you find
+better supported and why, citing the specific verdict finding that decides it.
+If the two are genuinely balanced, say so explicitly, still recommend one, and
+name the tiebreaker. The user overrides if they disagree.
 
 **For minor issues** (wording fixes, sharpening a needs-* label, clarifying a
 dependency): Fix directly, update the ROADMAP, show the user what changed.
@@ -215,10 +223,18 @@ Present a brief summary:
 - Key dependencies
 - Any known open questions remaining
 
-Use AskUserQuestion to ask for approval. Provide context explaining the ROADMAP is
-validated and ready for activation. Options:
-- **Approve** -- status changes to Active, ready for downstream work
+Use AskUserQuestion to ask for approval. Frame the question as the agent
+recommending activation based on the jury verdicts, not neutrally presenting
+options; the user's verdict is the gate. Options:
+- **Approve (Recommended)** -- status changes to Active, ready for downstream work
 - **Request changes** -- specify what needs to change
+
+**Description field:** Ground the recommendation in the jury verdicts -- name
+which reviewers passed and any finding they flagged as non-blocking (e.g., "All
+three reviewers passed; the dependency validator flagged the Feature C stub as
+borderline but not blocking. Recommending Approve."). If a reviewer's residual
+concern makes activation the weaker call, recommend Request changes instead and
+cite the finding that drove it.
 
 ### 4.6 Handle Approval
 

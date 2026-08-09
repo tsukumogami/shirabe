@@ -115,6 +115,36 @@
         "Plan reasoning mentions that the project does not exist yet as a signal for VISION over PRD",
         "Plan mentions Phase 5 handoff to /vision after exploration completes"
       ]
+    },
+    {
+      "id": 9,
+      "name": "acceptance-gate-recommends-and-cites-verdicts",
+      "prompt": "/vision credential-manager -- the Phase 4 jury has returned all three verdicts, with the thesis reviewer flagging success criterion S3 as hard to measure in six months but not blocking.",
+      "expected_output": "Phase 4 step 4.5 asks for approval as the agent recommending acceptance, not as a neutral pair of options. Approve is marked '(Recommended)' and the description cites the jury verdicts: which reviewers passed and the thesis reviewer's non-blocking flag on S3. The user's verdict remains the gate -- Request changes stays available and the status does not move without it.",
+      "files": [],
+      "expectations": [
+        "Plan marks Approve '(Recommended)' rather than listing Approve and Request changes unranked",
+        "Plan grounds the recommendation in the jury verdicts, naming which reviewers passed and any finding flagged as non-blocking",
+        "Plan's grounding cites a specific reviewer finding rather than asserting the VISION is 'validated and ready'",
+        "Plan recommends Request changes instead, with the finding that drove it, when a residual concern makes acceptance the weaker call",
+        "Plan still requires the user's verdict before transitioning to Accepted",
+        "Plan does NOT present the approval as a neutral choice with no stated recommendation"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "jury-disagreement-carries-a-recommendation",
+      "prompt": "/vision credential-manager -- the Phase 4 jury returns one reviewer calling the thesis a restated problem statement and another reading the same sentence as a falsifiable hypothesis.",
+      "expected_output": "Phase 4 step 4.3 hits the agents-disagree row. The plan quotes both perspectives, then states which one it finds better supported and why, citing the specific verdict finding that decides it. The recommendation is made even though the reviewers split; the user overrides if they disagree. If the two readings are genuinely balanced, the plan says so explicitly, still recommends one, and names the tiebreaker.",
+      "files": [],
+      "expectations": [
+        "Plan surfaces both reviewer perspectives rather than silently picking one",
+        "Plan states which perspective it finds better supported instead of leaving the call to the user unaided",
+        "Plan's reasoning cites the specific verdict finding that decides the disagreement, not the fact that the reviewers disagreed",
+        "Plan says so explicitly and names a tiebreaker if the two perspectives are genuinely balanced, rather than manufacturing a preference",
+        "Plan preserves the user's ability to override the recommendation",
+        "Plan does NOT present the disagreement as 'let user decide' with no recommendation attached"
+      ]
     }
   ]
 }

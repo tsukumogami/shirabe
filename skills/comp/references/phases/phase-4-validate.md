@@ -87,6 +87,27 @@ Read all three verdict files. Then:
 - **A significant FAIL** (the analysis is structurally wrong, not just
   rough) → AskUserQuestion and loop back to Phase 3, or reject.
 
+On a significant FAIL, frame the question as the agent recommending a path,
+not neutrally presenting options, and cite the specific verdict findings that
+drove the recommendation.
+
+**Recommendation heuristic:** if the failing checks are repairable by
+re-drafting the same competitors and dimensions (unbalanced entries,
+aspirational Opportunities, Implications that restate Opportunities),
+recommend looping back to Phase 3. If the failure is that the competitive
+question itself was wrong — the wrong competitors surveyed, dimensions that
+cannot discriminate — recommend rejecting rather than re-drafting a doomed
+draft.
+
+**Options (order by recommendation heuristic):**
+1. "Loop back to Phase 3 (Recommended)" or "Reject (Recommended)" — based on
+   the heuristic above
+2. The other option, with a brief justification for why it ranks lower
+
+**Description field:** name the failing check and quote the offending section
+or entry the reviewer flagged. If the two paths are genuinely balanced, say so,
+still recommend one, and name the tiebreaker.
+
 ## Reviewer Rubrics
 
 ### Competitive-framing reviewer rubric

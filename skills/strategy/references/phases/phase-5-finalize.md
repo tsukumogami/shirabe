@@ -85,8 +85,8 @@ acceptance based on the jury verdicts, not neutrally presenting options.
 
 Options:
 
-1. **Approve** — STRATEGY transitions to Accepted, ready for downstream
-   ROADMAP / DESIGN / PRD work to reference it as a stable upstream.
+1. **Approve** — STRATEGY transitions to Accepted, ready for a downstream
+   ROADMAP to reference it as a stable upstream.
 2. **Request changes** — name what needs to change; the workflow loops
    back to Phase 2, Phase 3, or Phase 4 as appropriate.
 3. **Reject** — discard the draft. The wip/ cleanup runs and the file is
@@ -197,8 +197,8 @@ acceptance summary. If no PR exists, create one:
   - Jury verdict summary (all three reviewers PASS, with any caveats
     surfaced at Phase 5)
   - Upstream link if applicable
-  - Reminder that downstream ROADMAP / DESIGN / PRD authors can now
-    reference this STRATEGY as a stable upstream
+  - Reminder that a downstream ROADMAP can now reference this STRATEGY
+    as a stable upstream
 
 Push the branch and create the PR via the standard tooling (e.g., `gh pr
 create`). CI runs `shirabe validate` against the new STRATEGY file,
@@ -211,12 +211,14 @@ After the PR is open, suggest follow-up routes:
 | Situation | Suggestion |
 |-----------|-----------|
 | Building Blocks have clear feature scope | `/roadmap` to sequence the blocks |
-| A specific Building Block needs technical architecture | `/design` to decompose implementation |
-| The strategy operationalizes a complex feature | `/prd` to capture requirements for one of the Downstream Artifacts |
+| A specific Building Block is ready for tactical work | `/roadmap` first, then `/brief` on that feature -- the ROADMAP is the bridge into the tactical chain |
 | Strategy needs cross-org alignment | Share the STRATEGY PR for stakeholder review |
 
 These are recommendations, not mandates. The strategy's Downstream
-Artifacts section names planned work; the user routes when ready.
+Artifacts section names the planned ROADMAP; the user routes when ready.
+Every route out of a STRATEGY runs through a ROADMAP -- a strategy does
+not hand work straight to `/prd` or `/design`, because that skips the
+ledger that records how far along its execution is.
 
 ## Quality Checklist
 

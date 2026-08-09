@@ -15,10 +15,12 @@ By the end of Phase 1 the workflow should have:
   candidate is not yet load-bearing; Phase 2's drafting and Phase 4's jury
   refine it.
 - An anchor for Strategic Context: either an upstream VISION (most common),
-  an upstream PRD (when STRATEGY is being authored to operationalize a feature
-  bet), or — for org-scope strategies without an upstream VISION — a set of
-  org-level strategic artifacts or first-principles framings the strategy
-  builds on.
+  a grounding PRD (when the STRATEGY is authored to operationalize a feature
+  bet the PRD already encodes), or — for org-scope strategies without an
+  upstream VISION — a set of org-level strategic artifacts or
+  first-principles framings the strategy builds on. Only the VISION becomes
+  the draft's `upstream:`; the other two anchors ground the conversation and
+  live in Strategic Context prose.
 - A working understanding of the Building Blocks the strategy will likely
   decompose into. Phase 3 owns the actual decomposition; Phase 1 just needs
   enough signal to confirm the strategy operates at the right altitude.
@@ -56,13 +58,33 @@ single message. Ask the user to confirm or redirect. Do not prompt them
 through every dimension — the upstream VISION carries most of the framing
 load.
 
-### Mode: Upstream PRD
+### Mode: Grounding PRD
 
 The user invoked `/strategy <path>` where `<path>` resolves to a
 `docs/prds/PRD-*.md` file inside the repo. This is less common but supported:
 the user wants a STRATEGY that operationalizes a PRD's bet at medium-term
-altitude (the PRD's requirements then become some — not all — of the
-Downstream Artifacts).
+altitude.
+
+> **Open: the Grounding PRD mode is itself unresolved — see
+> [#257](https://github.com/tsukumogami/shirabe/issues/257).** A PRD sits on
+> the tactical chain, two altitudes below a STRATEGY, so accepting one as
+> input is a strategic document reaching down into the tactical chain. PR #252
+> closed the structural half — a grounding PRD is never recorded in
+> `upstream:` — but left the input path open. Resolving it either removes this
+> mode or writes down why reading across altitudes is legitimate where linking
+> across them is not.
+
+The PRD supplies framing only, and that holds in both directions. It never
+becomes a Downstream Artifacts entry — that section lists ROADMAPs and
+nothing else, whatever grounded the strategy. And it never becomes the
+`upstream:` frontmatter value either: `upstream:` names the strategy's
+immediate neighbour one level up the strategic chain (VISION -> STRATEGY ->
+ROADMAP), and a PRD is neither one level up nor on that chain. Recording it
+would send a reader who follows the field looking for the altitude above
+this one down into the tactical chain instead. So the PRD is read here, in
+Phase 1, and it shows up in the finished document as Strategic Context prose
+— not as a link in either frontmatter direction. When a PRD grounds the bet
+and no VISION sits above it, Phase 2 omits `upstream:` entirely.
 
 1. Load the upstream PRD and read its Problem Statement, Goals, and Decisions
    and Trade-offs sections.
@@ -164,7 +186,9 @@ Write `wip/strategy_<topic>_discover.md` with the following:
 <falsifiable hypothesis with invalidation conditions>
 
 ## Strategic Context Anchor
-<upstream VISION path, OR upstream PRD path, OR list of org artifacts and framings>
+<upstream VISION path, OR grounding PRD path, OR list of org artifacts and
+framings. Only a VISION here becomes the draft's `upstream:`; see Phase 0's
+read-vs-record rule.>
 
 ## Building Blocks Sketch
 - <workstream 1>
@@ -185,7 +209,8 @@ Update `wip/strategy_<topic>_context.md`'s `## Phase` line to `1`.
 
 Before proceeding:
 - [ ] Bet candidate is a falsifiable hypothesis (not a problem statement)
-- [ ] Strategic Context anchor is identified (upstream path or org artifact list)
+- [ ] Strategic Context anchor is identified (VISION path, grounding PRD path,
+      or org artifact list)
 - [ ] Building Blocks sketch contains 3-12 workstreams (altitude sanity check)
 - [ ] Org-scope-without-upstream-VISION case is handled if applicable
 - [ ] User confirmed the bet candidate direction

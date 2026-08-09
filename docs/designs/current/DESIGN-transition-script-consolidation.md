@@ -55,7 +55,7 @@ The per-type behavior to preserve, from the scripts:
 |------|----------|-----------------|----------|--------------|-------------|---------------|
 | vision | Draft, Accepted, Active, Sunset | ordered graph | Sunset → `docs/visions/sunset/` | Open Questions resolved (Draft→Accepted) | `--superseded-by` (optional, Sunset) | `superseded_by`, `new_path`, `moved` |
 | strategy | Draft, Accepted, Active, Sunset | ordered graph | Sunset → `docs/strategies/sunset/` | Open Questions resolved (Draft→Accepted) | `--reason` (required, Sunset; sanitized) | `reason`, `new_path`, `moved` |
-| roadmap | Draft, Active, Done | ordered graph | never | ≥2 features (Draft→Active) | none | `new_path`, `moved` |
+| roadmap | Draft, Active, Done | ordered graph | never | ≥1 feature (Draft→Active) [^rm1] | none | `new_path`, `moved` |
 | brief | Draft, Accepted, Done | ordered graph | never | none | none | (4 fields) |
 | comp | Draft, Accepted, Done | ordered graph (incl. Draft→Done shortcut) | never | none | none | `moved` (always false; no `new_path`) |
 | prd | Draft, Accepted, In Progress, Done | membership only | never | none | none | (4 fields) |
@@ -281,3 +281,10 @@ The binary keeps building as `shirabe`; no new crate.
   process dependency, accepted for exact parity.
 - **Follow-on**: the declarative spec table is the seam a later "single
   authority for deterministic checks" effort can extend.
+
+[^rm1]: Superseded 2026-08-07. This row read ≥2 features when the
+    design shipped. The floor moved to one feature: a roadmap is the
+    progress ledger for a strategy's execution and the only bridge from a
+    STRATEGY into the tactical chain, so a two-feature floor stranded
+    single-feature work. Zero features is still rejected. See
+    `skills/roadmap/SKILL.md` (What a Roadmap Is For) for the reasoning.

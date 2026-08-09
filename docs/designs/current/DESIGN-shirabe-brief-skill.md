@@ -546,6 +546,13 @@ Phase file purposes and key content:
   decide whether to produce a durable brief or pass the existing
   evidence forward to the PRD. Mirrors the strategy phase-0 structure
   minus the scope (`project`/`org`) detection, which BRIEF doesn't have.
+  - *Superseded 2026-08-08: the upstream path mode accepts a ROADMAP
+    only. A PRD sits downstream of a BRIEF (the chain runs ROADMAP ->
+    BRIEF -> PRD), so taking a PRD as upstream derived the feature's
+    framing out of requirements that were supposed to be written from
+    it. Phase 0 now rejects a `PRD-` basename with a message naming the
+    inversion. See `skills/brief/SKILL.md` (Input Modes) for the current
+    rule.*
 - **phase-1-discover.md.** Conversational scoping to land the feature's
   problem and intended outcome. Routes on entry mode the same way
   strategy phase-1 does. No bet candidate; the anchor is the feature's

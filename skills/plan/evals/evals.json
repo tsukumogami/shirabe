@@ -409,6 +409,36 @@
         "Transcript detects no user-visible surface and forces no docs item",
         "Transcript does not emit a **Type**: docs issue solely for docs coverage"
       ]
+    },
+    {
+      "id": 30,
+      "name": "decomposition-strategy-ambiguity-recommends",
+      "prompt": "/plan docs/designs/DESIGN-import-pipeline.md -- the design matches walking-skeleton criteria on the multi-layer flow and horizontal criteria on the refactor framing, so the strategy is ambiguous.",
+      "expected_output": "Phase 3's strategy decision recognizes the ambiguity and still recommends one strategy rather than asking 'which approach fits this design better?' The recommendation is marked and grounded in the specific design content that decided it -- the layers it names, the refactor it describes, the issue count the decomposition produces -- and the non-recommended strategy carries a reason for ranking lower. If the design matches both lists equally, the transcript says so and names issue count as the tiebreaker (3+ favors walking skeleton, 1-2 favors horizontal). The user can still override.",
+      "files": [],
+      "expectations": [
+        "Transcript recommends one decomposition strategy rather than presenting walking-skeleton and horizontal as an unranked pair",
+        "Transcript grounds the recommendation in specific design content (named layers, refactor framing, or resulting issue count), not in the criteria lists restated abstractly",
+        "Transcript gives the non-recommended strategy a stated reason for ranking lower",
+        "Transcript says the design matches both lists equally and names issue count as the tiebreaker when neither wins, rather than manufacturing a preference",
+        "Transcript records the decision with its rationale",
+        "Transcript does NOT ask a bare 'which approach fits this design better?' with no stated preference"
+      ]
+    },
+    {
+      "id": 31,
+      "name": "needs-label-ambiguity-recommends",
+      "prompt": "/plan docs/roadmaps/ROADMAP-q4-platform.md -- Feature B's description does not clearly indicate whether it needs a PRD or a design, and the roadmap carries no annotation for it.",
+      "expected_output": "Phase 1 step 1.2 does not present the needs-* labels as a bare list. It picks the label the feature description best supports, marks it '(Recommended)', and quotes the phrase from the feature description that decided it, with each alternative carrying a short reason for ranking lower. If the description genuinely does not discriminate, the transcript says so, still recommends one, and names the earlier-stage tiebreaker (needs-prd before needs-design, needs-design before needs-spike).",
+      "files": [],
+      "expectations": [
+        "Transcript recommends one needs-* label rather than listing the label options unranked",
+        "Transcript quotes the specific phrase from the feature description or roadmap annotation that grounds the pick",
+        "Transcript gives each alternative label a short reason for ranking lower",
+        "Transcript says the description does not discriminate and names the earlier-stage tiebreaker when neither label wins, rather than manufacturing a preference",
+        "Transcript still asks the user, treating the recommendation as overridable",
+        "Transcript does NOT present the needs-* labels as a bare list for the user to pick from"
+      ]
     }
   ]
 }

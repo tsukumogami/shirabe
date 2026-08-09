@@ -1,16 +1,18 @@
 ---
 name: roadmap
 description: >-
-  Structured workflow for creating Roadmap documents that sequence multiple
-  features into a coordinated initiative. Use when planning multi-feature
-  work that needs dependency tracking, sequencing rationale, and progress
-  monitoring. Triggers on "create a roadmap for X", "plan the rollout of Y",
-  "sequence these features", or any request to coordinate multiple features
-  into an ordered plan. Do NOT use for single-feature requirements (/prd),
-  strategic justification (/vision), technical architecture (/design), or
-  open-ended exploration (/explore). Drives a multi-phase workflow:
-  conversational scoping, parallel research agents, structured drafting,
-  and jury review.
+  Structured workflow for creating Roadmap documents that sequence a
+  strategy's features into a coordinated initiative and serve as the
+  progress ledger for its execution. Use when planning work that needs
+  dependency tracking, sequencing rationale, and progress monitoring, or
+  when a strategy needs a bridge into the tactical chain. Triggers on
+  "create a roadmap for X", "plan the rollout of Y", "sequence these
+  features", or any request to turn a strategy's work into an ordered,
+  tracked plan. Do NOT use for a single feature's requirements (/prd) or
+  framing (/brief), strategic justification (/vision), technical
+  architecture (/design), or open-ended exploration (/explore). Drives a
+  multi-phase workflow: conversational scoping, parallel research agents,
+  structured drafting, and jury review.
 argument-hint: '<initiative topic>'
 ---
 
@@ -19,11 +21,39 @@ argument-hint: '<initiative topic>'
 
 # Roadmap Documents
 
-Roadmap documents sequence multiple features into a coordinated initiative.
-They capture the theme (why these features belong together), the features
+Roadmap documents sequence features into a coordinated initiative. They
+capture the theme (why these features belong together), the features
 themselves, dependency relationships, sequencing rationale, and progress.
-They sit downstream of VISIONs (which justify why a project exists) and
-upstream of PRDs (which define individual features in detail).
+They are the last link in the strategic chain (VISION -> STRATEGY ->
+ROADMAP): a roadmap's upstream is the STRATEGY it sequences -- its
+immediate neighbour, never the VISION two levels up -- and downstream of
+it sit the BRIEFs and PRDs that frame and define individual features in
+detail.
+
+## What a Roadmap Is For
+
+Sequencing is only half a roadmap's job. The other half matters just as
+much:
+
+- **It is the progress ledger for a strategy's execution.** The per-feature
+  status in the Features and Progress sections is the only place that
+  records how far along the work is, and the completion cascade updates it
+  as downstream plans land. Without a roadmap, a strategy has no ledger.
+- **It is the only bridge from the strategic chain to the tactical one.**
+  `/brief` takes a ROADMAP as its upstream -- never a STRATEGY, and never
+  a PRD, which sits downstream of a BRIEF rather than above it. A strategy
+  whose work is a single feature would be stranded if it could not have a
+  roadmap: no legal path into `/scope`, and no progress tracking.
+
+Both jobs work with one feature. **A roadmap requires at least one feature;
+there is no two-feature floor.** Most roadmaps do sequence several features,
+and coordinated multi-feature work is where a roadmap earns the most --
+but a one-feature roadmap is a coherent ledger, not a degenerate one, and
+refusing to write it strands actionable work for no benefit.
+
+A roadmap with zero features is still malformed: there is nothing to track,
+nothing to sequence, and nothing to hand downstream. That is the only count
+`shirabe transition` rejects on `Draft -> Active`.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
@@ -66,8 +96,8 @@ review, and validates through jury review.
 
 Unlike an explore workflow (which is open-ended and can produce any artifact
 type), /roadmap always produces a ROADMAP document. Use /roadmap when you
-know you need to sequence multiple features. Use an explore workflow when
-you don't know what artifact type you need yet.
+know you need a sequenced, tracked feature list for a strategy's execution.
+Use an explore workflow when you don't know what artifact type you need yet.
 
 ### Input Modes
 
@@ -124,10 +154,14 @@ skill-only preference. See
 the header format.
 
 **Upstream:** check `$ARGUMENTS` for `--upstream <path>`. If present, the
-path is stored and written to frontmatter during Phase 3 (draft). Typically
-points to a VISION document. Passed by /explore when it identified a VISION
-during crystallization, or by the user in standalone invocation. When not
-provided, the upstream field is omitted from frontmatter.
+path is stored and written to frontmatter during Phase 3 (draft). It points
+to the STRATEGY this roadmap sequences -- the roadmap's immediate neighbour
+one level up the strategic chain. `/charter` passes it on every chain it
+runs; a user invoking `/roadmap` standalone passes it when a STRATEGY
+exists. When no STRATEGY exists, omit the flag rather than reaching past
+the neighbour to a VISION; the upstream field is then omitted from
+frontmatter. See `references/roadmap-format.md` for the rule and why the
+links stay one level deep.
 
 Log: `Drafting roadmap...`
 
@@ -153,8 +187,8 @@ Phase 1 tracks 6 roadmap-specific coverage dimensions:
 
 | Dimension | What to understand |
 |-----------|-------------------|
-| Theme clarity | What initiative, why coordinated sequencing? |
-| Feature identification | What features, at least 2? Any gaps? |
+| Theme clarity | What initiative, why track it as one thing? |
+| Feature identification | What features? Any gaps? |
 | Dependency awareness | Which features depend on each other? |
 | Sequencing constraints | Hard blockers vs soft preferences? |
 | Downstream artifact state | What does each feature need next (needs-*)? |
@@ -169,7 +203,7 @@ Phase 4 jury focuses on roadmap-specific quality: Do features belong
 together under the theme? Are dependencies explicit, not implied? Is there
 circular dependency? Do needs-* labels match feature descriptions? Does the
 roadmap avoid downstream content (requirements, architecture, timelines)?
-Are there at least 2 features?
+Is there at least one feature to track?
 
 ### Resume Logic
 
@@ -194,8 +228,10 @@ unchanged when the sentinel is absent.
 
 - **Conversational First**: Phase 1 is a dialogue, not a form to fill out
 - **Research Before Drafting**: Don't draft sequencing you haven't validated
-- **Minimum 2 Features**: Single-feature work doesn't need a roadmap -- use
-  a PRD instead
+- **At Least One Feature**: A roadmap with no features has nothing to
+  sequence and nothing to track. One feature is enough -- see [What a
+  Roadmap Is For](#what-a-roadmap-is-for) for why there is no two-feature
+  floor
 - **User Review**: Never finalize a ROADMAP the user hasn't reviewed and
   given feedback on
 - **Jury Validation**: Phase 4 is not optional -- theme coherence,

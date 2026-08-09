@@ -116,20 +116,22 @@ exit, and what an author reviews after the run.
 
 As a **skill author** with a strategic bet to pressure-test from
 scratch, I want to invoke `/charter <topic-slug>` and be walked
-through discovery, optional `/vision`, optional `/comp` (private
-repos only), required `/strategy`, and optional `/roadmap` without
+through discovery, conditional `/vision`, optional `/comp` (private
+repos only), required `/strategy`, and `/roadmap` without
 remembering the chain order or the artifact-decision rules, so that
-I land at one or two Draft artifacts ready for human review.
+I land at two Draft artifacts ready for human review.
 
-Chain shape: `/charter` Phase 1 discovery → optional `/vision` (only
-if thesis-shift signal surfaces in discovery) → optional `/comp`
+Chain shape: `/charter` Phase 1 discovery → `/vision` (per R4: it
+runs here because this is a cold start, with no Accepted or Active
+VISION at the published path) → optional `/comp`
 (private repos with `/comp` shipped only) → `/strategy` (always) →
-optional `/roadmap` (only if STRATEGY's Building Blocks count is 3+
-with explicit Coordination Dependencies) → full-run exit.
+`/roadmap` (always, unless I decline it at the roadmap confirmation
+prompt) → full-run exit.
 
 What I review at end: the Draft STRATEGY at
-`docs/strategies/STRATEGY-<topic>.md`, plus the Draft ROADMAP at
-`docs/roadmaps/ROADMAP-<topic>.md` if `/roadmap` ran. State file at
+`docs/strategies/STRATEGY-<topic>.md` plus the Draft ROADMAP at
+`docs/roadmaps/ROADMAP-<topic>.md`. If I declined `/roadmap`, the
+STRATEGY stands alone. State file at
 `wip/charter_<topic>_state.md` records `exit: full-run`.
 
 ### US-2: Re-evaluation (the load-bearing story)
@@ -285,11 +287,26 @@ matches `/strategy`'s constraint so the same slug flows through the
 chain. Slugs failing the constraint MUST be rejected at Phase 0;
 `/charter` MUST NOT proceed silently.
 
-**R4 [/charter-specific].** `/charter` SHALL invoke `/vision` when
-either signal is present:
-- No Accepted/Active VISION exists at `docs/visions/VISION-<topic>.md`
-  matching the chain's scope, OR
-- The author's Phase 1 discovery surfaces a thesis-shift signal.
+**R4 [/charter-specific].** `/charter` SHALL invoke `/vision`
+unless an Accepted or Active VISION already exists at
+`docs/visions/VISION-<topic>.md` matching the chain's scope. A cold
+start — nothing Accepted or Active at that path — SHALL always
+invoke `/vision`.
+
+When such a VISION does exist, a thesis-shift signal surfaced
+during the author's Phase 1 discovery SHALL override it and invoke
+`/vision` anyway; absent that signal, `/charter` SHALL skip the
+child and leave the existing VISION in place. The thesis-shift
+answer therefore decides the invocation only in the
+existing-VISION case.
+
+The gate is the pattern's Mandatory-with-auto-skip shape with the
+thesis-shift signal as its override — classified 2026-08-08, when
+EITHER-signal was retired and the auto-skip shape widened to admit
+an optional override. See the `## Gate Vocabulary` section of
+`references/parent-skill-pattern.md`, where this gate is the
+canonical with-override example. The requirement above is
+unchanged; only its shape name is new.
 
 The thesis-shift signal is an author-stated condition surfaced
 through Phase 1 discovery. `/charter`'s discovery prompt MUST
@@ -315,18 +332,25 @@ both conditions hold:
   Visibility:` header), AND
 - `skills/comp/SKILL.md` exists on disk.
 
-When the `/comp` skill is not yet shipped, `/charter` SHALL silently
-skip the `/comp` step. The author MUST NOT see a "skill not yet
-shipped" message or any reference to competitive analysis. In public
-repos, the same silence applies regardless of `/comp`'s shipping
-status. This degenerate-silence shape ensures `/charter` v1 ships
-without coupling to `/comp`; when `/comp` ships, the integration is
-live with no `/charter` change.
+When either condition fails, `/charter` SHALL skip the `/comp` step
+and SHALL state the skip in its conversational output, naming the
+condition that failed — a public repo and a missing `/comp` skill
+are different reasons and produce different messages. The statement
+is conversational only: it MUST NOT appear in
+`wip/charter_<topic>_state.md` (no `chain_skipped:` entry, and
+`comp` absent from `planned_chain`) or in any artifact the chain
+writes under `docs/`. The visibility rule governs what a document
+in a public repo may reference, not what `/charter` may say to the
+author; keeping the two surfaces apart gives an honest conversation
+and clean artifacts at the same time. The gate reads `/comp`'s
+presence off the filesystem, so `/charter` needs no edit when the
+skill is installed or removed.
 
 **R6 [/charter-specific].** `/charter` SHALL always invoke
 `/strategy` as the load-bearing child of the chain. The chain
-completes either at `/strategy`'s exit (no `/roadmap` warranted) or
-continues to `/roadmap`. `/charter` SHALL pass `/strategy` one of:
+continues to `/roadmap` on `/strategy`'s completion, or completes
+at `/strategy`'s exit when the author declined `/roadmap` per R7.
+`/charter` SHALL pass `/strategy` one of:
 - a freeform topic string (no upstream), OR
 - a VISION path (Input Mode 3 of `/strategy`) if `/vision` ran in
   the chain or if an existing VISION was identified during
@@ -334,18 +358,60 @@ continues to `/roadmap`. `/charter` SHALL pass `/strategy` one of:
 - a PRD path (also accepted by `/strategy` Phase 1) if the chain
   operationalizes a feature PRD.
 
+*Open ([#257](https://github.com/tsukumogami/shirabe/issues/257)): the
+PRD shape has a STRATEGY reaching into the tactical chain for input. The
+PRD is never recorded as the STRATEGY's upstream; only the grounding
+input is unresolved.*
+
 `/charter` MUST NOT pass a STRATEGY path to `/strategy`. STRATEGY
 paths are `/strategy`'s lifecycle-verb mode (Input Mode 2), not the
 create-new mode.
 
-**R7 [/charter-specific].** `/charter` SHALL invoke `/roadmap` when
-the just-produced STRATEGY's Building Blocks section contains 3 or
-more blocks AND the STRATEGY's Coordination Dependencies section
-contains at least one non-empty entry that references another
-Building Block by name. If only 1-2 Building Blocks, OR no
-Coordination Dependencies section, OR a Coordination Dependencies
-section with no qualifying entries, `/charter` SHALL skip
-`/roadmap` and complete the chain at full-run with STRATEGY only.
+**R7 [/charter-specific].** `/charter` SHALL invoke `/roadmap` on
+every full-run chain. The invocation is unconditional with respect
+to STRATEGY content: no document property — the Building Blocks
+count, the Coordination Dependencies section, or anything else —
+SHALL decide whether `/roadmap` fires. A ROADMAP is the only bridge
+from a STRATEGY into the tactical chain (`/brief` takes a ROADMAP as
+its upstream, never a STRATEGY), so a chain that drops it
+strands whatever work the STRATEGY made actionable.
+
+The single skip path is an explicit author declination.
+Immediately before invoking `/roadmap`, `/charter` SHALL surface a
+roadmap confirmation prompt whose default is to proceed. `/charter`
+SHALL skip `/roadmap` if and only if the author declines at that
+prompt. In `--auto` mode the prompt does not fire and `/roadmap`
+always runs; there is no roadmap-specific `--auto` special case.
+
+The prompt SHALL be informed rather than content-blind. Before
+asking, `/charter` SHALL read the just-produced Draft STRATEGY and
+walk three observations bearing on whether the strategy is headed
+for execution at all: whether the Building Blocks describe
+deliverables or open research questions, whether the invalidation
+conditions name signals someone would act on, and whether the
+STRATEGY explicitly defers its own work. Each observation SHALL
+emit a verdict and a one-line reason, and the prompt SHALL state
+the rolled-up verdict with its reasons surfaced verbatim — the
+shape `/scope` uses for its R6 predicate walk, and the grounded-
+recommendation convention in `references/decision-presentation.md`.
+
+The observations inform the author; they never decide. The default
+SHALL remain proceed regardless of what the walk reads, and the
+author's answer SHALL be the only thing that skips `/roadmap`. The
+question the prompt asks is not whether the strategy is large
+enough to sequence — a one-feature ROADMAP is a valid document —
+but whether it is headed for execution at all.
+
+A declination SHALL be recorded in the state file's
+`chain_skipped:` list as a `{child: roadmap, reason: <declination>}`
+entry, and the chain SHALL complete at full-run with STRATEGY only.
+`roadmap` remains in `planned_chain` and is absent from
+`chain_ran`.
+
+The declination is how an author marks a STRATEGY
+**non-actionable** — one that records a bet without heading toward
+execution. `/charter` does not infer that condition from the
+document; the author declares it.
 
 `/charter` SHALL pass `/roadmap` two things together:
 - `--upstream <strategy-path>` flag pointing at the just-produced
@@ -371,12 +437,14 @@ The prompt MUST identify itself as the **chain proposal output**
 contain the literal substrings "Proceed", "Adjust", and "Bail"
 (case-insensitive) as the three options. The prompt MUST list,
 in order, the children `/charter` plans to invoke (skipping
-those determined by R4/R5/R7 not to fire). Example shape:
+those determined by R4/R5 not to fire). `/strategy` and
+`/roadmap` always appear as "run" — their gates are
+unconditional, and the author's opportunity to drop `/roadmap`
+comes later, at R7's roadmap confirmation prompt. Example shape:
 
 > Based on our conversation, here's the chain I propose: [skip
 > `/vision` because <reason> | run `/vision`], run `/strategy`,
-> [run `/roadmap` because <reason> | skip `/roadmap` because
-> <reason>]. Proceed / Adjust chain / Bail?
+> run `/roadmap`. Proceed / Adjust chain / Bail?
 
 "Adjust" routes the author back to Phase 1 discovery for chain-shape
 redirection (e.g., force `/vision` on, opt `/comp` out) before any
@@ -388,8 +456,9 @@ one of three named exit paths. Every chain MUST land at a durable
 file on disk; git history alone does not satisfy the
 terminal-artifact contract.
 
-- **Full-run.** A Draft STRATEGY landed (and optionally a Draft
-  ROADMAP). The chain halts at the durable artifact(s).
+- **Full-run.** A Draft STRATEGY landed, plus a Draft ROADMAP
+  unless the author declined it per R7. The chain halts at the
+  durable artifact(s).
 - **Re-evaluation.** `/charter` wrote a durable Decision Record at
   `docs/decisions/DECISION-strategy-<topic>-<sub-shape>-<YYYY-MM-DD>.md`.
   The re-evaluation exit has two first-class sub-shapes that share
@@ -451,7 +520,7 @@ topic: <topic-slug>
 chain_started: <ISO-8601 timestamp>
 chain_completed: <ISO-8601 timestamp>  # set at finalization
 last_updated: <ISO-8601 timestamp>     # set on every write
-planned_chain: [vision?, comp?, strategy, roadmap?]  # which children in scope
+planned_chain: [vision?, comp?, strategy, roadmap]   # which children in scope
 chain_ran: [<sub-list of completed children>]
 chain_skipped:                          # free-text reasons for humans; not parsed
   - child: <name>
@@ -765,39 +834,75 @@ requirement that motivates them and the user story they exercise
 
 ### Child invocation signals
 
-- [ ] **AC5** When `docs/visions/VISION-<topic>.md` does not exist
-  AND the author's Phase 1 discovery does not surface thesis-shift,
-  the chain proposal does not include `/vision`. The observable:
-  the chain proposal output (R7.5) does NOT contain the literal
-  substring "/vision". `[automated-eval]` (R4, US-1)
-- [ ] **AC6** When the author's Phase 1 discovery surfaces a
-  thesis-shift signal (per R4's three utterance categories), the
-  chain proposal includes `/vision`. The observable: the chain
-  proposal output (R7.5) contains the literal substring
-  "/vision". The invocation passes only the topic slug; no
+- [ ] **AC5** When no Accepted or Active VISION exists at
+  `docs/visions/VISION-<topic>.md` (the cold start), the chain
+  proposal includes `/vision` as a run entry — whatever the author
+  answered to the thesis-shift question. The observable: the chain
+  proposal output (R7.5) carries a run entry for `/vision`, and the
+  run happens on the missing-VISION condition alone.
+  `[automated-eval]` (R4, US-1)
+- [ ] **AC5b** When an Accepted or Active VISION exists at
+  `docs/visions/VISION-<topic>.md` AND the author's Phase 1
+  discovery does not surface thesis-shift, the chain proposal skips
+  `/vision`. The observable: the chain proposal output (R7.5)
+  carries a skip entry for `/vision` naming the existing VISION as
+  the reason, per the stated-skip rule. `[automated-eval]` (R4)
+- [ ] **AC6** When an Accepted or Active VISION exists at
+  `docs/visions/VISION-<topic>.md` AND the author's Phase 1
+  discovery surfaces a thesis-shift signal (per R4's three
+  utterance categories), the signal overrides the existing VISION
+  and the chain proposal includes `/vision` as a run entry. The
+  observable: the chain proposal output (R7.5) carries a run entry
+  for `/vision`. The invocation passes only the topic slug; no
   API-level "treat as revision" signal is required.
   `[automated-eval]` (R4)
-- [ ] **AC7** When invoked in a public repo, `/charter`'s Phase 1
-  discovery and chain proposal output do NOT contain any of the
-  literal substrings: "/comp", "competitive analysis",
-  "competitive framing". This holds regardless of input text
-  (including a topic slug that mentions a competitor's name).
-  `[automated-eval]` (R5, R12)
+- [ ] **AC7** When invoked in a public repo, `/charter`'s chain
+  proposal output states that the competitive-analysis step is
+  skipped and names the repo's visibility as the reason. The
+  observable: the chain proposal output contains a skip entry for
+  `/comp` carrying a public-visibility reason. No committed output
+  mentions it — `wip/charter_<topic>_state.md` has no
+  `chain_skipped:` entry for `comp` and no `comp` in
+  `planned_chain`, and no artifact the chain writes under `docs/`
+  references `/comp` or its content surface. `[automated-eval]`
+  (R5, R12)
 - [ ] **AC8** When invoked in a private repo with
   `skills/comp/SKILL.md` absent, the chain proposal output (the
-  R7.5 prompt's content) is byte-identical to a public-repo
-  invocation for the same topic. `[automated-eval]` (R5)
-- [ ] **AC9** When the just-produced STRATEGY has fewer than 3
-  Building Blocks OR no Coordination Dependencies section OR a
-  Coordination Dependencies section with no qualifying entry
-  (per R7), `/charter` skips `/roadmap` and exits at full-run
-  with STRATEGY only. `[automated-eval]` (R7, US-1)
-- [ ] **AC10** When the just-produced STRATEGY has 3+ Building
-  Blocks AND a Coordination Dependencies section with at least
-  one non-empty entry referencing another Building Block by name,
-  `/charter` invokes `/roadmap` with `--upstream <strategy-path>`
-  AND a pre-populated `wip/roadmap_<topic>_scope.md`.
+  R7.5 prompt's content) states the skip and names the missing
+  skill as the reason. It is NOT byte-identical to a public-repo
+  invocation for the same topic: the two runs fail different gate
+  conditions and each output names its own. `[automated-eval]`
+  (R5)
+- [ ] **AC9** When the author declines at the roadmap
+  confirmation prompt (per R7), `/charter` skips `/roadmap` and
+  exits at full-run with STRATEGY only. `chain_skipped:` records
+  a `{child: roadmap, reason: <declination>}` entry, and
+  `chain_ran` omits `roadmap`. The declination is the only thing
+  that produces the skip; no reading of the STRATEGY skips
+  `/roadmap` on the author's behalf. `[automated-eval]` (R7, US-1)
+- [ ] **AC10** On every full-run chain where the author does not
+  decline, `/charter` invokes `/roadmap` with
+  `--upstream <strategy-path>` AND a pre-populated
+  `wip/roadmap_<topic>_scope.md`. No property of the just-produced
+  STRATEGY — Building Blocks count, Coordination Dependencies
+  content, or otherwise — changes whether the invocation fires.
   `[automated-eval]` (R7, US-1)
+- [ ] **AC10a** Under `--auto`, the roadmap confirmation prompt
+  does not fire and `/roadmap` always runs; `chain_skipped:`
+  contains no `roadmap` entry. `[automated-eval]` (R7)
+- [ ] **AC10a-i** The roadmap confirmation prompt names what
+  `/charter` read in the Draft STRATEGY: it states a verdict on
+  whether the strategy is headed for execution and surfaces the
+  per-observation reasons behind it (Building Blocks as
+  deliverables or open questions, invalidation conditions as
+  actionable signals, an explicit deferral of the work). The
+  prompt is not the same text on every run.
+  `[automated-eval]` (R7)
+- [ ] **AC10a-ii** The prompt's default is proceed on every run,
+  including runs where the observation walk reads
+  not-headed-for-execution. The reading changes the prompt's
+  prose, never the pre-selected answer, and never the invocation
+  itself. `[automated-eval]` (R7)
 - [ ] **AC10b** When `/charter` Phase 1 identifies an existing PRD
   as the chain's framing, `/strategy` is invoked with the PRD
   path as upstream (per R6's three valid input shapes — freeform
@@ -828,16 +933,18 @@ requirement that motivates them and the user story they exercise
 
 ### Exit-path enforcement
 
-- [ ] **AC11a** After a chain that completes with STRATEGY only
-  (no ROADMAP), `wip/charter_<topic>_state.md` contains
-  `exit: full-run` and `exit_artifacts` lists exactly one entry
-  pointing to `docs/strategies/STRATEGY-<topic>.md`.
+- [ ] **AC11a** After a chain where the author declined
+  `/roadmap` (the exception path per R7),
+  `wip/charter_<topic>_state.md`
+  contains `exit: full-run` and `exit_artifacts` lists exactly one
+  entry pointing to `docs/strategies/STRATEGY-<topic>.md`.
   `[automated-eval]` (R8, R10, US-1)
 - [ ] **AC11b** After a chain that completes with STRATEGY AND
-  ROADMAP, `wip/charter_<topic>_state.md` contains
-  `exit: full-run` and `exit_artifacts` lists two entries: the
-  STRATEGY path and the ROADMAP path, each with the correct
-  status. `[automated-eval]` (R8, R10, US-1)
+  ROADMAP (the default path per R7),
+  `wip/charter_<topic>_state.md` contains `exit: full-run` and
+  `exit_artifacts` lists two entries: the STRATEGY path and the
+  ROADMAP path, each with the correct status.
+  `[automated-eval]` (R8, R10, US-1)
 - [ ] **AC12** After a re-evaluation chain that confirms the bet
   holds,
   `docs/decisions/DECISION-strategy-<topic>-re-evaluation-<YYYY-MM-DD>.md`
@@ -912,10 +1019,15 @@ requirement that motivates them and the user story they exercise
   exit per AC14 (writes the marker, sets state-file fields).
   `[automated-eval]` (R11, R16, US-3b)
 - [ ] **AC18** When `docs/strategies/STRATEGY-<topic>.md` is
-  Accepted/Active, the entry prompt MUST contain the literal
-  substrings "Re-evaluate", "Revise", and "Bail"
-  (case-insensitive) as the three options offered, AND MUST NOT
-  contain the literal substring "Continue / Start fresh".
+  Accepted/Active, the entry prompt MUST contain the contiguous
+  literal substring "Re-evaluate / Revise / Bail"
+  (case-insensitive, separator ` / ` exactly) as the option line
+  offering the three choices, AND MUST NOT contain the literal
+  substring "Continue / Start fresh". The contiguous form is
+  required because it is the mechanical proxy for the co-equality
+  US-2 makes contractual here — an option line cannot rank or bury
+  its options, and per-token checking cannot tell a co-equal menu
+  from three words buried in leading prose.
   `[automated-eval]` (R11, US-2 wording is load-bearing)
 - [ ] **AC18b** US-3a/AC13 verification: when `/strategy` Phase 5
   fires Reject outside a `/charter` chain (the author invokes
@@ -1262,6 +1374,18 @@ second PR. (b) Block `/charter` shipping until `/comp` ships — gates
 intent: in private repos `/comp` is an optional discovery feeder
 when shipped; otherwise the chain is silent about it. The
 skill-existence flip is the only change needed when `/comp` lands.
+
+*Superseded 2026-08-08 (the silence half only): the skill-existence
+gate stands, but `/charter` no longer stays silent when it fails. It
+states the skip and names the reason — a public repo and a missing
+`/comp` are different conditions and get different messages. The
+silence rested on reading the visibility rule, which governs what a
+document may reference, as a constraint on what the agent may say;
+a step the author might expect was dropped with no explanation. The
+statement is conversational only, so the state file and everything
+under `docs/` stay as clean as before. See R5 above and the
+Stated-Skip Rule in
+`skills/charter/references/phases/phase-2-chain-orchestration.md`.*
 
 ### Decision 3: Hard finalization check on exit-tracking field
 

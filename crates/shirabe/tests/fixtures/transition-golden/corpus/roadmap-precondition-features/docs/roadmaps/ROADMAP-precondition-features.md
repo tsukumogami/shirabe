@@ -10,6 +10,4 @@ Draft
 
 ## Features
 
-### Feature One
-
-Only one feature, so Draft -> Active is blocked.
+No features yet, so Draft -> Active is blocked.

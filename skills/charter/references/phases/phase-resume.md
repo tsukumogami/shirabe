@@ -51,7 +51,7 @@ child-internals isolation rule is cited from
 2.  state file has exit field set                         -> Exit-value-specific re-entry prompt
 3.  state file exists, last_updated < 7d                  -> Resume at recorded phase_pointer (no prompt)
 4.  state file exists, last_updated >= 7d                 -> Resume / Force-materialize / Discard prompt
-5.  STRATEGY-<topic>.md Accepted/Active                   -> "Re-evaluate" / "Revise" / "Bail" prompt
+5.  STRATEGY-<topic>.md Accepted/Active                   -> Re-evaluate / Revise / Bail prompt
 6.  STRATEGY-<topic>.md Draft                             -> continue-or-start-fresh prompt
 7.  wip/strategy_<topic>_discover.md exists               -> Resume into /strategy
 8.  wip/vision_<topic>_scope.md exists                    -> Resume into /vision
@@ -169,10 +169,18 @@ fresh.
 `Accepted` or `Active`. The author has invoked `/charter <topic>`
 against a settled upstream.
 
-**Action.** Surface a three-option entry prompt with the literal
-substrings "Re-evaluate", "Revise", and "Bail" (case-insensitive
-match). The three options are co-equal — there is no recommended
-default.
+**Action.** Surface a three-option entry prompt that CLOSES with the
+contiguous literal option line `Re-evaluate / Revise / Bail`
+(case-insensitive, separator ` / ` exactly). The bullets below are
+explanatory gloss, not the option surface — the closing line is what
+offers the options, and it is what the eval greps.
+
+The three options are co-equal — there is no recommended default, and
+the contiguous line is how that co-equality is made checkable. A
+single option line cannot rank or bury its options; prose can. See the
+Gate Vocabulary companion note on prompt vocabulary in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` for the rule
+that scopes contiguity to co-equal, default-free prompts.
 
 - **Re-evaluate** — `/charter` writes a re-evaluation Decision
   Record stating the bet still holds; the existing STRATEGY stays
@@ -213,10 +221,10 @@ that did not finish through to acceptance.
 continue from the existing draft or to start a fresh chain that
 supersedes it. The two options are:
 
-- **Continue draft** — resume into `/strategy`'s phase ladder
-  against the existing Draft STRATEGY. `/strategy`'s own resume
-  logic detects the draft and routes to the appropriate
-  continuation phase.
+- **Continue draft** — resume into the phase ladder of whichever
+  child the chain was inside when it stopped (see the mid-roadmap
+  disambiguation below). The child's own resume logic detects its
+  draft and routes to the appropriate continuation phase.
 - **Start fresh** — discard the Draft STRATEGY (the discard is
   recorded as a commit) and begin a new chain from Phase 0.
 
@@ -225,6 +233,39 @@ slot for partial-child-run plus draft-upstream cases. The
 specific prompt wording uses the row's two options as named above
 (neither is the literal phrase that row 5 explicitly excludes —
 see the negative-vocabulary rule documented under row 5).
+
+**Mid-roadmap disambiguation.** A Draft STRATEGY on disk no longer
+implies `/strategy` is the child to resume into, because `/roadmap`
+fires on every full-run chain (R7) and can be interrupted with the
+STRATEGY already written.
+
+This row is the only place the ambiguity bites. A `/charter` chain
+interrupted mid-`/roadmap` normally still has its state file, so
+rows 3-4 match first and resume at the recorded `phase_pointer`
+(`2`, chain orchestration), with `chain_ran` already naming
+`/strategy` as complete — that is enough to route to `/roadmap`
+without inspecting the filesystem. Row 6 is the case where no state
+file survives, so there is no `phase_pointer` and no `chain_ran` to
+consult and the on-disk artifacts are the only evidence.
+"Continue draft" resolves the target this way:
+
+1. If `wip/roadmap_<topic>_scope.md` exists on disk AND no ROADMAP
+   exists at `docs/roadmaps/ROADMAP-<topic>.md`, the chain got as
+   far as `/charter`'s handoff pre-population and `/roadmap` was
+   mid-run. Resume into `/roadmap`, passing
+   `--upstream docs/strategies/STRATEGY-<topic>.md` and the
+   existing handoff file; `/roadmap`'s own resume logic continues
+   from the phase its partial-run artifacts indicate.
+2. Otherwise, resume into `/strategy`'s phase ladder against the
+   existing Draft STRATEGY, as before.
+
+Resuming into `/strategy` in case 1 would re-run a child that
+already finished, so the handoff-artifact check runs first. The
+check lives in this row rather than in a new ladder row because
+rows 7-8 both require *no* STRATEGY at the published path and so
+can never match, rows 3-4 already cover the state-file case through
+`phase_pointer`, and rows 9-10 are pattern-level meta-ladder rows
+that renumbering would disturb for `/scope` as well as `/charter`.
 
 ## Row 7 — `/strategy` Partial Run
 

@@ -51,6 +51,19 @@
 //! `code` value (the machine contract), but not the `error` prose. Every other
 //! error case asserts the full structural JSON, message included -- so a
 //! message regression anywhere else still fails the harness.
+//!
+//! ## One re-pointed case (deliberate post-cutover behavior change)
+//!
+//! `roadmap-precondition-features` originally pinned the scripts' two-feature
+//! floor on `Draft -> Active` with a one-feature document. That floor was
+//! removed: a roadmap is the progress ledger for a strategy's execution and
+//! the only bridge from the strategic chain into the tactical one, so a
+//! one-feature roadmap is legitimate. The gate now rejects only a roadmap with
+//! zero features. The case was re-pointed at that new boundary -- its corpus
+//! document carries no feature headings and its baseline carries the
+//! zero-feature message. Everything the harness asserts (exit code,
+//! structural JSON, resulting path and contents) still holds byte-for-byte;
+//! only the boundary the case sits on moved.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -363,8 +376,8 @@ parity_tests! {
     prd_invalid_status          => "prd-invalid-status",
     prd_idempotent_done         => "prd-idempotent-done",
 
-    // roadmap (graph, no move): legal move with >=2 features, rejected skip,
-    // precondition block, idempotent terminal re-run.
+    // roadmap (graph, no move): legal move with features present, rejected
+    // skip, zero-feature precondition block, idempotent terminal re-run.
     roadmap_legal_move          => "roadmap-legal-move",
     roadmap_rejected_skip       => "roadmap-rejected-skip",
     roadmap_precondition_feats  => "roadmap-precondition-features",

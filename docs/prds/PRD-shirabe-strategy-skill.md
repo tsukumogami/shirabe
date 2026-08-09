@@ -195,6 +195,14 @@ VISION-style four-state lifecycle:
 | Active | Downstream work has started; strategy is being operationalized | Manual transition via `skills/strategy/scripts/transition-status.sh`, invoked when the first downstream artifact (ROADMAP or DESIGN) referencing this STRATEGY transitions to Active |
 | Sunset | Bet invalidated, pivoted, or abandoned | Manual transition via `skills/strategy/scripts/transition-status.sh` with reason recorded; not automatic on downstream completion |
 
+*Superseded 2026-08-08 (the Active row only): the trigger is the first
+ROADMAP referencing this STRATEGY going Active. A DESIGN can no longer be
+a STRATEGY's downstream artifact -- the strategic chain runs VISION ->
+STRATEGY -> ROADMAP with each document linking only to its immediate
+neighbour, and the ROADMAP is where the chain hands off to the tactical
+one. See `skills/strategy/references/strategy-format.md` for the current
+rule.*
+
 The transition script follows the per-skill convention established
 by `skills/vision/scripts/transition-status.sh` and equivalents in
 `/prd`, `/roadmap`, and `/design`. STRATEGY does not introduce

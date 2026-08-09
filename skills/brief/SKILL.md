@@ -16,7 +16,7 @@ description: >-
   (/design), or open-ended exploration (/explore). Drives a six-phase
   workflow: conversational scoping, structured drafting, structural
   fill, a two-reviewer jury, and finalization.
-argument-hint: '<feature topic, optional ROADMAP/PRD path, or BRIEF path + lifecycle verb>'
+argument-hint: '<feature topic, optional ROADMAP path, or BRIEF path + lifecycle verb>'
 ---
 
 @.claude/shirabe-extensions/brief.md
@@ -107,11 +107,25 @@ From `$ARGUMENTS`:
 2. **Path to existing BRIEF** with lifecycle verb (`accept`, `done`) —
    execute the lifecycle transition via `shirabe transition <brief-path>
    <status>`. No reason argument; no directory move.
-3. **Path to a ROADMAP or PRD document** (matches
-   `docs/roadmaps/ROADMAP-*.md` or `docs/prds/PRD-*.md`) — treat as the
-   upstream for the new BRIEF; derive the feature's problem/outcome
-   candidate from upstream content during Phase 1.
+3. **Path to a ROADMAP document** (matches
+   `docs/roadmaps/ROADMAP-*.md`) — treat as the upstream for the new
+   BRIEF; derive the feature's problem/outcome candidate from upstream
+   content during Phase 1.
 4. **Anything else** — use as the starting topic for Phase 1 scoping.
+
+A ROADMAP is the only document Input Mode 3 accepts. A PRD path is
+rejected rather than treated as upstream: the chain runs ROADMAP →
+BRIEF → PRD, so a PRD's requirements are written *from* a brief's
+framing. Deriving that framing back out of the requirements inverts the
+chain. Reject with:
+
+> `<path>` is downstream of a BRIEF, not upstream of it. The tactical
+> chain runs ROADMAP → BRIEF → PRD: a PRD's requirements are written
+> from the brief's problem, outcome, journeys, and scope boundary, so
+> deriving that framing back out of the PRD inverts the chain. Write the
+> brief from the feature topic (`/brief <topic>`) or from the ROADMAP
+> entry that names it (`/brief docs/roadmaps/ROADMAP-<name>.md`), then
+> point the PRD at the brief.
 
 ### Context Resolution
 
@@ -122,9 +136,9 @@ topic that contains other characters, including `.`, `/`, `_`, or
 whitespace. Without the constraint, a `../`-shaped topic could redirect
 verdict writes outside `wip/research/`.
 
-**Path canonicalization.** Any user-supplied ROADMAP or PRD upstream
-path (Input Mode 3) must be canonicalized at Phase 0 and rejected if
-the canonical path resolves outside the repo working tree. Symlinks
+**Path canonicalization.** Any user-supplied ROADMAP upstream path
+(Input Mode 3) must be canonicalized at Phase 0 and rejected if the
+canonical path resolves outside the repo working tree. Symlinks
 resolving to arbitrary filesystem content would otherwise leak into a
 public commit.
 

@@ -284,8 +284,8 @@ operator knows to revise before the DESIGN is consumed by
   and the original inside-pattern ergonomics framing.
 - Track B (amplifier-layer mandate refinement) — explicitly out
   of scope here, tracked separately as a forward-looking effort.
-- `friction-log-shirabe-0.9.0.md` — workspace-level friction
-  log from the v0.9.0/v0.9.1-dev dogfooding round that confirmed
+- The v0.9.0/v0.9.1-dev workspace-level friction log (since
+  removed from the repo root) — the dogfooding round that confirmed
   the v0.7.0-era observations on the post-Rust-cutover codebase
   and added the fresh surfaces (`/design` Phase 6 missing
   structural-format reviewer, `/plan` Phase 7 single-pr

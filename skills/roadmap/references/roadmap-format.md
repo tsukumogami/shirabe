@@ -57,21 +57,43 @@ theme: |
 scope: |
   1 paragraph bounding what's included and excluded. Which features
   are in this roadmap, and what adjacent work is deliberately left out?
-upstream: docs/visions/VISION-<name>.md  # optional
+upstream: docs/strategies/STRATEGY-<name>.md  # optional
 ---
 ```
 
 Required fields: `schema`, `status`, `theme`, `scope`. Optional:
-`upstream` (path to the VISION document that this roadmap traces to,
-when one exists). Each field other than `schema` should be 1
-paragraph using YAML literal block scalars (`|`).
+`upstream` (path to the STRATEGY document that this roadmap sequences
+the work for, when one exists). Each field other than `schema` should
+be 1 paragraph using YAML literal block scalars (`|`).
 
 The `upstream` field links the roadmap to the strategic artifact that
-motivated it. When present, it points to a VISION document (the
-natural parent in the traceability chain). Roadmaps that emerge from
-exploration without a formal VISION omit this field. For cross-repo
-upstream references and the visibility-direction rules, see
-`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
+motivated it. When present, it points to a **STRATEGY** -- the
+roadmap's immediate neighbour one level up the strategic chain, which
+runs VISION -> STRATEGY -> ROADMAP. `/charter` sets it this way on
+every chain it runs, so a STRATEGY upstream is the common case.
+
+Point it at the immediate neighbour, not at whatever strategic
+document happens to be handy. A ROADMAP whose upstream skipped to the
+VISION would leave the bet it is sequencing unreachable from the
+roadmap: a reader would jump from sequenced features straight to the
+long-term thesis, with the falsifiable claim that chose those features
+missing from the path. The links stay one level deep in both
+directions -- a STRATEGY's Downstream Artifacts list ROADMAPs, and a
+ROADMAP's upstream is that STRATEGY -- so the chain reads the same
+walked either way.
+
+A roadmap written without a STRATEGY -- one that emerged from
+exploration, or that traces only to a VISION -- omits the field
+rather than reaching past its neighbour. Recording the VISION here
+would claim a link the chain does not have.
+
+The ROADMAP is the last link in the strategic chain. Downstream of it
+the tactical chain takes over, and `/brief` is what crosses the
+boundary by taking a ROADMAP as its own upstream; no strategic
+document reaches past the ROADMAP to a BRIEF, PRD, DESIGN, or PLAN.
+
+For cross-repo upstream references and the visibility-direction rules,
+see `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
 
 Frontmatter status must match the Status section in the body --
 agent workflows parse frontmatter to determine lifecycle state, so
@@ -86,12 +108,21 @@ Every roadmap has these sections in order:
    sequencing matters
 3. **Features** -- ordered list of features with names, descriptions,
    dependencies, and status. Each feature should reference its
-   downstream artifact (PRD, design doc, or plan) when one exists.
+   downstream artifact (brief, PRD, design doc, or plan) when one
+   exists. These per-feature entries are how the tactical chain is
+   reached from the strategic one -- the roadmap is the only place
+   the two meet, which is why no document above it links a brief,
+   PRD, design, or plan directly.
 4. **Sequencing Rationale** -- why features are ordered this way.
    What constraints drive the ordering: technical dependencies, user
-   value delivery, risk reduction?
+   value delivery, risk reduction? On a one-feature roadmap there is
+   no ordering to justify; the section instead says why this feature
+   is the whole of the strategy's work and what would have to change
+   for a second feature to join it.
 5. **Progress** -- current state of the roadmap. Which features are
    done, in progress, or not started. Updated as work progresses.
+   This is the ledger: it, and the per-feature statuses it mirrors,
+   are the only record of how far along the strategy's execution is.
 
 ### Per-Feature Format
 
@@ -205,22 +236,46 @@ These sections must appear in every roadmap file, even when empty.
 Their presence signals that the roadmap is structurally complete and
 ready for downstream planning workflows.
 
+### One-feature roadmaps
+
+A one-feature roadmap fills both sections the same way, and neither
+degenerates. The Implementation Issues table gets one row with `None`
+in its Dependencies cell. The dependency graph gets one node and no
+edges -- a single-node `graph TD` is valid mermaid and the validator's
+FC07 reconciliation treats it as any other diagram, matching the table
+row for row. Nothing about the shape assumes a second feature to point
+at.
+
 ## Content Boundaries
 
 A roadmap is NOT:
 
-- **A PRD**: PRDs define requirements for a single feature. Roadmaps
-  sequence multiple features. If you're writing detailed
-  requirements, that's a PRD.
+- **A PRD**: PRDs define requirements for a feature. Roadmaps name
+  features and track them; they never say what a feature must do. If
+  you're writing detailed requirements, that's a PRD.
 - **A plan**: Plans break a single artifact into implementable
-  issues. Roadmaps operate one level above, coordinating across
-  multiple PRDs or design docs.
+  issues. Roadmaps operate one level above, coordinating across the
+  PRDs or design docs their features fan out into.
 - **A project timeline**: Roadmaps don't include dates or time
   estimates. They capture ordering and dependencies, not schedules.
 
-If you're defining requirements for one feature, write a PRD. If
-you're breaking one design into issues, write a plan. If you're
-sequencing multiple features with dependencies, write a roadmap.
+Routing, then: if you're defining requirements, write a PRD. If
+you're breaking one design into issues, write a plan. If you need a
+strategy's work sequenced, tracked, and handed into the tactical
+chain, write a roadmap.
+
+**A one-feature roadmap is legitimate.** The routing rule is about
+altitude, not feature count. A roadmap does two jobs a PRD cannot: it
+is the progress ledger for a strategy's execution (its per-feature
+status is the only record of how far along the work is, and the
+completion cascade updates it as downstream plans land), and it is
+the only bridge from the strategic chain to the tactical one --
+`/brief` takes a ROADMAP as its upstream, never a STRATEGY and never a
+PRD. A
+strategy whose work is a single feature still needs both, so it still
+gets a roadmap. Most roadmaps do sequence several features and that
+is where the sequencing rationale earns its keep, but there is no
+two-feature floor. A roadmap with zero features is malformed.
 
 ## Lifecycle
 
@@ -273,8 +328,11 @@ directory movement based on status -- all roadmaps stay in
   tool-populated table -- never hand-authored prose; Dependency Graph is a
   ` ```mermaid ` block -- never a plain fenced code block
 - Status is "Draft"
-- At least 2 features listed (single-feature work doesn't need a
-  roadmap)
+- At least one feature listed. `shirabe transition <path> Active`
+  rejects a roadmap with zero features and nothing else -- one
+  feature activates. See [Content
+  Boundaries](#content-boundaries) for why there is no two-feature
+  floor.
 
 ### When referenced by downstream workflows
 
@@ -334,7 +392,8 @@ the reasoning in prose.
 - Identifies a coherent capability area, not a grab-bag of unrelated
   work
 - Explains why coordination matters (shared infrastructure,
-  user-facing story)
+  user-facing story), or -- on a one-feature roadmap -- why this
+  feature is the whole of the initiative
 - Scoped to one initiative -- don't combine unrelated streams
 
 ### Features
@@ -350,6 +409,8 @@ the reasoning in prose.
 - Distinguishes hard dependencies (technical blockers) from soft
   preferences (nice-to-have ordering)
 - Acknowledges where parallel execution is possible
+- On a one-feature roadmap, says why the work is one feature rather
+  than several -- not "N/A"
 
 ### Progress
 

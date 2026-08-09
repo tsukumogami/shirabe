@@ -322,9 +322,10 @@ by re-running the child with corrections, or by re-invoking
 
 Phase 2 reads `planned_chain:` from the state file (populated
 by Phase 1) and invokes the listed children in order. The
-per-child gate-evaluation rules (`/brief` R4 EITHER-signal,
-`/prd` R5 Mandatory-with-auto-skip, `/design` R6/R7 shape-
-dependent, `/plan` ALWAYS) are NOT re-walked at Phase 2 — they
+per-child gate-evaluation rules (`/brief` R4 Mandatory-with-auto-
+skip with a framing-shift override, `/prd` R5 Mandatory-with-auto-
+skip, `/design` R6/R7 shape-dependent, `/plan` ALWAYS) are NOT
+re-walked at Phase 2 — they
 are cached in Phase 1's verdicts. The state-file fields driving
 the cache:
 

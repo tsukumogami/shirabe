@@ -31,9 +31,10 @@ Read all available context:
 
 **Detect upstream:** Check `$ARGUMENTS` for an `--upstream <path>` flag. If
 present, store the path for inclusion in frontmatter (step 3.2). The upstream
-path typically points to a VISION document passed by /explore or by the user
-in standalone invocation. If `--upstream` is not provided, omit the field from
-frontmatter.
+path points to the STRATEGY this roadmap sequences -- passed by `/charter` on
+every chain, or by the user in standalone invocation. If `--upstream` is not
+provided, omit the field from frontmatter; do not substitute a VISION path,
+which would skip a level of the chain.
 
 ### 3.2 Draft the ROADMAP
 
@@ -62,9 +63,12 @@ tool to create `docs/roadmaps/ROADMAP-<topic>.md`.
 - **Dependencies**: Draw from the dependency validator's findings. Include both
   intra-roadmap and external dependencies.
 
-**Minimum feature count:** The roadmap must contain at least 2 features. If Phase 2
-reduced the list below 2, flag this to the user -- single-feature work doesn't need
-a roadmap.
+**Feature count:** The roadmap must contain at least one feature. If Phase 2 reduced
+the list to zero, flag this to the user -- a roadmap with no features has nothing to
+sequence and nothing to track. One feature is enough: the roadmap is still the
+progress ledger for the strategy's execution and still the bridge into `/scope`,
+which `/brief` reaches through a ROADMAP, never a STRATEGY and never a
+PRD.
 
 **All features start as "Not Started."** The roadmap is a plan, not a progress
 tracker at creation time. Features move through statuses as work proceeds.
@@ -142,8 +146,9 @@ Before proceeding:
 - [ ] ROADMAP draft written to `docs/roadmaps/ROADMAP-<topic>.md` with status "Draft"
 - [ ] All features present with rationale, needs-* annotation, dependencies, and
       "Not Started" status
-- [ ] At least 2 features in the roadmap
-- [ ] Sequencing rationale explains ordering, not just lists features
+- [ ] At least one feature in the roadmap
+- [ ] Sequencing rationale explains ordering, not just lists features (for a
+      one-feature roadmap, explains why this feature is the whole of the work)
 - [ ] Dependencies include both intra-roadmap and external
 - [ ] No downstream content (requirements, architecture, implementation details)
 - [ ] No dates or deadlines

@@ -3,8 +3,8 @@ name: charter
 description: >-
   Parent skill for the strategic chain. Walks an author through
   VISION → STRATEGY → ROADMAP as a single conversation, holding state
-  across child boundaries and producing a STRATEGY as the terminal
-  artifact. Use when an author needs strategic framing decided in one
+  across child boundaries and producing a durable STRATEGY plus a
+  working ROADMAP. Use when an author needs strategic framing decided in one
   sitting rather than reached for one child skill at a time. Triggers
   on "start a strategic conversation about X", "open a charter for
   Y", "I need to think through the bet on Z", or direct
@@ -21,7 +21,21 @@ pattern. It walks an author through the strategic chain
 (VISION → STRATEGY → ROADMAP), holding state across child boundaries,
 enforcing pattern-level invariants (state schema, resume ladder,
 exit paths, child inspection), and producing a STRATEGY as the
-terminal artifact.
+durable terminal artifact.
+
+A full run also produces a ROADMAP, which `/roadmap` writes on every
+chain unless the author declines it (R7). STRATEGY is still the
+*durable* terminal artifact even though `/roadmap` runs after
+`/strategy`: the ROADMAP is a working artifact that drives work
+rather than recording it, while the STRATEGY stays in
+`docs/strategies/` as the audit trail. Both appear in
+`exit_artifacts:`.
+
+A working artifact is not a self-disposing one. `/roadmap`'s own
+`## Artifact Lifecycle` section owns the completion condition, and
+the cascade only retires a ROADMAP through a finished downstream
+PLAN — a ROADMAP nobody plans against persists until someone
+removes it.
 
 The pattern-level contract surface is documented in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` and its
@@ -160,6 +174,13 @@ expands into rows 7-8 for `/strategy` vs `/vision`; slot 7
 (feeder-doc-detected) is unfilled because `/charter` has no
 feeder-doc case.
 
+Because `/roadmap` runs on every full-run chain, an interrupted
+chain commonly leaves a Draft STRATEGY on disk with `/roadmap`
+still in flight. Row 6 carries the mid-roadmap disambiguation:
+"Continue draft" resumes into `/roadmap` when the handoff file
+`wip/roadmap_<topic>_scope.md` exists and no published ROADMAP
+does, and into `/strategy` otherwise.
+
 `/charter`'s stale-session threshold is 7 days: state with
 `last_updated` ≥ 7 days old surfaces the Resume / Force-materialize
 / Discard prompt; fresher state silently resumes.
@@ -182,9 +203,12 @@ Execute phases sequentially by reading the corresponding phase file:
 
 2. **Chain orchestration** — invoke the planned chain
    (`/vision` → `/strategy` → `/roadmap`, skipping per the chain
-   plan), inspect child durable artifacts after each step per the
-   widened R14 rule, advance the `phase_pointer` after each child
-   completes.
+   plan), surface the roadmap confirmation prompt before
+   `/roadmap` fires — reading the Draft STRATEGY first and stating
+   what that reading says about whether the strategy is headed for
+   execution, with proceed as the default either way — inspect
+   child durable artifacts after each step per the widened R14
+   rule, advance the `phase_pointer` after each child completes.
    - Instructions: `skills/charter/references/phases/phase-2-chain-orchestration.md`
 
 N. **Finalization** — set the `exit:` field to one of `full-run`,
@@ -196,7 +220,7 @@ N. **Finalization** — set the `exit:` field to one of `full-run`,
 
 | File | When to load |
 |------|-------------|
-| `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` | All phases — contract surface, invariants, exit paths, substitution surfaces |
+| `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` | All phases — contract surface, invariants, exit paths, Gate Vocabulary (Mandatory-with-auto-skip plus thesis-shift override on `/vision`; ALWAYS on `/strategy` and `/roadmap`), substitution surfaces |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md` | Phase 0 (slug regex), Phase 2 (state writes), Phase N (R9 check) |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md` | Resume Logic — meta-ladder rows 1-4 and 9-10 |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-child-inspection.md` | Phase 2 — child-doc inspection (R14 widened rule, dual-check drift detection) |
