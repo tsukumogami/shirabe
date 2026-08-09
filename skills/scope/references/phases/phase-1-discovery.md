@@ -376,9 +376,12 @@ chain_skipped:
     reason: settled-artifact-at-canonical-path-reentry-protection
 ```
 
-That reason is the only one a `chain_skipped:` entry carries. A
-child is never recorded there because Phase 1 judged its artifact
-not worth producing; Phase 1 makes no such judgment.
+That is the only reason Phase 1 ever writes. A child is never
+recorded there because Phase 1 judged its artifact not worth
+producing; Phase 1 makes no such judgment. (Phase 2 writes one
+other reason, when a Reject at a settled-upstream boundary ends
+the chain and the remaining children never run — see the
+decision-record templates under `skills/scope/references/`.)
 
 Phase 2 reads `planned_chain:` and invokes the listed children
 in order; it does NOT re-walk Phase 1's evaluations per child.

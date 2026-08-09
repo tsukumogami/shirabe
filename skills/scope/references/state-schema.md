@@ -32,11 +32,13 @@ state-schema reference).
   children held back by re-entry protection (e.g. `/prd` when an
   Accepted PRD already exists at the canonical path, per the
   Mandatory-with-auto-skip gate from `parent-skill-pattern.md`).
-  The reason is always
-  `settled-artifact-at-canonical-path-reentry-protection`: a
+  Phase 1 writes exactly one reason,
+  `settled-artifact-at-canonical-path-reentry-protection`; a
   child is never recorded here because the chain judged its
-  artifact not worth producing. `/scope` makes no such judgment
-  before an artifact exists.
+  artifact not worth producing, since `/scope` makes no such
+  judgment before an artifact exists. Phase 2 writes one further
+  reason when a Reject at a settled-upstream boundary ends the
+  chain and the remaining children never run.
 - **`consolidation_judgments`** — conditional list. One entry per
   hop at which Phase 2's consolidation judgment ran, appended in
   chain order. Absent when the chain produced fewer than two
