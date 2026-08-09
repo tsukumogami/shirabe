@@ -558,3 +558,320 @@ fn binary_runs_without_external_shell_dependency() {
         .success();
     let _ = fs::remove_dir_all(&dir);
 }
+
+// ---------------------------------------------------------------------------
+// Issueless-mode rendering
+// ---------------------------------------------------------------------------
+
+/// A roadmap whose features exercise the issueless renderer's awkward cases: a
+/// label that cannot key a row, a duplicate label, a body with no sentence
+/// terminator, and a feature with no body at all.
+fn write_awkward_fixture(dir: &Path) -> PathBuf {
+    let path = dir.join("ROADMAP-awkward.md");
+    let long_body = "The stages this adds, end to end: ".to_string() + &"- a stage ".repeat(40);
+    let body = format!(
+        "---\n\
+schema: roadmap/v1\n\
+status: Active\n\
+theme: |\n  Theme.\n\
+scope: |\n  Scope.\n\
+---\n\
+\n\
+# ROADMAP: awkward\n\
+\n\
+## Status\n\
+\n\
+Active\n\
+\n\
+## Theme\n\
+\n\
+Theme.\n\
+\n\
+## Features\n\
+\n\
+### Feature 1: Foundation layer\n\
+**Dependencies:** None\n\
+**Status:** Not started\n\
+\n\
+{long}\n\
+\n\
+### Feature 2: Establish, then act\n\
+**Dependencies:** Feature 1\n\
+**Status:** Not started\n\
+\n\
+Sets the number.\n\
+\n\
+### Feature 3: Caching\n\
+**Dependencies:** Feature 2\n\
+**Status:** Not started\n\
+\n\
+### Feature 4: Caching\n\
+**Dependencies:** Feature 1\n\
+**Status:** Done\n\
+\n\
+A second feature sharing a label.\n\
+\n\
+## Sequencing Rationale\n\
+\n\
+Foundation first.\n\
+\n\
+## Progress\n\
+\n\
+In progress.\n\
+\n\
+## Implementation Issues\n\
+\n\
+<!-- Populated by an issueless run. Do not fill manually. -->\n\
+\n\
+## Dependency Graph\n\
+\n\
+<!-- Populated by an issueless run. Do not fill manually. -->\n\
+\n",
+        long = long_body
+    );
+    fs::write(&path, body).unwrap();
+    path
+}
+
+#[test]
+fn issueless_table_is_keyed_by_feature_label() {
+    let dir = tempdir();
+    let path = write_basic_fixture(&dir);
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .arg("--no-issues")
+        .assert()
+        .success();
+    let out = fs::read_to_string(&path).unwrap();
+    // The key column names the feature, and dependency cells name the same
+    // text, so a reader can follow a row without leaving the table.
+    assert!(out.contains("| Foundation layer | needs-design | None | needs-design |"));
+    assert!(out.contains("| Caching layer | needs-spike | Foundation layer | needs-spike |"));
+    // A delivered feature's row is struck through; the cross-repo token
+    // survives verbatim alongside the resolved local key.
+    assert!(out.contains(
+        "| ~~Cross-repo bridge~~ | ~~None~~ | ~~Foundation layer, tsukumogami/koto#65~~ | ~~Done~~ |"
+    ));
+    // No opaque index remains in the table's key column.
+    assert!(!out.contains("| F1 |"));
+    assert!(!out.contains("| F2 |"));
+    // The diagram keeps its F<n> node ids.
+    assert!(out.contains("F1[\"Foundation layer\"]"));
+    assert!(out.contains("F1 --> F2"));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn issueless_awkward_labels_fall_back_and_warn() {
+    let dir = tempdir();
+    let path = write_awkward_fixture(&dir);
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .arg("--no-issues")
+        .assert()
+        .success()
+        // The comma-bearing label cannot key a row.
+        .stderr(contains(
+            "feature 2 \"Establish, then act\": key falls back to F2",
+        ))
+        // Two features share a label, so both fall back.
+        .stderr(contains("feature 3 \"Caching\": key falls back to F3"))
+        .stderr(contains("feature 4 \"Caching\": key falls back to F4"))
+        // The unbounded body is reported with its remedy.
+        .stderr(contains(
+            "feature 1 \"Foundation layer\": description truncated",
+        ))
+        .stderr(contains("**Functional outcome:**"));
+
+    let out = fs::read_to_string(&path).unwrap();
+    assert!(out.contains("| Foundation layer |"));
+    assert!(out.contains("| F2 | None | Foundation layer | Not started |"));
+    // A dependency on a fallen-back feature names the fallback key.
+    assert!(out.contains("| F3 | None | F2 | Not started |"));
+    // The feature with no body gets the placeholder rather than an empty
+    // italic marker, which the validator reads as bold.
+    assert!(out.contains("| _No description in the feature body._ | | | |"));
+    assert!(!out.contains("| __ |"));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn issueless_description_cells_are_bounded() {
+    let dir = tempdir();
+    let path = write_awkward_fixture(&dir);
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .arg("--no-issues")
+        .assert()
+        .success();
+    let out = fs::read_to_string(&path).unwrap();
+    for line in out.lines() {
+        if !line.starts_with("| _") && !line.starts_with("| ~~_") {
+            continue;
+        }
+        let cell = line.trim_start_matches('|').trim();
+        assert!(
+            cell.chars().count() <= 220,
+            "description cell exceeds the ceiling: {} chars",
+            cell.chars().count()
+        );
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn issueless_output_passes_validate_on_awkward_input() {
+    let dir = tempdir();
+    let path = write_awkward_fixture(&dir);
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .arg("--no-issues")
+        .assert()
+        .success();
+    // The fallback exists so this holds unconditionally: a roadmap the tool
+    // wrote must never fail the tool's own validator.
+    shirabe()
+        .args(["validate"])
+        .arg(&path)
+        .arg("--visibility=public")
+        .assert()
+        .success();
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn issue_creating_mode_emits_no_key_fallback_warning() {
+    let dir = tempdir();
+    let path = write_awkward_fixture(&dir);
+    // Issue-creating mode keeps plain labels and never applies the fallback,
+    // so reporting one would describe work it did not do.
+    let assert = shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .args(["--dry-run", "--repo", "example/repo"])
+        .assert()
+        .success();
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
+    assert!(
+        !stderr.contains("key falls back"),
+        "issue-creating mode must not report a fallback: {}",
+        stderr
+    );
+    // It does share the bounded description derivation, so it still reports a
+    // cell it had to cut.
+    assert!(
+        stderr.contains("description truncated"),
+        "stderr: {}",
+        stderr
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn issueless_metacharacters_in_labels_round_trip_without_executing() {
+    let dir = tempdir();
+    let path = dir.join("ROADMAP-meta.md");
+    let canary = dir.join("canary.txt");
+    fs::write(&canary, "intact").unwrap();
+    let body = format!(
+        "---\n\
+schema: roadmap/v1\n\
+status: Active\n\
+theme: |\n  Theme.\n\
+scope: |\n  Scope.\n\
+---\n\
+\n\
+# ROADMAP: meta\n\
+\n\
+## Status\n\
+\n\
+Active\n\
+\n\
+## Theme\n\
+\n\
+Theme.\n\
+\n\
+## Features\n\
+\n\
+### Feature 1: Safe; rm -rf {canary} && echo HIJACKED\n\
+**Dependencies:** None\n\
+**Status:** Not started\n\
+\n\
+Body one.\n\
+\n\
+### Feature 2: Dependent\n\
+**Dependencies:** Feature 1\n\
+**Status:** Not started\n\
+\n\
+Body two.\n\
+\n\
+## Sequencing Rationale\n\
+\n\
+First.\n\
+\n\
+## Progress\n\
+\n\
+Started.\n\
+\n\
+## Implementation Issues\n\
+\n\
+<!-- Populated by an issueless run. Do not fill manually. -->\n\
+\n\
+## Dependency Graph\n\
+\n\
+<!-- Populated by an issueless run. Do not fill manually. -->\n\
+\n",
+        canary = canary.display()
+    );
+    fs::write(&path, body).unwrap();
+
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .arg("--no-issues")
+        .assert()
+        .success();
+
+    // Label text reaching the key column is new in issueless mode, so the
+    // verbatim round-trip is asserted here and not only in the
+    // issue-creating test above.
+    let out = fs::read_to_string(&path).unwrap();
+    assert!(out.contains(&format!(
+        "| Safe; rm -rf {} && echo HIJACKED | None | None | Not started |",
+        canary.display()
+    )));
+    assert_eq!(fs::read_to_string(&canary).unwrap(), "intact");
+
+    shirabe()
+        .args(["validate"])
+        .arg(&path)
+        .arg("--visibility=public")
+        .assert()
+        .success();
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn issueless_rerun_is_idempotent() {
+    let dir = tempdir();
+    let path = write_awkward_fixture(&dir);
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .arg("--no-issues")
+        .assert()
+        .success();
+    let first = fs::read_to_string(&path).unwrap();
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .arg("--no-issues")
+        .assert()
+        .success();
+    assert_eq!(first, fs::read_to_string(&path).unwrap());
+    let _ = fs::remove_dir_all(&dir);
+}

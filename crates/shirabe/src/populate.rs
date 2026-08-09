@@ -35,7 +35,8 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use shirabe_validate::{
-    extract_needs_label, parse_doc, parse_features, strip_label_decoration, Feature,
+    extract_needs_label, is_stable_table_key, parse_doc, parse_features, strip_label_decoration,
+    Feature,
 };
 
 /// Clap-parsed args for `shirabe roadmap populate`.
@@ -71,10 +72,13 @@ pub struct PopulateArgs {
     pub dry_run: bool,
 
     /// Issueless render mode. Skips `gh issue create` entirely (no GitHub
-    /// calls) and renders both reserved sections from feature context: a
-    /// feature-keyed Implementation Issues table (rows keyed `F1`, `F2`,
-    /// ...) and an `F<n>`-node Dependency Graph. Set by the roadmap skill
-    /// when the repo declares `## Roadmap Issues: optional`.
+    /// calls) and renders both reserved sections from feature context. The
+    /// Implementation Issues table's key column carries each feature's label,
+    /// its Dependencies cells name those same labels, and its description
+    /// cells are bounded; a feature whose label cannot serve as a table key
+    /// falls back to `F<n>` with a warning on stderr. The Dependency Graph
+    /// uses `F<n>` nodes. Set by the roadmap skill when the repo declares
+    /// `## Roadmap Issues: optional`.
     #[arg(long = "no-issues")]
     pub no_issues: bool,
 }
@@ -121,6 +125,13 @@ fn run_inner(args: &PopulateArgs) -> Result<(), String> {
         return run_issueless(args, &roadmap, &features);
     }
 
+    // Issue-creating mode shares the bounded description derivation, so it
+    // reports a truncated cell too -- but never a key fallback, which is
+    // issueless-mode behaviour it does not apply.
+    for line in truncation_warnings(&features) {
+        eprintln!("{}", line);
+    }
+
     let mapping = obtain_mapping(args, &features)?;
     let owner_repo = resolve_owner_repo(args)?;
 
@@ -146,11 +157,20 @@ fn run_inner(args: &PopulateArgs) -> Result<(), String> {
 
 /// Issueless render path: fills both reserved sections from feature context
 /// with no `gh` invocations. The Implementation Issues table is feature-keyed
-/// (each row keyed `F1`, `F2`, ... so the bare-key Dependencies cells
-/// reconcile under FC06), and the Dependency Graph uses `F<n>` nodes labeled
+/// on the feature's label (with an `F<n>` fallback for a label that cannot
+/// serve as a table key), its Dependencies cells name those same keys so they
+/// reconcile under FC06, and the Dependency Graph uses `F<n>` nodes labeled
 /// with the feature names. Writes via the same structural section-replacement
 /// writer the issue-creating path uses.
 fn run_issueless(args: &PopulateArgs, roadmap: &Path, features: &[Feature]) -> Result<(), String> {
+    // Both diagnostic sets: this is the mode that applies the key fallback.
+    for line in truncation_warnings(features) {
+        eprintln!("{}", line);
+    }
+    for line in key_fallback_warnings(features) {
+        eprintln!("{}", line);
+    }
+
     let table = render_issueless_table(features, &args.milestone);
     let diagram = render_issueless_diagram(features);
 
@@ -177,13 +197,15 @@ fn run_issueless(args: &PopulateArgs, roadmap: &Path, features: &[Feature]) -> R
 ///
 /// The roadmap profile (`Feature | Issues | Dependencies | Status`) is
 /// preserved so the validator selects the roadmap branch. The first column
-/// carries the feature key (`F1`, `F2`, ...) so the row key equals the bare
-/// dependency token a depending feature references; the Issues column carries
-/// the feature's `needs-*` label (or `None` when absent); the Dependencies
-/// column holds bare feature keys with NO parenthetical annotations (those
-/// trip FC06); the Status column comes from the feature's `**Status:**`. Each
-/// entity row is followed by an italic description row, matching the
-/// issue-creating renderer and FC05's row-shape requirement.
+/// carries the feature's label, per the Roadmap Profile key form in
+/// `references/issues-table.md` -- or its `F<n>` fallback when the label
+/// cannot serve as a table key (see [`feature_keys`]). The Issues column
+/// carries the feature's `needs-*` label (or `None` when absent); the
+/// Dependencies column names the depended-on features by the same keys their
+/// own rows carry, with NO parenthetical annotations (those trip FC06); the
+/// Status column comes from the feature's `**Status:**`. Each entity row is
+/// followed by an italic description row, matching the issue-creating renderer
+/// and FC05's row-shape requirement.
 pub fn render_issueless_table(features: &[Feature], milestone: &str) -> String {
     let mut s = String::new();
     if !milestone.is_empty() {
@@ -193,8 +215,9 @@ pub fn render_issueless_table(features: &[Feature], milestone: &str) -> String {
     }
     s.push_str("| Feature | Issues | Dependencies | Status |\n");
     s.push_str("|---------|--------|--------------|--------|\n");
-    for f in features {
-        let key = format!("F{}", f.id);
+    let keys = feature_keys(features);
+    for (i, f) in features.iter().enumerate() {
+        let key = keys[i].clone();
         // A delivered feature no longer awaits an upstream artifact, so its
         // Issues cell is `None`, never a leftover `needs-*` label.
         let issue_cell = if feature_is_terminal(f) {
@@ -205,7 +228,7 @@ pub fn render_issueless_table(features: &[Feature], milestone: &str) -> String {
                 None => "None".to_string(),
             }
         };
-        let deps_cell = bare_feature_deps(&f.dependencies);
+        let deps_cell = render_deps_cell(&f.dependencies, features, &keys);
         let status_cell = pick_status_cell(f);
         let desc = concise_description(&f.description);
         if feature_is_terminal(f) {
@@ -275,24 +298,128 @@ pub fn render_issueless_diagram(features: &[Feature]) -> String {
     s
 }
 
-/// Convert a feature's raw Dependencies value into a bare-key cell.
+/// Resolve every feature's Implementation Issues key, positionally aligned
+/// with `features`.
 ///
-/// `Feature 1` -> `F1`, `Feature 1, Feature 2` -> `F1, F2`, `None`/empty ->
-/// `None`. NO parenthetical annotations are emitted -- `F1 (soft)` and
-/// `None (ext: ...)` trip the validator's FC06 check, so the soft/hard and
-/// external nuance stays in the feature prose, not the cell. Cross-repo refs
-/// in the source (e.g. `tsukumogami/koto#65`) carry no `Feature N` token and
-/// so contribute no bare key; when a feature lists only such refs the cell
-/// collapses to `None`.
-fn bare_feature_deps(deps: &str) -> String {
-    let refs = feature_refs_in(deps);
-    if refs.is_empty() {
-        return "None".to_string();
+/// A feature's key is its label with issue-link decoration stripped -- the
+/// same transform the issue-creating renderer applies -- unless that label
+/// cannot serve as a table key, in which case the key is `F<n>`.
+///
+/// Resolving once into a table, rather than at each call site, is what makes
+/// the key column and the Dependencies cells agree. Both read this vector, so
+/// there is no second copy of the rule for them to drift apart on. The
+/// fallback conditions depend on the whole feature list (a label is unusable
+/// if *another* feature shares it), which is why per-call-site resolution is
+/// not an option.
+fn feature_keys(features: &[Feature]) -> Vec<String> {
+    (0..features.len())
+        .map(|i| match key_fallback_reason(features, i) {
+            Some(_) => format!("F{}", features[i].id),
+            None => strip_label_decoration(&features[i].label),
+        })
+        .collect()
+}
+
+/// Max characters of author label text carried into a stderr diagnostic.
+const DIAGNOSTIC_LABEL_MAX_CHARS: usize = 60;
+
+/// Render a feature's label safely for a stderr diagnostic.
+///
+/// A label cannot contain a newline -- `parse_features` works over lines the
+/// frontmatter reader already split -- but an interior `\r` survives parsing
+/// and would return the cursor to column zero and overwrite the warning, and
+/// an escape run would reach the operator's terminal directly. Length is also
+/// unbounded in principle: a document with CR-only line endings parses as one
+/// line, so the label absorbs the rest of the file. A diagnostic that can
+/// rewrite its own output is not a diagnostic.
+fn diagnostic_label(label: &str) -> String {
+    let cleaned: String = label.chars().filter(|c| !c.is_control()).collect();
+    let cleaned = cleaned.trim();
+    if cleaned.chars().count() <= DIAGNOSTIC_LABEL_MAX_CHARS {
+        return cleaned.to_string();
     }
-    refs.iter()
-        .map(|n| format!("F{}", n))
-        .collect::<Vec<_>>()
-        .join(", ")
+    let head: String = cleaned.chars().take(DIAGNOSTIC_LABEL_MAX_CHARS).collect();
+    format!("{}...", head.trim_end())
+}
+
+/// One `warning:` line per feature whose description cell was cut short.
+///
+/// The line names the feature and the remedy, because a bare count tells an
+/// author nothing they can act on. Both populate modes emit these: the bound
+/// is a property of the shared derivation.
+fn truncation_warnings(features: &[Feature]) -> Vec<String> {
+    features
+        .iter()
+        .filter(|f| summarize_description(&f.description).1)
+        .map(|f| {
+            format!(
+                "warning: feature {} {:?}: description truncated at {} characters; \
+                 add a \"**Functional outcome:**\" line to control the summary",
+                f.id,
+                diagnostic_label(&f.label),
+                DESCRIPTION_MAX_CHARS
+            )
+        })
+        .collect()
+}
+
+/// One `warning:` line per feature whose key fell back to `F<n>`.
+///
+/// Issueless callers only. Issue-creating mode keys rows on the plain label
+/// and never applies the fallback, so emitting these there would tell an
+/// author the tool did something it did not do -- on the one mode where the
+/// resulting row genuinely can break FC06.
+fn key_fallback_warnings(features: &[Feature]) -> Vec<String> {
+    (0..features.len())
+        .filter_map(|i| {
+            key_fallback_reason(features, i).map(|reason| {
+                format!(
+                    "warning: feature {} {:?}: key falls back to F{} ({})",
+                    features[i].id,
+                    diagnostic_label(&features[i].label),
+                    features[i].id,
+                    reason
+                )
+            })
+        })
+        .collect()
+}
+
+/// Why feature `i`'s label cannot serve as its row key, or `None` when it can.
+///
+/// One predicate with two consumers -- [`feature_keys`] turns `Some` into the
+/// fallback and [`key_fallback_warnings`] turns it into a diagnostic -- so a
+/// row can never fall back silently, and a warning can never name a row that
+/// did not fall back.
+///
+/// Three things disqualify a label:
+///
+/// - It does not survive the validator's own key and dependency
+///   normalizations unchanged. That test lives in `shirabe-validate` beside
+///   the normalizers it runs, because a character blacklist gets it wrong: a
+///   label containing `~~`, `#12`, or `](` passes any such list and still
+///   produces an error-level FC06 finding.
+/// - Another feature carries the same label, which would make every
+///   dependency reference to it ambiguous.
+/// - It collides with some feature's `F<n>` form, which would let a literal
+///   label and a fallback key name the same row.
+fn key_fallback_reason(features: &[Feature], i: usize) -> Option<String> {
+    let key = strip_label_decoration(&features[i].label);
+    if !is_stable_table_key(&key) {
+        return Some("label cannot serve as a table key".to_string());
+    }
+    for (j, other) in features.iter().enumerate() {
+        if j == i {
+            continue;
+        }
+        if strip_label_decoration(&other.label) == key {
+            return Some("label is shared with another feature".to_string());
+        }
+    }
+    if features.iter().any(|f| format!("F{}", f.id) == key) {
+        return Some("label collides with a fallback key".to_string());
+    }
+    None
 }
 
 /// One entry in the per-feature manifest, in the shape
@@ -567,13 +694,22 @@ pub fn render_table(
     }
     s.push_str("| Feature | Issues | Dependencies | Status |\n");
     s.push_str("|---------|--------|--------------|--------|\n");
+    // Issue-creating mode keys rows on the plain decoration-stripped label and
+    // keeps doing so: the `F<n>` fallback is issueless-mode behaviour under
+    // the accepted PRD's R24. Passing the key table explicitly is what makes
+    // that a structural property of the shared renderer rather than something
+    // a reader has to verify.
+    let keys: Vec<String> = features
+        .iter()
+        .map(|f| strip_label_decoration(&f.label))
+        .collect();
     for f in features {
         let clean = strip_label_decoration(&f.label);
         let issue_cell = match mapping.get(&f.id.to_string()) {
             Some(n) => format!("[#{}](https://github.com/{}/issues/{})", n, owner_repo, n),
             None => "None".to_string(),
         };
-        let deps_cell = render_deps_cell(&f.dependencies, features);
+        let deps_cell = render_deps_cell(&f.dependencies, features, &keys);
         let status_cell = pick_status_cell(f);
         let desc = concise_description(&f.description);
         if feature_is_terminal(f) {
@@ -753,31 +889,124 @@ fn truncate_label(label: &str) -> String {
     truncated
 }
 
-/// Derive a concise 1-sentence description for an entity row's italic
-/// description cell.
+/// Hard ceiling on a rendered description cell, in Unicode scalar values.
 ///
-/// The Features-section parser collapses a feature's entire prose body
-/// into one string. Rendering that verbatim produces a multi-hundred-word
-/// cell (issue #232 defect b). Instead we prefer the feature's
-/// `**Functional outcome:**` sentence when present -- the single sentence
-/// stating what the feature delivers -- and fall back to the first
-/// sentence of the body otherwise, matching `issues-table.md`'s "1-3
-/// sentences" guideline for description rows.
-fn concise_description(desc: &str) -> String {
+/// `issues-table.md` asks description rows for 1-3 sentences. Sentence
+/// selection alone does not bound anything -- a body with no early sentence
+/// terminator has a "first sentence" the length of the whole body -- so the
+/// ceiling is what actually keeps a bullet list or a semicolon-chained
+/// paragraph out of one table cell. The truncation marker counts inside the
+/// budget, so "no cell exceeds the ceiling" is a single assertion on the
+/// rendered text rather than a rule with an exception.
+const DESCRIPTION_MAX_CHARS: usize = 200;
+
+/// The truncation marker appended to a description cut short. ASCII, to match
+/// the marker [`truncate_label`] already uses for diagram node labels.
+const DESCRIPTION_TRUNCATION_MARKER: &str = "...";
+
+/// Text rendered when a feature yields no usable description.
+///
+/// An empty cell would render `| __ | | | |`, and the validator's
+/// `is_italic_cell` classifies a cell opening `__` as bold rather than
+/// italic -- so FC05 reports the entity row above it as missing its
+/// description row, an error-level finding on a document this tool wrote.
+const DESCRIPTION_PLACEHOLDER: &str = "No description in the feature body.";
+
+/// Derive the bounded, sanitized text for an entity row's italic description
+/// cell. Returns the text and whether it was truncated.
+///
+/// The Features-section parser collapses a feature's entire prose body into
+/// one string. Three things then have to happen before that string is safe to
+/// put in a table cell:
+///
+/// 1. **Select.** Prefer the feature's `**Functional outcome:**` text -- the
+///    sentence stating what the feature delivers -- and fall back to the first
+///    sentence of the body otherwise.
+/// 2. **Sanitize.** Body prose can carry characters that break the row it
+///    lands in: a `|` splits the cell, an unbalanced `~~` run flips how the
+///    validator classifies the row, a leading `_` makes the cell read as bold,
+///    and a control character can rewrite a terminal. Repair rather than
+///    reject, and fall back to [`DESCRIPTION_PLACEHOLDER`] when nothing
+///    survives.
+/// 3. **Bound.** Cut to [`DESCRIPTION_MAX_CHARS`] at a word boundary.
+///
+/// Sanitizing before bounding is the order that matters: the characters that
+/// would make a truncated cell malformed are gone before the cut happens, so
+/// truncation cannot introduce a problem the full text did not have.
+///
+/// Both populate modes share this derivation -- it is a property of turning a
+/// feature body into a table cell, not of one renderer.
+fn summarize_description(desc: &str) -> (String, bool) {
     let text = desc.trim();
-    if text.is_empty() {
-        return String::new();
-    }
-    let body = match find_ci(text, "**functional outcome:**") {
-        Some(idx) => text[idx + "**functional outcome:**".len()..].trim_start(),
-        None => text,
-    };
-    let sentence = first_sentence(body);
-    if sentence.is_empty() {
-        text.to_string()
+    let selected = if text.is_empty() {
+        String::new()
     } else {
-        sentence
+        let body = match find_ci(text, "**functional outcome:**") {
+            Some(idx) => text[idx + "**functional outcome:**".len()..].trim_start(),
+            None => text,
+        };
+        let sentence = first_sentence(body);
+        if sentence.is_empty() {
+            text.to_string()
+        } else {
+            sentence
+        }
+    };
+
+    let sanitized = sanitize_description(&selected);
+    if sanitized.is_empty() {
+        return (DESCRIPTION_PLACEHOLDER.to_string(), false);
     }
+    bound_description(&sanitized)
+}
+
+/// Derive the description cell text, discarding the truncation flag. The
+/// renderers want the text; [`truncation_warnings`] wants the flag.
+fn concise_description(desc: &str) -> String {
+    summarize_description(desc).0
+}
+
+/// Remove the characters that would make a description cell malformed in its
+/// own row, then trim. Returns an empty string when nothing usable is left.
+///
+/// - Control characters are dropped: a `\r` would rewrite the rendered line
+///   and an escape sequence would reach a terminal.
+/// - `|` becomes `/`: a pipe splits the markdown row, so the trailing cells
+///   stop being empty and the row classifies as an entity row rather than a
+///   description row.
+/// - `~` is removed: the renderer adds its own `~~` wrapper for a delivered
+///   feature, and an odd number of `~` in the body collapses that wrapper
+///   asymmetrically between the key cell and the dependency token naming it.
+/// - A leading `_` is stripped: the cell is rendered `_{text}_`, so a text
+///   opening `_` produces `__`, which `is_italic_cell` rejects as bold.
+fn sanitize_description(text: &str) -> String {
+    let cleaned: String = text
+        .chars()
+        .filter(|c| !c.is_control())
+        .map(|c| match c {
+            '|' => '/',
+            other => other,
+        })
+        .filter(|c| *c != '~')
+        .collect();
+    cleaned.trim().trim_start_matches('_').trim().to_string()
+}
+
+/// Apply [`DESCRIPTION_MAX_CHARS`] to already-sanitized text, cutting back to
+/// the last whitespace boundary so the cell ends on a whole word. When the
+/// budget contains no whitespace -- a single very long token -- the cut is
+/// taken at the budget itself rather than giving up on the bound.
+fn bound_description(text: &str) -> (String, bool) {
+    if text.chars().count() <= DESCRIPTION_MAX_CHARS {
+        return (text.to_string(), false);
+    }
+    let budget = DESCRIPTION_MAX_CHARS - DESCRIPTION_TRUNCATION_MARKER.len();
+    let mut head: String = text.chars().take(budget).collect();
+    if let Some(last_space) = head.rfind(char::is_whitespace) {
+        head.truncate(last_space);
+    }
+    let head = head.trim_end().to_string();
+    (format!("{}{}", head, DESCRIPTION_TRUNCATION_MARKER), true)
 }
 
 /// Case-insensitive ASCII substring search. `needle` must be lowercase
@@ -818,24 +1047,38 @@ fn first_sentence(text: &str) -> String {
     text.to_string()
 }
 
-/// Render an issue-creating-mode Dependencies cell that names actual table
-/// row keys.
+/// Render a Dependencies cell that names actual table row keys.
 ///
-/// Each `Feature N` reference resolves to that feature's clean label -- the
-/// same text the entity row's key column carries -- so FC06's
-/// cross-reference existence check passes (the raw `Feature N` token names
-/// no row; the label does). Cross-repo references (`owner/repo#N`) are
-/// preserved verbatim: FC06 treats them as non-local and skips them, and
-/// the roadmap corpus expects them to round-trip. Returns `None` when the
-/// cell resolves to no references.
-fn render_deps_cell(deps: &str, features: &[Feature]) -> String {
+/// Each `Feature N` reference resolves to the depended-on feature's key as
+/// `keys` gives it -- the same text that feature's own entity row carries in
+/// the key column -- so FC06's cross-reference existence check passes (the raw
+/// `Feature N` token names no row; the key does). Cross-repo references
+/// (`owner/repo#N`) are preserved verbatim: FC06 treats them as non-local and
+/// skips them, and the roadmap corpus expects them to round-trip. Returns
+/// `None` when the cell resolves to no references.
+///
+/// Both modes call this; `keys` is what distinguishes them. Issue-creating
+/// mode passes the plain decoration-stripped labels it has always used, so its
+/// output is unchanged; issueless mode passes [`feature_keys`], which may
+/// substitute an `F<n>` fallback.
+///
+/// The lookup is total. `feature_refs_in` extracts any integer following the
+/// word `Feature` straight from an author-written line, so `Feature 0` and a
+/// stale `Feature 12` on a three-feature roadmap both arrive here; indexing
+/// `keys` by `id - 1` would underflow on the first and run off the end on the
+/// second. An id naming no feature contributes no token, which is what both
+/// modes have always done.
+fn render_deps_cell(deps: &str, features: &[Feature], keys: &[String]) -> String {
     let mut parts: Vec<String> = Vec::new();
     for id in feature_refs_in(deps) {
-        if let Some(f) = features.iter().find(|f| f.id == id) {
-            let label = strip_label_decoration(&f.label);
-            if !parts.contains(&label) {
-                parts.push(label);
-            }
+        let Some(pos) = features.iter().position(|f| f.id == id) else {
+            continue;
+        };
+        let Some(key) = keys.get(pos) else {
+            continue;
+        };
+        if !parts.contains(key) {
+            parts.push(key.clone());
         }
     }
     for tok in deps.split(',') {
@@ -1254,20 +1497,7 @@ mod tests {
     }
 
     #[test]
-    fn bare_feature_deps_strips_to_keys_or_none() {
-        assert_eq!(bare_feature_deps("None"), "None");
-        assert_eq!(bare_feature_deps(""), "None");
-        assert_eq!(bare_feature_deps("Feature 1"), "F1");
-        assert_eq!(bare_feature_deps("Feature 1, Feature 2"), "F1, F2");
-        // A cross-repo-only dependency carries no `Feature N` token, so the
-        // cell collapses to `None` (the nuance lives in feature prose).
-        assert_eq!(bare_feature_deps("tsukumogami/koto#65"), "None");
-        // Mixed: only the local feature tokens survive as bare keys.
-        assert_eq!(bare_feature_deps("tsukumogami/koto#65, Feature 1"), "F1");
-    }
-
-    #[test]
-    fn render_issueless_table_is_feature_keyed_with_bare_deps() {
+    fn render_issueless_table_is_label_keyed_with_label_deps() {
         let features = vec![
             make_feature(
                 1,
@@ -1289,12 +1519,16 @@ mod tests {
         let table = render_issueless_table(&features, "M1");
         assert!(table.contains("### Milestone: M1"));
         assert!(table.contains("| Feature | Issues | Dependencies | Status |"));
-        // Rows are keyed F1/F2 (NOT the feature name, NOT an issue link), the
-        // Issues column carries the needs-* label, deps are bare keys.
-        assert!(table.contains("| F1 | needs-design | None | needs-design |"));
+        // Rows are keyed by the feature label, per the Roadmap Profile key
+        // form; the Issues column carries the needs-* label; deps name the
+        // depended-on feature's key.
+        assert!(table.contains("| Foundation | needs-design | None | needs-design |"));
         assert!(table.contains("| _Foundation._ | | | |"));
-        assert!(table.contains("| F2 | needs-spike | F1 | needs-spike |"));
+        assert!(table.contains("| Caching | needs-spike | Foundation | needs-spike |"));
         assert!(table.contains("| _Caching._ | | | |"));
+        // No opaque F<n> key survives when the labels are usable.
+        assert!(!table.contains("| F1 |"));
+        assert!(!table.contains("| F2 |"));
         // No GitHub issue links leak into the issueless table.
         assert!(!table.contains("https://github.com"));
         assert!(!table.contains("[#"));
@@ -1315,7 +1549,7 @@ mod tests {
         assert!(!table.contains("### Milestone"));
         // A feature with no needs-* label gets a `None` Issues cell and keeps
         // its declared Status.
-        assert!(table.contains("| F1 | None | None | In Progress |"));
+        assert!(table.contains("| Plain | None | None | In Progress |"));
     }
 
     #[test]
@@ -1418,11 +1652,14 @@ mod tests {
         assert_eq!(code, ExitCode::SUCCESS);
 
         let updated = fs::read_to_string(&path).unwrap();
-        // Both reserved sections are filled, feature-keyed, no GitHub refs.
-        assert!(updated.contains("| F1 | needs-design | None | needs-design |"));
-        assert!(updated.contains("| F2 | needs-spike | F1 | needs-spike |"));
+        // Both reserved sections are filled, label-keyed, no GitHub refs.
+        assert!(updated.contains("| Foundation | needs-design | None | needs-design |"));
+        assert!(updated.contains("| Caching | needs-spike | Foundation | needs-spike |"));
+        // The diagram keeps F<n> node ids: FC07 never looks at them, and the
+        // roadmap format reference specifies them.
         assert!(updated.contains("graph TD"));
         assert!(updated.contains("F1 --> F2"));
+        assert!(updated.contains("F1[\"Foundation\"]"));
         assert!(!updated.contains("https://github.com"));
         // The other prose is preserved untouched.
         assert!(updated.contains("## Features"));
@@ -1579,25 +1816,306 @@ mod tests {
     }
 
     #[test]
+    fn summarize_description_bounds_at_the_ceiling() {
+        // Exactly at the ceiling: untouched, not flagged.
+        let at_ceiling = "w".repeat(DESCRIPTION_MAX_CHARS);
+        let (text, truncated) = summarize_description(&at_ceiling);
+        assert_eq!(text.chars().count(), DESCRIPTION_MAX_CHARS);
+        assert!(!truncated);
+
+        // One over: cut and marked, and the marker counts inside the budget.
+        let over = format!("{} tail", "w".repeat(DESCRIPTION_MAX_CHARS));
+        let (text, truncated) = summarize_description(&over);
+        assert!(truncated);
+        assert!(text.chars().count() <= DESCRIPTION_MAX_CHARS);
+        assert!(text.ends_with(DESCRIPTION_TRUNCATION_MARKER));
+
+        // A single word longer than the budget has no whitespace to cut back
+        // to; the bound still holds.
+        let one_word = "w".repeat(400);
+        let (text, truncated) = summarize_description(&one_word);
+        assert!(truncated);
+        assert!(text.chars().count() <= DESCRIPTION_MAX_CHARS);
+    }
+
+    #[test]
+    fn summarize_description_bounds_a_body_with_no_sentence_terminator() {
+        // The shape issue #261 reports: a bullet-list body has no `. ` early
+        // on, so sentence selection returns the whole opening block.
+        let body = "The stages this adds, end to end: \
+                    - discovery, which walks the configured roots \
+                    - normalization, which folds each candidate into the record shape \
+                    - validation, which rejects records that cannot be resolved later \
+                    - emission, which hands the survivors on to the resolver stage";
+        let (text, truncated) = summarize_description(body);
+        assert!(truncated, "an unbounded body must be flagged");
+        assert!(text.chars().count() <= DESCRIPTION_MAX_CHARS);
+        assert!(text.starts_with("The stages this adds"));
+        // Cut at a word boundary, not mid-word.
+        let stem = text.trim_end_matches(DESCRIPTION_TRUNCATION_MARKER);
+        assert!(!stem.ends_with(' '));
+        assert!(body.starts_with(stem));
+    }
+
+    #[test]
+    fn summarize_description_counts_characters_not_bytes() {
+        // Multi-byte input must never be split mid-character, and the ceiling
+        // is scalar values rather than bytes.
+        let body = "é".repeat(400);
+        let (text, truncated) = summarize_description(&body);
+        assert!(truncated);
+        assert!(text.chars().count() <= DESCRIPTION_MAX_CHARS);
+        assert!(
+            text.len() > DESCRIPTION_MAX_CHARS,
+            "bytes exceed chars here"
+        );
+    }
+
+    #[test]
+    fn summarize_description_empty_body_gets_the_placeholder() {
+        // An empty cell renders `| __ | | | |`, which the validator reads as
+        // bold rather than italic and reports as a missing description row.
+        assert_eq!(
+            summarize_description(""),
+            (DESCRIPTION_PLACEHOLDER.to_string(), false)
+        );
+        assert_eq!(
+            summarize_description("   "),
+            (DESCRIPTION_PLACEHOLDER.to_string(), false)
+        );
+        // Text that sanitizes away entirely lands on the placeholder too.
+        assert_eq!(
+            summarize_description("~~~"),
+            (DESCRIPTION_PLACEHOLDER.to_string(), false)
+        );
+    }
+
+    #[test]
+    fn summarize_description_sanitizes_row_breaking_characters() {
+        // A leading underscore would render `| ___init___ ... |`, which
+        // `is_italic_cell` rejects for the same reason `__` is rejected.
+        assert_eq!(
+            concise_description("__init__ parsing is deferred."),
+            "init__ parsing is deferred."
+        );
+        // A pipe splits the markdown row, so the trailing cells stop being
+        // empty and the row reclassifies as an entity row.
+        assert_eq!(
+            concise_description("Reads a | b from the manifest."),
+            "Reads a / b from the manifest."
+        );
+        // The renderer adds its own `~~` wrapper for a delivered feature; an
+        // odd run in the body collapses it asymmetrically.
+        assert_eq!(
+            concise_description("Retires the ~~old~~ path."),
+            "Retires the old path."
+        );
+        // Control characters never reach the rendered cell. The escape byte
+        // is what rewrites a terminal; the printable tail it introduced is
+        // left as ordinary text.
+        assert_eq!(concise_description("Line one.\u{1b}[31m"), "Line one.[31m");
+        assert!(!concise_description("Line one.\u{1b}[31m").contains('\u{1b}'));
+    }
+
+    #[test]
+    fn summarize_description_sanitizes_before_bounding() {
+        // Sanitizing first is what keeps truncation from creating malformed
+        // markup the untruncated text did not have: the `~` runs are gone
+        // before the cut, so the cut cannot land inside one.
+        // No sentence terminator, so selection returns the whole block and
+        // the bound is what stops it.
+        let body = format!("Retires the ~~old~~ path {}", "w ".repeat(200));
+        let (text, truncated) = summarize_description(&body);
+        assert!(truncated);
+        assert!(!text.contains('~'));
+        assert!(text.chars().count() <= DESCRIPTION_MAX_CHARS);
+    }
+
+    #[test]
     fn render_deps_cell_maps_features_to_row_keys_and_keeps_cross_repo() {
         let features = vec![
             make_feature(1, "Foundation layer", "", "None", "Not started", "x."),
             make_feature(2, "Caching layer", "", "Feature 1", "Not started", "x."),
             make_feature(3, "Metrics", "", "Feature 1", "Not started", "x."),
         ];
+        let keys = feature_keys(&features);
         // A plural reference resolves to each depended-on feature's label
         // (its row key) so FC06 passes.
         let f4 = make_feature(4, "Dash", "", "Features 2, 3", "Not started", "x.");
         assert_eq!(
-            render_deps_cell(&f4.dependencies, &features),
+            render_deps_cell(&f4.dependencies, &features, &keys),
             "Caching layer, Metrics"
         );
         // Cross-repo refs are preserved verbatim alongside resolved labels.
         assert_eq!(
-            render_deps_cell("tsukumogami/koto#65, Feature 1", &features),
+            render_deps_cell("tsukumogami/koto#65, Feature 1", &features, &keys),
             "Foundation layer, tsukumogami/koto#65"
         );
-        assert_eq!(render_deps_cell("None", &features), "None");
+        assert_eq!(render_deps_cell("None", &features, &keys), "None");
+    }
+
+    #[test]
+    fn render_deps_cell_drops_ids_naming_no_feature_without_panicking() {
+        // `feature_refs_in` takes any integer following the word `Feature`
+        // straight from an author-written line, so a typo and a stale
+        // reference both arrive here. Resolving by arithmetic index would
+        // underflow on `Feature 0` and run off the end on `Feature 99`.
+        let features = vec![
+            make_feature(1, "Foundation layer", "", "None", "Not started", "x."),
+            make_feature(2, "Caching layer", "", "Feature 1", "Not started", "x."),
+        ];
+        let keys = feature_keys(&features);
+        assert_eq!(render_deps_cell("Feature 0", &features, &keys), "None");
+        assert_eq!(render_deps_cell("Feature 99", &features, &keys), "None");
+        assert_eq!(
+            render_deps_cell("Feature 1, Feature 99", &features, &keys),
+            "Foundation layer"
+        );
+    }
+
+    #[test]
+    fn render_deps_cell_drops_parenthetical_annotations() {
+        // `F1 (soft)` and `None (ext: ...)` trip FC06, so the soft/hard and
+        // external nuance stays in the feature prose rather than the cell.
+        let features = vec![
+            make_feature(1, "Foundation layer", "", "None", "Not started", "x."),
+            make_feature(
+                2,
+                "Caching layer",
+                "",
+                "Feature 1 (soft)",
+                "Not started",
+                "x.",
+            ),
+        ];
+        let keys = feature_keys(&features);
+        assert_eq!(
+            render_deps_cell(&features[1].dependencies, &features, &keys),
+            "Foundation layer"
+        );
+        assert_eq!(
+            render_deps_cell("None (ext: onboarding)", &features, &keys),
+            "None"
+        );
+    }
+
+    #[test]
+    fn feature_keys_falls_back_when_a_label_cannot_key_a_row() {
+        // Empty label.
+        let features = vec![
+            make_feature(1, "", "", "None", "Not started", "x."),
+            make_feature(2, "Caching", "", "Feature 1", "Not started", "x."),
+        ];
+        assert_eq!(feature_keys(&features), vec!["F1", "Caching"]);
+        // A dependency on the fallen-back feature names the fallback key.
+        let keys = feature_keys(&features);
+        assert_eq!(
+            render_deps_cell(&features[1].dependencies, &features, &keys),
+            "F1"
+        );
+
+        // A comma splits the dependency cell; a pipe splits the row.
+        let features = vec![
+            make_feature(1, "Establish, then act", "", "None", "Not started", "x."),
+            make_feature(2, "Read a | b", "", "None", "Not started", "x."),
+        ];
+        assert_eq!(feature_keys(&features), vec!["F1", "F2"]);
+
+        // Text the validator's normalizers rewrite: an issue reference
+        // replaces the whole key, a markdown link is unwrapped, and a `~~`
+        // run collapses asymmetrically against a delivered row's wrapper.
+        let features = vec![
+            make_feature(1, "Retire #123 shim", "", "None", "Not started", "x."),
+            make_feature(2, "[Cache](#anchor)", "", "None", "Not started", "x."),
+            make_feature(3, "a~~b", "", "None", "Not started", "x."),
+        ];
+        assert_eq!(feature_keys(&features), vec!["F1", "F2", "F3"]);
+    }
+
+    #[test]
+    fn feature_keys_falls_back_on_duplicate_and_colliding_labels() {
+        // Two features sharing a label would make every dependency reference
+        // to that label ambiguous, so both fall back.
+        let features = vec![
+            make_feature(1, "Caching", "", "None", "Not started", "x."),
+            make_feature(2, "Caching", "", "None", "Not started", "x."),
+            make_feature(3, "Metrics", "", "None", "Not started", "x."),
+        ];
+        assert_eq!(feature_keys(&features), vec!["F1", "F2", "Metrics"]);
+
+        // A feature literally labelled `F2` alongside a feature that falls
+        // back would otherwise produce two rows keyed `F2`.
+        let features = vec![
+            make_feature(1, "F2", "", "None", "Not started", "x."),
+            make_feature(2, "", "", "None", "Not started", "x."),
+        ];
+        let keys = feature_keys(&features);
+        assert_eq!(keys, vec!["F1", "F2"]);
+        assert_ne!(keys[0], keys[1], "no two rows may share a key");
+    }
+
+    #[test]
+    fn warnings_name_the_feature_and_the_remedy_in_feature_order() {
+        let long_body = format!("The stages this adds {}", "w ".repeat(200));
+        let features = vec![
+            make_feature(1, "Foundation", "", "None", "Not started", "Short."),
+            make_feature(2, "Caching", "", "None", "Not started", &long_body),
+            make_feature(
+                3,
+                "Establish, then act",
+                "",
+                "None",
+                "Not started",
+                "Short.",
+            ),
+            make_feature(4, "Metrics", "", "None", "Not started", &long_body),
+        ];
+
+        let truncations = truncation_warnings(&features);
+        assert_eq!(truncations.len(), 2);
+        assert!(truncations[0].starts_with("warning: feature 2 \"Caching\""));
+        assert!(truncations[0].contains("**Functional outcome:**"));
+        assert!(truncations[0].contains("200 characters"));
+        // Feature order, not discovery order.
+        assert!(truncations[1].starts_with("warning: feature 4 \"Metrics\""));
+
+        let fallbacks = key_fallback_warnings(&features);
+        assert_eq!(fallbacks.len(), 1);
+        assert!(fallbacks[0].contains("feature 3 \"Establish, then act\""));
+        assert!(fallbacks[0].contains("falls back to F3"));
+        assert!(fallbacks[0].contains("cannot serve as a table key"));
+    }
+
+    #[test]
+    fn diagnostic_label_strips_controls_and_bounds_length() {
+        // An interior CR would overwrite the emitted line; an escape run
+        // would reach the terminal.
+        assert_eq!(diagnostic_label("Retire\rthe shim"), "Retirethe shim");
+        assert_eq!(diagnostic_label("Retire\u{1b}[31m shim"), "Retire[31m shim");
+        // A CR-only-line-ending document parses as one line, so the label can
+        // absorb the rest of the file.
+        let huge = "w".repeat(5000);
+        let out = diagnostic_label(&huge);
+        assert!(out.chars().count() <= DIAGNOSTIC_LABEL_MAX_CHARS + 3);
+        assert!(out.ends_with("..."));
+        // A label that fits is untouched.
+        assert_eq!(diagnostic_label("Foundation"), "Foundation");
+    }
+
+    #[test]
+    fn render_issueless_table_strikes_delivered_rows_but_not_dependency_tokens() {
+        let features = vec![
+            make_feature(1, "Foundation", "", "None", "Done", "Foundation."),
+            make_feature(2, "Caching", "", "Feature 1", "Not started", "Caching."),
+        ];
+        let table = render_issueless_table(&features, "");
+        // The delivered row is struck through, key cell included.
+        assert!(table.contains("| ~~Foundation~~ | ~~None~~ | ~~None~~ | ~~Done~~ |"));
+        assert!(table.contains("| ~~_Foundation._~~ | | | |"));
+        // The dependency naming it carries the bare key: strikethrough is
+        // decoration on a row, not part of the key FC06 reconciles.
+        assert!(table.contains("| Caching | None | Foundation | Not started |"));
+        assert!(!table.contains("| ~~Foundation~~ | Not started"));
     }
 
     #[test]
@@ -1672,7 +2190,7 @@ mod tests {
             "Body.",
         )];
         let table = render_issueless_table(&features, "");
-        assert!(table.contains("| ~~F1~~ | ~~None~~ | ~~None~~ | ~~Done~~ |"));
+        assert!(table.contains("| ~~Shipped~~ | ~~None~~ | ~~None~~ | ~~Done~~ |"));
         assert!(!table.contains("needs-design"));
     }
 

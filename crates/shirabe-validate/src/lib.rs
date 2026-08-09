@@ -62,7 +62,7 @@ pub use pr_body::{check_pr_body, check_pr_title, PrBodyFinding};
 pub use report::{
     render_human, render_human_with_advisory, render_json, render_json_with_advisory,
 };
-pub use table::{parse_issues_table, Profile, Row, RowKind, Table};
+pub use table::{is_stable_table_key, parse_issues_table, Profile, Row, RowKind, Table};
 pub use transition::{
     run_transition, transition_spec, transition_table, BodyTemplate, ExtraInput, Flags, Moves,
     Outcome, Precondition, ResultFields, Rule, TransitionError, TransitionSpec,

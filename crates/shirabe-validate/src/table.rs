@@ -420,6 +420,49 @@ fn extract_entity_key(cell: &str) -> String {
     normalize_feature_ref(&c)
 }
 
+/// Reports whether `text` can serve as an issues-table key without the
+/// validator reading it as something else.
+///
+/// FC06 does not compare cell text. It compares [`extract_entity_key`]'s
+/// output for a key cell against [`extract_deps`]'s output for a dependency
+/// token, and those two apply *different* normalizations to the same string:
+/// an `ISSUE_REF_PATTERN` match anywhere in a key cell replaces the whole key
+/// with `#N`, a `[label](target)` form is unwrapped to `label`, and a
+/// delivered row's key cell is strikethrough-wrapped before either runs while
+/// the dependency token naming it is not. A renderer that emits author text as
+/// a key therefore cannot decide safety from a character blacklist -- a label
+/// containing `~~`, `#12`, or `](` passes any list a reader would write and
+/// still produces an error-level finding.
+///
+/// So the question this answers is a fixpoint one: are both normalizations the
+/// identity on this text, bare and strikethrough-wrapped? Commas and pipes are
+/// rejected up front because they split the row and the dependency cell before
+/// normalization ever runs, and control characters because they can rewrite
+/// the rendered line.
+///
+/// This is a predicate for renderers, not a validation check: nothing new
+/// fires during `shirabe validate`. It lives here so it uses the same
+/// normalizers the checks do and cannot drift from them.
+pub fn is_stable_table_key(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() {
+        return false;
+    }
+    if t.contains(',') || t.contains('|') {
+        return false;
+    }
+    if t.chars().any(char::is_control) {
+        return false;
+    }
+    if extract_entity_key(t) != t {
+        return false;
+    }
+    if extract_entity_key(&format!("~~{}~~", t)) != t {
+        return false;
+    }
+    extract_deps(t) == vec![t.to_string()]
+}
+
 /// Strip markdown link syntax to produce a stable label suitable for
 /// cross-reference lookup.
 fn normalize_feature_ref(s: &str) -> String {
@@ -830,8 +873,7 @@ fn parse_dependency_tokens(value: &str) -> Vec<String> {
         .trim()
         .to_string();
 
-    let placeholder_re: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"<<ISSUE:\d+>>").unwrap());
+    let placeholder_re: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<<ISSUE:\d+>>").unwrap());
 
     let placeholders: Vec<String> = placeholder_re
         .find_iter(&cleaned)
@@ -876,6 +918,61 @@ mod tests {
         assert_eq!(table.rows[2].kind, RowKind::Entity);
         assert_eq!(table.rows[2].key, "#2");
         assert_eq!(table.rows[2].deps, vec!["#1"]);
+    }
+
+    #[test]
+    fn is_stable_table_key_accepts_ordinary_labels() {
+        assert!(is_stable_table_key("Foundation layer"));
+        assert!(is_stable_table_key("A1 — Establish the baseline"));
+        // Parentheses and backticks are only meaningful to the normalizers in
+        // combination, so an ordinary label carrying them is still stable.
+        assert!(is_stable_table_key("Retire the shim (finally)"));
+        assert!(is_stable_table_key(
+            "Safe; rm -rf /tmp/foo && echo HIJACKED"
+        ));
+    }
+
+    #[test]
+    fn is_stable_table_key_rejects_delimiters_and_empties() {
+        assert!(!is_stable_table_key(""));
+        assert!(!is_stable_table_key("   "));
+        // A comma splits the dependency cell into tokens that name no row.
+        assert!(!is_stable_table_key("Establish, then act"));
+        // A pipe splits the markdown row itself.
+        assert!(!is_stable_table_key("Read a | b"));
+        // A control character can rewrite the rendered line.
+        assert!(!is_stable_table_key("Retire\u{1b}[31m the shim"));
+        assert!(!is_stable_table_key("Retire\rthe shim"));
+    }
+
+    #[test]
+    fn is_stable_table_key_rejects_text_the_normalizers_rewrite() {
+        // An issue reference anywhere in a key cell replaces the whole key,
+        // so two features mentioning #123 would collapse to one key.
+        assert!(!is_stable_table_key("Retire #123 shim"));
+        // A markdown link is unwrapped to its text, so two labels differing
+        // only in target become one key.
+        assert!(!is_stable_table_key("[Cache](#anchor)"));
+        // A `~~` run in the label collapses asymmetrically: the key cell is
+        // strikethrough-wrapped for a delivered feature and the dependency
+        // token naming it is not.
+        assert!(!is_stable_table_key("a~~b"));
+        assert!(!is_stable_table_key("~~struck~~"));
+    }
+
+    #[test]
+    fn is_stable_table_key_agrees_with_the_normalizers_it_wraps() {
+        // The guarantee the predicate exists to make: for accepted text, the
+        // key a row renders and the token a dependency cell renders normalize
+        // to the same value -- which is what FC06 compares.
+        for label in ["Foundation layer", "A1 — Establish the baseline", "Metrics"] {
+            assert!(is_stable_table_key(label));
+            assert_eq!(extract_entity_key(label), extract_deps(label)[0]);
+            assert_eq!(
+                extract_entity_key(&format!("~~{}~~", label)),
+                extract_deps(label)[0]
+            );
+        }
     }
 
     #[test]
