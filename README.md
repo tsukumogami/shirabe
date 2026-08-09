@@ -42,13 +42,13 @@ in one sitting, plus the child skills you can also reach for directly.
 |-------|-------------|
 | `/execute` | Parent skill: drives a finished PLAN to merged code, delegating each issue to `/work-on`; owns single-pr and coordinated multi-repo plans (a multi-pr plan runs under `/work-on` instead) |
 | `/work-on` | Implement a GitHub issue, milestone, or full plan end-to-end: branch, analysis, code, three-panel review, tests, and pull request |
-| `/review-plan` | Adversarial review of a plan across scope, design fidelity, acceptance criteria, and sequencing, before issues get created |
 
 ### Standalone skills
 
 | Skill | What it does |
 |-------|-------------|
 | `/explore` | Fan out research agents to investigate options and figure out which artifact to produce next |
+| `/review-plan` | Adversarial review of a plan across scope, design fidelity, acceptance criteria, and sequencing (runs automatically inside `/plan`, so you don't need to invoke it directly; still callable on an existing plan) |
 | `/decision` | Structured decision-making for contested choices with adversarial agents, cross-examination, and synthesis (also callable from inside `/design`) |
 | `/release` | Recommend a version, generate release notes, draft a GitHub release, dispatch the release workflow, and monitor it |
 | `/inflight` | Report this session's in-flight PRs across repos: number, state, CI and review status |
@@ -61,17 +61,18 @@ that walks the whole thing in one sitting: `/charter` drives VISION ->
 STRATEGY -> ROADMAP, `/scope` drives BRIEF -> PRD -> DESIGN -> PLAN, and
 `/execute` drives a finished PLAN through `/work-on` for every issue.
 `/explore` helps you figure out where to start if you're not sure which
-altitude you need, and `/review-plan` catches problems in a plan before issues
-get created.
+altitude you need, and `/review-plan` runs inside `/plan` to catch problems
+before issues get created.
 
 ## Documents
 
-Every skill above produces a Markdown artifact -- versioned frontmatter, a
-fixed set of required sections, and a status field that moves through a
-defined lifecycle. That's what `shirabe validate` checks (see below), and it's
-what makes the chains resumable: a `/execute` run picks up a PLAN by reading
-its status, and `/plan` refuses to run against a DESIGN that isn't Accepted
-yet.
+The skills that produce artifacts -- the ones in the prefix table below --
+write Markdown with versioned frontmatter, a fixed set of required sections,
+and a status field that moves through a defined lifecycle. The rest read those
+artifacts and drive work off them. The frontmatter and sections are what
+`shirabe validate` checks (see below), and they're what makes the chains
+resumable: a `/execute` run picks up a PLAN by reading its status, and `/plan`
+refuses to run against a DESIGN that isn't Accepted yet.
 
 Artifacts come in two kinds. **Durable** artifacts stay in `docs/` after the
 work ships and serve as the audit trail: VISION, STRATEGY, BRIEF, PRD, DESIGN,
@@ -79,11 +80,11 @@ COMP. **Working** artifacts -- ROADMAP and PLAN -- are not part of that audit
 trail; they exist to drive work, and the completion cascade can retire them
 once it is done.
 
-Retirement is conditional, not automatic. A PLAN is `git rm`'d when its work
-merges. A ROADMAP is only reached by the cascade when a plan downstream of it
-finishes, and it is deleted only once every feature on it is Done *and* every
-GitHub issue it references is closed; short of that the cascade just updates
-the matching feature's progress. A ROADMAP that never gets planned against is
+Retirement is conditional, not automatic. A PLAN is `git rm`'d before its work
+merges, while the PR is still a draft. A ROADMAP is only reached by the cascade
+when a plan downstream of it finishes, and it is deleted only once every
+feature on it is Done *and* every GitHub issue it references is closed; short
+of that the cascade just updates the matching feature's progress. A ROADMAP that never gets planned against is
 never visited by any cascade and stays on disk until someone removes it.
 
 | Prefix | Produced by | Captures |
@@ -140,13 +141,13 @@ capabilities via a manifest file", etc. Parallel research agents check your
 codebase for existing patterns. A 3-agent jury reviews the draft for
 completeness and consistency.
 
-**Step 3 -- Design.** You run `/design docs/PRD-plugin-system.md`. shirabe
+**Step 3 -- Design.** You run `/design docs/prds/PRD-plugin-system.md`. shirabe
 decomposes the PRD into decision questions: "how should plugins be discovered?",
 "what's the manifest format?", "how do we handle version conflicts?" Each
 question gets a structured trade-off analysis with alternatives. The final
 design doc captures the chosen approach with rationale.
 
-**Step 4 -- Plan.** You run `/plan docs/DESIGN-plugin-system.md`. shirabe
+**Step 4 -- Plan.** You run `/plan docs/designs/DESIGN-plugin-system.md`. shirabe
 breaks the design into atomic issues, ordered by dependency. A walking skeleton
 issue comes first so you can validate the end-to-end flow early. Each issue gets
 acceptance criteria specific enough to verify mechanically. `/review-plan` then
@@ -196,8 +197,11 @@ Claude Code session:
 ## Requirements
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-- [koto](https://github.com/tsukumogami/koto) >= 0.3.3 (for `/work-on`;
-  installed automatically if missing)
+- The `shirabe` binary -- skills call `shirabe validate` during ordinary runs,
+  so install it before you use them (see [Local install](#local-install))
+- [koto](https://github.com/tsukumogami/koto) >= 0.3.3 (for `/work-on` and
+  `/execute`; the skills check `koto version` first and give you an install
+  command when it's missing)
 
 ## CLI and doc validation
 
@@ -228,10 +232,12 @@ jobs:
 ```
 
 The workflow checks out shirabe, builds the `shirabe` binary, diffs the PR's
-changed files, and runs `shirabe validate` on any recognized doc file (matched
-by filename prefix, e.g. `PLAN-*.md`). Files without a `schema:` field, or with
-one the validator doesn't recognize, are skipped with a `::notice` annotation
-rather than a hard failure, so teams can adopt validation incrementally.
+changed files, and hands every changed path (minus test fixtures) to
+`shirabe validate`. Selection happens inside the binary, not the workflow: it
+matches on the filename prefix, e.g. `PLAN-*.md`, and a file whose name matches
+no prefix is skipped silently. A file that does match a prefix but whose
+`schema:` field is missing or unrecognized gets a `::notice` annotation instead
+of a hard failure, so teams can adopt validation incrementally.
 
 To allow custom status values beyond the built-in enum, pass a YAML map keyed
 by schema version:
@@ -240,12 +246,16 @@ by schema version:
     uses: tsukumogami/shirabe/.github/workflows/validate-docs.yml@v0.6.0
     with:
       custom-statuses: |
-        prd: [Draft, Accepted, In Progress, Done, Delivered]
+        prd/v1: [Draft, Accepted, In Progress, Done, Delivered]
 ```
 
 `COMP-` docs are private-only: `shirabe validate` rejects them outside a repo
-whose visibility resolves to `private`, and fails closed if visibility can't be
-determined. See `docs/guides/doc-validation.md` for branch protection setup,
+whose visibility resolves to `private`. Visibility comes from a CLAUDE.md
+header or from a `public`/`private` path component, and when neither resolves
+it defaults to `private` -- so an undetermined repo is treated as private and
+the check doesn't fire. Pass `--visibility` explicitly (the reusable workflow
+does) if you want the check to run on its own. See
+`docs/guides/doc-validation.md` for branch protection setup,
 the COMP adoption notes, and migration notes for repos with existing docs.
 
 ### Local install
