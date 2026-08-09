@@ -118,11 +118,18 @@ it names issue-creating mode explicitly.
   already applies to its own key column, and it is deliberately *not* the
   diagram's node-label transform, which additionally truncates at 40 characters
   and rewrites brackets and backticks.
-- **R2.** A feature's key text SHALL be **usable** when, after trimming, it is
-  non-empty, contains neither `,` nor `|`, and is not shared with any other
-  feature in the same roadmap. When the key text is not usable, that feature's
-  key SHALL fall back to `F<n>`, where `n` is the feature's 1-based position in
-  the Features section.
+- **R2.** A feature's key text SHALL be **usable** when all of the following
+  hold: it is non-empty after trimming; it contains no `,` or `|` (which the
+  markdown row and the validator's dependency-cell split treat as delimiters);
+  it survives the validator's own key and dependency normalizations unchanged,
+  both bare and wrapped in the strikethrough a delivered row applies; it is not
+  shared with another feature in the same roadmap; and it does not collide with
+  any feature's `F<n>` form. When the key text is not usable, that feature's key
+  SHALL fall back to `F<n>`, where `n` is the feature's 1-based position in the
+  Features section.
+- **R2a.** The normalization test in R2 SHALL be evaluated using the validator's
+  own normalization code rather than a re-implementation of it, so the renderer
+  and the validator cannot drift on what counts as the same key.
 - **R3.** The Implementation Issues table's key column SHALL carry each feature's
   key text when usable, and its `F<n>` fallback otherwise.
 - **R4.** A delivered feature's row SHALL keep its existing strikethrough
@@ -139,8 +146,11 @@ it names issue-creating mode explicitly.
 - **R7.** A local `Feature N` token that names no feature in this roadmap SHALL
   be dropped from the cell, matching the current behaviour of both modes.
 - **R8.** A cell that resolves to no reference at all SHALL read `None`.
-- **R9.** A mixed cell SHALL list resolved local keys first, in feature order,
-  then cross-repo references in source order, comma-and-space separated.
+- **R9.** A mixed cell SHALL list resolved local keys first, in the order they
+  appear in the feature's `**Dependencies:**` line, then cross-repo references in
+  source order, comma-and-space separated. (Amended during design: the original
+  wording said feature order, which is not what either renderer does today and
+  could not be changed for one mode without breaking R24.)
 - **R10.** No Dependencies cell SHALL carry a parenthetical annotation. Soft-
   versus-hard and external-dependency nuance stays in the feature prose.
 
@@ -157,10 +167,15 @@ it names issue-creating mode explicitly.
   ASCII marker `...` appended. When no whitespace boundary exists in the first
   197 characters, the text SHALL be cut at exactly 197 characters and the marker
   appended.
-- **R14.** When a feature yields no description text, the cell SHALL carry the
-  fixed placeholder `No description in the feature body.` rather than an empty
-  italic marker, so the row satisfies FC05's description-row shape.
-- **R15.** R11 through R14 apply to both populate modes. They are properties of
+- **R14.** The derived text SHALL be sanitized before it is bounded, so the
+  rendered row always satisfies FC05's description-row shape: control characters
+  removed, `|` replaced (it splits the markdown row), `~` removed (an unbalanced
+  strikethrough run flips the cell's classification), and leading `_` stripped
+  (a cell opening `__` classifies as bold, not italic).
+- **R14a.** When a feature yields no description text, or the sanitized text is
+  empty, the cell SHALL carry the fixed placeholder
+  `No description in the feature body.` rather than an empty italic marker.
+- **R15.** R11 through R14a apply to both populate modes. They are properties of
   the shared derivation, not of one renderer.
 
 ### Diagnostics
@@ -169,9 +184,13 @@ it names issue-creating mode explicitly.
   stderr line naming the feature by its heading label and containing the literal
   string `**Functional outcome:**` as the remedy.
 - **R17.** When a feature's key falls back to `F<n>` under R2, the run SHALL emit
-  one stderr line naming the feature by its heading label and stating which
-  condition triggered the fallback (empty, contains `,`, contains `|`, or
-  duplicated).
+  one stderr line naming the feature and stating which condition triggered the
+  fallback. This diagnostic SHALL be emitted only by the mode that applies the
+  fallback; issue-creating mode, which R24 keeps on plain labels, SHALL NOT
+  report a fallback it did not perform.
+- **R17a.** Author-supplied label text interpolated into a diagnostic SHALL be
+  bounded in length and stripped of control characters, so a diagnostic cannot
+  carry a terminal escape sequence or an unbounded slice of the document.
 - **R18.** Diagnostics SHALL be emitted in feature order, SHALL be prefixed
   `warning:` to match the existing convention in this crate, SHALL NOT change the
   process exit status, and SHALL be emitted under `--dry-run` on the same terms.
@@ -200,7 +219,14 @@ it names issue-creating mode explicitly.
 - **R23.** Feature label text SHALL NOT be transformed beyond R1's decoration
   stripping when it reaches the table. Labels carrying shell metacharacters
   SHALL round-trip verbatim, preserving the populate module's existing invariant
-  that no shell is invoked on label content.
+  that no shell is invoked on label content. R2's fallback is a choice between
+  two fixed forms, not a transformation, so it does not weaken this. The
+  guarantee covers label text reaching the key column; it does not extend to
+  body text reaching a description cell, which R14 sanitizes.
+- **R23a.** Every function on the rendering path SHALL remain total over
+  arbitrary roadmap input, matching the module's existing contract. In
+  particular, a `Feature N` token naming no feature — including `Feature 0` and
+  a stale out-of-range reference — SHALL be dropped per R7 and SHALL NOT panic.
 - **R24.** Issue-creating mode's key column, Dependencies-cell resolution, and
   Issues-column contents SHALL be unchanged. Its description cells change only as
   R15 requires.
@@ -272,6 +298,12 @@ Each criterion is numbered so a test can cite it.
       does every dependency reference to it.
 - [ ] **AC6 (R2).** A feature whose label contains a pipe renders `F<n>`, and the
       rendered table row still has exactly four cells.
+- [ ] **AC6a (R2, R2a).** A delivered feature whose label contains `~~`, a
+      feature whose label contains `#12`, and a feature whose label is written
+      `[Cache](#anchor)` each render `F<n>`, and the populated roadmap reports no
+      FC06 finding.
+- [ ] **AC6b (R2).** A roadmap where one feature is literally labelled `F2` and
+      another feature's label is unusable renders no two rows with the same key.
 - [ ] **AC7 (R5).** Every Dependencies token in the rendered table matches an
       entity row's key cell in the same table, after strikethrough is stripped.
 - [ ] **AC8 (R5).** A dependency on a delivered feature renders that feature's
@@ -281,8 +313,9 @@ Each criterion is numbered so a test can cite it.
       a feature depending on both a local feature and a cross-repo reference
       renders the local key first, then the cross-repo token, separated by
       `, `.
-- [ ] **AC10 (R7).** A feature depending on `Feature 99` in a five-feature
-      roadmap renders a cell without that token.
+- [ ] **AC10 (R7, R23a).** A feature depending on `Feature 99` in a five-feature
+      roadmap renders a cell without that token, in both modes; `Feature 0`
+      likewise, and neither panics.
 - [ ] **AC11 (R10).** A feature whose source reads
       `**Dependencies:** Feature 1 (soft)` renders a cell with no parenthetical.
 - [ ] **AC12 (R12).** No description cell in a populated roadmap exceeds 200
@@ -295,9 +328,13 @@ Each criterion is numbered so a test can cite it.
       `...`.
 - [ ] **AC14 (R11).** A feature carrying a `**Functional outcome:**` line renders
       that text, bounded, rather than the body's opening prose.
-- [ ] **AC15 (R14).** A feature with no prose body renders
+- [ ] **AC15 (R14a).** A feature with no prose body renders
       `| _No description in the feature body._ | | | |`, and the populated
       roadmap validates with no error-level finding.
+- [ ] **AC15a (R14).** A feature whose body opens `__init__ parsing is deferred.`,
+      one whose body contains a `|`, and a delivered feature whose body contains
+      a single `~~` each render a description row the validator classifies as a
+      description row, and the populated roadmap reports no FC05 finding.
 - [ ] **AC16 (R15, R24).** The issue-creating renderer applies the same ceiling:
       a feature with an over-long body renders a bounded cell in that mode too,
       and the issue-creating mode's existing tests pass unchanged.
@@ -305,7 +342,10 @@ Each criterion is numbered so a test can cite it.
       feature and containing `**Functional outcome:**`, and the command exits 0.
 - [ ] **AC18 (R17, R18).** An R2 fallback emits a stderr line naming the feature
       and its trigger, the command exits 0, and the lines appear in feature
-      order.
+      order. The same roadmap populated in issue-creating mode emits no fallback
+      line.
+- [ ] **AC18a (R17a).** A label carrying an interior carriage return and an ESC
+      byte produces a diagnostic containing neither, bounded in length.
 - [ ] **AC19 (R19).** The rendered diagram's node ids are `F1`..`F<n>` and its
       node labels are unchanged from the current renderer's output.
 - [ ] **AC20 (R22).** `shirabe validate --visibility=public` on each populated
@@ -313,7 +353,9 @@ Each criterion is numbered so a test can cite it.
       and the comma-label one — reports no error-level finding and no FC05, FC06,
       FC07, or FC08 notice.
 - [ ] **AC21 (R23).** A label reading `Safe; rm -rf /tmp/foo && echo HIJACKED`
-      appears verbatim in the rendered key column and no shell runs.
+      appears verbatim in the rendered key column and no shell runs, asserted in
+      issueless mode as well as the issue-creating mode the existing test covers,
+      with the populated roadmap validating clean.
 - [ ] **AC22 (R25).** Re-running populate on an already-populated roadmap leaves
       the file byte-identical.
 - [ ] **AC23 (R20).** `shirabe roadmap populate --help` contains the words
@@ -408,6 +450,41 @@ development sentinel that has been unchanged since before the fix landed.
 This matters for scope: the work here is not restoring lost behaviour, so nothing
 about the earlier fix needs reverting or re-deriving.
 
+### D5a — Amendments fed back from the design phase
+
+Five requirements were amended after the design jury checked them against the
+code, and they are recorded here rather than silently rewritten.
+
+R9's ordering clause originally said feature order; neither renderer does that,
+and changing it inside the shared renderer would have altered issue-creating
+mode's output, which R24 freezes. It now says source order, which is the frozen
+behaviour.
+
+R2's usability predicate was a four-character blacklist. The validator applies
+two different normalizations to a key cell and a dependency token — a `#<digits>`
+run replaces the whole key, a `[label](target)` form is unwrapped, and a
+delivered row's key is strikethrough-wrapped before either runs — so a label
+containing `~~`, `#12`, or `](` passed the blacklist and still produced an FC06
+failure or a silently merged key. R2 is now a fixpoint test, and R2a requires it
+to run the validator's own code rather than a copy (which means exporting a small
+predicate from `shirabe-validate`, not adding a check to it, so D5 still holds).
+
+R14 gained a sanitization step. The empty-body defect was the degenerate case of a
+general rule: any description whose first character is `_` renders a cell the
+validator classifies as bold rather than italic, and a `|` or an unbalanced `~~`
+in a body breaks the row the same way. Bounding the cell without sanitizing it
+would have left R22's "unconditionally" false.
+
+R17 gained a mode restriction: as originally written, the fallback diagnostic
+would have fired in issue-creating mode, which under R24 never falls back —
+telling an author the tool did something it did not do.
+
+R23a was added. The design's first draft resolved a dependency by indexing a
+positional key table, which turns `Feature 0` or a stale out-of-range reference
+into a panic in a module whose parsers are documented as total over arbitrary
+input, and in issue-creating mode the panic would land after issues had already
+been created.
+
 ### D5 — No new validator check
 
 Adding a cell-length check to `shirabe validate` was considered and rejected. The
@@ -418,10 +495,12 @@ question about the validation surface.
 
 ## Known Limitations
 
-- **A pipe inside a feature body still breaks its description cell.** R2 handles
-  a pipe in a *label*; the description text comes from the body, and a `|` there
-  splits the markdown row. This is unchanged by this work and is not covered by
-  R23, whose verbatim guarantee is about label text reaching the key column.
+- **Description text is sanitized, not preserved.** R14 removes control
+  characters and `~`, replaces `|`, and strips a leading `_` from the derived
+  summary. That is a transformation of author prose, accepted because the
+  alternative is a row the validator rejects. Label text in the key column is not
+  transformed (R23); the two columns are deliberately treated differently, and
+  the reason is that a label has a usable fallback and a description does not.
 - **Truncation is lossy.** A bounded cell for a feature whose body has no early
   sentence terminator is a fragment of that body, not a written summary. The
   author's remedy is a `**Functional outcome:**` line, which is what R16's

@@ -1,0 +1,27 @@
+{
+  "topic": "roadmap-issueless-table-rendering",
+  "upstream": "docs/prds/PRD-roadmap-issueless-table-rendering.md",
+  "execution_mode": "auto",
+  "decision_walk": "inline",
+  "decision_walk_rationale": "Three questions, all local to one 1900-line module whose relevant surface the orchestrator has read in full. The alternatives are enumerable from the code rather than researchable, so per-question researcher agents would re-derive what is already established. Phase 6 keeps its two independent reviewers.",
+  "decisions": [
+    {
+      "id": 1,
+      "question": "Where does the key-resolution rule live, given that the key column and the Dependencies cells must agree and one renderer's Dependencies cell is shared with the other mode?",
+      "status": "complete",
+      "report": "wip/design_roadmap-issueless-table-rendering_decision_1_report.md"
+    },
+    {
+      "id": 2,
+      "question": "How are the diagnostics produced without coupling the renderers to stderr?",
+      "status": "complete",
+      "report": "wip/design_roadmap-issueless-table-rendering_decision_2_report.md"
+    },
+    {
+      "id": 3,
+      "question": "Does issue-creating mode adopt the fallback rule, given that its key column is out of scope but it carries the same exposure?",
+      "status": "complete",
+      "report": "wip/design_roadmap-issueless-table-rendering_decision_3_report.md"
+    }
+  ]
+}

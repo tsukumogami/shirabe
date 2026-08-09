@@ -15,11 +15,16 @@ planned_chain:
 chain_skipped: []
 chain_ran:
   - brief
+  - prd
 child_snapshots:
   brief:
     status: Accepted
     content_hash: f2851c8864792d921ba0503990003cf0a000274a
     captured_at: 2026-08-09T14:12:00-04:00
+  prd:
+    status: Accepted
+    content_hash: f464b8f7d0d048fd315b248e0da452fcc0234e2d
+    captured_at: 2026-08-09T14:22:00-04:00
 gate_verdicts:
   brief: "fires (R4 mandatory-with-auto-skip: no BRIEF at docs/briefs/BRIEF-roadmap-issueless-table-rendering.md; cold start)"
   prd: "fires (R5 mandatory-with-auto-skip: no PRD at docs/prds/PRD-roadmap-issueless-table-rendering.md)"
@@ -33,7 +38,7 @@ worktree_rebases:
     notes: worktree branched from origin/main at chain start; nothing upstream to rebase
 worktree_divergences: []
 parent_orchestration:
-  invoking_child: prd
+  invoking_child: design
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 ```
