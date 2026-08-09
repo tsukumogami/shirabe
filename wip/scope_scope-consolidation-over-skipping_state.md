@@ -2,9 +2,14 @@
 topic: scope-consolidation-over-skipping
 chain_started: 2026-08-09T00:00:00Z
 last_updated: 2026-08-09T00:00:00Z
-phase_pointer: phase-2
-exit: UNSET
-exit_artifacts: []
+phase_pointer: phase-4
+exit: full-run
+exit_artifacts:
+  - docs/briefs/BRIEF-scope-consolidation-over-skipping.md
+  - docs/prds/PRD-scope-consolidation-over-skipping.md
+  - docs/designs/DESIGN-scope-consolidation-over-skipping.md
+  - docs/plans/PLAN-scope-consolidation-over-skipping.md
+plan_execution_mode: single-pr
 visibility: Public
 execution_mode: auto
 planned_chain:
@@ -16,6 +21,7 @@ chain_ran:
   - brief
   - prd
   - design
+  - plan
 chain_skipped: []
 child_snapshots:
   brief:
@@ -32,6 +38,7 @@ validator_passthrough:
   brief: "exit 0 (clean), --visibility=public"
   prd: "exit 0 (clean), --visibility=public"
   design: "exit 0 (clean), --visibility=public"
+  plan: "exit 0 (clean), --visibility=public"
 worktree_rebases: []
 consolidation_judgments:
   - hop: brief->prd
@@ -48,8 +55,9 @@ consolidation_judgments:
     absorbable: false
     verdict: keep
     finding: "Mapping is not total. DESIGN's required sections have a home only for the PRD's Problem Statement (Context and Problem Statement); Goals, User Stories, Requirements, Acceptance Criteria and Out of Scope have none. Absorb unavailable per the Decision 4 rule."
-parent_orchestration:
-  invoking_child: plan
-  suppress_status_aware_prompt: true
-  rationale: fresh-chain
+  - hop: design->plan
+    absorbable: false
+    verdict: keep
+    finding: "Mapping is not total. PLAN's required sections have no home for the DESIGN's Decision Drivers, Considered Options, Decision Outcome, Solution Architecture, Security Considerations or Consequences. Absorb unavailable per the Decision 4 rule, and forbidden independently by the durable-artifact floor."
+
 ```
