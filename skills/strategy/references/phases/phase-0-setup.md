@@ -46,6 +46,15 @@ Parse `$ARGUMENTS` and classify into one of four modes:
 | **Upstream VISION** | `$ARGUMENTS` resolves to an existing file under `docs/visions/` | Phase 1 derives the bet candidate from the VISION's content |
 | **Grounding PRD** | `$ARGUMENTS` resolves to an existing file under `docs/prds/` | Phase 1 derives the bet candidate from the PRD's content |
 
+> **Open: the Grounding PRD mode is itself unresolved — see
+> [#257](https://github.com/tsukumogami/shirabe/issues/257).** A PRD sits on
+> the tactical chain, two altitudes below a STRATEGY, so accepting one as
+> input is a strategic document reaching down into the tactical chain. PR #252
+> closed the structural half — a grounding PRD is never recorded in
+> `upstream:` — but left the input path open. Resolving it either removes this
+> mode or writes down why reading across altitudes is legitimate where linking
+> across them is not.
+
 When `$ARGUMENTS` looks like a path (contains `/` or ends in `.md`) but the file
 does not exist, do not fall through to freeform-topic mode silently. Ask the user
 whether the path was a typo or whether they meant to start a freeform topic with

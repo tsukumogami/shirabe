@@ -211,6 +211,12 @@ that matches the chain's discovery outputs.
    path. `/charter` passes the PRD path; `/strategy` reads it as
    the operationalizing input for the bet.
 
+   > *Open: whether a STRATEGY may be grounded in a tactical-chain PRD
+   > at all is unresolved — see
+   > [#257](https://github.com/tsukumogami/shirabe/issues/257). The PRD is
+   > never recorded as the STRATEGY's `upstream:`; only the grounding
+   > input remains open.*
+
 `/charter` MUST NOT pass a STRATEGY path to `/strategy`. STRATEGY
 paths are `/strategy`'s lifecycle-verb mode (its Input Mode 2 —
 accept / activate / sunset), which is mutually exclusive of the

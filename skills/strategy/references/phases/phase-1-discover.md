@@ -65,6 +65,15 @@ The user invoked `/strategy <path>` where `<path>` resolves to a
 the user wants a STRATEGY that operationalizes a PRD's bet at medium-term
 altitude.
 
+> **Open: the Grounding PRD mode is itself unresolved — see
+> [#257](https://github.com/tsukumogami/shirabe/issues/257).** A PRD sits on
+> the tactical chain, two altitudes below a STRATEGY, so accepting one as
+> input is a strategic document reaching down into the tactical chain. PR #252
+> closed the structural half — a grounding PRD is never recorded in
+> `upstream:` — but left the input path open. Resolving it either removes this
+> mode or writes down why reading across altitudes is legitimate where linking
+> across them is not.
+
 The PRD supplies framing only, and that holds in both directions. It never
 becomes a Downstream Artifacts entry — that section lists ROADMAPs and
 nothing else, whatever grounded the strategy. And it never becomes the

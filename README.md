@@ -23,7 +23,7 @@ in one sitting, plus the child skills you can also reach for directly.
 | `/charter` | Parent skill: walks VISION -> STRATEGY -> ROADMAP in one sitting; every run lands a STRATEGY and a ROADMAP unless you decline the roadmap when asked |
 | `/vision` | Capture why a project should exist -- thesis, audience, org fit -- via scoping, research agents, and jury review |
 | `/strategy` | Define a medium-term defensible bet that operationalizes a slice of a VISION, with a building-blocks decomposition and invalidation conditions |
-| `/roadmap` | Sequence multiple features into one initiative with dependency tracking and sequencing rationale |
+| `/roadmap` | Sequence a strategy's features into one initiative with dependency tracking, and track how far along the work is; one feature is enough |
 
 ### Scope chain -- tactical altitude (single feature, framing to plan)
 
@@ -97,8 +97,12 @@ never visited by any cascade and stays on disk until someone removes it.
 | `PLAN-` | `/plan` | Decomposition strategy, issue outlines or an issues table, dependency graph, implementation sequence |
 | `COMP-` | `/comp` | Competitive landscape, comparative matrix, implications for our own choices -- private repos only |
 
-Artifacts reference each other through an `upstream:` frontmatter field, so a
-PLAN points back to its DESIGN, which points back to its PRD, and so on. That
+Artifacts reference each other through an `upstream:` frontmatter field, and
+each one points at its immediate neighbour rather than skipping levels: a
+STRATEGY points at a VISION, a ROADMAP at a STRATEGY, a BRIEF at a ROADMAP, and
+a PLAN at its DESIGN which points at its PRD. The ROADMAP is where the
+strategic chain hands off to the tactical one -- nothing above it reaches past
+it into feature-level documents. That
 chain is what `/execute` walks after a plan's work merges: it transitions
 each upstream node to its terminal status (DESIGN to Current, PRD to Done,
 BRIEF to Done) and, if the chain traces back to a ROADMAP, updates that

@@ -358,6 +358,11 @@ at `/strategy`'s exit when the author declined `/roadmap` per R7.
 - a PRD path (also accepted by `/strategy` Phase 1) if the chain
   operationalizes a feature PRD.
 
+*Open ([#257](https://github.com/tsukumogami/shirabe/issues/257)): the
+PRD shape has a STRATEGY reaching into the tactical chain for input. The
+PRD is never recorded as the STRATEGY's upstream; only the grounding
+input is unresolved.*
+
 `/charter` MUST NOT pass a STRATEGY path to `/strategy`. STRATEGY
 paths are `/strategy`'s lifecycle-verb mode (Input Mode 2), not the
 create-new mode.
