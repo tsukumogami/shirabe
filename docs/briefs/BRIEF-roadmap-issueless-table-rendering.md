@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   A roadmap populated by `shirabe roadmap populate --no-issues` produces an
   Implementation Issues table whose rows can't be read on their own terms: an
@@ -22,7 +22,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 Framing for the two rendering defects reported in #261. The downstream PRD owns
 the requirements; the two contested choices this brief leaves open (which side of
