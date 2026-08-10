@@ -180,10 +180,11 @@ The header defaults to `required` when absent:
   the GitHub issues it creates (one issue per feature).
 - **`## Roadmap Issues: optional`.** An issueless render of
   `shirabe roadmap populate` fills both sections from the Features
-  section -- no issues are created. The table is feature-keyed
-  (`F<n>` rows, the feature's `needs-*` label in the Issues
-  column), and the diagram uses `F<n>` nodes. The bare-key
-  Dependencies convention below applies in this mode.
+  section -- no issues are created. The table keys each row on the
+  feature's label, the same key form the shared roadmap profile
+  specifies, with the feature's `needs-*` label in the Issues
+  column. The diagram uses `F<n>` nodes. The Dependencies
+  convention below applies in this mode.
 
 Either way the sections are tool-generated. Don't hand-edit them.
 
@@ -367,23 +368,36 @@ mermaid. FC16 covers that gap. It fires only on genuinely wrong shapes:
 
 FC16 is shape-gated, not status-gated: the empty skeleton passes at every
 lifecycle state, and both issue modes (`## Roadmap Issues: required` with
-`I<n>` rows, `## Roadmap Issues: optional` with `F<n>` rows) render a table
-and mermaid diagram, so both pass. FC16 is error-level -- a malformed
+issue-linked rows, `## Roadmap Issues: optional` with label-keyed rows)
+render a table and mermaid diagram, so both pass. FC16 is error-level -- a malformed
 reserved section fails the build, not just an advisory notice.
 
 ### Dependencies cells in issueless mode
 
-Under `## Roadmap Issues: optional`, the Implementation Issues
-table is feature-keyed, and each Dependencies cell MUST be a bare
-feature key or `None` -- `F1`, `F1, F2`, or `None`. Nothing else.
+Under `## Roadmap Issues: optional`, each Dependencies cell names
+the depended-on feature by the same key its own row carries in the
+Feature column -- normally the feature's label, or its `F<n>`
+fallback -- or `None`. Cross-repo references round-trip verbatim.
+Nothing else.
 
-FC06 rejects annotated forms. `F1 (soft)` and `None (ext:
-onboarding)` each fail with `dependency "..." names no row in this
-table`, because the parenthetical isn't a feature key. Soft-versus-hard
-nuance and external dependencies don't go in the cell -- they belong
-in the feature prose and the Sequencing Rationale, which is where
-the reader looks for that context anyway. Keep the cell to keys; put
-the reasoning in prose.
+FC06 rejects annotated forms. `Foundation layer (soft)` and
+`None (ext: onboarding)` each fail with `dependency "..." names no
+row in this table`, because the parenthetical isn't a key.
+Soft-versus-hard nuance and external dependencies don't go in the
+cell -- they belong in the feature prose and the Sequencing
+Rationale, which is where the reader looks for that context anyway.
+Keep the cell to keys; put the reasoning in prose.
+
+### When a label can't key a row
+
+The renderer falls back to `F<n>` for a feature whose label is
+empty, contains a `,` or `|`, duplicates another feature's label, or
+carries text the validator's key and dependency normalizations
+rewrite (an issue reference like `#123`, a markdown link, or a `~~`
+run). Every such fallback prints a `warning:` line naming the
+feature and the reason. The fallback keeps the generated document
+valid; renaming the feature is what gets the label back into the
+table.
 
 ## Quality Guidance
 
