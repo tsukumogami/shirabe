@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   FC06 accepts a roadmap Dependencies token only when it matches an entity-row
   key in the same Implementation Issues table. The issueless renderer keys rows
@@ -26,7 +26,7 @@ upstream: docs/briefs/BRIEF-fc06-index-alias.md
 
 ## Status
 
-Accepted
+Done
 
 ## Problem Statement
 

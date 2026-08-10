@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   FC06 requires every token in a roadmap's Dependencies cell to name an
   entity-row key in the same Implementation Issues table. Since the issueless
@@ -24,7 +24,7 @@ upstream: docs/designs/current/DESIGN-roadmap-issueless-table-rendering.md
 
 ## Status
 
-Accepted
+Done
 
 ## Problem Statement
 
