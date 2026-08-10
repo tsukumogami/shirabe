@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   `shirabe roadmap populate` files one GitHub issue per feature when invoked
   with no mode flag, so a mistaken invocation leaves a side effect on shared
@@ -28,7 +28,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Requirements for flipping the `shirabe roadmap populate` default to issueless
 and making `/roadmap` populate its own reserved sections. The four open

@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   `shirabe roadmap populate` creates GitHub issues when invoked with no mode
   flag, so the failure mode of a mistake is unwanted issues on a shared remote.
@@ -26,7 +26,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Framing for a coupled pair of changes: which mode `shirabe roadmap populate`
 picks when nobody says, and when the reserved sections get filled at all. The
