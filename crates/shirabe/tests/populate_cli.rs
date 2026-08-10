@@ -131,6 +131,7 @@ fn features_parsed_and_table_rendered() {
     let path = write_basic_fixture(&dir);
     shirabe()
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "example/repo"])
         .assert()
@@ -174,6 +175,7 @@ fn non_reserved_content_above_implementation_issues_untouched() {
 
     shirabe()
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "example/repo"])
         .assert()
@@ -196,6 +198,7 @@ fn cross_repo_refs_round_trip_verbatim() {
     let path = write_basic_fixture(&dir);
     shirabe()
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "example/repo"])
         .assert()
@@ -211,6 +214,7 @@ fn dependency_diagram_has_nodes_edges_palette_and_classes() {
     let path = write_basic_fixture(&dir);
     shirabe()
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "example/repo"])
         .assert()
@@ -247,6 +251,7 @@ fn populated_output_passes_validate() {
     let path = write_basic_fixture(&dir);
     shirabe()
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "example/repo"])
         .assert()
@@ -268,6 +273,7 @@ fn rerun_is_idempotent() {
 
     shirabe()
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "example/repo"])
         .assert()
@@ -276,6 +282,7 @@ fn rerun_is_idempotent() {
 
     shirabe()
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "example/repo"])
         .assert()
@@ -312,6 +319,7 @@ fn dry_run_never_invokes_gh() {
     shirabe()
         .env("PATH", salted_path)
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         // Explicit --repo so the subcommand does not fall back to `gh repo view`.
         .args(["--dry-run", "--repo", "example/repo"])
@@ -335,6 +343,7 @@ fn missing_reserved_section_fails_cleanly_with_no_partial_write() {
 
     shirabe()
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "example/repo"])
         .assert()
@@ -362,6 +371,7 @@ fn shell_metacharacters_in_labels_round_trip_without_executing() {
 
     let assertion = shirabe()
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "example/repo"])
         .assert()
@@ -390,6 +400,7 @@ fn output_map_writes_parseable_mapping() {
 
     shirabe()
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "example/repo", "--output-map"])
         .arg(&map_path)
@@ -434,6 +445,7 @@ fn mapping_input_skips_creation_and_renders_with_given_numbers() {
     shirabe()
         .env("PATH", salted_path)
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--repo", "owner/repo", "--mapping"])
         .arg(&map_path)
@@ -468,6 +480,7 @@ fn empty_features_section_fails_cleanly() {
     .unwrap();
     shirabe()
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "owner/repo"])
         .assert()
@@ -482,6 +495,7 @@ fn atomic_write_leaves_no_temp_files_on_success() {
     let path = write_basic_fixture(&dir);
     shirabe()
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "example/repo"])
         .assert()
@@ -517,6 +531,7 @@ fn preview_path_is_pure() {
     // design; what it doesn't do is call gh).
     shirabe()
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "example/repo"])
         .assert()
@@ -552,6 +567,7 @@ fn binary_runs_without_external_shell_dependency() {
     shirabe()
         .env("PATH", &cargo_bin_dir)
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "example/repo"])
         .assert()
@@ -756,6 +772,7 @@ fn issue_creating_mode_emits_no_key_fallback_warning() {
     // so reporting one would describe work it did not do.
     let assert = shirabe()
         .args(["roadmap", "populate"])
+        .arg("--issues")
         .arg(&path)
         .args(["--dry-run", "--repo", "example/repo"])
         .assert()
@@ -879,4 +896,133 @@ fn issueless_rerun_is_idempotent() {
         .success();
     assert_eq!(first, fs::read_to_string(&path).unwrap());
     let _ = fs::remove_dir_all(&dir);
+}
+
+// --- Default-mode coverage -------------------------------------------------
+//
+// The subcommand defaults to the issueless render path: creating issues is a
+// side effect on shared remote state, so it happens only when a caller names
+// `--issues`. These tests pin that contract at the CLI boundary.
+
+#[test]
+fn no_mode_flag_renders_issueless_and_never_invokes_gh() {
+    // The strong form of `dry_run_never_invokes_gh`: no --dry-run and no
+    // --repo, so a `gh repo view` fallback would be caught too. The stub `gh`
+    // exits 99 if reached, so a successful run proves no GitHub call of any
+    // kind was made on the default path.
+    let dir = tempdir();
+    let path = write_basic_fixture(&dir);
+
+    let stub_dir = dir.join("stub-bin");
+    fs::create_dir_all(&stub_dir).unwrap();
+    let stub_path = stub_dir.join("gh");
+    fs::write(&stub_path, "#!/usr/bin/env bash\nexit 99\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&stub_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&stub_path, perms).unwrap();
+    }
+
+    let original_path = std::env::var("PATH").unwrap_or_default();
+    let salted_path = format!("{}:{}", stub_dir.display(), original_path);
+
+    shirabe()
+        .env("PATH", salted_path)
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .assert()
+        .success();
+
+    // Both reserved sections filled, and filled the issueless way: rows keyed
+    // on the feature label, with no GitHub issue links anywhere.
+    let out = fs::read_to_string(&path).unwrap();
+    assert!(
+        out.contains("| Foundation layer |"),
+        "expected a label-keyed Foundation row in:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("github.com"),
+        "issueless output must carry no GitHub issue links, got:\n{}",
+        out
+    );
+    assert!(
+        out.contains("```mermaid"),
+        "expected the Dependency Graph to be rendered in:\n{}",
+        out
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn no_mode_flag_matches_explicit_no_issues_byte_for_byte() {
+    // `--no-issues` is retained as an explicit opt-out, so it must name
+    // exactly the path the default already takes.
+    let dir = tempdir();
+    let defaulted = write_basic_fixture(&dir);
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&defaulted)
+        .assert()
+        .success();
+    let defaulted_out = fs::read_to_string(&defaulted).unwrap();
+
+    let dir2 = tempdir();
+    let explicit = write_basic_fixture(&dir2);
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&explicit)
+        .arg("--no-issues")
+        .assert()
+        .success();
+    let explicit_out = fs::read_to_string(&explicit).unwrap();
+
+    assert_eq!(
+        defaulted_out, explicit_out,
+        "the no-flag default must be byte-identical to explicit --no-issues"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&dir2);
+}
+
+#[test]
+fn both_mode_flags_are_rejected_without_touching_the_roadmap() {
+    // clap's `conflicts_with` rejects during parsing, so the run never
+    // reaches the writer or `gh`. Assert both halves: a non-zero exit naming
+    // the two flags, and a byte-identical roadmap afterwards.
+    let dir = tempdir();
+    let path = write_basic_fixture(&dir);
+    let before_hash = fnv_hash(&path);
+
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .args(["--issues", "--no-issues"])
+        .assert()
+        .failure()
+        .stderr(contains("--issues"))
+        .stderr(contains("--no-issues"));
+
+    assert_eq!(
+        before_hash,
+        fnv_hash(&path),
+        "a rejected invocation must not mutate the roadmap"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn help_names_both_mode_flags_and_the_default() {
+    shirabe()
+        .args(["roadmap", "populate", "--help"])
+        .assert()
+        .success()
+        .stdout(contains("--issues"))
+        .stdout(contains("--no-issues"))
+        .stdout(contains("default"));
 }

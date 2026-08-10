@@ -166,26 +166,31 @@ roadmap and use it consistently.
 ## Reserved Sections
 
 Two sections follow Progress. They're structurally part of the
-roadmap but are NOT populated by `/roadmap` -- they exist as empty
-placeholders at creation time and are filled later by a tool, never
-by hand.
+roadmap and are filled by a tool, never by hand. They exist as empty
+placeholders in the template, but a `/roadmap` run does not leave
+them that way.
 
-How they get filled depends on the repo's `## Roadmap Issues:`
-CLAUDE.md header (see
-`${CLAUDE_PLUGIN_ROOT}/references/fixes/claude-md-conventions.md`).
-The header defaults to `required` when absent:
+**The default fill is issueless and automatic.** Phase 4 runs
+`shirabe roadmap populate <path> --no-issues` after the jury resolves
+and before the author reviews the draft, and the activate path re-runs
+it before the `Draft -> Active` transition. Both fill the sections
+from the Features section and create nothing on GitHub. The table keys
+each row on the feature's label, the same key form the shared roadmap
+profile specifies, with the feature's `needs-*` label in the Issues
+column; the diagram uses `F<n>` nodes, and the Dependencies cells name
+features by those same `F<n>` indices. The Dependencies convention
+below applies.
 
-- **`## Roadmap Issues: required` (default).** `/plan` fills both
-  sections during decomposition, keying the table and diagram on
-  the GitHub issues it creates (one issue per feature).
-- **`## Roadmap Issues: optional`.** An issueless render of
-  `shirabe roadmap populate` fills both sections from the Features
-  section -- no issues are created. The table keys each row on the
-  feature's label, the same key form the shared roadmap profile
-  specifies, with the feature's `needs-*` label in the Issues
-  column. The diagram uses `F<n>` nodes, and the Dependencies
-  cells name features by those same `F<n>` indices. The
-  Dependencies convention below applies in this mode.
+**Issue-keyed fill is a separate, explicit step.** When a repo wants
+its roadmap features tracked as GitHub issues, a human runs
+`/roadmap populate <path> --issues` after the roadmap is approved.
+That creates one issue per feature, re-renders both sections keyed on
+those issues, and goes through the R14 approval gate. The repo's
+`## Roadmap Issues:` CLAUDE.md header (see
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/claude-md-conventions.md`)
+selects what a human-invoked populate does when they pass no flag; it
+defaults to `optional` when absent and never affects the automatic
+runs.
 
 Either way the sections are tool-generated. Don't hand-edit them.
 
@@ -195,12 +200,14 @@ Either way the sections are tool-generated. Don't hand-edit them.
    strikethrough rules are defined in
    `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md`.
 
-Under `## Roadmap Issues: required` (the default) the marker reads
-as below, since `/plan` fills the table from the issues it creates.
-Under `## Roadmap Issues: optional` the marker instead reads
-`<!-- Populated by an issueless 'shirabe roadmap populate' from the
-Features section. Do not fill manually. -->`. The instruction not to
-hand-edit holds in both modes.
+Once populated, the marker reads ``<!-- Populated by `shirabe roadmap
+populate`. Do not fill manually. -->`` in **both** modes -- the
+renderer writes one marker and does not distinguish issueless from
+issue-keyed output. Tell the two apart by the table itself: issueless
+rows are keyed on feature labels with `needs-*` in the Issues column,
+issue-keyed rows carry issue links. The form shown below is the
+template's placeholder, which populate replaces. The instruction not
+to hand-edit holds in both modes.
 
 ```markdown
 ## Implementation Issues
@@ -217,12 +224,10 @@ hand-edit holds in both modes.
    legend are defined in
    `${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md`.
 
-As with Implementation Issues, the marker is conditioned on the
-preference: under `## Roadmap Issues: optional` it reads
-`<!-- Populated by an issueless 'shirabe roadmap populate' from the
-Features section. Do not fill manually. -->`, and the diagram uses
-`F<n>` feature nodes instead of `I<n>` issue nodes. Don't hand-edit
-it in either mode.
+As with Implementation Issues, the populated marker is the same in
+both modes. What differs is the diagram: issueless population uses
+`F<n>` feature nodes, issue-keyed population uses `I<n>` issue nodes.
+Don't hand-edit it in either mode.
 
 ```markdown
 ## Dependency Graph
@@ -368,18 +373,19 @@ mermaid. FC16 covers that gap. It fires only on genuinely wrong shapes:
 - **Dependency Graph** opens a non-` ```mermaid ` fenced block.
 
 FC16 is shape-gated, not status-gated: the empty skeleton passes at every
-lifecycle state, and both issue modes (`## Roadmap Issues: required` with
-issue-linked rows, `## Roadmap Issues: optional` with label-keyed rows)
-render a table and mermaid diagram, so both pass. FC16 is error-level -- a malformed
+lifecycle state, and both modes (issue-creating with issue-linked rows,
+issueless with label-keyed rows) render a table and mermaid diagram, so
+both pass. FC16 is error-level -- a malformed
 reserved section fails the build, not just an advisory notice.
 
 ### Dependencies cells in issueless mode
 
-Under `## Roadmap Issues: optional`, each Dependencies cell names
-the depended-on feature by its `F<n>` index -- the same number the
-Dependency Graph's nodes use, counting features from 1 in document
-order -- or `None`. Cross-repo references round-trip verbatim.
-Nothing else.
+In issueless mode -- the automatic population, or any populate run
+carrying `--no-issues` or no mode flag -- each Dependencies cell
+names the depended-on feature by its `F<n>` index, the same number
+the Dependency Graph's nodes use, counting features from 1 in
+document order, or `None`. Cross-repo references round-trip
+verbatim. Nothing else.
 
 The key column and this column carry different forms on purpose:
 the key stays readable while the dependency cell stays narrow. A

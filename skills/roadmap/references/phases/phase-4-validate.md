@@ -212,8 +212,39 @@ rewrites), loop back to Phase 3 step 3.5.
 After all issues are resolved:
 
 1. Update the ROADMAP with all fixes
-2. Verify the ROADMAP passes the format reference's validation rules
-3. Commit: `docs(roadmap): finalize ROADMAP for <topic>`
+2. Populate the reserved sections (see 4.4a below)
+3. Verify the ROADMAP passes the format reference's validation rules
+4. Commit: `docs(roadmap): finalize ROADMAP for <topic>`
+
+#### 4.4a Populate the reserved sections
+
+The Implementation Issues and Dependency Graph sections are reserved for
+the tool and ship as empty skeletons. Fill them here, before the author
+reviews the roadmap in 4.5, so what they approve is what merges:
+
+```bash
+shirabe roadmap populate <roadmap-path> --no-issues
+```
+
+Three things about this step:
+
+- **It is issueless, always.** The `--no-issues` flag is passed
+  unconditionally, regardless of what `## Roadmap Issues:` resolved to
+  during setup. An automatic run must never create GitHub issues; the
+  preference governs only what a human-invoked `/roadmap populate <path>`
+  does. Pass the flag explicitly rather than relying on the subcommand's
+  default.
+- **The R14 approval gate does not apply.** Nothing is created, so there
+  is nothing to approve. Do not present the gate here.
+- **Warnings are worth surfacing.** The run reports on stderr when a
+  feature's label could not serve as a table key (it falls back to `F<n>`)
+  or when a description had to be truncated. Include any such warning in
+  the 4.5 summary -- it names a feature the author may want to rename or
+  give a shorter opening.
+
+If the roadmap has no Features section content yet, populate fails with a
+clear error. That is a real problem with the draft, not a reason to skip
+this step: return to Phase 3 and fix the Features section.
 
 ### 4.5 Present to User
 
@@ -239,9 +270,24 @@ cite the finding that drove it.
 ### 4.6 Handle Approval
 
 **If user approves:**
-1. Run `shirabe transition <path> Active` to transition from Draft to Active
-2. Commit: `docs(roadmap): activate ROADMAP for <topic>`
-3. Create PR (or update existing PR if on a shared branch)
+1. Re-run the issueless population, so the sections reflect any edit made
+   during review:
+   ```bash
+   shirabe roadmap populate <roadmap-path> --no-issues
+   ```
+   The feature list locks once the roadmap leaves Draft, so this is the last
+   moment the sections can be brought into agreement with the Features
+   section. Populate is idempotent -- when nothing changed since 4.4a this
+   rewrites the same bytes and the commit in step 3 is empty of section
+   changes. Still issueless, still no R14 gate.
+2. Run `shirabe transition <path> Active` to transition from Draft to Active
+3. Commit: `docs(roadmap): activate ROADMAP for <topic>`
+4. Create PR (or update existing PR if on a shared branch)
+
+The same re-run applies when `/roadmap activate <path>` is invoked
+standalone (input mode 2) on a roadmap this session did not create: populate
+issuelessly first, then transition. That is what covers roadmaps authored
+before automatic population existed.
 
 Then present routing options:
 
@@ -253,6 +299,12 @@ recommended next steps:"
 | Features need requirements | /prd for features marked needs-prd |
 | Features need architecture | /design-doc for features marked needs-design |
 | Ready to plan implementation | /plan to break features into issues |
+| Features should be tracked as GitHub issues | `/roadmap populate <path> --issues` to file them and re-render the table with issue links |
+
+The last row is the issue-filing action. It is deliberately a separate step
+taken after approval, not part of this run: the reserved sections are
+already populated, and filing issues is the one action here with a side
+effect on shared remote state. It goes through the R14 approval gate.
 
 **If user wants changes:**
 Return to Phase 3 step 3.5 to incorporate the specific feedback. Don't re-walk

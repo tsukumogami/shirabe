@@ -110,9 +110,10 @@ struct RoadmapArgs {
 #[derive(Subcommand)]
 enum RoadmapCommands {
     /// Populate a roadmap's reserved Implementation Issues and Dependency
-    /// Graph sections, creating one GitHub issue per feature. Pass
-    /// `--no-issues` for the issueless render mode (a label-keyed table and
-    /// an `F<n>` diagram from feature context, no GitHub calls).
+    /// Graph sections. Renders issuelessly by default -- a label-keyed table
+    /// and an `F<n>` diagram from feature context, with no GitHub calls. Pass
+    /// `--issues` to create one GitHub issue per feature and key both
+    /// sections on those issues; `--no-issues` names the default explicitly.
     Populate(populate::PopulateArgs),
 }
 

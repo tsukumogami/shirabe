@@ -71,15 +71,24 @@ pub struct PopulateArgs {
     #[arg(long = "dry-run")]
     pub dry_run: bool,
 
-    /// Issueless render mode. Skips `gh issue create` entirely (no GitHub
-    /// calls) and renders both reserved sections from feature context. The
-    /// Implementation Issues table's key column carries each feature's label,
-    /// its Dependencies cells name features by their `F<n>` index, and its
-    /// description cells are bounded; a feature whose label cannot serve as a
-    /// table key falls back to `F<n>` with a warning on stderr. The Dependency
-    /// Graph uses `F<n>` nodes, the same numbering the dependency cells use.
-    /// Set by the roadmap skill when the repo declares
-    /// `## Roadmap Issues: optional`.
+    /// Issue-creating mode. Creates one GitHub issue per feature (one
+    /// `gh issue create` each), then renders both reserved sections keyed on
+    /// those issues. Required to reach GitHub: without it the run is
+    /// issueless. Mutually exclusive with `--no-issues`.
+    #[arg(long, conflicts_with = "no_issues")]
+    pub issues: bool,
+
+    /// Issueless render mode, and the default when neither mode flag is
+    /// given. Skips `gh issue create` entirely (no GitHub calls) and renders
+    /// both reserved sections from feature context. The Implementation Issues
+    /// table's key column carries each feature's label, its Dependencies
+    /// cells name features by their `F<n>` index, and its description cells
+    /// are bounded; a feature whose label cannot serve as a table key falls
+    /// back to `F<n>` with a warning on stderr. The Dependency Graph uses
+    /// `F<n>` nodes, the same numbering the dependency cells use.
+    /// Retained as an explicit opt-out so a caller can name the mode it wants
+    /// rather than relying on the default; the roadmap skill always passes one
+    /// of the two flags. Mutually exclusive with `--issues`.
     #[arg(long = "no-issues")]
     pub no_issues: bool,
 }
@@ -117,12 +126,18 @@ fn run_inner(args: &PopulateArgs) -> Result<(), String> {
     require_section(&doc, "Implementation Issues")?;
     require_section(&doc, "Dependency Graph")?;
 
+    // Issueless is the fall-through: creating issues is a side effect on
+    // shared remote state, so it happens only when the caller asks for it by
+    // name. `--no-issues` and the no-flag case land here alike; clap has
+    // already rejected the both-flags case via `conflicts_with`, so reaching
+    // this point with neither flag set is an unambiguous issueless request.
+    //
     // Issueless mode renders both sections from feature context and makes
     // no GitHub calls. It shares the section-replacement writer and the
     // Features parser with the issue-creating path; only issue creation and
     // the table/diagram keying differ. The R14 approval gate (in the calling
     // skill phase) is irrelevant here -- nothing is created to approve.
-    if args.no_issues {
+    if !args.issues {
         return run_issueless(args, &roadmap, &features);
     }
 
@@ -1623,20 +1638,56 @@ mod tests {
         assert!(diagram.contains("**Legend**:"));
     }
 
+    /// A minimal standalone parser mirroring the subcommand shape, so the
+    /// mode flags are exercised through the binary's real clap surface.
+    #[derive(clap::Parser, Debug)]
+    struct Probe {
+        #[command(flatten)]
+        args: PopulateArgs,
+    }
+
     #[test]
     fn no_issues_flag_parses() {
         use clap::Parser;
-        // Parse through the binary's clap surface to confirm the flag wires
-        // up. A minimal standalone parser mirroring the subcommand shape.
-        #[derive(Parser)]
-        struct Probe {
-            #[command(flatten)]
-            args: PopulateArgs,
-        }
         let p = Probe::parse_from(["x", "ROADMAP.md", "--no-issues"]);
         assert!(p.args.no_issues);
         let p = Probe::parse_from(["x", "ROADMAP.md"]);
         assert!(!p.args.no_issues);
+    }
+
+    #[test]
+    fn issues_flag_parses() {
+        use clap::Parser;
+        let p = Probe::parse_from(["x", "ROADMAP.md", "--issues"]);
+        assert!(p.args.issues);
+        assert!(!p.args.no_issues);
+    }
+
+    #[test]
+    fn neither_mode_flag_leaves_both_unset_which_run_inner_reads_as_issueless() {
+        use clap::Parser;
+        // The default is issueless, and `run_inner` expresses that as
+        // `if !args.issues`. Pinning both fields to false here is what makes
+        // that branch's meaning explicit: no flag is an issueless request,
+        // not an absent one.
+        let p = Probe::parse_from(["x", "ROADMAP.md"]);
+        assert!(!p.args.issues);
+        assert!(!p.args.no_issues);
+    }
+
+    #[test]
+    fn both_mode_flags_together_are_rejected_by_the_parser() {
+        use clap::Parser;
+        // `conflicts_with` rejects during parsing, so `run_inner` never runs
+        // and no roadmap mutation or `gh` call can occur on this input.
+        let err = Probe::try_parse_from(["x", "ROADMAP.md", "--issues", "--no-issues"])
+            .expect_err("--issues and --no-issues must not resolve to a mode");
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("--issues") && rendered.contains("--no-issues"),
+            "the conflict error must name both flags, got: {}",
+            rendered
+        );
     }
 
     #[test]
@@ -1680,6 +1731,7 @@ mod tests {
             output_map: String::new(),
             repo: String::new(),
             dry_run: false,
+            issues: false,
             no_issues: true,
         };
         let code = run(&args);
@@ -1754,6 +1806,7 @@ mod tests {
             output_map: String::new(),
             repo: String::new(),
             dry_run: false,
+            issues: false,
             no_issues: true,
         };
         assert_eq!(run(&args), ExitCode::SUCCESS);
@@ -1838,6 +1891,7 @@ mod tests {
             output_map: String::new(),
             repo: String::new(),
             dry_run: false,
+            issues: false,
             no_issues: true,
         };
         assert_eq!(run(&args), ExitCode::SUCCESS);
@@ -2347,6 +2401,7 @@ mod tests {
             output_map: String::new(),
             repo: String::new(),
             dry_run: true,
+            issues: true,
             no_issues: false,
         };
         let map = obtain_mapping(&args, &features).unwrap();
@@ -2415,6 +2470,7 @@ mod tests {
             output_map: String::new(),
             repo: "owner/repo".to_string(),
             dry_run: true,
+            issues: true,
             no_issues: false,
         };
         assert_eq!(run(&args), ExitCode::SUCCESS);

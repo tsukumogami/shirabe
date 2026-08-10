@@ -101,6 +101,16 @@ left untouched.
 - **D5 -- Backward compatibility.** Repos with no new header must behave exactly
   as today (issue-creating populate, "Do not fill manually" in force). The
   default must be `required`.
+  **SUPERSEDED 2026-08-10** by
+  `docs/decisions/DECISION-populate-issueless-default-2026-08-10.md`. The
+  default is now issueless, and the header defaults to `optional` when absent.
+  D5 was right for this design -- issueless mode was new and unproven, and
+  defaulting to it would have changed behaviour for everyone in exchange for an
+  unrequested benefit. Once issueless mode shipped and became what the
+  `/roadmap` workflow uses on every automatic run, the blast-radius asymmetry
+  (issueless fails locally and recoverably; issue-creating fails on shared
+  remote state) outweighed the compatibility argument. The rest of this design
+  stands.
 - **D6 -- Minimal surface.** The change should touch the fewest moving parts
   that deliver the capability; each added subcommand flag or validator branch
   is future maintenance.
