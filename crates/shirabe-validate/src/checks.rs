@@ -632,6 +632,10 @@ fn validate_row_shape(doc: &Doc, table: &Table) -> Vec<ValidationError> {
 /// exists as an entity row in the same table (R7). The check is
 /// document-local (no graph model). FC06 is error-level.
 ///
+/// A roadmap-profile token may also name a feature by its `F<n>` index
+/// instead of repeating the row's key; see [`index_alias_resolves`] for the
+/// rule and why the key lookup runs first.
+///
 /// FC06 is a no-op when the format has no issues table or the table is
 /// absent.
 pub fn check_fc06(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
@@ -651,6 +655,18 @@ pub fn check_fc06(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
         .map(|row| row.key.as_str())
         .collect();
 
+    // How many entity rows an `F<n>` alias can name. Zero outside the
+    // roadmap profile, which is how the profile gate is enforced: a plan
+    // table's `F1` resolves against nothing and stays an error.
+    let alias_row_count = match table.profile {
+        Profile::Roadmap => table
+            .rows
+            .iter()
+            .filter(|row| row.kind == RowKind::Entity)
+            .count(),
+        Profile::Plan => 0,
+    };
+
     let mut errs = Vec::new();
     for row in &table.rows {
         if row.kind != RowKind::Entity {
@@ -667,20 +683,57 @@ pub fn check_fc06(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
             if !is_local_key(dep) {
                 continue;
             }
-            if !keys.contains(dep.as_str()) {
-                errs.push(ValidationError {
-                    file: doc.path.clone(),
-                    line: row.line,
-                    code: "FC06".to_string(),
-                    message: format!(
-                        "[FC06] dependency {:?} in row {:?} names no row in this table",
-                        dep, row.key
-                    ),
-                });
+            // Key first, alias second. The alias is only ever reached by a
+            // token that would otherwise be an error, so it can turn an
+            // error into a pass but never the reverse.
+            if keys.contains(dep.as_str()) || index_alias_resolves(dep, alias_row_count) {
+                continue;
             }
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: row.line,
+                code: "FC06".to_string(),
+                message: format!(
+                    "[FC06] dependency {:?} in row {:?} names no row in this table",
+                    dep, row.key
+                ),
+            });
         }
     }
     errs
+}
+
+/// Reports whether `dep` is an `F<n>` index alias naming one of the
+/// `entity_rows` entity rows of the table it appears in.
+///
+/// The roadmap profile numbers its features positionally -- `parse_features`
+/// assigns `F1`, `F2`, ... in document order, and both the Implementation
+/// Issues table and the Dependency Graph are rendered from that list in that
+/// order -- so the nth entity row is the feature the author means by `F<n>`.
+/// Resolving positionally keeps FC06 document-local: the answer comes from
+/// the parsed table alone, never the Features section.
+///
+/// The match is exactly `^F[0-9]+$`, so `f1`, `F1a`, and `F1 (soft)` are
+/// ordinary tokens that resolve only as keys. Numbering is 1-based, which
+/// rules out `F0`, and an index past the last entity row resolves to
+/// nothing -- that is what keeps the check catching stale references.
+/// `entity_rows` is zero for the plan profile, where `F<n>` names nothing.
+///
+/// Callers must try the key set first. A feature can be labelled `F2`, and
+/// that label is its row's key; resolving the alias first would change what
+/// such a document means.
+fn index_alias_resolves(dep: &str, entity_rows: usize) -> bool {
+    let Some(digits) = dep.strip_prefix('F') else {
+        return false;
+    };
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    // A digit run long enough to overflow `usize` names no row either.
+    match digits.parse::<usize>() {
+        Ok(n) => n >= 1 && n <= entity_rows,
+        Err(_) => false,
+    }
 }
 
 /// Reports whether `dep` looks like a document-local key (a bare `#N`
@@ -4064,6 +4117,132 @@ mod tests {
         assert!(
             errs.iter().any(|e| e.message.contains("F1 (soft)")),
             "expected FC06 to fire on the annotated dep `F1 (soft)`, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc06_roadmap_index_alias_resolves() {
+        // The compact form the issueless renderer emits: the key column
+        // carries feature labels, the Dependencies column carries `F<n>`
+        // indices. The alias resolves positionally against the entity rows.
+        let doc = doc_md(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| A1 — Establish the baseline | None | None | Not started |\n| _Baseline._ | | | |\n| A2 — Introduce the resolver cache | None | F1 | Not started |\n| _Cache._ | | | |\n",
+        );
+        let errs = check_fc06(&doc, &spec_for("roadmap/v1"));
+        assert_eq!(
+            errs.len(),
+            0,
+            "expected the F1 alias to resolve, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc06_roadmap_index_alias_counts_entity_rows_only() {
+        // Description rows sit between every pair of entity rows, so a
+        // resolution that counted table rows rather than entity rows would
+        // read `F2` as the first description row and fire. It must name the
+        // second feature.
+        let doc = doc_md(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| alpha | None | None | Not started |\n| _Alpha._ | | | |\n| beta | None | F1 | Not started |\n| _Beta._ | | | |\n| gamma | None | F2 | Not started |\n| _Gamma._ | | | |\n",
+        );
+        let errs = check_fc06(&doc, &spec_for("roadmap/v1"));
+        assert_eq!(
+            errs.len(),
+            0,
+            "expected F1 and F2 to name the first two feature rows, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc06_roadmap_index_alias_out_of_range_fires() {
+        // Typo-catching survives the alias: an index past the last entity
+        // row reports the same error a dangling label reports.
+        let doc = doc_md(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| alpha | None | None | Not started |\n| _Alpha._ | | | |\n| beta | None | F99 | Not started |\n| _Beta._ | | | |\n",
+        );
+        let errs = check_fc06(&doc, &spec_for("roadmap/v1"));
+        assert_eq!(errs.len(), 1, "expected 1 FC06 error, got {:?}", errs);
+        assert_eq!(errs[0].code, "FC06");
+        assert!(errs[0].message.contains("\"F99\""));
+        assert!(errs[0].message.contains("names no row in this table"));
+    }
+
+    #[test]
+    fn check_fc06_roadmap_index_alias_zero_fires() {
+        // The numbering is 1-based, so there is no zeroth entity row.
+        let doc = doc_md(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| alpha | None | None | Not started |\n| _Alpha._ | | | |\n| beta | None | F0 | Not started |\n| _Beta._ | | | |\n",
+        );
+        let errs = check_fc06(&doc, &spec_for("roadmap/v1"));
+        assert!(
+            errs.iter().any(|e| e.message.contains("\"F0\"")),
+            "expected FC06 to fire on F0, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc06_roadmap_key_wins_over_index_alias() {
+        // A feature literally labelled `F2` keeps today's behaviour. The
+        // single entity row is keyed `F2`, so the key lookup resolves it;
+        // trying the alias first would look for a second entity row that
+        // does not exist and fire. This test fails if the precedence is
+        // inverted.
+        let doc = doc_md(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| F2 | None | F2 | Not started |\n| _Self-referential but resolvable._ | | | |\n",
+        );
+        let errs = check_fc06(&doc, &spec_for("roadmap/v1"));
+        assert_eq!(
+            errs.len(),
+            0,
+            "expected the F2 key to resolve as a key, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc06_plan_profile_does_not_alias_index() {
+        // `F<n>` names nothing in a plan table, whose keys are `#N` issue
+        // numbers. The alias is confined to the roadmap profile.
+        let doc = doc_md(
+            "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 2\n---\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| _Alpha._ | | |\n| [#2: beta](https://example.com/2) | F1 | testable |\n| _Beta._ | | |\n",
+        );
+        let errs = check_fc06(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter().any(|e| e.message.contains("\"F1\"")),
+            "expected FC06 to fire on F1 in a plan table, got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc06_roadmap_index_alias_is_case_and_shape_sensitive() {
+        // Only `^F[0-9]+$` aliases. A lowercase `f1` and a decorated `F1a`
+        // are ordinary tokens that name no row, so they still fire.
+        let doc = doc_md(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| alpha | None | None | Not started |\n| _Alpha._ | | | |\n| beta | None | f1, F1a | Not started |\n| _Beta._ | | | |\n",
+        );
+        let errs = check_fc06(&doc, &spec_for("roadmap/v1"));
+        assert_eq!(errs.len(), 2, "expected 2 FC06 errors, got {:?}", errs);
+        assert!(errs.iter().any(|e| e.message.contains("\"f1\"")));
+        assert!(errs.iter().any(|e| e.message.contains("\"F1a\"")));
+    }
+
+    #[test]
+    fn check_fc06_roadmap_label_dependency_cells_still_resolve() {
+        // No migration: a roadmap populated before the alias shipped names
+        // its dependencies by full label and still validates.
+        let doc = doc_md(
+            "---\nschema: roadmap/v1\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| A1 — Establish the baseline | None | None | Not started |\n| _Baseline._ | | | |\n| A2 — Introduce the resolver cache | None | A1 — Establish the baseline | Not started |\n| _Cache._ | | | |\n",
+        );
+        let errs = check_fc06(&doc, &spec_for("roadmap/v1"));
+        assert_eq!(
+            errs.len(),
+            0,
+            "expected the label form to keep resolving, got {:?}",
             errs
         );
     }

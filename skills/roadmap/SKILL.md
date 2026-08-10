@@ -358,10 +358,11 @@ Resolution](#context-resolution)):
   `--no-issues`. It creates no issues -- no `gh issue create` runs -- and
   renders the sections from feature context: a table keyed on each
   feature's label (the feature's `needs-*` label in the Issues column) and
-  an `F<n>`-node diagram, with Dependencies cells naming those same labels.
-  A label that can't serve as a table key falls back to `F<n>` and the run
-  says so on stderr. The R14 gate is skipped, since there are no issues to
-  approve (see below).
+  an `F<n>`-node diagram, with Dependencies cells naming features by those
+  same `F<n>` indices so the column stays narrow while the key column stays
+  readable. A label that can't serve as a table key falls back to `F<n>` and
+  the run says so on stderr. The R14 gate is skipped, since there are no
+  issues to approve (see below).
 
 The roadmap profile shape (`Feature | Issues | Dependencies | Status`) and
 the dependency-diagram convention come from
@@ -399,8 +400,9 @@ Options:
 - `--output-map <file>` -- write the final id->github_number mapping
 - `--repo <owner/repo>` -- override the repo used when rendering issue links
 - `--no-issues` -- issueless mode: create no issues and render the reserved
-  sections from the Features section, keying table rows on feature labels.
-  Set by the skill when `## Roadmap Issues:` resolves to `optional`.
+  sections from the Features section, keying table rows on feature labels
+  and naming dependencies by `F<n>` index. Set by the skill when
+  `## Roadmap Issues:` resolves to `optional`.
 - `--dry-run` -- skip `gh` invocations; synthesize a deterministic mapping
 - `-h, --help` -- print help
 

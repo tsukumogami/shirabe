@@ -644,19 +644,21 @@ fn issueless_table_is_keyed_by_feature_label() {
         .assert()
         .success();
     let out = fs::read_to_string(&path).unwrap();
-    // The key column names the feature, and dependency cells name the same
-    // text, so a reader can follow a row without leaving the table.
+    // The key column names the feature; dependency cells name it by index, so
+    // the column stays narrow and matches the diagram's node numbering.
     assert!(out.contains("| Foundation layer | needs-design | None | needs-design |"));
-    assert!(out.contains("| Caching layer | needs-spike | Foundation layer | needs-spike |"));
+    assert!(out.contains("| Caching layer | needs-spike | F1 | needs-spike |"));
     // A delivered feature's row is struck through; the cross-repo token
-    // survives verbatim alongside the resolved local key.
-    assert!(out.contains(
-        "| ~~Cross-repo bridge~~ | ~~None~~ | ~~Foundation layer, tsukumogami/koto#65~~ | ~~Done~~ |"
-    ));
-    // No opaque index remains in the table's key column.
-    assert!(!out.contains("| F1 |"));
-    assert!(!out.contains("| F2 |"));
-    // The diagram keeps its F<n> node ids.
+    // survives verbatim alongside the resolved index.
+    assert!(out
+        .contains("| ~~Cross-repo bridge~~ | ~~None~~ | ~~F1, tsukumogami/koto#65~~ | ~~Done~~ |"));
+    // No opaque index remains in the table's key column. Anchoring on the
+    // newline is what separates the key column from the Dependencies column,
+    // which now legitimately holds `F1`.
+    assert!(!out.contains("\n| F1 |"));
+    assert!(!out.contains("\n| F2 |"));
+    // The diagram keeps its F<n> node ids, and the table's dependency cells
+    // now name features by the same numbering.
     assert!(out.contains("F1[\"Foundation layer\"]"));
     assert!(out.contains("F1 --> F2"));
     let _ = fs::remove_dir_all(&dir);
@@ -687,8 +689,11 @@ fn issueless_awkward_labels_fall_back_and_warn() {
 
     let out = fs::read_to_string(&path).unwrap();
     assert!(out.contains("| Foundation layer |"));
-    assert!(out.contains("| F2 | None | Foundation layer | Not started |"));
-    // A dependency on a fallen-back feature names the fallback key.
+    assert!(out.contains("| F2 | None | F1 | Not started |"));
+    // A feature whose key fell back to `F<n>` needs no special handling: its
+    // key and its dependency alias are the same token, so a row keyed `F2`
+    // and a cell naming `F2` agree by construction. FC06 resolves this one as
+    // a key, never reaching the alias.
     assert!(out.contains("| F3 | None | F2 | Not started |"));
     // The feature with no body gets the placeholder rather than an empty
     // italic marker, which the validator reads as bold.

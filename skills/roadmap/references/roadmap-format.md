@@ -183,8 +183,9 @@ The header defaults to `required` when absent:
   section -- no issues are created. The table keys each row on the
   feature's label, the same key form the shared roadmap profile
   specifies, with the feature's `needs-*` label in the Issues
-  column. The diagram uses `F<n>` nodes. The Dependencies
-  convention below applies in this mode.
+  column. The diagram uses `F<n>` nodes, and the Dependencies
+  cells name features by those same `F<n>` indices. The
+  Dependencies convention below applies in this mode.
 
 Either way the sections are tool-generated. Don't hand-edit them.
 
@@ -375,14 +376,33 @@ reserved section fails the build, not just an advisory notice.
 ### Dependencies cells in issueless mode
 
 Under `## Roadmap Issues: optional`, each Dependencies cell names
-the depended-on feature by the same key its own row carries in the
-Feature column -- normally the feature's label, or its `F<n>`
-fallback -- or `None`. Cross-repo references round-trip verbatim.
+the depended-on feature by its `F<n>` index -- the same number the
+Dependency Graph's nodes use, counting features from 1 in document
+order -- or `None`. Cross-repo references round-trip verbatim.
 Nothing else.
 
-FC06 rejects annotated forms. `Foundation layer (soft)` and
+The key column and this column carry different forms on purpose:
+the key stays readable while the dependency cell stays narrow. A
+feature depending on three others renders `F1, F2, F3` rather than
+three full labels. FC06 accepts both because it resolves a
+dependency token against the row keys first and falls back to
+resolving an `F<n>` token against the nth entity row, so a roadmap
+whose cells carry full labels -- one populated before the alias
+shipped, or one hand-edited that way -- keeps validating with no
+change. A row whose key already fell back to `F<n>` needs no
+special handling: its key and its index are the same token.
+
+An index that names no row is still an error. `F99` on a five-feature
+roadmap fails with `dependency "F99" names no row in this table`,
+which is what keeps the check catching a dependency on a feature
+that has been deleted or renumbered. Re-running populate re-derives
+both the table and the diagram from the Features section, which is
+the repair when indices shift.
+
+FC06 rejects annotated forms. `F1 (soft)` and
 `None (ext: onboarding)` each fail with `dependency "..." names no
-row in this table`, because the parenthetical isn't a key.
+row in this table`, because the parenthetical is neither a key nor
+an index.
 Soft-versus-hard nuance and external dependencies don't go in the
 cell -- they belong in the feature prose and the Sequencing
 Rationale, which is where the reader looks for that context anyway.
