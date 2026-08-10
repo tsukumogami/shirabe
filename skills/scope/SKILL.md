@@ -211,8 +211,8 @@ Phase 0: SETUP  -> Phase 1: DISCOVER  -> Phase 2: CHAIN  -> Phase 3: FINALIZE  -
 
 | Phase | Purpose | Reference |
 |-------|---------|-----------|
-| 0. Setup | Slug validation; state-file creation; stale `parent_orchestration:` self-heal | `skills/scope/references/phases/phase-0-setup.md` |
-| 1. Discover + Chain Proposal | Visibility detection; topic-related child-doc discovery; R6 shape-predicate evaluation for `/design`'s roster size; chain-proposal output | `skills/scope/references/phases/phase-1-discovery.md` |
+| 0. Setup | Slug validation; visibility detection; state-file creation; stale `parent_orchestration:` self-heal | `skills/scope/references/phases/phase-0-setup.md` |
+| 1. Discover + Chain Proposal | Topic-related child-doc discovery; R6 shape-predicate evaluation for `/design`'s roster size; chain-proposal output | `skills/scope/references/phases/phase-1-discovery.md` |
 | 2. Child Invocation Loop | Per-child: worktree-staleness check (Rebase / Impact-analysis / Escalation per `worktree-discipline.md`); write `parent_orchestration:` sentinel; invoke child with its upstream artifact's path; structural file-existence check per R20; clear sentinel; capture child snapshot; validator pass-through; consolidation judgment | `skills/scope/references/phases/phase-2-chain-orchestration.md` |
 | 3. Exit Finalization | Set `exit:` field; write `exit_artifacts:`; run R9 hard-finalization check | `skills/scope/references/phases/phase-3-exit-finalization.md` |
 | 4. wip Cleanup | Remove the topic's wip/ scratch artifacts; preserve durable Decision Records and force-materialized partials in `docs/` | `skills/scope/references/phases/phase-4-cleanup.md` |
@@ -278,14 +278,14 @@ Slot 7 is vacuous in v1.
 
 Execute phases sequentially by reading the corresponding phase file:
 
-0. **Setup** — slug validation, state-file creation, stale
-   `parent_orchestration:` self-heal.
+0. **Setup** — slug validation, visibility detection, state-file
+   creation, stale `parent_orchestration:` self-heal.
    - Instructions: `skills/scope/references/phases/phase-0-setup.md`
 
-1. **Discover + Chain Proposal** — visibility detection, topic-
-   related child-doc discovery, R6 shape-predicate evaluation to
-   size `/design`'s decision roster, chain-proposal output
-   (Proceed / Adjust / Bail triad).
+1. **Discover + Chain Proposal** — topic-related child-doc
+   discovery, R6 shape-predicate evaluation to size `/design`'s
+   decision roster, chain-proposal output (Proceed / Adjust /
+   Bail triad).
    - Instructions: `skills/scope/references/phases/phase-1-discovery.md`
 
 2. **Child Invocation Loop** — invoke the planned chain (the

@@ -135,7 +135,7 @@ State file at abandonment-forced exit:
 ```yaml
 exit: abandonment-forced
 triggering_child: brief | prd | design | plan
-partial_phase_reached: <phase identifier inside the child>
+partial_phase_reached: <the parent's own Phase 2 loop position>
 chain_completed: <ISO-8601 timestamp>
 exit_artifacts:
   - path: docs/{briefs|prds|designs|plans}/<TYPE>-<topic>.md

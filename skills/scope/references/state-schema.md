@@ -15,7 +15,12 @@ state-schema reference).
 - **`chain_started`** — ISO-8601 timestamp recorded at Phase 0; used
   for the abandonment-forced marker substitution.
 - **`chain_completed`** — ISO-8601 timestamp recorded at Phase 3
-  when `exit: full-run` fires.
+  when the chain terminates, on every exit path rather than on
+  `full-run` alone. The re-evaluation Decision Record templates
+  read it for their filename date, and the abandonment-forced
+  marker records it alongside `chain_started`, so scoping it to
+  one exit would leave the other two writing a field the schema
+  says is absent.
 - **`visibility`** — the repo visibility Phase 0 detected from
   CLAUDE.md's `## Repo Visibility:` header. Values: `Public |
   Private`, defaulting to `Private` when the header is absent.
@@ -94,7 +99,14 @@ state-schema reference).
   Values: `brief | prd | design | plan`. Names the most-recently-
   running child per R8's tie-break rule.
 - **`partial_phase_reached`** — conditional on `exit: abandonment-forced`.
-  Names the phase reached inside the triggering child.
+  Names how far the chain got before it stopped. The value is
+  `/scope`'s own loop position for the triggering child — which of
+  the eight Phase 2 steps had completed when the bail fired — NOT
+  a phase read out of the child's internals. Reading the child's
+  internal phase would breach the R14 isolation rule, which limits
+  `/scope` to the child's durable artifact status and content
+  hash, so the field records what the parent observed rather than
+  what the child was doing.
 - **`child_snapshots`** — per-child status + content-hash dual-
   check block (one entry per child in `chain_ran`); the
   fingerprint is the git blob hash of the child's durable doc.
