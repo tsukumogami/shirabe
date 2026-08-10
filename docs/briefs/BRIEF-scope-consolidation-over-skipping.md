@@ -10,8 +10,8 @@ problem: |
 outcome: |
   An author runs `/scope` and every artifact the chain would produce is
   actually written. The run ends with the smallest set of documents that
-  still carries everything worth recording, and every document that went
-  away did so after a judgment against its own written content.
+  still carries everything worth recording, and a document is only removed
+  once the one that would replace it exists and is shown to carry it.
 motivating_context: |
   The skip logic was built to spare the human reader repetitive artifacts
   restating one thing at three altitudes. What shipped spares the producer
@@ -81,10 +81,17 @@ the judgment was made before there was anything to lose.
 An author who runs `/scope` on a feature gets every artifact the chain covers
 actually written, and finishes with the smallest set of documents that still
 carries everything worth recording. Nothing is dropped on a guess about what
-it would have said. When two documents turn out to hold one idea, the run
-says so, folds the content into the one that stays, and leaves a record of
-what happened — so the author can see the reduction was a judgment about
-written content rather than an estimate made in advance.
+it would have said.
+
+No document is judged the moment it is written — there is nothing to judge it
+against yet, and guessing whether the document that follows will carry its
+content is the same premature call this feature exists to remove. Each
+document's fate is settled one step later, once its successor lands: when the
+PRD arrives, the run asks whether the BRIEF still does work the PRD does not.
+When two documents turn out to hold one idea, the run says so, folds the
+content into the one that stays, and leaves a record of what happened — so the
+author can see the reduction rested on both bodies rather than on an estimate
+made in advance.
 
 A reader landing on the result reads one document per distinct idea. If a
 feature's framing and its requirements were the same conversation, that
