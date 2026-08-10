@@ -15,10 +15,8 @@ Establish the runtime context for the rest of the workflow:
 - Constrain the `<topic>` slug to a safe character set.
 - Canonicalize any `<path>` argument and reject paths resolving outside the repo
   working tree.
-- Make the brief-specific **artifact decision**: when the chain is entered partway
-  up, decide where the feature's framing is persisted — as a standalone brief or
-  folded into the downstream PRD/design. The framing is always captured in a durable
-  artifact; the decision is only which artifact holds it.
+- Record the artifact decision as `produce`. `/brief` always writes a standalone
+  brief; the fold-into-PRD branch that once lived here is retired (see 0.5).
 - Initialize the `wip/` working directory with placeholder context for resume
   detection.
 
@@ -142,60 +140,36 @@ reference private paths, repos, filenames, or issue numbers, and its `upstream:`
 field must not point at a private artifact. Phase 4's structural-format reviewer
 checks this; Phase 0 just records the value.
 
-## 0.5 Make the Artifact Decision
+## 0.5 Record the Artifact Decision
 
-Before initializing `wip/`, decide where this feature's framing should be
-persisted — as a standalone BRIEF, or folded into the downstream PRD/design. This
-is the brief-specific artifact decision the chain forces when it is entered partway
-up.
+`/brief` always produces a standalone BRIEF. There is no branch here that
+declines to write one.
 
-Be clear about what this decision is NOT. It is never "the problem is already
-stated, so no artifact is needed." A rich issue body, a detailed feature request,
-or a chat message is ephemeral — it is not a durable project artifact. The
-feature's problem, outcome, journeys, and scope must be articulated in a persistent
-artifact either way. The decision is only about WHERE that durable framing lives:
-its own BRIEF document, or carried forward into the downstream PRD/design when a
-standalone brief would be too heavy for the feature.
+Phase 0 records `## Artifact Decision` as `produce` in the context file (step 0.6)
+and continues. The key is kept because downstream phases and the resume ladder read
+it; it no longer has a second value.
 
-Run the decision as follows:
+**What changed and why.** An earlier revision decided here whether the framing
+should live in its own document or be folded into the downstream PRD. The decision
+had two defects that could not be fixed in place. It fired before any brief
+existed, so nothing it read could tell whether the brief would have carried
+something the PRD would not — the question it was trying to answer was not
+answerable yet. And nothing received what it folded: the path recommended `/prd`
+and named the content to carry forward, but `/prd` had no absorb step and no input
+mode for folded framing, so a fold left the framing in the ephemeral source it was
+supposed to be rescued from.
 
-1. **Assess the available framing.** From the entry mode and any upstream, judge
-   how much of the framing already exists in durable form:
-   - **Cold start / freeform topic with no upstream.** The framing does not exist
-     yet. Produce a standalone brief. Proceed normally.
-   - **Upstream ROADMAP path.** A roadmap names the feature but rarely frames its
-     problem and outcome. The framing gap is real. Produce a standalone brief.
-   - **An input that already reads as a framed feature** (problem and outcome
-     both stated, but in an issue, a message, or another ephemeral source). The
-     raw content largely exists; it just isn't persisted as a project artifact
-     yet. Continue to step 2 to decide where to persist it.
+The reader-economy goal that path served is real, and it is now served where the
+reduction can actually be verified. `/scope`'s Phase 2 runs a consolidation
+judgment after each artifact lands: it reads the BRIEF and the PRD, checks
+section by section that the PRD carries the brief's problem, outcome, journeys,
+and boundary, and only then removes the brief. See the Consolidation Judgment
+section of `skills/scope/references/phases/phase-2-chain-orchestration.md` and the
+"Why the Artifact Set Shrinks" section of `skills/scope/SKILL.md`.
 
-2. **Decide where the durable framing lives.** When the raw framing largely exists
-   in ephemeral form, choose its persistent home:
-   - **Produce a standalone BRIEF** when the framing warrants its own document: the
-     feature will be referenced by more than one downstream artifact, the
-     problem/outcome pair is contested or non-obvious enough that writing it down
-     settles it, or a future reader landing cold would benefit from a standalone
-     framing document.
-   - **Fold the framing into the downstream PRD/design** when a standalone brief
-     would be ceremony: the PRD will be the only downstream consumer and the framing
-     is not contested. This is NOT a license to skip articulation. The four framing
-     concerns — problem, outcome, journeys, scope — must still be captured durably,
-     in the PRD itself rather than left in the ephemeral source. Recommend
-     `/prd <upstream-or-topic>` and name the problem, outcome, journeys, and scope
-     the PRD must carry forward as durable content.
-
-3. **Record the decision.** Write the outcome to the context file (step 0.6
-   below). If the decision is to fold the framing downstream, the workflow exits
-   here — there is no standalone brief to draft — but the hand-off recommendation
-   must instruct the downstream skill to persist the framing, not treat the
-   ephemeral source as sufficient. Surface the recommendation to the user and stop.
-
-This decision is a judgment call, not a gate with a fixed threshold. When the case
-is genuinely ambiguous, default to producing the standalone brief: a short framing
-artifact is cheap, and a durable record is easier to point a downstream PRD at than
-scattered evidence. The fold-into-PRD path exists to avoid a redundant second
-document, never to leave the framing unpersisted.
+An author invoking `/brief` directly gets a brief and, at Phase 5, a
+recommendation to run `/prd <brief-path>` — one command away from the chain that
+can perform the reduction.
 
 ## 0.6 Initialize wip/
 
@@ -225,7 +199,7 @@ Write `wip/brief_<topic>_context.md` with the following keys:
 <Public | Private>
 
 ## Artifact Decision
-<produce | handed-off>
+produce
 
 ## Phase
 0
@@ -244,12 +218,12 @@ Surface the detected context to the user in one short message:
 
 > Setting up `/brief` for topic `<topic>`.
 > Entry mode: <mode>. Visibility: <visibility>.
-> Upstream: <path or "none">. Artifact decision: <produce | hand off to PRD>.
+> Upstream: <path or "none">.
 
 Do not block on confirmation for routine cases. If any detection produced an
-unexpected value (visibility defaulted to Private because CLAUDE.md was missing) or
-the artifact decision recommended hand-off, call that out explicitly so the user
-can correct it before Phase 1 commits to a direction.
+unexpected value (visibility defaulted to Private because CLAUDE.md was missing),
+call that out explicitly so the user can correct it before Phase 1 commits to a
+direction.
 
 ## Quality Checklist
 
@@ -259,7 +233,7 @@ Before proceeding:
 - [ ] Upstream file (if provided) exists and has a `ROADMAP-` basename; a `PRD-`
       basename was rejected with the chain-inversion message
 - [ ] Visibility is recorded (Public or Private, never empty)
-- [ ] The artifact decision is recorded (`produce` or `handed-off`)
+- [ ] The artifact decision is recorded as `produce`
 - [ ] `wip/brief_<topic>_context.md` exists with the keys above
 
 ## Artifact State
@@ -271,6 +245,5 @@ After this phase:
 
 ## Next Phase
 
-If the artifact decision was `produce`, proceed to Phase 1: Discover
-(`phase-1-discover.md`). If it was `handed-off`, the workflow exits here with the
-`/prd` recommendation surfaced to the user.
+Proceed to Phase 1: Discover (`phase-1-discover.md`). Phase 0 has no exit branch —
+every `/brief` run that reaches the end of this phase goes on to write a brief.

@@ -266,6 +266,16 @@ Phase 6 jury reviewers add discretionary rubric coverage:
   problem; "we should add a SCHEMA-MISSING notice" is a solution.
 - Stands alone. A reader landing on the DESIGN cold should grasp
   what's broken without reading the upstream PRD.
+- Standing alone is scoped to **this section**. It is not licence
+  to re-narrate the rest of the upstream. State the problem in
+  full here, then cite everything the upstream already says --
+  requirements by their numbers, goals and exclusions by
+  reference -- rather than restating it. A DESIGN that opens by
+  citing its PRD's requirement numbers loses nothing; one that
+  re-narrates the PRD in full costs its reader a second read of
+  a document they can open. Both shapes exist in this repo and
+  both passed review, because until now no rule distinguished
+  them.
 
 ### Decision Drivers
 

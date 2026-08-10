@@ -165,7 +165,7 @@ Phase 0: SETUP --> Phase 1: DISCOVER --> Phase 2: DRAFT --> Phase 3: STRUCTURAL 
 
 | Phase | Purpose | Artifact |
 |-------|---------|----------|
-| 0. Setup | Branch, visibility detection, slug + path validation, artifact decision | On topic branch |
+| 0. Setup | Branch, visibility detection, slug + path validation | On topic branch |
 | 1. Discover | Scoping conversation; ground the feature's problem and outcome | `wip/brief_<topic>_discover.md` |
 | 2. Draft | Problem Statement, User Outcome | Partial BRIEF draft |
 | 3. Structural Fill | User Journeys, Scope Boundary, optional sections | Complete BRIEF draft |
@@ -214,10 +214,13 @@ unchanged when the sentinel is absent.
   `^[a-z0-9-]+$`. Non-compliant topics never reach later phases.
 - **Path canonicalization:** Phase 0 canonicalizes and bounds-checks
   any user-supplied upstream path.
-- **Artifact decision:** Phase 0 decides, when the chain is entered
-  partway up (a rich issue body already implies problem and outcome),
-  whether to produce a durable brief or pass the existing evidence
-  forward to the PRD. A brief written by reflex is not the goal.
+- **Always produces a brief:** there is no branch that declines to
+  write one. A brief whose framing turns out to be fully carried by
+  its downstream PRD is removed by `/scope`'s consolidation
+  judgment, which reads both documents and checks section by
+  section that the content arrived. That check cannot run before
+  the brief exists, which is why `/brief` no longer tries to make
+  the call at Phase 0.
 - **Conversational scoping:** Phase 1 is a dialogue, not a form. The
   anchor is the feature's problem/outcome pair, not a bet.
 - **Jury parallelism:** Phase 4 spawns the two reviewer agents with
@@ -236,7 +239,7 @@ unchanged when the sentinel is absent.
 
 Execute phases sequentially by reading the corresponding phase file:
 
-0. **Setup**: branch + visibility detection + slug + path validation + artifact decision
+0. **Setup**: branch + visibility detection + slug + path validation
    - Instructions: `references/phases/phase-0-setup.md`
 
 1. **Discover**: scoping conversation + upstream grounding
@@ -264,7 +267,7 @@ After acceptance, suggest next steps:
 
 | Situation | Suggestion |
 |-----------|-----------|
-| Framing is settled and requirements are the next conversation | `/prd` to capture requirements, with this BRIEF as upstream |
+| Framing is settled and requirements are the next conversation | `/prd <brief-path>` to capture requirements, with this BRIEF as upstream |
 | The brief surfaced a technical question that needs deciding | `/design` to work the architecture |
 | The framing changed which features should ship | `/roadmap` to re-sequence |
 | A framing question is still open | `/explore` to investigate further |

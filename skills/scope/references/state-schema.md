@@ -15,15 +15,59 @@ state-schema reference).
 - **`chain_started`** — ISO-8601 timestamp recorded at Phase 0; used
   for the abandonment-forced marker substitution.
 - **`chain_completed`** — ISO-8601 timestamp recorded at Phase 3
-  when `exit: full-run` fires.
-- **`planned_chain`** — list of child names the chain planned to
-  invoke (output of Phase 1's chain-proposal).
+  when the chain terminates, on every exit path rather than on
+  `full-run` alone. The re-evaluation Decision Record templates
+  read it for their filename date, and the abandonment-forced
+  marker records it alongside `chain_started`, so scoping it to
+  one exit would leave the other two writing a field the schema
+  says is absent.
+- **`visibility`** — the repo visibility Phase 0 detected from
+  CLAUDE.md's `## Repo Visibility:` header. Values: `Public |
+  Private`, defaulting to `Private` when the header is absent.
+  Phase 2's validator pass-through reads it back for
+  `shirabe validate --visibility=<value>`, so it is a recorded
+  field rather than a per-phase re-detection.
+- **`planned_chain`** — list of child names the chain plans to
+  invoke: the whole tactical chain (`brief`, `prd`, `design`,
+  `plan`) in order, minus any child held back by re-entry
+  protection (output of Phase 1's chain-proposal). There is no
+  field recording where the chain starts, because it always starts
+  at `brief`.
 - **`chain_ran`** — list of child names whose invocations
   completed.
 - **`chain_skipped`** — list of `{name, reason}` entries for
-  children the chain decided to skip (e.g., `/prd` skipped when an
+  children held back by re-entry protection (e.g. `/prd` when an
   Accepted PRD already exists at the canonical path, per the
   Mandatory-with-auto-skip gate from `parent-skill-pattern.md`).
+  Phase 1 writes exactly one reason,
+  `settled-artifact-at-canonical-path-reentry-protection`; a
+  child is never recorded here because the chain judged its
+  artifact not worth producing, since `/scope` makes no such
+  judgment before an artifact exists. Phase 2 writes one further
+  reason when a Reject at a settled-upstream boundary ends the
+  chain and the remaining children never run.
+- **`consolidation_judgments`** — conditional list. One entry per
+  hop at which Phase 2's consolidation judgment ran, appended in
+  chain order. Absent when the chain produced fewer than two
+  durable artifacts. Each entry records:
+
+  ```yaml
+  consolidation_judgments:
+    - hop: brief->prd            # <upstream-type>-><downstream-type>
+      absorbable: true           # is the required-section mapping total?
+      verdict: absorb            # absorb | keep
+      carry_check:               # present only when verdict is absorb
+        <upstream section>: {target: <downstream section>, carried: <bool>}
+      absorbed: docs/briefs/BRIEF-<topic>.md   # present on a completed absorb
+      into: docs/prds/PRD-<topic>.md           # present on a completed absorb
+      finding: <free text>       # why keep, or which section failed to carry
+  ```
+
+  A `keep` entry carries `hop`, `absorbable`, `verdict`, and
+  `finding`. An aborted absorb is recorded as `verdict: keep`
+  with the carry check that failed, so the abort is auditable
+  rather than indistinguishable from a judgment that never
+  considered absorbing.
 - **`boundary`** — conditional on `exit: re-evaluation`. Values:
   `prd | design`. Discriminates which upstream boundary the
   Decision Record attaches to. Gated per the state-schema
@@ -35,8 +79,12 @@ state-schema reference).
   `boundary:` and `decision_record_sub_shape:` to be set when
   `exit: re-evaluation` fires.
 - **`plan_execution_mode`** — conditional on `/plan` appearing in
-  `chain_ran`. Values: `single-pr | multi-pr`. Records the
-  output-mode selection of the terminal child. Gated per
+  `chain_ran`. Values: `single-pr | multi-pr | coordinated`.
+  Records the output-mode selection of the terminal child.
+  `coordinated` is the multi-repo generalization of `multi-pr`
+  and is the value a coordinated chain records; the Plan format
+  profile recognizes all three
+  (`crates/shirabe-validate/src/formats.rs`). Gated per
   state-schema R9 Part 3's chain-membership-gated extension.
 - **`referenced_artifact`** — conditional on `exit: re-evaluation`.
   The path of the settled-upstream artifact the Decision Record
@@ -51,7 +99,14 @@ state-schema reference).
   Values: `brief | prd | design | plan`. Names the most-recently-
   running child per R8's tie-break rule.
 - **`partial_phase_reached`** — conditional on `exit: abandonment-forced`.
-  Names the phase reached inside the triggering child.
+  Names how far the chain got before it stopped. The value is
+  `/scope`'s own loop position for the triggering child — which of
+  the eight Phase 2 steps had completed when the bail fired — NOT
+  a phase read out of the child's internals. Reading the child's
+  internal phase would breach the R14 isolation rule, which limits
+  `/scope` to the child's durable artifact status and content
+  hash, so the field records what the parent observed rather than
+  what the child was doing.
 - **`child_snapshots`** — per-child status + content-hash dual-
   check block (one entry per child in `chain_ran`); the
   fingerprint is the git blob hash of the child's durable doc.
@@ -80,6 +135,12 @@ state-schema reference).
   returns. Names the invoking child, the suppress-status-aware-
   prompt boolean, and the rationale (`fresh-chain | revise`) per
   the L13 amendment in `parent-skill-pattern.md`.
+
+Phase 3 copies `chain_ran`, `chain_skipped`, and
+`consolidation_judgments` into the run's PR body before Phase 4
+removes the state file. The `wip/` copy is scratch; the PR body
+is where a reviewer can tell "not produced" from "absorbed into
+this other document" after the scratch is gone.
 
 The state file is the externally-visible parent surface children
 read at child Phase 0 to consult the `parent_orchestration:`

@@ -9,9 +9,9 @@ state-file written and the phase pointer advanced to Phase 1.
 ## Cold-Start Path
 
 When `$ARGUMENTS` is empty, Phase 0 surfaces a cold-start prompt
-naming the three trigger phrases ("start a tactical conversation
-about X", "open a feature scope for Y", "I want to think through
-the feature shape of Z") and asks the author to re-invoke
+naming the three trigger phrases from CLAUDE.md ("specify a
+feature called X", "scope feature Y", "walk me through specifying
+Z") and asks the author to re-invoke
 `/scope <topic-slug>` with a slug that matches the topic-slug
 regex. Phase 0 then stops; there is no auto-derivation of a slug
 from prior context and no looping retry.

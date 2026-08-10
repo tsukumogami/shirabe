@@ -750,20 +750,48 @@ fn is_local_key(dep: &str) -> bool {
     true
 }
 
-/// (R6) Verifies that a Plan doc's `upstream` field points at a file that
-/// exists on disk and is tracked by git. The field is optional; an absent
-/// upstream value returns an empty vec. The git tracking check runs
-/// `git ls-files --error-unmatch` in the process's current working
-/// directory (which in a GHA context is the caller repo's checkout, not the
-/// embedded shirabe source tree), so callers must not override the working
-/// directory when invoking the check.
-pub fn check_plan_upstream(doc: &Doc) -> Vec<ValidationError> {
+/// Reports whether an `upstream` value is a cross-repo reference in the
+/// `owner/repo:path` convention (see `references/cross-repo-references.md`)
+/// rather than a repo-relative path. A cross-repo reference names a file in
+/// another repository, so it is not resolvable on this filesystem and the
+/// upstream-resolution check skips it.
+///
+/// The discriminator is a `:` appearing before any `/` that follows it --
+/// `owner/repo:docs/prds/PRD-x.md` has one, `docs/prds/PRD-x.md` does not.
+/// Repo-relative paths never contain a colon in practice; the check is
+/// deliberately narrow so a malformed local path still reports rather than
+/// silently passing as "cross-repo".
+fn is_cross_repo_reference(value: &str) -> bool {
+    match value.find(':') {
+        Some(idx) => value[..idx].contains('/'),
+        None => false,
+    }
+}
+
+/// (R6) Verifies that a doc's `upstream` field points at a file that exists
+/// on disk and is tracked by git. The field is optional; an absent upstream
+/// value returns an empty vec, and a cross-repo `owner/repo:path` reference
+/// is skipped because it names a file in another repository. The git
+/// tracking check runs `git ls-files --error-unmatch` in the process's
+/// current working directory (which in a GHA context is the caller repo's
+/// checkout, not the embedded shirabe source tree), so callers must not
+/// override the working directory when invoking the check.
+///
+/// The check runs for every format, not just Plan. A dangling `upstream:`
+/// is wrong however it arose -- a typo, a renamed artifact, or a `/scope`
+/// consolidation whose re-point was missed -- so the resolution guarantee
+/// belongs to every doc type that can carry the field.
+pub fn check_upstream_resolves(doc: &Doc) -> Vec<ValidationError> {
     let field = match doc.fields.get("upstream") {
         Some(f) => f,
         None => return Vec::new(),
     };
 
     let path = &field.value;
+    if is_cross_repo_reference(path) {
+        return Vec::new();
+    }
+
     if !Path::new(path).exists() {
         return vec![ValidationError {
             file: doc.path.clone(),
@@ -3605,23 +3633,23 @@ mod tests {
         assert_eq!(errs.len(), spec.required_sections.len());
     }
 
-    // --- check_plan_upstream ---
+    // --- check_upstream_resolves ---
 
     #[test]
-    fn check_plan_upstream_absent_returns_empty() {
+    fn check_upstream_resolves_absent_returns_empty() {
         let doc = make_doc("plan/v1", "Draft", HashMap::new(), vec![], vec![]);
-        assert_eq!(check_plan_upstream(&doc).len(), 0);
+        assert_eq!(check_upstream_resolves(&doc).len(), 0);
     }
 
     #[test]
-    fn check_plan_upstream_missing_file_returns_r6() {
+    fn check_upstream_resolves_missing_file_returns_r6() {
         let mut fields = HashMap::new();
         fields.insert(
             "upstream".to_string(),
             fv("/tmp/nonexistent_shirabe_test_xyz_12345.md", 5),
         );
         let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
-        let errs = check_plan_upstream(&doc);
+        let errs = check_upstream_resolves(&doc);
         assert_eq!(errs.len(), 1);
         assert_eq!(errs[0].code, "R6");
         assert_eq!(errs[0].line, 5);
@@ -3629,7 +3657,7 @@ mod tests {
     }
 
     #[test]
-    fn check_plan_upstream_untracked_file_returns_r6() {
+    fn check_upstream_resolves_untracked_file_returns_r6() {
         // Create a temporary file that exists on disk but is not committed
         // to git.
         let dir = std::env::temp_dir();
@@ -3639,7 +3667,7 @@ mod tests {
         let mut fields = HashMap::new();
         fields.insert("upstream".to_string(), fv(&path.display().to_string(), 3));
         let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
-        let errs = check_plan_upstream(&doc);
+        let errs = check_upstream_resolves(&doc);
         let _ = std::fs::remove_file(&path);
 
         assert_eq!(errs.len(), 1, "expected 1 error for untracked file");
@@ -3648,7 +3676,7 @@ mod tests {
     }
 
     #[test]
-    fn check_plan_upstream_tracked_file_returns_empty() {
+    fn check_upstream_resolves_tracked_file_returns_empty() {
         // Use a crate source file that exists on disk and is committed to
         // git (Cargo.toml is tracked from the crate root). CARGO_MANIFEST_DIR
         // is the absolute crate-root path at compile time, mirroring the Go
@@ -3657,13 +3685,54 @@ mod tests {
         let mut fields = HashMap::new();
         fields.insert("upstream".to_string(), fv(tracked, 4));
         let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
-        let errs = check_plan_upstream(&doc);
+        let errs = check_upstream_resolves(&doc);
         assert_eq!(
             errs.len(),
             0,
             "expected no errors for tracked file: {:?}",
             errs
         );
+    }
+
+    #[test]
+    fn check_upstream_resolves_runs_for_non_plan_formats() {
+        // The check was Plan-only before /scope gained a consolidation step
+        // that re-points an `upstream` after absorbing an artifact. A
+        // dangling link on a PRD or a DESIGN has to report the same way.
+        for schema in ["prd/v1", "design/v1", "brief/v1"] {
+            let mut fields = HashMap::new();
+            fields.insert(
+                "upstream".to_string(),
+                fv("/tmp/nonexistent_shirabe_test_xyz_67890.md", 6),
+            );
+            let doc = make_doc(schema, "Draft", fields, vec![], vec![]);
+            let errs = check_upstream_resolves(&doc);
+            assert_eq!(errs.len(), 1, "expected 1 error for {}", schema);
+            assert_eq!(errs[0].code, "R6");
+            assert!(errs[0].message.contains("does not exist on disk"));
+        }
+    }
+
+    #[test]
+    fn check_upstream_resolves_skips_cross_repo_reference() {
+        // `owner/repo:path` names a file in another repository, so it is
+        // not resolvable on this filesystem and must not report.
+        let mut fields = HashMap::new();
+        fields.insert(
+            "upstream".to_string(),
+            fv("tsukumogami/niwa:docs/prds/PRD-elsewhere.md", 7),
+        );
+        let doc = make_doc("design/v1", "Proposed", fields, vec![], vec![]);
+        assert_eq!(check_upstream_resolves(&doc).len(), 0);
+    }
+
+    #[test]
+    fn is_cross_repo_reference_discriminates_on_owner_repo_prefix() {
+        assert!(is_cross_repo_reference("owner/repo:docs/prds/PRD-x.md"));
+        assert!(!is_cross_repo_reference("docs/prds/PRD-x.md"));
+        // A colon with no `/` before it is not the cross-repo shape, so the
+        // value still resolves as a (malformed) local path and reports.
+        assert!(!is_cross_repo_reference("weird:name.md"));
     }
 
     // --- check_vision_public ---

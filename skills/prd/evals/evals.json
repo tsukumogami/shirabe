@@ -6,56 +6,104 @@
       "name": "create-prd-from-topic",
       "prompt": "/prd notification-preferences",
       "expected_output": "Skill enters Phase 1 conversational scoping. Asks clarifying questions about notification preferences (channels, user control, defaults). Does NOT jump straight to drafting. Tracks coverage of problem space before moving to Phase 2 discover.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript describes Phase 1 conversational scoping as a dialogue before any drafting begins",
+        "Transcript poses clarifying questions specific to the notification-preferences problem space (channels, granularity, defaults, or user control)",
+        "Transcript describes tracking coverage of the problem space before advancing to Phase 2 discover",
+        "Transcript does NOT jump straight to writing the PRD document"
+      ]
     },
     {
       "id": 2,
       "name": "auto-mode-non-interactive",
       "prompt": "/prd --auto api-rate-limiting",
       "expected_output": "Runs all phases without blocking on user input. Creates wip/prd_api-rate-limiting_decisions.md to track autonomous decisions. Follows decision-protocol.md at each decision point. Produces a complete PRD at docs/prds/PRD-api-rate-limiting.md with Draft status.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript detects the --auto flag and states the workflow runs without blocking on user input",
+        "Transcript describes creating wip/prd_api-rate-limiting_decisions.md to record autonomous decisions",
+        "Transcript references decision-protocol.md as the rule followed at each decision point",
+        "Transcript names the output artifact docs/prds/PRD-api-rate-limiting.md created with status Draft"
+      ]
     },
     {
       "id": 3,
       "name": "jury-review-phase",
       "prompt": "/prd --auto webhook-delivery-guarantees",
       "expected_output": "Phase 4 spawns 3 review agents that evaluate the PRD for ambiguity, testability gaps, and completeness. Each agent produces independent findings. Jury feedback is synthesized and applied to the PRD before finalization. Review is not skipped.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript describes Phase 4 spawning three independent review agents",
+        "Transcript names the three reviewer roles covering completeness, clarity and testability",
+        "Transcript describes synthesizing the jury findings and applying them to the PRD before finalization",
+        "Transcript treats Phase 4 as non-optional rather than skipping review in --auto mode"
+      ]
     },
     {
       "id": 4,
       "name": "lifecycle-draft-to-accepted",
       "prompt": "/prd --auto plugin-marketplace",
       "expected_output": "PRD is initially created with status Draft in frontmatter. After jury review and user approval, status transitions to Accepted. Final file at docs/prds/PRD-plugin-marketplace.md has status: Accepted in frontmatter.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript describes the PRD being created with status: Draft in frontmatter",
+        "Transcript describes the Draft -> Accepted transition happening after jury review and user approval",
+        "Transcript names the final path docs/prds/PRD-plugin-marketplace.md",
+        "Transcript does NOT describe writing status: Accepted at initial creation time"
+      ]
     },
     {
       "id": 5,
       "name": "routing-simple-to-plan",
       "prompt": "/prd --auto cli-help-text-improvements",
       "expected_output": "After PRD acceptance, skill suggests next step based on complexity. For a simple scope like help text improvements, recommends the plan skill as the next step rather than design.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript describes suggesting a next step after PRD acceptance based on complexity",
+        "Transcript recommends the plan skill as the next step for this scope",
+        "Transcript gives a complexity-based reason for choosing plan over design",
+        "Transcript does NOT recommend the design skill as the next step"
+      ]
     },
     {
       "id": 6,
       "name": "routing-complex-to-design",
       "prompt": "/prd --auto distributed-caching-layer",
       "expected_output": "After PRD acceptance, skill recognizes this as a complex topic requiring technical architecture decisions. Suggests the design skill as the next step rather than plan.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript describes suggesting a next step after PRD acceptance based on complexity",
+        "Transcript recommends the design skill as the next step for this scope",
+        "Transcript ties the recommendation to unresolved technical architecture decisions",
+        "Transcript does NOT recommend going straight to the plan skill"
+      ]
     },
     {
       "id": 7,
       "name": "empty-argument-prompts-user",
       "prompt": "/prd",
       "expected_output": "With no topic argument, skill asks the user what feature or capability they want to specify. Does not assume a topic or start drafting immediately.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript detects empty $ARGUMENTS and identifies it as Input Mode 1",
+        "Transcript describes asking the user what feature or capability they want to specify",
+        "Transcript does NOT assume or invent a topic",
+        "Transcript does NOT begin drafting, branch creation, or research before the user answers"
+      ]
     },
     {
       "id": 8,
       "name": "branch-creation-setup",
       "prompt": "/prd search-indexing",
       "expected_output": "Phase 0 creates a feature branch named docs/search-indexing (kebab-case) before starting scoping. Work happens off main. If already on a matching branch, skips creation.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript describes Phase 0 setup running before Phase 1 scoping",
+        "Transcript names the branch docs/search-indexing in kebab-case",
+        "Transcript states that branch creation is skipped when already on a branch matching the topic",
+        "Transcript gives the reason work happens off main (drafts off main so abandoned PRDs need no cleanup)"
+      ]
     },
     {
       "id": 9,
@@ -88,13 +136,14 @@
       "id": 11,
       "name": "brief-input-transitions-draft-to-accepted",
       "prompt": "/prd --auto docs/briefs/BRIEF-search-indexing.md",
-      "expected_output": "Detects Input Mode 2 (BRIEF path). Phase 0 setup transitions the brief from Draft to Accepted by invoking shirabe transition on the brief path with target Accepted. Both frontmatter status: and the body ## Status line are updated atomically so the FC03 cross-check stays consistent. The brief path is also stored for use as the PRD's upstream in Phase 3.",
+      "expected_output": "Detects Input Mode 2 (BRIEF path). Phase 0 setup transitions the brief from Draft to Accepted by invoking shirabe transition on the brief path with target Accepted. Both frontmatter status: and the body ## Status line are updated atomically so the FC03 cross-check stays consistent. The brief path is also stored for use as the PRD's upstream in Phase 3, and Phase 3 reads the brief's body to draft the PRD's Problem Statement, Goals, User Stories and Out of Scope.",
       "files": [],
       "expectations": [
         "Transcript detects the input as a BRIEF path (Input Mode 2)",
         "Transcript describes running shirabe transition on the brief with target Accepted in Phase 0",
-        "Transcript notes that both frontmatter and body status fields are updated atomically",
-        "Transcript describes propagating the brief path forward as the PRD's upstream"
+        "Transcript describes updating both the frontmatter status and the body Status line atomically",
+        "Transcript describes propagating the brief path forward as the PRD's upstream",
+        "Transcript describes Phase 3 reading the brief's body rather than re-deriving the framing"
       ]
     },
     {
@@ -125,16 +174,16 @@
       "id": 14,
       "name": "phase-4-reject-discards-draft",
       "prompt": "/prd --auto deprecated-feature-flag --reject \"This feature was superseded by the new feature-flags platform; the PRD draft is no longer needed.\"",
-      "expected_output": "Phase 4 step 4.5 presents a 3-option AskUserQuestion with Approve / Request changes / Reject options. The prompt copy includes the verbatim disclaimer substring 'Rationale will be committed to git history' so the author is advised before typing. Selecting Reject is a terminal verdict: the skill asks for a second confirmation, captures a rationale paragraph, writes the rationale to a tmpfile, runs `git rm docs/prds/PRD-deprecated-feature-flag.md`, removes `wip/prd_deprecated-feature-flag_*.md` and `wip/research/prd_deprecated-feature-flag_phase{2,4}_*.md`, and commits via `git commit -F <tmpfile>` (or stdin via `git commit -F -`) with the subject `docs(prd): discard PRD draft for deprecated-feature-flag`. The rationale is NEVER inlined into `git commit -m \"...\"`. The discard commit on the current branch is the durable observable signal of rejection per AC30c — `/scope`'s Component 7.7 git-log detector reads the same commit subject when invoked in-chain, and an out-of-chain author re-reads the same commit body for the rationale. The skill then exits the workflow without running step 4.7 Approve-path cleanup.",
+      "expected_output": "Phase 4 step 4.5 presents a 3-option AskUserQuestion with Approve / Request changes / Reject options. The prompt copy includes the verbatim disclaimer substring 'Rationale will be committed to git history' so the author is advised before typing. Selecting Reject is a terminal verdict: the skill asks for a second confirmation, captures a rationale paragraph, writes the rationale to a tmpfile, runs `git rm docs/prds/PRD-deprecated-feature-flag.md`, removes `wip/prd_deprecated-feature-flag_*.md` and `wip/research/prd_deprecated-feature-flag_phase{2,4}_*.md`, and commits via `git commit -F <tmpfile>` (or stdin via `git commit -F -`) with the subject `docs(prd): discard PRD draft for deprecated-feature-flag`. The rationale is NEVER inlined into `git commit -m \"...\"`. The discard commit on the current branch is the durable observable signal of rejection per AC30c \u2014 `/scope`'s Component 7.7 git-log detector reads the same commit subject when invoked in-chain, and an out-of-chain author re-reads the same commit body for the rationale. The skill then exits the workflow without running step 4.7 Approve-path cleanup.",
       "files": [],
       "expectations": [
         "Transcript describes Phase 4 step 4.5 presenting an AskUserQuestion with three options whose labels include the literal substring 'Reject' alongside 'Approve' and 'Request changes'",
         "Transcript notes the public-history disclaimer text 'Rationale will be committed to git history' appears verbatim in the step 4.5 prompt copy",
         "Transcript describes prompting the author for a rationale paragraph after the second-confirmation step and before any destructive action runs",
-        "Transcript describes persisting the rationale via `git commit -F <tmpfile>` or `git commit -F -` (stdin) and explicitly NOT via `git commit -m \"<rationale>\"` — the rationale never transits a shell-argument channel",
+        "Transcript describes persisting the rationale via `git commit -F <tmpfile>` or `git commit -F -` (stdin) and explicitly NOT via `git commit -m \"<rationale>\"` \u2014 the rationale never transits a shell-argument channel",
         "Transcript describes running `git rm docs/prds/PRD-deprecated-feature-flag.md` to remove the durable PRD artifact during the Reject branch",
         "Transcript describes removing `wip/prd_deprecated-feature-flag_*.md` and `wip/research/prd_deprecated-feature-flag_phase{2,4}_*.md` working artifacts inline in the Reject branch (not deferred to step 4.7)",
-        "Transcript describes the discard commit landing on the current branch with subject `docs(prd): discard PRD draft for deprecated-feature-flag` so a `git log` search by `/scope`'s Component 7.7 (in-chain) or an out-of-chain author (out-of-chain) finds it — AC30c symmetric observable",
+        "Transcript describes the discard commit landing on the current branch with subject `docs(prd): discard PRD draft for deprecated-feature-flag` so a `git log` search by `/scope`'s Component 7.7 (in-chain) or an out-of-chain author (out-of-chain) finds it \u2014 AC30c symmetric observable",
         "Transcript describes the Reject branch exiting the workflow without running step 4.7 cleanup (which is reserved for the Approve path)"
       ]
     },
@@ -151,6 +200,36 @@
         "Transcript says so explicitly and names a tiebreaker if the two perspectives are genuinely balanced, rather than manufacturing a preference",
         "Transcript preserves the user's ability to override the recommendation",
         "Transcript does NOT present the disagreement as 'let user decide' with no recommendation attached"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "brief-upstream-drives-drafting",
+      "prompt": "/prd --auto docs/briefs/BRIEF-search-indexing.md",
+      "expected_output": "Phase 3 drafts the PRD from the upstream BRIEF's body rather than from the PRD's own Phase 1 conversation. The mapping is explicit: the BRIEF's Problem Statement becomes the PRD's Problem Statement, its User Outcome becomes Goals, its User Journeys become User Stories, and its Scope Boundary supplies Requirements (the in-list) and Out of Scope (the out-list). The PRD adds what the brief does not own -- numbered requirements, acceptance criteria, non-functional constraints. Re-deriving the framing is what makes a BRIEF and its PRD read as two documents saying one thing, and it leaves them disagreeing when the re-derivation drifts.",
+      "files": [
+        "docs/briefs/BRIEF-search-indexing.md"
+      ],
+      "expectations": [
+        "Transcript describes reading the upstream BRIEF's body before drafting",
+        "Transcript maps the BRIEF's four content sections onto the PRD's Problem Statement, Goals, User Stories and Out of Scope",
+        "Transcript describes NOT re-deriving the framing from the PRD's own scoping conversation when a BRIEF exists",
+        "Transcript describes adding the requirements, acceptance criteria and non-functional constraints the brief does not own"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "problem-restated-everything-else-cited",
+      "prompt": "/prd --auto docs/briefs/BRIEF-search-indexing.md",
+      "expected_output": "The PRD states its own problem in full, so a reader landing on it cold understands what is broken without opening the BRIEF. That obligation covers the Problem Statement and stops there: everything else the upstream already says is cited rather than restated, and downstream artifacts cite this PRD's requirement numbers rather than re-narrating the requirements. Restating the problem costs one short section and buys a document that stands on its own; restating requirements or journeys costs a second read and creates a copy that drifts.",
+      "files": [
+        "docs/briefs/BRIEF-search-indexing.md"
+      ],
+      "expectations": [
+        "Transcript states the PRD's problem in full so the document stands alone",
+        "Transcript scopes the standalone-readability obligation to the problem statement",
+        "Transcript describes citing rather than restating the rest of what the upstream says",
+        "Transcript gives the reason: a restated copy costs a second read and drifts"
       ]
     }
   ]

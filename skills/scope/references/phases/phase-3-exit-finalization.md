@@ -38,23 +38,42 @@ the R9 hard-finalization check (see below).
 
 The chain completed through `/plan`. The PLAN already lives at
 `docs/plans/PLAN-<topic>.md` (Draft when `plan_execution_mode:
-single-pr`; Active when `plan_execution_mode: multi-pr`, with
-an accompanying GitHub milestone created by `/plan`). Phase 3
-populates the state file with:
+single-pr`; Active when `plan_execution_mode: multi-pr` or
+`coordinated`, with an accompanying GitHub milestone created by
+`/plan`). Phase 3 populates the state file with:
 
 ```yaml
 exit: full-run
 chain_completed: <ISO-8601 timestamp>
-plan_execution_mode: single-pr | multi-pr
+plan_execution_mode: single-pr | multi-pr | coordinated
 exit_artifacts:
   - path: docs/plans/PLAN-<topic>.md
     status: Draft | Active
 ```
 
+`exit_artifacts:` lists every durable artifact the run leaves
+behind, not only the PLAN: a chain that produced a BRIEF, a PRD,
+and a DESIGN records all three alongside it, and one whose BRIEF
+was absorbed records the surviving PRD without it.
+
 `plan_execution_mode:` is gated by `/plan` appearing in
 `chain_ran:` per R9 Part 3's chain-membership-gated extension
 in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`.
+
+#### Durable record of what the chain produced
+
+Phase 4 removes the state file, so the record of which artifacts
+were produced and which were absorbed has to leave `wip/` before
+then. Phase 3 writes it into the run's pull-request body: every
+artifact in `chain_ran:`, every entry in `chain_skipped:` with its
+re-entry-protection reason, and every entry in
+`consolidation_judgments:` with its verdict, its finding, and —
+on a completed absorb — what was absorbed into what.
+
+Without it, a reviewer reading the PR cannot tell an artifact that
+was absorbed from one that was never produced. The two look
+identical on disk and mean opposite things.
 
 ### Re-Evaluation Exit
 
@@ -116,7 +135,7 @@ State file at abandonment-forced exit:
 ```yaml
 exit: abandonment-forced
 triggering_child: brief | prd | design | plan
-partial_phase_reached: <phase identifier inside the child>
+partial_phase_reached: <the parent's own Phase 2 loop position>
 chain_completed: <ISO-8601 timestamp>
 exit_artifacts:
   - path: docs/{briefs|prds|designs|plans}/<TYPE>-<topic>.md
@@ -271,6 +290,12 @@ The allowed write targets:
   (`wip/scope_<topic>_state.md`) and ancillary scratch the
   substrate may write under the same prefix.
 
+Phase 2's consolidation judgment adds one deletion target,
+`docs/briefs/BRIEF-<topic>.md`, on a completed absorb. The path is
+composed from the validated topic slug, never from author-supplied
+text, so the set stays closed and enumerable. Phase 3 does not
+delete; it records the deletion the judgment already performed.
+
 The PLAN artifact at `docs/plans/PLAN-<topic>.md` is produced
 by `/plan` (not directly by Phase 3); Phase 3's full-run exit
 only updates the state file's `exit_artifacts:` list to
@@ -293,7 +318,8 @@ against their declared enums:
 - `triggering_child:` against `{brief, prd, design, plan}` (when
   the exit is abandonment-forced and the field is interpolated
   into the force-materialization path).
-- `plan_execution_mode:` against `{single-pr, multi-pr}` (when
+- `plan_execution_mode:` against
+  `{single-pr, multi-pr, coordinated}` (when
   the field is interpolated into any post-finalization commit
   body).
 
