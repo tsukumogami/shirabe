@@ -82,9 +82,10 @@ pub struct PopulateArgs {
     /// given. Skips `gh issue create` entirely (no GitHub calls) and renders
     /// both reserved sections from feature context. The Implementation Issues
     /// table's key column carries each feature's label, its Dependencies
-    /// cells name those same labels, and its description cells are bounded; a
-    /// feature whose label cannot serve as a table key falls back to `F<n>`
-    /// with a warning on stderr. The Dependency Graph uses `F<n>` nodes.
+    /// cells name features by their `F<n>` index, and its description cells
+    /// are bounded; a feature whose label cannot serve as a table key falls
+    /// back to `F<n>` with a warning on stderr. The Dependency Graph uses
+    /// `F<n>` nodes, the same numbering the dependency cells use.
     /// Retained as an explicit opt-out so a caller can name the mode it wants
     /// rather than relying on the default; the roadmap skill always passes one
     /// of the two flags. Mutually exclusive with `--issues`.
@@ -173,8 +174,10 @@ fn run_inner(args: &PopulateArgs) -> Result<(), String> {
 /// Issueless render path: fills both reserved sections from feature context
 /// with no `gh` invocations. The Implementation Issues table is feature-keyed
 /// on the feature's label (with an `F<n>` fallback for a label that cannot
-/// serve as a table key), its Dependencies cells name those same keys so they
-/// reconcile under FC06, and the Dependency Graph uses `F<n>` nodes labeled
+/// serve as a table key), its Dependencies cells name features by their `F<n>`
+/// index, which FC06 resolves positionally against the table's entity rows so
+/// the two columns reconcile without carrying the same text, and the
+/// Dependency Graph uses `F<n>` nodes labeled
 /// with the feature names. Writes via the same structural section-replacement
 /// writer the issue-creating path uses.
 fn run_issueless(args: &PopulateArgs, roadmap: &Path, features: &[Feature]) -> Result<(), String> {
@@ -216,11 +219,17 @@ fn run_issueless(args: &PopulateArgs, roadmap: &Path, features: &[Feature]) -> R
 /// `references/issues-table.md` -- or its `F<n>` fallback when the label
 /// cannot serve as a table key (see [`feature_keys`]). The Issues column
 /// carries the feature's `needs-*` label (or `None` when absent); the
-/// Dependencies column names the depended-on features by the same keys their
-/// own rows carry, with NO parenthetical annotations (those trip FC06); the
-/// Status column comes from the feature's `**Status:**`. Each entity row is
-/// followed by an italic description row, matching the issue-creating renderer
-/// and FC05's row-shape requirement.
+/// Dependencies column names the depended-on features by their `F<n>` index
+/// (see [`feature_aliases`]), with NO parenthetical annotations (those trip
+/// FC06); the Status column comes from the feature's `**Status:**`. Each
+/// entity row is followed by an italic description row, matching the
+/// issue-creating renderer and FC05's row-shape requirement.
+///
+/// The two columns carry different forms on purpose: the key stays readable
+/// while the dependency cell stays narrow. FC06 accepts both because it tries
+/// the key set first and falls back to positional `F<n>` resolution, so a row
+/// whose key already fell back to `F<n>` needs no special handling -- its key
+/// and its alias are the same token.
 pub fn render_issueless_table(features: &[Feature], milestone: &str) -> String {
     let mut s = String::new();
     if !milestone.is_empty() {
@@ -231,6 +240,7 @@ pub fn render_issueless_table(features: &[Feature], milestone: &str) -> String {
     s.push_str("| Feature | Issues | Dependencies | Status |\n");
     s.push_str("|---------|--------|--------------|--------|\n");
     let keys = feature_keys(features);
+    let aliases = feature_aliases(features);
     for (i, f) in features.iter().enumerate() {
         let key = keys[i].clone();
         // A delivered feature no longer awaits an upstream artifact, so its
@@ -243,7 +253,7 @@ pub fn render_issueless_table(features: &[Feature], milestone: &str) -> String {
                 None => "None".to_string(),
             }
         };
-        let deps_cell = render_deps_cell(&f.dependencies, features, &keys);
+        let deps_cell = render_deps_cell(&f.dependencies, features, &aliases);
         let status_cell = pick_status_cell(f);
         let desc = concise_description(&f.description);
         if feature_is_terminal(f) {
@@ -333,6 +343,24 @@ fn feature_keys(features: &[Feature]) -> Vec<String> {
             None => strip_label_decoration(&features[i].label),
         })
         .collect()
+}
+
+/// Resolve every feature's `F<n>` dependency-cell alias, positionally
+/// aligned with `features`.
+///
+/// The alias is what a Dependencies cell names a feature by, as distinct from
+/// [`feature_keys`], which is what the feature's own row is keyed on. FC06
+/// resolves an `F<n>` token that matches no row key against the nth entity row
+/// of the table, so the two can differ: the key column stays readable while
+/// the dependency column stays narrow.
+///
+/// `parse_features` numbers features positionally, so `id` is the feature's
+/// 1-based position, which is also its row's position in the rendered table --
+/// the same number the Dependency Graph's `F<n>` nodes use. One numbering
+/// serves the diagram, the alias, and the key fallback, which is why a feature
+/// whose key fell back to `F<n>` needs no special handling here.
+fn feature_aliases(features: &[Feature]) -> Vec<String> {
+    features.iter().map(|f| format!("F{}", f.id)).collect()
 }
 
 /// Max characters of author label text carried into a stderr diagnostic.
@@ -1062,38 +1090,40 @@ fn first_sentence(text: &str) -> String {
     text.to_string()
 }
 
-/// Render a Dependencies cell that names actual table row keys.
+/// Render a Dependencies cell whose tokens FC06 can resolve.
 ///
-/// Each `Feature N` reference resolves to the depended-on feature's key as
-/// `keys` gives it -- the same text that feature's own entity row carries in
-/// the key column -- so FC06's cross-reference existence check passes (the raw
-/// `Feature N` token names no row; the key does). Cross-repo references
-/// (`owner/repo#N`) are preserved verbatim: FC06 treats them as non-local and
-/// skips them, and the roadmap corpus expects them to round-trip. Returns
-/// `None` when the cell resolves to no references.
+/// Each `Feature N` reference resolves to the depended-on feature's token as
+/// `tokens` gives it, so FC06's cross-reference existence check passes (the raw
+/// `Feature N` token names no row; the rendered one does). Cross-repo
+/// references (`owner/repo#N`) are preserved verbatim: FC06 treats them as
+/// non-local and skips them, and the roadmap corpus expects them to round-trip.
+/// Returns `None` when the cell resolves to no references.
 ///
-/// Both modes call this; `keys` is what distinguishes them. Issue-creating
-/// mode passes the plain decoration-stripped labels it has always used, so its
-/// output is unchanged; issueless mode passes [`feature_keys`], which may
-/// substitute an `F<n>` fallback.
+/// Both modes call this; `tokens` is what distinguishes them, and the two
+/// modes hand it different things because FC06 resolves a roadmap dependency
+/// two ways. Issue-creating mode passes the plain decoration-stripped labels it
+/// has always used, which FC06 resolves against the key column, so its output
+/// is unchanged. Issueless mode passes [`feature_aliases`], which FC06 resolves
+/// positionally against the entity rows -- that is what lets its key column
+/// carry labels while this cell stays narrow.
 ///
 /// The lookup is total. `feature_refs_in` extracts any integer following the
 /// word `Feature` straight from an author-written line, so `Feature 0` and a
 /// stale `Feature 12` on a three-feature roadmap both arrive here; indexing
-/// `keys` by `id - 1` would underflow on the first and run off the end on the
+/// `tokens` by `id - 1` would underflow on the first and run off the end on the
 /// second. An id naming no feature contributes no token, which is what both
 /// modes have always done.
-fn render_deps_cell(deps: &str, features: &[Feature], keys: &[String]) -> String {
+fn render_deps_cell(deps: &str, features: &[Feature], tokens: &[String]) -> String {
     let mut parts: Vec<String> = Vec::new();
     for id in feature_refs_in(deps) {
         let Some(pos) = features.iter().position(|f| f.id == id) else {
             continue;
         };
-        let Some(key) = keys.get(pos) else {
+        let Some(token) = tokens.get(pos) else {
             continue;
         };
-        if !parts.contains(key) {
-            parts.push(key.clone());
+        if !parts.contains(token) {
+            parts.push(token.clone());
         }
     }
     for tok in deps.split(',') {
@@ -1512,7 +1542,7 @@ mod tests {
     }
 
     #[test]
-    fn render_issueless_table_is_label_keyed_with_label_deps() {
+    fn render_issueless_table_is_label_keyed_with_index_alias_deps() {
         let features = vec![
             make_feature(
                 1,
@@ -1536,14 +1566,18 @@ mod tests {
         assert!(table.contains("| Feature | Issues | Dependencies | Status |"));
         // Rows are keyed by the feature label, per the Roadmap Profile key
         // form; the Issues column carries the needs-* label; deps name the
-        // depended-on feature's key.
+        // depended-on feature by its `F<n>` index, which FC06 resolves
+        // positionally.
         assert!(table.contains("| Foundation | needs-design | None | needs-design |"));
         assert!(table.contains("| _Foundation._ | | | |"));
-        assert!(table.contains("| Caching | needs-spike | Foundation | needs-spike |"));
+        assert!(table.contains("| Caching | needs-spike | F1 | needs-spike |"));
         assert!(table.contains("| _Caching._ | | | |"));
-        // No opaque F<n> key survives when the labels are usable.
-        assert!(!table.contains("| F1 |"));
-        assert!(!table.contains("| F2 |"));
+        // The index is a dependency token, never a key: while the labels are
+        // usable no row starts with an `F<n>` cell. Anchoring on the newline
+        // is what distinguishes the key column from the Dependencies column,
+        // which legitimately holds `F1`.
+        assert!(!table.contains("\n| F1 |"));
+        assert!(!table.contains("\n| F2 |"));
         // No GitHub issue links leak into the issueless table.
         assert!(!table.contains("https://github.com"));
         assert!(!table.contains("[#"));
@@ -1704,11 +1738,13 @@ mod tests {
         assert_eq!(code, ExitCode::SUCCESS);
 
         let updated = fs::read_to_string(&path).unwrap();
-        // Both reserved sections are filled, label-keyed, no GitHub refs.
+        // Both reserved sections are filled, label-keyed, index-aliased
+        // dependency cells, no GitHub refs.
         assert!(updated.contains("| Foundation | needs-design | None | needs-design |"));
-        assert!(updated.contains("| Caching | needs-spike | Foundation | needs-spike |"));
-        // The diagram keeps F<n> node ids: FC07 never looks at them, and the
-        // roadmap format reference specifies them.
+        assert!(updated.contains("| Caching | needs-spike | F1 | needs-spike |"));
+        // The diagram keeps F<n> node ids: FC07 never looks at them, the
+        // roadmap format reference specifies them, and the table's dependency
+        // cells now name features by the same numbering.
         assert!(updated.contains("graph TD"));
         assert!(updated.contains("F1 --> F2"));
         assert!(updated.contains("F1[\"Foundation\"]"));
@@ -1722,8 +1758,8 @@ mod tests {
     #[test]
     fn run_issueless_render_validates_clean() {
         // Render the issueless sections into a full roadmap and run the
-        // validator over it; the feature-keyed shape with bare-key deps must
-        // produce zero error-level findings (FC05/FC06/FC07 all pass).
+        // validator over it; the feature-keyed shape with index-aliased deps
+        // must produce zero error-level findings (FC05/FC06/FC07 all pass).
         use shirabe_validate::{detect_format, validate_file, Config};
 
         let dir = tempdir();
@@ -1778,6 +1814,102 @@ mod tests {
         let path_str = path.to_string_lossy().to_string();
         let doc = parse_doc(&path_str).expect("re-parse populated roadmap");
         let spec = detect_format("ROADMAP-clean.md").expect("roadmap format detected");
+        let cfg = Config {
+            custom_statuses: Default::default(),
+            visibility: "public".to_string(),
+            allow_untracked_acs: false,
+        };
+        let findings = validate_file(&doc, &spec, &cfg);
+        let errors: Vec<_> = findings
+            .iter()
+            .filter(|e| !shirabe_validate::is_notice(e, shirabe_validate::ReviewPosture::Draft))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "expected clean validation, got: {:?}",
+            errors
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn run_issueless_long_labels_render_compact_deps_and_validate_clean() {
+        // The case the alias exists for, end to end: labels long enough that
+        // repeating three of them in one cell is what made the column
+        // unreadable. The rendered table must keep the labels in the key
+        // column, compact the dependencies to `F1, F2, F3`, and still
+        // validate clean -- which only holds if FC06 resolves the alias.
+        use shirabe_validate::{detect_format, validate_file, Config};
+
+        let dir = tempdir();
+        let path = dir.join("ROADMAP-long.md");
+        let original = concat!(
+            "---\n",
+            "schema: roadmap/v1\n",
+            "status: Active\n",
+            "theme: |\n  theme.\n",
+            "scope: |\n  scope.\n",
+            "---\n\n",
+            "# ROADMAP: long\n\n",
+            "## Status\n\nActive\n\n",
+            "## Theme\n\nThe theme.\n\n",
+            "## Features\n\n",
+            "### Feature 1: A1 — Establish the baseline\n",
+            "**Needs:** `needs-spike`\n",
+            "**Dependencies:** None\n",
+            "**Status:** Not started\n\n",
+            "Establishes the baseline.\n\n",
+            "### Feature 2: A2 — Introduce the resolver cache\n",
+            "**Needs:** `needs-spike`\n",
+            "**Dependencies:** None\n",
+            "**Status:** Not started\n\n",
+            "Introduces the cache.\n\n",
+            "### Feature 3: A3 — Surface the failure modes\n",
+            "**Needs:** `needs-spike`\n",
+            "**Dependencies:** None\n",
+            "**Status:** Not started\n\n",
+            "Surfaces the failures.\n\n",
+            "### Feature 4: A4 — Establish the number\n",
+            "**Needs:** `needs-spike`\n",
+            "**Dependencies:** Features 1, 2 and 3\n",
+            "**Status:** Not started\n\n",
+            "Establishes the number.\n\n",
+            "## Implementation Issues\n\n",
+            "<!-- placeholder -->\n\n",
+            "## Dependency Graph\n\n",
+            "<!-- placeholder -->\n\n",
+            "## Sequencing Rationale\n\nBaseline first.\n\n",
+            "## Progress\n\nNot started.\n",
+        );
+        fs::write(&path, original).unwrap();
+
+        let args = PopulateArgs {
+            roadmap_path: path.to_string_lossy().to_string(),
+            milestone: String::new(),
+            milestone_description: String::new(),
+            mapping: String::new(),
+            output_map: String::new(),
+            repo: String::new(),
+            dry_run: false,
+            issues: false,
+            no_issues: true,
+        };
+        assert_eq!(run(&args), ExitCode::SUCCESS);
+
+        let rendered = fs::read_to_string(&path).unwrap();
+        // Three dependencies in one cell: eleven characters, not ninety-odd.
+        assert!(
+            rendered
+                .contains("| A4 — Establish the number | needs-spike | F1, F2, F3 | needs-spike |"),
+            "expected a compact dependency cell, got:\n{}",
+            rendered
+        );
+        // The key column keeps the labels the compaction was traded against.
+        assert!(rendered.contains("| A1 — Establish the baseline | needs-spike | None |"));
+
+        let path_str = path.to_string_lossy().to_string();
+        let doc = parse_doc(&path_str).expect("re-parse populated roadmap");
+        let spec = detect_format("ROADMAP-long.md").expect("roadmap format detected");
         let cfg = Config {
             custom_statuses: Default::default(),
             visibility: "public".to_string(),
@@ -2165,10 +2297,11 @@ mod tests {
         // The delivered row is struck through, key cell included.
         assert!(table.contains("| ~~Foundation~~ | ~~None~~ | ~~None~~ | ~~Done~~ |"));
         assert!(table.contains("| ~~_Foundation._~~ | | | |"));
-        // The dependency naming it carries the bare key: strikethrough is
-        // decoration on a row, not part of the key FC06 reconciles.
-        assert!(table.contains("| Caching | None | Foundation | Not started |"));
-        assert!(!table.contains("| ~~Foundation~~ | Not started"));
+        // The dependency naming it carries the bare index alias:
+        // strikethrough is decoration on a row, not part of the token FC06
+        // resolves.
+        assert!(table.contains("| Caching | None | F1 | Not started |"));
+        assert!(!table.contains("| ~~F1~~ | Not started"));
     }
 
     #[test]

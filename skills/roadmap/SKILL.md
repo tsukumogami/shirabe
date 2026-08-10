@@ -363,11 +363,12 @@ this skill may depend on it:
   `gh issue create` runs, and no `gh` call of any kind -- and renders the
   sections from feature context: a table keyed on each feature's label (the
   feature's `needs-*` label in the Issues column) and an `F<n>`-node
-  diagram, with Dependencies cells naming those same labels. A label that
-  can't serve as a table key falls back to `F<n>` and the run says so on
-  stderr. The R14 gate is skipped, since there are no issues to approve
-  (see below). This is what the automatic population in Phase 4 and on the
-  activate path uses, unconditionally.
+  diagram, with Dependencies cells naming features by those same `F<n>`
+  indices so the column stays narrow while the key column stays readable. A
+  label that can't serve as a table key falls back to `F<n>` and the run
+  says so on stderr. The R14 gate is skipped, since there are no issues to
+  approve (see below). This is what the automatic population in Phase 4 and
+  on the activate path uses, unconditionally.
 - **Issue-creating mode (`--issues`).** Creates one GitHub issue per
   feature (one `gh issue create` invocation per feature, discrete args),
   then renders an issue-keyed table and diagram. This path goes through the
@@ -431,9 +432,10 @@ Options:
   key both reserved sections on those issues. Mutually exclusive with
   `--no-issues`. Required to reach GitHub at all.
 - `--no-issues` -- issueless mode: create no issues and render the reserved
-  sections from the Features section, keying table rows on feature labels.
-  The subcommand's default when neither mode flag is given, and named
-  explicitly by every invocation in this skill.
+  sections from the Features section, keying table rows on feature labels
+  and naming dependencies by `F<n>` index. The subcommand's default when
+  neither mode flag is given, and named explicitly by every invocation in
+  this skill.
 - `--milestone <name>` -- milestone for the created issues
 - `--milestone-description <desc>` -- milestone description
 - `--mapping <file>` -- pre-existing id->github_number mapping (re-render only)
