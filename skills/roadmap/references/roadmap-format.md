@@ -373,18 +373,19 @@ mermaid. FC16 covers that gap. It fires only on genuinely wrong shapes:
 - **Dependency Graph** opens a non-` ```mermaid ` fenced block.
 
 FC16 is shape-gated, not status-gated: the empty skeleton passes at every
-lifecycle state, and both issue modes (`## Roadmap Issues: required` with
-issue-linked rows, `## Roadmap Issues: optional` with label-keyed rows)
-render a table and mermaid diagram, so both pass. FC16 is error-level -- a malformed
+lifecycle state, and both modes (issue-creating with issue-linked rows,
+issueless with label-keyed rows) render a table and mermaid diagram, so
+both pass. FC16 is error-level -- a malformed
 reserved section fails the build, not just an advisory notice.
 
 ### Dependencies cells in issueless mode
 
-Under `## Roadmap Issues: optional`, each Dependencies cell names
-the depended-on feature by its `F<n>` index -- the same number the
-Dependency Graph's nodes use, counting features from 1 in document
-order -- or `None`. Cross-repo references round-trip verbatim.
-Nothing else.
+In issueless mode -- the automatic population, or any populate run
+carrying `--no-issues` or no mode flag -- each Dependencies cell
+names the depended-on feature by its `F<n>` index, the same number
+the Dependency Graph's nodes use, counting features from 1 in
+document order, or `None`. Cross-repo references round-trip
+verbatim. Nothing else.
 
 The key column and this column carry different forms on purpose:
 the key stays readable while the dependency cell stays narrow. A
