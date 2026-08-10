@@ -199,12 +199,14 @@ Either way the sections are tool-generated. Don't hand-edit them.
    strikethrough rules are defined in
    `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md`.
 
-The marker reflects which mode last filled the section. After the
-automatic issueless population it reads `<!-- Populated by an
-issueless 'shirabe roadmap populate' from the Features section. Do not
-fill manually. -->`; after an explicit `--issues` run it reads as the
-issue-keyed form below. The template ships the form below as its
-placeholder. The instruction not to hand-edit holds in both modes.
+Once populated, the marker reads ``<!-- Populated by `shirabe roadmap
+populate`. Do not fill manually. -->`` in **both** modes -- the
+renderer writes one marker and does not distinguish issueless from
+issue-keyed output. Tell the two apart by the table itself: issueless
+rows are keyed on feature labels with `needs-*` in the Issues column,
+issue-keyed rows carry issue links. The form shown below is the
+template's placeholder, which populate replaces. The instruction not
+to hand-edit holds in both modes.
 
 ```markdown
 ## Implementation Issues
@@ -221,12 +223,10 @@ placeholder. The instruction not to hand-edit holds in both modes.
    legend are defined in
    `${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md`.
 
-As with Implementation Issues, the marker reflects the mode that last
-filled the section: after the automatic issueless population it reads
-`<!-- Populated by an issueless 'shirabe roadmap populate' from the
-Features section. Do not fill manually. -->`, and the diagram uses
-`F<n>` feature nodes instead of `I<n>` issue nodes. Don't hand-edit
-it in either mode.
+As with Implementation Issues, the populated marker is the same in
+both modes. What differs is the diagram: issueless population uses
+`F<n>` feature nodes, issue-keyed population uses `I<n>` issue nodes.
+Don't hand-edit it in either mode.
 
 ```markdown
 ## Dependency Graph
