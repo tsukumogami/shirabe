@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   `/scope` declines to produce BRIEF, PRD, or DESIGN on gates that run before
   the artifact exists, so no gate can tell whether the artifact would have
@@ -22,7 +22,7 @@ upstream: docs/briefs/BRIEF-scope-consolidation-over-skipping.md
 
 ## Status
 
-In Progress
+Done
 
 Requirements for replacing `/scope`'s produce-or-skip gates with an entry-
 altitude choice plus a post-hoc consolidation judgment. The DESIGN owns the

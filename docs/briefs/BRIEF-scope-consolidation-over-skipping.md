@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   `/scope` decides whether each artifact is worth producing before that
   artifact exists, so nothing in the decision can see whether there would
@@ -23,7 +23,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Framing for the change that removes `/scope`'s produce-or-skip gates, so the
 whole tactical chain runs on every invocation and a consolidation judgment
