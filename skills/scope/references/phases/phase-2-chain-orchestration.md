@@ -47,8 +47,8 @@ eight steps in sequence:
 2. **`parent_orchestration:` sentinel write.** Write the block
    to the state file immediately before invoking the child.
 3. **Child invocation.** Invoke the child via its existing
-   input mode: the topic slug for the entry child, the nearest
-   produced upstream artifact's path for every later child.
+   input mode: the topic slug for `/brief`, the nearest produced
+   upstream artifact's path for every later child.
 4. **R20 structural file-existence check.** Confirm the child's
    canonical durable artifact exists after the child returns.
 5. **`parent_orchestration:` cleanup.** Remove the sentinel
@@ -162,9 +162,9 @@ Phase 2 invokes the child via the child's existing input mode.
 Which mode depends on whether this chain produced an upstream
 for that child:
 
-- **The entry child** — invoked with the topic slug,
-  `/<child-name> <topic-slug>`. There is nothing above it in
-  this chain to hand it.
+- **`/brief`** — invoked with the topic slug,
+  `/brief <topic-slug>`. It is the head of the chain, so there is
+  nothing above it to hand it.
 - **Every later child** — invoked with the path of the nearest
   artifact this chain produced above it:
 
@@ -500,15 +500,14 @@ decides whether the child's branch is reachable at all.
 
 Phase 2 reads `planned_chain:` from the state file (populated
 by Phase 1) and invokes the listed children in order. The
-entry-altitude decision and the per-child re-entry protection
-are NOT re-walked at Phase 2 — they are cached in Phase 1's
-verdicts. The state-file fields driving the cache:
+per-child re-entry protection is NOT re-walked at Phase 2 — it is
+cached in Phase 1's verdicts. The state-file fields driving the
+cache:
 
-- `entry_altitude:` — where the chain starts; also selects which
-  child receives the topic slug and which receive an artifact
-  path.
-- `planned_chain:` — every child from the entry altitude through
-  `plan`, minus any held back by re-entry protection.
+- `planned_chain:` — the whole tactical chain, minus any child
+  held back by re-entry protection. `/brief` heads it, so `/brief`
+  is the child that receives the topic slug and every other child
+  receives an artifact path.
 - `chain_skipped:` — children held back by re-entry protection
   (e.g. `/prd` against an Accepted PRD), carrying the reason
   `settled-artifact-at-canonical-path-reentry-protection`.
@@ -536,10 +535,12 @@ its declared enum:
   records it, and omitting it from the enum would fail the
   re-validation on exactly the runs `/scope`'s coordination
   intent produces.
-- `entry_altitude:` against `{brief, prd, design, plan}`. It
-  selects which child receives the topic slug and which receive
-  an artifact path, so it reaches emitted invocations the same
-  way the others reach emitted paths.
+
+The chain shape itself needs no re-validation entry. `planned_chain:`
+is a constant, the child names are fixed, and each child's argument
+path is composed from the validated topic slug rather than from
+state — so a tampered state file cannot redirect an invocation to
+an unexpected child or an unexpected path.
 
 Out-of-enum values fail the operation and route to R8 bail-
 handling. The re-validation closes the state-file-tampering
@@ -570,5 +571,5 @@ metacharacter into a field that later becomes a path component.
 - `crates/shirabe-validate/src/formats.rs` — the per-type
   required-section contracts the absorbability mapping is
   derived from.
-- `skills/scope/references/state-schema.md` — `entry_altitude:`
-  and `consolidation_judgments:` field definitions.
+- `skills/scope/references/state-schema.md` — `visibility:` and
+  `consolidation_judgments:` field definitions.

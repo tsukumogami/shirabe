@@ -18,11 +18,11 @@ one pull request; the outlines below are the work units, not GitHub issues.
 
 ## Scope Summary
 
-Implements `DESIGN-scope-consolidation-over-skipping`: replace `/scope`'s
-per-hop produce-or-skip gates with an entry altitude chosen once in Phase 1,
-invoke each child through the upstream-path input mode it already ships, add
-a per-hop consolidation judgment with an absorbability rule derived from the
-required-section schemas, retire `/brief`'s fold-into-PRD branch, and
+Implements `DESIGN-scope-consolidation-over-skipping`: remove `/scope`'s
+per-hop produce-or-skip gates so the whole tactical chain runs on every
+invocation, invoke each child through the upstream-path input mode it already
+ships, add a per-hop consolidation judgment with an absorbability rule derived
+from the required-section schemas, retire `/brief`'s fold-into-PRD branch, and
 generalize the validator's Plan-only upstream-resolution check to every
 format.
 
@@ -49,11 +49,11 @@ the PLAN is deleted by the completion cascade when the PR is finalized.
 
 ## Issue Outlines
 
-### Issue 1: Entry altitude replaces the produce-or-skip gates in `/scope` Phase 1
+### Issue 1: Phase 1 stops deciding how many artifacts the run produces
 
 **Goal**: Rewrite `skills/scope/references/phases/phase-1-discovery.md` so
-that Phase 1 chooses an entry altitude instead of deciding, per hop, whether
-each child is worth invoking.
+that Phase 1 makes no decision about the size of the artifact set — neither
+per hop, nor by choosing where the chain starts.
 
 **Dependencies**: None
 
@@ -62,22 +62,19 @@ each child is worth invoking.
   overwriting a settled artifact and state explicitly that this is not a
   judgment about whether the artifact is worth producing. The recorded skip
   reason is `settled-artifact-at-canonical-path-reentry-protection`.
-- The R6 predicate walk (P1, P2, P3) is retargeted: its verdicts feed the
-  entry-altitude recommendation and `/design`'s decision-roster shape, and no
-  longer decide whether `/design` is invoked.
-- A new Entry-Altitude Decision section names the four altitudes
-  (`brief | prd | design | plan`), the inputs feeding the recommendation (the
-  on-disk survey, the R6 predicates, the cold-start projection, the
-  framing-shift answer), and the recommendation table from the design's
-  Solution Architecture.
-- The section marks one altitude recommended with its reasons, per the
-  decision-presentation convention, and states that the author may override
-  and that `--auto` takes the recommendation.
-- The PLAN-alone warning is specified: when the recommendation resolves to
-  `plan` and no durable artifact exists at any canonical path for the topic,
-  the proposal states that the run will leave no durable artifact behind.
-- `planned_chain:` population is every child from the entry altitude through
-  `plan`, in order.
+- The R6 predicate walk (P1, P2, P3) is retargeted to a single consumer:
+  `/design`'s decision-roster size. It no longer decides whether `/design` is
+  invoked.
+- A new "What Phase 1 Decides, and What It Does Not" section states that
+  `planned_chain:` is `[brief, prd, design, plan]` on every run, that there is
+  no starting altitude to choose, and that an author wanting a shorter chain
+  invokes `/design` or `/plan` directly.
+- A Durable-Artifact Floor section states that the floor follows from the
+  chain shape plus the absorbability rule, and explicitly instructs against
+  adding a guard, because the condition cannot hold and a check that never
+  fires misleads.
+- `planned_chain:` population is the whole chain, in order, minus any child
+  held back by re-entry protection.
 - `shirabe validate` is clean over the changed file and the file contains no
   reference to a `wip/` path as a durable pointer.
 
@@ -90,8 +87,8 @@ consolidation judgment as step 8 of the invocation loop.
 **Dependencies**: None
 
 **Acceptance Criteria**:
-- The Child Invocation section states the argument rule: the entry child
-  receives the topic slug; every later child receives the path of the nearest
+- The Child Invocation section states the argument rule: `/brief` receives
+  the topic slug; every later child receives the path of the nearest
   artifact this chain produced above it (`/prd docs/briefs/BRIEF-<topic>.md`,
   `/design docs/prds/PRD-<topic>.md`, `/plan docs/designs/DESIGN-<topic>.md`).
 - The section states that these are input modes each child already ships, and
@@ -110,9 +107,9 @@ consolidation judgment as step 8 of the invocation loop.
   in place.
 - The manual-fallback boundary is stated: step 8 exists only in `/scope`, so
   a directly-invoked child runs no judgment and writes no `/scope` state.
-- `entry_altitude:` is added to the state-file enum re-validation list
-  alongside `boundary:`, `decision_record_sub_shape:`, `triggering_child:`,
-  and `plan_execution_mode:`.
+- No new field joins the state-file enum re-validation list: the chain shape
+  is a constant, the child names are fixed, and each child's argument path is
+  composed from the validated topic slug rather than from state.
 - `shirabe validate` is clean over the changed file.
 
 ### Issue 3: `/scope` SKILL.md and state-schema updates
@@ -132,14 +129,14 @@ performs the reduction.
 - `skills/scope/SKILL.md` gains a Consolidation Judgment section naming the
   two verdicts, the absorbability rule, and the carry check, pointing at the
   Phase 2 reference for the mechanism.
-- The Workflow Phases table and the Chain-Proposal Output section reflect
-  the entry-altitude decision.
+- The Workflow Phases table and the Chain-Proposal Output section reflect a
+  chain shape that is the same on every run.
 - The Security Considerations section records `docs/briefs/` as a delete
   target in the closed write-target set.
-- `skills/scope/references/state-schema.md` documents `entry_altitude:`
-  (enum `brief | prd | design | plan`) and `consolidation_judgments:` (the
-  per-hop verdict list with its carry table), including which fields are
-  conditional per invariant I-5.
+- `skills/scope/references/state-schema.md` documents `visibility:` and
+  `consolidation_judgments:` (the per-hop verdict list with its carry table),
+  including which fields are conditional per invariant I-5, and records no
+  field for where the chain starts.
 - No fourth gate shape appears anywhere;
   `references/parent-skill-pattern.md` still names exactly three.
 - `shirabe validate` is clean over the changed files.
@@ -202,13 +199,12 @@ behavior changed, and run only those suites.
 **Dependencies**: Issue 1, Issue 2, Issue 3, Issue 4
 
 **Acceptance Criteria**:
-- `skills/scope/evals/evals.json` gains scenarios for: the entry-altitude
-  recommendation naming one altitude as recommended; a chain entered at
-  `design` running `/design` and `/plan` only; the PLAN-alone warning firing
-  when no durable artifact exists; a child invoked with its upstream
-  artifact's path rather than the topic slug; an `absorb` verdict with its
-  carry table; a `keep` verdict at an unmapped hop; and a re-entry-protection
-  skip carrying the renamed reason.
+- `skills/scope/evals/evals.json` gains scenarios for: the chain shape being
+  constant even when the author says the framing is settled; the
+  durable-artifact floor being structural rather than guarded; a child invoked
+  with its upstream artifact's path rather than the topic slug; an `absorb`
+  verdict with its carry table; a `keep` verdict at an unmapped hop; and a
+  re-entry-protection skip carrying the renamed reason.
 - `skills/brief/evals/evals.json` no longer asserts the fold-into-PRD path
   and asserts that a brief is always produced.
 - `skills/prd/evals/evals.json` asserts that PRD drafting reads the upstream

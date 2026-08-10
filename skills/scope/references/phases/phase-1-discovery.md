@@ -2,7 +2,7 @@
 
 Phase 1 turns the topic slug into a planned chain. It runs the
 discovery prompt to surface a framing-shift signal, walks the R6
-shape-predicates inline, decides the chain's **entry altitude**,
+shape-predicates inline to size `/design`'s decision roster,
 evaluates the re-entry protection each child carries, captures
 initial child-snapshots for any pre-existing durable artifacts,
 and emits a chain-proposal output the author confirms (Proceed /
@@ -10,21 +10,37 @@ Adjust / Bail).
 
 ## What Phase 1 Decides, and What It Does Not
 
-Phase 1 decides **where the chain starts**. It does not decide,
-per hop, whether a child's artifact is worth producing. That
-distinction is the point of this phase's shape: a judgment about
-whether a document would have carried anything can only be made
-against a document that exists, and at Phase 1 none of them do.
+Phase 1 decides **nothing about the size of the artifact set.**
+`planned_chain:` is `[brief, prd, design, plan]` on every run.
+There is no starting altitude to choose and no child that Phase 1
+can decide is not worth invoking.
 
-Every child from the entry altitude through `/plan` is invoked.
-The only thing that stops a child from running is that its
-durable artifact is already on disk at a settled status, which is
+That is the point of this phase's shape. A judgment about whether
+a document would have carried anything can only be made against a
+document that exists, and at Phase 1 none of them do — so Phase 1
+does not make one, in any form. An earlier revision let Phase 1
+choose an entry altitude for the chain; it was removed for exactly
+this reason, even though the question it asked the author (which
+conversation are you having?) was more answerable than the per-hop
+gates it replaced. It still shrank the artifact set before any
+artifact existed.
+
+The only thing that stops a child from running is that its durable
+artifact is already on disk at a settled status, which is
 re-entry protection against overwriting settled work — not a
 verdict on the artifact's worth. See "Re-Entry Protection" below.
 
 Reducing the artifact set is Phase 2's job, after the artifacts
-exist. See the Consolidation Judgment section of
+exist, and the consolidation judgment there is the only mechanism
+that does it. See the Consolidation Judgment section of
 `skills/scope/references/phases/phase-2-chain-orchestration.md`.
+
+**An author who wants a shorter chain reaches for a child skill
+directly.** `/design <topic>` and `/plan <topic>` are the
+documented ways to enter the tactical chain above `/brief`, and
+that choice is theirs and visible in what they typed. `/scope`
+means "walk the whole chain"; it does not guess that an altitude
+is not worth writing down.
 
 ## Discovery Prompt Structure
 
@@ -67,7 +83,7 @@ When the cold-start discovery yields empty results — no on-disk
 artifacts AND the author answers the framing-shift question with
 "no signal yet" — Phase 1 short-circuits the rest of the
 discovery walk. The state file records `phase-1: empty-cold-start`
-and the entry-altitude recommendation resolves to `brief` (the
+and the chain proceeds with `/brief` at its head as always (the
 framing-shift answer is deferred to the BRIEF authoring
 conversation).
 
@@ -85,7 +101,7 @@ When the post-PRD predicates match the pre-PRD projection,
 re-narration.
 
 The re-evaluation changes `/design`'s roster size, never whether
-`/design` runs. `planned_chain:` was fixed by the entry altitude
+`/design` runs. `planned_chain:` is the whole chain on every run
 and is not revised here.
 
 ## Re-Entry Protection (R4, R5)
@@ -133,23 +149,23 @@ always did.
 
 R6 walks three predicates inline. Each predicate emits a
 `fires` or `does-not-fire` verdict and a one-line reason. The
-verdicts feed two consumers: the entry-altitude recommendation
-below, and `/design`'s decision-roster shape (which
-decision-researcher roster fires, against which inputs) when
-`/design` runs.
+verdicts have exactly one consumer: `/design`'s decision-roster
+shape — which decision-researcher roster fires, against which
+inputs.
 
 The predicates do **not** decide whether `/design` is invoked.
-`/design` runs on every chain entered at or above the design
-altitude. R7 previously read these verdicts as a produce-or-skip
-gate; that reading is retired, and "shape-dependent" now means
-what it says in the Gate Vocabulary — the gate governs *how* a
-child is invoked, not whether.
+`/design` runs on every chain. R7 previously read these verdicts
+as a produce-or-skip gate; that reading is retired, and
+"shape-dependent" now means what it says in the Gate Vocabulary —
+the gate governs *how* a child is invoked, not whether.
 
-When the PRD does not exist yet (a chain entered at `brief` or
-`prd`), the predicates are evaluated against the projected PRD
-shape from the cold-start projection and the discovery
-conversation, and re-evaluated against the real PRD by the
-post-`/prd` gate below.
+At Phase 1 the PRD does not exist yet, so the predicates are
+evaluated against the projected PRD shape from the cold-start
+projection and the discovery conversation, then re-evaluated
+against the real PRD by the post-`/prd` gate below. That
+re-evaluation is why a Phase-1 estimate is safe here and would not
+be safe as a gate: it resizes a roster, and a wrong estimate is
+corrected the moment the PRD lands.
 
 ### P1 — Architectural-Alternatives Count
 
@@ -247,85 +263,48 @@ from `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`;
 the predicate verdicts feed both the chain-proposal narration
 and `/design`'s decision roster cardinality.
 
-## Entry-Altitude Decision
+## The Durable-Artifact Floor
 
-The chain's entry altitude is decided once, here, and the chain
-then runs every child from that altitude through `/plan`. The
-four altitudes are `brief`, `prd`, `design`, and `plan`, and the
-value is recorded in the state file's `entry_altitude:` field.
+A `/scope` run always leaves at least one durable artifact, and
+nothing here enforces that — it follows from the chain's shape.
+The chain always writes BRIEF, PRD, DESIGN and PLAN, and Phase 2's
+consolidation judgment can only absorb at a hop where the
+downstream type's required sections have a home for every one of
+the upstream's. No hop above BRIEF-to-PRD qualifies, so the
+smallest set a run can end with is a PRD, a DESIGN and a PLAN.
 
-The decision is a question about the conversation the author is
-having, not about the contents of a document nobody has written.
-That is what makes it answerable at Phase 1 when a
-worth-producing judgment is not.
+A run that leaves nothing behind — a PLAN alone, deleted once its
+work is implemented — is therefore not reachable through `/scope`
+at all. An author who genuinely wants no durable record beyond the
+code invokes `/plan <topic>` directly. That is a claim they are
+entitled to make, and making it by hand keeps it visible in what
+they typed rather than buried in a judgment `/scope` made for
+them.
 
-**Inputs.** Four, all already gathered by this phase:
-
-- the on-disk survey (which of BRIEF / PRD / DESIGN / PLAN exist
-  at the canonical paths, and at what status);
-- the R6 predicate verdicts;
-- the cold-start projected-PRD keyword projection;
-- the author's framing-shift answer.
-
-**Recommendation.** Phase 1 marks exactly one altitude
-recommended and states its reasons, per the decision-presentation
-convention in
-`${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`: pick
-the best option, say why, let the author override. In `--auto`
-mode the recommendation is taken without prompting.
-
-| Situation | Recommended entry |
-|---|---|
-| Nothing on disk and the framing is not settled | `brief` |
-| The framing is settled, or a BRIEF is already on disk | `prd` |
-| The requirements are settled, or a PRD is already on disk | `design` |
-| The architecture is settled, or a DESIGN is already on disk | `plan` |
-
-"Settled" means the author can state the thing without further
-conversation, not that it is written down. An author who says
-"the problem is obvious, I want to talk about requirements" has a
-settled framing; the chain enters at `prd` and the framing is
-captured in the PRD's Problem Statement.
-
-**The no-durable-artifact warning.** When the recommendation
-resolves to `plan` and no durable artifact exists at any canonical
-path for the topic, the proposal SHALL state that the run will
-leave no durable artifact behind, because the PLAN is deleted once
-its work is implemented. The warning is informational; the author
-may proceed. It fires only in that case — a chain entered at
-`plan` against an existing DESIGN leaves that DESIGN, so no
-warning is surfaced.
-
-No reduction of the artifact set can produce this outcome on its
-own: the consolidation judgment in Phase 2 can only absorb at a
-hop where the downstream type has a home for every one of the
-upstream's required sections, and no hop above `plan` qualifies.
-A chain entered above `plan` always leaves a durable artifact.
+Do not add a guard for this. Its condition cannot hold, and a
+check that can never fire teaches the next maintainer that the
+case is possible.
 
 ## Chain-Proposal Output
 
-After the entry altitude is chosen and the re-entry protections
-evaluate, Phase 1 emits a chain-proposal output naming the entry
-altitude and its reasons, the planned children, the re-entry
-verdict for each, the R6 per-predicate verdicts, and the offered
-options. The output's options block contains the literal
-substrings `Proceed`, `Adjust`, and `Bail` (case-sensitive, exact
-spelling per AC9).
+After the re-entry protections evaluate, Phase 1 emits a
+chain-proposal output naming the planned children, the re-entry
+verdict for each, the R6 per-predicate verdicts behind `/design`'s
+roster size, and the offered options. The output's options block
+contains the literal substrings `Proceed`, `Adjust`, and `Bail`
+(case-sensitive, exact spelling per AC9).
 
 Example output skeleton:
 
-> Entry altitude: **brief** (recommended)
->   Nothing on disk for this topic, and the framing-shift answer
->   says the problem shape is still being settled.
->   Alternatives: prd (if the framing is settled and you want to
->   go straight to requirements), design, plan.
->
-> Planned chain:
+> Planned chain (the full tactical chain, as always):
 >   /brief — runs (no settled artifact at the canonical path)
 >   /prd — runs (no settled artifact at the canonical path)
 >   /design — runs; roster shape from P1 fires, P2 does-not-fire,
 >     P3 fires
 >   /plan — runs (ALWAYS)
+>
+> Any artifact that turns out to be redundant is absorbed after
+> it and its successor both exist, not skipped now.
 >
 > Proceed / Adjust / Bail?
 
@@ -342,14 +321,13 @@ The three branch behaviors:
 
 ## `planned_chain:` Population
 
-Phase 1 writes `planned_chain:` in the state file as every child
-from `entry_altitude:` through `plan`, in chain order, minus any
-child held back by re-entry protection. Held-back children appear
-in `chain_skipped:` with their reason, not in `planned_chain:`.
-The two lists together cover the full Phase 1 verdict surface.
+Phase 1 writes `planned_chain:` in the state file as the whole
+tactical chain, in order, minus any child held back by re-entry
+protection. Held-back children appear in `chain_skipped:` with
+their reason, not in `planned_chain:`. The two lists together
+cover the full Phase 1 verdict surface.
 
 ```yaml
-entry_altitude: brief
 planned_chain:
   - brief
   - prd
@@ -358,15 +336,8 @@ planned_chain:
 chain_skipped: []
 ```
 
-A chain entered at `design` writes the suffix from that altitude:
-
-```yaml
-entry_altitude: design
-planned_chain:
-  - design
-  - plan
-chain_skipped: []
-```
+That list is a constant. Phase 1 has no input that can shorten it
+and no field that records a different shape.
 
 When re-entry protection holds a child back, the entry shape is:
 
@@ -412,10 +383,11 @@ body edit at the same status.
 ## Three-Way Adjust Path
 
 When the author selects Adjust, Phase 1 re-enters at the
-discovery prompt with the author's adjustment input merged in.
-Adjust is also how an author changes the entry altitude away
-from the recommended one. Re-entry re-runs the R6 predicates,
-re-derives the recommendation, and re-emits the chain proposal;
+discovery prompt with the author's adjustment input merged in —
+a re-framed topic, a corrected framing-shift answer, a different
+read on the problem. Adjust does not change which children run,
+because that list is fixed. Re-entry re-runs the R6 predicates
+and re-emits the chain proposal;
 the loop continues until the author selects Proceed or Bail.
 There is no implicit limit on Adjust iterations; the
 `--max-rounds=N` flag governs re-evaluation iterations across
@@ -427,9 +399,6 @@ chain run.
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` —
   Gate Vocabulary (ALWAYS, shape-dependent,
   Mandatory-with-auto-skip), Conditional Feeder Invocation Shape.
-- `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md` —
-  the recommend-then-let-the-author-override shape the
-  entry-altitude decision follows.
 - `skills/scope/references/phases/phase-2-chain-orchestration.md`
   — the Consolidation Judgment that reduces the artifact set
   after the artifacts exist.

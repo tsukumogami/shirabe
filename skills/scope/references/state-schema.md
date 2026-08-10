@@ -22,16 +22,12 @@ state-schema reference).
   Phase 2's validator pass-through reads it back for
   `shirabe validate --visibility=<value>`, so it is a recorded
   field rather than a per-phase re-detection.
-- **`entry_altitude`** — where the chain starts. Values:
-  `brief | prd | design | plan`. Decided once at Phase 1 and
-  fixed for the run; the chain invokes every child from this
-  altitude through `plan`. Phase 2 re-validates the value against
-  the enum before it selects which child receives the topic slug
-  and which receive an artifact path.
 - **`planned_chain`** — list of child names the chain plans to
-  invoke: every child from `entry_altitude` through `plan`, minus
-  any held back by re-entry protection (output of Phase 1's
-  chain-proposal).
+  invoke: the whole tactical chain (`brief`, `prd`, `design`,
+  `plan`) in order, minus any child held back by re-entry
+  protection (output of Phase 1's chain-proposal). There is no
+  field recording where the chain starts, because it always starts
+  at `brief`.
 - **`chain_ran`** — list of child names whose invocations
   completed.
 - **`chain_skipped`** — list of `{name, reason}` entries for

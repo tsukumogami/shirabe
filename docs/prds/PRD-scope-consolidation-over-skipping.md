@@ -9,10 +9,10 @@ problem: |
   and the children `/scope` does run are all invoked in their cold-start input
   mode, so none of them ever consumes the upstream the chain just produced.
 goals: |
-  A `/scope` run produces every artifact from its entry altitude down, decides
-  the entry altitude once with the author rather than guessing per hop, and
-  reduces the artifact set only after the content exists and only where the
-  surviving artifact demonstrably carries what the removed one held. Each
+  A `/scope` run always walks the whole tactical chain, BRIEF through PLAN,
+  and reduces the artifact set only after the content exists and only where
+  the surviving artifact demonstrably carries what the removed one held. No
+  decision anywhere in the run is made before the artifact it is about. Each
   child consumes its upstream instead of re-deriving it, and the reader-facing
   reason for every reduction is documented where the reduction happens.
 upstream: docs/briefs/BRIEF-scope-consolidation-over-skipping.md
@@ -80,11 +80,11 @@ was lost.
 
 ## Goals
 
-- A `/scope` run writes every artifact from its entry altitude down to the
-  PLAN. Nothing between entry and the PLAN is dropped.
-- Where the run starts is an explicit choice made once, with the author,
-  about the conversation being had — not a per-hop guess about a document
-  that does not exist.
+- A `/scope` run writes every artifact in the tactical chain, BRIEF through
+  PLAN. Nothing is dropped.
+- Reducing the artifact set is the only mechanism that ends a run with fewer
+  documents than the chain has altitudes, and it never runs before the
+  documents it compares exist.
 - Reducing the artifact set happens after the artifacts exist, on a reading
   of what they actually say, and only where the surviving document can be
   shown to carry what the removed one held.
@@ -105,8 +105,9 @@ was lost.
   I want that framing written down properly once and then carried into the
   PRD, so I end with one document instead of two that say the same thing.
 - As an author whose conversation is already at the architecture, I want to
-  tell `/scope` to start there, so I get a DESIGN and a PLAN without being
-  walked through framing and requirements I do not need written down.
+  reach for `/design` directly rather than have `/scope` guess that my
+  framing does not need writing down, so the choice to skip an altitude is
+  mine and visible in what I typed.
 - As a reader landing cold on a PRD months later, I want the problem stated
   in the PRD itself and everything else cited rather than re-narrated, so I
   can understand the feature without hunting for a document that no longer
@@ -122,19 +123,21 @@ was lost.
 
 ### Functional
 
-**R1.** `/scope` SHALL accept an entry altitude for the chain, one of
-`brief`, `prd`, `design`, or `plan`. The chain runs every child from the
-entry altitude through `/plan` inclusive.
+**R1.** `/scope` SHALL invoke every child in the tactical chain, `/brief`
+then `/prd` then `/design` then `/plan`, on every run. There is no altitude
+at which the chain starts other than `/brief`, and no author-supplied or
+computed value selects one.
 
-**R2.** The entry altitude SHALL be decided once, in Phase 1, before any
-child is invoked. `/scope` SHALL recommend one altitude with its reasons,
-following the decision-presentation convention, and the author SHALL be able
-to override it. In `--auto` mode the recommendation is taken.
+**R2.** `/scope` SHALL NOT decide, at any point, whether an artifact is worth
+producing. Every decision that reduces the artifact set SHALL be made after
+the artifacts it compares have been written. An author who wants a chain that
+starts above `/brief` reaches for `/design` or `/plan` directly; that choice
+is theirs and is visible in what they invoked, and `/scope` does not make it
+on their behalf.
 
-**R3.** No child between the entry altitude and `/plan` SHALL be declined on
-a predicate evaluated before that child's artifact exists. The R6 predicates
-that currently gate `/design` SHALL be repurposed as inputs to the R2
-recommendation and SHALL NOT gate a child mid-chain.
+**R3.** The R6 predicates that currently gate `/design` SHALL size
+`/design`'s decision roster and SHALL NOT decide whether `/design` is
+invoked.
 
 **R4.** A child SHALL still be skipped when its durable artifact already
 exists at a settled status at the canonical path. This protection SHALL be
@@ -188,10 +191,10 @@ which were absorbed, into what, and the finding the verdict rested on. The
 record SHALL survive into the run's durable output, not only into `wip/`.
 
 **R14.** A `/scope` full-run SHALL leave at least one durable artifact.
-Because the PLAN is deleted once its work is implemented, a chain that
-entered above `plan` SHALL NOT reduce to the PLAN alone. Entering at `plan`
-is the only way to run a chain that leaves no durable artifact, and it is an
-explicit author choice under R2.
+This follows from R9 rather than needing its own guard: the PLAN is deleted
+once its work is implemented, and no hop above BRIEF-to-PRD is absorbable, so
+a run can never reduce below a surviving PRD, DESIGN and PLAN. A run that
+leaves no durable artifact is not reachable through `/scope` at all.
 
 **R15.** Each artifact SHALL state its own problem in full and SHALL cite,
 rather than re-narrate, everything else its upstream already says. The
@@ -225,19 +228,22 @@ changes, and run for those suites only.
 
 ## Acceptance Criteria
 
-- [ ] AC1. Running `/scope <topic>` on a cold start with entry altitude
-      `brief` produces a BRIEF, a PRD, a DESIGN, and a PLAN, with no child
-      recorded in `chain_skipped:` for a worth-producing reason.
-- [ ] AC2. Phase 1 emits an entry-altitude recommendation naming one
-      altitude as recommended, with reasons, and offering the author the
-      other altitudes.
-- [ ] AC3. Choosing entry altitude `design` runs `/design` and `/plan` only,
-      and produces a DESIGN and a PLAN.
-- [ ] AC4. Choosing entry altitude `plan` runs `/plan` only, and the run
-      surfaces that it will leave no durable artifact before proceeding.
+- [ ] AC1. Running `/scope <topic>` on a cold start produces a BRIEF, a PRD,
+      a DESIGN, and a PLAN, with no child recorded in `chain_skipped:` for a
+      worth-producing reason.
+- [ ] AC2. `planned_chain:` is `[brief, prd, design, plan]` on every run,
+      minus only children held back by re-entry protection. No state field
+      and no prompt selects a starting altitude.
+- [ ] AC3. `/scope`'s phase references and SKILL.md contain no decision that
+      reduces the artifact set before the artifacts exist. Every such
+      decision is the Phase 2 consolidation judgment.
+- [ ] AC4. The two artifact-set outcomes reachable through `/scope` are the
+      full chain and the chain minus an absorbed BRIEF. Reaching a chain that
+      starts above `/brief` requires invoking `/design` or `/plan` directly,
+      and `/scope`'s prose says so.
 - [ ] AC5. `/scope`'s phase references no longer contain a gate that declines
-      `/design` on the R6 predicates; the predicates appear only as inputs to
-      the entry-altitude recommendation.
+      `/design` on the R6 predicates; the predicates appear only as the
+      sizing input to `/design`'s decision roster.
 - [ ] AC6. A `chain_skipped:` entry produced by R4 carries a reason naming
       re-entry protection against overwriting a settled artifact, and the
       surrounding prose distinguishes it from a worth-producing judgment.
@@ -316,16 +322,23 @@ that was written without reading it, so the carry check in R10 would fail
 most of the time. Consumption is what makes absorption reliably available;
 absorption is what removes the second document. R6 and R7 ship together.
 
-**The reduction ladder is an entry-altitude choice, not a per-hop fold.**
-The outcomes worth reaching — all four artifacts, or PRD onward, or DESIGN
-onward, or a PLAN alone — are the four suffixes of the chain, and the
-pipeline already lets an author enter at whichever altitude matches the
-conversation. Making that entry explicit in `/scope` reaches every one of
-those outcomes with a decision the author is in a position to make, about a
-conversation that exists, instead of a guess about a document that does not.
-The rejected alternative was a per-hop fold at every boundary; it fails R9 at
-two of the three hops and would have forced either a schema variant or
-silent content loss.
+**One mechanism reduces the set, and it runs after the fact.** An earlier
+revision of this PRD gave `/scope` an entry altitude chosen once in Phase 1,
+on the reasoning that a question about the conversation an author is having
+is answerable when a question about an unwritten document is not. It was
+rejected: it is still a decision that shrinks the artifact set before any
+artifact exists, which is the exact shape this feature removes, and having
+two reduction mechanisms operating at different times made neither one
+legible. `/scope` now walks the whole chain and the consolidation judgment
+is the only thing that removes a document.
+
+The cost is that two of the four artifact-set outcomes are no longer
+reachable through `/scope`. Because no hop above BRIEF-to-PRD is absorbable
+(R9), a `/scope` run ends with either all four artifacts or the chain minus
+an absorbed BRIEF. A DESIGN-and-PLAN run, or a PLAN alone, is reached by
+invoking `/design` or `/plan` directly — which the pipeline already supports
+and CLAUDE.md already documents, and which puts the choice in what the author
+typed rather than in a judgment `/scope` makes for them.
 
 **Absorbability is derived, not enumerated.** R9 states the rule in terms of
 whether the downstream type's required sections have a home for the
@@ -362,11 +375,16 @@ validator, matching the repository's rule that correctness checks live in
   If no schema ever changes, R9's generality never pays off, and a reader may
   reasonably ask why the rule was not simply written as "BRIEF folds into
   PRD."
-- Entry altitude is chosen before any artifact exists, which is the same
-  timing the rest of this PRD objects to. It is defensible because the
-  author is answering about a conversation they are already having rather
-  than about a document's future contents, but the asymmetry is real and
-  worth naming.
+- A feature with no live architectural question still gets a DESIGN, because
+  `/design` always runs and no hop above BRIEF-to-PRD can absorb it. The
+  citation rule in R15 keeps that document short, and recording one live
+  option and why no alternative was live is a better audit trail than
+  silence, but it is a document that would not have existed before.
+- Absorption runs in one direction, from an upstream artifact into the
+  downstream one that replaced it. A thin DESIGN therefore has nowhere to go:
+  its natural home would be the PRD above it, and folding backward is not a
+  move this model has. If thin DESIGNs turn out to be common, that is the
+  next question to open.
 - Evidence for the constancy of BRIEF-to-PRD overlap comes from documents
   this same pipeline produced against these same format references. The
   overlap may be a property of the generator rather than of the feature

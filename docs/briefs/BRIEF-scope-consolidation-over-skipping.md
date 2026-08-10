@@ -25,10 +25,11 @@ motivating_context: |
 
 Accepted
 
-Framing for the change that replaces `/scope`'s produce-or-skip gates with an
-entry-altitude choice plus a consolidation judgment that runs after each
-artifact is written. The four questions this brief deferred are closed in the
-downstream PRD's Decisions and Trade-offs section.
+Framing for the change that removes `/scope`'s produce-or-skip gates, so the
+whole tactical chain runs on every invocation and a consolidation judgment
+after each artifact is written is the only thing that reduces the set. The
+four questions this brief deferred are closed in the downstream PRD's
+Decisions and Trade-offs section.
 
 ## Problem Statement
 

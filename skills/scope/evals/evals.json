@@ -92,14 +92,13 @@
       "id": 7,
       "name": "us-1-cold-standalone-full-run",
       "prompt": "/scope test-topic",
-      "expected_output": "Cold-start invocation against a fresh worktree under public-repo visibility: no wip/scope_test-topic_state.md exists, no upstream BRIEF/PRD/DESIGN/PLAN exists at the canonical paths. /scope walks Phase 1 discovery surfacing the framing-shift question, walks the R6 predicates (P1/P2/P3) to feed the entry-altitude recommendation and /design's decision-roster shape, and decides the entry altitude: nothing on disk and the framing unsettled recommends 'brief'. planned_chain becomes every child from that altitude through plan. The chain-proposal output names the recommended altitude with its reasons and contains the literal Proceed / Adjust / Bail substrings. The author selects Proceed; Phase 2 invokes /brief with the topic slug and then /prd, /design and /plan each with the path of the artifact the chain produced above it; each invocation writes the parent_orchestration: sentinel immediately before and clears it immediately after; shirabe validate --format json --visibility=public runs against each intermediate; the consolidation judgment runs after each artifact lands. The terminal PLAN lives at docs/plans/PLAN-test-topic.md. State file: entry_altitude: brief, exit: full-run, exit_artifacts lists the surviving durable artifacts plus the PLAN, plan_execution_mode set, and consolidation_judgments records a verdict per hop.",
+      "expected_output": "Cold-start invocation against a fresh worktree under public-repo visibility: no wip/scope_test-topic_state.md exists, no upstream BRIEF/PRD/DESIGN/PLAN exists at the canonical paths. /scope walks Phase 1 discovery surfacing the framing-shift question and walks the R6 predicates (P1/P2/P3) to size /design's decision roster. planned_chain is [brief, prd, design, plan] — the whole tactical chain, as it is on every run; Phase 1 chooses no starting altitude and decides nothing about how many artifacts the run will leave. The chain-proposal output names those four children with their re-entry verdicts and contains the literal Proceed / Adjust / Bail substrings. The author selects Proceed; Phase 2 invokes /brief with the topic slug and then /prd, /design and /plan each with the path of the artifact the chain produced above it; each invocation writes the parent_orchestration: sentinel immediately before and clears it immediately after; shirabe validate --format json --visibility=public runs against each intermediate; the consolidation judgment runs after each artifact lands. The terminal PLAN lives at docs/plans/PLAN-test-topic.md. State file: exit: full-run, exit_artifacts lists the surviving durable artifacts plus the PLAN, plan_execution_mode set, and consolidation_judgments records a verdict per hop.",
       "files": [],
       "expectations": [
-        "Plan decides an entry altitude at Phase 1 and records it in entry_altitude:",
-        "Plan recommends exactly one altitude with its reasons and offers the author the alternatives, rather than presenting them neutrally",
-        "Plan populates planned_chain: as every child from the entry altitude through plan",
-        "Plan does NOT decide per hop, before an artifact exists, whether that artifact is worth producing",
-        "Plan invokes the entry child with the topic slug and every later child with the path of the artifact the chain produced above it",
+        "Plan populates planned_chain: as [brief, prd, design, plan] on this run",
+        "Plan describes no starting-altitude choice and no state field recording one",
+        "Plan does NOT decide, at Phase 1, whether any artifact is worth producing",
+        "Plan invokes /brief with the topic slug and every later child with the path of the artifact the chain produced above it",
         "Plan emits a chain-proposal output containing the literal substrings Proceed, Adjust and Bail",
         "Plan runs the consolidation judgment after each artifact lands and records the verdict in consolidation_judgments:",
         "Plan records exit: full-run with exit_artifacts listing the surviving durable artifacts"
@@ -261,29 +260,28 @@
     },
     {
       "id": 17,
-      "name": "entry-altitude-design-runs-chain-suffix",
-      "prompt": "/scope refactor-topic  (the author says the problem and the requirements are settled; they want to talk about architecture)",
-      "expected_output": "Phase 1 recommends entry altitude 'design' because the author states the framing and the requirements are settled. planned_chain becomes [design, plan] -- the suffix of the chain from that altitude. /brief and /prd are not invoked and are NOT recorded in chain_skipped, because they were never in the chain; chain_skipped records only re-entry protection. /design is invoked with the topic slug (it is the entry child, so there is no produced upstream to hand it) and /plan with the DESIGN's path.",
+      "name": "chain-shape-is-constant",
+      "prompt": "/scope refactor-topic  (the author says the problem and the requirements are settled; they only want to talk about architecture)",
+      "expected_output": "The chain still runs /brief, /prd, /design and /plan. /scope has no altitude selection: an author who says the framing and requirements are settled is not offered a shorter chain, because deciding that an unwritten BRIEF is not worth writing is the exact judgment this skill removed. The BRIEF is written, the PRD is written from it, and if the BRIEF turns out to do no work the PRD does not, the Phase 2 consolidation judgment absorbs it after both exist. The correct redirect for an author who genuinely wants to start at the architecture is to invoke /design directly, and /scope's prose says so.",
       "files": [],
       "expectations": [
-        "Plan recommends entry altitude design and records entry_altitude: design",
-        "Plan populates planned_chain: as [design, plan]",
-        "Plan does not record /brief or /prd in chain_skipped:, because they were never in the chain",
-        "Plan invokes /design with the topic slug as the entry child and /plan with the DESIGN's path",
-        "Plan produces both a DESIGN and a PLAN"
+        "Plan runs the whole chain and does not offer a shortened one",
+        "Plan explains that skipping the BRIEF here would be a judgment about an unwritten document",
+        "Plan points the author at invoking /design directly if they want to start above /brief",
+        "Plan notes a redundant BRIEF is removed by the Phase 2 consolidation judgment, after both documents exist"
       ]
     },
     {
       "id": 18,
-      "name": "entry-altitude-plan-warns-no-durable-artifact",
-      "prompt": "/scope throwaway-topic  (the author wants to go straight to a plan and nothing exists on disk for the topic)",
-      "expected_output": "Phase 1 resolves the entry-altitude recommendation to 'plan' and, because no durable artifact exists at any canonical path for the topic, the chain proposal states that the run will leave no durable artifact behind -- the PLAN is deleted once its work is implemented. The warning is informational and the author may proceed. The same warning does NOT fire when a DESIGN already exists for the topic, because that DESIGN survives the run.",
+      "name": "durable-artifact-floor-is-structural",
+      "prompt": "/scope throwaway-topic  (nothing exists on disk for the topic)",
+      "expected_output": "A /scope run always leaves at least one durable artifact, and nothing implements a guard for it. The chain always writes BRIEF, PRD, DESIGN and PLAN, and no hop above BRIEF-to-PRD is absorbable, so the smallest set a run can end with is a PRD, a DESIGN and a PLAN. A PLAN-alone run — which would leave nothing behind, since the PLAN is deleted once its work is implemented — is not reachable through /scope at all; an author who wants that invokes /plan directly. No check is added, because the condition cannot hold and a check that can never fire would teach a later maintainer that the case is possible.",
       "files": [],
       "expectations": [
-        "Plan surfaces a warning that the run will leave no durable artifact behind because the PLAN is deleted after implementation",
-        "Plan states the warning is informational and the author may proceed",
-        "Plan notes the warning fires only when no durable artifact exists at any canonical path for the topic",
-        "Plan does not reach a PLAN-alone outcome by reducing the artifact set; only an explicit entry at plan produces it"
+        "Plan states the durable-artifact floor follows from the chain shape plus the absorbability rule rather than from a guard",
+        "Plan does NOT add a check or warning for a run that leaves no durable artifact",
+        "Plan notes that a PLAN-alone outcome is unreachable through /scope and requires invoking /plan directly",
+        "Plan gives the reason for not adding a guard: the condition cannot hold, and dead checks mislead"
       ]
     },
     {
@@ -331,10 +329,10 @@
       "id": 22,
       "name": "upstream-path-invocation-preserves-child-isolation",
       "prompt": "/scope chain-topic",
-      "expected_output": "Phase 2 invokes /prd with docs/briefs/BRIEF-chain-topic.md, /design with docs/prds/PRD-chain-topic.md, and /plan with docs/designs/DESIGN-chain-topic.md -- input modes each child already ships. No flag, argument, environment variable or new parse branch is added to any child. R14 child isolation is preserved: /scope still reads only each child's frontmatter status and git blob hash.",
+      "expected_output": "Phase 2 invokes /brief with the topic slug, since it heads the chain, then /prd with docs/briefs/BRIEF-chain-topic.md, /design with docs/prds/PRD-chain-topic.md, and /plan with docs/designs/DESIGN-chain-topic.md -- input modes each child already ships. No flag, argument, environment variable or new parse branch is added to any child. R14 child isolation is preserved: /scope still reads only each child's frontmatter status and git blob hash.",
       "files": [],
       "expectations": [
-        "Plan invokes each non-entry child with the path of the artifact the chain produced above it",
+        "Plan invokes /brief with the topic slug and each later child with the path of the artifact the chain produced above it",
         "Plan states these are input modes the children already ship, not new ones",
         "Plan adds no flag, argument or environment variable to any child",
         "Plan preserves R14 child isolation: /scope reads only frontmatter status and the git blob hash"

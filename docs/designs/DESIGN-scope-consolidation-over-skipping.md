@@ -11,24 +11,24 @@ problem: |
   economy reason for reducing the artifact set is stated only inside `/brief`,
   behind a branch `/scope` cannot reach, with no receiver on the other side.
 decision: |
-  `/scope` gains an entry altitude chosen once in Phase 1; every child from
-  entry through `/plan` runs. Children are invoked through their existing
-  upstream-path input modes so each consumes what the chain produced. After
-  each artifact lands, a consolidation judgment compares it against the
-  nearest surviving artifact above it and may absorb that upstream — but only
-  at a hop where the downstream type's required sections have a home for
-  every required section of the upstream type, which today is BRIEF into PRD
-  alone. `/brief`'s fold-into-PRD branch is retired, and the validator's
-  existing Plan-only upstream-resolution check is generalized to every format.
+  `/scope` always walks the whole tactical chain, `/brief` through `/plan`,
+  with no altitude at which the chain starts other than `/brief`. Children
+  are invoked through their existing upstream-path input modes so each
+  consumes what the chain produced. After each artifact lands, a
+  consolidation judgment compares it against the nearest surviving artifact
+  above it and may absorb that upstream — but only at a hop where the
+  downstream type's required sections have a home for every required section
+  of the upstream type, which today is BRIEF into PRD alone. `/brief`'s
+  fold-into-PRD branch is retired, and the validator's existing Plan-only
+  upstream-resolution check is generalized to every format.
 rationale: |
-  The four artifact-set outcomes worth reaching are the four suffixes of the
-  chain, and the pipeline already lets an author enter at any altitude, so
-  making entry explicit reaches all of them with a decision the author can
-  actually make. Deriving absorbability from the schemas rather than
-  enumerating it means no schema variant, no fourth gate shape, and a rule
-  that stays correct if a format changes. Invoking children through input
-  modes they already ship fixes reachability without touching R14's
-  child-isolation boundary.
+  A run that shrinks its own artifact set before writing anything is the
+  defect, whatever the shrinking is called, so the chain runs whole and the
+  consolidation judgment is the single mechanism that removes a document.
+  Deriving absorbability from the schemas rather than enumerating it means no
+  schema variant, no fourth gate shape, and a rule that stays correct if a
+  format changes. Invoking children through input modes they already ship
+  fixes reachability without touching R14's child-isolation boundary.
 ---
 
 # DESIGN: scope-consolidation-over-skipping
@@ -122,40 +122,51 @@ rejected alternatives with their rejection rationale.
 
 ### Decision 1: What replaces the produce-or-skip gates
 
-- **Option A (chosen): an entry altitude chosen once in Phase 1, with every
-  child from entry through `/plan` running unconditionally.** `/scope`
-  recommends one of `brief | prd | design | plan` with its reasons, the
-  author may override, and the chain then runs to the end without a
-  worth-producing judgment anywhere in it.
-- **Option B (rejected): always run all four children, then fold redundant
-  artifacts pairwise.** The fold is unavailable at two of the three hops
-  (Decision 4), so this forces either an empty DESIGN on every simple
-  feature or a schema variant to absorb into. It reaches fewer of the
-  outcomes the PRD wants, at higher cost.
+- **Option A (chosen): run all four children on every invocation, and fold
+  pairwise as each artifact lands.** `/scope` walks `/brief` through `/plan`
+  with no altitude selection anywhere. The consolidation judgment (Decision
+  3) is the only thing that ends a run with fewer documents than the chain
+  has altitudes.
+- **Option B (rejected): an entry altitude chosen once in Phase 1.** This
+  shipped in an earlier revision of this design and was withdrawn. It reaches
+  all four artifact-set outcomes, and the question it asks the author is
+  genuinely answerable — it is about the conversation they are having, not
+  about an unwritten document. But it is still a decision that shrinks the
+  artifact set before any artifact exists, which is the shape this design
+  exists to remove, and it left two reduction mechanisms operating at
+  different times so neither read as the rule.
 - **Option C (rejected): keep per-hop gates but give them richer signals.**
   Whatever the signal, the gate still fires before its artifact exists. This
   is the shape the PRD's problem statement rejects, restated with more
   inputs.
 - **Option D (rejected): run all four, then delete redundant artifacts once
-  at the end.** Same schema-home problem as B, plus every downstream
-  artifact has already cited a document that is about to disappear, so the
-  re-pointing cascades across the whole set at once.
+  at the end.** Every downstream artifact has already cited a document that
+  is about to disappear, so the re-pointing cascades across the whole set at
+  once, and the author sees the reduction long after the conversation that
+  justified it.
 
-Chosen because the four artifact-set outcomes the PRD wants are the four
-suffixes of the chain, and the pipeline already treats entry-at-any-altitude
-as legitimate — an author reaches for `/design` directly today when the
-conversation is already architectural. Making that choice explicit inside
-`/scope` reaches every outcome with a decision the author is genuinely
-positioned to make: it asks about the conversation they are having, not about
-the contents of a document nobody has written.
+Chosen because it leaves exactly one mechanism that reduces the artifact set,
+and that mechanism reads two bodies that exist. Nothing anywhere in a
+`/scope` run decides that an unwritten document would not have been worth
+writing.
+
+The cost is real and is recorded in Consequences: because absorption is
+available at one hop only (Decision 4), a `/scope` run ends with either all
+four artifacts or the chain minus an absorbed BRIEF. The two shorter outcomes
+— a DESIGN and a PLAN, or a PLAN alone — are reached by invoking `/design` or
+`/plan` directly. That is not a workaround: entering the tactical chain at
+the altitude that matches the conversation is what the pipeline model already
+describes and what CLAUDE.md already tells authors to do. The difference is
+that the choice now lives in what the author typed rather than in a judgment
+`/scope` makes on their behalf.
 
 ### Decision 2: How `/scope` hands each child its upstream
 
 - **Option A (chosen): invoke each child through the upstream-path input
-  mode it already ships, whenever this chain produced that upstream.** The
-  entry child is invoked with the topic slug; every subsequent child is
-  invoked with the path of the nearest artifact this chain produced above
-  it — `/prd docs/briefs/BRIEF-<topic>.md`, `/design docs/prds/PRD-<topic>.md`,
+  mode it already ships, whenever this chain produced that upstream.**
+  `/brief` is invoked with the topic slug, being the head of the chain;
+  every subsequent child is invoked with the path of the nearest artifact
+  this chain produced above it — `/prd docs/briefs/BRIEF-<topic>.md`, `/design docs/prds/PRD-<topic>.md`,
   `/plan docs/designs/DESIGN-<topic>.md`.
 - **Option B (rejected): add `--upstream <path>` to each child.** Adds a
   flag to four children's argument parsers. D3 forbids it.
@@ -305,54 +316,54 @@ re-point, and adds no new check code for reviewers to learn.
 - **Option C (rejected): keep it and have `/prd` implement the receiving
   half.** Builds the receiver for a branch that now has a strictly better
   answer available — write the brief, then let the judgment read it.
-- **Option D (rejected): retire it and add the entry-altitude choice to
-  `/brief` itself.** A child deciding it should have been a different child
-  is the artifact-routing job `/explore` and `/scope` already own.
+- **Option D (rejected): retire it and have `/brief` route the author to a
+  different altitude instead.** A child deciding it should have been a
+  different child is the artifact-routing job `/explore` already owns.
 
 Chosen because retiring the branch is what makes the reader-facing intent
 single-sourced. A direct `/brief` invocation loses nothing real: it produced
 no artifact on the fold path anyway, and the author who wants the reduction
 gets it by running `/scope`, which can now actually deliver it.
 
-### Decision 8: The PLAN-alone floor and the entry-altitude prompt
+### Decision 8: The durable-artifact floor
 
-- **Option A (chosen): entry at `plan` is allowed, and `/scope` states
-  before proceeding that the run will leave no durable artifact — but only
-  when no durable upstream exists on disk for the topic.** A chain entered
-  at `plan` against an existing DESIGN leaves that DESIGN, so no warning
-  fires. Reduction to a PLAN alone from an entry above `plan` is not
-  reachable, because no hop above `plan` is absorbable.
-- **Option B (rejected): forbid entry at `plan` outright.** Removes a
-  legitimate move — planning against an accepted DESIGN is the normal way
-  to reach `/plan` — to prevent a case the warning already covers.
-- **Option C (rejected): allow it silently.** The PRD asks for the answer
-  to be stated deliberately rather than falling out of the model. A run
-  that will leave nothing behind should say so.
-- **Option D (rejected): require the author to type a confirmation
-  phrase.** Ceremony out of proportion to a choice the author already made
-  by naming the altitude.
+- **Option A (chosen): the floor is structural, and no guard implements
+  it.** A `/scope` run always writes BRIEF, PRD, DESIGN and PLAN, and
+  Decision 4 makes every hop above BRIEF-to-PRD unabsorbable, so the smallest
+  set a run can end with is a PRD, a DESIGN and a PLAN. A run that leaves no
+  durable artifact is unreachable through `/scope`, and nothing has to check
+  for it.
+- **Option B (rejected): an explicit guard that refuses to reduce below one
+  durable artifact.** Dead code. The guard's condition cannot hold given
+  Decision 4, and a check that can never fire teaches a later maintainer that
+  the case is possible.
+- **Option C (rejected): allow a PLAN-alone `/scope` run behind a warning.**
+  Requires an altitude selection to reach at all, which Decision 1 removed.
+- **Option D (rejected): make DESIGN absorbable into PLAN so the shortest
+  outcome stays reachable.** The PLAN is deleted once its work is
+  implemented, so this trades a durable audit trail for a shorter run and
+  loses the record of why the work happened.
 
-Chosen because the floor the PRD wants is already enforced structurally by
-Decision 4 — nothing above `plan` can be absorbed, so a chain entered above
-`plan` always leaves a durable artifact — and the only remaining path to an
-empty run is an explicit author choice, which the warning surfaces without
-blocking.
+The PRD asks for the PLAN-alone answer to be stated deliberately rather than
+left to fall out of the model, so: a `/scope` run never produces it. An
+author who genuinely wants no durable record beyond the code invokes `/plan`
+directly, which is a claim they are entitled to make and which is visible in
+what they typed.
 
 ### Decision 9: Whether the model generalizes to `/charter`
 
-- **Option A (chosen): state in prose that the entry-altitude half
-  generalizes and the consolidation half is a no-op on the strategic chain,
-  and change nothing.**
+- **Option A (chosen): state in prose that the consolidation model is a
+  no-op on the strategic chain, and change nothing.**
 - **Option B (rejected): implement the same model in `/charter` now.** Out
   of scope per the PRD, and the consolidation half would add machinery that
   can never fire.
 - **Option C (rejected): say nothing.** The PRD asks for the answer.
 
-The entry-altitude half generalizes cleanly, and `/charter` has already
-taken most of the step: PR #252 made `/roadmap` an ALWAYS child with an
-author declination rather than a threshold the parent computed. The
-consolidation half does not generalize, and the mapping test from Decision 4
-says why. STRATEGY's required sections have no home for a VISION's Audience,
+`/charter` has already taken the run-every-child half of this: PR #252 made
+`/roadmap` an ALWAYS child with an author declination rather than a threshold
+the parent computed, which is the same move Decision 1 makes for `/design`.
+The consolidation half does not generalize, and the mapping test from
+Decision 4 says why. STRATEGY's required sections have no home for a VISION's Audience,
 Value Proposition, Org Fit, or Success Criteria; ROADMAP's have no home for a
 STRATEGY's Defensibility Thesis, Building Blocks, or Bet-Specific
 Falsifiability. Zero strategic hops are absorbable, so porting the judgment
@@ -362,19 +373,17 @@ to.
 
 ## Decision Outcome
 
-`/scope` Phase 1 gains an **entry-altitude decision**. Discovery evaluates
-the existing R6 predicates plus the on-disk artifact survey and recommends
-one of `brief | prd | design | plan`, naming its reasons, following the
-decision-presentation convention. The author may override; `--auto` takes the
-recommendation. `planned_chain:` becomes every child from the chosen altitude
-through `plan`, in order.
+**`/scope` runs the whole chain.** `planned_chain:` is
+`[brief, prd, design, plan]` on every invocation, minus only children held
+back by re-entry protection. There is no altitude selection: no flag, no
+prompt, no state field, and no computed recommendation decides where the
+chain starts.
 
 The per-hop produce-or-skip gates are removed. `/brief`'s R4 gate, `/prd`'s
 R5 gate, and `/design`'s R6/R7 shape-dependent gate stop deciding whether
-their child runs. The R6 predicates survive as inputs to the entry-altitude
-recommendation and as the input to `/design`'s decision-roster shape, which
-is what "shape-dependent" always meant — the gate governs *how* the child is
-invoked, not whether.
+their child runs. The R6 predicates survive only as the input to `/design`'s
+decision-roster shape, which is what "shape-dependent" always meant — the
+gate governs *how* the child is invoked, not whether.
 
 **Re-entry protection survives under its own name.** A child whose durable
 artifact already exists at a settled status at the canonical path is still
@@ -385,10 +394,10 @@ not a judgment about whether the artifact was worth writing. The gate shape
 stays Mandatory-with-auto-skip; the vocabulary keeps three shapes.
 
 **Children are invoked through their upstream-path input modes.** Phase 2's
-invocation rule changes from `/<child-name> <topic-slug>` to: the entry child
-takes the topic slug; every later child takes the path of the nearest
-artifact this chain produced above it. Nothing is added to any child's input
-surface.
+invocation rule changes from `/<child-name> <topic-slug>` to: `/brief` takes
+the topic slug, because nothing in the chain sits above it; every later child
+takes the path of the nearest artifact this chain produced above it. Nothing
+is added to any child's input surface.
 
 **A consolidation judgment runs per hop**, in Phase 2 after the R20
 file-existence check and the validator pass-through. It reads the artifact
@@ -415,21 +424,18 @@ fails mechanically.
 
 ```
 skills/scope/SKILL.md
-    # Workflow Phases table: Phase 1 gains entry-altitude decision
     # New "## Why the Artifact Set Shrinks" section — the reader-facing
     #   rationale, stated here rather than cited from /brief
     # New "## Consolidation Judgment" section — verdicts, absorbability
     #   rule, carry check, per-hop placement
-    # Chain-Proposal Output section: proposal now names the entry altitude
 
 skills/scope/references/phases/phase-1-discovery.md
     # R4/R5 gate sections rewritten: re-entry protection only, renamed
     #   reason string, explicit "this is not a worth-producing judgment"
-    # R6 predicate walk retargeted: feeds the entry-altitude recommendation
-    #   and /design's roster shape, no longer gates /design
-    # New "Entry-Altitude Decision" section: inputs, recommendation shape,
-    #   the four altitudes, the PLAN-alone warning condition
-    # planned_chain population: entry altitude through plan
+    # R6 predicate walk retargeted: sizes /design's roster, no longer
+    #   gates /design
+    # New "What Phase 1 Decides, and What It Does Not" section
+    # planned_chain population: the whole chain, every run
 
 skills/scope/references/phases/phase-2-chain-orchestration.md
     # Child Invocation section: upstream-path input mode rule
@@ -438,7 +444,7 @@ skills/scope/references/phases/phase-2-chain-orchestration.md
     #   carry check, absorb procedure, re-point rule, abort path
 
 skills/scope/references/state-schema.md
-    # + entry_altitude:            brief | prd | design | plan
+    # + visibility:                Public | Private (read back by Phase 2)
     # + consolidation_judgments:   per-hop verdict list with carry tables
 
 skills/brief/SKILL.md
@@ -462,40 +468,31 @@ crates/shirabe-validate/src/validate.rs
     # call site moves out of the Plan match arm into the common path
 
 skills/{scope,brief,prd}/evals/evals.json
-    # scenarios for entry altitude, upstream-path invocation, the two
-    #   consolidation verdicts, the aborted absorb, re-entry protection
+    # scenarios for whole-chain invocation, upstream-path invocation, the
+    #   two consolidation verdicts, the aborted absorb, re-entry protection
 ```
 
-### Entry-altitude decision
+### What Phase 1 still does
 
-Phase 1 discovery already surveys the canonical paths for the topic and walks
-the R6 predicates. Both feed the recommendation:
+Phase 1 keeps its discovery work and loses its gate work. It surveys the
+canonical paths for the topic, walks the R6 predicates, runs the cold-start
+projection, and asks the framing-shift question — but none of those outputs
+decides whether a child runs any more:
 
 ```
-inputs
-  on-disk survey   BRIEF / PRD / DESIGN / PLAN at canonical paths + statuses
-  R6 predicates    P1 architectural alternatives left open
-                   P2 new-component references
-                   P3 Complex classification
-  topic projection cold-start keyword projection (existing)
-  author signal    framing-shift answer (existing)
-
-recommendation
-  nothing on disk, framing not settled           -> brief
-  framing settled or already written             -> prd
-  requirements settled or already written        -> design
-  architecture settled or already written        -> plan
+on-disk survey    -> re-entry protection (is a settled artifact already here?)
+                  -> initial child_snapshots
+R6 predicates     -> /design's decision-roster size, and nothing else
+topic projection  -> framing for the discovery conversation
+framing-shift     -> the override on /brief's re-entry protection
 ```
 
-The recommendation is emitted with the per-predicate verdicts verbatim, as
-the chain proposal already does, and one option is marked recommended. The
-options block keeps its `Proceed` / `Adjust` / `Bail` substrings; `Adjust` is
-how an author changes the altitude.
-
-When the recommendation resolves to `plan` and no durable artifact exists at
-any canonical path for the topic, the proposal states that the run will leave
-no durable artifact behind, because the PLAN is deleted once its work is
-implemented.
+`planned_chain:` is `[brief, prd, design, plan]` on every run, minus only
+children held back by re-entry protection. The chain proposal narrates that
+list and the per-predicate verdicts behind `/design`'s roster size, and keeps
+its `Proceed` / `Adjust` / `Bail` substrings — `Adjust` re-enters discovery
+with the author's input rather than selecting a different starting point,
+because there is no starting point to select.
 
 ### Per-child loop, revised
 
@@ -516,7 +513,7 @@ for child in planned_chain:
 Step 3's argument selection:
 
 ```
-if child == entry_altitude:        arg = <topic-slug>
+if child == brief:                 arg = <topic-slug>
 else:                              arg = path of nearest artifact this chain
                                          produced above `child`
 ```
@@ -637,9 +634,9 @@ and `is_known_check_code` needs no new entry.
 
 ```
 /scope <topic>
-  Phase 1  survey + predicates -> entry-altitude recommendation
-           author confirms (or --auto takes it)
-           planned_chain = [entry .. plan]
+  Phase 1  survey + predicates -> re-entry protection, /design roster size
+           author confirms the proposal (or --auto takes it)
+           planned_chain = [brief, prd, design, plan]
   Phase 2  for each child:
              invoke with slug (entry) or nearest produced upstream path
              R20 + validator pass-through
@@ -661,9 +658,9 @@ other; the validator batch is independent of all of them.
 **Batch 1 — `/scope` Phase 1.** Rewrite the R4 and R5 gate sections as
 re-entry protection with the renamed reason string and the explicit
 not-a-worth-producing-judgment statement. Retarget the R6 predicate walk to
-feed the entry-altitude recommendation and `/design`'s roster shape. Add the
-Entry-Altitude Decision section and the PLAN-alone warning condition. Update
-`planned_chain:` population.
+size `/design`'s decision roster and nothing else. Add the "What Phase 1
+Decides, and What It Does Not" section. Update `planned_chain:` population to
+the whole chain on every run.
 
 **Batch 2 — `/scope` Phase 2.** Change the Child Invocation section to the
 upstream-path rule. Add step 8 to the per-child loop and the Consolidation
@@ -672,8 +669,8 @@ schema, and the absorb procedure.
 
 **Batch 3 — `/scope` SKILL.md and state schema.** Add the Why the Artifact
 Set Shrinks and Consolidation Judgment sections, update the Chain-Proposal
-Output section for the entry altitude, and add `entry_altitude:` and
-`consolidation_judgments:` to `skills/scope/references/state-schema.md`.
+Output section, and add `visibility:` and `consolidation_judgments:` to
+`skills/scope/references/state-schema.md`.
 
 **Batch 4 — children.** Remove `/brief`'s fold-into-PRD branch from
 `skills/brief/references/phases/phase-0-setup.md` and the corresponding
@@ -707,13 +704,13 @@ re-validates before any interpolation
 closed write-target set in `/scope`'s Security Considerations gains
 `docs/briefs/` as a delete target; the set stays closed and enumerable.
 
-**Enum re-validation.** `entry_altitude:` is a new state-file field that
-becomes part of a control-flow decision. It joins the enum re-validation
-list in Phase 2 alongside `boundary:`, `decision_record_sub_shape:`,
-`triggering_child:`, and `plan_execution_mode:`, validated against
-`{brief, prd, design, plan}` before use. An out-of-enum value fails the
-operation and routes to R8 bail-handling, closing the same state-file
-tampering surface the existing fields close.
+**No new control-flow field.** The chain shape is a constant, so nothing
+new joins the state-file enum re-validation list in Phase 2 — `boundary:`,
+`decision_record_sub_shape:`, `triggering_child:` and `plan_execution_mode:`
+are unchanged. A state file whose `planned_chain:` has been tampered with
+cannot redirect an invocation to an unexpected child, because the child names
+are fixed and each one's argument path is composed from the validated topic
+slug rather than from state.
 
 **Upstream values are untrusted input.** The generalized `R6` check reads
 `upstream:` from document frontmatter, which is author-supplied, and passes
@@ -764,9 +761,11 @@ artifact on an error.
 - The carry check is performed by the same agent that wrote both documents.
   It reads real bodies rather than guessing at unwritten ones, which is the
   improvement being bought, but it is not an independent review.
-- The entry-altitude choice is still made before any artifact exists. It is
-  a question about the conversation rather than about a document's future
-  contents, but the asymmetry with the rest of this design is real.
+- Two of the four artifact-set outcomes are unreachable through `/scope`. A
+  DESIGN-and-PLAN run, or a PLAN alone, requires invoking `/design` or
+  `/plan` directly. That is the documented way to enter the tactical chain at
+  a chosen altitude, but an author who reaches for `/scope` expecting the
+  whole ladder will not find it there.
 - Absorption has exactly one reachable hop. A rule stated in general terms
   with a single instance invites the reasonable question of why it was not
   written as "BRIEF folds into PRD."
