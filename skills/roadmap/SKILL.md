@@ -108,16 +108,18 @@ From `$ARGUMENTS`:
 2. **Path to existing ROADMAP** with lifecycle verb (`activate`, `done`) --
    execute the lifecycle transition via `shirabe transition <roadmap-path>
    <status>`
-3. **`populate <path>`** -- populate the roadmap's reserved Implementation
-   Issues and Dependency Graph sections by invoking the
-   `shirabe roadmap populate` subcommand on the shirabe CLI. Native to the
-   roadmap; replaces the plan re-entry path that rewrote these sections by
-   prose substitution. Two modes, selected by the `## Roadmap Issues:`
-   preference: under `required` (or absent header) the subcommand creates
-   one GitHub issue per feature and the table/diagram key on those issues;
-   under `optional` it renders the sections from feature context with no
-   issues created. See [Populating the Issues Table](#populating-the-issues-table)
-   below.
+3. **`populate <path>`** -- the issue-filing action, and the way to
+   re-populate a roadmap's reserved sections out of band. A normal
+   `/roadmap` run already fills those sections issuelessly (Phase 4), so
+   the reason to type this is usually to file GitHub issues for an
+   already-approved roadmap. Invokes the `shirabe roadmap populate`
+   subcommand on the shirabe CLI. The mode resolves on
+   `flag > ## Roadmap Issues: header > issueless default`: pass
+   `--issues` to create one GitHub issue per feature and key the
+   table/diagram on those issues, or `--no-issues` to re-render from
+   feature context with no issues created. Issue filing goes through the
+   R14 approval gate; issueless population does not. See
+   [Populating the Issues Table](#populating-the-issues-table) below.
 4. **Anything else** -- use as the starting topic for Phase 1 scoping
 
 ### Standalone Entry and Handoff Detection
@@ -144,14 +146,21 @@ evidence rather than blocking on user input. Create
 
 **Roadmap issues preference:** read CLAUDE.md's `## Roadmap Issues:`
 header the same way `## Execution Mode:` is read -- grep the header,
-take the value after the colon. Resolve to `required` when the header
-is absent or the value is anything other than `optional` (fail-closed
-toward the issue-creating, human-gated path). Record the resolved
-value (`optional` or `required`) in the run's context so the populate
-phase can branch on it. The validator never reads this header; it's a
-skill-only preference. See
+take the value after the colon. Resolve to `required` only when the
+value is exactly `required`; resolve to `optional` when the header is
+absent or carries any other value (fail-closed toward the path with no
+remote side effect). Record the resolved value in the run's context so
+the populate phase can branch on it. The validator never reads this
+header; it's a skill-only preference. See
 `${CLAUDE_PLUGIN_ROOT}/references/fixes/claude-md-conventions.md` for
 the header format.
+
+The preference governs one thing only: which mode a human-invoked
+`/roadmap populate <path>` picks when they pass no flag. It does NOT
+govern the automatic population this workflow performs in Phase 4 and
+on the activate path -- those are always issueless, because an
+automatic run must never create issues. The full resolution stack is
+`flag > ## Roadmap Issues: header > issueless default`.
 
 **Upstream:** check `$ARGUMENTS` for `--upstream <path>`. If present, the
 path is stored and written to frontmatter during Phase 3 (draft). It points
@@ -345,23 +354,44 @@ diagram and writes both into the reserved sections by **structural section
 replacement** (the body between each section's heading and the next `##`
 heading is replaced; the heading itself is preserved).
 
-The subcommand runs in one of two modes, selected by the `## Roadmap
-Issues:` preference resolved during setup ([Context
-Resolution](#context-resolution)):
+The subcommand runs in one of two modes. **Always pass one of the two mode
+flags explicitly.** The subcommand defaults to issueless when neither is
+given, but that default is a backstop for a human at a shell -- no path in
+this skill may depend on it:
 
-- **`required` (or absent header) -- issue-creating mode.** The default,
-  and behaviorally unchanged from before this preference existed. The
-  subcommand creates one GitHub issue per feature (one `gh issue create`
-  invocation per feature, discrete args), then renders an issue-keyed
-  table and diagram. This path goes through the R14 approval gate below.
-- **`optional` -- issueless mode.** Invoke the subcommand with
-  `--no-issues`. It creates no issues -- no `gh issue create` runs -- and
-  renders the sections from feature context: a table keyed on each
-  feature's label (the feature's `needs-*` label in the Issues column) and
-  an `F<n>`-node diagram, with Dependencies cells naming those same labels.
-  A label that can't serve as a table key falls back to `F<n>` and the run
-  says so on stderr. The R14 gate is skipped, since there are no issues to
-  approve (see below).
+- **Issueless mode (`--no-issues`).** Creates no issues -- no
+  `gh issue create` runs, and no `gh` call of any kind -- and renders the
+  sections from feature context: a table keyed on each feature's label (the
+  feature's `needs-*` label in the Issues column) and an `F<n>`-node
+  diagram, with Dependencies cells naming those same labels. A label that
+  can't serve as a table key falls back to `F<n>` and the run says so on
+  stderr. The R14 gate is skipped, since there are no issues to approve
+  (see below). This is what the automatic population in Phase 4 and on the
+  activate path uses, unconditionally.
+- **Issue-creating mode (`--issues`).** Creates one GitHub issue per
+  feature (one `gh issue create` invocation per feature, discrete args),
+  then renders an issue-keyed table and diagram. This path goes through the
+  R14 approval gate below. Reached only by an explicit human invocation of
+  `/roadmap populate <path>`, after the roadmap is approved.
+
+Passing both flags is an error: the subcommand rejects the invocation
+during argument parsing, so nothing is written and no `gh` call is made.
+
+### When population happens
+
+1. **Automatically, during a `/roadmap` run.** Phase 4 populates
+   issuelessly after the jury findings resolve and before the approval
+   walkthrough, so the author reviews a complete roadmap rather than an
+   empty skeleton. See `references/phases/phase-4-validate.md`.
+2. **Automatically, on the `Draft -> Active` transition.** The activate
+   path re-runs the issueless population before `shirabe transition`. This
+   catches a Features section edited during review and covers roadmaps
+   created before automatic population existed. Populate is idempotent, so
+   the re-run is a no-op when nothing changed.
+3. **Explicitly, to file issues.** After the roadmap is approved, a human
+   runs `/roadmap populate <path> --issues`. This is the only path that
+   creates issues, and it regenerates both sections so the table carries
+   issue links instead of labels.
 
 The roadmap profile shape (`Feature | Issues | Dependencies | Status`) and
 the dependency-diagram convention come from
@@ -375,32 +405,40 @@ the dependency-diagram convention come from
 ```
 
 Or, equivalently, invoking the CLI directly from the project root. The
-issue-creating form (`## Roadmap Issues: required`):
+issue-creating form, used by the post-approval issue-filing action:
 
 ```bash
-shirabe roadmap populate <roadmap-path> \
+shirabe roadmap populate <roadmap-path> --issues \
     --milestone "<Milestone Name>" \
     --milestone-description "Roadmap: <roadmap-path>" \
     --output-map "<mapping-output-path>"
 ```
 
-The issueless form (`## Roadmap Issues: optional`) drops the milestone and
-mapping flags -- no issues are created, so there's nothing to file under a
-milestone or map:
+The issueless form drops the milestone and mapping flags -- no issues are
+created, so there's nothing to file under a milestone or map:
 
 ```bash
 shirabe roadmap populate <roadmap-path> --no-issues
 ```
 
+Both forms name their mode. Never invoke the subcommand from this skill
+without one of the two flags, even though the CLI would default to
+issueless: the safety property is that the workflow says what it wants,
+not that the default happens to be harmless.
+
 Options:
+- `--issues` -- issue-creating mode: create one GitHub issue per feature and
+  key both reserved sections on those issues. Mutually exclusive with
+  `--no-issues`. Required to reach GitHub at all.
+- `--no-issues` -- issueless mode: create no issues and render the reserved
+  sections from the Features section, keying table rows on feature labels.
+  The subcommand's default when neither mode flag is given, and named
+  explicitly by every invocation in this skill.
 - `--milestone <name>` -- milestone for the created issues
 - `--milestone-description <desc>` -- milestone description
 - `--mapping <file>` -- pre-existing id->github_number mapping (re-render only)
 - `--output-map <file>` -- write the final id->github_number mapping
 - `--repo <owner/repo>` -- override the repo used when rendering issue links
-- `--no-issues` -- issueless mode: create no issues and render the reserved
-  sections from the Features section, keying table rows on feature labels.
-  Set by the skill when `## Roadmap Issues:` resolves to `optional`.
 - `--dry-run` -- skip `gh` invocations; synthesize a deterministic mapping
 - `-h, --help` -- print help
 
@@ -411,12 +449,17 @@ in this skill phase, NOT in the subcommand. The subcommand is a primitive
 that creates issues when invoked.
 
 **R14 gates issue creation, so it applies only in issue-creating mode.**
-Under `## Roadmap Issues: required` (or an absent header), present the gate
-as described below before invoking the subcommand. Under `## Roadmap
-Issues: optional`, the subcommand runs with `--no-issues` and creates no
-issues -- there is nothing to approve, so skip the gate entirely. Skipping
-it removes a gate over an action that does not occur; it does not bypass
-approval over any side effect.
+Present the gate as described below before any invocation carrying
+`--issues`. When the subcommand runs with `--no-issues` -- which is every
+automatic population, and any human invocation that resolves to issueless
+-- it creates no issues, so there is nothing to approve and the gate is
+skipped entirely. Skipping it removes a gate over an action that does not
+occur; it does not bypass approval over any side effect.
+
+Because issue creation is now reached only by an explicit `--issues`, the
+gate guards a path a human has already chosen deliberately. That does not
+make it redundant: the gate is where the author sees the feature count, the
+names, and the milestone before anything is filed.
 
 The rest of this section describes the gate as it applies in
 issue-creating mode.

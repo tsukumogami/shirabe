@@ -166,25 +166,30 @@ roadmap and use it consistently.
 ## Reserved Sections
 
 Two sections follow Progress. They're structurally part of the
-roadmap but are NOT populated by `/roadmap` -- they exist as empty
-placeholders at creation time and are filled later by a tool, never
-by hand.
+roadmap and are filled by a tool, never by hand. They exist as empty
+placeholders in the template, but a `/roadmap` run does not leave
+them that way.
 
-How they get filled depends on the repo's `## Roadmap Issues:`
-CLAUDE.md header (see
-`${CLAUDE_PLUGIN_ROOT}/references/fixes/claude-md-conventions.md`).
-The header defaults to `required` when absent:
+**The default fill is issueless and automatic.** Phase 4 runs
+`shirabe roadmap populate <path> --no-issues` after the jury resolves
+and before the author reviews the draft, and the activate path re-runs
+it before the `Draft -> Active` transition. Both fill the sections
+from the Features section and create nothing on GitHub. The table keys
+each row on the feature's label, the same key form the shared roadmap
+profile specifies, with the feature's `needs-*` label in the Issues
+column; the diagram uses `F<n>` nodes; the Dependencies convention
+below applies.
 
-- **`## Roadmap Issues: required` (default).** `/plan` fills both
-  sections during decomposition, keying the table and diagram on
-  the GitHub issues it creates (one issue per feature).
-- **`## Roadmap Issues: optional`.** An issueless render of
-  `shirabe roadmap populate` fills both sections from the Features
-  section -- no issues are created. The table keys each row on the
-  feature's label, the same key form the shared roadmap profile
-  specifies, with the feature's `needs-*` label in the Issues
-  column. The diagram uses `F<n>` nodes. The Dependencies
-  convention below applies in this mode.
+**Issue-keyed fill is a separate, explicit step.** When a repo wants
+its roadmap features tracked as GitHub issues, a human runs
+`/roadmap populate <path> --issues` after the roadmap is approved.
+That creates one issue per feature, re-renders both sections keyed on
+those issues, and goes through the R14 approval gate. The repo's
+`## Roadmap Issues:` CLAUDE.md header (see
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/claude-md-conventions.md`)
+selects what a human-invoked populate does when they pass no flag; it
+defaults to `optional` when absent and never affects the automatic
+runs.
 
 Either way the sections are tool-generated. Don't hand-edit them.
 
@@ -194,12 +199,12 @@ Either way the sections are tool-generated. Don't hand-edit them.
    strikethrough rules are defined in
    `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md`.
 
-Under `## Roadmap Issues: required` (the default) the marker reads
-as below, since `/plan` fills the table from the issues it creates.
-Under `## Roadmap Issues: optional` the marker instead reads
-`<!-- Populated by an issueless 'shirabe roadmap populate' from the
-Features section. Do not fill manually. -->`. The instruction not to
-hand-edit holds in both modes.
+The marker reflects which mode last filled the section. After the
+automatic issueless population it reads `<!-- Populated by an
+issueless 'shirabe roadmap populate' from the Features section. Do not
+fill manually. -->`; after an explicit `--issues` run it reads as the
+issue-keyed form below. The template ships the form below as its
+placeholder. The instruction not to hand-edit holds in both modes.
 
 ```markdown
 ## Implementation Issues
@@ -216,8 +221,8 @@ hand-edit holds in both modes.
    legend are defined in
    `${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md`.
 
-As with Implementation Issues, the marker is conditioned on the
-preference: under `## Roadmap Issues: optional` it reads
+As with Implementation Issues, the marker reflects the mode that last
+filled the section: after the automatic issueless population it reads
 `<!-- Populated by an issueless 'shirabe roadmap populate' from the
 Features section. Do not fill manually. -->`, and the diagram uses
 `F<n>` feature nodes instead of `I<n>` issue nodes. Don't hand-edit

@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Current
+status: Planned
 upstream: docs/prds/PRD-populate-issueless-default.md
 problem: |
   `shirabe roadmap populate` files one GitHub issue per feature when nobody
@@ -34,7 +34,7 @@ rationale: |
 
 ## Status
 
-Current
+Planned
 
 Settles the four questions `BRIEF-populate-issueless-default.md` left open and
 specifies the implementation for `PRD-populate-issueless-default.md`. The
