@@ -303,8 +303,6 @@ as they do now.
       the shared ancestor and names the documents still pointing at it.
 - [ ] Chain finalization against a plan whose ancestors are unshared behaves exactly as
       it does today.
-- [ ] Chain finalization against a document with two upstreams does not transition an
-      ancestor reachable through only one of them.
 - [ ] A parent run that would author a head-altitude artifact states, before doing so,
       that an existing one may apply and how to supply it.
 - [ ] A parent invoked with an upstream-path flag records that path; the same parent
@@ -317,8 +315,9 @@ as they do now.
 - [ ] Both the strategic and the tactical parent satisfy the five parent criteria above:
       the authoring notice, the flag recording, the positional rejection, the artifact
       frontmatter link, and the stale-recorded-upstream resume.
-- [ ] The accepted acceptance criterion describing a positional path as slug-derived no
-      longer says so, and matches the rejection the parents implement.
+- [ ] Both accepted acceptance criteria — one in each parent skill's PRD — no longer
+      describe a positional path as treated as a freeform topic after slug derivation, and
+      both match the rejection those parents implement.
 - [ ] The format references name every `upstream:` shape the tooling accepts, and the
       tooling accepts every shape they name.
 - [ ] No frontmatter field, artifact type, or status exists after the change that did not
@@ -399,12 +398,15 @@ was rejected because the corpus already contains it, deliberately, in four place
 is chosen supports the fan-out that exists and diagnoses the case the model cannot
 represent.
 
-**A conflicted document is never silent.** R10 suppresses per-chain findings in favour of
-the conflict message, and R25 lets posture suppress the conflict message. Composed
-carelessly those two would leave a conflicted document reporting nothing at draft
-posture, where today it reports errors. R25 is written so the suppression trades one
-message for the other rather than removing both. The cost is that a draft-posture author
-sees the older, less helpful findings rather than none.
+**Replacing findings must never subtract.** R10 removes the per-chain findings in favour
+of the conflict message, which is the whole point — an author should not be handed two
+contradictory instructions. But a replacement is only an improvement if the replacement is
+reported whenever the originals would have been. Otherwise a document that reports errors
+today could report nothing after this change, and the regression would look like a
+feature. R25 forecloses that by pinning the conflict finding's condition and severity to
+the findings it replaces. An earlier draft reasoned about this in terms of a posture that
+suppresses lifecycle findings; no such mechanism exists, and the requirement was rewritten
+once that was measured rather than assumed.
 
 **The parent half is supplied by flag and recorded durably.** Alternatives were an
 upstream-path input mode mirroring the child skill's, and a discovery scan that asks
