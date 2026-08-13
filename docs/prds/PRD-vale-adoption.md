@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   shirabe's writing-style rulebook exists in three divergent copies, only one
   of which is mechanical. That copy checks seven words, never sees the
@@ -25,7 +25,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 Requirements only. The mechanism stays open for the DESIGN, which inherits
 three architectural alternatives the exploration left live.
@@ -226,6 +226,26 @@ number rather than "the corpus is clean." Nine check codes currently sit at
 notice level behind a comment promising a cleanup PR; no such PR or issue
 exists for any of them, and no code has been promoted out of the notice set.
 
+**R12a. The format gate SHALL NOT report success without having run.** R3
+rewrites the gate that decides which files get checked. Two existing defects in
+that gate SHALL be fixed in the same change rather than left behind it:
+
+- A path that names a directory SHALL either be walked or rejected. It SHALL
+  NOT be silently skipped. Today `shirabe validate -- docs` reports "All checks
+  passed" at exit 0 having read no files, while the same corpus passed as an
+  explicit file list reports 5 errors and 139 notices.
+- `check_claude_md_conventions` SHALL execute for a `CLAUDE.md` handed to the
+  validator. Today it is unreachable: it gates on the basename being
+  `CLAUDE.md`, but `detect_format` returns `None` for that name, so
+  `validate_file` is never called. Verified by deleting the required
+  `## Release Notes Convention:` header from a copy of this repo's CLAUDE.md
+  and observing "All checks passed" at exit 0.
+
+Both are consequences of the same prefix match R3 replaces, and both are the
+failure mode this capability exists to end: a checking surface reporting
+success without having checked. Fixing the gate and leaving them would ship a
+change that touches the defect and walks past it.
+
 **R13. No silent registration.** If a check code is added, it SHALL be
 registered in every list that gates it. R14 makes the addition conditional; the
 stale-prose obligation below is unconditional. Six of the seventeen current
@@ -360,6 +380,13 @@ from its side.
 - [ ] A test asserts every code `is_known_check_code` accepts also appears in
       each registration list that gates it, so a newly added code cannot be
       missing from one of them silently.
+- [ ] `shirabe validate -- docs` either reports the same findings as the same
+      files passed explicitly, or exits non-zero naming the directory as an
+      invalid argument. It does not report success having read nothing. Today
+      it reports "All checks passed" at exit 0 against a corpus that yields 5
+      errors and 139 notices when passed as files.
+- [ ] A `CLAUDE.md` missing a required convention header produces an
+      FC-CONVENTIONS finding. Today it returns "All checks passed" at exit 0.
 - [ ] Exactly one check code emits writing-style findings; validating a document
       containing a banned word in prose produces findings under one code, not
       two.
@@ -409,11 +436,11 @@ from its side.
   not see them. Closing that gate is separate work.
 - **Prose in commit messages, issue bodies, and PR descriptions.** That prose
   does not land on disk in a checkable location.
-- **Repairing FC10's existing defects as defects of FC10.** The properties in
-  R4 and R5 are required of whatever ships, and R14 requires that exactly one
-  prose check code survives. What stays out is treating today's line-number
-  offset and code-fence matching as bugs to be filed and fixed on their own; an
-  implementation satisfying R4 and R5 makes them moot.
+- **Filing today's FC10 defects as standalone bugs.** The line-number offset
+  and code-fence matching are fixed as a consequence of R4 and R5, which
+  require correct locations and prose-only scoping from whatever ships. They do
+  not need their own issues or their own fixes. This is a statement about
+  bookkeeping, not a carve-out: the defects go away.
 
 ## Decisions and Trade-offs
 
@@ -506,18 +533,15 @@ R6 dangling `upstream:` links, alongside 139 notices of which 97 are FC10 and
 33 are files skipped for a missing `schema` field. Any framing that treats "the
 corpus is clean" as a starting condition is currently false.
 
-The format gate that R3 addresses has a third consequence beyond skipping
-instruction files, and it is the one most likely to mislead. `shirabe validate`
-takes a file list and resolves each entry through the same prefix match, with no
-directory walk: an argument that is a directory matches no prefix and is
-skipped. `shirabe validate -- docs` therefore reports "All checks passed" at
-exit 0 having validated nothing, while the same corpus passed as an explicit
-file list reports 5 errors and 139 notices. CI is unaffected because the
-reusable workflow passes changed files individually, but a maintainer checking
-their corpus by hand gets a green result from a run that read no files. This
-PRD does not require a directory walk; it records the behavior because R3's
-value is easy to underestimate while it is described only as missing coverage
-of instruction files.
+One prefix match produces three separate failures, which is why R3 and R12a
+travel together. Instruction files are skipped. A directory argument is skipped
+too, so `shirabe validate -- docs` reports "All checks passed" at exit 0 having
+read nothing, while the same corpus passed as files reports 5 errors and 139
+notices. And `check_claude_md_conventions` is unreachable, because the name it
+gates on is a name the prefix match rejects. CI is unaffected by the second
+because the reusable workflow passes changed files individually, but a
+maintainer checking their corpus by hand gets a green result from a run that
+opened no files.
 
 Instruction-file coverage is only half deliverable from shirabe's side. shirabe
 can make the checking exist and can apply it to its own repo; reaching an
