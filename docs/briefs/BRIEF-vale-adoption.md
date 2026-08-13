@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   shirabe's writing-style rulebook lives in three divergent copies, only
   one of which is mechanical. That copy checks seven words, cannot see the
@@ -20,7 +20,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 The framing is tool-neutral by construction. The answer might be an
 external linter, a widened native check, or a mix; that choice is a DESIGN
@@ -50,14 +50,17 @@ that uses shirabe has no way to read the rulebook mechanically, so any
 local restatement becomes a fourth copy that shirabe cannot keep in sync.
 
 Two of the three copies are applied by model judgment. The third, FC10, is
-deterministic but narrow, and it cannot see most of the prose it would
-govern: `detect_format` prefix-matches eight artifact types, so `shirabe
-validate` reports "All checks passed" on every SKILL.md, CLAUDE.md,
-AGENTS.md, and README.md handed to it. In shirabe's own repo that leaves
-211 files and 197,538 words under `skills/` unchecked, and it is exactly
-the prose that instructs every future agent run. The same gate applies in
-any adopter repo, where the unchecked surface is that repo's CLAUDE.md and
-its own skill and instruction files.
+deterministic but narrow, and what it cannot see is the half of the
+problem that matters: `detect_format` prefix-matches eight artifact types,
+so `shirabe validate` reports "All checks passed" on every SKILL.md,
+CLAUDE.md, AGENTS.md, and README.md handed to it. In shirabe's own repo it
+reads 440,003 words of artifact prose and skips about 225,000, of which
+197,538 are the 211 files under `skills/`. The gap is not mostly a
+question of volume. It is that the skipped files are the instructions that
+shape every future agent run, so a defect there propagates into prose the
+checked surface will be judged on. The same gate applies in any adopter
+repo, where the unchecked surface is that repo's CLAUDE.md and its own
+skill and instruction files.
 
 The harder half of the problem is that widening the word list would buy
 almost nothing. Measured on shirabe's own corpus, the fairest test case
@@ -220,19 +223,3 @@ and that survives a shirabe upgrade.
   That prose never lands on disk in a checkable location, and the
   plumbing to reach it is disproportionate to the value.
 
-## Open Questions
-
-- Must an adopter repo be able to read the single rule source without
-  installing shirabe? The answer bounds where that source can live, and
-  the PRD can settle the requirement even though the location is a DESIGN
-  choice.
-- Does an adopter's vocabulary declaration extend shirabe's rules or
-  replace them? Extending keeps adopters on the shared rulebook and lets
-  shirabe evolve it; replacing gives adopters full control and forfeits
-  that. The PRD should state which, because it decides whether the
-  feature has one rulebook or many.
-- Is FC10 replaced or extended? The answer follows from the mechanism
-  choice, but the PRD should state which outcome counts as success so the
-  DESIGN is not free to leave two overlapping checks in place.
-- What severity does a frequency finding carry on first release, given
-  that the corpus does not currently satisfy any threshold worth setting?
