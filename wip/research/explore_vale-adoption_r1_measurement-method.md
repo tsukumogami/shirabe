@@ -181,3 +181,28 @@ The FC10 line-offset bug reproduces on this chain's own BRIEF: the
 validator reported `tier` at lines 40, 41, 43, 69, 107, 127 while the
 word actually appears at 60, 89, 127, 147. The delta is exactly 20, the
 frontmatter length.
+
+### FC-CONVENTIONS never fires (negative test)
+
+The dead-code claim needs a negative test, because a passing run against a
+compliant file is consistent with both "the check ran and passed" and "the
+check never ran." Copy shirabe's own CLAUDE.md, delete the required
+`## Release Notes Convention:` header, and validate:
+
+```bash
+cp CLAUDE.md /tmp/fcconv/CLAUDE.md
+grep -v "^## Release Notes Convention" /tmp/fcconv/CLAUDE.md > /tmp/fcconv/x
+mv /tmp/fcconv/x /tmp/fcconv/CLAUDE.md
+./target/release/shirabe validate --format human -- /tmp/fcconv/CLAUDE.md
+# All checks passed.
+# EXIT=0
+```
+
+`check_claude_md_conventions` is registered at `validate.rs:210` and gates
+on the basename being `CLAUDE.md`, but `detect_format` returns `None` for
+that name, so `validate_file` is never called and the check is
+unreachable. It has unit tests at `checks.rs:6270`-`6331`, an entry in
+`docs/guides/multi-consumer-cli-contract.md`, a resolution-prose file at
+`references/fixes/claude-md-conventions.md`, and a citation in shirabe's
+own CLAUDE.md explaining that a header exists so this check can find it.
+It has never fired.
