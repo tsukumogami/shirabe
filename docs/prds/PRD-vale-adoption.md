@@ -140,8 +140,12 @@ is not the measurement the author is being asked to act on.
 
 **R5. Accurate locations.** A finding SHALL carry the line number of the
 occurrence in the file as the author sees it. The current check reports
-body-relative numbers offset by the frontmatter length, which makes its CI
-annotations point at the wrong lines.
+body-relative numbers offset by the frontmatter length: on this PRD it reports
+line 38 for an occurrence at line 62, against a 24-line frontmatter. The
+corrupted value reaches the `line` field of the `--format json` envelope, which
+is what a machine consumer parses. It does not reach CI annotations, because
+`--format annotation` emits `file=` with no `line=` attribute at all, so those
+annotations point at a file rather than at a wrong line.
 
 **R6. Frequency rules.** The checking SHALL express at least one rule that
 evaluates a rate or count against a threshold rather than the presence or
@@ -248,39 +252,68 @@ from its side.
 
 ## Acceptance Criteria
 
-- [ ] The writing-style rules exist in exactly one authoritative location; the
-      FC10 constant and the BRIEF jury's inline word list are replaced by
-      references to it.
-- [ ] A rule added to that source is honored by `shirabe validate` without a
-      second edit, verified mechanically.
+- [ ] The writing-style rules exist in exactly one file. `FC10_BANNED_WORDS` in
+      `crates/shirabe-validate/src/checks.rs` and the inline word list in
+      `skills/brief/references/phases/phase-4-validate.md` are replaced by
+      references to that file's path.
+- [ ] A CI check fails when a word-list-shaped literal, three or more entries
+      drawn from the rule source, appears anywhere under `crates/**` or
+      `skills/**` outside the rule source itself and
+      `skills/writing-style/evals/`.
+- [ ] Appending a sentinel term to the rule source causes `shirabe validate` to
+      report it on a fixture containing that term, with no other file edited.
+- [ ] The rule set the validator applies at runtime is set-equal to the rule set
+      parsed from the source file; a test asserts the equality and names the
+      count.
 - [ ] The same added rule is honored by a drafting skill without a second edit,
       verified by a skill eval under `skills/writing-style/evals/` run through
       `scripts/run-evals.sh`.
-- [ ] `shirabe validate` produces prose findings for a SKILL.md, a CLAUDE.md, an
-      AGENTS.md, and a README.md.
+- [ ] For each of a fixture SKILL.md, CLAUDE.md, AGENTS.md, and README.md
+      containing a known rule violation, `shirabe validate` reports at least one
+      prose finding naming the violation. All four return "All checks passed" at
+      exit 0 today.
+- [ ] Running the same invocation over an artifact-prefixed file produces the
+      finding set it produced before instruction-file coverage was added.
 - [ ] A banned word inside a fenced code block, an inline code span, a URL, and
       YAML frontmatter produces no finding; the same word in prose produces one.
-- [ ] A finding's reported line number equals the line the author sees in the
-      file, verified on a file with frontmatter.
-- [ ] An em dash density rule reports against a stated threshold, with
-      denominator, reporting unit, threshold value, and line-number convention
-      recorded in the multi-consumer contract doc.
-- [ ] A repository declaring `tier` receives no `tier` findings and still
-      receives findings for every other rule.
-- [ ] A term declared in shirabe's repository produces no suppression in a
-      different repository checked in the same run.
+- [ ] Under `--format json`, a finding's `line` equals the line the author sees,
+      verified on a fixture with frontmatter and on one without. Today a
+      24-line-frontmatter file reports 38 for an occurrence at 62.
+- [ ] `docs/guides/multi-consumer-cli-contract.md` records, for the em dash
+      density rule, all four of denominator, reporting unit, threshold value,
+      and the line number a document-level finding carries.
+- [ ] A fixture whose density exceeds the recorded threshold produces exactly
+      one finding per recorded reporting unit; a fixture below it produces none.
+      The test reads the threshold from the recorded value rather than
+      hardcoding it.
+- [ ] A repository declaring `tier` receives no `tier` findings, still receives
+      findings for every other rule, and still receives `tiered` findings.
+- [ ] In a single invocation spanning files from shirabe and from another
+      repository, a term declared in shirabe suppresses that term in shirabe's
+      files and does not suppress it in the other repository's.
 - [ ] Adding a rule to the source after a repository has declared its
       vocabulary causes that repository to receive the new rule with no edit to
       its declaration.
 - [ ] Running the full check over shirabe, koto, niwa, and tsuku at the shipped
       severity produces exit code 0 in all four.
-- [ ] A filed issue exists, referenced from the check's documentation, naming a
-      numeric promotion condition for every rule shipped below error level.
-- [ ] `--check <code>` succeeds for every code that `is_known_check_code`
-      accepts, including any retired as a no-op.
-- [ ] The check-code range printed by `shirabe validate --help` and the range
-      stated in `docs/guides/multi-consumer-cli-contract.md` both agree with the
-      set `is_known_check_code` accepts.
+- [ ] `docs/guides/multi-consumer-cli-contract.md` contains, for each rule this
+      change ships below error level, a `tsukumogami/shirabe#<n>` reference.
+      Each referenced issue is open and its body states a numeric promotion
+      condition. Scoped to rules this change introduces; the nine pre-existing
+      notice-level codes in `is_intrinsic_notice`
+      (`crates/shirabe-validate/src/validate.rs:83-98`) are out of scope.
+- [ ] `--check <code>` exits 0 for every code `is_known_check_code` accepts, and
+      every code named in `docs/guides/multi-consumer-cli-contract.md` is
+      accepted by `is_known_check_code`. A code retired as a no-op is accepted
+      and produces zero findings.
+- [ ] The check-code ranges in the `crates/shirabe/src/main.rs` help text and in
+      `docs/guides/multi-consumer-cli-contract.md` agree with the
+      `is_known_check_code` match in `crates/shirabe-validate/src/validate.rs`.
+      Today both prose copies say `FC01`-`FC13` against a registry of
+      `FC01`-`FC16`.
+- [ ] A test asserts every code `is_known_check_code` accepts also appears in
+      each registration list that gates it, so a newly added code cannot be
+      missing from one of them silently.
 - [ ] Exactly one check code emits writing-style findings; validating a document
       containing a banned word in prose produces findings under one code, not
       two.

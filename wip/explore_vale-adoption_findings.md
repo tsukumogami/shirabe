@@ -108,8 +108,12 @@ own rulebook — `Packages = Microsoft` would discredit the tool in week one.
 
 1. **FC10 reports wrong line numbers.** It uses `idx + 1` over `doc.body`, which
    is post-frontmatter with no offset applied. A hit on file line 16 reports as
-   line 10. Default output is GitHub Actions annotations, so every FC10
-   annotation in CI points at the wrong line.
+   line 10. The corrupted value reaches the `line` field of the
+   `--format json` envelope, which machine consumers parse. Corrected after
+   an earlier revision of this file claimed it misdirects CI annotations:
+   `--format annotation` emits `::notice file=...::` with no `line=`
+   attribute at all, so annotations point at a file rather than at a wrong
+   line. The defect is real; its blast radius is the JSON contract.
 2. **FC10 has no markup awareness and produces false positives.** It scans raw
    body lines including fenced code and URLs; verified firing on
    `tier_config --leverage` inside a bash fence and on
