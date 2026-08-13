@@ -15,7 +15,12 @@ chain_skipped: []
 chain_ran:
   - brief
   - prd
+  - design
 child_snapshots:
+  design:
+    status: Accepted
+    content_hash: f44c197c40cff85b189b8ffda1aacc54972b4811
+    captured_at: 2026-08-13T21:16:15Z
   brief:
     status: Accepted
     content_hash: 7869352009564a8e9b575c134412cc1db2eb1b7a
@@ -50,6 +55,14 @@ consolidation_judgments:
       walk-throughs to one line each. The abort is the mechanism working, not a hop
       that was never considered. Note this is the same section, and the same reason,
       that aborted the absorb when PR #260 dogfooded this judgment on its own chain.
+  - hop: prd->design
+    absorbable: false
+    verdict: keep
+    finding: >-
+      Not absorbable, so stage 2 never runs. A DESIGN's required sections have no home for
+      a PRD's Goals, User Stories, Requirements, Acceptance Criteria, or Out of Scope. The
+      mapping is not total, so the only available verdict is keep, and the reason names the
+      unmapped sections rather than asserting the artifacts are both worth having.
 worktree_rebases:
   - phase: brief
     upstream_commits: []
