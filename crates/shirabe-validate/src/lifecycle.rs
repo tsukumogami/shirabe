@@ -161,11 +161,24 @@ pub struct ChainMember {
     pub status: String,
 }
 
-/// A discovered chain, with members in BRIEF -> PRD -> DESIGN ->
-/// PLAN/ROADMAP order (some leading members may be absent if the
-/// upstream chain doesn't go all the way up).
+/// A discovered chain: the PLAN or ROADMAP it is rooted at, plus every
+/// doc reachable from that root along the `upstream:` edge.
+///
+/// `members` reads BRIEF -> PRD -> DESIGN -> PLAN/ROADMAP for a chain
+/// whose upstreams are single-valued (some leading members may be
+/// absent if the upstream chain doesn't go all the way up). Once an
+/// upstream fans out the walk branches and no single line-up survives,
+/// so member order is presentational only: it is the reverse of walk
+/// order, and nothing reads meaning out of a member's position. Root
+/// identity in particular does not live there — `root` carries it. It
+/// used to be recoverable as `members.last()`, which held only while
+/// the walk was a single path.
 #[derive(Debug, Clone)]
 pub struct Chain {
+    /// Canonical path of the PLAN or ROADMAP this chain is rooted at.
+    /// Also present in `members`; this is the handle a consumer that
+    /// has to name the chain uses.
+    pub root: PathBuf,
     pub members: Vec<ChainMember>,
     pub root_kind: RootKind,
     pub posture: Posture,
@@ -444,8 +457,26 @@ fn build_inverse_upstream(idx: &DocIndex) -> InverseGraph {
 /// or ROADMAP and walks the forward `upstream:` edge to gather BRIEF,
 /// PRD, DESIGN members.
 ///
+/// The walk follows *every* entry of a multi-valued `upstream:`, not
+/// just the first. A document naming two upstreams is therefore a
+/// member of both chains above it, which is the whole point: an
+/// `upstream:` entry is a membership edge, and a walk that reads only
+/// the first entry silently decides that the rest are not.
+///
 /// Cycles in the upstream graph produce an L03 error and the cyclic
-/// chain is dropped from the result.
+/// chain is dropped from the result. Cycles are tracked per branch
+/// rather than across the traversal, because the fan-out makes the two
+/// different: a *diamond* — two upstream entries reconverging on a
+/// common ancestor — revisits a node the traversal has already seen
+/// without that node ever appearing twice on one root-to-node path. A
+/// shared visited set cannot tell the two apart and would report the
+/// diamond as a cycle, dropping a legal chain.
+///
+/// Reconvergence is not re-walked: the second branch to reach a node
+/// stops there, since the node and everything above it are already
+/// members. That cannot hide a cycle. Any cycle among a node's
+/// ancestors is a property of the graph above it, so the branch that
+/// expanded the node first walked into it and reported it.
 fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
     let mut chains = Vec::new();
     let mut errors = Vec::new();
@@ -458,16 +489,27 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
         };
 
         let mut members: Vec<ChainMember> = Vec::new();
-        let mut visited: HashSet<PathBuf> = HashSet::new();
-        let mut order: Vec<PathBuf> = Vec::new();
-        let mut cur = Some(indexed.path.clone());
+        // Nodes this chain's walk has already expanded, over the whole
+        // traversal. Guards against re-walking a reconvergence point,
+        // and against recording a diamond's shared ancestor twice.
+        let mut expanded: HashSet<PathBuf> = HashSet::new();
+        // Depth-first frontier. Each entry carries the node to expand
+        // and the walk order that reached it — the root-to-parent path,
+        // which is both the cycle-detection set for this branch and the
+        // path an L03 message prints.
+        let mut frontier: Vec<(PathBuf, Vec<PathBuf>)> =
+            vec![(indexed.path.clone(), Vec::new())];
 
-        while let Some(cur_path) = cur {
-            if !visited.insert(cur_path.clone()) {
-                // Cycle detected — emit L03 naming the cycle.
-                order.push(cur_path.clone());
-                let cycle_str = order
+        while let Some((cur_path, branch)) = frontier.pop() {
+            // Cycle check first, before the reconvergence check: a node
+            // already on this branch is also already expanded, so
+            // testing expansion first would swallow the cycle.
+            if branch.contains(&cur_path) {
+                // Cycle detected — emit L03 naming the cycle, in walk
+                // order along the branch that closed it.
+                let cycle_str = branch
                     .iter()
+                    .chain(std::iter::once(&cur_path))
                     .map(|p| rel_path_lossy(p))
                     .collect::<Vec<_>>()
                     .join(" -> ");
@@ -479,12 +521,19 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
                 members.clear();
                 break;
             }
-            order.push(cur_path.clone());
+
+            // Reached again from a second branch: a diamond, not a
+            // cycle. It is already a member and its own upstreams are
+            // already walked, so this branch ends here.
+            if !expanded.insert(cur_path.clone()) {
+                continue;
+            }
 
             let node = match idx.get(&cur_path) {
                 Some(n) => n,
                 None => {
-                    // Upstream points at a missing parent — L04.
+                    // Upstream points at a missing parent — L04. Only
+                    // this branch ends; sibling entries still resolve.
                     errors.push(error_path(
                         indexed.path.clone(),
                         "L04",
@@ -493,7 +542,7 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
                             rel_path_lossy(&cur_path)
                         ),
                     ));
-                    break;
+                    continue;
                 }
             };
 
@@ -505,10 +554,8 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
                 });
             }
 
-            // Walk to the parent. PLAN -> DESIGN -> PRD -> BRIEF in
-            // the forward upstream direction. Take the first upstream
-            // if multiple are present (the additional upstreams are
-            // typically optional context, e.g. ROADMAP parents).
+            // Walk to the parents. PLAN -> DESIGN -> PRD -> BRIEF in
+            // the forward upstream direction.
             //
             // Stop the walk at a BRIEF: BRIEF is the chain's anchor.
             // If a BRIEF carries an `upstream:` field (e.g. pointing
@@ -525,21 +572,35 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
             // edge reports a present file as a missing chain member
             // (L04). The strategic chain is out of scope here, not
             // absent.
+            //
+            // Both stops happen after the push above, so the stopping
+            // node is itself a member.
             if matches!(node.format.as_str(), "Brief" | "Roadmap") {
-                break;
+                continue;
             }
-            cur = node.upstreams.first().cloned();
+
+            let mut child_branch = branch;
+            child_branch.push(cur_path);
+            // Pushed in reverse so the frontier pops them in written
+            // order: the first `upstream:` entry is walked first, which
+            // is the order a single-valued chain has always walked in.
+            for parent in node.upstreams.iter().rev() {
+                frontier.push((parent.clone(), child_branch.clone()));
+            }
         }
 
         if members.is_empty() {
             continue;
         }
 
-        // Reverse so chain reads BRIEF -> PRD -> DESIGN -> PLAN.
+        // Reverse so a single-path chain reads BRIEF -> PRD -> DESIGN
+        // -> PLAN. See `Chain::members` on what this ordering does and
+        // does not mean once the walk branches.
         members.reverse();
 
         let posture = infer_posture_from(indexed);
         chains.push(Chain {
+            root: indexed.path.clone(),
             members,
             root_kind,
             posture,
@@ -1861,6 +1922,336 @@ mod tests {
             errors.iter().any(|e| e.code == "L02" && e.file.contains("DESIGN-foo.md")),
             "expected L02 on a lone DESIGN with a dangling upstream, got {:?}",
             errors
+        );
+    }
+
+    // ---- the chain walk follows every upstream entry ----
+
+    /// A block-sequence `upstream:` value, for the fan-out cases. The
+    /// scalar helpers above interpolate a single path; these tests need
+    /// the multi-entry shape the walk is supposed to follow whole.
+    fn upstream_seq(paths: &[&str]) -> String {
+        let mut out = String::from("\n");
+        for p in paths {
+            out.push_str(&format!("  - {}\n", p));
+        }
+        // The caller's own `upstream: {}\n` supplies the last newline.
+        out.pop();
+        out
+    }
+
+    /// Discover the chains of a built tree, for tests that assert on
+    /// chain shape rather than on emitted findings.
+    fn chains_of(root: &Path) -> (Vec<Chain>, Vec<ValidationError>) {
+        let (idx, _) = build_doc_index(root);
+        discover_chains(&idx)
+    }
+
+    fn member_names(chain: &Chain) -> Vec<String> {
+        let mut names: Vec<String> = chain
+            .members
+            .iter()
+            .map(|m| m.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn every_upstream_entry_is_a_membership_edge() {
+        // PLAN names two DESIGNs. Both, and everything above each of
+        // them, are members. The old walk took the first entry and
+        // discarded the second, so DESIGN-b and PRD-b were invisible.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-a.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-a.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-a.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/prds/PRD-b.md",
+                &make_prd("Accepted", ""),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-a.md",
+                &make_design("Planned", "docs/prds/PRD-a.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/designs/DESIGN-b.md",
+                &make_design("Planned", "docs/prds/PRD-b.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    &upstream_seq(&[
+                        "docs/designs/DESIGN-a.md",
+                        "docs/designs/DESIGN-b.md",
+                    ]),
+                ),
+                &plan_body("Active"),
+            ),
+        ]);
+        let (chains, errors) = chains_of(&root);
+        assert_eq!(chains.len(), 1, "expected one chain, got {:?}", chains);
+        assert!(
+            errors.is_empty(),
+            "a two-entry upstream is not an error, got {:?}",
+            errors
+        );
+        // BRIEF-a is present because the walk records the node it stops
+        // at; PRD-b and DESIGN-b because it followed the second entry.
+        assert_eq!(
+            member_names(&chains[0]),
+            vec![
+                "BRIEF-a.md",
+                "DESIGN-a.md",
+                "DESIGN-b.md",
+                "PLAN-foo.md",
+                "PRD-a.md",
+                "PRD-b.md",
+            ],
+        );
+        assert_eq!(chains[0].root, root.join("docs/plans/PLAN-foo.md"));
+    }
+
+    #[test]
+    fn document_with_two_upstreams_is_a_member_of_both_chains() {
+        // DESIGN-shared is named by two PLANs, each of which names a
+        // second DESIGN too — and names it first in one case, second in
+        // the other. A walk that reads only the first entry puts
+        // DESIGN-shared in PLAN-1's chain and not PLAN-2's.
+        let root = build_tree(&[
+            (
+                "docs/designs/DESIGN-shared.md",
+                &make_design("Planned", ""),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/designs/DESIGN-1.md",
+                &make_design("Planned", ""),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/designs/DESIGN-2.md",
+                &make_design("Planned", ""),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-1.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    &upstream_seq(&[
+                        "docs/designs/DESIGN-shared.md",
+                        "docs/designs/DESIGN-1.md",
+                    ]),
+                ),
+                &plan_body("Active"),
+            ),
+            (
+                "docs/plans/PLAN-2.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    &upstream_seq(&[
+                        "docs/designs/DESIGN-2.md",
+                        "docs/designs/DESIGN-shared.md",
+                    ]),
+                ),
+                &plan_body("Active"),
+            ),
+        ]);
+        let (chains, _) = chains_of(&root);
+        let shared = root.join("docs/designs/DESIGN-shared.md");
+        let holding: Vec<&PathBuf> = chains
+            .iter()
+            .filter(|c| c.members.iter().any(|m| m.path == shared))
+            .map(|c| &c.root)
+            .collect();
+        assert_eq!(
+            holding.len(),
+            2,
+            "DESIGN-shared belongs to both chains, got {:?}",
+            holding
+        );
+    }
+
+    #[test]
+    fn diamond_is_not_a_cycle_and_does_not_drop_the_chain() {
+        // Two upstream entries reconverge on PRD-shared. The node is
+        // seen twice by the traversal but never twice on one branch, so
+        // it is a diamond, not a cycle.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-x.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-shared.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-x.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-a.md",
+                &make_design("Planned", "docs/prds/PRD-shared.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/designs/DESIGN-b.md",
+                &make_design("Planned", "docs/prds/PRD-shared.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-d.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    &upstream_seq(&[
+                        "docs/designs/DESIGN-a.md",
+                        "docs/designs/DESIGN-b.md",
+                    ]),
+                ),
+                &plan_body("Active"),
+            ),
+        ]);
+        let (chains, errors) = chains_of(&root);
+        assert!(
+            !errors.iter().any(|e| e.code == "L03"),
+            "a diamond is not a cycle, got {:?}",
+            errors
+        );
+        assert_eq!(
+            chains.len(),
+            1,
+            "the chain must survive the reconvergence, got {:?}",
+            chains
+        );
+        // The reconvergence point is recorded once, not once per branch,
+        // and the walk continued past it to the BRIEF.
+        assert_eq!(
+            member_names(&chains[0]),
+            vec![
+                "BRIEF-x.md",
+                "DESIGN-a.md",
+                "DESIGN-b.md",
+                "PLAN-d.md",
+                "PRD-shared.md",
+            ],
+        );
+    }
+
+    #[test]
+    fn cycle_below_a_fan_out_still_reports_walk_order_and_drops_the_chain() {
+        // One branch of a fan-out closes a genuine cycle. Per-branch
+        // tracking must still catch it: the L03 path reads in walk
+        // order along the branch that closed it, and the chain goes.
+        let root = build_tree(&[
+            (
+                "docs/prds/PRD-plain.md",
+                &make_prd("Accepted", ""),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/prds/PRD-a.md",
+                &make_prd("Accepted", "docs/prds/PRD-b.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/prds/PRD-b.md",
+                &make_prd("Accepted", "docs/prds/PRD-a.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/plans/PLAN-c.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    &upstream_seq(&["docs/prds/PRD-a.md", "docs/prds/PRD-plain.md"]),
+                ),
+                &plan_body("Active"),
+            ),
+        ]);
+        let (chains, errors) = chains_of(&root);
+        let l03: Vec<&ValidationError> = errors.iter().filter(|e| e.code == "L03").collect();
+        assert_eq!(l03.len(), 1, "expected one L03, got {:?}", errors);
+        assert!(
+            l03[0].message.ends_with(
+                "upstream cycle detected: docs/plans/PLAN-c.md -> docs/prds/PRD-a.md -> docs/prds/PRD-b.md -> docs/prds/PRD-a.md"
+            ),
+            "L03 must name the cycle in walk order, got {:?}",
+            l03[0].message
+        );
+        assert!(
+            chains.is_empty(),
+            "a cyclic chain is dropped, got {:?}",
+            chains
+        );
+    }
+
+    #[test]
+    fn chain_root_is_explicit_not_positional() {
+        // A ROADMAP sits above a fanned-out PLAN. The walk stops at the
+        // ROADMAP while recording it, so the PLAN's chain holds a node
+        // that is itself a root — exactly the case member ordering can
+        // no longer answer. `root` answers it.
+        let root = build_tree(&[
+            (
+                "docs/roadmaps/ROADMAP-r.md",
+                &make_roadmap("Active"),
+                &roadmap_body("Active"),
+            ),
+            (
+                "docs/prds/PRD-r.md",
+                &make_prd("Accepted", "docs/roadmaps/ROADMAP-r.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-r.md",
+                &make_design("Planned", "docs/prds/PRD-r.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/designs/DESIGN-s.md",
+                &make_design("Planned", ""),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-r.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    &upstream_seq(&[
+                        "docs/designs/DESIGN-r.md",
+                        "docs/designs/DESIGN-s.md",
+                    ]),
+                ),
+                &plan_body("Active"),
+            ),
+        ]);
+        let (chains, _) = chains_of(&root);
+        let plan_chain = chains
+            .iter()
+            .find(|c| c.root == root.join("docs/plans/PLAN-r.md"))
+            .expect("the PLAN roots a chain");
+        assert_eq!(plan_chain.root_kind, RootKind::Plan);
+        assert!(
+            plan_chain
+                .members
+                .iter()
+                .any(|m| m.role == ChainRole::Roadmap),
+            "the walk records the ROADMAP it stops at, got {:?}",
+            member_names(plan_chain)
         );
     }
 
