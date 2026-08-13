@@ -31,6 +31,27 @@ Draft
 
 Requirements only. The technical approach is downstream design work.
 
+### Terms used here
+
+A **chain** is one lineage the validator walks. It is identified by its **root**, which
+is the *downstream-most* document — a PLAN or a ROADMAP — and the walk proceeds upward
+through `upstream:` links to the head. Root therefore means the leaf, not the ancestor;
+every other directional word in this document (upstream, parent, ancestor) points the
+opposite way.
+
+A **posture** is the state a chain as a whole is in, inferred from its root: whether the
+work is mid-flight or completing, and whether it runs as one pull request or many. A
+chain's posture determines, for each role in it, which document statuses are acceptable —
+the role's **required status set**. Postures fall into two **phase groups**: in-flight and
+completing. Within a group the required sets agree; across groups they do not.
+
+Separately, the validator runs in two modes: **whole-tree**, which evaluates every chain
+in a corpus, and **chain-targeted**, which is asked about one document and evaluates the
+chain containing it.
+
+**Consumer** means a document that names another as its `upstream:`. Where this document
+means a skill invocation reading an upstream, it says so.
+
 ## Problem Statement
 
 Document lineage in this workspace is one-to-many. The format references say so — a
@@ -93,12 +114,16 @@ on the grounds that nothing sits above the chain head, though a ROADMAP often do
 ## Goals
 
 Lineage that fans out is parsed as written, evaluated against every chain a document
-belongs to, and reported the same way regardless of what files are named.
+belongs to, and reported the same way regardless of what files are named. This reaches
+the tactical chain, which is the only chain the validator indexes; the strategic chain
+stays outside it, for the reason given in Out of Scope.
 
 A document under several chains either reaches a status that satisfies all of them or is
 told, in one message, that its consumers demand contradictory states and which ones.
 
-Nothing retires or deletes a document while another document still points at it.
+The finalization walk never retires or deletes a document that another document still
+points at. Removal by other means remains possible and is caught later, by validation
+rather than prevention.
 
 No author is handed a duplicate upstream without having been given the chance to name the
 existing one, and a relationship a run does consume survives into the artifact and the
@@ -124,15 +149,19 @@ as they do now.
   the duplicate afterwards.
 - As an author resuming an interrupted run, I want to be told if the upstream it recorded
   has since moved or been retired, so that the run does not continue against a stale link.
-- As a reviewer, I want a document's retirement blocked while something still cites it,
-  so that dangling references are prevented rather than discovered later.
+- As a reviewer, I want the finalization walk to refuse to retire a document while
+  something still cites it, so that the path which produced the dangling references
+  already in this repository cannot produce more.
 
 ## Requirements
 
 ### Functional — parsing and resolution
 
-- **R1.** A frontmatter field whose YAML value is a sequence SHALL survive parsing with
-  all entries preserved, in both block and flow syntax, including the single-entry case.
+- **R1.** Any frontmatter field whose YAML value is a sequence SHALL survive parsing with
+  every entry preserved and individually recoverable, in both block and flow syntax,
+  including the single-entry case. The guarantee is generic to sequence-valued fields, not
+  special-cased to `upstream:`, and every reader of such a field SHALL be able to recover
+  the same entries in the same order.
 - **R2.** The upstream-resolution check SHALL evaluate each entry of a multi-valued
   `upstream:` independently and report one finding per entry that does not resolve.
 - **R3.** An `upstream:` field that is present but carries no entries SHALL report exactly
@@ -147,9 +176,13 @@ as they do now.
 ### Functional — chain evaluation
 
 - **R6.** The chain-targeted lifecycle check SHALL evaluate every chain that contains the
-  target document, not the first chain found.
-- **R7.** Lifecycle results SHALL NOT depend on document filenames. Renaming a document
-  without changing content SHALL NOT change any finding on any other document.
+  target document, rather than one selected chain. Where several chains produce the same
+  finding on the same document, it SHALL be reported once; where they produce different
+  findings, each SHALL be reported.
+- **R7.** Lifecycle findings SHALL NOT depend on document filenames. Renaming a document
+  without changing content SHALL NOT add, remove, or alter any finding on any document,
+  including the renamed one. The path a finding names may change with the rename; nothing
+  else may.
 - **R8.** The chain-targeted mode and the whole-tree mode SHALL report the same findings
   for the same document over the same corpus.
 
@@ -157,19 +190,23 @@ as they do now.
 
 - **R9.** When a document belongs to two or more chains whose required status sets have
   no value in common, the validator SHALL emit a single finding identifying the conflict,
-  naming each conflicting chain and the status each requires.
-- **R10.** When R9 fires and is reported, the per-chain findings it supersedes SHALL NOT
-  also be reported, so the author is not shown contradictory instructions alongside the
-  explanation.
+  naming each conflicting chain and the full set of statuses each requires.
+- **R10.** When R9 fires and is reported, the status-lifecycle findings arising from the
+  conflicting chains' requirements on that document SHALL NOT also be reported, so the
+  author is not shown contradictory instructions alongside the explanation. Findings of
+  every other kind on that document — unresolvable upstreams, orphan status, file
+  location — SHALL be reported unchanged.
 - **R11.** When a document belongs to several chains whose required status sets do
   intersect, the document SHALL pass at any status in the intersection.
 
 ### Functional — safe retirement
 
-- **R12.** The chain-finalization walk SHALL NOT transition or delete a document while
-  another document outside the walked branch still names it as an upstream.
-- **R13.** When R12 blocks a transition, the walk SHALL report which documents still
-  reference the blocked one.
+- **R12.** The chain-finalization walk SHALL NOT transition or delete a document while a
+  document it is not itself retiring in this walk still names it as an upstream, and that
+  referrer has not reached a terminal status. A referrer already at a terminal status does
+  not block, so a document cannot be pinned open forever by a finished sibling.
+- **R13.** When R12 blocks a transition or a deletion, the walk SHALL report which
+  documents still reference the blocked one.
 - **R14.** When a document in the finalization walk has more than one upstream, the walk
   SHALL account for all of them. It SHALL NOT transition any ancestor on the basis of a
   single arbitrarily-selected upstream.
@@ -212,6 +249,9 @@ as they do now.
   existing lifecycle findings. Where posture suppresses it, the per-chain findings it
   would have superseded SHALL be reported instead, so a conflicted document is never
   silent.
+- **R26.** R9 through R11 SHALL be in place before R15 through R20 ship. No release SHALL
+  make it easier to create concurrent chains under one upstream before the conflict those
+  chains can produce is diagnosable.
 
 ## Acceptance Criteria
 
@@ -228,8 +268,17 @@ as they do now.
       the resolution check, the chain walk, and the finalization walk.
 - [ ] Running the chain-targeted check on a document shared by two chains reports the
       same findings as the whole-tree check reports for that document.
-- [ ] Renaming a plan file, with no content change anywhere in the corpus, produces
-      byte-identical validator output before and after.
+- [ ] Renaming a plan file, with no content change anywhere in the corpus, produces the
+      same set of findings before and after, differing only where a finding names the
+      renamed path itself.
+- [ ] A document belonging to three chains, two of which produce the same finding on it,
+      has that finding reported once.
+- [ ] A conflicted document still reports its unresolvable-upstream and orphan findings
+      alongside the conflict finding.
+- [ ] Chain finalization proceeds when the only document still referencing the ancestor
+      has itself reached a terminal status.
+- [ ] No release ships the upstream-recording requirements without the conflict-diagnosis
+      requirements already present.
 - [ ] A BRIEF shared by one in-flight chain and one completing chain produces a single
       conflict finding naming both chains and both required statuses, and does not
       additionally produce the two per-chain findings.
@@ -312,8 +361,8 @@ forbidden" closes as: intended, when a roadmap mediates it.
 **Posture stays attached to the chain.** The alternative — attaching it to the edge — is
 the only option that makes two chains' differing obligations coherent rather than merely
 diagnosable, and it was rejected on cost. It rewrites the module's core data structures,
-while making the current model honest and diagnostic is a change to three functions plus
-a conflict check built over structures that already exist. The trade-off accepted is that
+where making the current model honest and diagnostic works with the structures already
+there. The design owns the actual sizing. The trade-off accepted is that
 a genuinely conflicted document is reported rather than resolved: the author is told to
 fix the lineage, not given a status that satisfies everyone. The brief's open question
 about where posture attaches closes as: the chain, with the conflict made explicit.
@@ -345,13 +394,28 @@ positional contract untouched and works identically for both chains. R15 covers 
 flag alone does not: an author who does not know the flag exists still gets told, rather
 than silently receiving a duplicate.
 
-**Fixing this makes a latent defect live, deliberately.** The conflict condition needs
-two chains running concurrently under one upstream, which the corpus has never had,
-because plans are deleted at completion and every fan-out on disk is post-completion. A
-workflow that records consumed upstreams will make concurrent chains more common. The
-requirements are therefore sequenced so the diagnosis exists before the shape spreads:
-R9 through R11 are not optional accompaniments to R15 through R20, they are a
-precondition for them.
+**Fixing this makes a latent defect live, deliberately — and the guard is a requirement,
+not a hope.** The conflict condition needs two chains running concurrently under one
+upstream, which the corpus has never had, because plans are deleted at completion and
+every fan-out on disk is post-completion. A workflow that records consumed upstreams will
+make concurrent chains more common. The alternative considered was to ship the validator
+half alone and defer the parent half until the diagnosis had been exercised in practice.
+It was rejected because it leaves the brief's own outcome unmet for however long the
+deferral lasts — authors keep receiving silent duplicates — and because the two halves
+share a release, so the deferral would have to be enforced by memory. R26 encodes the
+ordering instead, since a requirement list is not itself an ordering contract and a plan
+that split this across pull requests could otherwise land the recording half first while
+conforming to every other word here.
+
+One hole in that guard is worth stating plainly rather than leaving to be discovered.
+R6 through R11 reach only the tactical chain, because the strategic directories are not
+indexed and this PRD does not change that. R20 nonetheless requires the strategic hop to
+record consumed upstreams. So on the strategic chain the workflow becomes easier while no
+diagnosis exists at all. The exposure is bounded by there being no strategic document in
+any repository in this workspace today — the shape cannot spread through a corpus that
+does not exist — but the moment one is written, that chain has the recording half without
+the diagnostic half. Admitting the directories to the index is the fix, and it is
+deferred, not solved.
 
 ## Known Limitations
 
