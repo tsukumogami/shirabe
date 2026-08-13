@@ -12,9 +12,9 @@ problem: |
 goals: |
   Lineage that fans out is parsed, evaluated, and reported honestly. A
   document under several chains is either satisfiable or told precisely why
-  it is not. Nothing retires a parent that something still points at. Where
-  a run consumes an upstream it did not produce, that relationship is
-  recorded rather than lost.
+  it is not. Nothing retires a parent that something still points at. No
+  author is silently handed a duplicate upstream, and where a run consumes an
+  upstream it did not produce, that relationship survives the run.
 upstream: docs/briefs/BRIEF-chain-cardinality.md
 motivating_context: |
   An exploration asked whether the /scope consolidation overhaul should be
@@ -44,11 +44,12 @@ The tooling assumes one-to-one, in four separate places.
 
 **Sequence values do not survive parsing.** An `upstream:` written as a YAML sequence —
 block or flow — collapses to the empty string before any consumer sees it, and the
-author is told `upstream "" does not exist on disk`. A single-item sequence fails
+author is told `upstream "" does not exist on disk`. A single-entry sequence fails
 identically, so this is not a plurality problem but a parsing one. The chain walk
 already splits multi-valued upstreams correctly and strips list prefixes; that code has
-simply never been reachable. Three readers of the field exist and no two agree on its
-shape.
+simply never been reachable. Three readers of the field disagree about its shape: two
+treat the whole value as a single path, the third understands a list — and the walk
+consuming that third reader discards every entry after the first.
 
 **The chain-targeted check is a filename lottery.** It selects its chain with a
 first-match over a map ordered by canonical path, so it evaluates whichever root sorts
@@ -80,12 +81,14 @@ to fix it before the shape becomes common, not after — and the fan-out is curr
 *suppressing* findings, since a parent passes the orphan rule precisely because it has
 children.
 
-Separately, the parent skills cannot record a relationship they already rely on. Every
-path a parent resolves derives from one topic slug, so a run that consumes an upstream
-authored under a different slug has nowhere to put it. `/scope` invokes `/brief` with a
-bare slug on the grounds that nothing sits above the chain head, though a ROADMAP often
-does and `/brief` accepts one; the link is silently never recorded. `/charter` has the
-same gap with a louder symptom.
+Separately, the parent skills cannot record a relationship they already rely on, and do
+not admit when they cannot. Every path a parent resolves derives from one topic slug, so
+a run consuming an upstream authored under a different slug has nowhere to put it. Worse,
+the run cannot see that upstream at all: it reads the absence as a cold start and authors
+a fresh one, silently, with no way for the author to say the thesis already exists.
+`/scope` has the same gap with a quieter symptom — it invokes `/brief` with a bare slug
+on the grounds that nothing sits above the chain head, though a ROADMAP often does and
+`/brief` accepts one, so the link is simply never recorded.
 
 ## Goals
 
@@ -97,8 +100,9 @@ told, in one message, that its consumers demand contradictory states and which o
 
 Nothing retires or deletes a document while another document still points at it.
 
-Where a run consumes an upstream it did not produce, the relationship is recorded in
-durable state rather than inferred from a slug or lost.
+No author is handed a duplicate upstream without having been given the chance to name the
+existing one, and a relationship a run does consume survives into the artifact and the
+run's own record.
 
 Existing single-parent documents — every document in the corpus today — behave exactly
 as they do now.
@@ -115,11 +119,13 @@ as they do now.
 - As an author whose document sits under two chains at different phases, I want to be
   told that the requirements conflict, so that I do not cycle through statuses trying to
   satisfy both.
-- As an author opening a second bet under an existing thesis, I want the run to record
-  which thesis it attached to, so that the relationship survives into the artifact and
-  the audit trail.
-- As a reviewer, I want a document's deletion to be blocked while something still cites
-  it, so that dangling references are prevented rather than discovered later.
+- As an author opening a second bet under an existing thesis, I want to be told that an
+  existing thesis may apply before a new one is written for me, so that I do not discover
+  the duplicate afterwards.
+- As an author resuming an interrupted run, I want to be told if the upstream it recorded
+  has since moved or been retired, so that the run does not continue against a stale link.
+- As a reviewer, I want a document's retirement blocked while something still cites it,
+  so that dangling references are prevented rather than discovered later.
 
 ## Requirements
 
@@ -129,56 +135,83 @@ as they do now.
   all entries preserved, in both block and flow syntax, including the single-entry case.
 - **R2.** The upstream-resolution check SHALL evaluate each entry of a multi-valued
   `upstream:` independently and report one finding per entry that does not resolve.
-- **R3.** The chain walk SHALL treat every entry of a multi-valued `upstream:` as a
+- **R3.** An `upstream:` field that is present but carries no entries SHALL report exactly
+  one finding identifying the field as empty. It SHALL NOT pass silently, and it SHALL NOT
+  report a path-shaped message about the empty string.
+- **R4.** The chain walk SHALL treat every entry of a multi-valued `upstream:` as a
   membership edge, rather than retaining only the first.
-- **R4.** All readers of the `upstream:` field SHALL agree on its shape. A value that one
-  reader accepts SHALL NOT be silently reinterpreted or discarded by another.
+- **R5.** Every reader of the `upstream:` field SHALL interpret the same written value the
+  same way. A value one reader accepts SHALL NOT be silently reinterpreted or discarded by
+  another.
 
 ### Functional — chain evaluation
 
-- **R5.** The chain-targeted lifecycle check SHALL evaluate every chain that contains the
+- **R6.** The chain-targeted lifecycle check SHALL evaluate every chain that contains the
   target document, not the first chain found.
-- **R6.** Lifecycle results SHALL NOT depend on document filenames. Renaming a document
+- **R7.** Lifecycle results SHALL NOT depend on document filenames. Renaming a document
   without changing content SHALL NOT change any finding on any other document.
-- **R7.** The chain-targeted mode and the whole-tree mode SHALL report the same findings
+- **R8.** The chain-targeted mode and the whole-tree mode SHALL report the same findings
   for the same document over the same corpus.
 
 ### Functional — conflict diagnosis
 
-- **R8.** When a document belongs to two or more chains whose required status sets have
+- **R9.** When a document belongs to two or more chains whose required status sets have
   no value in common, the validator SHALL emit a single finding identifying the conflict,
   naming each conflicting chain and the status each requires.
-- **R9.** When R8 fires, the per-chain findings it supersedes SHALL NOT also be emitted,
-  so the author is not shown contradictory instructions alongside the explanation.
-- **R10.** When a document belongs to several chains whose required status sets do
+- **R10.** When R9 fires and is reported, the per-chain findings it supersedes SHALL NOT
+  also be reported, so the author is not shown contradictory instructions alongside the
+  explanation.
+- **R11.** When a document belongs to several chains whose required status sets do
   intersect, the document SHALL pass at any status in the intersection.
 
 ### Functional — safe retirement
 
-- **R11.** The chain-finalization walk SHALL NOT transition or delete a document while
+- **R12.** The chain-finalization walk SHALL NOT transition or delete a document while
   another document outside the walked branch still names it as an upstream.
-- **R12.** When R11 blocks a transition, the walk SHALL report which documents still
+- **R13.** When R12 blocks a transition, the walk SHALL report which documents still
   reference the blocked one.
+- **R14.** When a document in the finalization walk has more than one upstream, the walk
+  SHALL account for all of them. It SHALL NOT transition any ancestor on the basis of a
+  single arbitrarily-selected upstream.
 
-### Functional — recording a consumed upstream
+### Functional — upstreams a run did not produce
 
-- **R13.** A parent skill SHALL accept an upstream artifact path as a flag, without
+- **R15.** Before authoring a new artifact at its chain's head altitude, a parent SHALL
+  make visible that an existing artifact elsewhere may apply, and how to attach to it. An
+  author who names none still receives a new artifact — but never without having been
+  told one might already exist.
+- **R16.** A parent SHALL accept an upstream artifact path supplied as a flag, without
   changing its positional argument contract or its rejection of paths in that slot.
-- **R14.** When a parent consumes an upstream it did not produce, it SHALL record that
-  path in a conditional state-file field, absent when the condition does not hold.
-- **R15.** A parent SHALL pass a recorded upstream path to the child whose input mode
-  accepts it, so the produced artifact records the link in its own frontmatter.
-- **R16.** R13 through R15 SHALL apply to both parents: the strategic chain's
+- **R17.** An upstream a run consumed but did not produce SHALL be recorded durably enough
+  to survive an interrupted run, and SHALL be absent from that record when no such
+  upstream was consumed.
+- **R18.** A parent SHALL pass a consumed upstream to the child whose input mode accepts
+  it, so that the produced artifact records the link in its own frontmatter.
+- **R19.** When a recorded upstream no longer resolves on resume, the run SHALL surface it
+  rather than continuing as though no upstream had been recorded.
+- **R20.** R15 through R19 SHALL apply to both parents: the strategic chain's
   VISION-to-STRATEGY hop and the tactical chain's ROADMAP-to-BRIEF hop.
+
+### Functional — specifications matching behavior
+
+- **R21.** The format references SHALL state which written shapes of `upstream:` are
+  supported, so that every shape the tooling accepts is documented and no shape they
+  document is rejected.
+- **R22.** The accepted acceptance criterion describing a path in a parent's positional
+  slot as slug-derived SHALL be corrected to match the rejection the parents actually
+  implement and that R16 preserves.
 
 ### Non-functional
 
-- **R17.** No document currently in the corpus SHALL change its validation result. The
-  full existing test suite SHALL pass unmodified.
-- **R18.** No new frontmatter field, artifact type, or document status SHALL be
+- **R23.** No document currently in the corpus SHALL change its validation result. The
+  full existing test suite SHALL pass unmodified, including the cross-implementation
+  parity gate.
+- **R24.** No new frontmatter field, artifact type, or document status SHALL be
   introduced.
-- **R19.** The conflict finding SHALL be suppressible by the same posture mechanism that
-  governs existing lifecycle findings, so draft-stage work is not blocked by it.
+- **R25.** The conflict finding SHALL be governed by the same posture mechanism as
+  existing lifecycle findings. Where posture suppresses it, the per-chain findings it
+  would have superseded SHALL be reported instead, so a conflicted document is never
+  silent.
 
 ## Acceptance Criteria
 
@@ -189,6 +222,10 @@ as they do now.
       no error.
 - [ ] A multi-valued `upstream:` with one resolvable and one missing target reports
       exactly one finding, naming the missing path — not the empty string.
+- [ ] A present-but-empty `upstream:` reports exactly one finding naming the field as
+      empty.
+- [ ] The same document with the same `upstream:` value produces consistent lineage under
+      the resolution check, the chain walk, and the finalization walk.
 - [ ] Running the chain-targeted check on a document shared by two chains reports the
       same findings as the whole-tree check reports for that document.
 - [ ] Renaming a plan file, with no content change anywhere in the corpus, produces
@@ -197,18 +234,33 @@ as they do now.
       conflict finding naming both chains and both required statuses, and does not
       additionally produce the two per-chain findings.
 - [ ] A DESIGN shared by two chains whose required sets intersect at one status passes at
-      that status with no finding.
+      that status with no finding, and no conflict finding is emitted.
+- [ ] Under a posture that suppresses the conflict finding, the same shared BRIEF still
+      reports the per-chain findings rather than reporting nothing.
 - [ ] Chain finalization against a plan whose ancestors are shared refuses to transition
       the shared ancestor and names the documents still pointing at it.
 - [ ] Chain finalization against a plan whose ancestors are unshared behaves exactly as
       it does today.
-- [ ] A parent invoked with an upstream-path flag records that path in its state file;
-      the same parent invoked without the flag has no such field.
-- [ ] The artifact produced by a run that consumed a recorded upstream carries that path
+- [ ] Chain finalization against a document with two upstreams does not transition an
+      ancestor reachable through only one of them.
+- [ ] A parent run that would author a head-altitude artifact states, before doing so,
+      that an existing one may apply and how to supply it.
+- [ ] A parent invoked with an upstream-path flag records that path; the same parent
+      invoked without the flag has no such record.
+- [ ] A parent invoked with a path in its positional slot still rejects it.
+- [ ] The artifact produced by a run that consumed a supplied upstream carries that path
       in its own `upstream:` frontmatter.
+- [ ] Resuming a run whose recorded upstream has since been deleted surfaces that fact
+      rather than proceeding.
+- [ ] Both the strategic and the tactical parent satisfy the four criteria above.
+- [ ] The format references name every `upstream:` shape the tooling accepts, and the
+      tooling accepts every shape they name.
+- [ ] No frontmatter field, artifact type, or status exists after the change that did not
+      exist before.
 - [ ] Validating all three repositories before and after produces identical output in
       both draft and ready postures.
-- [ ] The existing test suite passes with no test modified or removed.
+- [ ] The existing test suite, including the cross-implementation parity gate, passes with
+      no test modified or removed.
 
 ## Out of Scope
 
@@ -218,17 +270,26 @@ as they do now.
   required-status values, and a defined answer to which chain a targeted check means. The
   requirements above make the current model honest instead; if the conflict finding turns
   out to fire often in practice, that is the signal to revisit this.
+- **Admitting the strategic directories to the lifecycle index.** The brief asked whether
+  they should enter it. They should not, yet: no VISION, STRATEGY, or COMP document exists
+  in any repository in this workspace, so indexing them would add a code path with nothing
+  to exercise it. R6 through R11 therefore do not reach the strategic chain, and the
+  strategic half of the fan-out problem stays prospective until a corpus exists.
+- **Recording competitive analysis as a parallel input.** The brief carved this in. It is
+  excluded here because the artifact type has no `upstream:` field at all and no document
+  of that type exists in this workspace; stating its relationship in the format references
+  is a documentation change with no consumer, and R21 is scoped to `upstream:` shapes.
 - **Porting the consolidation judgment to `/charter`.** Settled on the record; zero
   strategic hops are section-mappable.
-- **Consumer-count input to the consolidation judgment's absorbability test.** R11 blocks
-  unsafe deletion at the finalization path, which is where the observed damage came from.
+- **Consumer-count input to the consolidation judgment's absorbability test.** R12 blocks
+  unsafe retirement at the finalization path, which is where the observed damage came from.
   Whether absorbability should also weigh consumer count is a narrower question the
   design may raise on its own evidence.
 - **Inputs the validator silently declines to check.** Passing a directory to the
   per-file mode discards it without warning and exits zero; so does a document whose
   frontmatter omits `schema`, which is skipped with a notice and a zero exit. Both
   produced false clean results during this PRD's own authoring. They are real defects of
-  the same class — a validator that reports success for work it did not do — and they
+  the same class — a validator reporting success for work it did not do — and they
   warrant their own issue rather than riding along here.
 - **Retrofitting the corpus.** The five dangling references this PRD's problem statement
   cites are evidence, not scope. Repairing them is follow-up work once the check that
@@ -236,7 +297,7 @@ as they do now.
 - **`/design`'s self-split.** The refuse-at-ten threshold has never fired, has no naming
   convention for the sibling document it would create, and no owner for the prompt it
   would raise inside a parent chain. It is a real gap and not this one.
-- **The other parent skills** beyond the two chains named in R16.
+- **The other parent skills** beyond the two chains named in R20.
 
 ## Decisions and Trade-offs
 
@@ -266,32 +327,43 @@ was rejected because the corpus already contains it, deliberately, in four place
 is chosen supports the fan-out that exists and diagnoses the case the model cannot
 represent.
 
-**The parent half is recorded in state and supplied by flag.** Alternatives were an
+**A conflicted document is never silent.** R10 suppresses per-chain findings in favour of
+the conflict message, and R25 lets posture suppress the conflict message. Composed
+carelessly those two would leave a conflicted document reporting nothing at draft
+posture, where today it reports errors. R25 is written so the suppression trades one
+message for the other rather than removing both. The cost is that a draft-posture author
+sees the older, less helpful findings rather than none.
+
+**The parent half is supplied by flag and recorded durably.** Alternatives were an
 upstream-path input mode mirroring the child skill's, and a discovery scan that asks
 which upstream to attach to. The input mode reopens a standing requirement that parents
 reject artifact paths in their positional slot, and still needs the topic slug from
 somewhere, making it two inputs wearing one input's costume. The scan adds a blocking
 prompt to every run and has no safe non-interactive default — attaching a bet to the
 wrong upstream silently is worse than today's visible duplicate. The flag leaves the
-positional contract untouched and works identically for both chains.
+positional contract untouched and works identically for both chains. R15 covers what the
+flag alone does not: an author who does not know the flag exists still gets told, rather
+than silently receiving a duplicate.
 
 **Fixing this makes a latent defect live, deliberately.** The conflict condition needs
-two chains running concurrently under one upstream, which the corpus has never had. A
-workflow that records consumed upstreams will make that shape more common. The
-requirements above are sequenced so the diagnosis exists before the shape spreads.
+two chains running concurrently under one upstream, which the corpus has never had,
+because plans are deleted at completion and every fan-out on disk is post-completion. A
+workflow that records consumed upstreams will make concurrent chains more common. The
+requirements are therefore sequenced so the diagnosis exists before the shape spreads:
+R9 through R11 are not optional accompaniments to R15 through R20, they are a
+precondition for them.
 
 ## Known Limitations
 
 - The conflict finding tells an author their consumers disagree; it does not tell them
   which consumer is wrong. Resolving that needs judgment the validator does not have.
-- R11 blocks unsafe retirement at the finalization walk. A document deleted by any other
-  means — a plain `git rm`, a manual edit — is still capable of stranding references, and
-  only a subsequent whole-corpus validation will surface it.
-- The strategic chain remains outside the lifecycle document index, so R5 through R10 do
-  not apply to VISION, STRATEGY, or COMP documents. No such document exists in any
-  repository in this workspace; the strategic half of the fan-out problem is entirely
-  prospective, and admitting those directories to the index is a change this PRD does not
-  require.
-- R17's guarantee that nothing changes rests on no document in the corpus currently using
-  a sequence-valued frontmatter field. That was verified across all three repositories at
-  the time of writing.
+- R12 blocks unsafe retirement at the finalization walk. A document removed by any other
+  means — a plain `git rm`, a manual edit — can still strand references, and only a
+  subsequent whole-corpus validation will surface it.
+- R23's guarantee that nothing changes rests on no document in the corpus currently using
+  a sequence-valued frontmatter field, and on no parity fixture exercising one. Both were
+  verified across all three repositories at the time of writing; R1 is the change that
+  makes such a fixture possible, so the parity baseline needs re-checking as part of
+  satisfying R23 rather than assumed.
+- R15 makes a duplicate upstream a visible choice rather than an impossible one. An author
+  who ignores the notice still gets the duplicate.
