@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   Document lineage is one-to-many in the formats and in practice, but the
   tooling assumes one-to-one. YAML sequence values never survive frontmatter
@@ -27,7 +27,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 Requirements only. The technical approach is downstream design work.
 
