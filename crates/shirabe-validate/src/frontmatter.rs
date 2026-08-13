@@ -31,7 +31,7 @@ use std::path::Path;
 use saphyr::{MarkedYamlOwned, YamlDataOwned, YamlLoader};
 use saphyr_parser::{BufferedInput, Parser};
 
-use crate::doc::{Doc, FieldValue, Section};
+use crate::doc::{Doc, FieldEntries, FieldValue, Section};
 
 /// Errors produced by the frontmatter parser and its helpers.
 ///
@@ -233,17 +233,59 @@ fn parse_yaml_fields(
             continue;
         };
         let absolute_line = key_node.span.start.line() + offset;
-        let value = scalar_source_text(&val_node.data).unwrap_or_default();
+        let entries = field_entries(&val_node.data);
+        // `value` is the scalar text for a scalar and the empty string for
+        // every other shape - unchanged from before entries existed, because
+        // the cross-implementation parity gate compares these bytes.
+        let value = match &entries {
+            FieldEntries::Scalar(text) => text.clone(),
+            FieldEntries::Sequence(_) | FieldEntries::Other => String::new(),
+        };
         fields.insert(
             key,
             FieldValue {
-                value: value.trim_end_matches('\n').to_string(),
+                value,
                 line: absolute_line,
+                entries,
             },
         );
     }
 
     Ok(fields)
+}
+
+/// Decompose a value node into entries, preserving written order.
+///
+/// A scalar yields exactly one entry holding its whole text - it is never
+/// split on newlines, so a `problem: |` block scalar stays one value. A
+/// sequence yields one entry per item, block and flow syntax alike,
+/// including the single-item and empty cases. Anything else is `Other`,
+/// which stays distinct from an empty sequence because the two are
+/// different authoring mistakes.
+///
+/// Entries carry each item's ORIGINAL source text for the same reason
+/// [`scalar_source_text`] does: the loader runs `early_parse(false)` so
+/// `1.50` reaches a reader as `1.50` rather than canonicalized to `1.5`.
+fn field_entries(data: &YamlDataOwned<MarkedYamlOwned>) -> FieldEntries {
+    match data {
+        YamlDataOwned::Representation(..) | YamlDataOwned::Value(_) => {
+            FieldEntries::Scalar(entry_text(data))
+        }
+        YamlDataOwned::Sequence(items) => {
+            FieldEntries::Sequence(items.iter().map(|item| entry_text(&item.data)).collect())
+        }
+        _ => FieldEntries::Other,
+    }
+}
+
+/// One entry's source text, with the trailing newline a block scalar
+/// carries stripped. A non-scalar node yields the empty string, which keeps
+/// a nested sequence or mapping in its author-written position.
+fn entry_text(data: &YamlDataOwned<MarkedYamlOwned>) -> String {
+    scalar_source_text(data)
+        .unwrap_or_default()
+        .trim_end_matches('\n')
+        .to_string()
 }
 
 /// Return a scalar node's ORIGINAL source text, or `None` for non-scalar
@@ -450,6 +492,154 @@ mod tests {
     }
 
     // ---- Typed-scalar invariant (DESIGN Decision 1, lines 834-848) ----
+
+    // ---- Sequence entries (PLAN issue 1, DESIGN Decision 1) ----
+
+    /// The entries of `key`, or a panic naming what shape came back instead.
+    fn seq_entries(doc: &Doc, key: &str) -> Vec<String> {
+        match &doc.fields.get(key).expect("field missing").entries {
+            FieldEntries::Sequence(items) => items.clone(),
+            other => panic!("expected a sequence for {}, got {:?}", key, other),
+        }
+    }
+
+    #[test]
+    fn parse_doc_bytes_block_sequence_entries_in_written_order() {
+        let input = "---\nupstream:\n  - docs/a.md\n  - docs/b.md\n  - docs/c.md\n---\n";
+        let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
+        assert_eq!(
+            seq_entries(&doc, "upstream"),
+            vec!["docs/a.md", "docs/b.md", "docs/c.md"]
+        );
+        assert_eq!(doc.fields["upstream"].line, 2, "line is the key's line");
+    }
+
+    #[test]
+    fn parse_doc_bytes_flow_sequence_entries_in_written_order() {
+        let input = "---\nupstream: [docs/a.md, docs/b.md]\n---\n";
+        let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
+        assert_eq!(
+            seq_entries(&doc, "upstream"),
+            vec!["docs/a.md", "docs/b.md"]
+        );
+    }
+
+    #[test]
+    fn parse_doc_bytes_single_entry_sequence_is_still_a_sequence() {
+        for input in [
+            "---\nupstream:\n  - docs/a.md\n---\n",
+            "---\nupstream: [docs/a.md]\n---\n",
+        ] {
+            let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
+            assert_eq!(
+                seq_entries(&doc, "upstream"),
+                vec!["docs/a.md"],
+                "{}",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn parse_doc_bytes_sequence_value_stays_the_empty_string() {
+        // The FC02/FC03 annotation bytes are built from `value`, and the
+        // cross-implementation parity gate compares them byte-for-byte.
+        let input = "---\nupstream:\n  - docs/a.md\n  - docs/b.md\n---\n";
+        let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
+        assert_eq!(doc.fields["upstream"].value, "");
+    }
+
+    #[test]
+    fn parse_doc_bytes_sequence_entries_are_not_special_cased_to_upstream() {
+        let input = "---\nreviewers:\n  - ana\n  - bo\nlabels: [x, y]\n---\n";
+        let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
+        assert_eq!(seq_entries(&doc, "reviewers"), vec!["ana", "bo"]);
+        assert_eq!(seq_entries(&doc, "labels"), vec!["x", "y"]);
+        assert_eq!(doc.fields["reviewers"].value, "");
+        assert_eq!(doc.fields["labels"].value, "");
+    }
+
+    #[test]
+    fn parse_doc_bytes_block_scalar_is_one_entry_not_many() {
+        // Splitting a scalar on newlines would make every `problem: |` prose
+        // block parse as a many-entry list.
+        let input = "---\nproblem: |\n  first line\n  second line\n---\n";
+        let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
+        let fv = doc.fields.get("problem").expect("problem missing");
+        assert_eq!(
+            fv.entries,
+            FieldEntries::Scalar("first line\nsecond line".to_string())
+        );
+        assert_eq!(fv.value, "first line\nsecond line");
+    }
+
+    #[test]
+    fn parse_doc_bytes_plain_scalar_is_one_entry() {
+        let input = "---\nupstream: docs/a.md\n---\n";
+        let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
+        assert_eq!(
+            doc.fields["upstream"].entries,
+            FieldEntries::Scalar("docs/a.md".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_doc_bytes_empty_sequence_scalar_and_mapping_stay_distinct() {
+        let input =
+            "---\nempty_seq: []\nnull_scalar:\nquoted_empty: \"\"\nmapping:\n  key: value\n---\n";
+        let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
+        assert_eq!(
+            doc.fields["empty_seq"].entries,
+            FieldEntries::Sequence(Vec::new())
+        );
+        // A null node arrives as the source token `~`, which is what `value`
+        // has always held for a valueless key.
+        assert_eq!(
+            doc.fields["null_scalar"].entries,
+            FieldEntries::Scalar("~".to_string())
+        );
+        assert_eq!(
+            doc.fields["quoted_empty"].entries,
+            FieldEntries::Scalar(String::new())
+        );
+        assert_eq!(doc.fields["mapping"].entries, FieldEntries::Other);
+        // Every shape keeps today's scalar value.
+        assert_eq!(doc.fields["empty_seq"].value, "");
+        assert_eq!(doc.fields["null_scalar"].value, "~");
+        assert_eq!(doc.fields["quoted_empty"].value, "");
+        assert_eq!(doc.fields["mapping"].value, "");
+    }
+
+    #[test]
+    fn parse_doc_bytes_sequence_entries_keep_original_scalar_tokens() {
+        // Same invariant as `scalar_source_text`: the loader runs
+        // `early_parse(false)` so `1.50` does not canonicalize to `1.5`.
+        let input = "---\nversions:\n  - 1.50\n  - 0x1F\n  - TRUE\n---\n";
+        let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
+        assert_eq!(seq_entries(&doc, "versions"), vec!["1.50", "0x1F", "TRUE"]);
+    }
+
+    #[test]
+    fn parse_doc_bytes_quoted_sequence_entries_lose_their_quotes() {
+        let input = "---\nupstream:\n  - \"docs/a.md\"\n  - 'docs/b.md'\n---\n";
+        let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
+        assert_eq!(
+            seq_entries(&doc, "upstream"),
+            vec!["docs/a.md", "docs/b.md"]
+        );
+    }
+
+    #[test]
+    fn parse_doc_bytes_blank_sequence_entry_is_kept_in_position() {
+        let input = "---\nupstream:\n  - docs/a.md\n  -\n  - \"\"\n  - docs/d.md\n---\n";
+        let doc = parse_doc_bytes("test.md", input.as_bytes()).expect("parse ok");
+        // The null item arrives as `~`, the quoted-empty one as the empty
+        // string; neither collapses the entry list.
+        assert_eq!(
+            seq_entries(&doc, "upstream"),
+            vec!["docs/a.md", "~", "", "docs/d.md"]
+        );
+    }
 
     #[test]
     fn parse_doc_bytes_typed_integer_field() {

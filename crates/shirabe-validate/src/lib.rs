@@ -39,7 +39,7 @@ pub use coordination::{
     GatePrStatus, GateUpstreamStatus, GuardIndexNode, IndexedPr, Visibility,
     VisibilityGuardDecision, VisibilityResolver, COORDINATION_DECLARATION_MARKER,
 };
-pub use doc::{Config, Doc, FieldValue, Section, ValidationError};
+pub use doc::{Config, Doc, FieldEntries, FieldValue, Section, ValidationError};
 pub use features::{extract_needs_label, parse_features, strip_label_decoration, Feature};
 pub use finalize::{
     verify_cross_repo_upstream_terminal, walk_chain, walk_chain_mode, CrossRepoVerification, Mode,

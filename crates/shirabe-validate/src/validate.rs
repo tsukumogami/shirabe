@@ -281,10 +281,7 @@ mod tests {
     }
 
     fn fv(value: &str, line: usize) -> FieldValue {
-        FieldValue {
-            value: value.to_string(),
-            line,
-        }
+        FieldValue::scalar(value, line)
     }
 
     fn sec(name: &str, line: usize) -> Section {
