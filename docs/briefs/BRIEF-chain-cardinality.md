@@ -30,6 +30,12 @@ resolved to defer rather than settle: whether `PRD -> DESIGN` fan-out is intende
 merely tolerated, and where posture should attach when one document belongs to two
 chains at once. All three close in the PRD's Decisions and Trade-offs section.
 
+Edited after acceptance to correct one fact. The draft attributed the three real
+`PRD -> DESIGN` fan-outs to `/design`'s split heuristic; they are roadmap-mediated and
+predate both parent skills. The split heuristic is a separate mechanism that has never
+fired. The correction narrows the problem rather than widening it: one of the two
+fan-out mechanisms turns out to be intended and documented.
+
 ## Problem Statement
 
 The pipeline's document formats describe one-to-many lineage. A VISION's Downstream
@@ -66,8 +72,13 @@ change anywhere, flips a shared BRIEF from zero findings to two.
 
 **This is not a strategic-chain problem.** The tactical chain was believed to be
 uniformly one-to-one and is not: one PRD in this workspace has nine DESIGN documents
-under it, another has four, a third has two, produced by `/design`'s documented split
-heuristic, which proposes a split at eight or nine decision questions and refuses at ten.
+under it, another has four, a third has two. Those three are roadmap-mediated and
+deliberate — an initiative-sized PRD whose ROADMAP partitions its requirements into
+disjoint feature slices, one design per slice — and the format references sanction that
+shape. A second mechanism can produce the same topology without a roadmap: `/design`
+splits on independent decision-question count, proposing at eight or nine and refusing
+at ten. That one has never fired, has no naming convention for the sibling document it
+would create, and no owner for the prompt it would raise inside a parent chain.
 `BRIEF -> PRD` is the genuinely uniform link, at 58 of 58 parents. That coincidence is
 load-bearing today and unrecorded: `BRIEF -> PRD` is also the only hop `/scope`'s
 consolidation judgment can absorb, so absorption is well-defined by accident. The stated
