@@ -208,8 +208,9 @@ as they do now.
 - **R13.** When R12 blocks a transition or a deletion, the walk SHALL report which
   documents still reference the blocked one.
 - **R14.** When a document in the finalization walk has more than one upstream, the walk
-  SHALL account for all of them. It SHALL NOT transition any ancestor on the basis of a
-  single arbitrarily-selected upstream.
+  SHALL consider every one of them, and SHALL transition only those ancestors reachable
+  through all of them. An ancestor reachable through some upstreams but not others SHALL
+  be left untouched.
 
 ### Functional — upstreams a run did not produce
 
@@ -301,7 +302,11 @@ as they do now.
       in its own `upstream:` frontmatter.
 - [ ] Resuming a run whose recorded upstream has since been deleted surfaces that fact
       rather than proceeding.
-- [ ] Both the strategic and the tactical parent satisfy the four criteria above.
+- [ ] Both the strategic and the tactical parent satisfy the five parent criteria above:
+      the authoring notice, the flag recording, the positional rejection, the artifact
+      frontmatter link, and the stale-recorded-upstream resume.
+- [ ] The accepted acceptance criterion describing a positional path as slug-derived no
+      longer says so, and matches the rejection the parents implement.
 - [ ] The format references name every `upstream:` shape the tooling accepts, and the
       tooling accepts every shape they name.
 - [ ] No frontmatter field, artifact type, or status exists after the change that did not
@@ -320,14 +325,18 @@ as they do now.
   requirements above make the current model honest instead; if the conflict finding turns
   out to fire often in practice, that is the signal to revisit this.
 - **Admitting the strategic directories to the lifecycle index.** The brief asked whether
-  they should enter it. They should not, yet: no VISION, STRATEGY, or COMP document exists
-  in any repository in this workspace, so indexing them would add a code path with nothing
-  to exercise it. R6 through R11 therefore do not reach the strategic chain, and the
-  strategic half of the fan-out problem stays prospective until a corpus exists.
+  they should enter it, and the answer here is not yet — but not for the reason an earlier
+  draft of this document gave. That draft said no strategic documents exist. They do; they
+  are simply not in this repository, and this repository's tests and CI cannot see them.
+  Indexing those directories would therefore be a change whose behavior is exercised only
+  by a corpus outside the boundary this PRD is validated against, which is a different
+  piece of work with a different evidence base. Two consequences are accepted and stated
+  rather than hidden: R6 through R11 do not reach the strategic chain, and the shared-parent
+  shape is not merely prospective there.
 - **Recording competitive analysis as a parallel input.** The brief carved this in. It is
-  excluded here because the artifact type has no `upstream:` field at all and no document
-  of that type exists in this workspace; stating its relationship in the format references
-  is a documentation change with no consumer, and R21 is scoped to `upstream:` shapes.
+  excluded because the artifact type has no `upstream:` field at all — its format defines
+  three required fields and states that it has no optional ones — so there is no lineage
+  for R21 to describe. R21 is scoped to `upstream:` shapes.
 - **Porting the consolidation judgment to `/charter`.** Settled on the record; zero
   strategic hops are section-mappable.
 - **Consumer-count input to the consolidation judgment's absorbability test.** R12 blocks
@@ -411,11 +420,13 @@ One hole in that guard is worth stating plainly rather than leaving to be discov
 R6 through R11 reach only the tactical chain, because the strategic directories are not
 indexed and this PRD does not change that. R20 nonetheless requires the strategic hop to
 record consumed upstreams. So on the strategic chain the workflow becomes easier while no
-diagnosis exists at all. The exposure is bounded by there being no strategic document in
-any repository in this workspace today — the shape cannot spread through a corpus that
-does not exist — but the moment one is written, that chain has the recording half without
-the diagnostic half. Admitting the directories to the index is the fix, and it is
-deferred, not solved.
+diagnosis exists at all. An earlier draft claimed this exposure was bounded by no
+strategic corpus existing; that was wrong, and the correction cuts against the decision
+rather than for it. A strategic corpus does exist outside this repository, and the
+shared-parent shape is already present in it. R26's ordering guard therefore protects the
+tactical chain and not the strategic one. That is a real gap, accepted here because
+closing it means indexing documents this repository cannot validate against, and named so
+that the design and the work that follows do not inherit the comfortable version.
 
 ## Known Limitations
 
@@ -424,10 +435,13 @@ deferred, not solved.
 - R12 blocks unsafe retirement at the finalization walk. A document removed by any other
   means — a plain `git rm`, a manual edit — can still strand references, and only a
   subsequent whole-corpus validation will surface it.
-- R23's guarantee that nothing changes rests on no document in the corpus currently using
-  a sequence-valued frontmatter field, and on no parity fixture exercising one. Both were
-  verified across all three repositories at the time of writing; R1 is the change that
-  makes such a fixture possible, so the parity baseline needs re-checking as part of
-  satisfying R23 rather than assumed.
+- R23's guarantee that nothing changes rests on three assumptions: that no document uses a
+  sequence-valued frontmatter field, that no parity fixture exercises one, and that no
+  document carries a present-but-empty `upstream:` whose message R3 would change. All three
+  were checked against the repositories this PRD is validated against, which is a narrower
+  set than the documents these changes will eventually meet — an earlier draft of this
+  document overstated that scope, and the recheck belongs in the work, not in this
+  sentence. R1 is also what makes a sequence-valued parity fixture possible, so the parity
+  baseline needs re-establishing as part of satisfying R23 rather than assumed.
 - R15 makes a duplicate upstream a visible choice rather than an impossible one. An author
   who ignores the notice still gets the duplicate.
