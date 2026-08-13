@@ -50,24 +50,27 @@ Three things follow, and each is a separate defect.
 
 The mechanical copy sees the wrong files. `detect_format` prefix-matches eight
 artifact types, so `shirabe validate` returns "All checks passed" on every
-SKILL.md, CLAUDE.md, AGENTS.md, and README.md handed to it. It reads 440,003
-words of artifact prose in shirabe's own repo and skips about 225,000, of which
-197,538 are the 211 files under `skills/`. The gap is not mainly volume. The
-skipped files are the instructions that shape every future agent run, so a
-defect there propagates into the prose the checked surface is judged on.
+SKILL.md, CLAUDE.md, AGENTS.md, and README.md handed to it. Counted raw, it
+reads 440,003 words under `docs/` and skips about 225,000, of which 197,538 are
+the 211 files under `skills/`. The gap is not mainly volume. The skipped files
+are the instructions that shape every future agent run, so a defect there
+propagates into the prose the checked surface is judged on.
 
-The rules it does enforce are the ones already obeyed. Across 554,000 words the
-phrase apparatus produces roughly two true positives, and raw word-rule
-precision measures 1.7%, rising to about 16% once domain terms are excluded.
-The two highest-volume matches are shirabe's own terms of art: `tier` is 128 of
-156 alerts in a `docs/` run because Tier 1-4 is its decision vocabulary, and
-`journey` at 112 hits is a required heading in its own BRIEF format. A banned
-word list fires hardest against the repo that wrote it, and every adopter has
-equivalent collisions with no way to declare them.
+The rules it does enforce are the ones already obeyed. The phrase apparatus
+produces roughly two true positives across 554,000 words of `docs/` and
+`skills/` prose. On `docs/` alone, 397,000 prose words, raw word-rule precision
+measures 1.7%, rising to about 16% once domain terms and the one document that
+quotes the rulebook are excluded. In that run, over all 47 words and 290 total
+alerts, the two highest-volume matches are shirabe's own terms of art:
+`tier`/`tiers`/`tiered` at 147 because Tier 1-4 is its decision vocabulary, and
+`journey` at 112 because `## User Journeys` is a required heading in its own
+BRIEF format. A banned word list fires hardest against the repo that wrote it,
+and every adopter has equivalent collisions with no way to declare them.
 
 The defect that does recur is one no copy can express. Counting body prose
-only, em dashes run 3,114 in `docs/` and 1,188 in `skills/`, 7.84 per thousand
-words with 72% of files above 3 per thousand and the worst at 28.5. Frequency
+only, em dashes run 3,114 in `docs/` and 1,188 in `skills/`. In `docs/` that is
+7.84 per thousand words, with 72% of files above 3 per thousand and the worst
+at 28.5; `skills/` runs a comparable 7.59 with 36% of files above 3. Frequency
 is a document-level property, so a model composing one sentence cannot see it,
 and no check in the validator counts occurrences or computes a rate against a
 threshold. Bold density and sentence-length uniformity have the same shape.
@@ -93,50 +96,69 @@ on their next docs PR with no action from them.
 ## User Stories
 
 **As a shirabe maintainer editing a prose rule,** I want the edit to take
-effect everywhere the rule is enforced, so that I do not have to find and
-update three copies and hope I found them all.
+effect everywhere the rule is enforced, so that I don't have to find three
+copies and hope I found them all.
 
 **As a shirabe skill author editing `skills/execute/SKILL.md`,** I want prose
-findings on the file I am editing, so that the instructions shaping every agent
+findings on the file I'm editing, so that the instructions shaping every agent
 run get the same scrutiny as the artifacts those runs produce.
 
 **As a drafting skill at its validate phase,** I want findings that name the
-document-level properties I could not observe while composing, so that I revise
-on information I did not already have.
+document-level properties I couldn't observe while composing, so that I revise
+on information I didn't already have.
 
 **As a maintainer of a repo that adopts shirabe,** I want to declare the words
 my project uses as terms of art, so that the checking stops firing on them
 without my having to disable it or fork the rulebook.
 
 **As a maintainer of an adopting repo on the day this ships,** I want my builds
-to keep passing, so that a capability I did not ask for does not block my
-merges.
+to keep passing, so that a capability I didn't ask for doesn't block my merges.
 
 ## Requirements
 
 ### Functional
 
-**R1. Single rule source.** The writing-style rules SHALL have exactly one
-authoritative representation in the repository, and every enforcing surface
-SHALL read from it rather than restating it. The three current copies SHALL be
-reduced to that one source plus references to it.
+**R1. Single rule source, read at enforcement time.** The writing-style rules
+SHALL have exactly one authoritative representation in the repository, and
+every enforcing surface SHALL read from it **at enforcement time** rather than
+restating it or embedding a copy at build time. The three current copies SHALL
+be reduced to that one source plus references to it.
 
-**R2. Both consumers resolve identically.** The rule source SHALL be readable
-by the validator and by the drafting skills through the same resolution, so a
-rule honored at validate time is honored while drafting and the reverse. A
-source honored by only one consumer does not satisfy R1.
+The build-time clause is load-bearing and not pedantry. A build script that
+reads the source at compile time and bakes a constant into the binary would
+satisfy a requirement phrased only as "exactly one authoritative
+representation", while reproducing the exact defect this PRD opens with: the
+design that specified FC10 required the validator read the list at validate
+time so updates would propagate, and the shipped code hardcodes it.
 
-**R3. Instruction-file coverage.** The checking SHALL be able to run against
-files that are not artifact-prefixed, specifically SKILL.md, CLAUDE.md,
-AGENTS.md, and README.md. The current format gate returns "All checks passed"
-for these, which SHALL no longer be the case when prose checking is requested
-for them.
+**R2. Both consumers read the same file at the same commit.** The validator and
+the drafting skills SHALL each read the same rule file at the same commit,
+reached through whichever root that consumer already uses: `.shirabe-src/` for
+the validator in CI, the plugin root for a drafting skill, the repository
+checkout for a local run. Identical path strings are not required and would
+forbid the natural design. What is required is that no consumer can be
+enforcing a different rule set than another at the same commit. A source
+honored by only one consumer does not satisfy R1.
+
+**R3. Instruction-file coverage.** `shirabe validate <file>` SHALL produce
+prose findings by default for files that are not artifact-prefixed. The class
+is defined by exclusion rather than by an allow-list: any Markdown file the
+validator is handed that carries no artifact prefix is in scope, which covers
+SKILL.md, CLAUDE.md, AGENTS.md, README.md, and their `.local.md` variants.
+Prose checks and prose checks only apply to these; the structural checks that
+presuppose an artifact schema SHALL NOT fire on them. The current format gate
+returns "All checks passed" for every file in this class.
 
 **R4. Prose scoping.** Findings SHALL be reported against prose only. Matches
-inside fenced code blocks, inline code spans, URLs, table delimiters, and
-frontmatter SHALL NOT be reported. This is a stated requirement rather than an
-implementation detail, because a frequency measurement that counts code fences
-is not the measurement the author is being asked to act on.
+inside fenced code blocks, inline code spans, URLs, table rows, and frontmatter
+SHALL NOT be reported. Headings ARE prose for this purpose and SHALL be
+included in both findings and any frequency denominator. That ruling is
+required here rather than left open because it moves the corpus figure: 3,114
+em dashes in `docs/` counting headings, against 2,785 counting body paragraphs
+alone, and the measurement is not reproducible without knowing which was meant.
+This is a stated requirement rather than an implementation detail, because a
+frequency measurement that counts code fences is not the measurement the author
+is being asked to act on.
 
 **R5. Accurate locations.** A finding SHALL carry the line number of the
 occurrence in the file as the author sees it. The current check reports
@@ -166,6 +188,12 @@ term-scoped, suppressing named terms while leaving every other rule active. It
 SHALL NOT be rule-scoped: suppressing `tier` must not disable the word rules
 and cost the repo the other 46 terms.
 
+Matching SHALL be case-insensitive, so a declared `tier` suppresses `Tier`.
+Matching SHALL NOT extend to morphological variants: a declared `tier` does not
+suppress `tiered`, which is a separate entry on the rule list and a term a repo
+may legitimately want flagged while using `Tier 1-4` as vocabulary. A repo
+wanting both declares both.
+
 **R9. Vocabulary extends, never replaces.** A repository's declaration SHALL
 extend shirabe's rules rather than substitute for them. A repo that declares
 terms SHALL continue to receive later rule additions, corrections, and removals
@@ -178,11 +206,18 @@ declared through the same mechanism an adopter uses, not shipped as built-in
 exemptions. A term suppressed in one repository SHALL NOT be suppressed in
 another.
 
-**R11. Non-breaking arrival.** Every rule SHALL ship at a severity that does
-not fail an adopter's build on the release that introduces it. Measured:
-error-level on first release would fail 92 of shirabe's 124 validator-visible
-docs and roughly half of koto's and niwa's corpora, reaching all three the day
-it merged.
+**R11. Non-breaking arrival.** A rule SHALL ship, on the release that
+introduces it, at a severity that does not fail an adopter's build. Notice
+level satisfies this. Draft-tolerable does not, for the first release only, and
+the reason is recorded in the decisions below: it depends on a workflow change
+every adopter inherits at `@main`. This requirement binds the introducing
+release; promotion afterwards is R12's business. The measured
+impact is threshold-contingent and the threshold is R7's to fix, so the range
+is what binds: at 3 em dashes per thousand words, error level would fail 92 of
+shirabe's 124 validator-visible docs, 47% of koto's corpus, 49% of niwa's, and
+20% of tsuku's. At 15 per thousand it is 11 of 124. No threshold in the
+plausible range brings the day-one failure count to zero, and all three
+adopters would see the result the day it merged.
 
 **R12. Promotion condition is an artifact.** A rule shipped below error level
 SHALL have its promotion precondition recorded as a filed, tracked issue with a
@@ -191,11 +226,15 @@ number rather than "the corpus is clean." Nine check codes currently sit at
 notice level behind a comment promising a cleanup PR; no such PR or issue
 exists for any of them, and no code has been promoted out of the notice set.
 
-**R13. No silent registration.** Adding a check code SHALL register it in every
-list that gates it. Six of the seventeen current registration touchpoints fail
-silently when missed, and two are already stale in the shipped tree, naming
-`FC01`-`FC13` where the truth is `FC01`-`FC16`. The stale copies SHALL be
-corrected.
+**R13. No silent registration.** If a check code is added, it SHALL be
+registered in every list that gates it. R14 makes the addition conditional; the
+stale-prose obligation below is unconditional. Six of the seventeen current
+registration touchpoints fail silently when missed.
+
+Independently of whether a code is added, the two stale prose copies SHALL be
+corrected: the help text in `crates/shirabe/src/main.rs` and
+`docs/guides/multi-consumer-cli-contract.md` both say `FC01`-`FC13` against a
+registry of `FC01`-`FC16`.
 
 **R14. Exactly one prose check code.** Exactly one check code SHALL be
 emittable for the writing-style rules. The capability SHALL NOT leave two
@@ -222,10 +261,14 @@ the drafting agent firing on terms the validator has been told to ignore, which
 is the same split R2 exists to close for the rule source.
 
 **R17. Day-zero behavior is stated.** A repository that has declared no
-vocabulary SHALL receive the unsuppressed rate. This is recorded rather than
-mitigated: the measurements put raw word-rule precision at 1.7%, rising to
-about 16% once domain terms are excluded, so the declaration does most of the
-precision work and every adopter begins without one. R11 keeps that from
+vocabulary SHALL receive findings for every term on the rule list, including
+any that are its own terms of art. Nothing is suppressed by default and no
+allowance is made for a repository that has not configured itself. This is
+recorded rather than
+mitigated: on `docs/` the measurements put raw word-rule precision at 1.7%,
+rising to about 16% once domain terms and the one document that quotes the
+rulebook are excluded, so the declaration does most of the precision work and
+every adopter begins without one. R11 keeps that from
 failing a build; it does not make the findings worth reading. Writing a
 declaration is an adopting repository's first action, and the documentation
 SHALL say so.
@@ -261,7 +304,10 @@ from its side.
       `skills/**` outside the rule source itself and
       `skills/writing-style/evals/`.
 - [ ] Appending a sentinel term to the rule source causes `shirabe validate` to
-      report it on a fixture containing that term, with no other file edited.
+      report it on a fixture containing that term, with no other file edited and
+      without rebuilding the binary. A rebuild passing this criterion while an
+      un-rebuilt binary fails it means the rules are embedded at build time,
+      which R1 forbids.
 - [ ] The rule set the validator applies at runtime is set-equal to the rule set
       parsed from the source file; a test asserts the equality and names the
       count.
@@ -364,7 +410,7 @@ from its side.
 - **Prose in commit messages, issue bodies, and PR descriptions.** That prose
   does not land on disk in a checkable location.
 - **Repairing FC10's existing defects as defects of FC10.** The properties in
-  R4 and R5 are required of whatever ships, and R14 fixes that exactly one
+  R4 and R5 are required of whatever ships, and R14 requires that exactly one
   prose check code survives. What stays out is treating today's line-number
   offset and code-fence matching as bugs to be filed and fixed on their own; an
   implementation satisfying R4 and R5 makes them moot.
@@ -378,10 +424,19 @@ whether an adopter must be able to read it without installing shirabe. They do
 not need to: the reusable workflow checks out the entire shirabe repo at the
 called ref into `.shirabe-src` and builds the binary from that checkout, so a
 committed rule file is already on the runner at the commit that produced the
-binary. Alternatives considered: a release asset, a vendored copy in each
-adopter, and a published package. All three introduce a fetch that can fail and
-a skew between rules and binary that the in-repo option makes structurally
-impossible. Recorded as R18 and R19.
+binary.
+
+Four alternatives were considered, and they don't fail the same way. A release
+asset and a published package each add a fetch that can fail and a version an
+adopter can pin independently of the binary. A vendored copy in each adopter
+adds no fetch at all; it drifts silently instead, and shirabe has no freshness
+detector for adopter-side copies. Compiling the rules into the binary with
+`include_str!` is the nearest neighbour to today's FC10 and is named here
+because the DESIGN will otherwise reopen it: it can't drift and it's simple,
+but it embeds the rules at build time, which R1 forbids for the reason the
+Problem Statement gives. The in-repo file wins because it's the only option
+where the rules and the enforcement can't disagree and the rules are still read
+at enforcement time. Recorded as R18 and R19.
 
 That rationale is CI-specific, and R2 requires the rule source reach a local
 run and a drafting skill as well. In-repo satisfies those too and for a
@@ -415,9 +470,11 @@ to answer it rather than leaving a consumer to discover the answer from a
 parse failure.
 
 **Frequency rules ship below error level with a filed promotion condition.**
-Error on first release would fail 92 of shirabe's 124 validator-visible docs and
-about half of koto's and niwa's corpora, reaching all three adopters
-immediately because they pin `@main`. The alternative considered was shipping
+Error on first release, at a 3-per-thousand threshold, would fail 92 of
+shirabe's 124 validator-visible docs, 47% of koto's corpus and 49% of niwa's,
+reaching all three adopters immediately because they pin `@main`. A laxer
+threshold shrinks the count without reaching zero: 11 of 124 at 15 per
+thousand. The alternative considered was shipping
 error-level after a corpus cleanup, which the evidence rejects: nine codes have
 sat at notice level behind a comment promising cleanup, no cleanup issue exists
 for any of them, and no code has ever been promoted. A promise recorded only in
@@ -430,7 +487,7 @@ release, not dismissed. It is the only posture that both enforces and survives
 contact with the current corpus, and its machinery already exists. It is
 rejected because `validate-docs.yml` does not thread `--mode` today, so
 adopting it would make the first release depend on a workflow change that
-every adopter inherits at `@main` — trading a noise problem for a behavior
+every adopter inherits at `@main`, trading a noise problem for a behavior
 change in three repositories that have not been asked. It becomes the natural
 posture at promotion time, once the R12 issue's condition is met.
 
