@@ -1,0 +1,35 @@
+{
+  "topic": "vale-adoption",
+  "upstream": "docs/prds/PRD-vale-adoption.md",
+  "execution_mode": "auto",
+  "decisions": [
+    {
+      "id": 1,
+      "question": "What enforces the prose rules: an external linter invoked by the validator, a widened native check compiled into shirabe-validate, or a split where different surfaces use different engines?",
+      "binds": ["R1", "R2", "R6", "R18", "R19"],
+      "status": "pending",
+      "report": "wip/design_vale-adoption_decision_1_report.md"
+    },
+    {
+      "id": 2,
+      "question": "In what format does the single rule source live, such that the validator parses it at enforcement time and a drafting skill reads it as instructions, without either restating it?",
+      "binds": ["R1", "R2"],
+      "status": "pending",
+      "report": "wip/design_vale-adoption_decision_2_report.md"
+    },
+    {
+      "id": 3,
+      "question": "How does a repository declare its vocabulary, given that only Repo Visibility has a compiled reader today and no shirabe config file exists?",
+      "binds": ["R8", "R9", "R10", "R16", "R17"],
+      "status": "pending",
+      "report": "wip/design_vale-adoption_decision_3_report.md"
+    },
+    {
+      "id": 4,
+      "question": "How does the file-selection gate change to cover instruction files, walk or reject directories, and make FC-CONVENTIONS reachable, without firing schema-dependent checks on non-artifacts?",
+      "binds": ["R3", "R12a", "R4", "R5"],
+      "status": "pending",
+      "report": "wip/design_vale-adoption_decision_4_report.md"
+    }
+  ]
+}

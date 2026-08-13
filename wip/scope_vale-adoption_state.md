@@ -12,20 +12,23 @@ planned_chain:
   - design
   - plan
 chain_skipped: []
-chain_ran: []
 design_roster_shape:
   p1_architectural_alternatives: fires
   p2_new_component_references: fires
   p3_complex_classification: fires
 chain_ran:
   - brief
+  - prd
 child_snapshots:
   brief:
     status: Accepted
     captured_at: 2026-08-13T20:58:00Z
+  prd:
+    status: Accepted
+    captured_at: 2026-08-13T21:26:00Z
 execution_mode: auto
 parent_orchestration:
-  invoking_child: prd
+  invoking_child: design
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 ```
