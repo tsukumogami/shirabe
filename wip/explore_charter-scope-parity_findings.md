@@ -126,6 +126,19 @@ accepts an arbitrary VISION path and derives its own slug. The child is strictly
 capable than the parent here — `/charter` rejects paths by construction. That is the
 workaround the live fan-out was built with.
 
+**A coincidence hides all of this.** On a same-slug run where the `/vision` skip does
+fire, `/charter` hands that same VISION to `/strategy` as its upstream. So reuse of an
+unwritten-this-run upstream is *already happening* on every skipped-`/vision` run — it
+just rides on slug identity and is recorded only as protection. No state field says
+this run's STRATEGY hangs off an upstream the run did not produce.
+
+Charter's own requirements gesture at the missing concept and lose it in
+implementation: `PRD-shirabe-charter-skill.md:290-294` scopes the skip to a VISION
+"matching the chain's scope," a scope-match notion the implementation renders as an
+exact-slug path check and nothing more. SKILL.md similarly promises upstream references
+are "detected during Phase 1 discovery by inspecting the topic-related child docs that
+exist in the repo" — a phrase never operationalized beyond that same slug check.
+
 ## 5. Where 1:N actually breaks the CLI — and it is the tactical chain
 
 Six concentrated sites, not a diffuse assumption.
@@ -195,6 +208,10 @@ nothing catching it, because those directories are not validated.
 - Is `PRD -> DESIGN` fan-out intended, tolerated, or forbidden? No document says. It
   happens three times and has a documented producing mechanism, which reads as
   intended — but the CLI's posture model has no answer for it.
+- Where does a split DESIGN's second document land in `/scope`'s state? The fan-out is
+  created by the child mid-run — `/design`'s split heuristic — which `/scope` cannot
+  see at Phase 1. `/scope` has one `design` slot with one canonical path, and the
+  hand-back R20 check tests one canonical artifact path. Undefined today.
 - If a document legitimately belongs to two chains at different postures, what *is*
   the intended passing state? This is a product question about whether posture belongs
   to the chain or the edge.

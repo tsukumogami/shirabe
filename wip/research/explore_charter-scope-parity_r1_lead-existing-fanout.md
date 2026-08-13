@@ -371,6 +371,65 @@ live artifacts in the private repo were therefore either hand-authored or had
 `upstream:` hand-edited after a freeform run. That is an inference from the
 code paths, not something confirmed against the private repo.
 
+### 7. What `/charter` does about a second ROADMAP under the same VISION
+
+Round-2 corpus context from another lead: 7 ROADMAPs point straight at a
+VISION versus 4 at a STRATEGY, so authors skip the STRATEGY altitude more
+often than they use it.
+
+**`/charter` cannot produce that shape at all, and never asks the question.**
+
+- `/strategy` is unconditional: "There is no condition under which `/charter`
+  skips `/strategy`"
+  (`skills/charter/references/phases/phase-2-chain-orchestration.md:188-196`).
+  Every run mints a new STRATEGY.
+- `/roadmap` is then handed `--upstream <the just-produced STRATEGY>`
+  (`.../phase-2-chain-orchestration.md:362-372`). A charter-produced ROADMAP's
+  upstream is always the STRATEGY from that same run.
+- `/roadmap`'s own gate is unconditional with no on-disk inspection; the only
+  skip is an author declination at the confirmation prompt
+  (`.../phase-2-chain-orchestration.md:229-238, 350-359`). Its resume ladder is
+  keyed on `docs/roadmaps/ROADMAP-<topic>.md`
+  (`skills/roadmap/SKILL.md:219-228`). Nothing counts sibling roadmaps or looks
+  at the VISION.
+
+So on the second `/charter` run the ROADMAP lands at `ROADMAP-B.md` under
+`STRATEGY-B.md` under the duplicate `VISION-B.md`. The count under the real
+VISION-A does not change; the duplicate gets a fresh subtree. The system never
+notices, and "would this be the second ROADMAP under that VISION" is a
+question no code path can pose.
+
+**The format forbids the shape the corpus prefers, and the validator permits
+it.** `skills/roadmap/references/roadmap-format.md:74-88` rejects
+ROADMAP-on-VISION: "A ROADMAP whose upstream skipped to the VISION would leave
+the bet it is sequencing unreachable ... A roadmap written without a STRATEGY
+-- one that emerged from exploration, or that traces only to a VISION --
+**omits the field** rather than reaching past its neighbour." But
+`check_upstream_resolves` tests only that the path exists on disk and is
+git-tracked (`crates/shirabe-validate/src/checks.rs:784-810`) -- **there is no
+type check on `upstream:`**. A ROADMAP pointing at a VISION validates clean.
+That is how the 7-versus-4 split survives.
+
+The by-hand route to the shape authors actually use is
+`/roadmap <topic-b> --upstream docs/visions/VISION-A.md`, which `/roadmap`
+accepts verbatim -- the contract "accepts the path with no basename
+enforcement" (`.../phase-2-chain-orchestration.md:365-368`).
+
+### 8. A third strategic 1:N that `/charter` cannot express
+
+VISION -> VISION. The vision format defines `scope: org | project` and an
+optional `upstream: docs/visions/VISION-<parent>.md`, "path to parent VISION
+when a project-level doc derives from an org-level one. Project-level only;
+omit for org-level" (`skills/vision/references/vision-format.md:26-40`). It
+appears in no chain diagram -- `references/pipeline-model.md:109-118` roots
+the chain at an unparented VISION.
+
+`/charter` has no notion of either field. It passes `/vision` the topic slug
+and nothing else (`.../phase-2-chain-orchestration.md:64-71`), so it cannot
+site a project VISION under an org VISION any more than it can site a second
+STRATEGY under one VISION. Same root cause: one slug, one canonical path, no
+parent input.
+
 ## Implications
 
 - The one demonstrably-working fan-out (ROADMAP -> features) is **not a
@@ -426,6 +485,16 @@ code paths, not something confirmed against the private repo.
 - **`STRATEGY` is not a recognized prefix in the upstream walk**
   (`crates/shirabe-validate/src/finalize.rs:426-451`) -- reaching one would
   produce `NodeAction::Error`.
+- **`upstream:` has no type check.** `check_upstream_resolves` tests existence
+  and git-tracking only (`crates/shirabe-validate/src/checks.rs:784-810`), so a
+  ROADMAP pointing at a VISION -- which `roadmap-format.md:74-88` explicitly
+  forbids -- validates clean. That is how the corpus's 7-on-VISION versus
+  4-on-STRATEGY split survives CI.
+- **The VISION -> VISION link is fully specified and appears in no diagram.**
+  `scope: org | project` plus optional `upstream: docs/visions/VISION-<parent>.md`
+  are frontmatter fields (`skills/vision/references/vision-format.md:26-40`);
+  `references/pipeline-model.md:109-118` roots the chain at an unparented
+  VISION. `/charter` knows about neither field.
 
 ## Open Questions
 
