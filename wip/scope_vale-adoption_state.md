@@ -10,6 +10,7 @@ planned_chain:
   - brief
   - prd
   - design
+  - design
   - plan
 chain_skipped: []
 design_roster_shape:
@@ -19,6 +20,7 @@ design_roster_shape:
 chain_ran:
   - brief
   - prd
+  - design
 child_snapshots:
   brief:
     status: Accepted
@@ -26,9 +28,12 @@ child_snapshots:
   prd:
     status: Accepted
     captured_at: 2026-08-13T21:26:00Z
+  design:
+    status: Accepted
+    captured_at: 2026-08-13T22:05:00Z
 execution_mode: auto
 parent_orchestration:
-  invoking_child: design
+  invoking_child: plan
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 ```
