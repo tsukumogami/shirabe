@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 upstream: docs/prds/PRD-vale-adoption.md
 problem: |
   shirabe's writing-style rules live in three divergent copies, only one of
@@ -27,7 +27,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Accepted
 
 Four decision questions were evaluated in parallel, each with equal-depth
 alternatives. Their reports are the audit trail for the choices below.
