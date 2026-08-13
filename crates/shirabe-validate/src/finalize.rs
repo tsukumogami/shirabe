@@ -42,6 +42,19 @@
 //! it stays non-terminal and remains a blocking referrer for its own ancestors.
 //! The block propagates upward with no additional rule.
 //!
+//! ## The guard fails open, and says so
+//!
+//! The guard is only as good as the index behind it, and failing closed would
+//! let one malformed document block every finalization in the repository. So an
+//! index that comes up short does not stop the walk -- but every node the walk
+//! then retires carries a note saying the check was incomplete. That covers the
+//! partial failure as much as the total one: a single document dropped during
+//! index construction yields a map missing whatever it referred to, which looks
+//! from the inside exactly like a document nothing refers to. The note is the
+//! only thing that tells those two apart, so it must reach the caller's rendered
+//! output rather than sitting in the report for whoever thinks to read it --
+//! `run-cascade.sh` puts it on the step's `detail` and logs it.
+//!
 //! ## Why the PLAN is a delete, not a transition
 //!
 //! The input PLAN's filename resolves through `detect_format` to the `Plan`
@@ -489,8 +502,9 @@ pub fn walk_chain_mode(plan_path: &str, mode: Mode) -> Result<Report, WalkError>
     // written, so every verdict below is taken against the corpus as it stood
     // when the walk started. The index-construction errors are the fail-open
     // half of the guard: an unindexable corpus yields a thinner map rather than
-    // a refusal, and surfacing that is a separate change.
-    let (referrers, _index_errors) = crate::lifecycle::build_referrer_map(&repo_root);
+    // a refusal, and every node the walk then retires says so.
+    let (referrers, index_errors) = crate::lifecycle::build_referrer_map(&repo_root);
+    let gap = referrer_map_gap(&repo_root, &index_errors);
 
     // ---- Discovery: every branch, in written order, each document once. ----
     let mut nodes: Vec<WalkNode> = vec![WalkNode {
@@ -551,6 +565,18 @@ pub fn walk_chain_mode(plan_path: &str, mode: Mode) -> Result<Report, WalkError>
             nodes[i].entry.blocked_by = blocked.blocked_by;
             nodes[i].entry.note = Some(blocked.note);
             continue;
+        }
+        // The fail-open note, on every node this walk retires on a transition.
+        // It is recorded in both modes: a dry run that cannot see the whole
+        // corpus is reporting a verdict it could not fully take, which is worth
+        // exactly as much warning as applying one. The input PLAN carries no
+        // note -- its deletion is unconditional and never consulted the map --
+        // and a blocked node carries its block instead, since the hazard is
+        // retiring something, not declining to.
+        if verdict.retires && nodes[i].entry.target_status.is_some() {
+            if let Some(gap) = &gap {
+                nodes[i].entry.note = Some(gap.note_for(&nodes[i].entry.path));
+            }
         }
         if mode != Mode::Apply || !verdict.retires {
             continue;
@@ -826,6 +852,89 @@ fn decide(
 
     verdicts[i] = Eval::Done(verdict.clone());
     verdict
+}
+
+/// The opening of the fail-open note. Both ways the map can come up short get
+/// the same sentence, because they are the same hazard: the guard cleared a
+/// retirement it could not fully check.
+const GUARD_GAP_NOTE: &str = "retirement guard could not see the whole corpus";
+
+/// How many unindexable documents the note names before it stops listing.
+const GAP_NAMES_SHOWN: usize = 3;
+
+/// A gap in the referrer map the guard's verdicts were taken against.
+///
+/// The guard is only as complete as the index behind it, and the index can come
+/// up short in two ways. *Totally*: the corpus root does not resolve, nothing is
+/// indexed, and the map is empty. *Partially*: individual documents fail to
+/// parse or canonicalize during index construction and are dropped, so the map
+/// is missing whatever they referred to. The partial case is the one that
+/// actually happens -- one malformed document is a normal state for a repository
+/// mid-edit -- and it is the silent one, since a thinner map looks exactly like
+/// a document nothing refers to. Both produce this note.
+struct ReferrerMapGap {
+    /// What went short, rendered into the note after the shared opening.
+    cause: String,
+}
+
+impl ReferrerMapGap {
+    /// The note as it lands on one retired node.
+    fn note_for(&self, path: &str) -> String {
+        format!(
+            "{}: {}; {} is retired without a complete check of what still refers to it",
+            GUARD_GAP_NOTE, self.cause, path
+        )
+    }
+}
+
+/// Whether the referrer map the guard just consulted is known to be incomplete.
+///
+/// The total case is checked with the index's own canonicalization primitive
+/// against the root, which is the one condition under which index construction
+/// gives up before reading a single document. The partial case is the index's
+/// own construction errors: each is a document that was dropped from the index
+/// and whose upstreams are therefore missing from the map.
+///
+/// A directory the index skips because it cannot be read is neither -- it
+/// produces no error and leaves the root resolvable -- so it stays outside what
+/// this can report.
+fn referrer_map_gap(
+    repo_root: &Path,
+    index_errors: &[crate::ValidationError],
+) -> Option<ReferrerMapGap> {
+    if crate::lifecycle::canonicalize_indexed_path(repo_root).is_none() {
+        return Some(ReferrerMapGap {
+            cause: format!(
+                "the corpus root {} could not be resolved, so no document was indexed",
+                repo_root.display()
+            ),
+        });
+    }
+    if index_errors.is_empty() {
+        return None;
+    }
+    let mut named: Vec<&str> = index_errors.iter().map(|e| e.file.as_str()).collect();
+    named.sort_unstable();
+    named.dedup();
+    let shown = named
+        .iter()
+        .take(GAP_NAMES_SHOWN)
+        .copied()
+        .collect::<Vec<&str>>()
+        .join(", ");
+    let listed = if named.len() > GAP_NAMES_SHOWN {
+        format!("{}, and {} more", shown, named.len() - GAP_NAMES_SHOWN)
+    } else {
+        shown
+    };
+    Some(ReferrerMapGap {
+        cause: format!(
+            "{} document{} could not be indexed ({})",
+            named.len(),
+            if named.len() == 1 { "" } else { "s" },
+            listed
+        ),
+    })
 }
 
 /// A referrer's path as the report shows it: relative to the repo root when it
@@ -2134,6 +2243,180 @@ mod tests {
             "note: {}",
             block.note
         );
+    }
+
+    // ---- Issue 10: the fail-open note ----
+
+    /// Write a document the index cannot read: the frontmatter opens and never
+    /// closes, which is a parse failure rather than a document without
+    /// frontmatter. It is dropped from the index, so whatever it referred to is
+    /// missing from the referrer map -- the partial failure, which is the one
+    /// that actually happens.
+    fn write_unindexable_doc(root: &Path, rel_path: &str) -> String {
+        let path = root.join(rel_path);
+        fs::create_dir_all(path.parent().unwrap()).expect("mkdir doc dir");
+        fs::write(&path, "---\nschema: x/v1\nstatus: Draft\n\n## Status\n").expect("write doc");
+        run_git(root, &["add", rel_path]);
+        path.to_string_lossy().into_owned()
+    }
+
+    /// Build the standard BRIEF -> PRD -> DESIGN -> PLAN chain in a fresh repo,
+    /// returning the repo root and the PLAN's path.
+    fn chain_repo(slug: &str) -> (PathBuf, String) {
+        let root = fresh_git_repo();
+        let brief = write_repo_doc(
+            &root,
+            &format!("docs/briefs/BRIEF-{}.md", slug),
+            "Accepted",
+            None,
+            "",
+        );
+        let prd = write_repo_doc(
+            &root,
+            &format!("docs/prds/PRD-{}.md", slug),
+            "Draft",
+            Some(&brief),
+            "",
+        );
+        let design = write_repo_doc(
+            &root,
+            &format!("docs/designs/DESIGN-{}.md", slug),
+            "Draft",
+            Some(&prd),
+            "",
+        );
+        let plan = write_repo_doc(
+            &root,
+            &format!("docs/plans/PLAN-{}.md", slug),
+            "Draft",
+            Some(&design),
+            "",
+        );
+        (root, plan)
+    }
+
+    /// One document that fails to index leaves the map missing whatever it
+    /// referred to, and the walk carries on retiring against it. Every node it
+    /// retires says so, in both modes -- this is the reachable half of the
+    /// fail-open compromise and the half that would otherwise be silent, since
+    /// a thinner map is indistinguishable from a document nothing refers to.
+    #[test]
+    fn a_partial_index_failure_notes_every_retired_node() {
+        let (root, plan) = chain_repo("partial");
+        write_unindexable_doc(&root, "docs/prds/PRD-unreadable.md");
+
+        let report = walk_chain_mode(&plan, Mode::Apply).expect("apply ok");
+
+        for needle in ["DESIGN-partial.md", "PRD-partial.md", "BRIEF-partial.md"] {
+            let node = node_for(&report, needle);
+            let note = node.note.as_deref().unwrap_or_else(|| {
+                panic!("{} must carry the fail-open note; got {:?}", needle, node)
+            });
+            assert!(note.starts_with(GUARD_GAP_NOTE), "{}: {}", needle, note);
+            assert!(
+                note.contains("PRD-unreadable.md"),
+                "the note names what could not be indexed: {}",
+                note
+            );
+            // Fail *open*: the transition still happened.
+            assert!(!node.blocked, "{} must not be blocked", needle);
+            assert!(node.new_status.is_some(), "{} was still retired", needle);
+        }
+
+        // The input PLAN's deletion never consulted the map, so it carries no
+        // note about the map being short.
+        assert_eq!(report.nodes[0].action.as_str(), "delete_plan");
+        assert_eq!(report.nodes[0].note, None);
+
+        // And it reaches the rendered report the caller parses.
+        let json = report.to_json();
+        assert!(
+            json.contains(&format!("\"note\": \"{}", GUARD_GAP_NOTE)),
+            "{}",
+            json
+        );
+    }
+
+    /// The same note in a dry run: a verdict the guard could not fully take is
+    /// worth the same warning whether or not it is applied.
+    #[test]
+    fn a_dry_run_carries_the_fail_open_note_too() {
+        let (root, plan) = chain_repo("partialdry");
+        write_unindexable_doc(&root, "docs/briefs/BRIEF-unreadable.md");
+
+        let report = walk_chain_mode(&plan, Mode::DryRun).expect("dry-run ok");
+        let note = node_for(&report, "PRD-partialdry.md")
+            .note
+            .clone()
+            .expect("the note is recorded in dry-run too");
+        assert!(note.starts_with(GUARD_GAP_NOTE), "{}", note);
+        assert!(note.contains("BRIEF-unreadable.md"), "{}", note);
+    }
+
+    /// A corpus that indexes cleanly says nothing: the note is a signal, not
+    /// decoration, so it must not fire on the ordinary path.
+    #[test]
+    fn a_clean_corpus_carries_no_fail_open_note() {
+        let (_root, plan) = chain_repo("clean");
+
+        let report = walk_chain_mode(&plan, Mode::Apply).expect("apply ok");
+        for node in &report.nodes {
+            assert_eq!(
+                node.note, None,
+                "clean corpus, unexpected note on {:?}",
+                node
+            );
+        }
+        assert!(!report.to_json().contains(GUARD_GAP_NOTE));
+    }
+
+    /// The total failure -- no document indexed at all -- produces the same
+    /// note as the partial one. It is checked against the gap helper directly
+    /// because the walk cannot reach it: `repo_root_for` derives the root from
+    /// an existing file that path validation has already stat'd, so the root
+    /// always resolves by the time the map is built.
+    #[test]
+    fn a_total_index_failure_produces_the_same_note() {
+        let missing = fresh_dir().join("no-such-corpus");
+        let gap = referrer_map_gap(&missing, &[]).expect("an unresolvable root is a gap");
+        let note = gap.note_for("docs/prds/PRD-x.md");
+        assert!(note.starts_with(GUARD_GAP_NOTE), "{}", note);
+        assert!(note.contains("no document was indexed"), "{}", note);
+        assert!(note.contains("docs/prds/PRD-x.md"), "{}", note);
+
+        // A resolvable root with no index errors is not a gap.
+        let clean = fresh_dir();
+        assert!(referrer_map_gap(&clean, &[]).is_none());
+    }
+
+    /// The note names the documents that were dropped, and stops naming them
+    /// before it turns into a wall of paths.
+    #[test]
+    fn the_gap_note_names_what_was_dropped_and_stops_at_three() {
+        let root = fresh_dir();
+        let errs: Vec<crate::ValidationError> = ["d.md", "c.md", "b.md", "a.md"]
+            .iter()
+            .map(|f| crate::ValidationError {
+                file: f.to_string(),
+                line: 1,
+                code: "L05".to_string(),
+                message: "frontmatter parse failed".to_string(),
+            })
+            .collect();
+        let note = referrer_map_gap(&root, &errs)
+            .expect("index errors are a gap")
+            .note_for("docs/prds/PRD-x.md");
+        assert!(
+            note.contains("4 documents could not be indexed"),
+            "{}",
+            note
+        );
+        assert!(note.contains("a.md, b.md, c.md, and 1 more"), "{}", note);
+
+        let one = referrer_map_gap(&root, &errs[..1])
+            .expect("one index error is a gap")
+            .note_for("docs/prds/PRD-x.md");
+        assert!(one.contains("1 document could not be indexed"), "{}", one);
     }
 
     /// The pure decision core encodes the fail-closed policy directly: only a

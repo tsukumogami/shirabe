@@ -281,6 +281,12 @@ The `detail` field is the recovery surface. Every `skipped` or `failed` step mus
 include a sentence that names what was being attempted and why it could not proceed,
 written so an agent can act on it without reading the script.
 
+An `ok` step carries a `detail` only when finalize-chain attached a note to the node —
+today, when its retirement guard could not see the whole corpus and cleared a transition
+it could not fully check. The step succeeded, so it is not a failure to recover from;
+without the detail the caveat would live only in finalize-chain's own JSON, which nothing
+downstream reads.
+
 **Error message contract:**
 
 Each failure class has a prescribed message format so the agent sees consistent,
