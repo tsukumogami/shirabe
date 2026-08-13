@@ -23,10 +23,10 @@ motivating_context: |
 
 Draft
 
-The framing is tool-neutral by construction. Whether the answer is an
-external linter, a widened native check, or a mix is a DESIGN decision;
-the exploration left three architectural alternatives open and this brief
-does not settle them.
+The framing is tool-neutral by construction. The answer might be an
+external linter, a widened native check, or a mix; that choice is a DESIGN
+decision. The exploration left three architectural alternatives open and
+this brief does not settle them.
 
 ## Problem Statement
 
@@ -36,7 +36,8 @@ consistently.
 The governing rules live in `skills/writing-style/SKILL.md`: roughly 60
 banned words plus phrase patterns, structural patterns, formatting tells,
 over-formality substitutions, and four cognitive tells. That rulebook has
-been copied three more times: into a seven-word constant in the validator
+been copied three more times: into a seven-word constant behind the
+validator's FC10 check
 (`crates/shirabe-validate/src/checks.rs:2551`), into a five-word quick
 reference in the workspace CLAUDE.md, and into a five-word instruction
 inside the BRIEF jury's structural reviewer. A fifth pointer, from
@@ -54,17 +55,20 @@ CLAUDE.md, AGENTS.md, and README.md in the repo. That leaves 211 files and
 the prose that instructs every future agent run.
 
 The harder half of the problem is that widening the word list would buy
-almost nothing. Measured across 554,000 words of this workspace's prose,
-the phrase and word rules that take up most of the rulebook produce
-roughly two true positives; raw word-rule precision measures 1.7%. The two
-highest-volume matches are domain vocabulary: `tier` at 147 hits is the
-Tier 1–4 decision-complexity vocabulary, and `journey` at 112 hits is a
-required BRIEF section heading. A drafting model reliably avoids
-"leverage." The rules it obeys are the mechanizable ones.
+almost nothing. The phrase apparatus that takes up most of the rulebook
+produces roughly two true positives across 554,000 words of this
+workspace's prose, and raw word-rule precision measures 1.7%, rising to
+about 16% once the domain terms are excluded. The two highest-volume
+matches are that domain vocabulary: in a run over `docs/`, `tier` accounts
+for 128 of 156 alerts and is the Tier 1–4 decision-complexity vocabulary,
+and `journey` at 112 hits is a required BRIEF section heading. A drafting
+model reliably avoids the words already on the seven-word list. The rules
+it obeys are the mechanizable ones.
 
 What no copy of the rulebook catches is frequency. Em dashes run 3,195 in
-`docs/` and 1,222 in `skills/`: 7.84 per thousand words, with 72% of
-files above 3 per thousand and the worst at 28.5. The rulebook names em
+`docs/` and 1,222 in `skills/`. In `docs/` that is 7.84 per thousand
+words, with 72% of files above 3 per thousand and the worst at 28.5;
+`skills/` runs a comparable 7.59. The rulebook names em
 dash overuse as a formatting tell and the corpus it governs is saturated
 with it, because frequency is a document-level property and a model
 composing one sentence at a time cannot see it. Bold density and
@@ -108,8 +112,8 @@ a file that instructs a model, do not register as defects.
 phase. The trigger is the artifact landing on disk. Today FC10 runs and
 reports seven words against the body, including matches inside fenced code
 blocks and URLs, at line numbers offset by the length of the frontmatter.
-The outcome shape is that the phase gets accurate findings, right line and
-prose only, and that those findings name the document-level properties the
+The outcome shape is that the phase gets accurate findings (right line,
+prose only) and that those findings name the document-level properties the
 drafting model could not observe about its own output.
 
 ### An adopter repo inherits the checking without configuring it
@@ -166,20 +170,26 @@ enforces it.
 - Cleaning the existing corpus. Bringing 3,195 em dashes under whatever
   threshold gets chosen is follow-on work, and it is the reason a
   threshold rule cannot ship enabled-and-blocking on day one.
-- Three defects the exploration surfaced in passing: FC10's frontmatter
-  line-number offset, FC10's matches inside code fences and URLs, and
-  `check_claude_md_conventions` being unreachable because `detect_format`
-  never routes CLAUDE.md to it. Each is independently fileable and none
-  depends on this feature's outcome.
+- Repairing three defects in the existing check, as defects of that
+  check: FC10's frontmatter line-number offset, FC10's matches inside code
+  fences and URLs, and `check_claude_md_conventions` being unreachable
+  because `detect_format` never routes CLAUDE.md to it. Each is
+  independently fileable. Note the boundary carefully: whatever checking
+  this feature settles on must report correct line numbers and skip code
+  fences, inline code, and URLs by construction, and that property is IN
+  scope. Fixing today's FC10 so that it has those properties is not, and
+  the two stop being the same question only if FC10 is replaced rather
+  than extended, which Open Question 2 leaves open.
 - Prose checking on commit messages, issue bodies, and PR descriptions.
   That prose never lands on disk in a checkable location, and the
   plumbing to reach it is disproportionate to the value.
 
 ## Open Questions
 
-- Does the single rule source live in the repo that owns the rules
-  (shirabe) or in a location the adopter repos can also read directly?
-  The PRD picks this against the adopter-distribution constraint.
+- Must an adopter repo be able to read the single rule source without
+  installing shirabe? The answer bounds where that source can live, and
+  the PRD can settle the requirement even though the location is a DESIGN
+  choice.
 - Is FC10 replaced or extended? The answer follows from the mechanism
   choice, but the PRD should state which outcome counts as success so the
   DESIGN is not free to leave two overlapping checks in place.
