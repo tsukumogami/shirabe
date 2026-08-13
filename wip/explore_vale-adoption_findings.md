@@ -140,7 +140,7 @@ a smaller change than adopting a new tool.
 
 | Location | Scope | Enforcement |
 |---|---|---|
-| `skills/writing-style/SKILL.md` | ~60 words, 7 phrases, 7 structural, 5 formatting, 6 substitutions, 4 cognitive | model judgment |
+| `skills/writing-style/SKILL.md` | 47 words (7+15+10+8+7 across five categories), 7 phrases, 7 structural, 5 formatting, 6 substitutions, 4 cognitive | model judgment |
 | `crates/shirabe-validate/src/checks.rs:2551` | 7 words | deterministic, notice |
 | workspace `CLAUDE.md` quick reference | 5 entries | model judgment |
 | `skills/brief/references/phases/phase-4-validate.md:244` | 5 entries | jury agent judgment |

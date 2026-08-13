@@ -4,8 +4,8 @@ status: Draft
 problem: |
   shirabe's writing-style rulebook lives in three divergent copies, only
   one of which is mechanical. That copy checks seven words, cannot see the
-  files where most agent-authored prose lives, and misses the one defect
-  class that recurs measurably in the prose it governs.
+  instruction files that shape every future agent run, and misses the one
+  defect class that recurs measurably in the prose it governs.
 outcome: |
   One rule source enforced the same way on both prose surfaces (agent
   instructions and drafted artifacts), reporting the defects a drafting
@@ -34,9 +34,10 @@ It ships a writing-style rulebook that its skills apply while drafting,
 and it ships a validator that checks the artifacts those skills produce.
 The rulebook and the validator disagree about what the rules are.
 
-The rules live in `skills/writing-style/SKILL.md`: roughly 60 banned words
-plus phrase patterns, structural patterns, formatting tells,
-over-formality substitutions, and four cognitive tells. That rulebook has
+The rules live in `skills/writing-style/SKILL.md`: 47 banned words across
+five categories, plus phrase patterns, structural patterns, formatting
+tells, over-formality substitutions, and four cognitive tells. That
+rulebook has
 been copied twice more inside this repo: into a seven-word constant behind
 the validator's FC10 check (`crates/shirabe-validate/src/checks.rs:2551`),
 and into a five-word instruction inside the BRIEF jury's structural
@@ -59,8 +60,7 @@ any adopter repo, where the unchecked surface is that repo's CLAUDE.md and
 its own skill and instruction files.
 
 The harder half of the problem is that widening the word list would buy
-almost nothing. Measured on shirabe's own corpus, which is the largest
-body of shirabe-authored prose available and so the fairest test case
+almost nothing. Measured on shirabe's own corpus, the fairest test case
 this repo can run: the phrase apparatus produces roughly two true
 positives across 554,000 words, and raw word-rule precision measures 1.7%,
 rising to about 16% once domain terms and the one document that quotes the
