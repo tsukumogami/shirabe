@@ -110,13 +110,22 @@ That is a reason to fix it before the shape becomes common, not after — and th
 currently *suppressing* findings, since a parent passes the orphan rule precisely because
 it has children.
 
-It is not latent everywhere, and design research corrected this document on the point. A
-ROADMAP reached by walking up from a PLAN becomes a member of that PLAN's chain while also
-rooting a chain of its own, so it carries two obligations in the ordinary corpus shape —
-no multi-valued `upstream:`, no two plan roots, no fan-out of any kind. Combined with the
-one asymmetric ROADMAP cell noted in Terms, a ROADMAP at a terminal status above a live
-chain is already given disjoint requirements today. The shared-member problem is therefore
-reachable by a plain two-chain shape, not only by the fan-out that motivated this work.
+The shared-member problem is nonetheless reachable without any fan-out, and design research
+corrected this document on the point. A ROADMAP reached by walking up from a PLAN becomes a
+member of that PLAN's chain while also rooting a chain of its own, so it can carry two
+obligations with no multi-valued `upstream:` and no second plan root. The enabling edge is
+narrow — the walk stops at a BRIEF, so the shape needs a PRD, DESIGN, or PLAN whose
+frontmatter names a ROADMAP directly, which no document in any repository checked does
+today. So it is reachable by a plain two-chain shape rather than only by fan-out, but it is
+not currently occurring anywhere.
+
+Adjacent to it, and live: the requirements table cannot tell whether a posture came from a
+document's own chain or from a chain the document merely sits above. That produces a false
+positive today — one feature finishing beneath a live ROADMAP makes the validator demand
+that ROADMAP be deleted — and it is the same defect wearing a different face. The design
+treats it as a table fault to repair at its source rather than a lineage conflict to
+report, on the grounds that telling an author to fix correct and documented lineage is
+worse than saying nothing.
 
 Separately, the parent skills cannot record a relationship they already rely on, and do
 not admit when they cannot. Every path a parent resolves derives from one topic slug, so
