@@ -43,7 +43,11 @@ A **posture** is the state a chain as a whole is in, inferred from its root: whe
 work is mid-flight or completing, and whether it runs as one pull request or many. A
 chain's posture determines, for each role in it, which document statuses are acceptable —
 the role's **required status set**. Postures fall into two **phase groups**: in-flight and
-completing. Within a group the required sets agree; across groups they do not.
+completing. Across groups the required sets differ. Within a group they agree for every
+role but one: a ROADMAP is required present at one completing posture and absent at the
+other, so two postures in the same group can still impose disjoint sets on it. That
+exception was found during design research, after this document first claimed the
+within-group agreement held generally.
 
 Separately, the validator runs in two modes: **whole-tree**, which evaluates every chain
 in a corpus, and **chain-targeted**, which is asked about one document and evaluates the
@@ -99,12 +103,20 @@ today, left by one commit that deleted a DESIGN and a PLAN which five siblings p
 at. Neither gate catches them — CI validates only the files a pull request changed, and
 the whole-tree check passes them because they are terminal.
 
-The unsatisfiability is latent rather than live: it needs two plan roots under one
-upstream in different phase groups, and plans are deleted at completion, so every
-fan-out on disk today is post-completion with nothing live beneath it. That is a reason
-to fix it before the shape becomes common, not after — and the fan-out is currently
-*suppressing* findings, since a parent passes the orphan rule precisely because it has
-children.
+The unsatisfiability is mostly latent for the fan-out shapes this document is about: those
+need two plan roots under one upstream in different phase groups, and plans are deleted at
+completion, so every fan-out on disk today is post-completion with nothing live beneath it.
+That is a reason to fix it before the shape becomes common, not after — and the fan-out is
+currently *suppressing* findings, since a parent passes the orphan rule precisely because
+it has children.
+
+It is not latent everywhere, and design research corrected this document on the point. A
+ROADMAP reached by walking up from a PLAN becomes a member of that PLAN's chain while also
+rooting a chain of its own, so it carries two obligations in the ordinary corpus shape —
+no multi-valued `upstream:`, no two plan roots, no fan-out of any kind. Combined with the
+one asymmetric ROADMAP cell noted in Terms, a ROADMAP at a terminal status above a live
+chain is already given disjoint requirements today. The shared-member problem is therefore
+reachable by a plain two-chain shape, not only by the fan-out that motivated this work.
 
 Separately, the parent skills cannot record a relationship they already rely on, and do
 not admit when they cannot. Every path a parent resolves derives from one topic slug, so
