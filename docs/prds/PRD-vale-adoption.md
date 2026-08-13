@@ -340,9 +340,23 @@ succeeds or fails against. The DESIGN owns it.
 ## Known Limitations
 
 The committed corpus does not pass at error level today for reasons unrelated
-to prose: five dangling `upstream:` links from a deleted design produce R6
-errors. Any framing that treats "the corpus is clean" as a starting condition is
-currently false.
+to prose. Validating every file under `docs/` explicitly returns 5 errors, all
+R6 dangling `upstream:` links, alongside 139 notices of which 97 are FC10 and
+33 are files skipped for a missing `schema` field. Any framing that treats "the
+corpus is clean" as a starting condition is currently false.
+
+The format gate that R3 addresses has a third consequence beyond skipping
+instruction files, and it is the one most likely to mislead. `shirabe validate`
+takes a file list and resolves each entry through the same prefix match, with no
+directory walk: an argument that is a directory matches no prefix and is
+skipped. `shirabe validate -- docs` therefore reports "All checks passed" at
+exit 0 having validated nothing, while the same corpus passed as an explicit
+file list reports 5 errors and 139 notices. CI is unaffected because the
+reusable workflow passes changed files individually, but a maintainer checking
+their corpus by hand gets a green result from a run that read no files. This
+PRD does not require a directory walk; it records the behavior because R3's
+value is easy to underestimate while it is described only as missing coverage
+of instruction files.
 
 Instruction-file coverage is only half deliverable from shirabe's side. shirabe
 can make the checking exist and can apply it to its own repo; reaching an

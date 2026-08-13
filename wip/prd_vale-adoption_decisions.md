@@ -32,3 +32,25 @@ dependencies in its checking path, and any DESIGN proposing an external
 binary on every adopter's CI runner has to argue against it rather than
 around it. Recorded here so the DESIGN inherits it as a constraint to
 address.
+
+**A directory argument silently validates nothing.** Found while trying to
+reproduce the research's claim of five pre-existing R6 errors. `shirabe
+validate -- docs` returns "All checks passed" at exit 0 with an empty
+`findings` array; the same corpus passed as an explicit file list returns 5
+errors and 139 notices (97 FC10, 33 SCHEMA skips, 7 FC08, 5 R6, 1 FC09, 1
+FC15). The mechanism is the same prefix gate R3 addresses: `main.rs:604`
+resolves each argument through `detect_format(basename(path))` and `continue`s
+on `None`, and there is no directory walk, so a directory name matches no
+artifact prefix and is skipped like any other non-matching file.
+
+Three consequences now trace to one root cause: instruction files are skipped,
+`check_claude_md_conventions` is unreachable, and a directory argument reports
+clean having read nothing. Recorded in the PRD's Known Limitations rather than
+as a requirement, because requiring a directory walk is a separate change and
+the PRD should not grow scope to absorb every symptom of a defect it already
+addresses at the root.
+
+Worth noting for the DESIGN: the first attempt to verify the corpus claim
+produced a false negative, and the false negative was itself an instance of
+the defect under investigation. A checking surface that reports success
+without having run is the failure mode this whole feature is about.
