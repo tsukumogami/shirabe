@@ -22,6 +22,7 @@ pub mod merge_gate;
 pub mod mermaid;
 pub mod pr_body;
 pub mod report;
+pub mod rules;
 pub mod table;
 pub mod transition;
 pub mod upstream;

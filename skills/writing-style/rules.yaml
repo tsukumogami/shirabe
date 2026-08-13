@@ -1,0 +1,136 @@
+# Writing-style rules: the single authoritative source.
+#
+# Read at enforcement time by `shirabe validate` (the prose check family) and
+# pointed at by skills/writing-style/SKILL.md. Nothing restates this list;
+# a copy of it anywhere under crates/ or skills/ is a defect the CI
+# word-list check fails on.
+#
+# Resolution order for the validator: --rules flag, then SHIRABE_RULES env
+# var, then an ancestor walk for skills/writing-style/rules.yaml. A missing
+# or unparseable file is a tool error; the validator never proceeds over an
+# empty rule set.
+#
+# schema: writing-style-rules/v1
+
+schema: writing-style-rules/v1
+
+# Banned words, grouped by the category the guidance uses. `terms` is the
+# match data; `guidance` is what an author or a drafting model is told.
+words:
+  - category: organizing
+    guidance: Prefer level, category, or phase. These read as structure the
+      writing does not have.
+    terms:
+      - tier
+      - tiered
+      - robust
+      - comprehensive
+      - holistic
+      - crucial
+      - pivotal
+      - paramount
+
+  - category: verbs
+    guidance: Prefer the plain verb. Most of these are longer ways to say
+      use, help, or show.
+    terms:
+      - leverage
+      - utilize
+      - facilitate
+      - delve
+      - foster
+      - navigate
+      - showcase
+      - grapple
+      - transcend
+      - elucidate
+      - underscore
+      - highlight
+      - enhance
+      - align with
+      - garner
+
+  - category: descriptors
+    guidance: These assert a quality instead of demonstrating it. Cut, or
+      replace with the specific claim.
+    terms:
+      - innovative
+      - transformative
+      - profound
+      - vibrant
+      - seamless
+      - meticulous
+      - invaluable
+      - nuanced
+      - groundbreaking
+      - intricate
+
+  - category: abstract-nouns
+    guidance: Name the concrete thing. These stand in for a noun the writer
+      has not chosen yet.
+    terms:
+      - journey
+      - narrative
+      - tapestry
+      - testament
+      - resilience
+      - interplay
+      - realm
+
+  - category: adverb-openers
+    guidance: Cut the opener. The sentence carries the same meaning without it.
+    terms:
+      - Additionally
+      - Notably
+      - Ultimately
+      - Seamlessly
+      - Significantly
+      - Furthermore
+      - Moreover
+
+# Rules the rulebook carries that no matcher can decide. They are listed
+# here so the source stays complete and the drafting consumer still reads
+# them; the validator does not match on them. Dropping them silently to
+# make the file tidy would recreate the divergence this file exists to end.
+judgment_only:
+  - rule: landscape used figuratively
+    guidance: "\"competitive landscape\" is a term of art; \"the landscape of
+      modern tooling\" is the tell. The qualifier is the rule, and only a
+      reader can apply it."
+  - rule: synonym cycling
+    guidance: Repeat the word. Deciding that two words are the same concept
+      needs the concept.
+  - rule: from X to Y on no real scale
+    guidance: Measured 0 true positives in 46 corpus hits; every one was a
+      genuine state transition. Judgment only.
+  - rule: forced rule of three
+    guidance: A matcher can count three items. Knowing the true count is
+      different is the rule.
+  - rule: low information density
+    guidance: Well-formed sentences that say nothing. No token matcher
+      reaches this; a fluent vacuous document produced ten alerts under
+      three off-the-shelf style packages and none concerned the vacuity.
+  - rule: empty conclusions
+    guidance: Requires comparing a paragraph against everything before it.
+  - rule: this/that/these without antecedent
+    guidance: Coreference resolution, not pattern matching.
+  - rule: vague attribution without citation
+    guidance: The phrase is matchable; whether a citation is present, near,
+      and supporting is not.
+
+# Frequency rules evaluate a rate against a threshold rather than the
+# presence of a pattern. Every field here is required: the threshold,
+# denominator, unit, and finding_line are the four values R7 requires be
+# decided and recorded rather than left to the implementation.
+frequency:
+  - id: em-dash-density
+    guidance: Em dash frequency is a document-level property. A model
+      composing one sentence cannot see the rate, which is why this rule
+      exists and why it reports per document rather than per occurrence.
+    pattern: "—"
+    threshold_per_thousand: 10
+    denominator: scoped-prose-words
+    unit: document
+    finding_line: first-occurrence
+    message: em dash density is {rate} per thousand words, above the
+      threshold of {threshold}
