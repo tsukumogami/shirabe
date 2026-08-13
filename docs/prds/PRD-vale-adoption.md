@@ -193,25 +193,53 @@ silently when missed, and two are already stale in the shipped tree, naming
 `FC01`-`FC13` where the truth is `FC01`-`FC16`. The stale copies SHALL be
 corrected.
 
-**R14. Check-code retirement, if any, SHALL be non-breaking.** Retiring a code
-SHALL NOT turn a previously valid `--check <code>` invocation into a tool
-error, and the code SHALL remain selectable as a no-op for at least one
-release. No deprecation path exists today.
+**R14. Exactly one prose check code.** Exactly one check code SHALL be
+emittable for the writing-style rules. The capability SHALL NOT leave two
+overlapping prose checks registered, whether by adding a code beside the
+existing one or by leaving a superseded code emitting. This is the success
+condition for the extend-not-retire decision.
+
+**R15. Retirement, if a later change chooses it, SHALL be non-breaking.** This
+requirement constrains a path R14's decision does not take; it is stated
+because R14 forecloses retirement for this capability, not for all time.
+Retiring a check code SHALL NOT turn a previously valid `--check <code>`
+invocation into a tool error, and the code SHALL remain selectable as a no-op
+for at least one release. Retirement SHALL also state whether removing a code
+from the emittable set is additive to `shirabe-validate/v1` or requires a
+version bump, because the contract document versions the envelope shape and is
+silent on the code vocabulary. No deprecation path exists today and neither
+question is answered anywhere in the repository.
+
+**R16. The vocabulary declaration is resolvable by every enforcing consumer.**
+The declaration SHALL be resolvable from the file being checked, by the
+validator, by a drafting skill, and by a local or pre-commit run, without CI
+wiring. A declaration honored only in CI does not satisfy R8: it would leave
+the drafting agent firing on terms the validator has been told to ignore, which
+is the same split R2 exists to close for the rule source.
+
+**R17. Day-zero behavior is stated.** A repository that has declared no
+vocabulary SHALL receive the unsuppressed rate. This is recorded rather than
+mitigated: the measurements put raw word-rule precision at 1.7%, rising to
+about 16% once domain terms are excluded, so the declaration does most of the
+precision work and every adopter begins without one. R11 keeps that from
+failing a build; it does not make the findings worth reading. Writing a
+declaration is an adopting repository's first action, and the documentation
+SHALL say so.
 
 ### Non-functional
 
-**R15. No new runtime dependency for adopters.** The capability SHALL NOT
+**R18. No new runtime dependency for adopters.** The capability SHALL NOT
 require an adopting repository's CI to install or fetch anything it does not
 install today. The reusable workflow already checks out the shirabe repo at the
 called ref and builds from source, so any rule file committed to shirabe is
 already present on the runner at the exact commit that produced the binary.
 
-**R16. Version skew SHALL be structurally impossible on the CI path.** The
+**R19. Version skew SHALL be structurally impossible on the CI path.** The
 rules and the enforcement SHALL originate from the same ref. The CI binary is
 version-anonymous today, so a requirement phrased as a version compatibility
 assertion has nothing to compare against.
 
-**R17. Adopters SHALL need no workflow edit for artifact coverage.** A
+**R20. Adopters SHALL need no workflow edit for artifact coverage.** A
 capability scoped to the paths adopters already filter on SHALL reach them with
 no change to their caller workflows. Coverage of instruction files outside
 those filters SHALL be documented as requiring an adopter-side change, because
@@ -223,8 +251,11 @@ from its side.
 - [ ] The writing-style rules exist in exactly one authoritative location; the
       FC10 constant and the BRIEF jury's inline word list are replaced by
       references to it.
-- [ ] A rule added to that source is honored by `shirabe validate` and by a
-      drafting skill without a second edit.
+- [ ] A rule added to that source is honored by `shirabe validate` without a
+      second edit, verified mechanically.
+- [ ] The same added rule is honored by a drafting skill without a second edit,
+      verified by a skill eval under `skills/writing-style/evals/` run through
+      `scripts/run-evals.sh`.
 - [ ] `shirabe validate` produces prose findings for a SKILL.md, a CLAUDE.md, an
       AGENTS.md, and a README.md.
 - [ ] A banned word inside a fenced code block, an inline code span, a URL, and
@@ -245,10 +276,26 @@ from its side.
       severity produces exit code 0 in all four.
 - [ ] A filed issue exists, referenced from the check's documentation, naming a
       numeric promotion condition for every rule shipped below error level.
-- [ ] `--check <code>` succeeds for every code named in the contract doc,
-      including any retired as a no-op.
-- [ ] The check-code ranges in `cmd/shirabe` help output and in
-      `docs/guides/multi-consumer-cli-contract.md` agree with the registry.
+- [ ] `--check <code>` succeeds for every code that `is_known_check_code`
+      accepts, including any retired as a no-op.
+- [ ] The check-code range printed by `shirabe validate --help` and the range
+      stated in `docs/guides/multi-consumer-cli-contract.md` both agree with the
+      set `is_known_check_code` accepts.
+- [ ] Exactly one check code emits writing-style findings; validating a document
+      containing a banned word in prose produces findings under one code, not
+      two.
+- [ ] A vocabulary declaration is honored by `shirabe validate` run locally with
+      no CI environment present, on the same file, with the same result CI
+      produces.
+- [ ] The reusable workflow's diff against its pre-change version adds no
+      install, fetch, download, or package-manager step.
+- [ ] A CI run's log shows the rule source and the validator binary resolving
+      from the same commit SHA.
+- [ ] An adopter caller workflow left byte-for-byte unchanged produces prose
+      findings on a PR touching `docs/**`.
+- [ ] The documentation states that a repository with no vocabulary declaration
+      receives the unsuppressed rate, and names writing a declaration as the
+      first adopter action.
 
 ## Out of Scope
 
@@ -284,8 +331,10 @@ from its side.
 - **Prose in commit messages, issue bodies, and PR descriptions.** That prose
   does not land on disk in a checkable location.
 - **Repairing FC10's existing defects as defects of FC10.** The properties in
-  R4 and R5 are required of whatever ships. Whether today's check is repaired or
-  superseded follows from the mechanism choice.
+  R4 and R5 are required of whatever ships, and R14 fixes that exactly one
+  prose check code survives. What stays out is treating today's line-number
+  offset and code-fence matching as bugs to be filed and fixed on their own; an
+  implementation satisfying R4 and R5 makes them moot.
 
 ## Decisions and Trade-offs
 
@@ -299,7 +348,14 @@ committed rule file is already on the runner at the commit that produced the
 binary. Alternatives considered: a release asset, a vendored copy in each
 adopter, and a published package. All three introduce a fetch that can fail and
 a skew between rules and binary that the in-repo option makes structurally
-impossible. Recorded as R15 and R16.
+impossible. Recorded as R18 and R19.
+
+That rationale is CI-specific, and R2 requires the rule source reach a local
+run and a drafting skill as well. In-repo satisfies those too and for a
+simpler reason: the file is present in any checkout of the repository being
+worked in, and the plugin already resolves references from its own root for
+the agent-side consumer. No option considered here serves CI and fails
+locally, so the CI argument decides it without the local case dissenting.
 
 **Vocabulary extends rather than replaces, and this diverges from precedent
 deliberately.** `--custom-statuses` is shirabe's only adopter-supplied list and
@@ -316,8 +372,14 @@ deprecation path, so `--check FC10` would go from working to a hard exit-1 tool
 error. Extending is materially cheaper and the repo has already rejected an
 FC-code rename once on the same churn reasoning. The counter-argument is that
 the code's name will no longer describe what it does. That is a real cost and
-it is accepted. Recorded as R14, which constrains retirement if a later change
-chooses it anyway.
+it is accepted. R14 records the success condition: exactly one prose check code
+survives.
+
+Because nothing is retired, the question of whether removing a code from the
+emittable set breaks `shirabe-validate/v1` does not arise for this capability.
+It remains unanswered in the repository, and R15 requires any later retirement
+to answer it rather than leaving a consumer to discover the answer from a
+parse failure.
 
 **Frequency rules ship below error level with a filed promotion condition.**
 Error on first release would fail 92 of shirabe's 124 validator-visible docs and
@@ -329,6 +391,15 @@ for any of them, and no code has ever been promoted. A promise recorded only in
 a comment has a demonstrated completion rate of zero here, which is why R12
 requires a filed issue with a numeric condition rather than "the corpus is
 clean." Recorded as R11 and R12.
+
+Draft-tolerable severity was the third option and it is rejected for the first
+release, not dismissed. It is the only posture that both enforces and survives
+contact with the current corpus, and its machinery already exists. It is
+rejected because `validate-docs.yml` does not thread `--mode` today, so
+adopting it would make the first release depend on a workflow change that
+every adopter inherits at `@main` — trading a noise problem for a behavior
+change in three repositories that have not been asked. It becomes the natural
+posture at promotion time, once the R12 issue's condition is met.
 
 **A remaining unknown, recorded rather than resolved.** The reporting unit for
 frequency findings varies annotation volume on shirabe's corpus by about thirty
