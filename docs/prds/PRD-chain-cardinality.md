@@ -52,6 +52,10 @@ chain containing it.
 **Consumer** means a document that names another as its `upstream:`. Where this document
 means a skill invocation reading an upstream, it says so.
 
+A **terminal status** is one from which a document has no forward transition — the end of
+its own lifecycle. For the document types whose lifecycle ends in removal, reaching
+terminal means the document is gone rather than present at some final status.
+
 ## Problem Statement
 
 Document lineage in this workspace is one-to-many. The format references say so — a
@@ -164,9 +168,10 @@ as they do now.
   the same entries in the same order.
 - **R2.** The upstream-resolution check SHALL evaluate each entry of a multi-valued
   `upstream:` independently and report one finding per entry that does not resolve.
-- **R3.** An `upstream:` field that is present but carries no entries SHALL report exactly
-  one finding identifying the field as empty. It SHALL NOT pass silently, and it SHALL NOT
-  report a path-shaped message about the empty string.
+- **R3.** An `upstream:` field that is present but names no target SHALL report exactly one
+  finding identifying the field as empty, whether it was written with no value at all or
+  as an empty sequence. It SHALL NOT pass silently, and the finding SHALL name the field
+  rather than reporting a placeholder as though it were a path.
 - **R4.** The chain walk SHALL treat every entry of a multi-valued `upstream:` as a
   membership edge, rather than retaining only the first.
 - **R5.** Every reader of the `upstream:` field SHALL interpret the same written value the
@@ -175,16 +180,17 @@ as they do now.
 
 ### Functional — chain evaluation
 
-- **R6.** The chain-targeted lifecycle check SHALL evaluate every chain that contains the
-  target document, rather than one selected chain. Where several chains produce the same
-  finding on the same document, it SHALL be reported once; where they produce different
-  findings, each SHALL be reported.
+- **R6.** Both the chain-targeted and the whole-tree lifecycle check SHALL evaluate every
+  chain that contains a document, rather than one selected chain. Two findings are the
+  same finding when they share a check code, a document path, and a required status set;
+  the same finding arising from several chains SHALL be reported once, and findings
+  differing in any of those three SHALL each be reported.
 - **R7.** Lifecycle findings SHALL NOT depend on document filenames. Renaming a document
-  without changing content SHALL NOT add, remove, or alter any finding on any document,
-  including the renamed one. The path a finding names may change with the rename; nothing
-  else may.
+  that no other document references, without changing content, SHALL NOT add, remove, or
+  alter any finding on any document. The path a finding names may change with the rename;
+  nothing else may.
 - **R8.** The chain-targeted mode and the whole-tree mode SHALL report the same findings
-  for the same document over the same corpus.
+  for the same document over the same corpus, compared after R6's deduplication.
 
 ### Functional — conflict diagnosis
 
@@ -208,9 +214,9 @@ as they do now.
 - **R13.** When R12 blocks a transition or a deletion, the walk SHALL report which
   documents still reference the blocked one.
 - **R14.** When a document in the finalization walk has more than one upstream, the walk
-  SHALL consider every one of them, and SHALL transition only those ancestors reachable
-  through all of them. An ancestor reachable through some upstreams but not others SHALL
-  be left untouched.
+  SHALL traverse every one of them rather than a single selected upstream, and SHALL apply
+  R12's rule to each ancestor it reaches. An ancestor is transitioned when the walk reaches
+  it and R12 does not block it; it is left untouched otherwise.
 
 ### Functional — upstreams a run did not produce
 
@@ -235,9 +241,10 @@ as they do now.
 - **R21.** The format references SHALL state which written shapes of `upstream:` are
   supported, so that every shape the tooling accepts is documented and no shape they
   document is rejected.
-- **R22.** The accepted acceptance criterion describing a path in a parent's positional
-  slot as slug-derived SHALL be corrected to match the rejection the parents actually
-  implement and that R16 preserves.
+- **R22.** Both accepted acceptance criteria describing a path in a parent's positional
+  slot as treated as a freeform topic after slug derivation — one in each parent skill's
+  own PRD — SHALL be corrected to match the rejection those parents implement and that R16
+  preserves. Each currently contradicts its own sibling criterion and its skill.
 
 ### Non-functional
 
@@ -246,13 +253,10 @@ as they do now.
   parity gate.
 - **R24.** No new frontmatter field, artifact type, or document status SHALL be
   introduced.
-- **R25.** The conflict finding SHALL be governed by the same posture mechanism as
-  existing lifecycle findings. Where posture suppresses it, the per-chain findings it
-  would have superseded SHALL be reported instead, so a conflicted document is never
-  silent.
-- **R26.** R9 through R11 SHALL be in place before R15 through R20 ship. No release SHALL
-  make it easier to create concurrent chains under one upstream before the conflict those
-  chains can produce is diagnosable.
+- **R25.** The conflict finding SHALL be reported under every condition in which the
+  status-lifecycle findings it supersedes would have been reported, and at no lower
+  severity. Replacing several findings with one SHALL never reduce what an author is told
+  or when they are told it.
 
 ## Acceptance Criteria
 
@@ -261,12 +265,16 @@ as they do now.
 - [ ] An `upstream:` written as a flow sequence behaves identically to the block form.
 - [ ] An `upstream:` written as a single-entry sequence resolves that entry and reports
       no error.
+- [ ] A sequence-valued frontmatter field other than `upstream:` survives parsing with
+      every entry recoverable.
+- [ ] A sequence with three entries is recoverable in the order written.
 - [ ] A multi-valued `upstream:` with one resolvable and one missing target reports
       exactly one finding, naming the missing path — not the empty string.
 - [ ] A present-but-empty `upstream:` reports exactly one finding naming the field as
       empty.
-- [ ] The same document with the same `upstream:` value produces consistent lineage under
-      the resolution check, the chain walk, and the finalization walk.
+- [ ] For a document with a two-entry `upstream:`, the same set of two upstream paths is
+      visible in all three of: the resolution check's findings, the document's chain
+      memberships, and the finalization walk's node list.
 - [ ] Running the chain-targeted check on a document shared by two chains reports the
       same findings as the whole-tree check reports for that document.
 - [ ] Renaming a plan file, with no content change anywhere in the corpus, produces the
@@ -278,15 +286,19 @@ as they do now.
       alongside the conflict finding.
 - [ ] Chain finalization proceeds when the only document still referencing the ancestor
       has itself reached a terminal status.
-- [ ] No release ships the upstream-recording requirements without the conflict-diagnosis
-      requirements already present.
-- [ ] A BRIEF shared by one in-flight chain and one completing chain produces a single
-      conflict finding naming both chains and both required statuses, and does not
-      additionally produce the two per-chain findings.
+- [ ] A run interrupted after recording a consumed upstream still has that record when
+      resumed.
+- [ ] A BRIEF at a status satisfying neither of its two chains — one in-flight, one
+      completing — produces a single conflict finding naming both chains and both required
+      status sets, and does not additionally produce the two per-chain findings it
+      replaces.
+- [ ] That same conflict finding is reported at the same severity, and under the same
+      modes, as the per-chain findings it replaced would have been.
 - [ ] A DESIGN shared by two chains whose required sets intersect at one status passes at
       that status with no finding, and no conflict finding is emitted.
-- [ ] Under a posture that suppresses the conflict finding, the same shared BRIEF still
-      reports the per-chain findings rather than reporting nothing.
+- [ ] A document whose two upstreams lead to different ancestors has both branches walked
+      at finalization: the ancestor R12 does not block is transitioned, and the one it
+      blocks is not.
 - [ ] Chain finalization against a plan whose ancestors are shared refuses to transition
       the shared ancestor and names the documents still pointing at it.
 - [ ] Chain finalization against a plan whose ancestors are unshared behaves exactly as
@@ -311,8 +323,10 @@ as they do now.
       tooling accepts every shape they name.
 - [ ] No frontmatter field, artifact type, or status exists after the change that did not
       exist before.
-- [ ] Validating all three repositories before and after produces identical output in
-      both draft and ready postures.
+- [ ] Validating every repository this change is tested against, before and after,
+      produces identical output in both draft and ready modes. The set is named in the
+      plan; it is at minimum this repository plus the two sibling public repositories that
+      hold the existing fan-out.
 - [ ] The existing test suite, including the cross-implementation parity gate, passes with
       no test modified or removed.
 
@@ -411,10 +425,15 @@ make concurrent chains more common. The alternative considered was to ship the v
 half alone and defer the parent half until the diagnosis had been exercised in practice.
 It was rejected because it leaves the brief's own outcome unmet for however long the
 deferral lasts — authors keep receiving silent duplicates — and because the two halves
-share a release, so the deferral would have to be enforced by memory. R26 encodes the
-ordering instead, since a requirement list is not itself an ordering contract and a plan
-that split this across pull requests could otherwise land the recording half first while
-conforming to every other word here.
+share a release, so the deferral would have to be enforced by memory.
+
+The ordering is a constraint on the work, not a property of the software, so it does not
+belong in the requirements: no state of the finished artifact can be inspected to check
+it, and a violation is only discoverable after it has already shipped. **The plan owns
+it** — R9 through R11 are a dependency edge blocking R15 through R20, encoded in the
+issue graph, which is an ordering contract in a way a requirement list is not. A draft of
+this document tried to state it as a requirement with an acceptance criterion; that
+criterion could only have been checked by walking release history, which is not a test.
 
 One hole in that guard is worth stating plainly rather than leaving to be discovered.
 R6 through R11 reach only the tactical chain, because the strategic directories are not
@@ -423,8 +442,8 @@ record consumed upstreams. So on the strategic chain the workflow becomes easier
 diagnosis exists at all. An earlier draft claimed this exposure was bounded by no
 strategic corpus existing; that was wrong, and the correction cuts against the decision
 rather than for it. A strategic corpus does exist outside this repository, and the
-shared-parent shape is already present in it. R26's ordering guard therefore protects the
-tactical chain and not the strategic one. That is a real gap, accepted here because
+shared-parent shape is already present in it. The plan's ordering edge therefore protects
+the tactical chain and not the strategic one. That is a real gap, accepted here because
 closing it means indexing documents this repository cannot validate against, and named so
 that the design and the work that follows do not inherit the comfortable version.
 
