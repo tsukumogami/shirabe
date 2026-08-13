@@ -179,11 +179,12 @@ not keyword lists.
 
 When none of the three categories fits the author's response, the
 default is no-signal. What no-signal costs depends on what is
-already on disk: it drops `/vision` from the chain proposal when an
-Accepted or Active VISION exists at the published path, and changes
-nothing on a cold start, where `/vision` runs either way (see the
-`/vision` Invocation Rule in
-`skills/charter/references/phases/phase-2-chain-orchestration.md`).
+already on disk or was supplied at invocation: it drops `/vision`
+from the chain proposal when an Accepted or Active VISION exists at
+the published path or the state file carries `consumed_upstream:`,
+and changes nothing on a cold start with no supplied upstream,
+where `/vision` runs either way (see the `/vision` Invocation Rule
+in `skills/charter/references/phases/phase-2-chain-orchestration.md`).
 
 Signal detection is agent judgment. The pattern-level requirement
 is: the thesis-shift question is SURFACED to the author (verbatim
@@ -241,8 +242,11 @@ Accepted VISION already exists and the thesis isn't shifting",
 "skip `/comp` because this repo is public and a COMP is
 private-only"). `/vision` is the only child whose entry turns on
 what is already on disk: it reads "run" on every cold start, and
-reads "skip" only when an Accepted or Active VISION exists at the
-published path and discovery surfaced no thesis shift.
+reads "skip" when an Accepted or Active VISION exists at the
+published path and discovery surfaced no thesis shift, or when the
+author supplied one with `--upstream` and Phase 0 recorded it (the
+reason then names the supplied upstream — "skip `/vision` because
+the chain was given an upstream VISION").
 `/strategy` and `/roadmap`
 always appear as "run" — both gates are unconditional. The author's
 opportunity to drop `/roadmap` comes later, at the roadmap

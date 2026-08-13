@@ -37,6 +37,7 @@ child-internals isolation rule is cited from
 - [Row 8 — `/vision` Partial Run](#row-8--vision-partial-run)
 - [Row 9 — On Topic-Related Branch](#row-9--on-topic-related-branch)
 - [Row 10 — On Main or Unrelated Branch](#row-10--on-main-or-unrelated-branch)
+- [Recorded-Upstream Re-Validation](#recorded-upstream-re-validation)
 - [Drift Detection (Child-Snapshot Dual Check)](#drift-detection-child-snapshot-dual-check)
 - [Status-Aware Re-Entry Suppression](#status-aware-re-entry-suppression)
 - [R14 Child-Internals Isolation](#r14-child-internals-isolation)
@@ -322,6 +323,51 @@ partial-run artifacts, and the current branch is not topic-related
 that validates the topic slug, creates the state file, and routes
 to Phase 1.
 
+## Recorded-Upstream Re-Validation
+
+When the state file carries `consumed_upstream:`, the ladder
+re-validates that value on EVERY re-entry, before any row's action
+runs and before the path is interpolated into a child invocation.
+The re-validation re-runs the whole step-0.4 battery from
+`skills/charter/references/phases/phase-0-setup.md` — canonicalize
+and bounds-check, `VISION-` basename, not under `wip/`, tracked by
+git, and the public-repo-to-private-upstream visibility check —
+against the worktree as it is NOW, not as it was when the value was
+recorded. A file tracked last week can be deleted or moved this
+week, and a repo's `## Repo Visibility:` header can change between
+sessions.
+
+**A recorded upstream that no longer resolves is surfaced, never
+silently ignored.** Silently dropping it would hand `/strategy` a
+chain with no upstream and produce a STRATEGY whose missing
+`upstream:` field looks like a document that never had one; silently
+keeping it would carry a dangling path into committed frontmatter.
+The ladder surfaces what failed — the recorded path and which check
+it now fails — and offers three options:
+
+- **Re-supply** — stop and ask the author to re-invoke
+  `/charter <topic> --upstream <path>` with a working path. The
+  recorded value is cleared from state so the next invocation
+  starts from the author's new one. This is the interactive
+  default.
+- **Continue without** — remove `consumed_upstream:` from the state
+  file and resume with no upstream. The produced STRATEGY omits
+  `upstream:`, which the run states plainly rather than leaving the
+  author to notice later.
+- **Bail** — route to the abandonment-forced exit path.
+
+Under `--auto` the ladder takes **Continue without** and announces
+it, because a blocking prompt has no place in a non-interactive
+run. Announcing is the load-bearing half: the auto default drops a
+link the author asked for, so the drop is reported in the run
+output whether or not anyone is watching.
+
+The visibility check deserves its own note. It can fail on a
+resume that had passed at Phase 0 — the repo went public, or the
+upstream moved into a private repo — and the outcome is the same as
+Phase 0's: the field is removed rather than carried, and the chain
+continues without it.
+
 ## Drift Detection (Child-Snapshot Dual Check)
 
 `/charter`'s state file records a `child_snapshots` block with one
@@ -548,10 +594,25 @@ sufficient for drift detection.
 The ladder reads only the documented sources (the three permitted
 sources in the R14 Child-Internals Isolation section above, plus
 the two child `wip/` artifact filenames explicitly named in rows
-7-8). No other child internals are consulted. The bounded read
+7-8, plus the existence and git-tracked status of the path in
+`consumed_upstream:` — metadata about that file, never its body).
+No other child internals are consulted. The bounded read
 surface is the R14-widened isolation rule's defense against
 contract drift — adding a new "permitted source" without revising
 this prose is itself a violation.
+
+### Recorded-Upstream Re-Validation Is a Second Interpolation Site
+
+The `consumed_upstream:` re-validation above is not a repeat of
+Phase 0's check on the same value — it is a second place where an
+author-supplied path enters the run, and it carries the same
+discipline. The recorded value is canonicalized to an absolute
+path, rejected if it resolves outside the working tree, and quoted
+and passed after `--` in any command the ladder emits (`git
+ls-files -- <path>`) and in the `/strategy` invocation it feeds. A
+state file is a file on disk that a hand-edit can change between
+sessions, so the value read back is treated as untrusted input
+exactly as the flag's original value was.
 
 ### Malformed State Fails Closed
 

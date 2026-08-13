@@ -32,10 +32,28 @@ the thesis-shift signal as its override. The settled statuses
 `/charter` invokes `/vision` unless an Accepted or Active VISION
 already exists at the published path. Phase 1 inspects
 `docs/visions/VISION-<topic>.md` for the topic slug; if nothing
-Accepted or Active is there, `/vision` runs. A cold start is
-therefore always a `/vision` run — there is no upstream thesis to
-build on, and nothing the author says about the thesis changes
-that.
+Accepted or Active is there, `/vision` runs. A cold start with no
+supplied upstream is therefore always a `/vision` run — there is no
+upstream thesis to build on, and nothing the author says about the
+thesis changes that.
+
+**A supplied upstream is an upstream thesis.** When the state file
+carries `consumed_upstream:` — the author invoked
+`/charter <topic> --upstream <vision-path>` and the value passed
+Phase 0 step 0.4 — the auto-skip half of the gate fires on that
+value rather than on the canonical path, and `/charter` records
+`/vision` in `chain_skipped` with a reason naming the supplied
+upstream. The thesis-shift override still applies: a positive
+signal fires `/vision` anyway, and a chain that authors its own
+VISION passes that one to `/strategy` instead.
+
+Skipping is the point of the flag rather than an optimization of
+it. The auto-skip condition has always been "an upstream thesis
+already exists"; the canonical-path check was the only way to
+observe one before the flag existed. Running `/vision` against a
+chain whose author just pointed at the thesis would write a second
+copy of it under this chain's slug, which is the duplication the
+flag exists to avoid.
 
 When an Accepted or Active VISION *does* exist at that path, the
 thesis-shift question decides whether `/vision` runs anyway. A
@@ -197,19 +215,29 @@ orchestration).
 
 `/charter` passes `/strategy` one of three valid upstream shapes.
 The three shapes are mutually exclusive — `/charter` picks the one
-that matches the chain's discovery outputs.
+that matches the chain's discovery outputs and the state file's
+`consumed_upstream:` field.
 
 1. **Freeform topic.** No upstream artifact path is available;
    `/charter` passes the topic slug alone, and `/strategy`'s
    Phase 1 grounds the conversation in the topic without an
    upstream document.
-2. **VISION path.** A VISION exists for the topic (either ran
-   earlier in this chain or already Accepted/Active at the
-   published path). `/charter` passes the VISION path; `/strategy`
-   reads it as its Input Mode 3 upstream.
+2. **VISION path.** A VISION is available — either `/vision` ran
+   earlier in this chain, or one is already Accepted/Active at the
+   published path, or the author supplied one with `--upstream`
+   and Phase 0 recorded it in `consumed_upstream:`. `/charter`
+   invokes `/strategy <topic-slug> --upstream <vision-path>`,
+   which is `/strategy`'s own upstream-flag input mode. The topic
+   slug stays in the positional slot and the VISION path travels
+   in the flag; see "Why the Slug and the Upstream Travel
+   Separately" below.
 3. **PRD path.** A PRD exists for the topic at a discoverable
-   path. `/charter` passes the PRD path; `/strategy` reads it as
-   the operationalizing input for the bet.
+   path. `/charter` passes the PRD path positionally; `/strategy`
+   reads it as the operationalizing input for the bet. A grounding
+   PRD never travels in `--upstream`, because that flag's value is
+   what `/strategy` records in `upstream:` frontmatter and a PRD is
+   never recorded (see the read-vs-record rule in
+   `skills/strategy/references/phases/phase-0-setup.md`).
 
    > *Open: whether a STRATEGY may be grounded in a tactical-chain PRD
    > at all is unresolved — see
@@ -223,6 +251,32 @@ accept / activate / sunset), which is mutually exclusive of the
 create-new mode the three shapes above invoke. Passing a STRATEGY
 path would route `/strategy` into a lifecycle transition rather
 than into the chain-orchestration flow `/charter` is driving.
+
+### Why the Slug and the Upstream Travel Separately
+
+`/strategy` derives its topic slug from the BASENAME of a
+positional path it is handed. So handing it the VISION positionally
+names the produced document after the VISION: a bet on
+`payment-retries` grounded in `docs/visions/VISION-platform.md`
+would land at `docs/strategies/STRATEGY-platform.md`, under a slug
+`/charter` never validated and never recorded, while `/charter`'s
+own state file, its `exit_artifacts:` list, and its R20
+file-existence check all still name `STRATEGY-payment-retries.md`.
+
+That has worked until now only because the two slugs coincided by
+construction: a chain that produced its own VISION produced it
+under the chain's topic slug. Consuming an upstream the chain did
+not produce is defined by that coincidence not holding — it is the
+whole point of the flag — so the hand-off cannot keep relying on
+it. Passing `<topic-slug> --upstream <vision-path>` decouples the
+two: the slug is the parent's, the upstream is a separate argument,
+and neither is derived from the other.
+
+`--upstream` is `/strategy`'s own flag, authored in its SKILL.md
+input modes and its Phase 0 contract and equally usable by an
+author invoking `/strategy` directly. `/charter` is choosing among
+the child's shipped input surface, not extending the child's
+argument parser — the R14 isolation rule holds unchanged.
 
 ## /roadmap Invocation Rule (R7)
 

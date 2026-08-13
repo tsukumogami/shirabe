@@ -16,7 +16,7 @@ description: >-
   (/design), or open-ended exploration (/explore). Drives a six-phase
   workflow: conversational scoping, structured drafting, structural
   fill, a two-reviewer jury, and finalization.
-argument-hint: '<feature topic, optional ROADMAP path, or BRIEF path + lifecycle verb>'
+argument-hint: '<feature topic, optional ROADMAP path, or BRIEF path + lifecycle verb> [--upstream <path>]'
 ---
 
 @.claude/shirabe-extensions/brief.md
@@ -127,6 +127,24 @@ chain. Reject with:
 > entry that names it (`/brief docs/roadmaps/ROADMAP-<name>.md`), then
 > point the PRD at the brief.
 
+Any of the modes above may carry `--upstream <path>`, naming the
+upstream ROADMAP separately from the topic. `/brief <topic-slug>
+--upstream docs/roadmaps/ROADMAP-<name>.md` produces
+`BRIEF-<topic-slug>.md` recording that ROADMAP as its upstream — the
+slug comes from the positional argument and the upstream from the
+flag, so the two need not share a name. Input Mode 3 is the special
+case where they do: a bare ROADMAP path supplies both at once, which
+only works while the feature's topic and the roadmap's filename
+coincide. A roadmap normally sequences several features, so they
+usually do not.
+
+The flag is parsed before the positional argument is classified, and
+its value is never treated as a topic. A bare `--upstream` with no
+value is rejected at Phase 0 naming the missing argument. The value
+must name a ROADMAP: the same basename rule Input Mode 3 enforces
+applies to the flag, PRD rejection included, because both feed the
+same recorded `upstream:` field.
+
 ### Context Resolution
 
 **Topic slug constraint.** The `<topic>` slug used in wip/ paths and
@@ -136,11 +154,21 @@ topic that contains other characters, including `.`, `/`, `_`, or
 whitespace. Without the constraint, a `../`-shaped topic could redirect
 verdict writes outside `wip/research/`.
 
+**Upstream:** check `$ARGUMENTS` for `--upstream <path>`. If present,
+the path is validated at Phase 0 and stored as the context file's
+`## Upstream Path`; Phase 2 writes it into the BRIEF's frontmatter.
+It points to the ROADMAP whose entry this feature is — the brief's
+immediate neighbour one level up the tactical chain. `/scope` passes
+it on every chain where a ROADMAP is available; an author invoking
+`/brief` standalone passes it when a ROADMAP exists that the topic
+slug does not name. When no ROADMAP exists, omit the flag; the
+upstream field is then omitted from frontmatter.
+
 **Path canonicalization.** Any user-supplied ROADMAP upstream path
-(Input Mode 3) must be canonicalized at Phase 0 and rejected if the
-canonical path resolves outside the repo working tree. Symlinks
-resolving to arbitrary filesystem content would otherwise leak into a
-public commit.
+(Input Mode 3) and any `--upstream` value must be canonicalized at
+Phase 0 and rejected if the canonical path resolves outside the repo
+working tree. Symlinks resolving to arbitrary filesystem content
+would otherwise leak into a public commit.
 
 **Visibility detection.** Detect Public/Private from CLAUDE.md or repo
 path. Infer from `private/` or `public/` in the path if not explicit.
@@ -213,7 +241,11 @@ unchanged when the sentinel is absent.
 - **Topic-slug constraint:** Phase 0 rejects topics not matching
   `^[a-z0-9-]+$`. Non-compliant topics never reach later phases.
 - **Path canonicalization:** Phase 0 canonicalizes and bounds-checks
-  any user-supplied upstream path.
+  any user-supplied upstream path, whether it arrived positionally or
+  as the `--upstream` flag's value.
+- **Slug independence:** the topic slug is never derived from the
+  `--upstream` value. A flag-supplied upstream names the brief's
+  parent, not the brief.
 - **Always produces a brief:** there is no branch that declines to
   write one. A brief whose framing turns out to be fully carried by
   its downstream PRD is removed by `/scope`'s consolidation

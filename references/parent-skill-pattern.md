@@ -256,7 +256,15 @@ prompt without learning about the parent that invoked it.
 The per-parent prohibition still holds — a parent SHALL NOT add
 flags or arguments to a child's `$ARGUMENTS` parser, and SHALL NOT
 extend the child's environment-variable surface with parent-named
-keys. The `parent_orchestration:` convention is the one named
+keys. What the prohibition forbids is a parent inventing an input
+the child would not otherwise have; passing a flag the child
+authors in its own SKILL.md and phase contracts, and that an author
+can hand the child directly, is choosing among the child's shipped
+modes. `--upstream <path>` is the worked example: `/brief`,
+`/strategy`, `/prd`, `/roadmap`, and `/comp` each own the flag in
+their own contracts, and a parent passing it is using that surface
+rather than extending it. The test separating the two is whether
+the flag works when the parent is absent. The `parent_orchestration:` convention is the one named
 exception, and only because it is pattern-defined: every parent
 writes the same block at the same path, and every child reads it
 identically. PRD R4's thesis-shift signal illustrates the loose-

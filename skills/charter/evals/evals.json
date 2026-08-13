@@ -247,6 +247,47 @@
         "Plan does NOT require a contiguous \"Proceed / Adjust / Bail\" string, and tolerates the canonical rendering \"Proceed / Adjust chain / Bail?\" whose Adjust label carries an interstitial word",
         "Plan lists the children in chain order, with /strategy and /roadmap both shown as running because their gates are unconditional"
       ]
+    },
+    {
+      "id": 17,
+      "name": "upstream-flag-consumed",
+      "prompt": "/charter payment-retries --upstream docs/visions/VISION-platform.md",
+      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before the positional slug is read, so the topic slug validated against ^[a-z0-9-]+$ is 'payment-retries' and the VISION path is never tested against the regex. The value is canonicalized and bounds-checked, its basename is confirmed to start with VISION-, and the three ordered checks run: not under wip/, tracked by git (git ls-files), and not a private artifact named from a public repo. The validated path is recorded in the state file's conditional consumed_upstream: field. /vision is skipped with a chain_skipped entry naming the supplied upstream, because a supplied upstream is an upstream thesis and running /vision would write a second copy of it under this chain's slug. /strategy is invoked as '/strategy payment-retries --upstream docs/visions/VISION-platform.md' -- the slug positional, the upstream in the flag -- and the produced docs/strategies/STRATEGY-payment-retries.md carries upstream: docs/visions/VISION-platform.md in its frontmatter.",
+      "files": ["docs/visions/VISION-platform.md"],
+      "expectations": [
+        "Plan parses --upstream and consumes the following token as its argument before validating the positional slug",
+        "Plan validates 'payment-retries' as the topic slug and does NOT test the VISION path against the topic-slug regex",
+        "Plan enforces a VISION- basename on the --upstream value and runs the three ordered checks (wip/ rejection, git-tracked confirmation, public-repo-to-private-upstream omission)",
+        "Plan records the validated path in the state file as consumed_upstream:",
+        "Plan skips /vision and records the skip with a reason naming the supplied upstream",
+        "Plan invokes /strategy with the topic slug positionally and the VISION path as --upstream, not the VISION path positionally",
+        "Plan produces docs/strategies/STRATEGY-payment-retries.md, named after the topic slug rather than after the upstream VISION"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "upstream-flag-bare-rejected",
+      "prompt": "/charter payment-retries --upstream",
+      "expected_output": "Phase 0 finds --upstream as the last token in $ARGUMENTS with no value to consume. The invocation is rejected with an error naming the missing argument and showing the expected form (--upstream docs/visions/VISION-<name>.md). The rejection happens before the slug is validated, before wip/charter_payment-retries_state.md is written, and before any child is invoked. No state file exists afterwards.",
+      "files": [],
+      "expectations": [
+        "Plan rejects the invocation and names the missing --upstream argument",
+        "Plan stops before writing any state file and before invoking any child",
+        "Plan does NOT treat the bare --upstream as part of the topic slug and does NOT proceed as though no upstream had been supplied"
+      ]
+    },
+    {
+      "id": 19,
+      "name": "upstream-flag-private-in-public-repo",
+      "prompt": "/charter payment-retries --upstream tsukumogami/vision:docs/visions/VISION-platform.md",
+      "expected_output": "Public-repo visibility. The value is a cross-repo reference in the owner/repo:path form, so it is not resolved against the filesystem and skips canonicalization and the git-tracked check; the VISION- basename rule still applies to its file component. The third ordered check fires: this repo is Public and the upstream lives in a private repo, so /charter STOPS recording rather than writing the value. consumed_upstream: is absent from the state file, no --upstream is passed to /strategy, and the produced STRATEGY omits the upstream: field. The author is told the field is being omitted and why; the chain otherwise runs exactly as it would have with no --upstream at all. The omission is not caught by tooling -- shirabe validate resolves nothing for a cross-repo value -- which is why the parent owns the check.",
+      "files": [],
+      "expectations": [
+        "Plan detects that the repo is Public and the cross-repo upstream is private",
+        "Plan omits the field rather than recording it: no consumed_upstream: in the state file and no upstream: in the produced STRATEGY",
+        "Plan states the omission and its reason to the author rather than dropping the link silently",
+        "Plan continues the chain rather than rejecting the invocation"
+      ]
     }
   ]
 }

@@ -75,7 +75,7 @@ status: Draft
 bet: |
   <one-paragraph falsifiable hypothesis with explicit invalidation conditions>
 scope: <project | org>
-upstream: <path to the upstream VISION, omit field if none>
+upstream: <path to the upstream VISION, omit field if none or if private>
 ---
 ```
 
@@ -92,6 +92,16 @@ Context prose, but as an `upstream:` value it would point a chain walk down
 into the tactical chain rather than up. Omitting is the correct shape, not a
 gap: the field is optional precisely so a strategy grounded in something
 other than a VISION has a right answer available.
+
+Omit the field as well when the recorded upstream is a private artifact and
+this repo is public. Public documents must not reference private ones, and
+nothing downstream will catch it: `shirabe validate` resolves nothing for a
+cross-repo value, so a public STRATEGY naming a private VISION validates
+clean. Say so in the run output rather than dropping the link quietly, and
+describe the source context in Strategic Context prose without naming the
+private path or repo. Cross-repo references that ARE allowed use the
+`owner/repo:path` convention and the direction table in
+`references/cross-repo-references.md`.
 
 The `bet` field is a paragraph-length YAML literal block (`|`). It carries
 the same content the Defensibility Thesis section elaborates in prose; the

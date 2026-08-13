@@ -83,6 +83,59 @@ No feeder defined in v1; reserved for future. The slot is named
 explicitly here so future authors recognize the position rather
 than re-invent it.
 
+## Recorded-Upstream Re-Validation
+
+When the state file carries `consumed_upstream:`, the ladder
+re-validates that value on EVERY re-entry, before any slot's action
+runs and before the path is interpolated into a child invocation.
+The re-validation re-runs the whole battery from
+`skills/scope/references/phases/phase-0-setup.md` — canonicalize
+and bounds-check, `ROADMAP-` basename, not under `wip/`, tracked by
+git, and the public-repo-to-private-upstream visibility check —
+against the worktree as it is NOW, not as it was when the value was
+recorded. A file tracked last week can be deleted or moved this
+week, and a repo's `## Repo Visibility:` header can change between
+sessions.
+
+**A recorded upstream that no longer resolves is surfaced, never
+silently ignored.** Silently dropping it would hand `/brief` a
+chain with no upstream and produce a BRIEF whose missing
+`upstream:` field looks like a document that never had one;
+silently keeping it would carry a dangling path into committed
+frontmatter. The ladder surfaces what failed — the recorded path
+and which check it now fails — and offers three options:
+
+- **Re-supply** — stop and ask the author to re-invoke
+  `/scope <topic> --upstream <path>` with a working path. The
+  recorded value is cleared from state so the next invocation
+  starts from the author's new one. This is the interactive
+  default.
+- **Continue without** — remove `consumed_upstream:` from the state
+  file and resume with no upstream. The produced BRIEF omits
+  `upstream:`, which the run states plainly rather than leaving the
+  author to notice later.
+- **Bail** — route to R8 bail-handling.
+
+Under `--auto` the ladder takes **Continue without** and announces
+it, because a blocking prompt has no place in a non-interactive
+run. Announcing is the load-bearing half: the auto default drops a
+link the author asked for, so the drop is reported in the run
+output whether or not anyone is watching.
+
+The re-validation is a second interpolation site, not a repeat of
+the first, and carries the same discipline: the recorded value is
+canonicalized, bounds-checked, and quoted and passed after `--` in
+every command the ladder emits with it. A state file is a file on
+disk that a hand-edit can change between sessions, so the value
+read back is treated as untrusted input exactly as the flag's
+original value was.
+
+The visibility check deserves its own note. It can fail on a resume
+that had passed at Phase 0 — the repo went public, or the upstream
+moved into a private repo — and the outcome is the same as Phase
+0's: the field is removed rather than carried, and the chain
+continues without it.
+
 ## Drift Detection
 
 When `/scope` re-enters a chain (any Slot 5 or Slot 6 ladder match

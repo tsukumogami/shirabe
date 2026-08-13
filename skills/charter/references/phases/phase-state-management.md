@@ -92,10 +92,12 @@ state file on disk has a topic that already satisfies the regex.
 
 ## Full Field Schema
 
-The schema has 17 fields total: 11 always-present, plus 6 conditional
-fields whose presence is gated by a specific `exit:` or
-`decision_record_sub_shape:` value. Each field is documented below
-with its type, semantics, and gating condition (where applicable).
+The schema has 18 fields total: 11 always-present, plus 7 conditional
+fields whose presence is gated by a specific `exit:` value, a
+`decision_record_sub_shape:` value, or — for `consumed_upstream:` —
+by the author having supplied `--upstream` at invocation. Each field
+is documented below with its type, semantics, and gating condition
+(where applicable).
 
 ### Always-Present Fields
 
@@ -112,7 +114,7 @@ file at every phase pointer.
   list: `0` (Phase 0 setup), `1` (Phase 1 discover), `2` (Phase 2
   chain orchestration), `N` (Phase N finalize). Written at Phase 0
   entry with the initial value `0` (see
-  `skills/charter/references/phases/phase-0-setup.md` step 0.3) and
+  `skills/charter/references/phases/phase-0-setup.md` step 0.5) and
   advanced on every phase transition.
 - **`chain_started`** — ISO-8601 timestamp string. The wall-clock
   time of the first Phase 0 write for this topic. Set once; never
@@ -168,13 +170,38 @@ file at every phase pointer.
 
 ### Conditional Fields
 
-These 6 fields are present iff a specific `exit:` or
-`decision_record_sub_shape:` value triggers them. When their
-triggering condition does not hold, the field MUST be absent from
-the state file — not set to null, not set to an empty string, not
-set to a placeholder value. Absence-when-not-applicable is the R9
-gating discipline (see Conditional-Field Gating Discipline below).
+These 7 fields are present iff their trigger fires — a specific
+`exit:` or `decision_record_sub_shape:` value for six of them, and
+a validated `--upstream` invocation argument for the seventh. When
+the triggering condition does not hold, the field MUST be absent
+from the state file — not set to null, not set to an empty string,
+not set to a placeholder value. Absence-when-not-applicable is the
+R9 gating discipline (see Conditional-Field Gating Discipline
+below).
 
+- **`consumed_upstream`** — path string naming an upstream artifact
+  this chain consumed but did not produce: the value the author
+  supplied with `--upstream <path>`, canonicalized, after it passed
+  every check in
+  `skills/charter/references/phases/phase-0-setup.md` step 0.4
+  (bounds check, `VISION-` basename, not under `wip/`, tracked by
+  git, and not a private artifact named from a public repo). The
+  value is a working-tree-relative path, or an `owner/repo:path`
+  cross-repo reference.
+  - **Required iff** the invocation supplied `--upstream` and the
+    value passed step 0.4.
+  - **MUST be absent otherwise** — including when no flag was
+    supplied AND when the flag's value was dropped by the
+    visibility check. The two cases are deliberately
+    indistinguishable in state: recording a private path in a
+    public repo's state file would leak it onto the pushed feature
+    branch, which is exactly what the check exists to prevent.
+  - Written at Phase 0 rather than at finalization, because its
+    trigger fires at invocation or never. Read at Phase 2, where
+    it becomes the `--upstream` argument `/charter` hands
+    `/strategy`, and re-validated by the resume ladder on every
+    re-entry (see
+    `skills/charter/references/phases/phase-resume.md`).
 - **`decision_record_sub_shape`** — string from `{re-evaluation,
   rejection}`. The sub-shape identifies which Decision Record body
   shape the chain produced.
@@ -254,9 +281,12 @@ artifact path).
 
 ## Conditional-Field Gating Discipline
 
-The six conditional fields above are gated by R9 (invariant I-5 of
-the pattern). Each conditional field carries a "required iff
+The seven conditional fields above are gated by R9 (invariant I-5
+of the pattern). Each conditional field carries a "required iff
 <condition>; MUST be absent otherwise" rule documented above.
+`consumed_upstream:` is gated on an invocation argument rather than
+on an exit value, so it can be present at any phase pointer; the
+gating discipline binds it identically.
 
 The discipline has two halves and BOTH bind:
 
@@ -327,6 +357,11 @@ the check passes only when none of them does.
    docs/strategies/STRATEGY-<topic>.md` set when `exit: full-run`,
    or `triggering_child: /strategy` set when `exit: re-evaluation`.
    The field MUST be absent; presence-when-ungated fails the check.
+   Each field is checked against ITS OWN condition, which for
+   `consumed_upstream:` is the invocation argument rather than an
+   exit value — so a `consumed_upstream:` alongside any of the three
+   exits is well-formed, and its failure shape is presence without a
+   supplied and validated `--upstream`.
 4. **Failure mode 4 — conditional field set to null/empty/
    placeholder when ungated.** A conditional field is present with
    a "falsy" value (null, empty string, placeholder like `"TBD"`)
@@ -407,6 +442,12 @@ branch is pushed:
   is also durably public on the feature branch.
 - **`chain_skipped[].reason`** — free-text reasons for skipping
   children. Durable on the feature branch pre-merge; public.
+- **`consumed_upstream`** — an author-supplied path. This is the
+  one field whose value comes from outside the chain, which is why
+  Phase 0 refuses to write it at all when a public repo was pointed
+  at a private artifact: an omitted field cannot leak, whereas a
+  field written "just in state" would be durably public the moment
+  the branch is pushed.
 
 The same property applies to other free-text fields the schema
 might gain later through extension. Treat the entire state file as

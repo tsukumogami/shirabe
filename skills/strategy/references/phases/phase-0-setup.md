@@ -9,7 +9,9 @@ phases.
 
 Establish the runtime context for the rest of the workflow:
 
-- Identify which entry mode this invocation falls into (cold start, freeform topic,
+- Parse `--upstream <path>` out of `$ARGUMENTS` before the remainder is
+  classified, and validate its value.
+- Identify which entry mode the remainder falls into (cold start, freeform topic,
   an upstream VISION path, or a grounding PRD path).
 - Detect repo visibility (`Public` or `Private`) from CLAUDE.md.
 - Detect the strategy's scope (`project` or `org`) from inputs and CLAUDE.md
@@ -37,7 +39,42 @@ red flag worth surfacing.
 
 ## 0.1 Detect Entry Mode
 
-Parse `$ARGUMENTS` and classify into one of four modes:
+### Parse `--upstream` First
+
+`--upstream <path>` names the VISION this strategy operationalizes,
+separately from whatever the positional argument says. Consume the flag and
+the token following it BEFORE classifying the remainder: the flag's value is
+never tested as a topic string, never tested as a path argument in the
+entry-mode table below, and never used to derive the topic slug.
+
+A bare `--upstream` — the flag as the last token, or followed by another
+`--`-prefixed token — is rejected before anything is written, naming the
+missing argument:
+
+> `--upstream` requires a path argument naming the upstream VISION, for
+> example `--upstream docs/visions/VISION-<name>.md`. Re-invoke
+> `/strategy <topic> --upstream <path>`.
+
+The flag may appear at most once; a second occurrence is rejected the same
+way, naming the repeated flag. When the flag is present and the remainder is
+empty, the cold-start branch fires — the flag is not a topic, and no slug is
+derived from the VISION's filename.
+
+The flag is what makes an upstream usable whose name does not match the
+strategy's topic. Input Mode 3 (a bare VISION path) supplies the topic and
+the upstream in one token and therefore only works when the two coincide;
+`--upstream` is the general form, and it is how `/charter` hands a VISION
+down (`/strategy <topic-slug> --upstream <vision-path>`). An author invoking
+`/strategy` directly uses the same flag for the same reason.
+
+`--upstream` never carries a grounding PRD. The flag's value is what Phase 2
+writes into `upstream:`, and a PRD is never recorded there — see "Reading a
+document vs. recording it as `upstream`" below. A PRD grounds the bet by
+being passed positionally, as Input Mode 4.
+
+### Classify the Remainder
+
+Parse what remains of `$ARGUMENTS` and classify into one of four modes:
 
 | Mode | Trigger | Phase 1 behavior |
 |------|---------|------------------|
@@ -71,7 +108,9 @@ not the same act.
 
 - A **VISION is read and recorded.** `upstream:` names the strategy's
   immediate neighbour one level up the strategic chain (VISION -> STRATEGY ->
-  ROADMAP), and a VISION is exactly that.
+  ROADMAP), and a VISION is exactly that. It reaches Phase 0 either as a
+  positional path (Input Mode 3) or as the `--upstream` flag's value; both
+  routes are validated identically and both land in `## Recorded Upstream`.
 - A **PRD is read only.** It grounds the Phase 1 conversation and informs the
   bet, and there it stops. A PRD sits two altitudes below a STRATEGY and on
   the tactical chain rather than the strategic one. Record it as the
@@ -95,16 +134,21 @@ intended `wip/research/` directory.
 
 **Rule:** the slug MUST match `^[a-z0-9-]+$`.
 
-Derive the slug as follows:
+Derive the slug as follows. In every case the derivation reads the
+POSITIONAL argument only; the `--upstream` value is never an input to it.
 
-1. If `$ARGUMENTS` is a path argument, take the basename, strip the
+1. If the positional argument is a path, take the basename, strip the
    `VISION-` or `PRD-` prefix and `.md` suffix, and use the remainder. Both
    path modes derive the slug the same way -- the slug names the strategy's
    topic, and says nothing about what ends up in `upstream:`.
-2. If `$ARGUMENTS` is a freeform topic string, lowercase it, replace whitespace
-   and underscores with `-`, and strip any character outside `[a-z0-9-]`.
-3. If `$ARGUMENTS` is empty, ask the user to name the strategy and re-derive
-   from their answer.
+2. If the positional argument is a freeform topic string, lowercase it,
+   replace whitespace and underscores with `-`, and strip any character
+   outside `[a-z0-9-]`.
+3. If the positional argument is empty, ask the user to name the strategy and
+   re-derive from their answer -- even when `--upstream` supplied a VISION.
+   A VISION's filename names the vision, not the bet operationalizing it, and
+   naming the strategy after it is exactly the conflation the flag exists to
+   undo.
 
 After derivation, test the slug against `^[a-z0-9-]+$`. If the slug is empty,
 contains characters outside the allowed set after derivation, or starts/ends
@@ -114,7 +158,8 @@ not intend.
 
 ## 0.3 Canonicalize the Path Argument
 
-If Phase 0 detected either path mode, canonicalize the path before any read:
+If Phase 0 detected either path mode, or `--upstream` supplied a value,
+canonicalize the path before any read:
 
 1. Resolve the path against the repo root (the working directory the skill
    was invoked from).
@@ -129,10 +174,36 @@ If Phase 0 detected either path mode, canonicalize the path before any read:
    record, `PRD-` is grounding to read. See "Reading a document vs. recording
    it as `upstream`" in 0.1.
 
+A `--upstream` value runs the same five steps with one difference: its
+basename MUST start with `VISION-`. `PRD-` is not accepted on the flag,
+because the flag records and a PRD is never recorded; an author holding a PRD
+passes it positionally instead. Reject anything else, naming the offending
+path and the expected prefix.
+
+Two further checks apply to a `--upstream` value, in this order, before it is
+recorded:
+
+- **Not under `wip/`.** Reject. `wip/` artifacts are non-durable — the
+  wip-hygiene cleanup deletes them before the PR can merge — so the recorded
+  `upstream:` would point at a file that disappears. Name the canonical
+  location in the rejection.
+- **Tracked by git.** Run `git ls-files -- <path>`. An empty result on a path
+  inside the working tree means the file is not committed; reject, naming the
+  untracked path.
+
+A cross-repo value in the `owner/repo:path` form from
+`references/cross-repo-references.md` is not a working-tree path: it skips
+canonicalization and the tracked-by-git check, keeps the `VISION-` basename
+rule on its file component, and is governed by the visibility rule Phase 2
+applies when writing frontmatter (a public STRATEGY omits a private upstream
+rather than naming it).
+
 On any rejection, abort with a message that names the offending path and the
 reason. Do not silently fall back to freeform-topic mode — the user provided a
 path; misinterpreting it as a topic string would produce confusing downstream
-behavior.
+behavior. Do not silently drop a rejected `--upstream` value and continue
+either: the author asked for a link, and a run that quietly produces a
+STRATEGY without one hides the failure until someone reads the frontmatter.
 
 ## 0.4 Detect Repo Visibility and Scope
 
@@ -153,9 +224,9 @@ value.
 
 **Scope:**
 
-1. If `$ARGUMENTS` is an upstream VISION path and the VISION's frontmatter
-   carries `scope: org`, default scope to `org`.
-2. If `$ARGUMENTS` is an upstream VISION path with `scope: project` or no
+1. If an upstream VISION was supplied (positionally or via `--upstream`) and
+   the VISION's frontmatter carries `scope: org`, default scope to `org`.
+2. If an upstream VISION was supplied with `scope: project` or no
    scope field, default scope to `project`.
 3. If `$ARGUMENTS` is a grounding PRD path, default scope to `project` (PRDs
    live below STRATEGY-altitude work). The PRD informs the scope default the
@@ -209,6 +280,14 @@ or "none" -- always "none" in grounding-prd mode>
 This file is the resume-detection anchor for Phase 1 onward. Subsequent phases
 update the `## Phase` line as they begin.
 
+`## Entry Mode` classifies the positional argument, so a `--upstream` run
+records whichever mode the remainder produced — usually `freeform`. The flag
+shows up in `## Recorded Upstream` and, because Phase 1 reads it, in
+`## Grounding Path` as well: a supplied VISION grounds the conversation the
+same way a positional one does. The two keys differing is what distinguishes
+a grounding PRD (grounding set, upstream `none`) from a flag-supplied VISION
+(both set to the same path).
+
 Do NOT commit the context file at this stage. The wip-hygiene rule treats
 `wip/` artifacts as non-durable; the final cleanup at Phase 5 removes them
 before the PR can merge.
@@ -236,11 +315,15 @@ direction.
 ## Quality Checklist
 
 Before proceeding:
-- [ ] `<topic>` slug matches `^[a-z0-9-]+$`
+- [ ] `<topic>` slug matches `^[a-z0-9-]+$` and was derived from the positional
+      argument alone, never from a `--upstream` value
 - [ ] Path argument (if provided) is canonicalized and inside the repo working tree
 - [ ] Path argument (if provided) exists and has a `VISION-` or `PRD-` basename
+- [ ] `--upstream` value (if provided) has a `VISION-` basename, is not under
+      `wip/`, and is tracked by git; a bare `--upstream` was rejected
 - [ ] `## Recorded Upstream` holds the VISION path in upstream-VISION mode and
-      `none` in every other mode, grounding-PRD included
+      when `--upstream` supplied one, and `none` in every other case,
+      grounding-PRD included
 - [ ] Visibility is recorded (Public or Private, never empty)
 - [ ] Scope is recorded as `project`, `org`, or `undetermined`
 - [ ] `wip/strategy_<topic>_context.md` exists with the keys above
