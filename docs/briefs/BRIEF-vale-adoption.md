@@ -2,21 +2,20 @@
 schema: brief/v1
 status: Draft
 problem: |
-  The writing-style rulebook lives in four divergent copies, only one of
-  which is mechanical. That copy checks seven words, cannot see the files
-  where most agent-authored prose lives, and misses the one defect class
-  that actually recurs in the corpus.
+  shirabe's writing-style rulebook lives in three divergent copies, only
+  one of which is mechanical. That copy checks seven words, cannot see the
+  files where most agent-authored prose lives, and misses the one defect
+  class that recurs measurably in the prose it governs.
 outcome: |
   One rule source enforced the same way on both prose surfaces (agent
   instructions and drafted artifacts), reporting the defects a drafting
-  model structurally cannot catch in itself, and staying quiet about the
-  ones it already avoids.
+  model structurally cannot catch in itself, staying quiet about the ones
+  it already avoids, and reaching every repo that adopts shirabe.
 motivating_context: |
-  A round-1 exploration measured the corpus rather than reasoning about
+  An exploration measured shirabe's own corpus rather than reasoning about
   it, and inverted the premise it started from: mechanical prose checking
-  already ships here, and the rules it does not cover are mostly rules
-  the model already obeys. What it does not cover, and what nothing
-  covers, is document-level frequency.
+  already ships, and the rules it does not cover are mostly rules the
+  model already obeys. What nothing covers is document-level frequency.
 ---
 
 ## Status
@@ -30,69 +29,87 @@ this brief does not settle them.
 
 ## Problem Statement
 
-This workspace produces prose in two places and governs it in neither
-consistently.
+shirabe governs prose on two surfaces and governs neither consistently.
+It ships a writing-style rulebook that its skills apply while drafting,
+and it ships a validator that checks the artifacts those skills produce.
+The rulebook and the validator disagree about what the rules are.
 
-The governing rules live in `skills/writing-style/SKILL.md`: roughly 60
-banned words plus phrase patterns, structural patterns, formatting tells,
+The rules live in `skills/writing-style/SKILL.md`: roughly 60 banned words
+plus phrase patterns, structural patterns, formatting tells,
 over-formality substitutions, and four cognitive tells. That rulebook has
-been copied three more times: into a seven-word constant behind the
-validator's FC10 check
-(`crates/shirabe-validate/src/checks.rs:2551`), into a five-word quick
-reference in the workspace CLAUDE.md, and into a five-word instruction
-inside the BRIEF jury's structural reviewer. A fifth pointer, from
-CLAUDE.md to `.claude/helpers/writing-style.md`, resolves to nothing. The
-design that specified the validator check required it read the list from
-the SKILL.md at validate time so updates would propagate; the shipped code
-hardcodes it, and the four-way divergence is the direct consequence.
+been copied twice more inside this repo: into a seven-word constant behind
+the validator's FC10 check (`crates/shirabe-validate/src/checks.rs:2551`),
+and into a five-word instruction inside the BRIEF jury's structural
+reviewer (`skills/brief/references/phases/phase-4-validate.md`). The
+design that specified FC10 required the validator read the list from the
+SKILL.md at validate time so updates would propagate; the shipped code
+hardcodes it, and the divergence between the three is the direct
+consequence. Adopters compound the problem rather than causing it: a repo
+that uses shirabe has no way to read the rulebook mechanically, so any
+local restatement becomes a fourth copy that shirabe cannot keep in sync.
 
-Three of those four copies are applied by model judgment. The fourth,
-FC10, is deterministic but narrow, and it cannot see most of the prose it
-would govern: `detect_format` prefix-matches eight artifact types, so
-`shirabe validate` reports "All checks passed" on every SKILL.md,
-CLAUDE.md, AGENTS.md, and README.md in the repo. That leaves 211 files and
-197,538 words under `skills/` alone entirely unchecked, and it is exactly
-the prose that instructs every future agent run.
+Two of the three copies are applied by model judgment. The third, FC10, is
+deterministic but narrow, and it cannot see most of the prose it would
+govern: `detect_format` prefix-matches eight artifact types, so `shirabe
+validate` reports "All checks passed" on every SKILL.md, CLAUDE.md,
+AGENTS.md, and README.md handed to it. In shirabe's own repo that leaves
+211 files and 197,538 words under `skills/` unchecked, and it is exactly
+the prose that instructs every future agent run. The same gate applies in
+any adopter repo, where the unchecked surface is that repo's CLAUDE.md and
+its own skill and instruction files.
 
 The harder half of the problem is that widening the word list would buy
-almost nothing. The phrase apparatus produces roughly two true positives
-across 554,000 words of this workspace's prose, and raw word-rule
-precision measures 1.7%, rising to about 16% once the domain terms and the
-one document that quotes the rulebook are excluded. The two highest-volume
-matches are that domain vocabulary: `tier` accounts for 128 of 156 alerts
-in a `docs/` run and is the Tier 1–4 decision-complexity vocabulary, and
-`journey` at 112 hits is a required BRIEF section heading. A drafting
-model reliably avoids the words already on the seven-word list. The rules
-it obeys are the mechanizable ones.
+almost nothing. Measured on shirabe's own corpus, which is the largest
+body of shirabe-authored prose available and so the fairest test case
+this repo can run: the phrase apparatus produces roughly two true
+positives across 554,000 words, and raw word-rule precision measures 1.7%,
+rising to about 16% once domain terms and the one document that quotes the
+rulebook are excluded. A drafting model reliably avoids the words already
+on the seven-word list. The rules it obeys are the mechanizable ones.
+
+The two highest-volume matches show why a banned word list generalizes
+badly. `tier` accounts for 128 of 156 alerts in a `docs/` run, because
+Tier 1-4 is shirabe's own decision-complexity vocabulary; `journey` at 112
+hits is a required section heading in shirabe's own BRIEF format. Both are
+on the banned list, and both are load-bearing terms of art in the repo
+that wrote it. Any adopter has its own such collisions, and it has no way
+to declare them today.
 
 What no copy of the rulebook catches is frequency. Counting body prose
-only, em dashes run 3,114 in `docs/` and 1,188 in `skills/`. In `docs/`
-that is 7.84 per thousand words, with 72% of files above 3 per thousand
-and the worst at 28.5; `skills/` runs a comparable 7.59. The rulebook
-names em
-dash overuse as a formatting tell and the corpus it governs is saturated
-with it, because frequency is a document-level property and a model
-composing one sentence at a time cannot see it. Bold density and
-sentence-length uniformity have the same shape: real, measurable, and
-structurally outside what self-review can reach.
+only in shirabe's repo, em dashes run 3,114 in `docs/` and 1,188 in
+`skills/`. In `docs/` that is 7.84 per thousand words, with 72% of files
+above 3 per thousand and the worst at 28.5; `skills/` runs a comparable
+7.59. The rulebook names em dash overuse as a formatting tell, and the
+corpus written under that rulebook is saturated with it, because frequency
+is a document-level property and a model composing one sentence at a time
+cannot see it. Bold density and sentence-length uniformity have the same
+shape: real, measurable, and structurally outside what self-review can
+reach. This defect class is not specific to one repo. It follows from how
+the prose is produced, so every repo drafting with shirabe accumulates it.
 
 ## User Outcome
 
-A maintainer changes a prose rule once and it takes effect everywhere the
-workspace writes prose, in the skills that instruct agents and in the
-artifacts those agents draft, without hunting for four copies that have
-drifted apart.
+A shirabe maintainer changes a prose rule once and it takes effect
+everywhere shirabe governs prose, in the skills that instruct agents and
+in the artifacts those agents draft, without hunting for copies that have
+drifted apart. Every repo that adopts shirabe gets the changed rule on its
+next run, because there is one source and the enforcement reads it.
 
-An author editing a SKILL.md gets the same prose feedback a drafted DESIGN
-gets, on the file they are actually editing, instead of the silence that
-surface returns today.
+An author editing an instruction file gets the same prose feedback a
+drafted DESIGN gets, on the file they are actually editing, instead of the
+silence that surface returns today. That holds for a shirabe skill author
+editing `skills/execute/SKILL.md` and for an adopter editing their own
+repo's CLAUDE.md.
+
+An adopting repo can declare its own terms of art and stop the rules from
+firing against them, without forking the rulebook or disabling the check.
+shirabe needs this for `tier` and `journey`; every adopter has its own
+list, and the capability is the same one.
 
 And the feedback is worth reading. It reports the frequency defects that
 accumulate invisibly across a document rather than re-flagging words the
-drafting model already avoids, so the signal stays high enough that
-nobody learns to ignore it. Domain vocabulary that happens to appear on a
-banned list (`tier`, `journey`) does not generate noise against the
-workspace's own terms of art.
+drafting model already avoids, so the signal stays high enough that nobody
+learns to ignore it.
 
 ## User Journeys
 
@@ -127,30 +144,46 @@ without each adopter hand-installing a tool or copying a rule file, and
 that the arrival does not require every adopter's CI to grow a dependency
 it cannot satisfy.
 
-### A maintainer changes a rule once
+### A shirabe maintainer changes a rule once
 
-A maintainer decides `tier` should stop being flagged, because it is this
-workspace's own vocabulary. The trigger is the edit. Today that means
-finding four copies (a SKILL.md table, a Rust constant behind a binary
-release, a CLAUDE.md quick reference, and a jury reviewer's prose
-instruction) and keeping them consistent by hand. The outcome shape is
-one edit in one place, with the change reaching every surface that
-enforces it.
+A shirabe maintainer decides `tier` should stop being flagged, because it
+is shirabe's own vocabulary. The trigger is the edit. Today that means
+finding three copies (a SKILL.md table, a Rust constant behind a binary
+release, and a jury reviewer's prose instruction) and keeping them
+consistent by hand, with a binary release standing between the edit and
+the validator honoring it. The outcome shape is one edit in one place,
+reaching every surface that enforces it and every repo that adopts
+shirabe.
+
+### An adopter declares vocabulary the rules should not flag
+
+A maintainer of a repo that uses shirabe finds the checking firing on a
+word their project defines as a term of art. The trigger is that noise
+appearing in their own PRs. Today their only options are to disable the
+check or to fork the rulebook, and the second creates a copy shirabe
+cannot keep in sync. The outcome shape is a declaration local to their
+repo that suppresses those terms while leaving every other rule active,
+and that survives a shirabe upgrade.
 
 ## Scope Boundary
 
 **In scope:**
 
-- Consolidating the writing-style rules to a single source that every
-  enforcing surface reads, replacing the current four divergent copies.
+- Consolidating shirabe's writing-style rules to a single source that
+  every enforcing surface reads, replacing the three divergent copies.
 - Prose checking on agent instructions: SKILL.md, CLAUDE.md, AGENTS.md,
-  and README.md, which no mechanical check reaches today.
+  and README.md, which no mechanical check reaches today, in shirabe's
+  repo and in any repo that adopts it.
 - Prose checking on shirabe-drafted artifacts, where FC10 currently runs.
 - Rules for document-level frequency properties (em dash density, bold
   density, sentence-length uniformity) that a drafting model cannot
   observe about its own output.
-- Suppressing the workspace's domain vocabulary (`tier`, `journey`) so it
-  does not fire against the terms of art the repo defines.
+- A per-repo way to declare terms of art the rules must not flag, so an
+  adopter can suppress its own vocabulary without forking the rulebook.
+  shirabe's `tier` and `journey` are the first consumers of that
+  capability, not special cases of it.
+- Reaching adopters through a channel that does not require each one to
+  install a tool or copy a rule file by hand.
 - Whether findings block or report, and at which severity.
 
 **Out of scope:**
@@ -168,9 +201,13 @@ enforces it.
   the feature does not promise it.
 - Rewriting the writing-style rules themselves. Their content is settled;
   only where they live and what enforces them is in question.
-- Cleaning the existing corpus. Bringing 3,114 em dashes under whatever
-  threshold gets chosen is follow-on work, and it is the reason a
-  threshold rule cannot ship enabled-and-blocking on day one.
+- Cleaning any existing corpus. Bringing shirabe's own 3,114 em dashes
+  under whatever threshold gets chosen is follow-on work, and it is the
+  reason a threshold rule cannot ship enabled-and-blocking on day one.
+  Adopter corpora are their own maintainers' business entirely.
+- Governing prose that shirabe does not produce or check. The feature
+  covers instruction files and shirabe artifacts; an adopter's application
+  code comments, changelogs, and unrelated documentation stay outside it.
 - Repairing three defects in the existing check, as defects of that
   check: FC10's frontmatter line-number offset, FC10's matches inside code
   fences and URLs, and `check_claude_md_conventions` being unreachable
@@ -189,6 +226,11 @@ enforces it.
   installing shirabe? The answer bounds where that source can live, and
   the PRD can settle the requirement even though the location is a DESIGN
   choice.
+- Does an adopter's vocabulary declaration extend shirabe's rules or
+  replace them? Extending keeps adopters on the shared rulebook and lets
+  shirabe evolve it; replacing gives adopters full control and forfeits
+  that. The PRD should state which, because it decides whether the
+  feature has one rulebook or many.
 - Is FC10 replaced or extended? The answer follows from the mechanism
   choice, but the PRD should state which outcome counts as success so the
   DESIGN is not free to leave two overlapping checks in place.
