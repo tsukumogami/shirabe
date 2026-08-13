@@ -112,6 +112,29 @@ half-working, and sequence fixtures must stay out of the cross-implementation pa
 corpus, because the frozen baseline collapses sequences and such a fixture could only be
 made to pass by editing the gate.
 
+**Resolution reporting.** The resolution check currently reads the whole field as one path
+and emits at most one finding. It iterates entries instead, emitting one finding per entry
+that does not resolve, so a two-entry value with one bad path names the bad path rather
+than the pair. A field that is present but names nothing — null, an empty sequence, or a
+scalar empty after trimming — reports exactly one finding stating that the field is present
+and empty, at the field's line, under the existing code. It never reports a placeholder as
+though it were a path, which is what the current empty-string and null messages do. A
+sequence with at least one entry is never "the empty field" even when an entry is blank:
+that is one per-entry finding, not a field-level one, which keeps "exactly one finding" true
+in both directions. A value that is neither scalar nor sequence reports one finding saying
+so, since discarding it silently is the behavior this decision exists to remove.
+
+The empty-scalar case goes beyond the requirement's literal text, which names only the null
+and empty-sequence spellings. It is included because `upstream: ""` is the same authoring
+mistake and its current message is precisely the placeholder-reported-as-a-path the
+requirement outlaws. No document in the validated set writes it, so corpus invariance is
+unaffected either way.
+
+**What the field's scalar value holds for a sequence** must be stated, because it feeds the
+annotation bytes the cross-implementation parity gate compares. It stays the empty string,
+unchanged from today. Entries are reached through the entries representation; nothing that
+compares scalar text sees a new value, so the gate's baseline is untouched by this change.
+
 ### Decision 2 — Chain evaluation and finding identity
 
 **Chosen: a member-keyed obligation map, built once, consumed by a single emitter.** A
@@ -131,8 +154,24 @@ mode agreement, but filtering by path drops corpus-integrity findings the mode r
 today, which is a regression on the one mode the cascade runs.
 
 *Rejected — reachability instead of per-root walks.* Produces the same map by a different
-traversal, rejected on regression risk rather than merit: the existing walk carries three
-observable behaviors that are easy to lose in a rewrite.
+traversal, rejected on regression risk rather than merit. The existing walk carries three
+behaviors that are observable in tests and in the corpus and easy to lose in a rewrite: it
+stops at a BRIEF or a ROADMAP while still recording the stopping node as a member; a cycle
+produces a specific finding carrying the path in walk order and then drops the chain
+entirely; and posture is inferred from the root rather than from any member. Naming them is
+the point — a rejection resting on an unenumerated set asks to be taken on trust, and these
+three are the reason the walk is reused rather than replaced.
+
+**The walk does change in one respect, and the design earlier understated this.** The
+requirement that every entry of a multi-valued upstream be a membership edge is a change to
+the walk itself: it currently advances to the first upstream and discards the rest. Making
+it fan out is not a one-line substitution, because two properties of the walk assume a
+single path. Its cycle detection shares one visited set across the whole traversal, so a
+diamond — two entries reconverging on a common ancestor — would be reported as a cycle and
+the chain dropped, turning a legal shape into a spurious error. And chain root identity is
+currently recoverable by position, since members are recorded root-first and then reversed;
+that stops holding once the walk branches. The fan-out therefore needs per-branch cycle
+tracking and an explicit root path on the chain rather than a positional convention.
 
 ### Decision 3 — Conflict detection and supersession
 
@@ -150,14 +189,36 @@ Supersession is safe by construction rather than by care: if no status satisfies
 chain, the document's status satisfies at most one, so at least one superseded finding
 always fired. The replacement is always one-for-N with N at least one, never one-for-zero.
 
+**Disjointness needs the required sets expanded to concrete status sets, and one value
+needs a rule of its own.** The requirement values are not sets today — two of them name a
+single status, two name a disjunction, and one means the document must be absent. The first
+four expand naturally. The absent value expands to the empty set, and the empty set is
+disjoint from everything including itself, so a literal disjointness test would fire on two
+chains that both require the same PLAN deleted — perfect agreement reported as conflict, on
+correct and documented state. The rule is therefore stated rather than inferred: two
+requirements conflict when both name statuses and their sets do not intersect, or when one
+requires absence and the other requires a status. Two requirements of absence agree.
+
 *Rejected — detect but do not supersede.* The honest option, and it was given a full
 hearing: it satisfies the severity requirement vacuously, has provably zero regression
-exposure, and is the smallest change. It loses on three counts. The accepted requirements
-say otherwise in SHALL language, so choosing it is a PRD amendment and would have to be
-proposed as one. The contradictory pair is the harm rather than noise — an author who acts
-on one message makes the other fire, which is the user story verbatim. And co-location does
-not save it, because findings sort by file, code, and message, so the two instructions and
-their explanation are separated in the rendered output and become independent annotations.
+exposure, and is the smallest change. Two of its three counter-arguments need stating
+precisely, because one is weaker than it first appears.
+
+The accepted requirements say otherwise in SHALL language, so choosing it is a PRD
+amendment and would have to be proposed as one — an appeal to authority rather than merit,
+and named as such.
+
+The claim that the contradictory pair is itself the harm argues for *detection*, which this
+option also provides, not for supersession. A proponent would say the conflict message alone
+stops the cycling and the per-chain findings beside it are redundant rather than harmful,
+and on that framing they would be right.
+
+What actually carries the rejection is narrower and holds: each finding becomes an
+independent annotation in the rendered CI output, one per file and line, so the reader who
+sees the instruction to change a status does not reliably see the explanation attached to
+it. Ordering within a text report keeps them adjacent; the annotation surface does not. The
+rejection stands on that alone, and the design says so rather than resting on the broader
+claim.
 
 *Rejected — reuse the existing lifecycle code with a merged message.* Severity would be
 pinned by identity and every existing consumer would keep working, but the code family
@@ -214,6 +275,16 @@ still needs the topic slug from somewhere, making it two inputs in one input's c
 to every run, and attaching a bet to the wrong upstream silently is worse than a visible
 duplicate.
 
+### The specification corrections
+
+Two requirements — stating which written `upstream:` shapes the format references support,
+and correcting the two accepted acceptance criteria that describe a positional path as
+slug-derived when both parents reject it — carry no design choice. They are recorded here
+rather than left silent, because a plan built from this document would otherwise not find
+them. The first is settled by the parsing decision: the supported shapes are a scalar and a
+sequence, and the format references say so. The second is a factual correction to two
+documents whose content is already determined by the behavior those parents ship.
+
 ## Decision Outcome
 
 The five decisions compose into one change with a clear spine: **make each guarantee a
@@ -244,19 +315,44 @@ the harm.
 **Parsing layer.** The frontmatter parser gains an entries representation for sequence
 values, preserving written order, covering block and flow syntax and the single-entry case.
 Scalars yield exactly one entry containing their whole text; scalars are never split. A
-shared normalization helper owns trimming, the placeholder rule, cross-repo references, and
-self-reference suppression, and is the only path by which any reader obtains entries. The
+shared normalization helper is the only path by which any reader obtains entries, and the
 string surgery currently inside the chain walk is deleted, since the parser now returns what
 it was reconstructing.
 
-**Evaluation layer.** `discover_chains` is unchanged — it is reused precisely to preserve
-three observable behaviors that a rewrite would risk. From its output an obligation map is
-built once: document path, to required status set, to the postures and chain roots imposing
-it. The ready-mode re-target is applied once, before the map is built, so every consumer
+The helper's semantics have to be *chosen*, not merely centralized, because the three
+readers disagree today on all four of its concerns. Placeholder-shaped values are skipped as
+entries rather than being allowed to reach path resolution, which is the chain walk's
+current behavior and which converts a present-day tool error in the finalization path into
+a clean termination. Cross-repo references are recognized and skipped as unresolvable-here
+rather than being joined onto the local root as literal paths, which is what an
+unconditional join would do. Trimming and self-reference suppression follow the chain walk.
+The helper returns entries as written after normalization and does not resolve them against
+a root; resolution stays with each caller, because the two callers that resolve today anchor
+against different bases and unifying that is a behavior change this design does not need.
+
+**Evaluation layer.** The chain walk is reused as a per-root walk rather than replaced,
+which is what preserves the three behaviors named above. It changes in exactly two ways: it
+follows every entry of a multi-valued upstream instead of only the first, and it carries its
+own root path rather than leaving root identity to be recovered from member ordering. The
+fan-out requires cycle detection to be tracked per branch, so that two entries reconverging
+on one ancestor are recognized as a diamond rather than reported as a cycle.
+
+From its output an obligation map is built once: document path, to required status set, to
+the postures and chain roots imposing it. The ready-mode re-target is applied once, before the map is built, so every consumer
 sees effective postures. Emission becomes a single function over a scope set of document
 paths; whole-tree passes every indexed document, chain-targeted passes the members of every
 chain containing the target. Corpus-integrity findings remain whole-corpus in both modes,
-which is what both modes already do.
+which is what both modes already do for index and chain errors.
+
+Two checks need a stated home rather than being carried along implicitly. The file-location
+check runs today only in whole-tree mode, so a document in the wrong directory is reported
+by one mode and not the other — a mode-agreement violation that exists independently of
+chain selection and that a restructure touching only the status check would leave standing.
+It moves into the single emitter and runs over the scope set, which closes it. The
+outline-criteria check is chain-scoped rather than member-scoped: it needs the chain to
+locate its subject, not just a document path. It stays keyed to the chain, evaluated once
+per chain in scope, and the emitter treats it as a chain-level output rather than folding it
+into the per-document pass.
 
 The chain-targeted scope is a shallow closure, not a transitive one: the members of chains
 containing the target, not then the chains containing those members. A transitive closure
@@ -264,8 +360,12 @@ would make the targeted mode indistinguishable from whole-tree in a connected co
 defeating the mode's purpose.
 
 **Conflict layer.** Before conflict detection, the root-versus-member fault is repaired at
-source: a ROADMAP that is not the root of the chain being evaluated is required present,
-because only its own chain can require its absence. The requirements table cannot currently
+source: a ROADMAP that is not the root of the chain being evaluated is required to be
+Active, which is the requirement the one correct cell already states for exactly this
+position. Only a ROADMAP's own chain can require its absence. The repair is stated as Active
+rather than as the weaker "present" because the two differ on a real case — a retired
+ROADMAP above a still-completing chain passes under "present" and is correctly flagged under
+Active — and an implementer given both readings would pick one at random. The requirements table cannot currently
 tell whether a posture came from a document's own chain or from a chain it merely sits
 above, and that conflation produces a live false positive — one feature finishing beneath a
 live ROADMAP makes the validator demand the ROADMAP be deleted.
@@ -294,15 +394,25 @@ a new head-altitude artifact and no upstream was supplied.
 
 ## Implementation Approach
 
-**Two sequencing edges are load-bearing and were found only at cross-validation.**
+**Three sequencing edges are load-bearing.**
 
-The parsing change must land before the finalization change. The finalization walk is being
-routed through the shared upstream reader; landing it first would wire it to string surgery
-that the parsing change deletes, and the two would have to be reconciled twice.
+The parsing change must land before the finalization change. This edge is created by this
+design rather than inherited: the finalization walk today has its own scalar read and
+depends on nothing, but the design routes it through the shared helper, so landing it first
+would mean writing a reader that is about to be replaced.
 
-The evaluation restructure must land before the conflict diagnostic. The conflict check is a
-consumer of the obligation map and the root-versus-member repair is a branch inside its
-builder; neither exists until the map does.
+The multi-edge walk must land with or before the obligation map. The map's correctness rests
+on membership following every upstream edge; built over a walk that still follows only the
+first, it would be a union over an incomplete set of chains and would look right while being
+wrong.
+
+The evaluation restructure must land before the conflict diagnostic. The conflict check
+consumes the obligation map and the root-versus-member repair is a branch inside its
+builder; neither exists until the map does. The repair specifically must land before any
+disjointness is ever computed — not merely as the conflict work's first commit — because
+without it a ROADMAP member of a completing chain carries a requirement of absence against
+its own chain's requirement of Active, and the conflict finding fires on correct lineage.
+That is a hard edge, not a tidiness preference.
 
 **One repair runs opposite to the obvious direction.** The requirements table has one cell
 that disagrees with its neighbours, and the instinct is to normalize it to match. That is
@@ -327,6 +437,17 @@ parity baseline needs re-establishing rather than assuming, because the parsing 
 what makes a sequence-valued fixture possible in the first place. Corpus invariance is
 verified against every repository the change is tested against, before and after, in both
 modes.
+
+**Corpus invariance has exactly one intended exception, and it must be named before the
+diff is run.** Removing the false positive means that any repository where the validator
+currently demands a live ROADMAP be deleted will stop reporting that finding — which is a
+changed validation result, and therefore a deliberate breach of the invariance requirement
+rather than a regression. This repository has no roadmaps and cannot exhibit it; whether a
+sibling repository does is a question the implementation must ask before it starts, because
+an engineer running the before-and-after comparison will otherwise see a difference with no
+way to tell the intended repair from a fault. Every other difference is a regression. Also
+verify during that pass that no document carries a present-but-empty upstream whose message
+the reporting change would alter — that assumption was recorded but never checked.
 
 ## Security Considerations
 
@@ -377,7 +498,9 @@ given a status that satisfies everyone. The parent half now changes four skills 
 two, because the hand-off cannot work without the children accepting the flag.
 
 **Mitigations.** Corpus invariance is verified before and after against every repository in
-the test set, in both modes, which is what catches an evaluation regression. The two
+the test set, in both modes, which is what catches an evaluation regression — with the one
+named exception above, since removing a live false positive necessarily changes a result and
+would otherwise read as the very regression the check exists to find. The two
 sequencing edges are encoded in the plan's dependency graph rather than left to memory. The
 root-versus-member repair ships as the conflict work's first commit, so the false positive
 cannot be spread by a partial landing. The un-indexable-corpus compromise is recorded on the
