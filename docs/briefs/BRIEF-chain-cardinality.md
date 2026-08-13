@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   The document formats describe one-to-many lineage and authors work that
   way, but neither the parent skills nor the validator can express or
@@ -22,10 +22,13 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 Framing only. Whether the answer is to support fan-out, constrain it, or merely
-validate it is deferred to the downstream PRD.
+validate it is deferred to the downstream PRD, along with two questions this brief
+resolved to defer rather than settle: whether `PRD -> DESIGN` fan-out is intended or
+merely tolerated, and where posture should attach when one document belongs to two
+chains at once. All three close in the PRD's Decisions and Trade-offs section.
 
 ## Problem Statement
 
@@ -164,18 +167,6 @@ behalf and leaving a dangling reference for whoever next opens the sibling to fi
   shipping in two of its phase files.
 - Retrofitting existing documents. Whatever shape is chosen applies going forward; a
   migration of the current corpus is separate work.
-
-## Open Questions
-
-- Is `PRD -> DESIGN` fan-out intended, tolerated, or forbidden? It happens three times
-  and has a documented producing mechanism, which reads as intended — but no document
-  says so, and the validator's model has no answer for it. The PRD owns this.
-- When a document legitimately belongs to two chains at different postures, what should
-  its passing state be? This is a product question about where posture attaches, not an
-  implementation detail, and the PRD's Decisions and Trade-offs section is its home.
-- Should the fix make fan-out expressible, keep it inexpressible but fail loudly, or
-  simply describe the constraint honestly in the formats? All three are coherent
-  products with different costs.
 
 ## References
 
