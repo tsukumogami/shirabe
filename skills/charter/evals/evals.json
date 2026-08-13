@@ -288,6 +288,31 @@
         "Plan states the omission and its reason to the author rather than dropping the link silently",
         "Plan continues the chain rather than rejecting the invocation"
       ]
+    },
+    {
+      "id": 20,
+      "name": "pre-authoring-notice-cold-start",
+      "prompt": "/charter payment-retries",
+      "expected_output": "Cold start under public-repo visibility: no VISION exists at docs/visions/VISION-payment-retries.md and no --upstream was supplied, so the /vision entry in the chain proposal reads \"run\". The proposal therefore carries the pre-authoring upstream notice with that entry, verbatim: \"A new VISION will be written for this topic. If one already exists that this chain should build on, re-invoke as /charter payment-retries --upstream <path-to-the-VISION> and this chain will consume it instead of authoring another. No candidate has been looked for; this is a notice, not a question, and the chain proceeds as proposed.\" The notice sits after the chain list and before the option line; the option line stays \"Proceed / Adjust chain / Bail?\" byte-for-byte. No directory is scanned for a candidate VISION and no candidate is named. The notice adds no option, no default, and no decision point -- the author still answers exactly one question, and the chain runs as proposed on Proceed.",
+      "files": [],
+      "expectations": [
+        "Plan emits the pre-authoring upstream notice verbatim as part of the /vision run entry, before any child fires",
+        "Plan names no candidate VISION and performs no directory scan to produce the notice",
+        "Plan leaves the option line \"Proceed / Adjust chain / Bail?\" unchanged and adds no new option or decision point",
+        "Plan treats the notice as non-blocking output rather than a prompt, including under --auto"
+      ]
+    },
+    {
+      "id": 21,
+      "name": "pre-authoring-notice-suppressed",
+      "prompt": "/charter payment-retries --upstream docs/visions/VISION-platform.md",
+      "expected_output": "Two suppression cases for the pre-authoring upstream notice, both of which leave the proposal carrying no notice at all. First, this invocation: the --upstream value passes Phase 0 step 0.4 and is recorded in consumed_upstream:, so the /vision entry reads \"skip\" naming the supplied upstream, and the notice does not fire -- the author already did the thing it describes. Second, the held-back case: on /charter payment-retries with an Accepted VISION already at docs/visions/VISION-payment-retries.md and no thesis shift surfaced, the /vision entry reads \"skip\" and the notice does not fire either, because nothing is about to be authored at the head altitude. In both cases the chain proposal is otherwise unchanged and the option line stays \"Proceed / Adjust chain / Bail?\".",
+      "files": [],
+      "expectations": [
+        "Plan suppresses the pre-authoring upstream notice when consumed_upstream: was recorded",
+        "Plan suppresses the pre-authoring upstream notice when /vision is skipped because a settled VISION already exists at the published path",
+        "Plan does not otherwise alter the chain-proposal output or its option line in either case"
+      ]
     }
   ]
 }

@@ -140,6 +140,14 @@ field, re-validated on every resume, and handed to `/strategy` as
 `/strategy <topic-slug> --upstream <path>` — the slug stays the
 parent's, the upstream travels separately.
 
+An author who supplies no upstream is told the flag exists before a
+VISION is written for them. The chain proposal carries a fixed,
+non-blocking notice with the `/vision` run entry, naming no
+candidate and scanning no directory; its verbatim wording and its
+two firing conditions are in
+`skills/charter/references/phases/phase-1-discovery.md` under The
+Pre-Authoring Upstream Notice.
+
 Basename enforcement is deliberately inbound-only: the `--upstream`
 `/charter` emits to `/roadmap` carries no such check, because there
 the parent is handing over an artifact it just watched a child

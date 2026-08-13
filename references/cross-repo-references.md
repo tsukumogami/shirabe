@@ -93,6 +93,11 @@ hard-stop on violations):
 | `skills/design` | [Phase 6 step 6.4](../skills/design/references/phases/phase-6-final-review.md) | Final hygiene grep on the design doc body for `wip/...` references and a broken `upstream:` value |
 | `skills/plan`   | [Phase 7 step 7.4b](../skills/plan/references/phases/phase-7-creation.md) | Reference hygiene grep on the about-to-commit PLAN doc body and frontmatter |
 | `skills/prd`    | [Phase 3 step 3.1](../skills/prd/references/phases/phase-3-draft.md) | The `--upstream` value before it is stored for inclusion in PRD frontmatter |
+| `skills/roadmap` | [Phase 3 step 3.1](../skills/roadmap/references/phases/phase-3-draft.md) | The `--upstream` value before it is stored for inclusion in ROADMAP frontmatter |
+| `skills/charter` | [Phase 0 step 0.4](../skills/charter/references/phases/phase-0-setup.md) | The `--upstream` value before it is recorded in `consumed_upstream:` and handed to `/strategy` |
+| `skills/scope`  | [Phase 0 Upstream Validation](../skills/scope/references/phases/phase-0-setup.md) | The `--upstream` value before it is recorded in `consumed_upstream:` and handed to `/brief` |
+| `skills/strategy` | [Phase 2 draft](../skills/strategy/references/phases/phase-2-draft.md) | The recorded upstream before it is written into STRATEGY frontmatter (Phase 0 step 0.3 validates the value's shape; this step decides whether a public STRATEGY may name it) |
+| `skills/brief`  | [Phase 2 draft](../skills/brief/references/phases/phase-2-draft.md) | The recorded upstream before it is written into BRIEF frontmatter (Phase 0 step 0.3 validates the value's shape; this step decides whether a public BRIEF may name it) |
 
 When updating either side, update the other: a new validation point belongs
 in this table; a change to the rule statement belongs in the section above

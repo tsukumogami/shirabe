@@ -141,6 +141,14 @@ field, re-validated on every resume, and handed to `/brief` as
 `/brief <topic-slug> --upstream <path>` — the slug stays the
 parent's, the upstream travels separately.
 
+An author who supplies no upstream is told the flag exists before a
+BRIEF is written for them. The chain proposal carries a fixed,
+non-blocking notice inside the `/brief` entry, naming no candidate
+and scanning no directory; its verbatim wording and its two firing
+conditions are in
+`skills/scope/references/phases/phase-1-discovery.md` under The
+Pre-Authoring Upstream Notice.
+
 Inbound validation enforces the basename deliberately, unlike an
 outbound hand-off, which does not: outbound, the parent hands over
 an artifact whose type it knows because it watched a child produce

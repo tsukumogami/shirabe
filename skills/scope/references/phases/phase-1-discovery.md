@@ -298,6 +298,12 @@ Example output skeleton:
 
 > Planned chain (the full tactical chain, as always):
 >   /brief — runs (no settled artifact at the canonical path)
+>     A new BRIEF will be written for this topic, with no ROADMAP
+>     behind it. If one already sequences this feature, re-invoke as
+>     `/scope <topic> --upstream <path-to-the-ROADMAP>` and this
+>     chain will attach the BRIEF to it. No candidate has been
+>     looked for; this is a notice, not a question, and the chain
+>     proceeds as proposed.
 >   /prd — runs (no settled artifact at the canonical path)
 >   /design — runs; roster shape from P1 fires, P2 does-not-fire,
 >     P3 fires
@@ -318,6 +324,75 @@ The three branch behaviors:
 - **Bail** — route to R8 bail-handling per the parent's own
   bail-handling rule (force-materialize if any wip state exists
   for the topic; clean-cancel otherwise).
+
+### The Pre-Authoring Upstream Notice
+
+The `/brief` entry in the skeleton above carries a notice. When
+`/brief` runs, `/scope` is about to have a new BRIEF written for a
+feature that a ROADMAP somewhere in the corpus may already
+sequence. The notice says so, inside the entry list, above the
+option line.
+
+The wording is fixed. Emit it verbatim:
+
+> *"A new BRIEF will be written for this topic, with no ROADMAP
+> behind it. If one already sequences this feature, re-invoke as
+> `/scope <topic> --upstream <path-to-the-ROADMAP>` and this chain
+> will attach the BRIEF to it. No candidate has been looked for;
+> this is a notice, not a question, and the chain proceeds as
+> proposed."*
+
+Substitute the run's validated topic slug for `<topic>`. Leave
+`<path-to-the-ROADMAP>` as written — it is a shape, not a
+candidate.
+
+#### When It Fires
+
+Both conditions, and nothing else:
+
+1. `/brief` is in `planned_chain:` — the head child will author a
+   NEW head-altitude artifact on this run.
+2. Phase 0's Upstream Validation recorded no `consumed_upstream:` —
+   no upstream was supplied.
+
+Both are known at chain-proposal time from what Phase 0 and the
+re-entry protections have already established; the notice adds no
+filesystem work beyond the globs Phase 1 already runs.
+
+It does NOT fire when the author supplied `--upstream` and Phase 0
+recorded it — the author already did the thing the notice describes
+— and it does NOT fire when re-entry protection held `/brief` back
+because a settled BRIEF sits at the canonical path. In that second
+case nothing is about to be written, and telling an author how to
+attach an upstream to an artifact this run will not author is
+noise.
+
+#### A Notice Is Not a Prompt
+
+The notice states a fact and changes nothing. It adds no option, no
+default, and no decision point; the only way to act on it is to
+re-invoke with the flag. It follows the shape of the slug-prefix
+recommendation in
+`skills/scope/references/phases/phase-0-setup.md` — surfaced
+informationally, explicitly non-blocking — rather than the shape of
+a prompt.
+
+Four properties follow from where it sits, and the wording above
+keeps each of them true:
+
+- **It precedes the authoring.** The chain proposal is emitted
+  before any child fires, so an author reads it before a BRIEF is
+  written rather than after.
+- **It scans no directory.** The notice names no candidate. It does
+  not need to know whether a ROADMAP exists, which is exactly why
+  it is cheap where a discovery scan would not be.
+- **It is defined in `--auto` mode.** The proposal is emitted and
+  the run auto-proceeds; the notice rides along as output and the
+  chain continues. Nothing blocks, so there is no default to get
+  wrong.
+- **It is not a prompt on every run.** The `Proceed / Adjust /
+  Bail?` line below it is unchanged, and the author still answers
+  exactly one question here.
 
 ## `planned_chain:` Population
 

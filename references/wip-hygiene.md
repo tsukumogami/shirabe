@@ -71,6 +71,11 @@ artifact include an explicit grep step before the artifact lands:
 | `skills/design` | [Phase 6 step 6.4](../skills/design/references/phases/phase-6-final-review.md) | The full design doc body and frontmatter before commit |
 | `skills/plan`   | [Phase 7 step 7.4b](../skills/plan/references/phases/phase-7-creation.md) | The full PLAN doc body and frontmatter before status transition |
 | `skills/prd`    | [Phase 3 step 3.1](../skills/prd/references/phases/phase-3-draft.md) | The `--upstream` value before the PRD draft is written |
+| `skills/roadmap` | [Phase 3 step 3.1](../skills/roadmap/references/phases/phase-3-draft.md) | The `--upstream` value before the ROADMAP draft is written |
+| `skills/charter` | [Phase 0 step 0.4](../skills/charter/references/phases/phase-0-setup.md) | The `--upstream` value before it is recorded in `consumed_upstream:` and handed to `/strategy` |
+| `skills/scope`  | [Phase 0 Upstream Validation](../skills/scope/references/phases/phase-0-setup.md) | The `--upstream` value before it is recorded in `consumed_upstream:` and handed to `/brief` |
+| `skills/strategy` | [Phase 0 step 0.3](../skills/strategy/references/phases/phase-0-setup.md) | The `--upstream` value before the STRATEGY draft is written |
+| `skills/brief`  | [Phase 0 step 0.3](../skills/brief/references/phases/phase-0-setup.md) | The `--upstream` value before the BRIEF draft is written |
 
 ## Verification commands
 
