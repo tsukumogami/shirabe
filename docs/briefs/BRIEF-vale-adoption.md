@@ -55,20 +55,21 @@ CLAUDE.md, AGENTS.md, and README.md in the repo. That leaves 211 files and
 the prose that instructs every future agent run.
 
 The harder half of the problem is that widening the word list would buy
-almost nothing. The phrase apparatus that takes up most of the rulebook
-produces roughly two true positives across 554,000 words of this
-workspace's prose, and raw word-rule precision measures 1.7%, rising to
-about 16% once the domain terms are excluded. The two highest-volume
-matches are that domain vocabulary: in a run over `docs/`, `tier` accounts
-for 128 of 156 alerts and is the Tier 1–4 decision-complexity vocabulary,
-and `journey` at 112 hits is a required BRIEF section heading. A drafting
+almost nothing. The phrase apparatus produces roughly two true positives
+across 554,000 words of this workspace's prose, and raw word-rule
+precision measures 1.7%, rising to about 16% once the domain terms and the
+one document that quotes the rulebook are excluded. The two highest-volume
+matches are that domain vocabulary: `tier` accounts for 128 of 156 alerts
+in a `docs/` run and is the Tier 1–4 decision-complexity vocabulary, and
+`journey` at 112 hits is a required BRIEF section heading. A drafting
 model reliably avoids the words already on the seven-word list. The rules
 it obeys are the mechanizable ones.
 
-What no copy of the rulebook catches is frequency. Em dashes run 3,195 in
-`docs/` and 1,222 in `skills/`. In `docs/` that is 7.84 per thousand
-words, with 72% of files above 3 per thousand and the worst at 28.5;
-`skills/` runs a comparable 7.59. The rulebook names em
+What no copy of the rulebook catches is frequency. Counting body prose
+only, em dashes run 3,114 in `docs/` and 1,188 in `skills/`. In `docs/`
+that is 7.84 per thousand words, with 72% of files above 3 per thousand
+and the worst at 28.5; `skills/` runs a comparable 7.59. The rulebook
+names em
 dash overuse as a formatting tell and the corpus it governs is saturated
 with it, because frequency is a document-level property and a model
 composing one sentence at a time cannot see it. Bold density and
@@ -167,7 +168,7 @@ enforces it.
   the feature does not promise it.
 - Rewriting the writing-style rules themselves. Their content is settled;
   only where they live and what enforces them is in question.
-- Cleaning the existing corpus. Bringing 3,195 em dashes under whatever
+- Cleaning the existing corpus. Bringing 3,114 em dashes under whatever
   threshold gets chosen is follow-on work, and it is the reason a
   threshold rule cannot ship enabled-and-blocking on day one.
 - Repairing three defects in the existing check, as defects of that
@@ -177,9 +178,7 @@ enforces it.
   independently fileable. Note the boundary carefully: whatever checking
   this feature settles on must report correct line numbers and skip code
   fences, inline code, and URLs by construction, and that property is IN
-  scope. Fixing today's FC10 so that it has those properties is not, and
-  the two stop being the same question only if FC10 is replaced rather
-  than extended, which Open Question 2 leaves open.
+  scope. Repairing today's FC10 so that it has those properties is not.
 - Prose checking on commit messages, issue bodies, and PR descriptions.
   That prose never lands on disk in a checkable location, and the
   plumbing to reach it is disproportionate to the value.

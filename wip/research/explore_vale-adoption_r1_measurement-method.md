@@ -143,13 +143,48 @@ Word frequency within the 156:
 
 ## Em dash density
 
+There are two measurements here and they must not be mixed. An earlier
+revision of this file paired the raw numerator with the prose-scoped rate,
+which is why the stated rates did not reproduce from the stated
+denominator. Both are recorded below, labelled.
+
+**Raw (whole file, including code fences, tables, and frontmatter).**
+
 ```bash
-grep -o "—" -r docs --include="*.md" | wc -l    # 3195
-grep -o "—" -r skills --include="*.md" | wc -l  # 1222
+grep -o "—" -r docs   --include="*.md" | wc -l              # 3195
+find docs   -name "*.md" -exec cat {} + | wc -w             # 463440
+grep -o "—" -r skills --include="*.md" | wc -l              # 1222
+find skills -name "*.md" -exec cat {} + | wc -w             # 197538
 ```
 
-Per-thousand rates use `find <dir> -name "*.md" -exec cat {} + | wc -w`
-as the denominator (`docs/` = 463,440 words).
+`docs/` = 3195 / 463440 = **6.89 per thousand**.
+`skills/` = 1222 / 197538 = **6.19 per thousand**.
+
+`wc -w` counts table pipes, rule separators, and fence markers as words,
+so this denominator is inflated and these rates are conservative.
+
+**Prose-scoped (body prose only, excluding fenced code and table cells).**
+This is the measurement the distribution figures belong to:
+
+| Corpus | Em dashes | Prose words | Per 1000 | Files over 3/1000 |
+|---|---|---|---|---|
+| `docs/` | 3,114 | ~397,000 | **7.84** | 104 of 145 (72%) |
+| `skills/` | 1,188 | ~157,000 | **7.59** | 76 of 211 |
+
+Worst files: `PRD-shirabe-pattern-v1-ergonomics.md` at 28.5 per thousand
+(118 em dashes in 4,138 words), `DESIGN-work-on-definition-of-done.md` at
+21.7, `DESIGN-capstone-orchestration.md` at 18.5. Location split in
+`docs/`: 2,974 in body prose, 126 in headings, 27 in table cells, which is
+what establishes this as a prose property rather than a table artifact.
+
+Paragraph-level counts, which are what an `occurrence` rule would act on:
+679 of 5,776 `docs/` paragraphs (11.8%) contain more than one em dash; at
+a threshold of two it is 246 (4.3%). 28.4% of `docs/` paragraphs contain
+at least one.
+
+**Which to cite.** Prefer the prose-scoped set, because the 72% and 28.5
+figures come from it and because em dashes inside a code fence are not a
+prose defect. Cite 3,114 with 7.84, not 3,195 with 7.84.
 
 ## Performance
 
