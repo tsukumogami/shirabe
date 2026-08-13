@@ -49,13 +49,13 @@ Three of those four copies are applied by model judgment. The fourth,
 FC10, is deterministic but narrow, and it cannot see most of the prose it
 would govern: `detect_format` prefix-matches eight artifact types, so
 `shirabe validate` reports "All checks passed" on every SKILL.md,
-CLAUDE.md, AGENTS.md, and README.md in the repo. That is 211 files and
-197,538 words under `skills/` alone, entirely unchecked. That is exactly
+CLAUDE.md, AGENTS.md, and README.md in the repo. That leaves 211 files and
+197,538 words under `skills/` alone entirely unchecked, and it is exactly
 the prose that instructs every future agent run.
 
 The harder half of the problem is that widening the word list would buy
 almost nothing. Measured across 554,000 words of this workspace's prose,
-the phrase and word rules the rulebook spends most of its lines on fire
+the phrase and word rules that take up most of the rulebook produce
 roughly two true positives; raw word-rule precision measures 1.7%. The two
 highest-volume matches are domain vocabulary: `tier` at 147 hits is the
 Tier 1–4 decision-complexity vocabulary, and `journey` at 112 hits is a
