@@ -451,32 +451,93 @@ the reporting change would alter — that assumption was recorded but never chec
 
 ## Security Considerations
 
-The parent flag is the first author-supplied value either parent accepts that is not derived
-from a validated topic slug, and the parents' security contract requires that an addition of
-author-input handling re-state the interpolation contract explicitly rather than silently
-broaden the surface. The flag's value is canonicalized and rejected if it resolves outside
-the repository working tree, which closes the symlink and traversal surface that would
-otherwise let arbitrary filesystem content be read into a document destined for a public
-commit. It is never interpolated into an emitted shell command without that validation, and
-it does not enter the positional slot whose regex is the parents' existing guard.
+### The flag's value reaches a committed frontmatter field
 
-The write-target set stays closed and enumerable. The supplied upstream is a read target
-only — it is recorded and handed to a child, never written to — so no new path can become a
-write destination through this change.
+This is the largest surface and the one an earlier revision of this design missed entirely.
+The supplied upstream is not merely read — a head child writes it into the produced
+document's `upstream:` field, and that document is committed. On the strategic hop the
+private-to-public direction is not a corner case but the ordinary one: the strategic corpus
+lives outside this repository, so a run in a public repo is naturally pointed at a private
+artifact. Public documents referencing private ones are forbidden, and that rule is enforced
+by content governance rather than by tooling — the resolution check returns nothing for a
+cross-repo value, so a public document carrying a private cross-repo upstream validates
+clean and always will.
 
-The finalization change reduces a security-adjacent risk rather than adding one: it prevents
-a mutation that strands references, which is a correctness and auditability failure rather
-than an access-control one.
+**Cross-repo values are accepted, and the visibility check is therefore mandatory rather
+than advisory.** Rejecting them outright would be safe and would also make the flag unable
+to express the one case that motivates it, which is a functional gap on the exact hop the
+requirements name. Accepting them means the parent owns the check the validator cannot make.
+The check already exists in a sibling skill and is reused rather than reinvented: reject a
+path into the non-durable working-artifact directory, confirm the target is tracked by git,
+and stop rather than record when this repo is public and the upstream is private — omitting
+the field instead of writing it. The first of the three matters because such a path would
+otherwise let a document be committed pointing at something deleted before merge. One of the
+two children that already carries this flag has all three checks and the other has none; this
+design closes that asymmetry rather than extending it to four more skills.
 
-The validator changes introduce no new input surface. The parser accepts YAML it already
-parsed and previously discarded; making a discarded value visible does not widen what the
-tool reads.
+### Interpolation and the positional contract
 
-One residual is named rather than hidden: when a corpus cannot be indexed, the referrer map
-cannot be built and the retirement guard cannot run. Failing closed would break existing
-tests that the requirements forbid changing, so the walk fails visibly open — it proceeds
-and records on each transition node that the guard did not run. This is the design's only
-deliberate safety compromise, and the plan carries a test asserting the note appears.
+The flag is the first author-supplied value either parent accepts that is not derived from a
+validated slug, and the parents' security contract requires an addition of author-input
+handling to re-state the interpolation discipline explicitly rather than silently broaden the
+surface. Stated in the repository's own terms: the value is canonicalized to an absolute path
+and rejected if it resolves outside the working tree, then quoted and passed after `--` in
+any emitted command, so neither a leading dash nor a shell metacharacter in a filename can
+change what runs. Validation alone is not the guarantee — the argument boundary is.
+
+This must be re-stated in both parents' own Security Considerations. One of the two has no
+such section today, so this design creates it rather than assuming a home exists.
+
+The claim that the flag never enters the positional slot holds only once the residue rule is
+stated, because the parents validate their positional argument as provided, byte for byte,
+with no normalization. The rule: the flag and its value are removed from the argument string
+before the positional slug is read, and what remains is validated unchanged. A bare flag with
+no value is rejected at setup, naming the missing argument, before any state is written.
+
+The re-validation that happens when a run resumes against a recorded upstream is a second
+interpolation site, not a repeat of the first, and carries the same discipline.
+
+### The write-target set
+
+The supplied upstream is a read target only — recorded, handed to a child, never written to
+— so no new path becomes a write destination. The claim is true in substance but is only
+*checkable* for one of the two parents, since the other declares no write-target set at all.
+This design adds that declaration so the property can be verified rather than asserted.
+
+### The mutation path reads more than it did
+
+The finalization change is a net reduction in risk: it prevents a mutation that strands
+references. But the earlier claim that the validator changes add no input surface is false of
+this half. The walk goes from parsing the documents on its own chain to parsing every
+document the index covers. Each of those files was already an input to the validator; none
+was previously an input to the mutation path, and that distinction is worth stating rather
+than eliding. Node paths are canonicalized with the index's own primitive before any referrer
+lookup, so the walk and the map agree on what names the same document; a canonicalization
+failure blocks the transition rather than silently missing referrers.
+
+The parser change genuinely adds nothing: it surfaces a YAML value the loader already parsed
+and then discarded.
+
+### The fail-open compromise, extended
+
+When the corpus cannot be indexed the referrer map cannot be built and the retirement guard
+cannot run. Failing closed would let one unparseable document block every finalization and
+would break existing tests the requirements forbid changing, so the walk fails open — but
+visibly, recording on each transition node that the guard did not run.
+
+Two corrections to how that was specified. The reachable case is not total index failure but
+*partial*: a single document failing to parse during index construction yields an incomplete
+referrer set, which is the silent version of the same hazard and must produce the same note.
+And a note that lands only in the structured report is visible only to whoever reads the
+report — the automated caller reads a rendered field and exits zero. The note must reach the
+surfaced output, and the test the plan carries must assert it arrives there rather than
+merely existing in the report.
+
+### Housekeeping this change owes
+
+Two shared references carry "where this rule is enforced" tables with explicit
+keep-in-sync instructions. This change adds four enforcement points — two parents and two
+head children — and both tables need the rows.
 
 ## Consequences
 
@@ -489,7 +550,14 @@ dangling references in this repository. Two head children lose a defect unique t
 they are the only document-emitting children that conflate where an upstream is with what
 the produced document is called.
 
-**Negative.** The evaluation restructure is the largest change and touches the module every
+**Negative.** The retirement guard's reach is bounded by the index's directory coverage: a
+document outside those directories can still reference an ancestor and will not block its
+retirement. That is the guard's scope, not a bug, and it is stated so nobody reads the
+protection as total. The unbounded alias expansion the YAML loader permits is a pre-existing
+property this change neither introduces nor closes, recorded because the parsing work is the
+natural place someone would expect it to have been addressed.
+
+The evaluation restructure is the largest change and touches the module every
 lifecycle finding flows through, so its regression surface is the whole corpus rather than
 one check. A `upstream: |` block-scalar value stops half-working, which is a behavior
 removal even though no document uses it. The conflict diagnostic reports rather than
