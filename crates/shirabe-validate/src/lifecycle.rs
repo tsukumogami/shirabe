@@ -1091,6 +1091,13 @@ fn conflict_finding(
 /// (chain membership always yields an obligation, since every member
 /// has a role and the passing-state table is total).
 ///
+/// The location rule (L07) is emitted here too, ahead of the
+/// obligation lookup, because it holds of a document regardless of
+/// whether a chain reaches it: a `Current` DESIGN is terminal and
+/// orphan, and its directory must still agree with its status. Running
+/// it here rather than in one mode's entry point is what makes the two
+/// modes state the same thing about a misplaced document.
+///
 /// `scope` is what the mode controls, and the only thing it controls.
 fn emit_document_findings(
     scope: &BTreeSet<PathBuf>,
@@ -1104,6 +1111,9 @@ fn emit_document_findings(
             Some(d) => d,
             None => continue,
         };
+        if let Some(err) = check_location(doc) {
+            errors.push(err);
+        }
         let required = match obligations.get(path) {
             Some(r) => r,
             None => {
@@ -1165,6 +1175,32 @@ fn emit_document_findings(
                 ),
             ));
         }
+    }
+    errors
+}
+
+/// Report on every chain in `scope`, for the findings a document path
+/// alone cannot produce.
+///
+/// The companion to [`emit_document_findings`]. L06 is chain-scoped,
+/// not member-scoped: it needs the chain to locate its subject — the
+/// chain's single-pr PLAN — so it cannot be folded into the
+/// per-document pass, which knows only a path. Keeping it here, keyed
+/// to the chain and evaluated once per chain in scope, gives it a
+/// stated home in the emission layer rather than leaving it in each
+/// entry point.
+///
+/// Whole-tree mode passes every chain; chain-targeted mode passes the
+/// chains containing the target, which is the same set its document
+/// scope is drawn from.
+fn emit_chain_findings(
+    scope: &[&Chain],
+    idx: &DocIndex,
+    cfg: &Config,
+) -> Vec<ValidationError> {
+    let mut errors: Vec<ValidationError> = Vec::new();
+    for chain in scope {
+        errors.extend(check_l06_outline_acs(chain, idx, cfg));
     }
     errors
 }
@@ -1309,10 +1345,17 @@ fn check_orphan(
 // `Current` DESIGN still sitting in `docs/designs/` -- or a non-`Current`
 // DESIGN already in `docs/designs/current/` -- is drift the chain check does
 // not catch (it validates status against posture, not status against path).
-// This is a corpus-wide, path-dependent check, so it runs through the
-// lifecycle traversal rather than the per-file `validate_file` pass, and its
-// code stays out of the per-file `--check` registry like the rest of the
-// L-family.
+// This is a path-dependent check needing the indexed on-disk location, so it
+// runs through the lifecycle traversal rather than the per-file `validate_file`
+// pass, and its code stays out of the per-file `--check` registry like the rest
+// of the L-family.
+//
+// It is emitted from `emit_document_findings`, so it runs over whatever scope
+// the mode set: every indexed doc in whole-tree mode, the members of the
+// target's chains in chain-targeted mode. Both modes therefore say the same
+// thing about a misplaced document they both report on. Chain membership is
+// irrelevant to the rule itself -- a `Current` design is terminal and orphan,
+// and its directory must still agree with its status.
 
 fn check_location(doc: &IndexedDoc) -> Option<ValidationError> {
     if doc.format != "Design" {
@@ -1378,26 +1421,16 @@ pub fn run_lifecycle_check(
     errors.extend(chain_errors);
 
     // Per-document findings — passing state where a chain reaches the
-    // document, the orphan rule where none does.
+    // document, the orphan rule where none does, and the location rule
+    // over every document in scope.
     let obligations = build_obligations(&chains, posture);
     let scope: BTreeSet<PathBuf> = idx.keys().cloned().collect();
     errors.extend(emit_document_findings(&scope, &obligations, &idx, &inv));
 
-    // L06: outline-AC completeness. Chain-keyed rather than
-    // document-keyed — it needs the chain to locate its subject — so it
-    // runs per chain rather than through the emitter.
-    for chain in &chains {
-        errors.extend(check_l06_outline_acs(chain, &idx, cfg));
-    }
-
-    // L07 location-vs-status rule, over every indexed doc (chain member or
-    // not -- a Current design is terminal and orphan, but its directory must
-    // still agree with its status).
-    for doc in idx.values() {
-        if let Some(err) = check_location(doc) {
-            errors.push(err);
-        }
-    }
+    // Chain-level findings — L06, which needs the chain rather than a
+    // document path. Whole-tree scope is every chain.
+    let chain_scope: Vec<&Chain> = chains.iter().collect();
+    errors.extend(emit_chain_findings(&chain_scope, &idx, cfg));
 
     sort_findings(&mut errors);
     errors
@@ -1602,10 +1635,12 @@ pub fn run_lifecycle_chain_check(
     let scope = chain_targeted_scope(&chains, &canon_doc);
     errors.extend(emit_document_findings(&scope, &obligations, &idx, &inv));
 
-    // L06: outline-AC completeness, once per chain in scope.
-    for chain in containing_chains(&chains, &canon_doc) {
-        errors.extend(check_l06_outline_acs(chain, &idx, cfg));
-    }
+    // Chain-level findings — L06, once per chain in scope.
+    errors.extend(emit_chain_findings(
+        &containing_chains(&chains, &canon_doc),
+        &idx,
+        cfg,
+    ));
 
     sort_findings(&mut errors);
     errors
@@ -2805,6 +2840,46 @@ mod tests {
         assert!(
             !findings_on(&targeted, "PRD-shared.md").is_empty(),
             "the fixture is meant to produce a finding to compare",
+        );
+    }
+
+    #[test]
+    fn both_modes_agree_on_a_misplaced_document() {
+        // A DESIGN at status Current still sitting in docs/designs/ is
+        // in the wrong directory whichever way it is reached. The
+        // location rule used to run only in the whole-tree entry point,
+        // so the targeted mode stayed silent about a document it was
+        // otherwise reporting on. Emitting it over the scope set closes
+        // that: both modes now say the same thing about the same file.
+        let root = build_tree(&[
+            (
+                "docs/designs/DESIGN-misplaced.md",
+                &make_design("Current", ""),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "single-pr", "docs/designs/DESIGN-misplaced.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let whole = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let targeted = run_lifecycle_chain_check(
+            &root.join("docs/plans/PLAN-foo.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        assert!(
+            findings_on(&whole, "DESIGN-misplaced.md")
+                .iter()
+                .any(|e| e.code == "L07"),
+            "the fixture is meant to produce an L07, got {:?}",
+            whole
+        );
+        assert_eq!(
+            findings_on(&targeted, "DESIGN-misplaced.md"),
+            findings_on(&whole, "DESIGN-misplaced.md"),
+            "the two modes disagree about DESIGN-misplaced.md",
         );
     }
 
