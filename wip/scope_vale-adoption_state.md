@@ -17,9 +17,15 @@ design_roster_shape:
   p1_architectural_alternatives: fires
   p2_new_component_references: fires
   p3_complex_classification: fires
-child_snapshots: {}
+chain_ran:
+  - brief
+child_snapshots:
+  brief:
+    status: Accepted
+    captured_at: 2026-08-13T20:58:00Z
+execution_mode: auto
 parent_orchestration:
-  invoking_child: brief
+  invoking_child: prd
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 ```
