@@ -14,7 +14,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::doc::{Config, Doc, ValidationError};
+use crate::doc::{Config, Doc, FieldEntries, ValidationError};
 use crate::formats::FormatSpec;
 use crate::gh::{is_valid_owner_or_repo, ClientError, IssueState, IssueStateClient, PrContext};
 use crate::mermaid::{extract_diagram, find_dependency_graph_block, Diagram, Issue};
@@ -770,53 +770,109 @@ fn is_local_key(dep: &str) -> bool {
 /// consolidation whose re-point was missed -- so the resolution guarantee
 /// belongs to every doc type that can carry the field.
 ///
-/// Entries come from [`crate::upstream::field_entries`], the one
+/// Entries are classified by [`crate::upstream::classify`], the one
 /// normalization path all three `upstream:` readers share; resolution stays
-/// here, against the process working directory. Reporting is still
-/// field-level: the first entry is the path checked, and a present field
-/// with no entries at all checks the empty path, which is the string this
-/// check read before entries existed. Per-entry findings and a message that
-/// says "empty" rather than showing a path are a separate change.
+/// here, against the process working directory. Reporting is per entry: a
+/// two-entry value with one bad path names the bad path rather than the
+/// pair. Every finding sits at the field's line, since the parser records
+/// one line for the field and not one per sequence item.
+///
+/// A field that is present but names nothing -- YAML null, an empty
+/// sequence, or a scalar empty after trimming -- reports exactly one
+/// finding saying the field is empty. It never shows a placeholder as
+/// though it were a path, which is what the null and empty-scalar messages
+/// used to do. A sequence with at least one item is never the empty field
+/// even when an item is blank: that is one per-entry finding, which keeps
+/// "exactly one finding" true from both directions.
+///
+/// A value that is neither a scalar nor a sequence -- a mapping, an alias,
+/// a tagged node -- reports one finding saying so rather than being
+/// discarded.
 pub fn check_upstream_resolves(doc: &Doc) -> Vec<ValidationError> {
     let field = match doc.fields.get("upstream") {
         Some(f) => f,
         None => return Vec::new(),
     };
 
-    let entries = crate::upstream::field_entries(field);
-    let entry = entries.first();
-    if entry.map(|e| e.cross_repo).unwrap_or(false) {
-        return Vec::new();
+    let finding = |message: String| ValidationError {
+        file: doc.path.clone(),
+        line: field.line,
+        code: "R6".to_string(),
+        message,
+    };
+
+    let items: Vec<&str> = match &field.entries {
+        FieldEntries::Scalar(text) if is_empty_scalar(text) => {
+            return vec![finding("[R6] upstream is present but empty".to_string())]
+        }
+        FieldEntries::Scalar(text) => vec![text.as_str()],
+        FieldEntries::Sequence(items) if items.is_empty() => {
+            return vec![finding("[R6] upstream is present but empty".to_string())]
+        }
+        FieldEntries::Sequence(items) => items.iter().map(String::as_str).collect(),
+        FieldEntries::Other => {
+            return vec![finding(
+                "[R6] upstream is not a path or a list of paths".to_string(),
+            )]
+        }
+    };
+
+    let mut errs = Vec::new();
+    for (idx, item) in items.iter().enumerate() {
+        let entry = match crate::upstream::classify(item) {
+            // Only a sequence reaches here blank: the scalar case is the
+            // empty field, handled above.
+            crate::upstream::Entry::Blank => {
+                errs.push(finding(format!("[R6] upstream entry {} is empty", idx + 1)));
+                continue;
+            }
+            crate::upstream::Entry::Placeholder => continue,
+            crate::upstream::Entry::Path(entry) => entry,
+        };
+        // A cross-repo reference names a file in another repository, so
+        // there is no local path to resolve.
+        if entry.cross_repo {
+            continue;
+        }
+        let path = entry.value.as_str();
+
+        if !Path::new(path).exists() {
+            errs.push(finding(format!(
+                "[R6] upstream {:?} does not exist on disk",
+                path
+            )));
+            continue;
+        }
+
+        let tracked = Command::new("git")
+            .args(["ls-files", "--error-unmatch", "--", path])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+
+        if !tracked {
+            errs.push(finding(format!(
+                "[R6] upstream {:?} is not tracked by git",
+                path
+            )));
+        }
     }
-    let path = entry.map(|e| e.value.as_str()).unwrap_or("");
 
-    if !Path::new(path).exists() {
-        return vec![ValidationError {
-            file: doc.path.clone(),
-            line: field.line,
-            code: "R6".to_string(),
-            message: format!("[R6] upstream {:?} does not exist on disk", path),
-        }];
-    }
+    errs
+}
 
-    let tracked = Command::new("git")
-        .args(["ls-files", "--error-unmatch", "--", path])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-
-    if !tracked {
-        return vec![ValidationError {
-            file: doc.path.clone(),
-            line: field.line,
-            code: "R6".to_string(),
-            message: format!("[R6] upstream {:?} is not tracked by git", path),
-        }];
-    }
-
-    Vec::new()
+/// Whether a scalar `upstream:` names nothing: empty after trimming, or one
+/// of YAML's null spellings.
+///
+/// A valueless `upstream:` reaches this check as the source token `~`, and
+/// an explicit `upstream: null` as `null`, because the parser hands over a
+/// scalar's source text. Quoting is not preserved there, so a path spelled
+/// `"null"` would read as null too -- a collapse that costs nothing, since
+/// an upstream path names a document file.
+fn is_empty_scalar(text: &str) -> bool {
+    matches!(text.trim(), "" | "~" | "null" | "Null" | "NULL")
 }
 
 /// (R7) Flags VISION docs that surface sections forbidden in public repos.
@@ -3718,6 +3774,149 @@ mod tests {
             fv("tsukumogami/niwa:docs/prds/PRD-elsewhere.md", 7),
         );
         let doc = make_doc("design/v1", "Proposed", fields, vec![], vec![]);
+        assert_eq!(check_upstream_resolves(&doc).len(), 0);
+    }
+
+    /// A field whose entries are a sequence, as the parser builds one for
+    /// `upstream: [a, b]` or a block list.
+    fn fv_seq(items: &[&str], line: usize) -> FieldValue {
+        FieldValue {
+            value: String::new(),
+            line,
+            entries: FieldEntries::Sequence(items.iter().map(|s| s.to_string()).collect()),
+        }
+    }
+
+    /// A tracked file that exists on disk, named the way
+    /// `check_upstream_resolves_tracked_file_returns_empty` names one.
+    const TRACKED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+
+    #[test]
+    fn check_upstream_resolves_reports_the_entry_that_does_not_resolve() {
+        // Two entries, one good: the finding names the bad path, not the
+        // pair, and the good entry contributes nothing.
+        let missing = "/tmp/nonexistent_shirabe_test_entry_1.md";
+        let mut fields = HashMap::new();
+        fields.insert("upstream".to_string(), fv_seq(&[TRACKED, missing], 4));
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+        let errs = check_upstream_resolves(&doc);
+        assert_eq!(errs.len(), 1, "expected 1 error, got {:?}", errs);
+        assert_eq!(errs[0].code, "R6");
+        assert_eq!(errs[0].line, 4);
+        assert!(errs[0].message.contains(missing), "{}", errs[0].message);
+        assert!(!errs[0].message.contains(TRACKED), "{}", errs[0].message);
+    }
+
+    #[test]
+    fn check_upstream_resolves_reports_every_entry_that_does_not_resolve() {
+        let mut fields = HashMap::new();
+        fields.insert(
+            "upstream".to_string(),
+            fv_seq(
+                &[
+                    "/tmp/nonexistent_shirabe_test_entry_2.md",
+                    "/tmp/nonexistent_shirabe_test_entry_3.md",
+                ],
+                4,
+            ),
+        );
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+        let errs = check_upstream_resolves(&doc);
+        assert_eq!(errs.len(), 2, "expected 2 errors, got {:?}", errs);
+        assert!(errs[0].message.contains("_entry_2.md"));
+        assert!(errs[1].message.contains("_entry_3.md"));
+    }
+
+    #[test]
+    fn check_upstream_resolves_empty_field_reports_once_naming_the_field() {
+        // Every spelling of "present but names nothing" reports the same
+        // single field-level finding, at the field's line.
+        let spellings = [
+            ("null", FieldEntries::Scalar("~".to_string())),
+            ("explicit null", FieldEntries::Scalar("null".to_string())),
+            ("empty sequence", FieldEntries::Sequence(Vec::new())),
+            ("empty scalar", FieldEntries::Scalar(String::new())),
+            ("whitespace scalar", FieldEntries::Scalar("   ".to_string())),
+        ];
+        for (name, entries) in spellings {
+            let mut fields = HashMap::new();
+            fields.insert(
+                "upstream".to_string(),
+                FieldValue {
+                    value: String::new(),
+                    line: 9,
+                    entries,
+                },
+            );
+            let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+            let errs = check_upstream_resolves(&doc);
+            assert_eq!(errs.len(), 1, "expected 1 error for {}: {:?}", name, errs);
+            assert_eq!(errs[0].code, "R6");
+            assert_eq!(errs[0].line, 9);
+            assert_eq!(
+                errs[0].message, "[R6] upstream is present but empty",
+                "for {}",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn check_upstream_resolves_blank_sequence_entry_is_per_entry_not_the_empty_field() {
+        // A sequence with at least one item is never the empty field, so a
+        // blank item reports against the item and the field-level message
+        // stays out of it.
+        let mut fields = HashMap::new();
+        fields.insert("upstream".to_string(), fv_seq(&[""], 3));
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+        let errs = check_upstream_resolves(&doc);
+        assert_eq!(errs.len(), 1, "expected 1 error, got {:?}", errs);
+        assert_eq!(errs[0].code, "R6");
+        assert_eq!(errs[0].message, "[R6] upstream entry 1 is empty");
+    }
+
+    #[test]
+    fn check_upstream_resolves_blank_entry_alongside_a_path_names_its_position() {
+        let mut fields = HashMap::new();
+        fields.insert("upstream".to_string(), fv_seq(&[TRACKED, "  "], 3));
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+        let errs = check_upstream_resolves(&doc);
+        assert_eq!(errs.len(), 1, "expected 1 error, got {:?}", errs);
+        assert_eq!(errs[0].message, "[R6] upstream entry 2 is empty");
+    }
+
+    #[test]
+    fn check_upstream_resolves_non_path_value_reports_that_it_is_not_a_path() {
+        // A mapping names no upstream. Discarding it silently is what this
+        // work removes; calling it empty would not be true.
+        let mut fields = HashMap::new();
+        fields.insert(
+            "upstream".to_string(),
+            FieldValue {
+                value: String::new(),
+                line: 2,
+                entries: FieldEntries::Other,
+            },
+        );
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+        let errs = check_upstream_resolves(&doc);
+        assert_eq!(errs.len(), 1, "expected 1 error, got {:?}", errs);
+        assert_eq!(errs[0].code, "R6");
+        assert_eq!(errs[0].line, 2);
+        assert_eq!(
+            errs[0].message,
+            "[R6] upstream is not a path or a list of paths"
+        );
+    }
+
+    #[test]
+    fn check_upstream_resolves_skips_placeholder_entries() {
+        // An unfilled template placeholder is skipped before resolution
+        // (the shared normalizer's first semantic), so it is not reported
+        // as a missing path.
+        let mut fields = HashMap::new();
+        fields.insert("upstream".to_string(), fv("docs/prds/PRD-<slug>.md", 5));
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
         assert_eq!(check_upstream_resolves(&doc).len(), 0);
     }
 

@@ -45,6 +45,24 @@ pub struct UpstreamEntry {
     pub cross_repo: bool,
 }
 
+/// What one written entry turned out to be.
+///
+/// The walking readers only want the paths, and [`field_entries`] hands
+/// them exactly that. The R6 check needs the three cases apart, because it
+/// says something different about each: a blank entry is a finding, a
+/// placeholder is a silent skip, a path gets resolved. Both go through
+/// [`classify`], so there is still one answer to "what did the author
+/// write here" rather than two.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Entry {
+    /// Empty after trimming: `- ` on its own, or `""`.
+    Blank,
+    /// An unfilled template placeholder (semantic 1).
+    Placeholder,
+    /// Something a reader can try to resolve.
+    Path(UpstreamEntry),
+}
+
 /// The entries of a doc's `upstream:` field, in written order. An absent
 /// field yields none, and so does a field whose value is neither a scalar
 /// nor a sequence.
@@ -74,14 +92,23 @@ pub fn field_entries(field: &FieldValue) -> Vec<UpstreamEntry> {
 
 /// Normalize one entry's source text, or drop it.
 fn normalize(text: &str) -> Option<UpstreamEntry> {
+    match classify(text) {
+        Entry::Path(entry) => Some(entry),
+        Entry::Blank | Entry::Placeholder => None,
+    }
+}
+
+/// Classify one entry's source text: trim it, then decide whether it names
+/// anything a reader could resolve.
+pub fn classify(text: &str) -> Entry {
     let value = text.trim();
     if value.is_empty() {
-        return None;
+        return Entry::Blank;
     }
     if is_placeholder(value) {
-        return None;
+        return Entry::Placeholder;
     }
-    Some(UpstreamEntry {
+    Entry::Path(UpstreamEntry {
         value: value.to_string(),
         cross_repo: is_cross_repo_reference(value),
     })
@@ -203,6 +230,21 @@ mod tests {
             body: Vec::new(),
         };
         assert!(upstream_entries(&doc).is_empty());
+    }
+
+    #[test]
+    fn classify_keeps_blank_and_placeholder_apart() {
+        // `field_entries` drops both, but R6 says something different
+        // about each, so the classification has to distinguish them.
+        assert_eq!(classify("  "), Entry::Blank);
+        assert_eq!(classify("<PRD path>"), Entry::Placeholder);
+        assert_eq!(
+            classify(" docs/a.md "),
+            Entry::Path(UpstreamEntry {
+                value: "docs/a.md".to_string(),
+                cross_repo: false,
+            })
+        );
     }
 
     #[test]
