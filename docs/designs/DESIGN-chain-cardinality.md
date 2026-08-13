@@ -35,9 +35,9 @@ rationale: |
 
 Proposed
 
-Five decisions were researched independently and cross-validated. Two sequencing edges
-and one inverted repair were found at cross-validation and are recorded in Implementation
-Approach; they are the parts most likely to be got wrong by reading one decision alone.
+Five decisions were researched independently and cross-validated. Three sequencing edges
+and one inverted repair are recorded in Implementation Approach; they are the parts most
+likely to be got wrong by reading one decision alone.
 
 ## Context and Problem Statement
 
@@ -162,7 +162,7 @@ entirely; and posture is inferred from the root rather than from any member. Nam
 the point — a rejection resting on an unenumerated set asks to be taken on trust, and these
 three are the reason the walk is reused rather than replaced.
 
-**The walk does change in one respect, and the design earlier understated this.** The
+**The walk does change in one respect.** The
 requirement that every entry of a multi-valued upstream be a membership edge is a change to
 the walk itself: it currently advances to the first upstream and discards the rest. Making
 it fan out is not a one-line substitution, because two properties of the walk assume a
@@ -201,8 +201,8 @@ requires absence and the other requires a status. Two requirements of absence ag
 
 *Rejected — detect but do not supersede.* The honest option, and it was given a full
 hearing: it satisfies the severity requirement vacuously, has provably zero regression
-exposure, and is the smallest change. Two of its three counter-arguments need stating
-precisely, because one is weaker than it first appears.
+exposure, and is the smallest change. Two of the three arguments against it are weaker than
+they look, and only the third carries the rejection.
 
 The accepted requirements say otherwise in SHALL language, so choosing it is a PRD
 amendment and would have to be proposed as one — an appeal to authority rather than merit,
@@ -307,8 +307,9 @@ slugs coincide — a coincidence the reuse case is defined by breaking.
 
 The conflict diagnostic sits on top of the obligation map and reports the one case the
 model cannot represent: a document whose consumers demand states that no single status
-satisfies. It supersedes rather than accompanies, because the pair it replaces is itself
-the harm.
+satisfies. It supersedes rather than accompanies, because each finding becomes an
+independent annotation in rendered output — so a reader who sees an instruction to change a
+status does not reliably see the explanation that the instruction is contradicted.
 
 ## Solution Architecture
 
@@ -323,9 +324,14 @@ The helper's semantics have to be *chosen*, not merely centralized, because the 
 readers disagree today on all four of its concerns. Placeholder-shaped values are skipped as
 entries rather than being allowed to reach path resolution, which is the chain walk's
 current behavior and which converts a present-day tool error in the finalization path into
-a clean termination. Cross-repo references are recognized and skipped as unresolvable-here
-rather than being joined onto the local root as literal paths, which is what an
-unconditional join would do. Trimming and self-reference suppression follow the chain walk.
+a clean termination. Cross-repo references are recognized and marked as not resolvable
+as a local path, rather than being joined onto the local root as literal paths, which is what
+an unconditional join would do. **Marked, not removed** — the distinction is load-bearing on
+the mutation path. The finalization walk stops at a cross-repo upstream and reports a node
+saying so; that write wall is asserted by an existing test the requirements forbid modifying.
+If the helper dropped cross-repo entries from the list instead of flagging them, the walk
+would never see them and the wall would silently vanish. The validator skips them; the walk
+stops at them; both need the entry present to do so. Trimming and self-reference suppression follow the chain walk.
 The helper returns entries as written after normalization and does not resolve them against
 a root; resolution stays with each caller, because the two callers that resolve today anchor
 against different bases and unifying that is a behavior change this design does not need.
@@ -439,21 +445,32 @@ verified against every repository the change is tested against, before and after
 modes.
 
 **Corpus invariance has exactly one intended exception, and it must be named before the
-diff is run.** Removing the false positive means that any repository where the validator
-currently demands a live ROADMAP be deleted will stop reporting that finding — which is a
-changed validation result, and therefore a deliberate breach of the invariance requirement
-rather than a regression. This repository has no roadmaps and cannot exhibit it; whether a
+diff is run.** The root-versus-member repair changes what a member ROADMAP is required to be,
+which shows up as a diff in two shapes, both expected. A live ROADMAP beneath a completing
+feature stops being told to delete itself — the finding disappears. A retired ROADMAP above
+a still-running chain keeps its finding but with a changed expectation, since the requirement
+moves from absence to Active. Both are deliberate breaches of the invariance requirement
+rather than regressions, and an exception scoped only to findings that vanish would
+misclassify the second. This repository has no roadmaps and cannot exhibit it; whether a
 sibling repository does is a question the implementation must ask before it starts, because
 an engineer running the before-and-after comparison will otherwise see a difference with no
 way to tell the intended repair from a fault. Every other difference is a regression. Also
 verify during that pass that no document carries a present-but-empty upstream whose message
 the reporting change would alter — that assumption was recorded but never checked.
 
+**The finalization tests are part of the invariance obligation, not just the validation
+output.** Two behaviors this design adds touch that path: a canonicalization failure now
+blocks a transition, and the walk reads every indexed document rather than only its own
+chain. Both must be checked against the existing finalization suite before they are
+considered settled, because the requirement that no test be modified covers those tests as
+much as the validator's.
+
 ## Security Considerations
 
 ### The flag's value reaches a committed frontmatter field
 
-This is the largest surface and the one an earlier revision of this design missed entirely.
+This is the largest surface, and the least obvious, because nothing about a flag suggests
+its value ends up in a committed file.
 The supplied upstream is not merely read — a head child writes it into the produced
 document's `upstream:` field, and that document is committed. On the strategic hop the
 private-to-public direction is not a corner case but the ordinary one: the strategic corpus
@@ -507,8 +524,8 @@ This design adds that declaration so the property can be verified rather than as
 ### The mutation path reads more than it did
 
 The finalization change is a net reduction in risk: it prevents a mutation that strands
-references. But the earlier claim that the validator changes add no input surface is false of
-this half. The walk goes from parsing the documents on its own chain to parsing every
+references. It does, however, widen what the mutation path reads, which the parser half does
+not. The walk goes from parsing the documents on its own chain to parsing every
 document the index covers. Each of those files was already an input to the validator; none
 was previously an input to the mutation path, and that distinction is worth stating rather
 than eliding. Node paths are canonicalized with the index's own primitive before any referrer
@@ -525,13 +542,13 @@ cannot run. Failing closed would let one unparseable document block every finali
 would break existing tests the requirements forbid changing, so the walk fails open — but
 visibly, recording on each transition node that the guard did not run.
 
-Two corrections to how that was specified. The reachable case is not total index failure but
-*partial*: a single document failing to parse during index construction yields an incomplete
-referrer set, which is the silent version of the same hazard and must produce the same note.
-And a note that lands only in the structured report is visible only to whoever reads the
-report — the automated caller reads a rendered field and exits zero. The note must reach the
-surfaced output, and the test the plan carries must assert it arrives there rather than
-merely existing in the report.
+Two properties of that compromise decide whether "visibly" is true. The reachable failure is
+not a total index failure but a *partial* one: a single document failing to parse during
+index construction yields an incomplete referrer set, which is the silent version of the same
+hazard and must produce the same note. And a note that lands only in the structured report is
+visible only to whoever reads the report, while the automated caller reads a rendered field
+and exits zero. The note must reach the surfaced output, and the test the plan carries must
+assert it arrives there rather than merely existing in the report.
 
 ### Housekeeping this change owes
 
@@ -568,8 +585,11 @@ two, because the hand-off cannot work without the children accepting the flag.
 **Mitigations.** Corpus invariance is verified before and after against every repository in
 the test set, in both modes, which is what catches an evaluation regression — with the one
 named exception above, since removing a live false positive necessarily changes a result and
-would otherwise read as the very regression the check exists to find. The two
-sequencing edges are encoded in the plan's dependency graph rather than left to memory. The
-root-versus-member repair ships as the conflict work's first commit, so the false positive
-cannot be spread by a partial landing. The un-indexable-corpus compromise is recorded on the
-node and asserted by a test rather than left for someone to discover.
+would otherwise read as the very regression the check exists to find. All three
+sequencing edges are encoded in the plan's dependency graph rather than left to memory,
+including the multi-edge-walk-before-map edge, which is the least obvious of the three and
+therefore the one most likely to be dropped. The root-versus-member repair ships as the
+conflict work's first commit, so the false positive cannot be spread by a partial landing.
+The un-indexable-corpus compromise is recorded on the node, surfaced on the rendered output
+rather than only in the structured report, and asserted by a test that checks it arrives
+there.
