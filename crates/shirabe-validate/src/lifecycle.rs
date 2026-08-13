@@ -35,6 +35,13 @@
 //! - **L07**: a DESIGN's directory disagrees with its status — a
 //!   `Current` design outside `docs/designs/current/`, or a
 //!   non-`Current` design inside it.
+//! - **L08**: two chains require the same document in states no
+//!   single status satisfies. The message names each conflicting
+//!   chain and the full set it requires, and it supersedes the L01
+//!   findings those chains' requirements would have produced on that
+//!   document — the document is told once that its consumers
+//!   disagree, rather than handed instructions it cannot both follow.
+//!   Findings of every other kind on it are unaffected.
 //!
 //! Posture detection follows
 //! `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`:
@@ -225,6 +232,28 @@ impl PassingState {
             }
             Self::PrdAcceptedOrInProgress => {
                 "status 'Accepted' or 'In Progress'".to_string()
+            }
+        }
+    }
+
+    /// The variant expanded into the concrete set of statuses it
+    /// denotes.
+    ///
+    /// `matches` answers the question one status at a time, which is
+    /// all the per-document check ever needed. Comparing two
+    /// requirements to each other needs the sets themselves, and this
+    /// is the one place they are written down.
+    ///
+    /// `Deleted` expands to the empty set — correctly, since no status
+    /// satisfies "not there at all" — which is exactly why
+    /// [`requirements_conflict`] cannot be a bare disjointness test.
+    fn statuses(&self) -> BTreeSet<&'static str> {
+        match self {
+            Self::Status(s) => [*s].into_iter().collect(),
+            Self::Deleted => BTreeSet::new(),
+            Self::DesignPlannedOrCurrent => ["Planned", "Current"].into_iter().collect(),
+            Self::PrdAcceptedOrInProgress => {
+                ["Accepted", "In Progress"].into_iter().collect()
             }
         }
     }
@@ -926,6 +955,130 @@ fn posture_clause(imposers: &Imposers) -> String {
     }
 }
 
+// ---------- conflict detection ----------
+
+/// One chain's demand on one document: which chain, at what posture,
+/// and the set it requires.
+///
+/// The obligation map keys by required set and folds every chain
+/// demanding it into a single entry, which is what makes an L01
+/// unique. A conflict is about the chains rather than about the
+/// requirement, and its message has to name them, so this reads the
+/// map back apart into one requirement per chain.
+#[derive(Clone, Copy)]
+struct Requirement<'a> {
+    state: &'a PassingState,
+    posture: Posture,
+    root: &'a Path,
+}
+
+/// Whether two chains' demands on one document cannot both be met.
+///
+/// Disjointness of the required status sets, not inequality. Two
+/// chains wanting different-but-overlapping things — one accepting a
+/// DESIGN at `Planned` or `Current`, another insisting on `Current` —
+/// agree at the intersection, and that is the ordinary shape of a
+/// shared document rather than a fault. Inequality as the test would
+/// fire on every shared DESIGN, which is the case the intersection
+/// protects.
+///
+/// `Deleted` is the value that needs the rule stated rather than
+/// inferred. It denotes the empty set, and the empty set is disjoint
+/// from everything including itself, so a bare disjointness test fires
+/// on two chains that both correctly require the same PLAN deleted —
+/// perfect agreement reported as conflict, on correct state. So:
+/// absence against a status conflicts, and absence against absence
+/// agrees.
+fn requirements_conflict(a: &PassingState, b: &PassingState) -> bool {
+    match (a, b) {
+        (PassingState::Deleted, PassingState::Deleted) => false,
+        (PassingState::Deleted, _) | (_, PassingState::Deleted) => true,
+        _ => a.statuses().is_disjoint(&b.statuses()),
+    }
+}
+
+/// The chain-level requirements on one document, in the map's order:
+/// by required set, then by (posture, chain root) within a set. Both
+/// levels are ordered collections, so the order is stable across runs
+/// and the message reads the same twice.
+fn requirements_of(required: &BTreeMap<PassingState, Imposers>) -> Vec<Requirement<'_>> {
+    required
+        .iter()
+        .flat_map(|(state, imposers)| {
+            imposers.iter().map(move |(posture, root)| Requirement {
+                state,
+                posture: *posture,
+                root: root.as_path(),
+            })
+        })
+        .collect()
+}
+
+/// Every requirement participating in at least one conflicting pair.
+///
+/// Pairwise over chains rather than over the map's entries. The two
+/// give the same answer — whether a requirement conflicts depends only
+/// on the set it names, so two chains behind one entry participate or
+/// abstain together — but the entry-level scan would never compare two
+/// requirements of absence to each other, since they share a key and
+/// merge. Comparing chains keeps the absence-agrees rule on a path the
+/// code actually walks.
+fn conflicting_requirements<'a>(reqs: &[Requirement<'a>]) -> Vec<Requirement<'a>> {
+    let mut participates = vec![false; reqs.len()];
+    for i in 0..reqs.len() {
+        for j in (i + 1)..reqs.len() {
+            if requirements_conflict(reqs[i].state, reqs[j].state) {
+                participates[i] = true;
+                participates[j] = true;
+            }
+        }
+    }
+    reqs.iter()
+        .zip(participates)
+        .filter(|(_, p)| *p)
+        .map(|(r, _)| *r)
+        .collect()
+}
+
+/// The conflict finding: one message naming every chain that
+/// participates and the full set each requires.
+///
+/// A new code rather than a second flavour of L01. The `L0n` family
+/// names kinds, and a lineage conflict is not a state-versus-posture
+/// mismatch — the document may well be at a status some chain is happy
+/// with. It is also unregistered in
+/// [`crate::validate::posture_class`], which falls through to
+/// always-enforced, so it carries the severity of the findings it
+/// replaces in both postures.
+fn conflict_finding(
+    path: &Path,
+    role: ChainRole,
+    conflicting: &[Requirement<'_>],
+) -> ValidationError {
+    let roots: BTreeSet<&Path> = conflicting.iter().map(|r| r.root).collect();
+    let clauses: Vec<String> = conflicting
+        .iter()
+        .map(|r| {
+            format!(
+                "the chain rooted at {} ({}) expected {}",
+                rel_path_lossy(r.root),
+                r.posture.name(),
+                r.state.describe(),
+            )
+        })
+        .collect();
+    error_path(
+        path.to_path_buf(),
+        "L08",
+        &format!(
+            "{} is required in conflicting states by {} chains: {}. No single status satisfies all of them, so the per-chain status findings are withheld in favour of this one.",
+            role.as_str(),
+            roots.len(),
+            clauses.join("; "),
+        ),
+    )
+}
+
 // ---------- emission ----------
 
 /// Report on every document in `scope`, against the obligations the
@@ -964,7 +1117,29 @@ fn emit_document_findings(
             Some(r) => r,
             None => continue,
         };
+        // Conflict first: when no status satisfies every chain, the
+        // document is told so once instead of being handed the
+        // instructions it cannot both follow. The requirements behind
+        // the conflict are withheld; any requirement that intersects
+        // everything else still speaks for itself below, and so do the
+        // findings of every other kind on this document.
+        //
+        // Supersession is safe by construction rather than by care: if
+        // no status satisfies every chain, this document's status
+        // satisfies at most one of them, so at least one of the
+        // withheld findings had fired. The replacement is one-for-N
+        // with N at least one, never one-for-zero.
+        let conflicting = conflicting_requirements(&requirements_of(required));
+        let superseded: BTreeSet<&PassingState> =
+            conflicting.iter().map(|r| r.state).collect();
+        if !conflicting.is_empty() {
+            errors.push(conflict_finding(path, role, &conflicting));
+        }
+
         for (state, imposers) in required {
+            if superseded.contains(state) {
+                continue;
+            }
             // The document was discovered by walking the index, so it
             // is present in the tree by definition and
             // `PassingState::Deleted` always fails — that is the
@@ -2931,6 +3106,273 @@ mod tests {
                 .any(|e| e.code == "L01" && e.message.contains("DELETED")),
             "a completed ROADMAP-rooted chain still owes the deletion, got {:?}",
             on_roadmap
+        );
+    }
+
+    // ---------- L08: conflicting chains ----------
+
+    /// One BRIEF beneath two chains that want different things of it:
+    /// a single-pr chain mid-PR, which wants it at `Accepted`, and a
+    /// multi-pr chain finishing its work, which wants it at `Done`.
+    /// The two sets are disjoint under the draft posture and identical
+    /// under ready, which is what makes this fixture serve both the
+    /// conflict case and the effective-posture case.
+    fn two_disjoint_chains_over_one_brief() -> PathBuf {
+        build_tree(&[
+            (
+                "docs/briefs/BRIEF-shared.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/plans/PLAN-a.md",
+                &make_plan("Active", "single-pr", "docs/briefs/BRIEF-shared.md"),
+                &plan_body("Active"),
+            ),
+            (
+                "docs/plans/PLAN-b.md",
+                &make_plan("Done", "multi-pr", "docs/briefs/BRIEF-shared.md"),
+                &plan_body("Done"),
+            ),
+        ])
+    }
+
+    #[test]
+    fn disjoint_chains_over_one_document_are_one_conflict_finding() {
+        let root = two_disjoint_chains_over_one_brief();
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let on_brief = findings_on(&errors, "BRIEF-shared.md");
+        assert_eq!(
+            on_brief.len(),
+            1,
+            "a conflicted document is told once, got {:?}",
+            on_brief
+        );
+        assert_eq!(on_brief[0].code, "L08", "got {:?}", on_brief);
+        // Each chain by name, each requirement in full.
+        for fragment in [
+            "docs/plans/PLAN-a.md",
+            "docs/plans/PLAN-b.md",
+            "expected status 'Accepted'",
+            "expected status 'Done'",
+        ] {
+            assert!(
+                on_brief[0].message.contains(fragment),
+                "the conflict message is missing {:?}: {}",
+                fragment,
+                on_brief[0].message
+            );
+        }
+    }
+
+    #[test]
+    fn the_conflict_supersedes_the_status_findings_it_replaces() {
+        // The same fixture read from the other side: the multi-pr
+        // chain's demand for `Done` fired an L01 before this landed,
+        // and the conflict finding is what replaces it. One-for-one
+        // here, one-for-N in general, never one-for-zero — a document
+        // no status satisfies satisfies at most one chain.
+        let root = two_disjoint_chains_over_one_brief();
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            !findings_on(&errors, "BRIEF-shared.md")
+                .iter()
+                .any(|e| e.code == "L01"),
+            "the superseded status findings are withheld, got {:?}",
+            findings_on(&errors, "BRIEF-shared.md")
+        );
+    }
+
+    #[test]
+    fn intersecting_required_sets_pass_at_the_intersection() {
+        // The case the intersection rule protects, and the reason
+        // conflict is disjointness rather than inequality: the
+        // in-flight chain accepts `Planned` or `Current`, the
+        // completing chain insists on `Current`, and a DESIGN at
+        // `Current` satisfies both. Inequality as the test would fire
+        // on every shared DESIGN, this one included.
+        let root = build_tree(&[
+            (
+                "docs/designs/current/DESIGN-shared.md",
+                &make_design("Current", ""),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-inflight.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    "docs/designs/current/DESIGN-shared.md",
+                ),
+                &plan_body("Active"),
+            ),
+            (
+                "docs/plans/PLAN-completing.md",
+                &make_plan("Done", "multi-pr", "docs/designs/current/DESIGN-shared.md"),
+                &plan_body("Done"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            findings_on(&errors, "DESIGN-shared.md").is_empty(),
+            "a document at the intersection owes nothing, got {:?}",
+            findings_on(&errors, "DESIGN-shared.md")
+        );
+    }
+
+    #[test]
+    fn two_chains_requiring_the_same_document_absent_agree() {
+        // PLAN-f is the root of its own completing chain, which wants
+        // it deleted, and a member of PLAN-g's completing chain, which
+        // wants the same. Absence expands to the empty set and the
+        // empty set is disjoint from itself, so a bare disjointness
+        // test would report perfect agreement as conflict. What is
+        // owed here is the deletion commit, said once.
+        let root = build_tree(&[
+            (
+                "docs/plans/PLAN-f.md",
+                &make_plan("Done", "multi-pr", ""),
+                &plan_body("Done"),
+            ),
+            (
+                "docs/plans/PLAN-g.md",
+                &make_plan("Done", "multi-pr", "docs/plans/PLAN-f.md"),
+                &plan_body("Done"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let on_f = findings_on(&errors, "PLAN-f.md");
+        assert!(
+            !on_f.iter().any(|e| e.code == "L08"),
+            "two demands for absence agree, got {:?}",
+            on_f
+        );
+        assert!(
+            on_f.iter()
+                .any(|e| e.code == "L01" && e.message.contains("DELETED")),
+            "the deletion is still owed, got {:?}",
+            on_f
+        );
+    }
+
+    #[test]
+    fn the_conflict_rule_states_the_absence_case_rather_than_inferring_it() {
+        use PassingState::*;
+        // Absence against absence agrees; absence against a status
+        // conflicts.
+        assert!(!requirements_conflict(&Deleted, &Deleted));
+        assert!(requirements_conflict(&Deleted, &Status("Active")));
+        assert!(requirements_conflict(&Status("Active"), &Deleted));
+        // Statuses: disjoint sets conflict, overlapping ones do not.
+        assert!(requirements_conflict(&Status("Accepted"), &Status("Done")));
+        assert!(!requirements_conflict(&Status("Done"), &Status("Done")));
+        assert!(!requirements_conflict(
+            &DesignPlannedOrCurrent,
+            &Status("Current")
+        ));
+        assert!(requirements_conflict(
+            &DesignPlannedOrCurrent,
+            &PrdAcceptedOrInProgress
+        ));
+        assert!(!requirements_conflict(
+            &PrdAcceptedOrInProgress,
+            &Status("In Progress")
+        ));
+    }
+
+    /// A PLAN wanted absent by its own completing chain and alive by
+    /// an in-flight chain below it, whose `upstream:` also names a
+    /// document that is not there. The conflict and the dangling
+    /// upstream are different kinds of fault about the same file.
+    fn conflicted_plan_with_a_dangling_upstream() -> PathBuf {
+        build_tree(&[
+            (
+                "docs/plans/PLAN-f.md",
+                &make_plan("Done", "multi-pr", "docs/designs/DESIGN-missing.md"),
+                &plan_body("Done"),
+            ),
+            (
+                "docs/plans/PLAN-g.md",
+                &make_plan("Active", "multi-pr", "docs/plans/PLAN-f.md"),
+                &plan_body("Active"),
+            ),
+        ])
+    }
+
+    #[test]
+    fn other_kinds_of_finding_survive_on_a_conflicted_document() {
+        let root = conflicted_plan_with_a_dangling_upstream();
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let on_f = findings_on(&errors, "PLAN-f.md");
+        assert!(
+            on_f.iter().any(|e| e.code == "L08"),
+            "the conflict is reported, got {:?}",
+            on_f
+        );
+        assert!(
+            on_f.iter().any(|e| e.code == "L04"),
+            "the unresolvable upstream is still reported, got {:?}",
+            on_f
+        );
+        assert!(
+            !on_f.iter().any(|e| e.code == "L01"),
+            "only the status findings are withheld, got {:?}",
+            on_f
+        );
+    }
+
+    #[test]
+    fn the_conflict_carries_the_severity_of_what_it_replaced() {
+        use crate::validate::{effective_severity, posture_class, PostureClass};
+        // L08 is unregistered in the draft-tolerable set, which falls
+        // through to always-enforced — the same class L01 carries, so
+        // the replacement is an error wherever the pair was.
+        assert_eq!(posture_class("L08"), PostureClass::AlwaysEnforced);
+        for posture in [ReviewPosture::Draft, ReviewPosture::Ready] {
+            assert_eq!(
+                effective_severity("L08", posture),
+                effective_severity("L01", posture),
+                "L08 and L01 must resolve alike under {:?}",
+                posture
+            );
+        }
+        // And it is reported under both modes, not only the strict one.
+        let root = conflicted_plan_with_a_dangling_upstream();
+        for posture in [ReviewPosture::Draft, ReviewPosture::Ready] {
+            let errors = run_lifecycle_check(&root, &Config::default(), posture);
+            assert!(
+                findings_on(&errors, "PLAN-f.md")
+                    .iter()
+                    .any(|e| e.code == "L08"),
+                "the conflict is reported under {:?}, got {:?}",
+                posture,
+                findings_on(&errors, "PLAN-f.md")
+            );
+        }
+    }
+
+    #[test]
+    fn required_sets_are_computed_from_effective_postures() {
+        // The single-pr chain is mid-PR under draft, where it wants
+        // the BRIEF at `Accepted` against the other chain's `Done` —
+        // a conflict. Ready re-targets it to the at-merge row, where
+        // both chains want `Done` and there is nothing to conflict
+        // about. Computed from the raw chain postures, the conflict
+        // would be reported in a mode that does not have it.
+        let root = two_disjoint_chains_over_one_brief();
+        let ready = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Ready);
+        let on_brief = findings_on(&ready, "BRIEF-shared.md");
+        assert!(
+            !on_brief.iter().any(|e| e.code == "L08"),
+            "ready mode has no conflict here, got {:?}",
+            on_brief
+        );
+        assert!(
+            on_brief
+                .iter()
+                .any(|e| e.code == "L01" && e.message.contains("expected status 'Done'")),
+            "both chains want the BRIEF at Done under ready, got {:?}",
+            on_brief
         );
     }
 

@@ -78,10 +78,15 @@ postures.
 | L05 | Parse failure | Always-enforced |
 | L06 | Outline acceptance-criteria | Draft-tolerable |
 | L07 | Design location | Draft-tolerable |
+| L08 | Conflicting chain requirements | Always-enforced |
 | FC-family | Frontmatter / convention checks | Always-enforced |
 
 The draft-tolerable set is **L02, L06, L07**. Everything else — L03, L04, L05,
-and the entire FC-family — is always-enforced.
+L08, and the entire FC-family — is always-enforced.
+
+L08 replaces the L01 findings of the chains it names, so it has to be enforced
+wherever they were: both are always-enforced, and a document no status satisfies
+always had at least one L01 to withhold.
 
 L01 is a special case: it is always-enforced, but it is also posture-sensitive.
 The single-pr re-target fires only under ready posture, because a single-pr
