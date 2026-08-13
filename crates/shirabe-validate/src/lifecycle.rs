@@ -673,6 +673,11 @@ fn infer_posture_from(root: &IndexedDoc) -> Posture {
 
 /// The passing state for a chain member given the chain's posture.
 ///
+/// Role and posture alone, which is to say: what one chain demands of
+/// a document at the *root* of that chain's lineage. Position is not a
+/// parameter here and cannot be — see [`required_state`], which holds
+/// the one rule that depends on it.
+///
 /// The DESIGN is the only artifact type with a non-trivial passing-
 /// state lifecycle outside the chain's primary state machine: it
 /// lives at `Planned` in `docs/designs/` during in-flight phases and
@@ -721,12 +726,20 @@ fn compute_passing_state(role: ChainRole, posture: Posture) -> PassingState {
         (Plan, SinglePrMidPR) => PassingState::Status("Active"),
         (Roadmap, SinglePrMidPR) => PassingState::Status("Active"),
 
-        // Single-pr at-merge (PLAN absent; this branch is mostly for
-        // ROADMAP shape).
+        // Single-pr at-merge (PLAN absent).
         (Brief, SinglePrAtMerge) => PassingState::Status("Done"),
         (Prd, SinglePrAtMerge) => PassingState::Status("Done"),
         (Design, SinglePrAtMerge) => PassingState::Status("Current"),
         (Plan, SinglePrAtMerge) => PassingState::Deleted,
+        // Unreachable, and left saying what it has always said. A
+        // single-pr posture only ever comes from a PLAN root
+        // (`infer_posture_from` maps a ROADMAP root to a multi-pr
+        // posture and nothing else), so a ROADMAP holding this cell is
+        // a member rather than a root — the case [`required_state`]
+        // now answers before the table is consulted. `Active` is what
+        // it answers, so the cell is not a contradiction left behind;
+        // it is the same rule written twice, and flipping it to match
+        // its row would make it one.
         (Roadmap, SinglePrAtMerge) => PassingState::Status("Active"),
     }
 }
@@ -774,6 +787,39 @@ fn effective_posture(chain: Posture, review: ReviewPosture) -> Posture {
     }
 }
 
+/// What one chain requires of one of its members.
+///
+/// The passing-state table is keyed by role and posture, and a posture
+/// is a property of the chain's root. That is the right reading for a
+/// document evaluated against its own lineage, and the wrong one for a
+/// document a chain merely passes through on its way up: the table
+/// cannot tell the two apart, so it answers as though every member's
+/// own work were the work the posture describes.
+///
+/// For a ROADMAP the difference is the difference between a live
+/// document and a deleted one. `discover_chains` records a node as a
+/// member before the stop check, so a ROADMAP reached by walking up
+/// from a PLAN is a full member of that PLAN's chain — and a multi-pr
+/// PLAN at `Done` puts that chain at `MultiPrWorkCompleting`, whose
+/// ROADMAP cell requires absence. Read straight off the table, one
+/// feature finishing beneath a ROADMAP demands the ROADMAP be deleted
+/// while the rest of its features are still running.
+///
+/// So: a ROADMAP that is not the root of the chain being evaluated is
+/// required to be `Active`. Only a ROADMAP's own chain — the one
+/// rooted at it, whose completion is its completion — can require its
+/// absence, and that path still runs through the table unchanged.
+///
+/// `Active` rather than the weaker "present": the two differ on a
+/// retired ROADMAP above a still-completing chain, which "present"
+/// lets pass and which is a real finding.
+fn required_state(member: &ChainMember, chain: &Chain, posture: Posture) -> PassingState {
+    if member.role == ChainRole::Roadmap && member.path != chain.root {
+        return PassingState::Status("Active");
+    }
+    compute_passing_state(member.role, posture)
+}
+
 /// Build the obligation map over every discovered chain.
 fn build_obligations(chains: &[Chain], review: ReviewPosture) -> ObligationMap {
     let mut map = ObligationMap::new();
@@ -782,7 +828,7 @@ fn build_obligations(chains: &[Chain], review: ReviewPosture) -> ObligationMap {
         for member in &chain.members {
             map.entry(member.path.clone())
                 .or_default()
-                .entry(compute_passing_state(member.role, posture))
+                .entry(required_state(member, chain, posture))
                 .or_default()
                 .insert((posture, chain.root.clone()));
         }
@@ -2695,6 +2741,125 @@ mod tests {
             l03s(&targeted),
             l03s(&whole),
             "the cycle is corpus integrity and belongs in both modes",
+        );
+    }
+
+    // ---- root versus member ----
+
+    /// A ROADMAP, a chain hanging beneath it, and a PLAN at the given
+    /// execution mode and status. Everything but the ROADMAP sits at
+    /// the status a completing chain wants, so the ROADMAP is the only
+    /// document these tests have to reason about.
+    fn roadmap_over_a_chain(
+        roadmap_status: &str,
+        execution_mode: &str,
+        plan_status: &str,
+    ) -> PathBuf {
+        build_tree(&[
+            (
+                "docs/roadmaps/ROADMAP-r.md",
+                &make_roadmap(roadmap_status),
+                &roadmap_body(roadmap_status),
+            ),
+            (
+                "docs/prds/PRD-f.md",
+                &make_prd("Done", "docs/roadmaps/ROADMAP-r.md"),
+                &prd_body("Done"),
+            ),
+            (
+                "docs/designs/current/DESIGN-f.md",
+                &make_design("Current", "docs/prds/PRD-f.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-f.md",
+                &make_plan(
+                    plan_status,
+                    execution_mode,
+                    "docs/designs/current/DESIGN-f.md",
+                ),
+                &plan_body(plan_status),
+            ),
+        ])
+    }
+
+    #[test]
+    fn a_live_member_roadmap_under_a_completing_chain_is_not_required_absent() {
+        // The false positive this repair removes. The PLAN is a
+        // multi-pr PLAN at Done, so its chain is work-completing and
+        // the passing-state table's ROADMAP cell for that posture is
+        // Deleted. The ROADMAP is a member of that chain — the walk
+        // stops at it while recording it — but the work completing is
+        // one feature's, not the ROADMAP's. It is live at Active and
+        // nothing is owed.
+        let root = roadmap_over_a_chain("Active", "multi-pr", "Done");
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            findings_on(&errors, "ROADMAP-r.md").is_empty(),
+            "a live ROADMAP above a completing feature owes nothing, got {:?}",
+            findings_on(&errors, "ROADMAP-r.md")
+        );
+    }
+
+    #[test]
+    fn a_live_member_roadmap_under_a_completing_single_pr_chain_stays_active() {
+        // The same position reached the other way: a single-pr PLAN at
+        // Done puts its chain at the at-merge posture. This is the one
+        // cell that already read Active before the repair, which is
+        // what made it look anomalous; it is now the answer for the
+        // position rather than for the row, and the verdict here has to
+        // be the one it always gave.
+        let root = roadmap_over_a_chain("Active", "single-pr", "Done");
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            findings_on(&errors, "ROADMAP-r.md").is_empty(),
+            "a live ROADMAP above a completing single-pr chain owes nothing, got {:?}",
+            findings_on(&errors, "ROADMAP-r.md")
+        );
+    }
+
+    #[test]
+    fn a_retired_member_roadmap_is_asked_for_active_not_absence() {
+        // Why the requirement is Active and not the weaker "present".
+        // A ROADMAP at Done sitting above a chain that is still
+        // finishing is a real finding: the chain beneath it is not done
+        // with it. "Present" would let it pass.
+        //
+        // Its own chain asks for absence at the same time, since a
+        // ROADMAP at Done roots a work-completing chain of its own.
+        // Those two demands are disjoint and are what the conflict
+        // finding is for; until that lands they are simply both said.
+        let root = roadmap_over_a_chain("Done", "multi-pr", "Done");
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let on_roadmap = findings_on(&errors, "ROADMAP-r.md");
+        assert!(
+            on_roadmap
+                .iter()
+                .any(|e| e.message.contains("expected status 'Active'")),
+            "the chain beneath a retired ROADMAP asks for it live, got {:?}",
+            on_roadmap
+        );
+    }
+
+    #[test]
+    fn a_roadmap_rooted_chain_still_requires_its_own_absence() {
+        // The half of the table the repair does not touch. A ROADMAP at
+        // Done is the root of its own chain and that chain is
+        // completing, so the deletion commit is still owed. Only a
+        // ROADMAP's own chain can ask this of it.
+        let root = build_tree(&[(
+            "docs/roadmaps/ROADMAP-r.md",
+            &make_roadmap("Done"),
+            &roadmap_body("Done"),
+        )]);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let on_roadmap = findings_on(&errors, "ROADMAP-r.md");
+        assert!(
+            on_roadmap
+                .iter()
+                .any(|e| e.code == "L01" && e.message.contains("DELETED")),
+            "a completed ROADMAP-rooted chain still owes the deletion, got {:?}",
+            on_roadmap
         );
     }
 
