@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-chain-cardinality.md
 problem: |
   Document lineage is one-to-many in the formats and in practice, but four
@@ -33,7 +33,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 Five decisions were researched independently and cross-validated. Three sequencing edges
 and one inverted repair are recorded in Implementation Approach; they are the parts most

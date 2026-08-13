@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   The document formats describe one-to-many lineage and authors work that
   way, but neither the parent skills nor the validator can express or
@@ -22,7 +22,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Framing only. Whether the answer is to support fan-out, constrain it, or merely
 validate it is deferred to the downstream PRD, along with two questions this brief
