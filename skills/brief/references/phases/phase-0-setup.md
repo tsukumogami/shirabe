@@ -41,6 +41,13 @@ If the context file exists but its recorded visibility no longer matches CLAUDE.
 Phase 0 or keep the recorded value. Visibility drift mid-workflow is a red flag
 worth surfacing.
 
+Re-validate a recorded `## Upstream Path` the same way, against the worktree as
+it is now: a file tracked when the brief was started can be deleted or moved
+before it finishes. A recorded upstream that no longer resolves is surfaced
+naming the path and the check it fails, never silently carried into frontmatter
+and never silently dropped. Offer to re-supply it, or to continue without it and
+omit the field — saying which one the run took.
+
 ## 0.1 Detect Entry Mode
 
 ### Parse `--upstream` First

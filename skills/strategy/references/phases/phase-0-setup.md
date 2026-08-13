@@ -37,6 +37,13 @@ CLAUDE.md (the repo's visibility line changed), warn the user and ask whether to
 restart Phase 0 or keep the recorded value. Visibility drift mid-workflow is a
 red flag worth surfacing.
 
+Re-validate a recorded `## Recorded Upstream` the same way, against the worktree
+as it is now: a file tracked when the strategy was started can be deleted or
+moved before it finishes. A recorded upstream that no longer resolves is
+surfaced naming the path and the check it fails, never silently carried into
+frontmatter and never silently dropped. Offer to re-supply it, or to continue
+without it and omit the field — saying which one the run took.
+
 ## 0.1 Detect Entry Mode
 
 ### Parse `--upstream` First
