@@ -87,8 +87,9 @@ this repository came to carry dangling references from one commit.
 
 ## Considered Options
 
-Each decision was researched independently against the running binary. Full reports, with
-the evidence behind every claim, are in this branch's research artifacts.
+Each decision was researched independently against the running binary, and every claim
+below was measured rather than reasoned about. The evidence is summarized here because the
+research files that produced it are working artifacts and do not survive the merge.
 
 ### Decision 1 — Sequence representation and resolution reporting
 
