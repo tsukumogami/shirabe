@@ -43,8 +43,8 @@ pub use coordination::{
 pub use doc::{Config, Doc, FieldEntries, FieldValue, Section, ValidationError};
 pub use features::{extract_needs_label, parse_features, strip_label_decoration, Feature};
 pub use finalize::{
-    verify_cross_repo_upstream_terminal, walk_chain, walk_chain_mode, CrossRepoVerification, Mode,
-    NodeAction, NodeEntry, Report, VerifyError, WalkError,
+    verify_cross_repo_upstream_terminal, walk_chain, walk_chain_mode, BlockingReferrer,
+    CrossRepoVerification, Mode, NodeAction, NodeEntry, Report, VerifyError, WalkError,
 };
 pub use formats::{detect_format, formats, FormatSpec};
 pub use frontmatter::{parse_doc, ParseError};

@@ -463,6 +463,77 @@ fn build_inverse_upstream(idx: &DocIndex) -> InverseGraph {
     inv
 }
 
+// ---------- referrer map (the narrow API the finalization walk reads) ----------
+
+/// One document that names another document as its `upstream:`.
+///
+/// The finalization walk consults these before retiring an ancestor: a
+/// document that still names the ancestor, has not reached its own terminal
+/// state, and is not itself being retired by that walk is a consumer whose
+/// reference the retirement would strand.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Referrer {
+    /// Canonical path of the referring document.
+    pub path: PathBuf,
+    /// Detected format name: `Brief`, `PRD`, `Design`, `Plan`, `Roadmap`.
+    pub format: String,
+    /// The referring document's frontmatter `status:`.
+    pub status: String,
+}
+
+impl Referrer {
+    /// Whether this document has reached its type's terminal state, and so
+    /// has stopped consuming what it points at. A PLAN or ROADMAP retires by
+    /// deletion ([`TargetState::Deleted`]), so one still present in the tree
+    /// has not reached its terminal state whatever its status says.
+    pub fn is_terminal(&self) -> bool {
+        match target_state_for(&self.format) {
+            TargetState::Status(terminal) => self.status == terminal,
+            TargetState::Deleted | TargetState::Unknown => false,
+        }
+    }
+}
+
+/// Referrer map: a document's canonical path -> every document that names it
+/// as an upstream, in canonical-path order.
+pub type ReferrerMap = BTreeMap<PathBuf, Vec<Referrer>>;
+
+/// Build the referrer map for the doc tree under `root`, keyed by the same
+/// canonical paths the index is keyed by (see [`canonicalize_indexed_path`]).
+///
+/// This is the narrow graph-level API over the lifecycle index: one index
+/// build, one inversion, and no second `upstream:` parse -- the entries come
+/// from the same [`crate::upstream`] helper every other reader uses. The
+/// returned errors are the index-construction errors, which a caller that
+/// must know the map may be incomplete reads; the map itself is usable
+/// either way.
+pub fn build_referrer_map(root: &Path) -> (ReferrerMap, Vec<ValidationError>) {
+    let (idx, errors) = build_doc_index(root);
+    let mut map = ReferrerMap::new();
+    for (upstream_path, children) in build_inverse_upstream(&idx) {
+        let referrers: Vec<Referrer> = children
+            .iter()
+            .filter_map(|child| idx.get(child))
+            .map(|doc| Referrer {
+                path: doc.path.clone(),
+                format: doc.format.clone(),
+                status: doc.status.clone(),
+            })
+            .collect();
+        if !referrers.is_empty() {
+            map.insert(upstream_path, referrers);
+        }
+    }
+    (map, errors)
+}
+
+/// The canonicalization primitive the doc index keys on. A caller that looks
+/// a path up in a [`ReferrerMap`] must canonicalize it the same way, or the
+/// two disagree about which document a path names.
+pub fn canonicalize_indexed_path(path: &Path) -> Option<PathBuf> {
+    fs::canonicalize(path).ok()
+}
+
 // ---------- chain discovery + posture inference ----------
 
 /// Discover all chains in the index. Each chain is rooted at a PLAN
