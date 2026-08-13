@@ -21,8 +21,12 @@ because every path it resolves is keyed on one topic slug, so the intended shape
 unreachable through the parent and the author reaches for `/strategy` directly instead.
 The CLI's passing-state model puts posture on the chain rather than the edge, so a
 document with N downstream roots inherits N postures on one mutable `status:` field —
-disjoint obligations for BRIEF and PRD, and it bites today because `PRD -> DESIGN`
-fan-out is real in three places. And `/scope`'s absorb has no consumer guard, staying
+disjoint obligations for BRIEF and PRD. Corrected during the downstream PRD's research:
+this is **latent, not live**. The conflict needs two PLAN roots under one upstream in
+different phase groups, and PLANs are deleted at completion — every fan-out in the
+corpus is post-completion with zero live PLANs beneath it. It fires the moment two
+chains run concurrently under one upstream, which is precisely what a fan-out-supporting
+workflow would encourage. And `/scope`'s absorb has no consumer guard, staying
 safe only because the one absorbable hop happens to be the one uniformly-1:1 hop.
 
 Requirements are genuinely contested: support fan-out, constrain it, or merely validate

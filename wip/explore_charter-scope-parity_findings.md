@@ -161,8 +161,13 @@ Supporting findings:
   `Vec<PathBuf>` and its multi-value contract have never been reachable except via a
   block scalar, and the doc comment claiming otherwise is factually wrong. The failure
   message an author gets is `upstream "" does not exist on disk`.
-- There is already a checked-in probe test asking exactly this question, with no
-  assertions in it.
+- **Correction (Phase 2 of the downstream PRD).** An earlier round of this exploration
+  reported a checked-in assertion-free probe at `crates/shirabe-validate/tests/probe_1n.rs`
+  asking exactly this question. **That file does not exist and never has** — the crate has
+  no `tests/` directory, and `git log --all --diff-filter=A` finds no such path on any
+  branch. The substantive claims about list-shaped `upstream:` behavior were independently
+  re-derived and hold; only the artifact attribution was wrong. Nothing downstream should
+  lean on "a probe already documents this."
 - Fan-out *discovery* is already correct — the breakage is entirely downstream of it,
   in how per-chain postures are applied to shared members.
 
