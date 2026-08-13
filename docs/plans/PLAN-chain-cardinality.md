@@ -37,7 +37,7 @@ Each has a stated failure mode if inverted; see Implementation Sequence.
 
 ## Issue Outlines
 
-### 1. Sequence entries survive frontmatter parsing
+### Issue 1: Sequence entries survive frontmatter parsing
 
 **Goal**: The frontmatter parser preserves every entry of a sequence-valued field in written
 order, so the value a reader receives is the value the author wrote.
@@ -55,7 +55,7 @@ order, so the value a reader receives is the value the author wrote.
 
 **Complexity**: testable
 
-### 2. One normalization helper, three readers
+### Issue 2: One normalization helper, three readers
 
 **Goal**: The resolution check, the chain walk, and the finalization walk obtain entries
 through a single helper, so reader agreement is a property of there being one reader.
@@ -68,11 +68,11 @@ through a single helper, so reader agreement is a property of there being one re
 - Placeholder-shaped entries are skipped rather than reaching path resolution.
 - The chain walk's own string surgery is deleted, not left as a second normalization.
 
-**Dependencies**: 1
+**Dependencies**: <<ISSUE:1>>
 
 **Complexity**: testable
 
-### 3. Resolution reporting: per-entry and empty-field
+### Issue 3: Resolution reporting: per-entry and empty-field
 
 **Goal**: An author with a bad upstream is told which entry is bad, and an author with an
 empty field is told the field is empty rather than shown a placeholder as a path.
@@ -85,11 +85,11 @@ empty field is told the field is empty rather than shown a placeholder as a path
   one.
 - A value that is neither scalar nor sequence reports one finding saying so.
 
-**Dependencies**: 2
+**Dependencies**: <<ISSUE:2>>
 
 **Complexity**: testable
 
-### 4. The chain walk follows every upstream edge
+### Issue 4: The chain walk follows every upstream edge
 
 **Goal**: Membership follows every upstream entry, so a document with two upstreams belongs
 to both chains.
@@ -103,11 +103,11 @@ to both chains.
   recording it as a member, a genuine cycle still reports with the path in walk order, and
   posture is still inferred from the root.
 
-**Dependencies**: 2
+**Dependencies**: <<ISSUE:2>>
 
 **Complexity**: critical
 
-### 5. Member-keyed obligation map and a single emitter
+### Issue 5: Member-keyed obligation map and a single emitter
 
 **Goal**: Both validator modes evaluate a document against every chain containing it, through
 one emitter, so duplicate findings become unconstructible rather than deduplicated afterwards.
@@ -121,11 +121,11 @@ one emitter, so duplicate findings become unconstructible rather than deduplicat
 - Corpus-integrity findings remain whole-corpus in both modes.
 - Chain-targeted scope is a shallow closure, not transitive.
 
-**Dependencies**: 4
+**Dependencies**: <<ISSUE:4>>
 
 **Complexity**: critical
 
-### 6. Location check into the emitter; outline check stays chain-keyed
+### Issue 6: Location check into the emitter; outline check stays chain-keyed
 
 **Goal**: The two checks that sit outside the restructured path get an explicit home, closing
 a mode disagreement that has nothing to do with chain selection.
@@ -135,11 +135,11 @@ a mode disagreement that has nothing to do with chain selection.
 - The outline-criteria check fires on the same documents it does today, evaluated per chain
   in scope.
 
-**Dependencies**: 5
+**Dependencies**: <<ISSUE:5>>
 
 **Complexity**: testable
 
-### 7. Root-versus-member repair
+### Issue 7: Root-versus-member repair
 
 **Goal**: A document's requirement reflects whether a posture came from its own chain or from
 a chain it merely sits above, removing a false positive that fires on correct lineage.
@@ -150,11 +150,11 @@ a chain it merely sits above, removing a false positive that fires on correct li
 - The only corpus diffs are the two expected ones: a finding that disappears, and a finding
   whose expectation changes from absence to Active.
 
-**Dependencies**: 5
+**Dependencies**: <<ISSUE:5>>
 
 **Complexity**: testable
 
-### 8. Conflict finding, supersession, and severity
+### Issue 8: Conflict finding, supersession, and severity
 
 **Goal**: A document whose consumers demand states no single status satisfies is told so in
 one message, instead of being handed contradictory instructions.
@@ -169,11 +169,11 @@ one message, instead of being handed contradictory instructions.
   replaced.
 - Required sets are computed from effective postures, after the ready re-target.
 
-**Dependencies**: 7
+**Dependencies**: <<ISSUE:7>>
 
 **Complexity**: critical
 
-### 9. Consumer-aware, multi-branch finalization
+### Issue 9: Consumer-aware, multi-branch finalization
 
 **Goal**: The finalization walk stops retiring documents that something else still points at,
 which is the path that produced the dangling references already in this repository.
@@ -188,11 +188,11 @@ which is the path that produced the dangling references already in this reposito
 - A block is a reported skip: the walk continues and the exit code is unaffected.
 - Node paths are canonicalized before referrer lookup, and a canonicalization failure blocks.
 
-**Dependencies**: 2
+**Dependencies**: <<ISSUE:2>>
 
 **Complexity**: critical
 
-### 10. Fail-open note, extended to the partial case
+### Issue 10: Fail-open note, extended to the partial case
 
 **Goal**: When the retirement guard cannot run, the person running the command finds out.
 
@@ -201,11 +201,11 @@ which is the path that produced the dangling references already in this reposito
 - The note reaches the surfaced output, not only the structured report.
 - A test asserts the note arrives on the surfaced path.
 
-**Dependencies**: 9
+**Dependencies**: <<ISSUE:9>>
 
 **Complexity**: testable
 
-### 11. The parent and child upstream contract
+### Issue 11: The parent and child upstream contract
 
 **Goal**: A run can consume an upstream it did not produce, recorded durably and carried into
 the artifact's own frontmatter, without touching the positional argument contract.
@@ -222,11 +222,11 @@ the artifact's own frontmatter, without touching the positional argument contrac
 - The interpolation discipline is re-stated in both parents' own security sections, including
   the one that has none today.
 
-**Dependencies**: 8
+**Dependencies**: <<ISSUE:8>>
 
 **Complexity**: critical
 
-### 12. Pre-authoring notice, format references, and the two stale criteria
+### Issue 12: Pre-authoring notice, format references, and the two stale criteria
 
 **Goal**: An author is told an existing upstream may apply before a new one is written for
 them, and the specifications describe what the tooling actually does.
@@ -240,7 +240,7 @@ them, and the specifications describe what the tooling actually does.
 - Neither stale acceptance criterion still describes a positional path as slug-derived.
 - Both keep-in-sync enforcement tables carry the four new rows.
 
-**Dependencies**: 11
+**Dependencies**: <<ISSUE:11>>
 
 **Complexity**: simple
 
