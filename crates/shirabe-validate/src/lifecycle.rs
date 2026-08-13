@@ -387,39 +387,28 @@ fn index_doc(
     })
 }
 
-/// Pull the `upstream:` field from a parsed doc.
+/// Pull the `upstream:` field from a parsed doc and resolve each entry
+/// against the root.
 ///
-/// Handles two shapes: scalar (`upstream: path`) and list-of-lines
-/// (the `FieldValue` carries multi-line content when the YAML is a
-/// list). Strips template placeholders containing `<` or `>`.
-/// Resolves relative paths against the root.
+/// Entries come from [`crate::upstream::upstream_entries`], the one
+/// normalization path all three `upstream:` readers share: it handles the
+/// scalar and sequence shapes, trims, and skips template placeholders. What
+/// is left here is the resolution this function owns -- joining the
+/// canonical root, canonicalizing, and suppressing a self-reference -- plus
+/// dropping cross-repo entries, which name a file in another repository and
+/// so have no local path to join. (The entry is marked rather than removed
+/// by the shared helper precisely because the finalization walk needs to see
+/// it in order to stop at it; the lifecycle index holds resolved local paths,
+/// which a cross-repo reference has none of.)
 fn extract_upstreams(canon_root: &Path, canon_path: &Path, doc: &Doc) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let raw = match doc.fields.get("upstream") {
-        Some(f) => f.value.clone(),
-        None => return out,
-    };
 
-    // Split on newlines; each line may be a `- path` list item, a
-    // bare `path` scalar, or a multi-doc string. Defensive parsing:
-    // strip leading whitespace and `- ` prefixes, ignore template
-    // placeholders, ignore empty lines.
-    for line in raw.lines() {
-        let trimmed = line.trim().trim_start_matches('-').trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        // Strip inline `# ...` comments.
-        let bare = trimmed.split('#').next().unwrap_or("").trim();
-        if bare.is_empty() {
-            continue;
-        }
-        // Skip template placeholders.
-        if bare.contains('<') || bare.contains('>') {
+    for entry in crate::upstream::upstream_entries(doc) {
+        if entry.cross_repo {
             continue;
         }
         // Resolve as relative-to-root.
-        let resolved = canon_root.join(bare);
+        let resolved = canon_root.join(&entry.value);
         // Try to canonicalize; if it fails (file missing), keep the
         // joined path so L04 can report the missing reference.
         let final_path = fs::canonicalize(&resolved).unwrap_or(resolved);

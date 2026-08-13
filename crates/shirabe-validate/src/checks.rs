@@ -19,6 +19,12 @@ use crate::formats::FormatSpec;
 use crate::gh::{is_valid_owner_or_repo, ClientError, IssueState, IssueStateClient, PrContext};
 use crate::mermaid::{extract_diagram, find_dependency_graph_block, Diagram, Issue};
 use crate::table::{parse_issue_outlines, parse_issues_table, Profile, Row, RowKind, Table};
+// The cross-repo discriminator lives in the shared `upstream` module now that
+// all three `upstream:` readers normalize through one path; R6 reads the flag
+// off the entry rather than calling it. The import keeps this module's own
+// test for the discriminator pointed at the one implementation.
+#[cfg(test)]
+use crate::upstream::is_cross_repo_reference;
 
 /// Section names that `vision/v1` docs must not contain in public repos.
 /// See DESIGN-gha-doc-validation.md (R7).
@@ -750,24 +756,6 @@ fn is_local_key(dep: &str) -> bool {
     true
 }
 
-/// Reports whether an `upstream` value is a cross-repo reference in the
-/// `owner/repo:path` convention (see `references/cross-repo-references.md`)
-/// rather than a repo-relative path. A cross-repo reference names a file in
-/// another repository, so it is not resolvable on this filesystem and the
-/// upstream-resolution check skips it.
-///
-/// The discriminator is a `:` appearing before any `/` that follows it --
-/// `owner/repo:docs/prds/PRD-x.md` has one, `docs/prds/PRD-x.md` does not.
-/// Repo-relative paths never contain a colon in practice; the check is
-/// deliberately narrow so a malformed local path still reports rather than
-/// silently passing as "cross-repo".
-fn is_cross_repo_reference(value: &str) -> bool {
-    match value.find(':') {
-        Some(idx) => value[..idx].contains('/'),
-        None => false,
-    }
-}
-
 /// (R6) Verifies that a doc's `upstream` field points at a file that exists
 /// on disk and is tracked by git. The field is optional; an absent upstream
 /// value returns an empty vec, and a cross-repo `owner/repo:path` reference
@@ -781,16 +769,26 @@ fn is_cross_repo_reference(value: &str) -> bool {
 /// is wrong however it arose -- a typo, a renamed artifact, or a `/scope`
 /// consolidation whose re-point was missed -- so the resolution guarantee
 /// belongs to every doc type that can carry the field.
+///
+/// Entries come from [`crate::upstream::field_entries`], the one
+/// normalization path all three `upstream:` readers share; resolution stays
+/// here, against the process working directory. Reporting is still
+/// field-level: the first entry is the path checked, and a present field
+/// with no entries at all checks the empty path, which is the string this
+/// check read before entries existed. Per-entry findings and a message that
+/// says "empty" rather than showing a path are a separate change.
 pub fn check_upstream_resolves(doc: &Doc) -> Vec<ValidationError> {
     let field = match doc.fields.get("upstream") {
         Some(f) => f,
         None => return Vec::new(),
     };
 
-    let path = &field.value;
-    if is_cross_repo_reference(path) {
+    let entries = crate::upstream::field_entries(field);
+    let entry = entries.first();
+    if entry.map(|e| e.cross_repo).unwrap_or(false) {
         return Vec::new();
     }
+    let path = entry.map(|e| e.value.as_str()).unwrap_or("");
 
     if !Path::new(path).exists() {
         return vec![ValidationError {

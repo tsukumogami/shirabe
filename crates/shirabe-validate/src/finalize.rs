@@ -37,6 +37,13 @@ use std::path::{Path, PathBuf};
 use crate::coordination::parse_cross_repo_ref;
 use crate::frontmatter::{self, ParseError};
 use crate::gh::{ClientError, IssueState, IssueStateClient};
+// The cross-repo discriminator lives in the shared `upstream` module now that
+// all three `upstream:` readers normalize through one path; the walk reads the
+// flag off the entry rather than calling it. The import keeps this module's own
+// test for the discriminator pointed at the one implementation.
+#[cfg(test)]
+use crate::upstream::is_cross_repo_reference as is_cross_repo_ref;
+use crate::upstream::UpstreamEntry;
 use crate::{detect_format, run_transition, Flags, TransitionError};
 
 /// The terminal action a chain node would take. The variants are exactly the
@@ -390,13 +397,16 @@ pub fn walk_chain_mode(plan_path: &str, mode: Mode) -> Result<Report, WalkError>
     // move path so the link still resolves.
     let mut current_doc_path = plan_path.to_string();
     loop {
-        let upstream = match read_upstream(&current_doc_path)? {
-            Some(value) if !value.trim().is_empty() => value.trim().to_string(),
-            _ => break, // No upstream: chain complete.
+        let entry = match read_upstream(&current_doc_path)? {
+            Some(entry) => entry,
+            // No upstream the walk can follow -- absent, empty, or an
+            // unfilled `<placeholder>` -- so the chain is complete.
+            None => break,
         };
+        let upstream = entry.value;
 
         // A cross-repo `owner/repo:path` reference is out of scope: stop.
-        if is_cross_repo_ref(&upstream) {
+        if entry.cross_repo {
             nodes.push(NodeEntry {
                 path: upstream.clone(),
                 format: None,
@@ -719,24 +729,17 @@ fn strip_implementation_issues(doc_path: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Read a node's `upstream` frontmatter field, or `None` when absent.
-fn read_upstream(doc_path: &str) -> Result<Option<String>, WalkError> {
+/// Read the node's `upstream` entry the walk follows, or `None` when the
+/// field names none: absent, empty, an unfilled `<placeholder>`, or a shape
+/// that is neither a scalar nor a sequence.
+///
+/// Entries come from [`crate::upstream::upstream_entries`], the one
+/// normalization path all three `upstream:` readers share. A multi-valued
+/// `upstream:` is followed along its first entry here; walking every branch
+/// is a separate change.
+fn read_upstream(doc_path: &str) -> Result<Option<UpstreamEntry>, WalkError> {
     let doc = frontmatter::parse_doc(doc_path)?;
-    Ok(doc.fields.get("upstream").map(|f| f.value.clone()))
-}
-
-/// Whether an upstream value is a cross-repo `owner/repo:path` reference. The
-/// `owner/repo:` prefix carries a `:` before the first `/`-rooted path
-/// segment; a plain repo-relative path (`docs/designs/DESIGN-x.md`) has no `:`.
-fn is_cross_repo_ref(value: &str) -> bool {
-    match value.find(':') {
-        // A `:` that precedes the first path separator marks a repo selector.
-        Some(colon) => {
-            let before = &value[..colon];
-            before.contains('/') && !before.contains(' ')
-        }
-        None => false,
-    }
+    Ok(crate::upstream::upstream_entries(&doc).into_iter().next())
 }
 
 /// The final path component, matching the binary's `basename`.

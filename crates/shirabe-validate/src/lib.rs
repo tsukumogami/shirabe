@@ -24,6 +24,7 @@ pub mod pr_body;
 pub mod report;
 pub mod table;
 pub mod transition;
+pub mod upstream;
 pub mod validate;
 pub mod visibility;
 
@@ -67,6 +68,7 @@ pub use transition::{
     run_transition, transition_spec, transition_table, BodyTemplate, ExtraInput, Flags, Moves,
     Outcome, Precondition, ResultFields, Rule, TransitionError, TransitionSpec,
 };
+pub use upstream::{field_entries, is_cross_repo_reference, upstream_entries, UpstreamEntry};
 pub use validate::{
     effective_severity, is_known_check_code, is_notice, posture_class, validate_file, PostureClass,
     ReviewPosture, Severity,
