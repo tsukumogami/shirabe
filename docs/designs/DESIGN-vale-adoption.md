@@ -219,6 +219,36 @@ identity, its match data, and its prose. Frequency rules additionally carry
 threshold, denominator, reporting unit, and finding-line convention as fields,
 satisfying R7 by construction. Parsed with `saphyr` at enforcement time.
 
+**How the rule source is found.** The binary and the rules are separate files,
+so resolution has to be stated for every position the validator runs from, and
+nothing in phase 1 can land without it.
+
+| Position | Resolution |
+|---|---|
+| CI via the reusable workflow | `--rules <path>` pointing into `.shirabe-src/`, passed by the workflow that already checks that tree out |
+| Local run | Ancestor walk from the working directory for `skills/writing-style/rules.yaml`, same shape as the CLAUDE.md walk |
+| Pre-commit hook | The same ancestor walk; the hook runs inside the repo |
+| `cargo test` | `SHIRABE_RULES` env var set by the harness, because the parity tests set cwd to `tests/fixtures/golden/corpus` where the walk would escape the crate |
+
+Precedence is flag, then env var, then walk. A flag on an invocation the
+workflow already makes is not an install, fetch, download, or
+package-manager step, so R18's acceptance criterion is satisfied: the diff adds
+an argument, not a step. R19 holds because the workflow passes a path inside
+the checkout it made at the called ref, so the rules and the binary come from
+one commit; the CI log shows both resolving from the same SHA.
+
+**Missing or malformed rule source.** Fail closed. A rules file that cannot be
+found or cannot be parsed is a tool error, exit 1, distinct from a content
+violation. The design driver is that silent success is the failure mode this
+capability exists to end; a validator that quietly checks nothing because its
+rules did not load would be the fourth instance of that defect, added by the
+change meant to fix the first three.
+
+**Unknown declared terms are not an error.** A `## Prose Vocabulary:` entry
+naming a term that is not on the rule list is ignored silently. Erroring would
+break R9 the moment shirabe removes a word from the rulebook: every adopter
+still declaring it would fail on a shirabe-side change they did not make.
+
 **Prose scoper.** A markdown-aware extractor producing prose spans from a
 document: fenced code, inline code, URLs, table rows, and frontmatter excluded;
 headings included. Roughly 90 lines. This is the component the counter-argument
@@ -230,16 +260,98 @@ one frequency rule evaluating a rate against a threshold. All read the parsed
 rule source and the resolved vocabulary. Reported through the existing
 `ValidationError` shape.
 
+### The em dash rule's four values
+
+R7 requires these decided and recorded, and assigned the decision here. They
+are stated as values, not as schema slots, and recorded in
+`docs/guides/multi-consumer-cli-contract.md`, which is the surface the
+acceptance criterion names.
+
+| Value | Setting |
+|---|---|
+| Denominator | Words of scoped prose in the document, per R4: fenced code, inline code, URLs, table rows, and frontmatter excluded; headings included |
+| Reporting unit | One finding per document |
+| Threshold | 10 em dashes per thousand words |
+| Finding line | The line of the first em dash occurrence in the document |
+
+Per-document reporting is chosen over per-occurrence and per-paragraph because
+the defect is a document-level property and the annotation volumes differ by
+about thirty times; a rate defect reported 2,785 times is noise about one
+problem. The first-occurrence line is chosen because a document-level finding
+still has to point somewhere an author can click, and the alternative, line 1,
+points at frontmatter.
+
+The threshold is the value that decides whether this design's own R4/R6 driver
+is load-bearing or vacuous, so it is chosen with that in view. At 3 per
+thousand the raw-versus-prose scoping distinction flips zero verdicts, which
+would make the scoper's precision irrelevant to the outcome. At 10 to 15 it
+flips 6 to 11 files, so scoping correctness changes the result. 10 is chosen as
+the lower end of that band: it makes the scoping matter while failing 49 of
+shirabe's 124 validator-visible files, which is a corpus-cleanup target rather
+than a wall.
+
+Both the threshold and the reporting unit are fields in `rules.yaml`, so
+changing them is a data edit rather than a code change. That is the point of
+Decision 2.
+
 **Header resolution.** `resolve_claude_md_header(path, key)` generalized out of
 `visibility.rs`. `resolve_doc_visibility` becomes that call plus its
 path-inference tail; `resolve_prose_vocabulary` becomes that call plus a comma
 split, trim, lowercase, and empty-drop, with a size cap following the
 `--custom-statuses` precedent.
 
-**Dispatch.** `validate_file` takes `Option<&FormatSpec>`. Prose checks run on
-both arms, above the schema gate so the 33 files currently emitting "schema
-field missing, skipping" are covered. Structural checks run only on the `Some`
-arm.
+R16 requires the vocabulary reach a drafting skill and a local run, not only
+CI, and for a CLAUDE.md header that is nearly free: CLAUDE.md is already loaded
+into a drafting agent's context, so a skill reads the declaration without any
+new mechanism. That is Decision 3's deciding argument over a dotfile, which the
+agent would have to be told to go read. A local `shirabe validate` run uses the
+same walk as CI.
+
+One interaction the four decisions create between them: Decision 4 makes
+CLAUDE.md itself a prose-checkable file, so a CLAUDE.md carrying a
+`## Prose Vocabulary:` header is a document whose own vocabulary must resolve
+while it is being checked. The walk starts from the file's own directory, so a
+CLAUDE.md resolves its own header. That is the correct behavior and it falls
+out of the algorithm rather than needing a special case.
+
+**Dispatch.** `validate_file` takes `Option<&FormatSpec>`. Structural checks
+run only on the `Some` arm. Prose checks run on both, above the schema gate.
+The `None` arm additionally gates on a `.md` extension, because
+`validate-docs.yml` passes the PR's whole changed-file set and a non-Markdown
+path reaching prose checking would be a new way to produce nonsense findings.
+
+**Frontmatter parse failure on the `None` arm is not a tool error.** Two of
+shirabe's own files, `skills/writing-style/SKILL.md` and
+`skills/review-plan/SKILL.md`, fail `saphyr` frontmatter parsing today. This is
+the same pair that makes Vale exit 2 across the skill tree, and it means a
+`None` arm that treats a parse failure as a tool error would turn shirabe's own
+CI red on the phase that adds instruction-file coverage. The prose family falls
+back to raw-line scanning over the whole file instead. Both files are pinned
+fixtures for that behavior.
+
+**Findings are bounded.** Each rule emits at most 50 findings per file plus one
+summarizing finding when truncated. Unbounded emission is measurable on the
+current tree: a 10 MB document produces 1,500,000 FC10 findings at 875 MB
+resident, which is a denial of service reachable from any repository under
+check.
+
+**Line endings are normalized once at entry.** `split_lines` retains `\r` on
+every line of a CRLF document, which breaks fence close-matching and paragraph
+boundary detection and silently collapses a per-paragraph frequency denominator
+to the whole document.
+
+**This widens the PRD's boundary, deliberately.** The PRD lists the 33 files
+emitting "schema field missing, skipping" as out of scope, and placing prose
+checks above the schema gate covers them. The expansion is recorded rather than
+absorbed silently, because an unremarked scope change is how a design stops
+being an instrument its PRD can audit.
+
+The justification is R12a's principle. Those 33 files run zero checks and
+report success, which is the same silent-success defect R12a exists to end,
+arriving through a different gate. Fixing three instances of that pattern while
+stepping around a fourth in the same dispatch path would be arbitrary. The cost
+is that the change touches more files than the PRD anticipated, and that cost
+lands concretely on the golden fixtures named in the phase plan below.
 
 **Line numbers.** `Doc` gains the body start line so a finding can report the
 line the author sees. This is the minimal change R5 needs and it does not exist
@@ -258,18 +370,65 @@ Phased so each phase is independently reviewable and leaves the tree green.
    fence and line-number defects disappear as a consequence of R4 and R5.
 3. **Optional FormatSpec and gate changes.** Change the dispatch signature,
    reject directories, and make FC-CONVENTIONS reachable. Instruction files
-   start getting prose checks.
+   start getting prose checks. Includes the `.md` admission predicate on the
+   `None` arm, the two parse-failing SKILL.md fixtures, and a decision on what
+   a submodule directory does when passed as an argument.
 4. **Vocabulary resolution.** Generalize the header walk, add
    `## Prose Vocabulary:` to shirabe's own CLAUDE.md declaring `tier` and
    `journey`, and suppress accordingly.
 5. **Frequency rule.** Add the em dash density rule with its four recorded
    values, notice-level, and file the promotion issue R12 requires before the
-   check merges.
+   check merges. Merge precondition: a test asserting every prose code appears
+   in both `is_known_check_code` and `is_intrinsic_notice` and resolves to
+   `Severity::Notice` under both postures. Omitting the code from
+   `is_intrinsic_notice` ships it at error level to three adopters pinned at
+   `@main` on their next docs PR, which is the exact breaking change R11
+   forbids, arriving through a registration list rather than through a
+   decision.
 6. **Skill and prose reconciliation.** Reduce SKILL.md to guidance plus a
    pointer, delete the BRIEF jury's inline word list, and correct the two stale
-   `FC01`-`FC13` prose copies.
+   `FC01`-`FC13` prose copies. Also in this phase: repoint the 12 repo-relative
+   `skills/writing-style/SKILL.md` references that other skills carry; add the
+   CI check the acceptance criteria require, failing when a word-list-shaped
+   literal appears under `crates/**` or `skills/**` outside the rule source; and
+   update `skills/writing-style/evals/evals.json`, both because CLAUDE.md
+   requires evals whenever a skill changes and because the acceptance criterion
+   for rule propagation to the drafting consumer IS an eval. Run the existing
+   evals against the rewritten SKILL.md before merging.
+
+**Check code.** One code, `FC10`, keeps emitting for every prose rule including
+the frequency rule, which is how R14's "exactly one prose check code" holds
+once the frequency rule exists. Rules are distinguished within the finding
+message, not by code. This discharges R13's conditional half trivially: no code
+is added, so no registration list changes, and the acceptance criterion's
+registration-list test guards future additions rather than this one. R15 is
+likewise vacuous here and recorded as such: nothing is retired.
 
 Phases 1 through 3 are prerequisites for 4 and 5. Phase 6 depends on 1.
+
+### Golden fixtures move, and the phase plan owns it
+
+An earlier revision of this design claimed each phase leaves the tree green
+without checking what the frozen parity fixtures assert. That claim was false.
+Three fixtures change behavior and the phases that change them must amend the
+expectations in the same commit.
+
+| Fixture | Asserts today | Phase | Becomes |
+|---|---|---|---|
+| `corpus/real/DESIGN-gha-doc-validation.md` | one SCHEMA notice; the file is schema-skipped and contains `Tier` at line 161 | 3 | SCHEMA notice plus prose findings, once prose runs above the schema gate |
+| `corpus/real/BRIEF-shirabe-strategy-skill.md` | empty stdout, exit 0; carries 8 em dashes | 5 | an em dash density finding |
+| `corpus/real/PRD-roadmap-skill.md` and `corpus/real/ROADMAP-strategic-pipeline.md` | empty stdout; 3 em dashes each | 5 | depends on their word counts against the 10-per-thousand threshold; recompute rather than assume |
+| `corpus/synthetic/README-unrecognized-format.md` | documents the current skip as intended behavior | 3 | its prose is now wrong and must be rewritten, not re-baselined |
+
+The last one matters most. That fixture's prose asserts the defect is the
+design. Re-baselining it silently would leave a file in the tree explaining
+that a fixed bug is correct behavior.
+
+The parity contract against the Go implementation is frozen, so these fixtures
+cannot simply be re-recorded. The phase that moves each one either migrates it
+to a Rust-owned expectation set or adds a documented exemption naming this
+design. Which of the two is an implementation decision; doing neither is not
+available.
 
 ## Security Considerations
 
@@ -284,10 +443,23 @@ input as a regex would be a denial-of-service surface through catastrophic
 backtracking; the design forbids it. The value is size-capped following the
 existing `--custom-statuses` precedent.
 
-**Path traversal through the header walk.** The ancestor walk canonicalizes
-before resolving and stops at the filesystem root. It reads only files named
-`CLAUDE.md` or `CLAUDE.local.md`; the header cannot name a path in this design,
-which is one reason Option B was not chosen for Decision 3.
+**The header walk's reach.** `resolve_claude_md_header` canonicalizes the
+document path before walking, so `..` resolves before any ancestor is read, and
+the walk terminates at the filesystem root. Neither property bounds it to the
+repository, and the shipped `resolve_doc_visibility` has demonstrated bypasses
+on both counts. Two are addressed rather than accepted: the walk stops at the
+first directory containing `.git`, so a `## Prose Vocabulary:` declared above a
+repository root cannot suppress findings inside it, which is what R10 requires;
+and a CLAUDE.md whose canonicalized path escapes that bound is ignored, so a
+committed symlink cannot redirect resolution outside the repository. This
+change corrects the existing behavior as well as governing the new reader.
+Unlike visibility, which `--visibility` can mask in CI, there is no vocabulary
+flag, so the walk is always live.
+
+**The prose rules are advisory, not a control.** Matching is ASCII-literal.
+Homoglyph, fullwidth, zero-width, and Turkish-dotted-I variants do not match and
+are out of scope. Nothing may be gated on the prose family without revisiting
+this, because a writer who wants to evade it can.
 
 **Rule-source parsing.** `saphyr` is already trusted for frontmatter across the
 same corpus. The rule file is shirabe's own, arriving at the same commit as the
@@ -309,11 +481,22 @@ Adopters get the capability with no workflow edit and no new dependency.
 
 **Negative.** shirabe takes on markdown scoping it did not previously own, and
 that code is the most likely place for a future correctness bug. The mitigation
-is that its output is validated against Vale's on the real corpus rather than
-asserted: 483 of 489 paragraph findings agree, and the disagreements are cases
-where the native scoper is right. A second mitigation is that the scoper's
-correctness is now a testable property with a reference implementation
-available, which FC10's absent scoping never was.
+is that its output is measured against Vale's on the real corpus rather than
+asserted: 483 findings against Vale's 489 across 147 files, with 14 findings of
+gross disagreement spread over 12 files. The disagreements are not uniformly in
+the native scoper's favour, and an earlier revision of this design said they
+were. One is Vale reporting inside a construct R4 excludes; the rest are
+nested-list segmentation differences that nobody has adjudicated, and in four
+of those files the native scoper finds more, not fewer.
+
+Three constructs the 90-line scoper does not handle: setext headings,
+reference-style links, and raw HTML blocks. None appears in the corpus it was
+measured on, which is why the agreement number is high and also why the number
+is not a guarantee about prose the corpus does not contain.
+
+A second mitigation is that the scoper's correctness is now a testable property
+with a reference implementation available to diff against, which FC10's absent
+scoping never was.
 
 The `FormatSpec` signature change touches the crate's central entry point. The
 counter-argument raised in Decision 4 is fair, that a sibling function would
@@ -322,3 +505,10 @@ it is recorded in the report rather than dismissed.
 
 **Neutral.** The check code keeps a name that no longer describes what it does.
 That cost was accepted in the PRD's decisions and is not revisited here.
+
+Adopter instruction-file coverage still needs a pull request against each
+adopter, because koto, niwa, and tsuku all filter their caller workflows on
+`paths: ['docs/**']` and shirabe cannot widen that from its side. R20's first
+clause holds without adopter action: artifact coverage arrives on the next docs
+PR. Its second clause does not, and that is a property of the adopters' own
+configuration rather than something this design can discharge.
