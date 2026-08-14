@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   shirabe's writing-style rulebook exists in three divergent copies, only one
   of which is mechanical. That copy checks seven words, never sees the
@@ -25,7 +25,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Requirements only. The mechanism stays open for the DESIGN, which inherits
 three architectural alternatives the exploration left live.

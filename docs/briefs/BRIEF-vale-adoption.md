@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   shirabe's writing-style rulebook lives in three divergent copies, only
   one of which is mechanical. That copy checks seven words, cannot see the
@@ -20,7 +20,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 The framing is tool-neutral by construction. The answer might be an
 external linter, a widened native check, or a mix; that choice is a DESIGN

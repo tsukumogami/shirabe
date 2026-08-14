@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Current
 upstream: docs/prds/PRD-vale-adoption.md
 problem: |
   shirabe's writing-style rules live in three divergent copies, only one of
@@ -27,7 +27,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Current
 
 Four decision questions were evaluated in parallel, each with equal-depth
 alternatives. Their reports are the audit trail for the choices below.
@@ -76,7 +76,9 @@ shirabe-authored prose available, and every measurement below comes from it.
 
 ### Decision 1: what enforces the rules
 
-Full report: `wip/design_vale-adoption_decision_1_report.md`. Confidence: high.
+Confidence: high. The decision report backing this section was a wip/
+artifact, removed at finalization per the workspace rule; the reasoning it
+carried is summarized below rather than cited.
 
 **Option A, an external linter invoked by the validator.** Vale is mature,
 markup-aware, has a real Markdown parser, and its scoping is the feature shirabe
@@ -123,8 +125,6 @@ getting three edge cases Vale gets wrong.
 
 ### Decision 2: where the rules live
 
-Full report: `wip/design_vale-adoption_decision_2_report.md`.
-
 **Option A, parse the existing SKILL.md tables.** No migration, no new file,
 the skill prose stays the source. Rejected on measured fragility: adding a third
 column to a rule table drops four rules and exits 0. A prose file can be edited
@@ -144,8 +144,6 @@ become fields rather than prose a parser must guess at. The drafting consumer
 gets better material than the comma-jammed table rows it reads today.
 
 ### Decision 3: how a repository declares vocabulary
-
-Full report: `wip/design_vale-adoption_decision_3_report.md`.
 
 **Options C and D**, a dotfile or a fixed conventional path. Both introduce a
 config-file concept shirabe has deliberately never had.
@@ -172,8 +170,6 @@ which is R17 verbatim: nothing suppressed, no fail-safe inversion, because
 unlike visibility there is nothing to fail safe toward.
 
 ### Decision 4: how the file-selection gate changes
-
-Full report: `wip/design_vale-adoption_decision_4_report.md`.
 
 **Option A**, a prose-only pseudo-format returned by `detect_format`. Rejected
 because it leaves "structural checks must not fire on a schema-less file" to a
