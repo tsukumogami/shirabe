@@ -143,19 +143,27 @@ corpus.
 |---|---|---|
 | VISION | Durable | VISION |
 | STRATEGY | Durable | VISION |
-| ROADMAP | Working | STRATEGY |
+| ROADMAP | Working | STRATEGY, VISION |
 | BRIEF | Durable | *(none)* |
 | PRD | Durable | BRIEF |
 | DESIGN | Durable | PRD, BRIEF |
 | PLAN | Working | DESIGN, PRD, BRIEF, ROADMAP |
 | COMP | Durable | *(none)* |
 
-**R5.1.** Two readings behind the table are settled rules this PRD adopts
-unchanged from `references/pipeline-model.md`. The strategic chain is strict —
-each type names its immediate parent only — because skipping an altitude there
-leaves the skipped reasoning unreachable from the path a reader walks. The
-tactical chain admits any strictly-higher tactical altitude, because its steps
-are not all mandatory and the field records the chain that was actually walked.
+**R5.1.** One reading governs both chains: an artifact may name any
+strictly-higher altitude, because the field records the chain that was actually
+walked and not every altitude is written on every run. `references/pipeline-model.md`
+previously called the strategic chain strict and the tactical chain loose, and
+both halves were wrong — `/scope` walks all four tactical altitudes on every
+run, and the strategic chain is the one where an altitude is routinely absent.
+
+The deeper reason the table cannot be strict is what this check can see. It
+decides from two basenames (R8), so it cannot distinguish a document that
+reached past an altitude that exists from one written where that altitude does
+not exist. Rejecting the second in order to catch the first would fail the
+legitimate case, so preferring the nearest altitude stays authoring guidance in
+each producing skill's own contract and direction is what the validator
+enforces.
 
 **R5.2.** Three rows change what the references currently document, and all
 three follow from R4 rather than from a new judgment about the chain's shape.
@@ -173,9 +181,12 @@ forbidden shapes is updated to match, so that after the change no format or
 pipeline reference documents a ROADMAP as a legal upstream for a BRIEF, a PRD,
 or a DESIGN.
 
-**R5.3.** PLAN's set gains BRIEF, which no `/plan` input mode produces today.
-It is admitted because the tactical reading in R5.1 allows any strictly-higher
-altitude and excluding it would be a special case with no reason behind it.
+**R5.3.** Two rows are wider than the nearest-parent shape and both follow from
+R5.1 rather than from a separate judgment. PLAN's set gains BRIEF, which no
+`/plan` input mode produces today; ROADMAP's gains VISION, which `/roadmap`
+declines to write. Both are admitted because the rule allows any strictly-higher
+altitude, and excluding either would be a special case the check has no way to
+police correctly.
 
 ### Enforcement
 

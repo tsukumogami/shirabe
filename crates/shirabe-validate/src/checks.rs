@@ -4019,6 +4019,37 @@ mod tests {
         assert_eq!(errs[0].code, "R11", "the lifetime finding wins");
     }
 
+    /// A ROADMAP may name either strategic altitude above it, and the reason
+    /// is what this check can see rather than what authors should prefer. It
+    /// reads two basenames, so it cannot distinguish a roadmap that skipped an
+    /// existing STRATEGY from one written where no STRATEGY exists -- and
+    /// rejecting the second in order to catch the first would fail the
+    /// legitimate case. Preferring the nearest altitude stays authoring
+    /// guidance in `/roadmap`'s contract; direction is what is enforced here.
+    #[test]
+    fn legality_lets_a_roadmap_name_either_strategic_altitude() {
+        assert!(legality("roadmap/v1", &["docs/strategies/STRATEGY-bet.md"]).is_empty());
+        assert!(legality("roadmap/v1", &["docs/visions/VISION-org.md"]).is_empty());
+        // Direction is still enforced: a roadmap may not name anything from
+        // the tactical chain below it.
+        for below in [
+            "docs/briefs/BRIEF-x.md",
+            "docs/prds/PRD-x.md",
+            "docs/designs/DESIGN-x.md",
+        ] {
+            let errs = legality("roadmap/v1", &[below]);
+            assert_eq!(errs.len(), 1, "{below} is below a ROADMAP: {errs:?}");
+            assert_eq!(errs[0].code, "R10");
+        }
+        // A PLAN is below it too. The lifetime branch does NOT fire here even
+        // though a PLAN is Working, because a ROADMAP is Working as well and
+        // the lifetime rule only forbids a *durable* document naming a working
+        // one. It is a plain direction violation.
+        let errs = legality("roadmap/v1", &["docs/plans/PLAN-x.md"]);
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "R10");
+    }
+
     #[test]
     fn legality_permits_a_working_document_naming_a_working_one() {
         // PLAN -> ROADMAP is the one working-names-working pair the table

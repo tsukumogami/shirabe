@@ -87,6 +87,16 @@ exploration, or that traces only to a VISION -- omits the field
 rather than reaching past its neighbour. Recording the VISION here
 would claim a link the chain does not have.
 
+**This is what `/roadmap` writes, not what `shirabe validate`
+enforces.** The validator accepts a ROADMAP naming either a STRATEGY
+or a VISION, because it decides legality from two basenames and
+cannot tell a roadmap that reached past an existing strategy from one
+written where no strategy exists -- and rejecting the second in order
+to catch the first would fail the legitimate case. So a
+vision-naming roadmap found in an existing corpus validates clean;
+that is a limit on what the check can know, not an endorsement. The
+rule above is still the rule for anything this skill produces.
+
 The ROADMAP is the last link in the strategic chain. Downstream of it
 the tactical chain takes over: `/brief` crosses the boundary by reading
 a ROADMAP for framing, and the produced PLAN is what records the

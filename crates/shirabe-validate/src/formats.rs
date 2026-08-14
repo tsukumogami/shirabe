@@ -271,7 +271,14 @@ pub fn formats() -> Vec<FormatSpec> {
             name: "Roadmap".to_string(),
             id: FormatId::Roadmap,
             lifetime: Lifetime::Working,
-            legal_upstream: vec![FormatId::Strategy],
+            // A STRATEGY when one was written, a VISION when none was. This
+            // check reads two basenames and nothing else, so it cannot tell a
+            // roadmap that skipped an existing strategy from one written where
+            // no strategy exists -- and rejecting the second to catch the first
+            // would fail the legitimate case. Preferring the nearest altitude
+            // is authoring guidance, stated in `/roadmap`'s own contract; what
+            // is enforced here is direction.
+            legal_upstream: vec![FormatId::Strategy, FormatId::Vision],
             prefix: "ROADMAP-".to_string(),
             schema_version: "roadmap/v1".to_string(),
             required_fields: s(&["status", "theme", "scope"]),
@@ -473,7 +480,7 @@ mod tests {
             (
                 FormatId::Roadmap,
                 Lifetime::Working,
-                vec![FormatId::Strategy],
+                vec![FormatId::Strategy, FormatId::Vision],
             ),
             (FormatId::Brief, Lifetime::Durable, vec![]),
             (FormatId::Prd, Lifetime::Durable, vec![FormatId::Brief]),

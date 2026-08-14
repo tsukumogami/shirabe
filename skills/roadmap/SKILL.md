@@ -26,7 +26,9 @@ capture the theme (why these features belong together), the features
 themselves, dependency relationships, sequencing rationale, and progress.
 They are the last link in the strategic chain (VISION -> STRATEGY ->
 ROADMAP): a roadmap's upstream is the STRATEGY it sequences -- its
-immediate neighbour, never the VISION two levels up -- and downstream of
+immediate neighbour, and not the VISION two levels up, which this skill
+never writes even though the validator tolerates it in an existing
+corpus (see `references/roadmap-format.md`) -- and downstream of
 it sit the BRIEFs and PRDs that frame and define individual features in
 detail.
 

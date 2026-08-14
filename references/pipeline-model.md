@@ -127,22 +127,39 @@ that it is *allowed* to name, and the field is omitted when there is none.
 Two properties, both declared per artifact type in the validator's format
 table and both enforced by `shirabe validate`.
 
-**Direction.** The target's type is one the naming type may point at. The
-strategic chain (VISION -> Strategy -> Roadmap) is strict: a STRATEGY names a
-VISION and a Roadmap names a STRATEGY, and nothing skips an altitude, because
-skipping one would leave the reasoning at the skipped altitude unreachable
-from the path a reader walks. The tactical chain is not strict, because its
-steps are not all mandatory: a DESIGN written with no BRIEF above it names the
-PRD, and a PLAN names whatever tactical artifact preceded it. What no artifact
+**Direction.** The target's type is one the naming type may point at, and the
+rule is the same on both chains: an artifact names the nearest artifact actually
+produced above it, and any strictly-higher altitude is legal because not every
+altitude is written on every run. A DESIGN with no BRIEF above it names the PRD;
+a ROADMAP written where no STRATEGY exists names the VISION. What no artifact
 does is point downward or sideways -- a BRIEF never names a PRD, which is
 written from the brief's framing.
+
+Reaching past an altitude that *does* exist is a different matter, and this
+check does not adjudicate it. Legality is decided from two basenames, so the
+check cannot tell a roadmap that skipped an existing strategy from one written
+where no strategy exists; rejecting the second in order to catch the first would
+fail the legitimate case. Preferring the nearest altitude is therefore authoring
+guidance -- `/roadmap` states it in its own contract, and `/explore` hands it a
+STRATEGY or nothing -- rather than a rule the validator enforces. An earlier
+version of this file called the strategic chain strict and the tactical chain
+loose; both halves were wrong. `/scope` walks all four tactical altitudes on
+every run, and the strategic chain is the one where an altitude is routinely
+absent.
 
 **Lifetime.** A link runs from the shorter-lived document to the longer-lived
 one. Roadmaps and Plans are working artifacts: they are deleted when their work
 completes. Every other type is durable. So a durable document never names a
 working one -- the link would be correct on the day it is written and dangling
-on the day the cascade runs. A working document may name anything, because it
-does not outlive what it points at.
+on the day the cascade runs.
+
+A working document may name another working one, and the guarantee there rests
+on cascade ordering rather than on the lifetime classes alone. The classes say
+nothing about which of two working documents dies first. The pair the table
+actually admits is a PLAN naming a ROADMAP, and it is safe because a roadmap is
+deleted only once all its features are Done, which means every plan beneath it
+has already finalized. That ordering is the invariant; a change to deletion
+order would break this link with nothing else pointing at why.
 
 The two properties are enforced as `R10` (direction) and `R11` (lifetime). An
 entry violating both reports the lifetime finding, which is the diagnosis that
