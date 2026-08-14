@@ -172,6 +172,18 @@ fn split_frontmatter(data: &[u8]) -> Result<(Vec<u8>, usize, usize), SplitError>
             continue;
         }
 
+        // A `---` followed by a blank line is a thematic break, not a
+        // frontmatter opener: YAML frontmatter always has a key on the
+        // line after the delimiter. Without this, a document opening with
+        // a horizontal rule has everything up to the next `---` consumed
+        // as frontmatter and never checked, while the file reports
+        // success. Content that is never checked while the run reports
+        // success is the failure mode this validator exists to end, so it
+        // is not acceptable at the frontmatter boundary either.
+        if fm_lines.is_empty() && line.trim().is_empty() {
+            return Err(SplitError::NoFrontmatter);
+        }
+
         if line == "---" {
             let fm_start_line = open_line.unwrap() + 1;
             let body_start_line = line_num + 1;
@@ -474,6 +486,31 @@ mod tests {
     // ---- Direct ports of TestSplitFrontmatter_LineNumbers and TestParseDocBytes_BodyLines ----
 
     #[test]
+    #[test]
+    fn leading_thematic_break_is_not_frontmatter() {
+        // A `---` followed by a blank line is a horizontal rule. Treating
+        // it as a frontmatter opener consumed every line up to the next
+        // `---`, so that content was never checked while the file
+        // reported success.
+        let input = "---\n\nA paragraph.\n\n---\n\nAnother.\n";
+        let doc = parse_doc_bytes("t.md", input.as_bytes()).expect("parses");
+        assert_eq!(doc.body_start_line, 1, "body starts at line 1");
+        assert!(
+            doc.body.iter().any(|l| l.contains("A paragraph")),
+            "content between thematic breaks must reach the body; got {:?}",
+            doc.body
+        );
+    }
+
+    #[test]
+    fn real_frontmatter_still_parses() {
+        let input = "---\nschema: design/v1\nstatus: Proposed\n---\nbody\n";
+        let doc = parse_doc_bytes("t.md", input.as_bytes()).expect("parses");
+        assert_eq!(doc.schema, "design/v1");
+        assert_eq!(doc.status, "Proposed");
+        assert_eq!(doc.body_start_line, 5);
+    }
+
     fn split_frontmatter_line_numbers() {
         let input = "---\nschema: design/v1\nstatus: Proposed\n---\nbody\n";
         let (_, fm_start, body_start) = split_frontmatter(input.as_bytes()).expect("split ok");

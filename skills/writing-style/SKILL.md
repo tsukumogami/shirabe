@@ -1,6 +1,13 @@
 ---
 name: writing-style
-description: Revise prose to remove AI tells and produce natural, direct writing. Use this skill whenever: (1) the user asks to improve, humanize, clean up, or revise a draft; (2) prose output is about to be produced — PR descriptions, issue bodies, README sections, documentation, explanations, or summaries; (3) the user mentions AI-sounding writing, robotic phrasing, or wants writing to sound more human. Apply proactively when writing prose; don't wait for an explicit invocation.
+description: >-
+  Revise prose to remove AI tells and produce natural, direct writing. Use
+  this skill whenever: (1) the user asks to improve, humanize, clean up, or
+  revise a draft; (2) prose output is about to be produced — PR descriptions,
+  issue bodies, README sections, documentation, explanations, or summaries;
+  (3) the user mentions AI-sounding writing, robotic phrasing, or wants
+  writing to sound more human. Apply proactively when writing prose; don't
+  wait for an explicit invocation.
 ---
 
 When invoked directly with a draft: identify patterns below, revise, return the revised text. When producing prose: apply these patterns from the start rather than producing and then revising.

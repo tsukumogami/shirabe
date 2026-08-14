@@ -17,12 +17,13 @@ decision: |
   becomes optional per check so prose checks reach instruction files while
   structural checks cannot fire on them.
 rationale: |
-  Vale is a better linter than what shirabe will build, and it cannot do this
-  job. Its adopter cost is forbidden outright by R18, it exits 2 with zero
-  findings on shirabe's own skill tree, and the one rule carrying the empirical
-  case for the capability is the one rule its markup scoping is switched off
-  for. A 90-line native scoper agrees with Vale on 483 of 489 paragraph
-  findings and gets the edge cases Vale misses.
+  An external linter buys a rule engine worth roughly two true positives across
+  554,000 words, at the cost of a third-party binary and a network style fetch,
+  and its frequency rule would still be hand-written in Tengo on a runtime that
+  panics rather than degrades. The one feature worth having from it, a real
+  CommonMark parse, is available as a crate that adds no CI step. Three
+  stronger-sounding objections to the linter were withdrawn under review and
+  are recorded as withdrawn in Decision 1.
 ---
 
 ## Status
@@ -82,46 +83,97 @@ carried is summarized below rather than cited.
 
 **Option A, an external linter invoked by the validator.** Vale is mature,
 markup-aware, has a real Markdown parser, and its scoping is the feature shirabe
-would otherwise hand-write. Rejected on three findings, in descending order of
-how hard they are to argue with.
+would otherwise hand-write. Rejected, but not on the grounds an earlier revision
+of this document gave.
 
-R18 forbids it outright. Every route to putting a 40 MB binary on an adopter's
-runner is an install, fetch, download, or package-manager step, and the
-acceptance criterion names all four. This is not a cost-benefit judgment a fast
-download can win.
+That revision rested the rejection on three findings and called them
+"in descending order of how hard they are to argue with." A review argued with
+all three and was right about each. They are recorded here as withdrawn rather
+than deleted, because this document is the one the next person will cite, and a
+reader who finds only the surviving argument cannot tell whether the others were
+considered or quietly dropped.
 
-R3 fails on shirabe's own tree. Run across the 211 files under `skills/`, Vale
-exits 2 with zero findings, because two of them carry frontmatter its YAML
-parser rejects. It is fixable by invoking Vale per file and tolerating errors,
-but that fix ships a checking surface that reports success for files it could
-not read, which is precisely what R12a exists to end.
+*Withdrawn: R18 forbids it.* The requirement says the capability adds no
+install, fetch, download, or package-manager step to an adopter's CI. But
+`validate-docs.yml` already installs a Rust toolchain, restores a cargo cache,
+fetches the crates.io dependency tree, builds from source, and installs a binary
+to `/usr/local/bin`. The workflow is made of those steps. Treating one more as
+categorically forbidden, while defending `--rules <path>` in the same file as
+"an argument, not a step," is a distinction the requirement does not support.
+R18 states a real preference about adopter cost; it is not a constraint that
+ends the discussion, and presenting it as one made the section read as
+reverse-engineered from the conclusion.
 
-R4 and R6 are mutually exclusive under Vale. Its `metric` check has no
-punctuation variable, and a `script` rule sees whole-document text only at
-`scope: raw`, where markup scoping is switched off by definition. The one rule
-carrying the empirical case for this entire capability is the one rule for
-which Vale's best feature is unavailable, and the scoping would have to be
-rewritten in Tengo, without lookaround, on a runtime that panics on an
-out-of-range span.
+*Withdrawn: Vale cannot read shirabe's skill tree.* It exits 2 with zero
+findings across the 211 files under `skills/` because two of them carry an
+unquoted scalar containing `: `, which is invalid YAML. PyYAML rejects both at
+the same position. Vale was correctly diagnosing broken files in this
+repository, and the earlier revision not only mistook that for a Vale
+limitation but pinned the two broken files as fixtures for a fallback path.
+They are repaired now.
+
+*Withdrawn: R4 and R6 are mutually exclusive under Vale.* The component claims
+hold — `metric` exposes no punctuation count, and a `script` sees whole-document
+text only at `scope: raw`. The conclusion does not. The rate need not be
+computed inside Vale: a script at a markup-aware scope can emit per-block word
+and dash counts, and the Rust that already parses Vale's JSON can sum them.
+Measured over 151 files, that route lands within one percent of ground truth,
+with eight verdict disagreements at the shipped threshold. The original
+investigation instrumented the per-block script, printed its counts, and stopped
+one step short of summing them.
+
+**What actually rejects it.** Three things, none of them a blocking constraint,
+which is why the conclusion is a judgment rather than a deduction.
+
+The rule engine buys almost nothing here. Vale's word and phrase matching
+produces roughly two true positives across 554,000 words of this corpus, at 1.7%
+raw precision. A third-party binary and a network style fetch is a poor trade
+for an engine that would run green forever, and the supply-chain surface it adds
+is real where the native path has none.
+
+The frequency rule would still be hand-written, just in a worse language. Under
+the aggregation route above, the block filtering that keeps frontmatter scalars
+and table cells out of the denominator is code someone writes either way, and
+under Vale it is Tengo on a runtime that panics on an out-of-range span rather
+than degrading.
+
+And the one feature worth having from Vale — a real CommonMark parse — is
+available without Vale. See Option D.
 
 **Option C, a split.** Native for CI, external for a local authoring loop.
 Rejected because it doubles the rule-source problem it is meant to help: two
 engines means two rule representations, or one representation and a translation
 layer, and R1 and R2 exist to stop exactly that.
 
-**Option B, a widened native check.** Chosen. `regex` is already a direct
-dependency and already imported in `checks.rs`; FC10 does not use it and
-hand-rolls ASCII byte matching instead, so the current narrowness is not
-explained by a missing capability.
+**Option D, a CommonMark parser crate with a native rule engine.** Chosen, and
+absent from the original option space, which framed the decision as a 40 MB
+external binary against hand-rolled line heuristics. That framing was wrong and
+a review supplied the missing third option.
 
-The strongest counter deserves stating: this is reimplementing a mature linter,
-and shirabe's own FC10 is the cautionary tale for hand-rolled matching that
-fires inside code fences and misreports lines. The answer is that the counter
-misidentifies FC10's failure. FC10 does not fire inside code fences because its
-scoping was attempted and failed; it fires there because it iterates `doc.body`
-raw and attempts no scoping at all. The measured cost of attempting it is 90
-lines, and the result agrees with Vale on 483 of 489 paragraph findings while
-getting three edge cases Vale gets wrong.
+`pulldown-cmark` with default features off adds two crates and no workflow step,
+because cargo already fetches the dependency tree during the build CI already
+runs. It defeats R18 on R18's own terms, which is the clearest evidence that
+R18 was never the real objection.
+
+The hand-rolled scoper it replaced was measurably wrong in two ways, both of
+them instances of the defect class this capability exists to end. A fenced block
+whose first content line is itself a fence marker inverted: code was linted as
+prose and the prose after it was skipped, a false positive and a false negative
+in one file. A document opening with a `---` thematic break had everything up to
+the next `---` consumed as frontmatter and never checked, while the file
+reported success. Both are now regression tests.
+
+It was also imprecise where precision is load-bearing. This design justifies a
+threshold of 10 per thousand on the grounds that scoping precision changes
+outcomes there, and used that same argument against Vale's raw-scope script. The
+hand-rolled scoper disagreed with a correct parse on 11 files at that threshold
+and inflated the word denominator by about 3%, which understates every rate it
+reports. On this repository's own corpus it counted 3,298 words where a correct
+parse counts 3,195. The precision standard used to reject the alternative was
+not met by the implementation built to replace it.
+
+`regex` and `saphyr` were already direct dependencies, so the rule matching and
+the rule source needed nothing new; the parser is the only addition.
 
 ### Decision 2: where the rules live
 
@@ -245,11 +297,16 @@ naming a term that is not on the rule list is ignored silently. Erroring would
 break R9 the moment shirabe removes a word from the rulebook: every adopter
 still declaring it would fail on a shirabe-side change they did not make.
 
-**Prose scoper.** A markdown-aware extractor producing prose spans from a
-document: fenced code, inline code, URLs, table rows, and frontmatter excluded;
-headings included. Roughly 90 lines. This is the component the counter-argument
-to Decision 1 correctly identifies as the risk, and it is the component whose
-output is validated against Vale's on the real corpus.
+**Prose scoper.** Prose spans from a `pulldown-cmark` parse: fenced and
+indented code, inline code, HTML, link and image destinations, table cells, and
+frontmatter excluded; headings included. Link *labels* are prose because they
+are words a reader reads. Bare URLs are dropped by token shape, since
+CommonMark does not autolink them and the parser hands them back as text.
+
+Walking a real parse rather than matching lines is the correction a review
+forced. The hand-rolled version was about 90 lines and was wrong on two
+constructs in ways that both instantiate the defect class this capability
+exists to end; Decision 1's Option D records them.
 
 **Prose check family.** Word and phrase rules over prose spans, plus at least
 one frequency rule evaluating a rate against a threshold. All read the parsed
@@ -475,24 +532,21 @@ defects in one gate are fixed together rather than left behind a change that
 touches them. The 33 files currently running zero checks start being checked.
 Adopters get the capability with no workflow edit and no new dependency.
 
-**Negative.** shirabe takes on markdown scoping it did not previously own, and
-that code is the most likely place for a future correctness bug. The mitigation
-is that its output is measured against Vale's on the real corpus rather than
-asserted: 483 findings against Vale's 489 across 147 files, with 14 findings of
-gross disagreement spread over 12 files. The disagreements are not uniformly in
-the native scoper's favour, and an earlier revision of this design said they
-were. One is Vale reporting inside a construct R4 excludes; the rest are
-nested-list segmentation differences that nobody has adjudicated, and in four
-of those files the native scoper finds more, not fewer.
+**Negative.** shirabe takes on prose scoping it did not previously own. The
+risk is much smaller than it was under the hand-rolled version: the markup
+questions are answered by a CommonMark parser rather than re-derived one bug
+report at a time, and the constructs that version silently mishandled —
+setext headings, reference links, raw HTML, nested fences — are the parser's
+problem now.
 
-Three constructs the 90-line scoper does not handle: setext headings,
-reference-style links, and raw HTML blocks. None appears in the corpus it was
-measured on, which is why the agreement number is high and also why the number
-is not a guarantee about prose the corpus does not contain.
+What remains shirabe's own is the decision layer: which node types count as
+prose, whether link labels are prose while destinations are not, whether
+headings enter the frequency denominator. Those are judgment calls, they are
+each a test, and they are where a future correctness bug will live.
 
-A second mitigation is that the scoper's correctness is now a testable property
-with a reference implementation available to diff against, which FC10's absent
-scoping never was.
+The cost of that correctness is a dependency where there was none: two crates,
+`pulldown-cmark` and `unicase`, with default features off. That is the trade,
+and it is worth naming plainly rather than presenting the parser as free.
 
 The `FormatSpec` signature change touches the crate's central entry point. The
 counter-argument raised in Decision 4 is fair, that a sibling function would

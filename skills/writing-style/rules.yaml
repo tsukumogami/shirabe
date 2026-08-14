@@ -132,5 +132,9 @@ frequency:
     denominator: scoped-prose-words
     unit: document
     finding_line: first-occurrence
+    # A rate needs enough denominator to be a rate. At 98 words one em dash
+    # is 10.2 per thousand, which crosses the threshold while saying nothing
+    # about density. Below this many scoped words the rule does not report.
+    min_words: 300
     message: em dash density is {rate} per thousand words, above the
       threshold of {threshold}

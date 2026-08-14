@@ -2732,6 +2732,11 @@ pub fn check_prose_frequency(doc: &Doc, rules: &crate::rules::Rules) -> Vec<Vali
     }
 
     for rule in &rules.frequency {
+        // A rate needs enough denominator to be a rate. Short documents
+        // cross any threshold on a single occurrence.
+        if words < rule.min_words {
+            continue;
+        }
         let mut count = 0usize;
         let mut first_line: Option<usize> = None;
         for span in &spans {
@@ -6510,8 +6515,12 @@ words:
             "a document below the threshold must not fire"
         );
 
-        // Above: many em dashes in few words.
-        let over = doc_with_body("t.md", &["a — b — c — d — e — f"]);
+        // Above: enough words to clear min_words, with a dash rate over
+        // the threshold.
+        let filler_over = vec!["word"; 400].join(" ");
+        let dashes = vec!["a — b"; 12].join(" ");
+        let over_line = format!("{filler_over} {dashes}");
+        let over = doc_with_body("t.md", &[&over_line]);
         let errs = check_prose_frequency(&over, &rules);
         assert_eq!(errs.len(), 1, "one finding per document; got {errs:?}");
         assert!(errs[0].message.contains("em-dash-density"));
@@ -6520,15 +6529,19 @@ words:
     #[test]
     fn frequency_rule_reports_one_finding_per_document_at_the_first_occurrence() {
         let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        // Enough words to clear min_words; the dashes are on later lines so
+        // the finding must point at the first occurrence, not line 1.
+        let filler = vec!["word"; 400].join(" ");
+        let dashes = vec!["a — b"; 12].join(" ");
         let mut doc = doc_with_body(
             "t.md",
-            &["clean opening line", "second — line", "third — line"],
+            &[&filler, "", &dashes, "", &dashes],
         );
         doc.body_start_line = 10;
         let errs = check_prose_frequency(&doc, &rules);
         assert_eq!(errs.len(), 1, "per document, not per occurrence");
         assert_eq!(
-            errs[0].line, 11,
+            errs[0].line, 12,
             "the finding points at the first occurrence, not line 1"
         );
     }

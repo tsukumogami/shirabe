@@ -59,6 +59,12 @@ pub struct FrequencyRule {
     pub unit: String,
     pub finding_line: String,
     pub message: String,
+    /// Minimum scoped words before the rule reports.
+    ///
+    /// A rate needs enough denominator to be a rate: at 98 words one em
+    /// dash is 10.2 per thousand, which crosses a threshold of 10 while
+    /// saying nothing about density.
+    pub min_words: usize,
 }
 
 /// A rule the rulebook carries that no matcher can decide.
@@ -303,6 +309,11 @@ pub fn parse_rules(text: &str, path: &str) -> Result<Rules, RulesError> {
                 unit: required("unit", field("unit"))?,
                 finding_line: required("finding_line", field("finding_line"))?,
                 message: required("message", field("message"))?,
+                min_words: m
+                    .iter()
+                    .find(|(k, _)| k.as_str() == Some("min_words"))
+                    .and_then(|(_, v)| v.as_integer())
+                    .unwrap_or(0) as usize,
                 id,
             });
         }

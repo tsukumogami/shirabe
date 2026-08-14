@@ -1,96 +1,161 @@
-//! Markdown-aware prose scoping.
+//! Markdown-aware prose scoping, over a real CommonMark parse.
 //!
 //! A prose rule that matches raw body lines fires inside fenced code, URLs,
-//! and table rows. The shipped writing-style check does exactly that, and
-//! not because its scoping was attempted and failed: it iterates raw lines
-//! and attempts no scoping at all. This module is the scoping.
+//! and table rows. The superseded writing-style check did exactly that, and
+//! not because its scoping was attempted and failed: it iterated raw lines
+//! and attempted no scoping at all. This module is the scoping.
+//!
+//! ## Why a parser and not line heuristics
+//!
+//! An earlier revision hand-rolled fence and frontmatter detection in about
+//! 90 lines. It was wrong in two ways that both instantiate the defect
+//! class this capability exists to end, and a review found both:
+//!
+//! - A fenced block whose first content line is itself a fence marker
+//!   inverted: the scoper treated the inner marker as the close, so code
+//!   became prose (a false positive inside a fence) and the real prose after
+//!   the block became code (a false negative). CommonMark 4.5 forbids an
+//!   info string on a closing fence, which is what distinguishes them.
+//! - A document opening with a `---` thematic break had everything up to
+//!   the next `---` consumed as frontmatter and never checked, while the
+//!   file reported success.
+//!
+//! Hand-rolling this means re-deriving CommonMark one bug report at a time.
+//! `pulldown-cmark` is a pull parser with no default features, which adds
+//! two crates and no workflow step, because cargo already fetches the
+//! dependency tree during the build CI already runs.
 //!
 //! ## What counts as prose
 //!
-//! Excluded: fenced code blocks, indented code blocks, inline code spans,
-//! URLs (bare and inside link targets), table rows, and HTML comments.
-//! Included: headings, list item text, blockquote text, paragraph text,
-//! and link *labels* (the words a reader reads).
+//! Excluded: fenced and indented code blocks, inline code spans, HTML
+//! blocks and inline HTML, link and image destinations, and table cells.
+//! Included: headings, paragraph text, list item text, blockquote text, and
+//! link *labels* — the words a reader reads.
 //!
-//! Headings are prose by decision, not by omission. The design records it
-//! because it moves the corpus figure: 3,114 em dashes counting headings
-//! against 2,785 counting body paragraphs alone, and a frequency rule whose
-//! denominator nobody wrote down is not reproducible.
-//!
-//! ## Totality
-//!
-//! Every function here is total over arbitrary input. Unterminated fences,
-//! a fence opened inside frontmatter, a single ten-megabyte line, CRLF, and
-//! non-UTF8 bytes all produce output rather than a panic. The convention
-//! follows `check_fc08_extract_legend_total_over_arbitrary_input`.
+//! Headings are prose by decision, not by omission, and the decision moves
+//! the corpus figure, so a frequency rule whose denominator nobody wrote
+//! down is not reproducible.
+
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 /// A run of prose text with the file line it starts on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProseSpan {
     /// 1-indexed file line.
     pub line: usize,
-    /// The prose text of that line, with non-prose regions blanked out.
-    ///
-    /// Blanked rather than removed so a column offset within the line stays
-    /// meaningful and the caller can still reason about position.
+    /// Prose text originating on that line.
     pub text: String,
 }
 
 /// Prose spans for a document body.
 ///
 /// `body` is the post-frontmatter lines; `body_start_line` is the 1-indexed
-/// file line `body[0]` sits on, so returned spans carry file lines rather
-/// than body-relative ones.
+/// file line `body[0]` sits on, so spans carry file lines rather than
+/// body-relative ones.
 pub fn prose_spans(body: &[String], body_start_line: usize) -> Vec<ProseSpan> {
-    let mut out = Vec::with_capacity(body.len());
-    let mut in_fence = false;
-    let mut fence_marker: Option<String> = None;
+    // Normalize line endings once. A retained carriage return breaks fence
+    // close-matching and paragraph boundaries.
+    let source: String = body
+        .iter()
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    for (idx, raw) in body.iter().enumerate() {
-        // Normalize line endings once, at entry. `split_lines` retains the
-        // carriage return on every line of a CRLF document, which breaks
-        // fence close-matching (the marker never compares equal) and
-        // silently collapses a per-paragraph denominator to the document.
-        let line = raw.strip_suffix('\r').unwrap_or(raw);
-        let file_line = body_start_line.saturating_add(idx);
-
-        if let Some(marker) = fence_delimiter(line) {
-            match (&fence_marker, in_fence) {
-                // Closing marker must be at least as long as the opener and
-                // use the same character, per CommonMark.
-                (Some(open), true) if closes_fence(open, &marker) => {
-                    in_fence = false;
-                    fence_marker = None;
-                }
-                (_, false) => {
-                    in_fence = true;
-                    fence_marker = Some(marker);
-                }
-                _ => {}
-            }
-            // The delimiter line itself is never prose.
-            out.push(ProseSpan {
-                line: file_line,
-                text: String::new(),
-            });
-            continue;
-        }
-
-        if in_fence || is_indented_code(line) || is_table_row(line) {
-            out.push(ProseSpan {
-                line: file_line,
-                text: String::new(),
-            });
-            continue;
-        }
-
-        out.push(ProseSpan {
-            line: file_line,
-            text: blank_inline_non_prose(line),
-        });
+    if source.trim().is_empty() {
+        return Vec::new();
     }
 
-    out
+    // Tables are parsed so their cells can be excluded. Without the
+    // extension a table is a paragraph of pipes and its cells read as prose.
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_TABLES);
+
+    let parser = Parser::new_ext(&source, options);
+
+    // Byte offset of the start of each line, for offset-to-line mapping.
+    let mut line_starts = vec![0usize];
+    for (i, b) in source.bytes().enumerate() {
+        if b == b'\n' {
+            line_starts.push(i + 1);
+        }
+    }
+    let line_of = |offset: usize| -> usize {
+        let idx = match line_starts.binary_search(&offset) {
+            Ok(i) => i,
+            Err(i) => i.saturating_sub(1),
+        };
+        body_start_line + idx
+    };
+
+    let mut spans: Vec<ProseSpan> = Vec::new();
+    let mut suppress_depth = 0usize;
+    // Destination of the link currently being walked, if any. An autolink
+    // `<https://x>` has a label equal to its destination, so its text is a
+    // URL rather than words a reader reads; a real label is prose.
+    let mut link_dest: Vec<String> = Vec::new();
+
+    for (event, range) in parser.into_offset_iter() {
+        match event {
+            // Regions whose text is not prose. Depth-counted because they
+            // nest: a code block inside a list inside a table cell.
+            Event::Start(Tag::CodeBlock(_)) | Event::Start(Tag::Table(_)) => {
+                suppress_depth += 1;
+            }
+            Event::End(TagEnd::CodeBlock) | Event::End(TagEnd::Table) => {
+                suppress_depth = suppress_depth.saturating_sub(1);
+            }
+
+            Event::Start(Tag::Link { dest_url, .. }) => link_dest.push(dest_url.to_string()),
+            Event::End(TagEnd::Link) => {
+                link_dest.pop();
+            }
+
+            Event::Text(t) if suppress_depth == 0 => {
+                let is_autolink_text = link_dest.last().is_some_and(|d| d == t.as_ref());
+                let text = if is_autolink_text {
+                    String::new()
+                } else {
+                    strip_url_tokens(&t)
+                };
+                if !text.trim().is_empty() {
+                    spans.push(ProseSpan {
+                        line: line_of(range.start),
+                        text,
+                    });
+                }
+            }
+
+            // Inline code, raw HTML, and math carry no prose. Link and
+            // image destinations never surface as Text events at all, so
+            // URLs are excluded by construction rather than by a regex that
+            // has to guess where one ends.
+            Event::Code(_) | Event::Html(_) | Event::InlineHtml(_) => {}
+
+            _ => {}
+        }
+    }
+
+    spans
+}
+
+/// Drop whitespace-delimited tokens that are bare URLs.
+///
+/// CommonMark does not autolink a bare `https://…` in a paragraph, so the
+/// parser hands it back as ordinary text. A URL is not words a reader
+/// reads: it inflates the frequency denominator and its path segments can
+/// contain banned words. This is token-shape matching, not markup parsing,
+/// which is why it is a small function here rather than a parser concern.
+fn strip_url_tokens(text: &str) -> String {
+    if !text.contains("://") {
+        return text.to_string();
+    }
+    text.split_whitespace()
+        .filter(|tok| {
+            let t = tok.trim_start_matches(['(', '[', '<']);
+            !(t.starts_with("https://") || t.starts_with("http://"))
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Word count over prose spans. The denominator a frequency rule divides by.
@@ -101,188 +166,6 @@ pub fn prose_word_count(spans: &[ProseSpan]) -> usize {
         .sum()
 }
 
-/// The fence marker a line opens or closes with, if it is a fence line.
-fn fence_delimiter(line: &str) -> Option<String> {
-    let trimmed = line.trim_start();
-    // More than three leading spaces makes it indented code, not a fence.
-    if line.len() - trimmed.len() > 3 {
-        return None;
-    }
-    let first = trimmed.chars().next()?;
-    if first != '`' && first != '~' {
-        return None;
-    }
-    let run: String = trimmed.chars().take_while(|c| *c == first).collect();
-    if run.chars().count() < 3 {
-        return None;
-    }
-    // A backtick fence's info string may not contain a backtick.
-    if first == '`' && trimmed[run.len()..].contains('`') {
-        return None;
-    }
-    Some(run)
-}
-
-/// Whether `marker` closes a fence opened by `open`.
-fn closes_fence(open: &str, marker: &str) -> bool {
-    open.chars().next() == marker.chars().next() && marker.len() >= open.len()
-}
-
-fn is_indented_code(line: &str) -> bool {
-    // Four spaces or a tab, and not blank.
-    if line.trim().is_empty() {
-        return false;
-    }
-    line.starts_with("    ") || line.starts_with('\t')
-}
-
-fn is_table_row(line: &str) -> bool {
-    let t = line.trim();
-    // A row starts with a pipe and contains another one. Delimiter rows
-    // (`|---|`) satisfy this too, which is intended: both are table
-    // structure, and a banned word in a table cell is data, not prose.
-    t.starts_with('|') && t[1..].contains('|')
-}
-
-/// Blank the non-prose regions inside a single line.
-///
-/// Replaced with spaces rather than removed so that column positions stay
-/// aligned with the source line.
-fn blank_inline_non_prose(line: &str) -> String {
-    let mut out: Vec<char> = line.chars().collect();
-    blank_code_spans(&mut out);
-    blank_html_comments(&mut out);
-    blank_link_targets(&mut out);
-    blank_bare_urls(&mut out);
-    out.into_iter().collect()
-}
-
-fn blank_range(buf: &mut [char], start: usize, end: usize) {
-    let hi = end.min(buf.len());
-    for c in buf.iter_mut().take(hi).skip(start) {
-        *c = ' ';
-    }
-}
-
-/// Blank backtick code spans, honoring multi-backtick delimiters.
-fn blank_code_spans(buf: &mut Vec<char>) {
-    let n = buf.len();
-    let mut i = 0;
-    while i < n {
-        if buf[i] != '`' {
-            i += 1;
-            continue;
-        }
-        let open_start = i;
-        let mut run = 0;
-        while i < n && buf[i] == '`' {
-            run += 1;
-            i += 1;
-        }
-        // Find a closing run of exactly the same length.
-        let mut j = i;
-        let mut closed = None;
-        while j < n {
-            if buf[j] == '`' {
-                let cstart = j;
-                let mut crun = 0;
-                while j < n && buf[j] == '`' {
-                    crun += 1;
-                    j += 1;
-                }
-                if crun == run {
-                    closed = Some((cstart, j));
-                    break;
-                }
-            } else {
-                j += 1;
-            }
-        }
-        match closed {
-            Some((_, cend)) => {
-                blank_range(buf, open_start, cend);
-                i = cend;
-            }
-            // Unclosed span: leave the rest as prose rather than swallowing
-            // the line. An unmatched backtick is far more likely a typo
-            // than an intent to suppress checking.
-            None => break,
-        }
-    }
-}
-
-fn blank_html_comments(buf: &mut Vec<char>) {
-    let s: String = buf.iter().collect();
-    let mut from = 0;
-    while let Some(rel) = s[from..].find("<!--") {
-        let start = from + rel;
-        let end = match s[start..].find("-->") {
-            Some(e) => start + e + 3,
-            None => s.len(),
-        };
-        let cs = s[..start].chars().count();
-        let ce = s[..end.min(s.len())].chars().count();
-        blank_range(buf, cs, ce);
-        if end <= from {
-            break;
-        }
-        from = end;
-        if from >= s.len() {
-            break;
-        }
-    }
-}
-
-/// Blank the target of `[label](target)` and leave the label as prose.
-fn blank_link_targets(buf: &mut Vec<char>) {
-    let n = buf.len();
-    let mut i = 0;
-    while i < n {
-        if buf[i] == ']' && i + 1 < n && buf[i + 1] == '(' {
-            let start = i + 1;
-            let mut depth = 0;
-            let mut j = start;
-            while j < n {
-                if buf[j] == '(' {
-                    depth += 1;
-                } else if buf[j] == ')' {
-                    depth -= 1;
-                    if depth == 0 {
-                        break;
-                    }
-                }
-                j += 1;
-            }
-            let end = (j + 1).min(n);
-            blank_range(buf, start, end);
-            i = end;
-            continue;
-        }
-        i += 1;
-    }
-}
-
-fn blank_bare_urls(buf: &mut Vec<char>) {
-    let s: String = buf.iter().collect();
-    for scheme in ["https://", "http://"] {
-        let mut from = 0;
-        while let Some(rel) = s[from..].find(scheme) {
-            let start = from + rel;
-            let rest = &s[start..];
-            let len = rest
-                .find(|c: char| c.is_whitespace() || c == ')' || c == '>')
-                .unwrap_or(rest.len());
-            let cs = s[..start].chars().count();
-            let ce = s[..start + len].chars().count();
-            blank_range(buf, cs, ce);
-            from = start + len;
-            if from >= s.len() {
-                break;
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,74 +174,129 @@ mod tests {
         s.lines().map(|l| l.to_string()).collect()
     }
 
-    fn text_at(spans: &[ProseSpan], file_line: usize) -> String {
+    fn joined(spans: &[ProseSpan]) -> String {
         spans
             .iter()
-            .find(|s| s.line == file_line)
-            .map(|s| s.text.clone())
-            .unwrap_or_default()
+            .map(|s| s.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn lines_containing(spans: &[ProseSpan], needle: &str) -> Vec<usize> {
+        spans
+            .iter()
+            .filter(|s| s.text.contains(needle))
+            .map(|s| s.line)
+            .collect()
     }
 
     #[test]
     fn fenced_code_is_not_prose() {
         let body = lines("before tier\n```\ntier inside\n```\nafter tier");
         let spans = prose_spans(&body, 1);
-        assert!(text_at(&spans, 1).contains("tier"));
-        assert_eq!(text_at(&spans, 3).trim(), "");
-        assert!(text_at(&spans, 5).contains("tier"));
+        assert_eq!(lines_containing(&spans, "tier inside"), Vec::<usize>::new());
+        assert_eq!(lines_containing(&spans, "before tier"), vec![1]);
+        assert_eq!(lines_containing(&spans, "after tier"), vec![5]);
+    }
+
+    /// Regression: a fenced block whose first content line is a fence marker.
+    ///
+    /// CommonMark 4.5 forbids an info string on a closing fence, so the
+    /// inner ```yaml is content, not a close. The hand-rolled scoper treated
+    /// it as a close and inverted the block: code became prose and the real
+    /// prose after it became code.
+    #[test]
+    fn inner_fence_marker_does_not_close_the_block() {
+        let body = lines(
+            "# Doc\n\nExample:\n\n```\n```yaml\nrobust: tier\n```\n\nReal prose about facilitate.",
+        );
+        let spans = prose_spans(&body, 1);
+        let text = joined(&spans);
+
+        assert!(
+            !text.contains("robust"),
+            "line 7 is inside the code block; got: {text}"
+        );
+        assert!(
+            text.contains("facilitate"),
+            "line 10 is real prose and must be checked; got: {text}"
+        );
+        assert_eq!(lines_containing(&spans, "facilitate"), vec![10]);
+    }
+
+    /// Regression: a leading `---` thematic break is not frontmatter.
+    ///
+    /// The hand-rolled path consumed everything up to the next `---`, so a
+    /// paragraph between two thematic breaks was never checked while the
+    /// file reported success.
+    #[test]
+    fn leading_thematic_break_does_not_swallow_content() {
+        let body = lines(concat!(
+            "---\n\n",
+            "This paragraph contains tier and robust words.\n\n",
+            "---\n\n",
+            "And this one contains facilitate.",
+        ));
+        let spans = prose_spans(&body, 1);
+        let text = joined(&spans);
+
+        assert!(
+            text.contains("robust"),
+            "content after a thematic break must be checked; got: {text}"
+        );
+        assert!(text.contains("facilitate"), "got: {text}");
+        assert_eq!(lines_containing(&spans, "tier and robust"), vec![3]);
     }
 
     #[test]
     fn tilde_fence_and_longer_close_marker() {
         let body = lines("~~~\ntier\n~~~~\nafter tier");
         let spans = prose_spans(&body, 1);
-        assert_eq!(text_at(&spans, 2).trim(), "");
-        assert!(text_at(&spans, 4).contains("tier"));
+        assert!(!joined(&spans).contains("tier\n"));
+        assert_eq!(lines_containing(&spans, "after tier"), vec![4]);
     }
 
     #[test]
-    fn unterminated_fence_swallows_the_rest_without_panicking() {
+    fn unterminated_fence_does_not_panic() {
         let body = lines("intro tier\n```\ntier forever\nstill inside");
         let spans = prose_spans(&body, 1);
-        assert!(text_at(&spans, 1).contains("tier"));
-        assert_eq!(text_at(&spans, 3).trim(), "");
-        assert_eq!(text_at(&spans, 4).trim(), "");
+        assert_eq!(lines_containing(&spans, "intro tier"), vec![1]);
     }
 
     #[test]
     fn inline_code_is_not_prose_but_surrounding_text_is() {
         let body = lines("use `tier` here but robust stays");
         let spans = prose_spans(&body, 1);
-        let t = text_at(&spans, 1);
-        assert!(!t.contains("tier"), "got: {t}");
-        assert!(t.contains("robust"), "got: {t}");
+        let text = joined(&spans);
+        assert!(!text.contains("tier"), "got: {text}");
+        assert!(text.contains("robust"), "got: {text}");
     }
 
     #[test]
     fn urls_are_not_prose() {
-        let body = lines("see https://example.com/tier-guide for robust detail");
+        let body = lines("see <https://example.com/tier-guide> for robust detail");
         let spans = prose_spans(&body, 1);
-        let t = text_at(&spans, 1);
-        assert!(!t.contains("tier"), "got: {t}");
-        assert!(t.contains("robust"), "got: {t}");
+        let text = joined(&spans);
+        assert!(!text.contains("tier"), "got: {text}");
+        assert!(text.contains("robust"), "got: {text}");
     }
 
     #[test]
-    fn link_target_is_not_prose_but_label_is() {
+    fn link_destination_is_not_prose_but_label_is() {
         let body = lines("[robust label](https://example.com/tier)");
         let spans = prose_spans(&body, 1);
-        let t = text_at(&spans, 1);
-        assert!(t.contains("robust"), "label is prose; got: {t}");
-        assert!(!t.contains("tier"), "target is not prose; got: {t}");
+        let text = joined(&spans);
+        assert!(text.contains("robust"), "label is prose; got: {text}");
+        assert!(!text.contains("tier"), "destination is not prose; got: {text}");
     }
 
     #[test]
-    fn table_rows_are_not_prose() {
-        let body = lines("| tier | robust |\n|---|---|\n| a | b |\nafter tier");
+    fn table_cells_are_not_prose() {
+        let body = lines("| tier | robust |\n|---|---|\n| a | b |\n\nafter tier");
         let spans = prose_spans(&body, 1);
-        assert_eq!(text_at(&spans, 1).trim(), "");
-        assert_eq!(text_at(&spans, 2).trim(), "");
-        assert!(text_at(&spans, 4).contains("tier"));
+        let text = joined(&spans);
+        assert!(!text.contains("robust"), "table cells are data; got: {text}");
+        assert_eq!(lines_containing(&spans, "after tier"), vec![5]);
     }
 
     #[test]
@@ -366,26 +304,32 @@ mod tests {
         let body = lines("## A tier heading\n\nbody");
         let spans = prose_spans(&body, 1);
         assert!(
-            text_at(&spans, 1).contains("tier"),
+            joined(&spans).contains("tier"),
             "headings are prose by decision; the frequency denominator depends on it"
         );
     }
 
     #[test]
     fn html_comments_are_not_prose() {
-        let body = lines("text <!-- tier hidden --> robust");
+        let body = lines("text robust\n\n<!-- tier hidden -->\n");
         let spans = prose_spans(&body, 1);
-        let t = text_at(&spans, 1);
-        assert!(!t.contains("tier"), "got: {t}");
-        assert!(t.contains("robust"), "got: {t}");
+        let text = joined(&spans);
+        assert!(!text.contains("tier"), "got: {text}");
+        assert!(text.contains("robust"), "got: {text}");
+    }
+
+    #[test]
+    fn indented_code_is_not_prose() {
+        let body = lines("paragraph robust\n\n    tier indented\n\nafter");
+        let spans = prose_spans(&body, 1);
+        assert!(!joined(&spans).contains("tier"));
     }
 
     #[test]
     fn spans_carry_file_lines_not_body_relative_ones() {
-        let body = lines("first\nsecond");
+        let body = lines("first\n\nsecond");
         let spans = prose_spans(&body, 25);
         assert_eq!(spans[0].line, 25);
-        assert_eq!(spans[1].line, 26);
     }
 
     #[test]
@@ -394,19 +338,19 @@ mod tests {
             "```\r".into(),
             "tier\r".into(),
             "```\r".into(),
+            "\r".into(),
             "after tier\r".into(),
         ];
         let spans = prose_spans(&body, 1);
-        assert_eq!(text_at(&spans, 2).trim(), "");
         assert!(
-            text_at(&spans, 4).contains("tier"),
+            joined(&spans).contains("after tier"),
             "a CRLF document must close its fence"
         );
     }
 
     #[test]
     fn word_count_excludes_non_prose() {
-        let body = lines("one two three\n```\nfour five six seven\n```\n| a | b |");
+        let body = lines("one two three\n\n```\nfour five six seven\n```\n\n| a | b |\n|---|---|");
         let spans = prose_spans(&body, 1);
         assert_eq!(prose_word_count(&spans), 3);
     }
@@ -426,6 +370,7 @@ mod tests {
             vec!["x".repeat(1_000_000)],
             vec!["\u{fffd}\u{0}\u{1}".to_string()],
             vec!["```".into(), "\r".into(), "\t".into()],
+            vec!["---".into(), "a: b".into(), "---".into()],
         ];
         for p in probes {
             let spans = prose_spans(&p, 1);
