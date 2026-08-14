@@ -9,7 +9,7 @@ fixture, the change, and the design that authorized it. An expectation
 amended without an entry here is a silent re-baseline, which is the thing
 this file exists to prevent.
 
-## DESIGN-vale-adoption
+## DESIGN-writing-style-enforcement
 
 The writing-style check moved from a hardcoded seven-word constant to the
 rule source at `skills/writing-style/rules.yaml`, which carries all 47 terms

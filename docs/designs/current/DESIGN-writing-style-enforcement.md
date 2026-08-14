@@ -1,7 +1,7 @@
 ---
 schema: design/v1
 status: Current
-upstream: docs/prds/PRD-vale-adoption.md
+upstream: docs/prds/PRD-writing-style-enforcement.md
 problem: |
   shirabe's writing-style rules live in three divergent copies, only one of
   which is mechanical, and that one checks seven words, never sees instruction

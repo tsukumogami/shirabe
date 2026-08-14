@@ -2,7 +2,7 @@
 # Fail when the writing-style rule list has been copied out of its source.
 #
 # The rules live in exactly one file. Three copies existed before
-# DESIGN-vale-adoption: the skill prose, a constant in the validator, and a
+# DESIGN-writing-style-enforcement: the skill prose, a constant in the validator, and a
 # jury reviewer's instruction. They drifted, which is what the single source
 # exists to end. A copy that reappears drifts again, so this check makes the
 # reappearance fail rather than waiting for someone to notice.

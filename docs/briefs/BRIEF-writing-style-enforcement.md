@@ -22,10 +22,19 @@ motivating_context: |
 
 Done
 
-The framing is tool-neutral by construction. The answer might be an
-external linter, a widened native check, or a mix; that choice is a DESIGN
-decision. The exploration left three architectural alternatives open and
-this brief does not settle them.
+The framing was tool-neutral by construction: the exploration behind this
+brief asked whether to adopt an external prose linter, and the brief
+deliberately did not settle it, leaving three architectural alternatives
+open for the DESIGN.
+
+The DESIGN chose a widened native check and rejected the external linter.
+The reasoning is recorded in that document's Considered Options; the
+short version is that an external binary is an install step on every
+adopting repository's CI, that the linter evaluated exits non-zero with
+zero findings on shirabe's own skill tree, and that the one rule carrying
+the empirical case for this capability is one it cannot express. Nothing
+in this brief presupposed that outcome, which is why it survives the
+decision unchanged.
 
 ## Problem Statement
 

@@ -15,7 +15,7 @@ goals: |
   model cannot observe in itself, letting any adopting repo declare its own
   terms of art without detaching from shirabe's rules, and arriving in adopter
   repos without breaking their builds on the day it lands.
-upstream: docs/briefs/BRIEF-vale-adoption.md
+upstream: docs/briefs/BRIEF-writing-style-enforcement.md
 motivating_context: |
   An exploration measured shirabe's corpus rather than reasoning about it and
   inverted its own premise: mechanical prose checking already ships, and
