@@ -130,10 +130,11 @@ over the direction finding on an entry that violates both.
 a shape the validator now rejects.
 
 **Acceptance Criteria**:
-- [ ] No pipeline or format reference documents a ROADMAP as a legal upstream
-      for a BRIEF, a PRD, or a DESIGN. The repo-wide sweep assertion belongs to
-      Issue 6, the last issue that touches a reference file; this issue owns the
-      format and pipeline half of it.
+- [ ] Neither `references/pipeline-model.md` nor
+      `skills/prd/references/prd-format.md` documents a ROADMAP as a legal
+      upstream for a PRD or a DESIGN. The BRIEF case belongs to Issue 4, which
+      owns the brief format reference, and the repo-wide sweep belongs to Issue
+      6, the last issue to touch a reference file.
 - [ ] `references/pipeline-model.md` states the lifetime rule positively — a
       link runs from the shorter-lived document to the longer-lived one — and
       says that the crossing from the strategic chain into the tactical one is
@@ -247,9 +248,11 @@ producing an illegal link.
       `upstream:` field rather than the roadmap's path.
 - [ ] The repo-wide sweep holds: no file under `references/` or
       `skills/*/references/` documents a ROADMAP as a legal upstream for a
-      BRIEF, a PRD, or a DESIGN.
+      BRIEF, a PRD, or a DESIGN. Language describing a roadmap as a grounding
+      *input* is not a violation and is expected to remain — the sweep is about
+      what a document records, not what a skill reads.
 
-**Dependencies**: Blocked by <<ISSUE:4>>, <<ISSUE:5>>
+**Dependencies**: Blocked by <<ISSUE:3>>, <<ISSUE:4>>, <<ISSUE:5>>
 
 **Type**: docs
 **Files**: `skills/scope/references/phases/phase-0-setup.md`, `skills/scope/references/phases/phase-1-discovery.md`, `skills/scope/references/phases/phase-2-chain-orchestration.md`, `skills/scope/references/phases/phase-3-exit-finalization.md`, `skills/scope/evals/evals.json`, `skills/explore/references/phases/phase-5-produce-roadmap.md`
@@ -293,11 +296,16 @@ plan records rather than what the declarations say. Issue 4 is independent too:
 it owns the brief format reference outright rather than waiting on the sweep, so
 the brief's whole surface — contract, format, evals — moves in one issue.
 
-Issue 6 needs both chains: it routes the roadmap to the flag Issue 5 built and
-reworks the brief entry Issue 4 changed. Issue 7 needs Issue 6, because the
-new-shape fixture is the shape Issue 6 produces.
+Issue 6 is where the strands join. It routes the roadmap to the flag Issue 5
+built, reworks the brief entry Issue 4 changed, and carries the repo-wide sweep
+that asserts a condition over the references Issue 3 corrected — so it waits on
+all three. Issue 7 needs Issue 6, because the new-shape fixture is the shape
+Issue 6 produces.
 
-The parallelizable pairs are (2, 3) and (3-then-4, 5). Issue 2 and Issue 5 are
-the two that carry real risk — Issue 2 against golden-corpus byte parity, Issue
-5 against a validation gate that is currently silent — so neither should be
-sequenced last where a surprise has nowhere to go.
+After Issue 1, three strands run in parallel: Issue 2, Issue 3, and the pair
+Issue 4 and Issue 5, which depend on nothing. Issue 6 waits on all three of
+Issue 3, Issue 4 and Issue 5 — on Issue 3 because its repo-wide sweep asserts a
+condition over the references Issue 3 corrects. Issue 2 and Issue 5 are the two
+that carry real risk — Issue 2 against golden-corpus byte parity, Issue 5
+against a validation gate that is currently silent — so neither should be
+sequenced last, where a surprise would have nowhere to go.
