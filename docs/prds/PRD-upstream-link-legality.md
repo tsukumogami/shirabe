@@ -159,13 +159,19 @@ are not all mandatory and the field records the chain that was actually walked.
 
 **R5.2.** Three rows change what the references currently document, and all
 three follow from R4 rather than from a new judgment about the chain's shape.
-`pipeline-model.md` states that a BRIEF's upstream is a ROADMAP, that a PRD's is
-a ROADMAP when no BRIEF was written, and that a DESIGN's is whatever preceded
-it; `prd-format.md` repeats the PRD case. ROADMAP is Working and all three of
-those types are Durable, so R4 forbids each of them. The consequence, stated
-once: **no durable tactical document may name a ROADMAP, so the crossing from
-the strategic chain into the tactical one is recorded on the PLAN alone.** The
-references that currently document the other three shapes are updated to match.
+`pipeline-model.md` states outright that a BRIEF's upstream is a ROADMAP, and
+that a PRD's is a ROADMAP when no BRIEF was written; `prd-format.md` repeats the
+PRD case. The DESIGN case is not stated outright but follows from the same
+file's nearest-produced rule — each artifact names the nearest artifact actually
+produced above it — and the shape is exercised today by the cascade's
+short-chain design fixture and its matching test scenario. ROADMAP is Working
+and all three of those types are Durable, so R4 forbids each of them. The
+consequence, stated once: **no durable tactical document may name a ROADMAP, so
+the crossing from the strategic chain into the tactical one is recorded on the
+PLAN alone.** Every reference that currently documents one of the three
+forbidden shapes is updated to match, so that after the change no format or
+pipeline reference documents a ROADMAP as a legal upstream for a BRIEF, a PRD,
+or a DESIGN.
 
 **R5.3.** PLAN's set gains BRIEF, which no `/plan` input mode produces today.
 It is admitted because the tactical reading in R5.1 allows any strictly-higher
@@ -268,9 +274,11 @@ today — notice-level under draft posture, resolved as soon as its PRD names it
 ### Compatibility
 
 **R21.** No existing test in `cargo test --workspace` is modified, and the frozen
-expected output of every golden-corpus fixture is unchanged.
+expected output of every golden-corpus fixture is unchanged. The two new check
+codes must not collide with any code an existing test asserts is unrecognized,
+so neither may be `R5` or `FC99`.
 
-**R22.** Four skill eval expectations assert the behaviour R13 and R14 change,
+**R22.** Five skill eval expectations assert the behaviour R13 and R14 change,
 and updating them is part of this work rather than a silent repair. Each is named
 here so the change is visible in review rather than discovered in a diff:
 
@@ -279,14 +287,18 @@ here so the change is visible in review rather than discovered in a diff:
 | `skills/brief/evals/evals.json` | `upstream-roadmap-grounding` | the brief declares the ROADMAP as its frontmatter `upstream` | rewritten: the roadmap grounds the framing and no field is written |
 | `skills/brief/evals/evals.json` | `upstream-flag` | Phase 2 writes `upstream: <roadmap>` into the produced brief | rewritten to the same shape |
 | `skills/scope/evals/evals.json` | `upstream-flag-consumed` | the produced brief carries `upstream: <roadmap>` | rewritten: the roadmap reaches the PLAN instead |
-| `skills/execute/evals/evals.json` | the full-chain cascade scenario | the chain is PLAN to DESIGN to PRD to BRIEF to ROADMAP | rewritten to the new route, with the old route kept as a frozen fixture for R18 |
+| `skills/scope/evals/evals.json` | `pre-authoring-notice-cold-start` | the notice says supplying a roadmap means "this chain will attach the BRIEF to it" | reworded: the chain attaches the PLAN. The same sentence is committed twice in `skills/scope/references/phases/phase-1-discovery.md`, and the prose changes with the eval |
+| `skills/execute/evals/evals.json` | the full-chain cascade scenario | the chain is PLAN to DESIGN to PRD to BRIEF to ROADMAP | rewritten to the new route, against a new-shape fixture chain added alongside the frozen old-shape one |
 
 **R23.** Two cascade eval fixtures carry edges the definition forbids —
 `skills/execute/evals/fixtures/briefs/BRIEF-cascade-test-full.md` names a
 ROADMAP, and `skills/execute/evals/fixtures/designs/DESIGN-cascade-test-short.md`
 names one directly. They are kept in the old shape deliberately, as the evidence
 for R18 that a pre-existing corpus still cascades, and are exempt from R24's
-no-other-changes clause on that basis.
+no-other-changes clause on that basis. A new-shape fixture chain, in which the
+PLAN carries the roadmap and no durable node does, is added beside them and is
+what the rewritten cascade eval runs against. Adding fixtures is a deliverable
+of this change, not a change to an eval outside R22's list.
 
 **R24.** Every document under `docs/` whose validation result changes is named
 before the change is measured, so an intended change is never mistaken for a
@@ -339,7 +351,15 @@ as it does before it.
       reason.
 - [ ] A `/scope` run supplied with a roadmap produces a chain in which no
       durable artifact names the roadmap, and the produced PLAN carries the
-      roadmap among its `upstream:` entries.
+      roadmap among its `upstream:` entries. Where the run's consolidation
+      absorbs the brief, the surviving PRD is left with no `upstream:` field
+      rather than the roadmap's path.
+- [ ] A document whose `upstream:` names a `VISION-` or `STRATEGY-` basename is
+      judged without that file being read from disk, and a `--lifecycle` run
+      over a tree containing a VISION emits the same finding set before and
+      after the change.
+- [ ] No file under `references/` or `skills/*/references/` documents a ROADMAP
+      as a legal upstream for a BRIEF, a PRD, or a DESIGN.
 - [ ] `/plan` accepts `--upstream <roadmap-path>`, records it, and derives its
       topic slug from the positional argument rather than from the flag.
 - [ ] `/explore` passes no `--upstream` value to `/roadmap` that is not a
@@ -351,12 +371,13 @@ as it does before it.
       the brief names the roadmap, still reaches the roadmap.
 - [ ] The eight documents named in R24 produce exactly the findings R24
       predicts, and no other document under `docs/` changes its findings.
-- [ ] `shirabe validate --lifecycle . --mode=draft` exits 0, and the brief this
-      chain produced is not among any documents whose lifecycle findings changed.
+- [ ] `shirabe validate --lifecycle . --mode=draft` exits 0 and emits the same
+      finding set it emits before the change, notices included.
 - [ ] `cargo test --workspace` passes with no existing test modified, and every
       golden-corpus fixture's frozen expected output is byte-identical.
-- [ ] The four eval expectations named in R22 are updated, and no eval outside
-      that list changes.
+- [ ] The five eval expectations named in R22 are updated, and no eval outside
+      that list changes. Fixtures added under R23 are deliverables, not changes
+      to an eval outside the list.
 
 ## Decisions and Trade-offs
 

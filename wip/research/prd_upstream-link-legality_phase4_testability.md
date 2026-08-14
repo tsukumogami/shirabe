@@ -1,243 +1,181 @@
 # Testability Verdict — PRD-upstream-link-legality
 
-**Verdict:** FAIL
+**Verdict:** FAIL (narrowly — three coverage gaps, each fixable with one
+criterion; nothing structural remains)
 
-The document is unusually disciplined about verification — R20's change list is
-correct against the corpus, R21's command is correct, and most enforcement
-criteria are genuinely binary. It fails on three counts: R19 is not achievable
-as written (the skill eval suites, not the Rust tests, are what break), five
-requirements have no criterion that could fail if they were violated, and two
-criteria rest on judgment.
+Six of my seven items are properly discharged, and two of the fixes are better
+than what I asked for. R21's golden-parity clause **is** sufficient to force the
+placement constraint I identified: `parity.rs::real_prd_roadmap_skill` compares
+bytes, and `real/PRD-roadmap-skill.md` carries a Durable-names-Working edge, so
+running the new checks before the schema gate turns that test red. Stating it as
+an observable outcome rather than a placement instruction is the right call and
+costs nothing. AC6's rewrite ("the message listing valid codes names them") is
+also an improvement — it forces the hardcoded string at
+`crates/shirabe/src/main.rs:529` to be updated, which the earlier wording did
+not.
+
+What remains: one requirement no test can fail (R8), one stated deliverable with
+no criterion (R5.2's reference updates), and one criterion whose subject no
+requirement creates (the new-shape cascade fixture).
 
 ## Requirement-to-criterion map
 
-Criteria numbered in document order, AC1 through AC13.
+Criteria numbered in document order, AC1 through AC19.
 
 | Req | Criterion | Verifiable? |
 |---|---|---|
-| R1 (definition: two properties) | AC1, AC2 | Yes — the two halves are exercised separately |
-| R2 (lifetime class declared structurally) | AC7 (implied only) | Weak — AC7 needs the declaration to exist to compile, but nothing asserts the declared classes match R2's list (VISION/STRATEGY/BRIEF/PRD/DESIGN/COMP Durable, ROADMAP/PLAN Working) |
-| R3 (legal-parent set declared, may be empty) | AC2 (implied only) | Weak — same shape; the empty-set case (BRIEF, COMP) is exercised only incidentally via AC11 |
-| R4 (declaration-level assertion) | AC7 | **Yes** — see below |
-| R5 (the eight-row table) | AC11 (partially) | **Partial** — only the BRIEF row is exercised. VISION, STRATEGY, ROADMAP, PLAN and COMP rows have no criterion; a wrong entry for any of them passes every AC |
-| R6 (error finding, names doc/value/pair/property) | AC1, AC2 | Yes |
-| R7 (two codes, lifetime suppresses direction) | AC3, AC6 | **Yes** — see below |
-| R8 (no index, no filesystem read, no traversal) | — | **None.** A conforming-looking implementation that stats the target or indexes `docs/visions/` passes every criterion |
-| R9 (unknown prefix unchecked) | AC4 | Yes |
-| R10 (per-entry judgement and reporting) | AC5 | Yes, with a wording snag (below) |
-| R11 (no skill records a forbidden value) | AC8, AC9 | Partial — only `/brief` and `/scope` are exercised; `/prd`, `/design`, `/plan` are not |
-| R12 (read it, omit it, say so) | AC8 | **Partial** — see below |
-| R13 (`/brief` stops recording a ROADMAP) | AC8 | Yes for the frontmatter half |
-| R14 (change authored in the skill's own contract) | — | **None.** No test can fail |
-| R15 (self-containment discharged by existing requirements) | — | **None.** No test can fail |
-| R16 (cascade still reaches the ROADMAP) | AC9, AC10 | Yes |
-| R17 (chain walkers stay type-agnostic) | — | **None.** AC10 exercises a chain authored under the *new* rule; a walk that started filtering by type would pass it |
-| R18 (head-of-lineage brief with no downstream) | — | **None**, and it collides with AC11 (below) |
-| R19 (no existing test modified) | AC12 | Scope-ambiguous; see the R19 section |
-| R20 (the eight named documents) | AC11 | Yes — verified correct against the corpus |
-| R21 (`--lifecycle . --mode=draft` exits 0) | AC13 | Yes — command verified, see below |
+| R1 | AC1, AC2 | Yes — the two properties exercised separately |
+| R2 | AC8 | **Yes** — verbatim assertion of all eight lifetime classes |
+| R3 | AC8 | Yes — including the empty-set rows (BRIEF, COMP) |
+| R4 | AC7 | Yes |
+| R5 | AC8 | **Yes** — all eight rows now covered, not just BRIEF |
+| R5.1 | — | Rationale prose, no criterion needed |
+| R5.2 | — | **None.** The reference updates are a deliverable with no criterion |
+| R5.3 | AC8 | Yes (PLAN's set asserted verbatim) |
+| R6 | AC1, AC2 | Yes |
+| R7 | AC3, AC6 | Yes — both precedence and selectability |
+| R8 | — | **None**, and unfalsifiable in this corpus |
+| R9 | AC4 | Yes |
+| R10 | AC5 | Yes — wording now matches what the parser supplies |
+| R11 | AC10, AC11, AC12, AC13 | Yes for the four skills that change |
+| R12 | AC10 | Yes, and correctly declared eval-graded |
+| R13 | AC10 | Yes |
+| R14 | AC11, AC12 | Yes |
+| R15 | AC13 | Yes |
+| R16 | AC10 + AC11 together | Thin but real: standalone `/brief` and `/brief` under `/scope` both produce no field, so a parent that rewrote the child's value would fail one of the two |
+| R16.1 | — | None. Low stakes: it is a carve-out saying nothing changes |
+| R17 | AC9 | Yes |
+| R18 | AC15 | Yes — backed by the frozen fixture |
+| R19 | AC14 | Yes, with the fixture caveat below |
+| R20 | AC16, AC17 | Yes (per-file half by AC16, lifecycle half by AC17) |
+| R21 | AC18 | Yes |
+| R22 | AC19 | Yes |
+| R23 | AC15 | Yes |
+| R24 | AC16 | Yes — table re-verified correct against the corpus |
+| R25 | AC17 | Yes — command re-run, exits 0 |
 
-**R21 verification.** `./target/debug/shirabe validate --lifecycle . --mode=draft`
-exits **0** today with one line of output:
+No criterion duplicates a requirement; every one states something runnable or
+gradeable.
 
-```
-::notice file=docs/prds/PRD-koto-adoption.md::[L02] orphan PRD at status 'Accepted' (expected status 'Done', an Active ROADMAP upstream, or a tactical upstream/downstream chain link)
-```
+**R25 re-verified.** `./target/debug/shirabe validate --lifecycle . --mode=draft`
+exits 0, emitting one notice (`[L02]` on `docs/prds/PRD-koto-adoption.md`). The
+Known Limitations paragraph now says plainly that this is a weak guard, which is
+the honest framing.
 
-The command is correct and the pre-state R21 asserts is real. It is also nearly
-vacuous as a regression guard: `--lifecycle` is traversal-only and emits no
-per-file findings, so the five dangling briefs that fail per-file validation
-today do not affect it, and neither will the two new checks. It proves the
-lifecycle pass was not disturbed, nothing more, and the PRD should not lean on
-it as evidence the corpus is healthy.
+**R24 re-verified.** The eight rows are exactly the eight `upstream:` values
+under `docs/briefs/`; `BRIEF-fc06-index-alias.md` exits 0 today, confirming the
+"clean" column.
 
-**R20 verification.** The eight edges are exactly the eight `upstream:` values
-under `docs/briefs/`, and the three the PRD calls clean today
-(`BRIEF-fc06-index-alias`, `BRIEF-lifecycle-draft-ready-discipline`,
-`BRIEF-skill-cascade-lifecycle-check`) do exit 0 under per-file validation.
-The table is accurate.
+**R15 and R5.2 re-verified as factually anchored.**
+`skills/explore/references/phases/phase-5-produce-roadmap.md:49` does pass a
+VISION as `--upstream` to `/roadmap`. `references/pipeline-model.md` does state
+the three shapes R5.2 names (line 113 "Brief (upstream: Roadmap, per feature)",
+line 131 the PRD case, line 138 "`/brief` crosses that boundary by taking a
+Roadmap as its upstream"), and `skills/prd/references/prd-format.md:27-29`
+repeats the PRD case.
 
 ## Non-testable requirements
 
-**R4 — testable, and the strongest criterion in the document.** A unit test
-iterating `formats()` and asserting that no spec whose lifetime is `Durable`
-carries a `Working` type in its legal-parent set fails the moment a maintainer
-adds one. AC7 names exactly that test. No change needed.
+**R8 — no criterion, and no corpus to exercise it in.** `docs/` contains no
+`visions/` or `strategies/` directory, so "no VISION or STRATEGY is drawn into
+the orphan rule" cannot be observed here at all. AC17 cannot catch a violation
+either: a wrongly-indexed VISION would surface as an L02 *notice* under draft
+posture, and notices do not affect the exit code, so AC17 passes while R8 is
+broken. This is not hypothetical — an implementation that resolves the target
+path and reads its frontmatter for the type, instead of reading the basename,
+violates R8, quietly changes the cross-repo behaviour R9 specifies, and passes
+all nineteen criteria.
 
-**R7 — both halves testable.** The precedence half is a unit assertion on a doc
-with one entry violating both properties (`len() == 1` and the code is the
-lifetime one). The selectability half is a CLI assertion; the "rejected as
-unknown before the change" clause is observably true today —
-`shirabe validate --check R10 <doc>` exits 1 with
-`unknown --check code "R10"; valid codes: SCHEMA, FC01-FC16, FC-CONVENTIONS, R6-R9`
-— but it is a one-time pre-state observation, not something a post-change test
-can assert. Note the valid-codes string in `crates/shirabe/src/main.rs:529` is
-hardcoded and must be updated; no test pins it.
+On the question of whether the two reviewers' advice conflicts: **it does not.**
+The other reviewer was right to cut "no filesystem read, no traversal" — that
+names a mechanism, which is the design's call. What is left ("decided from the
+naming document's format and the target's basename alone", plus the orphan-rule
+consequence) is a properly observable requirement. The gap is that no criterion
+observes it. Restoring the cut clause would not fix that; adding a criterion
+would.
 
-**R12 — half testable, half judgment.** "Omits the field" is binary (grep the
-produced frontmatter). "States in its run output that the field was omitted and
-why" is not: the run output is agent prose, gradeable only by an LLM-judged eval
-against `skills/brief/evals/evals.json`, and "and why" has no fixed string to
-match. To make it fail-able, R12 must name the announcement's required
-substring (the way `/scope`'s pre-authoring upstream notice is pinned verbatim
-in `skills/scope/evals/evals.json`), or say that the announcement is graded by
-eval and accept that as the bar.
+**R5.2 — a deliverable with no criterion.** "The references that currently
+document the other three shapes are updated to match" is the load-bearing half
+of this PRD for anyone authoring by hand: if `pipeline-model.md` still tells a
+brief author to name a roadmap while the validator rejects it, the system
+contradicts itself in exactly the way the Problem Statement complains about.
+Nothing in the criteria checks it, and it is trivially checkable by grep.
 
-**R14 — no test can fail.** "Authored in that skill's own contract" is a
-property of where a diff lands, not of any observable behaviour. Two ways to
-make it checkable: state it as a review-time constraint rather than a
-requirement (it is really a design constraint), or restate it as an assertion
-about files — the change touches `skills/brief/` and `skills/scope/` only in
-their own contract sections, and `/scope` continues to pass `--upstream` (the
-flag `/brief` owns) rather than post-editing the brief. The existing scope eval
-`upstream-path-invocation-preserves-child-isolation` is the closest thing to a
-test of this and it currently asserts the *old* behaviour.
+**R16.1 — uncovered, low stakes.** It asserts that `/scope`'s absorb needs no
+new guard because an absorbed brief now has no upstream to carry. That is a
+claim about the absorb path, and the `/scope` eval covering absorb
+(`baseline`-family scenario asserting "re-points the PRD's upstream to the
+BRIEF's own upstream, or removes the field when the BRIEF had none") already
+exercises the removal branch — so the claim is true, but nothing pins it. Worth
+one clause in AC11 rather than its own criterion.
 
-**R15 — no test can fail.** It is a negative ("no new section, field, or check
-is added for it"). It becomes checkable if stated as: `is_known_check_code`
-gains exactly the two new codes, and no `FormatSpec.required_sections` list
-changes. Both are one-line assertions.
+**Judgment-laden criteria: acceptable now.** AC10 states outright which parts
+are eval-graded, and AC14 pins its baseline to the existing cascade eval's
+expectations. Both were my objections last round and both are answered. AC13
+("`/explore` passes no `--upstream` value to `/roadmap` that is not a STRATEGY")
+is a statement about skill prose rather than a runnable check, but it is
+greppable against `phase-5-produce-roadmap.md` and gradeable by the existing
+handoff eval, which is the right bar for a skill contract.
 
-**R17 — no test can fail as written.** AC10 runs the cascade against a chain
-authored under the new rule; a walk that began filtering by artifact type would
-still pass it, because the new-rule chain is the one it would keep following.
-The requirement is about *old* corpora. It needs a criterion of its own: a
-fixture chain in the old shape (BRIEF naming a ROADMAP) still reaches the
-roadmap through `finalize::walk_chain_mode` and `lifecycle::extract_upstreams`.
-The only such fixture in the repo today is
-`skills/execute/evals/fixtures/briefs/BRIEF-cascade-test-full.md`, which R13
-changes — so the evidence for R17 is precisely what R13 removes unless a
-frozen old-shape fixture is added.
+## R21 feasibility (re-verified against the revised text)
 
-**R18 — no criterion, and it contradicts AC11.** R18 asks the change to "either
-preserve its current validation result or record the new one as a deliberate
-change under R20". R20's table names no such document and AC11 asserts "no
-document outside that list changes its findings", so the only outcome
-consistent with the rest of the PRD is "preserved" — which R18 should simply
-say. R18 is also narrower than the rule it describes: the orphan exemption at
-`crates/shirabe-validate/src/lifecycle.rs:1275` fires for *any* format with an
-Active ROADMAP upstream, and under R5 no durable type may name a ROADMAP, so
-the exemption goes dead for PRD and DESIGN too, not just BRIEF. The existing
-test `orphan_prd_with_active_roadmap_upstream_passes`
-(`lifecycle.rs:2170`) keeps passing, because it builds the lifecycle index
-directly and never reaches the per-file checks.
+**The Rust half is achievable and my earlier analysis stands unchanged.**
+Nothing outside `crates/shirabe-validate/src/formats.rs` constructs a
+`FormatSpec` literally — `spec_for` (`checks.rs:3378`, `validate.rs:276`),
+`design_spec` (`checks.rs:3385`) and `plan_spec` (`checks.rs:6590`) all select
+from `formats()`, so two new fields are a one-file change.
+`detect_format_returns_eight_formats` counts formats, not fields.
+`fc07_corpus.rs` validates only `docs/plans/` and `docs/roadmaps/` (one plan
+with no `upstream:`, no roadmaps), so it is untouched. No test validates
+`docs/briefs/`, which is why R24's three clean-to-violation briefs break
+nothing. Golden parity holds for the reason given above.
 
-**Criteria that require judgment.** AC8's "still uses the roadmap's feature
-entry to ground the framing conversation" and AC10's "under the same conditions
-as before" are both graded, not measured. AC10 is rescuable by pinning "before"
-to the existing cascade eval expectations in `skills/execute/evals/evals.json`;
-AC8's grounding clause is inherently an eval judgement and should say so.
+**The eval half is now correctly scoped.** R21 confines the promise to
+`cargo test --workspace` plus golden bytes; R22 names the four eval expectations
+that change with a disposition each; R23 freezes the two illegal fixtures as
+R18's evidence and exempts them. I re-checked whether R15 forces a fifth eval
+change: `skills/explore/evals/evals.json` scenario
+`roadmap-handoff-upstream-propagation` is named as though it asserts the VISION
+propagation, but its four expectations only cover routing, the scope artifact,
+the handoff, and the strategic classification — none asserts the `--upstream`
+value. So R22's list of four is complete. The scenario's *name* becomes a
+misnomer after R15; not worth a requirement, worth a sentence to whoever does
+the work.
 
-**AC5 wording snag.** "reported independently, with its own line number
-reference to the field" reads as if each entry gets its own line number. The
-parser records one line for the whole field, and `check_upstream_resolves`
-deliberately puts every per-entry finding at that one line
-(`crates/shirabe-validate/src/checks.rs:791`, and the doc comment above it says
-so). R10 gets this right ("matching the per-entry reporting the resolution
-check already does"); AC5 should mirror R10's wording so nobody implements
-per-item line tracking that the parser cannot supply.
+**One remaining naming constraint the PRD still does not state.**
+`is_known_check_code_covers_per_file_codes_only` (`validate.rs:493`) carries a
+negative list asserting `"R5"`, `"FC1"`, `"FC99"`, `"L01"`, `"L05"`, `"IO"`,
+`"fc01"` and `""` are *not* known codes. If the implementer names either new
+code `R5` or `FC99`, that test fails and R21 is violated. `R10`/`R11` or
+`FC17`/`FC18` are safe. AC9 constrains the count but not the names.
 
-**Criteria duplicating requirements.** None. Every criterion states an
-observation rather than restating a rule. AC11 and AC13 are the two that come
-closest to being restatements of R20 and R21, but both are literally runnable,
-so they earn their place.
-
-## R19 feasibility (what a new FormatSpec field breaks)
-
-**A new field on `FormatSpec` breaks no Rust test.** I checked every
-construction site and every assertion about the format table:
-
-- Nothing outside `crates/shirabe-validate/src/formats.rs` constructs a
-  `FormatSpec` literally. The three test helpers that look like they might —
-  `spec_for` at `checks.rs:3378` and `validate.rs:276`, `design_spec` at
-  `checks.rs:3385`, `plan_spec` at `checks.rs:6590` — all select from
-  `formats()`. Adding fields is a one-file change.
-- `detect_format_returns_eight_formats` (`formats.rs:297`) asserts
-  `formats().len() == 8`; new fields do not add a format.
-- `FormatSpec` derives `Debug, Clone, PartialEq, Eq`; a lifetime enum and a
-  `Vec<String>`/`Vec<&'static str>` parent set derive all four.
-- `is_known_check_code_covers_per_file_codes_only` (`validate.rs:493`) has a
-  negative list containing `"R5"`, `"FC1"`, `"FC99"`, `"L01"`, `"L05"`, `"IO"`,
-  `"fc01"`, `""`. The positive list is not exhaustiveness-checked, so two new
-  codes pass — **provided they are not named `R5` or `FC99`**. `R10`/`R11` or
-  `FC17`/`FC18` are safe. This is the one naming constraint the PRD does not
-  state.
-- Golden parity is the closest call and it survives, by luck of ordering.
-  `crates/shirabe/tests/fixtures/golden/corpus/real/PRD-roadmap-skill.md`
-  carries `upstream: docs/roadmaps/ROADMAP-strategic-pipeline.md` — a
-  Durable-names-Working edge, exactly what the lifetime check flags. Its frozen
-  expected stdout is a single SCHEMA notice, because the doc has no `schema:`
-  field and `validate_file` returns early at the schema gate before any
-  upstream check runs. Byte parity holds **only if the new checks are placed
-  after the schema gate**, alongside `check_upstream_resolves`. Placing them
-  earlier, or running them in a separate pass over all docs, changes a frozen
-  golden file and breaks R19. The PRD should state this placement constraint.
-- `fc07_corpus.rs` validates only `docs/plans/` and `docs/roadmaps/`. There is
-  one plan (`PLAN-work-on-friction-fixes.md`, no `upstream:`) and no roadmaps,
-  so its exit-0 assertion is unaffected. No test validates `docs/briefs/`,
-  which is why the three clean-to-violation briefs break nothing.
-
-**R19 is nonetheless unachievable as written, because the tests that break are
-the skill evals.** Three eval suites encode the exact behaviour R11/R13 forbid:
-
-- `skills/brief/evals/evals.json`, scenario `upstream-roadmap-grounding`:
-  expected output "Declares the ROADMAP path as the BRIEF's frontmatter
-  `upstream`", with a matching criterion.
-- `skills/brief/evals/evals.json`, scenario `upstream-flag`: "Phase 2 writes
-  `upstream: docs/roadmaps/ROADMAP-editor.md` into
-  `docs/briefs/BRIEF-inline-diff.md`", with a matching criterion.
-- `skills/scope/evals/evals.json`, scenario `upstream-flag-consumed`: "the
-  produced `docs/briefs/BRIEF-inline-diff.md` carries
-  `upstream: docs/roadmaps/ROADMAP-editor.md` in its frontmatter", plus the
-  criterion asserting it.
-- `skills/execute/evals/evals.json`, the full-chain cascade scenario: "The
-  chain is PLAN -> DESIGN -> PRD -> BRIEF -> ROADMAP" — the exact route R13
-  removes and R16 replaces.
-- The fixtures behind that scenario are illegal edges under R5:
-  `skills/execute/evals/fixtures/briefs/BRIEF-cascade-test-full.md` names a
-  ROADMAP (BRIEF's parent set is empty; ROADMAP is Working), and
-  `skills/execute/evals/fixtures/designs/DESIGN-cascade-test-short.md` names a
-  ROADMAP directly (DESIGN's parents are PRD and BRIEF). Neither appears in
-  R20's table.
-
-AC12 scopes the promise to `cargo test --workspace`, which is achievable. R19
-says "no existing test is modified" without qualification, which is not: AC9 and
-AC10 cannot be demonstrated without editing the cascade fixtures and the scope
-eval, and leaving the brief evals asserting the forbidden behaviour would ship a
-skill whose own eval suite contradicts its contract.
+**The new-shape cascade fixture is required by AC14 but created by no
+requirement.** R22 row 4 rewrites the full-chain `/execute` scenario to the new
+route; R23 freezes `BRIEF-cascade-test-full.md` — the fixture that scenario runs
+against — in the old shape. Both can hold only if a second, new-shape fixture
+chain is added, and no requirement says so. AC14 names "a chain authored under
+the new rule" without naming a fixture, while AC15 names "the frozen old-shape
+fixture chain". AC19's "no eval outside that list changes" leaves it ambiguous
+whether adding fixtures is in scope. This is under-specification rather than a
+flat contradiction, but an implementer will hit it on day one.
 
 ## Required changes
 
-1. **Scope R19 to the Rust test suite** and add an explicit clause covering the
-   eval suites: name `skills/brief/evals/evals.json`
-   (`upstream-roadmap-grounding`, `upstream-flag`),
-   `skills/scope/evals/evals.json` (`upstream-flag-consumed`), and
-   `skills/execute/evals/evals.json` plus its `fixtures/briefs/` and
-   `fixtures/designs/` cascade chain as expectations the change intentionally
-   updates. Say for each whether it is rewritten to the new shape or frozen as
-   an old-shape regression fixture.
-2. **Extend R20 (or add a sibling requirement) to the eval fixture corpus.**
-   `BRIEF-cascade-test-full.md` and `DESIGN-cascade-test-short.md` both become
-   illegal edges; AC11's "no document outside that list changes its findings"
-   is false as written.
-3. **Add the check-placement constraint to R8 or R6**: the two checks run
-   inside `validate_file` after the schema gate, alongside
-   `check_upstream_resolves`. This is what preserves golden parity on
-   `real/PRD-roadmap-skill.md`, and it is currently accidental.
-4. **State that the new codes may not be `R5` or `FC99`** (the negative list in
-   `is_known_check_code_covers_per_file_codes_only`), and note that the
-   hardcoded valid-codes string at `crates/shirabe/src/main.rs:529` changes.
-5. **Give R8, R14, R15, R17 and R18 criteria, or demote them.** Concretely:
-   R8 — a test asserting the check performs no filesystem access on the target
-   (or, at minimum, that `docs/visions/` is not read); R14 — restate as a
-   file-scope assertion about which contracts the diff touches; R15 — assert
-   exactly two new codes and no changed `required_sections`; R17 — a frozen
-   old-shape chain fixture that still cascades; R18 — resolve to "preserved"
-   and add it to AC11's untouched set.
-6. **Cover R5's untested rows.** A table-driven test asserting the eight
-   declared parent sets verbatim would make a typo in the VISION, STRATEGY,
-   ROADMAP, PLAN or COMP row fail, which nothing does today.
-7. **Fix AC5's wording** to match R10 (every per-entry finding sits at the
-   field's line; the parser records no per-item lines), and **mark AC8's
-   grounding clause and AC10's "same conditions as before" as eval-graded**,
-   pinning AC10's baseline to the existing cascade eval expectations.
+1. **Give R8 a criterion.** Since `docs/` has no strategic directories, it has
+   to be a synthetic-tree or unit-level assertion — for example, a doc whose
+   `upstream:` names a `VISION-`/`STRATEGY-` basename is judged without that
+   file existing on disk, and a `--lifecycle` run over a tree containing a
+   VISION produces the same finding set before and after. Alternatively,
+   strengthen AC17 from "exits 0" to "emits the same finding set", which closes
+   the notice-level hole in the same stroke.
+2. **Give R5.2 a criterion.** Something greppable: no reference under
+   `references/` or `skills/*/references/` documents a ROADMAP as a legal
+   upstream for a BRIEF, PRD or DESIGN after the change.
+3. **Name the new-shape cascade fixture as a deliverable** in R22 or R23, and
+   say explicitly that adding fixtures is not an "eval outside the list" under
+   AC19.
+4. *(Minor, carried over.)* State that the two new codes may not be `R5` or
+   `FC99`, per the negative list in
+   `is_known_check_code_covers_per_file_codes_only`.
+5. *(Minor.)* Fold R16.1 into AC11 — the `/scope` run leaves the surviving PRD
+   correctly headed after an absorb.

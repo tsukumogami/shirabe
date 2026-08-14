@@ -2,173 +2,160 @@
 
 **Verdict:** FAIL
 
-One claim in R5 does not hold against the source it cites, and the consequence
-it hides is a scope gap rather than a wording nit. Everything else checked out,
-including all eight rows of R20 and the Known Limitations admission.
+All three of my previous required changes landed and hold up under re-checking.
+The revision introduces one new completeness defect of its own: R22's list of
+affected eval expectations is four rows, and there is a fifth.
 
 ## Claim verification
 
-### R5's "encodes rather than changes" claim — **DOES NOT HOLD**
+### R5.2's account of what the references document — **HOLDS, with one loose attribution**
 
-Source: `references/pipeline-model.md:120-140`, plus
-`skills/vision/references/vision-format.md:28,37-40` for the VISION row.
-
-Row by row:
-
-| R5 row | pipeline-model says | Verdict |
+| R5.2 claim | Source | Verdict |
 |---|---|---|
-| VISION ← VISION | vision-format.md:28: "path to parent VISION when a project-level doc derives from an org-level one" | holds |
-| STRATEGY ← VISION | "Strategy (upstream: VISION)"; strategic chain "strict in both directions" | holds |
-| ROADMAP ← STRATEGY | "a Roadmap's upstream is the STRATEGY it sequences" | holds |
-| BRIEF ← *(none)* | "Brief (upstream: Roadmap, per feature)" and "`/brief` crosses that boundary by taking a Roadmap as its upstream" | **changes** — acknowledged by the PRD in the paragraph below the table |
-| PRD ← BRIEF | "A feature framed directly in its PRD has no BRIEF, so that PRD's upstream is the Roadmap" (`pipeline-model.md:132-133`), restated in `skills/prd/references/prd-format.md:27-29` as "a ROADMAP when no BRIEF was written" | **changes — NOT acknowledged** |
-| DESIGN ← PRD, BRIEF | nearest-produced admits a ROADMAP when neither a PRD nor a BRIEF was written; `run-cascade_test.sh` Scenario 1 builds exactly `DESIGN → ROADMAP` (consumers research §4a) | **changes — NOT acknowledged** |
-| PLAN ← DESIGN, PRD, BRIEF, ROADMAP | "the PLAN's upstream is whatever preceded it"; `/plan` classifies `input_type ∈ {design, prd, roadmap, topic}` (writers §6) | holds; BRIEF is an addition `/plan` has no input mode for — permissive, harmless |
-| COMP ← *(none)* | COMP has no `upstream` field at all (`comp-format.md:26-27`, writers §1 row 10) | holds |
+| `pipeline-model.md` states a BRIEF's upstream is a ROADMAP | "Brief (upstream: Roadmap, per feature)"; "`/brief` crosses that boundary by taking a Roadmap as its upstream" | accurate |
+| ...that a PRD's is a ROADMAP when no BRIEF was written | "A feature framed directly in its PRD has no BRIEF, so that PRD's upstream is the Roadmap" | accurate, near-verbatim |
+| ...that a DESIGN's is whatever preceded it | pipeline-model applies the phrase "whatever preceded it" to the **PLAN**, not the DESIGN: "a feature that needs no architectural decision has no DESIGN, so the PLAN's upstream is whatever preceded it" | **substance holds, attribution is loose** |
+| `prd-format.md` repeats the PRD case | `prd-format.md:27-29` — "the nearest parent produced above this PRD -- a ROADMAP when no BRIEF was written" | accurate |
 
-The two strictness *readings* the paragraph defends (strategic strict, tactical
-any-strictly-higher) are indeed settled in pipeline-model. The *parent sets* are
-not: three rows change, and the sentence "R5 encodes it rather than changing it"
-asserts otherwise. The PRD names only the BRIEF consequence.
+On the DESIGN row: the conclusion is right and the citation is not. DESIGN can
+legally name a ROADMAP today under the general nearest-produced sentence ("Each
+artifact's `upstream` field points to the nearest artifact actually produced
+above it"), and the shape is exercised in the tree —
+`skills/execute/evals/fixtures/designs/DESIGN-cascade-test-short.md:3` names a
+ROADMAP directly, and `run-cascade_test.sh` Scenario 1 builds `PLAN → DESIGN →
+ROADMAP`. But the sentence R5.2 borrows to support it is about the PLAN. Cite
+the nearest-produced rule instead of the PLAN sentence.
 
-The PRD/DESIGN changes are forced by R4 (ROADMAP is Working, both are Durable),
-so they are correct — they are simply unstated. That matters downstream: a
-design reading R5 as an encoding job will not know that `prd-format.md:27-29`
-and `pipeline-model.md:132-135` both document a shape the PRD is outlawing, and
-will not know that `PRD → ROADMAP` and `DESIGN → ROADMAP` join `BRIEF → ROADMAP`
-as forbidden.
+The consequence R5.2 states — no durable tactical document may name a ROADMAP,
+so the strategic-to-tactical crossing lands on the PLAN alone — is correct and
+is what R4 forces. That was my first required change and it is discharged.
 
-### R2's lifetime classes — **HOLD**
+### R24's eight rows — **HOLD, every row, both columns**
 
-Verified directly in each skill's `## Artifact Lifecycle` section:
-Working — `skills/roadmap/SKILL.md:60-62`, `skills/plan/SKILL.md:25-27`.
-Durable — `vision` (:34-36), `strategy` (:52-54), `brief` (:44-46),
-`prd` (:25-27), `design` (:24-26), `comp` (:37-39). All eight match R2.
+Re-verified against the corpus research's complete edge table. Rows 1-3
+(`BRIEF-fc06-index-alias`, `BRIEF-lifecycle-draft-ready-discipline`,
+`BRIEF-skill-cascade-lifecycle-check`) are the three clean-today edges, R6 pass
+and TP FAIL. Rows 4-5 (`BRIEF-cascade-outline-ac-completeness`,
+`BRIEF-single-pr-plan-validation`) are the two BRIEF→PLAN edges that fail both
+properties, correctly reported as lifetime under R7's precedence. Rows 6-8 are
+the three BRIEF→DESIGN edges with LC pass. The trailing counts (73 legal edges,
+68 no-field documents) match corpus Steps 1 and 3.
 
-### R20's eight documents — **HOLD, every row, both columns**
+Scoping R24 to "every document under `docs/`" is an improvement: it makes the
+count exact and makes R23's fixture carve-out coherent.
 
-Checked against the corpus research's complete edge table (rows 1-8) and its
-Step 5 baseline.
+### R22's four eval entries — **ALL FOUR ACCURATE, BUT THE LIST IS INCOMPLETE**
 
-| R20 row | corpus evidence | Verdict |
-|---|---|---|
-| `BRIEF-fc06-index-alias.md` clean → direction (names DESIGN) | edge #2, R6 pass, TP FAIL, LC pass | holds |
-| `BRIEF-lifecycle-draft-ready-discipline.md` clean → direction (names BRIEF) | edge #4, R6 pass, TP FAIL | holds |
-| `BRIEF-skill-cascade-lifecycle-check.md` clean → direction (names BRIEF) | edge #7, R6 pass, TP FAIL | holds |
-| `BRIEF-cascade-outline-ac-completeness.md` R6 → R6 + lifetime | edge #1, BRIEF→PLAN, R6 FAIL-missing, TP FAIL, LC FAIL; R7 suppresses the direction finding | holds |
-| `BRIEF-single-pr-plan-validation.md` R6 → R6 + lifetime | edge #6, identical shape | holds |
-| `BRIEF-legend-vs-classdef-reconciliation.md` R6 → R6 + direction | edge #3, BRIEF→DESIGN, LC pass | holds |
-| `BRIEF-lifecycle-passing-state-validation.md` R6 → R6 + direction | edge #5, same | holds |
-| `BRIEF-table-diagram-reconciliation.md` R6 → R6 + direction | edge #8, same | holds |
+Each of the four names a real scenario asserting what the table says:
 
-The corpus research labels rows 4 and 5 "R6 error + type-pair error"; the PRD
-says "lifetime violation" for them. That is not a mismatch — it is R7's
-precedence rule applied correctly to two edges that violate both properties.
+| Eval | Verified |
+|---|---|
+| `brief` / `upstream-roadmap-grounding` (id 2) | expectation: "Plan declares the ROADMAP path as the BRIEF frontmatter upstream field" |
+| `brief` / `upstream-flag` (id 12) | expected_output: "Phase 2 writes upstream: docs/roadmaps/ROADMAP-editor.md into docs/briefs/BRIEF-inline-diff.md" |
+| `scope` / `upstream-flag-consumed` (id 23) | expected_output: "the produced docs/briefs/BRIEF-inline-diff.md carries upstream: docs/roadmaps/ROADMAP-editor.md in its frontmatter" |
+| `execute` / full-chain cascade (id at `evals.json:328`) | expected_output: "The chain is PLAN -> DESIGN -> PRD -> BRIEF -> ROADMAP" |
 
-Also verified: "the other 73 edges stay legal" (corpus Step 3: pass 73, fail 8)
-and "the 68 documents with no `upstream:` field are untouched" (Step 1: 68).
-R5's table does not change either count, since the corpus contains zero
-`BRIEF → ROADMAP`, `PRD → ROADMAP` or `DESIGN → ROADMAP` edges.
+**The fifth:** `skills/scope/evals/evals.json:373`,
+`pre-authoring-notice-cold-start` (id 25), asserts an author-facing notice
+**verbatim**, including the clause:
 
-### R21's baseline — **HOLDS**
+> "re-invoke as `/scope inline-diff --upstream <path-to-the-ROADMAP>` and this
+> chain will attach the BRIEF to it"
 
-Corpus Step 5: `shirabe validate --lifecycle . --mode=draft` exits 0 today with
-two notice-level L02 findings.
+Under R13 the chain no longer attaches the BRIEF to the roadmap — R14 attaches
+the PLAN. The notice becomes false as written, and the same string is committed
+in the skill itself at `skills/scope/references/phases/phase-1-discovery.md:304`
+and `:341`, so the prose has to change and the eval's verbatim assertion changes
+with it. This is precisely the failure R22 exists to prevent ("named here so the
+change is visible in review rather than discovered in a diff"), and the
+acceptance criterion "no eval outside that list changes" would be violated by a
+correct implementation.
 
-### R8's no-indexing claim — **HOLDS**
+### R23's two fixtures — **BOTH CARRY FORBIDDEN EDGES, AS DESCRIBED**
 
-Consumers §2: `docs/strategies/` and `docs/visions/` are never indexed
-(`lifecycle.rs:678-686`), and the direction/lifetime decision needs only two
-basenames.
+- `skills/execute/evals/fixtures/briefs/BRIEF-cascade-test-full.md:4` —
+  `upstream: skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md`.
+  Durable BRIEF naming a Working ROADMAP: forbidden on both properties.
+- `skills/execute/evals/fixtures/designs/DESIGN-cascade-test-short.md:3` — the
+  same ROADMAP path. R23's wording "names one directly" is exact: this is the
+  DESIGN→ROADMAP shape, not a transitive reach.
 
-### R9 and R10 — **HOLD**
+Keeping them as frozen regression evidence for R18 is coherent. Minor: R23
+exempts them from "R24's no-other-changes clause," but R24 is now scoped to
+`docs/` and these live under `skills/`, so the exemption is a no-op. Harmless.
 
-Placeholder skip and blank-entry-is-already-R6's-finding match consumers §1
-(`upstream.rs:103`, `checks.rs:806/826/829`). Cross-repo values keep the
-file-component basename rule, matching `brief/phase-0-setup.md:188-197`.
+### R21's golden-corpus claim — **HOLDS** (checked because it looked fragile)
 
-### R18's framing of the L02 orphan exemption — **ACCURATE**
+Four golden fixtures carry `upstream:`. Three are unaffected:
+`PLAN-roadmap-plan-standardization.md` (PLAN→DESIGN, legal),
+`DESIGN-gha-doc-validation.md` (DESIGN→PRD, legal), and
+`PLAN-r6-broken-upstream.md` (`synthetic/this-upstream-does-not-exist.md`, no
+artifact prefix, unchecked under R9).
 
-Consumers §2b: `lifecycle.rs:1276-1282` is "the *only* place in the codebase
-where the type and status of a BRIEF's upstream is consulted," and the loss is
-narrow — branch 3 covers the brief the moment a PRD names it. R18 describes
-exactly that state ("correctly the head of its own lineage and has no downstream
-document yet") and requires the change to state the outcome. One imprecision,
-not a defect: R18 credits R13 alone with making the exemption unreachable, but
-R13 only stops `/brief` from producing the edge — it is R5's empty BRIEF parent
-set that forbids a hand-authored one. Both are needed.
+The fourth looked like a counterexample:
+`crates/shirabe/tests/fixtures/golden/corpus/real/PRD-roadmap-skill.md:12`
+carries `upstream: docs/roadmaps/ROADMAP-strategic-pipeline.md` — a Durable PRD
+naming a Working ROADMAP, forbidden under R5. Its frozen expected output is
+`expected/real/PRD-roadmap-skill.md.stdout`, which contains exactly
+`::notice ...::schema field missing, skipping`. The document is skipped before
+any check runs, so no new finding lands and the frozen output stays
+byte-identical. R21 and its acceptance criterion survive — by one line of
+fixture accident rather than by design, which is worth knowing but not worth
+requiring anything about.
 
-### Known Limitations honesty — **HONEST**
+### Previously verified, unchanged and re-confirmed
 
-"The direction check finds three documents on its own and the lifetime check
-finds zero" matches corpus Step 4 exactly ("its marginal yield is zero
-documents"; both lifecycle failures already fail R6). The limitation also names
-the absent-ROADMAP corpus caveat the research asked for.
+R2's lifetime classes against all eight `## Artifact Lifecycle` sections; R8's
+no-indexing claim; R9/R10 against `upstream.rs` and `checks.rs`; R25's exit-0
+baseline; Known Limitations' three-versus-zero corpus yield.
 
 ## Coverage
 
-Every brief IN item has a requirement:
+Every brief IN item still has a requirement, and the two previously thin spots
+are now covered: the `/explore` → `/roadmap` VISION handoff is R15 with its own
+acceptance criterion (my second required change, discharged), and the roadmap
+link's new home is R14 with `/plan` accepting it on the flag rather than the
+positional slot (which also avoids the slug-collision failure the writers
+research documents).
 
-| Brief IN item | Requirements |
-|---|---|
-| Stated definition covering both properties | R1, R2, R3, R5 |
-| Decision on one-rule-vs-two for unrecordable upstreams | Decisions §1 |
-| Enforcement by `shirabe validate` | R6-R10 |
-| Skills' recording behaviour, changed in each skill's own contract | R11-R14 (see gap below) |
-| Named ahead-of-time list of changed validation results | R20 |
-| Keeping the automated consumer whole | R16, R17, Decisions §5 |
+R16/R16.1 resolve the tension I flagged: the absorb re-point is placed after
+both children return, as a statement about the corpus rather than an override of
+what a child recorded, and R13 makes the absorbed brief upstream-less so the
+existing "remove the field" branch does the right thing. That reasoning holds
+against `scope/phase-2-chain-orchestration.md:485-501`.
 
-Both brief Open Questions are closed in Decisions and Trade-offs: the
-mechanism question in "The mechanism is to record nothing, not to navigate
-further up," and the "absorb the context" question in "'Absorb the context' is
-the self-containment each format already requires" (plus R15).
+Both brief Open Questions remain closed in Decisions and Trade-offs.
 
-Every brief OUT item is preserved in Out of Scope, none absorbed.
-
-No requirement lacks grounding. R19 and R21 are compatibility constraints not
-named in the brief, but they are measurement discipline for R20 rather than new
-scope.
+Acceptance-criteria coverage is materially better than the previous draft: R15,
+R14, R22 and R23 each have a criterion. R11 is still only exercised through the
+`/brief`, `/scope`, `/plan` and `/explore` criteria rather than in general,
+which I consider acceptable now that the specific producers are named.
 
 ## Gaps / scope creep
 
-1. **R5's unacknowledged rows** (see above). The claim is wrong and the two
-   consequences it hides are load-bearing.
-
-2. **`/explore` → `/roadmap` produces an illegal link and nothing names it.**
-   Writers §7 gap 1: `explore/phase-5-produce-roadmap.md:43-49` passes a VISION
-   in `--upstream` to `/roadmap`, which enforces no basename and writes it
-   straight to frontmatter. Under R5 (ROADMAP's only legal parent is STRATEGY)
-   that is a direction violation, produced by a documented, live code path. R11
-   covers it generically; no requirement or acceptance criterion names it, and
-   `/brief` is the only skill R13 changes by name.
-
-3. **No acceptance criterion exercises R11 beyond `/brief`.** The AC list has a
-   `/brief` criterion and a `/scope` criterion; R11's "no skill records a
-   forbidden value" has no criterion covering `/prd`'s or `/roadmap`'s
-   unenforced flags. Nor does any criterion cover R18's orphan outcome.
-
-4. **Minor tension between R14 and `/scope`'s absorb re-point.** R14 says a
-   parent skill "does not reach into a child to suppress or rewrite what the
-   child records," but `scope/phase-2-chain-orchestration.md:485-501` has
-   `/scope` rewriting a survivor PRD's `upstream:` after the child produced it —
-   and that re-point is the documented mechanism that produces `PRD → ROADMAP`,
-   a pair R5 now forbids. Worth one clause; not a FAIL driver on its own.
+1. **R22 names four eval expectations; there are five.** See above. This is the
+   only FAIL driver.
+2. **R5.2's DESIGN citation.** Substance right, attributed sentence wrong.
+3. No scope creep. Nothing from the brief's OUT list has been absorbed, and the
+   new requirements (R14, R15, R21-R23) all trace to the brief's IN item about
+   keeping consumers whole or to the change-visibility discipline R24 owns.
+4. Note, not a required change: no eval covers R14's new `/plan --upstream`
+   surface. Adding one is not "changing an eval outside the list," so it does
+   not conflict with R22's acceptance criterion, but the flag ships ungraded
+   unless a scenario is added.
 
 ## Required changes
 
-1. Replace R5's closing sentence. The strictness *readings* are settled in
-   `pipeline-model.md`; the parent *sets* are not. State that three rows change
-   what the references currently document — BRIEF (already stated), PRD (which
-   `pipeline-model.md:132-133` and `prd-format.md:27-29` both say may name a
-   ROADMAP when no BRIEF was written), and DESIGN — and that all three follow
-   from R4 rather than from a new judgment.
+1. Add the fifth row to R22: `skills/scope/evals/evals.json` /
+   `pre-authoring-notice-cold-start`, which asserts verbatim that supplying
+   `--upstream <ROADMAP>` means "this chain will attach the BRIEF to it."
+   Disposition: reworded, because R14 attaches the PLAN. Note that the same
+   string is committed at `skills/scope/references/phases/phase-1-discovery.md:304`
+   and `:341`, so the skill prose changes with it.
 
-2. Add the consequence sentence alongside the existing BRIEF/PLAN one: no
-   durable tactical node may name a ROADMAP, so the boundary crossing that
-   `pipeline-model.md` currently lets a BRIEF, PRD or DESIGN record now lives
-   only on the PLAN. This is what Decisions §5 already argues; R5 should say it.
-
-3. Name the `/explore` → `/roadmap` VISION handoff as a producer the definition
-   forbids, either as a requirement beside R13 or as an explicit Out of Scope
-   deferral. Leaving it to R11's general phrasing means the one live
-   strategic-chain violation in the repo ships unnamed.
+2. Fix R5.2's DESIGN attribution. `pipeline-model.md` applies "whatever preceded
+   it" to the PLAN. The sentence that makes DESIGN→ROADMAP legal today is the
+   nearest-produced rule — "Each artifact's `upstream` field points to the
+   nearest artifact actually produced above it" — and the shape is exercised by
+   `DESIGN-cascade-test-short.md` and `run-cascade_test.sh` Scenario 1. Cite
+   those instead.

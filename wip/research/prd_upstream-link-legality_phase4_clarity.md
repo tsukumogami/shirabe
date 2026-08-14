@@ -1,12 +1,14 @@
 # Clarity Verdict — PRD-upstream-link-legality
 
-**Verdict:** FAIL
+**Verdict:** PASS
 
-Two requirement-level defects: the PRD removes the cascade's only route to the
-roadmap and never states, as a numbered requirement, what replaces it (R16 vs
-R11/R13); and R18 defers a decision instead of making one, in a way that
-contradicts R20 and an acceptance criterion. Both fixes are small. Structure,
-style, and public-visibility cleanliness all pass.
+Both blocking items from the previous round are genuinely resolved, not papered
+over. R14 assigns the roadmap link as a numbered requirement and R11's new escape
+clause stops pointing away from it; R20 decides rather than defers, and the
+contradiction with R24 and the acceptance criteria is gone. The trims to R8 and
+R4 did not over-correct — both are still testable requirements with acceptance
+criteria behind them. What remains is one notation collision and four small
+nits, none of which would produce a wrong implementation.
 
 ## Validator output
 
@@ -16,293 +18,247 @@ $ echo $?
 0
 ```
 
-No output, exit 0 — a clean pass. Confirmed the binary is actually exercising
-the checks rather than no-op'ing: a stub PRD with `schema: prd/v1` and a missing
-body produced eight findings (`FC01` x2, `FC04` x6) and exit 2.
+No findings, exit 0. Confirmed the binary exercises its checks: a stub PRD with
+`schema: prd/v1` and a missing body returns eight findings (`FC01` x2, `FC04`
+x6) and exit 2.
 
 ## Structure
 
-Pass on every count.
+Pass, re-checked on the assembled file.
 
-All seven required sections are present and in canonical order: Status,
-Problem Statement, Goals, User Stories, Requirements, Acceptance Criteria,
-Out of Scope.
+Required sections all present and in canonical order: Status (26), Problem
+Statement (30), Goals (69), User Stories (88), Requirements (112), Acceptance
+Criteria (313), Out of Scope (516). The two optional sections — Decisions and
+Trade-offs (361), Known Limitations (484) — sit between Acceptance Criteria and
+Out of Scope, which preserves the required sections' relative order and so is
+legal under FC15. The validator agrees.
 
-The two optional sections — Decisions and Trade-offs, Known Limitations — sit
-between Acceptance Criteria and Out of Scope. This is legal: FC15 constrains the
-relative order of the *required* sections, which is preserved, and the format
-reference places no positional constraint on optional sections. The validator
-confirms.
+FC03: line 28's first non-blank content under `## Status` is the bare word
+`Draft`, matching frontmatter `status: Draft`. Frontmatter carries `schema:
+prd/v1`, `status`, `problem`, `goals`, plus the legal optionals `upstream` and
+`motivating_context`, each a single paragraph in a literal block scalar. No
+`wip/` path in frontmatter.
 
-Frontmatter carries `schema: prd/v1`, `status`, `problem`, `goals` (all
-required), plus `upstream` and `motivating_context` — both legal optional
-fields, both single paragraphs in literal block scalars as the format asks.
-`upstream:` is a scalar pointing at `docs/briefs/BRIEF-upstream-link-legality.md`,
-which exists and is Accepted. No `wip/...` path in frontmatter.
+**Numbering reads cleanly.** R1 through R25 are contiguous with no gaps and no
+reuse. The four sub-numbers each attach to the requirement they qualify —
+R5.1/R5.2/R5.3 elaborate R5's table, R16.1 carves an exception-that-isn't out of
+R16 — and none of them is load-bearing in a way that would have been clearer as
+a top-level number.
 
-FC03: the body's `## Status` first non-blank line is the bare word `Draft`,
-matching frontmatter `status: Draft`. No prose on that line.
+**No stale references.** Every `R<n>` citation in the body resolves to an
+existing requirement: R5.2→R4, R5.3→R5.1, R14→R19, R16.1→R16/R13, R17→R7,
+R19→R14, R22→R13/R14/R18, R23→R18/R24, R24→R5, Known Limitations→R25/R24/R13,
+Out of Scope→R24/R10/R14/R8, Decisions→R5/R6/R7/R24. I checked all 60 occurrences
+against the 29 definitions; nothing points at a number that moved.
 
-Requirements are numbered R1-R21 continuously with no gaps or reuse. Acceptance
-criteria all use `- [ ]` checkbox format. No Open Questions section, which is
-fine for Draft (it's optional) — and the brief's two deferred questions both
-land as recorded decisions under Decisions and Trade-offs, which is the
-conventional closure surface the format names.
+## Over-correction check on R8 and R4
+
+Asked for explicitly. Neither is too thin.
+
+**R4** now reads: "No Durable type may declare a Working type in its legal parent
+set. A maintainer who writes such a declaration finds out before it can reach the
+corpus." The rule is stated exactly and is binary. The second sentence sets an
+outcome without prescribing the mechanism, which is the right altitude, and the
+mechanism it used to prescribe now lives where it belongs — in the acceptance
+criterion "A test asserts that no Durable type declares a Working type among its
+legal parents, and fails when one is added." R4 also does more work than before:
+R5.2 now leans on it to justify three changed table rows, so it has become the
+load-bearing rule rather than a side constraint. Still a requirement.
+
+**R8** now reads: "Legality is decided from the naming document's format and the
+target's basename alone. Nothing about the check causes `docs/visions/` or
+`docs/strategies/` to be indexed, so no VISION or STRATEGY is drawn into the
+orphan rule, which was never written for them." The first sentence is the
+definitional input, not an implementation choice — it is what makes R9's "matches
+no known artifact prefix" coherent and what the basename paragraph in Known
+Limitations is a consequence of. The second states an observable outcome and now
+says *why* it matters, which the old version left implicit. Verification is
+indirect but real: if visions or strategies were drawn in, they would acquire
+orphan findings and trip the "no other document under `docs/` changes its
+findings" criterion. Requirement intact, and better than before.
 
 ## Content boundaries
 
-The PRD holds the line better than a validator-check PRD has any right to, but
-it crosses in four places. Three are trimmable clauses; the fourth is a whole
-paragraph of Decisions and Trade-offs reasoning.
+Clean enough to pass. The four crossings from the previous round are gone: R8
+lost the mechanism prohibition, R4 lost the timing-and-test-suite clause, old R14
+is now R16 stated as observable behaviour ("A skill records the same `upstream:`
+value when invoked standalone as it does when a parent skill invoked it"), and
+the cascade decision keeps the lifetime argument while dropping the call-site
+detail, the walking-machinery paragraph, and the shell-script clause.
 
-**R8 — prescribes the algorithm, not just the outcome.**
+Three small things sit on the line. None demands a change.
 
-> "Legality is decided from the naming document's format and the target's
-> basename. No document index, no filesystem read of the target, and no
-> traversal is required."
+**One acceptance criterion names an internal Rust symbol.**
 
-The second sentence forbids three specific implementation mechanisms. That is a
-design decision. The observable half of R8 is legitimate and should survive —
-"the check does not cause `docs/visions/` or `docs/strategies/` to be indexed"
-has a user-visible consequence (those directories stay out of the orphan check)
-and is a real constraint on the WHAT. "No filesystem read of the target, and no
-traversal is required" is the design doc's call.
+> "`is_known_check_code` gains exactly the two new codes, and no format's
+> required-section list changes."
 
-**R4 — decides when the check runs and which mechanism reports it.**
+This is a function name from the validator crate. An acceptance criterion may
+name a test, but naming an internal symbol pins the implementation's shape, and
+the criterion two lines above already covers the same ground from the outside:
+"Both new check codes are selectable with `shirabe validate --check <CODE>`, and
+the message listing valid codes names them." The second half of the
+`is_known_check_code` criterion (no required-section list changes) is worth
+keeping; the first half is redundant with the user-facing one.
 
-> "This is checked when the declarations are built, not when a document is read,
-> so a maintainer who adds a durable type with a working parent finds out from
-> the test suite rather than from a dangling link months later."
+**R12's last sentence is acceptance-criterion content in a requirement.**
 
-Build-time versus read-time is an implementation-timing decision, and "from the
-test suite" names the mechanism. The requirement underneath is sound and stays:
-no durable type may declare a working parent, and a maintainer who writes one
-finds out before it reaches the corpus. How and when is downstream. Note the
-matching acceptance criterion ("A test asserts that no Durable type declares a
-Working type among its legal parents") is *fine* — an AC may name a test,
-because an AC is a verification condition.
+> "The announcement is graded by the skill's eval suite rather than by a string
+> match, which is how the five skills that already carry this obligation are
+> graded."
 
-**R14 — an architectural layering constraint.**
+This specifies the verification mechanism. It is defensible — it heads off a
+brittle string-match implementation of an announcement obligation, which is a
+real risk — but it is describing how the requirement gets checked, and the
+matching acceptance criterion already says "Its eval suite grades that... the run
+announced the omission and its reason."
 
-> "Every change to a skill's recording behaviour is authored in that skill's own
-> contract. A parent skill does not reach into a child to suppress or rewrite
-> what the child records."
+**R16.1 describes control flow.** "It rewrites a surviving PRD's `upstream:`
+after both children have returned and one document has been removed" narrates
+`/scope`'s internal sequencing. It is describing existing behaviour in order to
+argue it is not an exception to R16, which is legitimate scoping work, but the
+argument would survive without the ordering detail.
 
-This decides where instructions live and how parent and child skills compose.
-It is a real and probably correct constraint, but it is architecture. The
-WHAT it is standing in for is observable: a skill invoked standalone records
-the same upstream it records when a parent invoked it. State that, and let the
-design decide that co-locating the change in each skill's contract is how you
-get it.
-
-**Decisions and Trade-offs, "The roadmap pointer moves down the chain rather
-than disappearing" — descends well below requirements altitude.**
-
-> "the roadmap's path is assigned in exactly one place in the cascade, from the
-> walk's report, and there is no directory scan or reverse index"
-
-> "the finalization walk already expands a plan's upstream entries and already
-> dispatches a `ROADMAP-` node to the roadmap handoff"
-
-> "...puts discovery logic in a shell script when a frontmatter link would do"
-
-The decision this section records — which node in the chain may name the
-roadmap — is genuinely requirements-level and belongs in the PRD. The
-justification is not. Comparing a shell-script directory scan against a
-frontmatter link is an implementation-approach comparison, and the call-site
-detail ("assigned in exactly one place in the cascade, from the walk's report")
-is the kind of fact a design doc establishes. The decision can be justified from
-the rule alone: links run from the shorter-lived document to the longer-lived
-one, the plan is Working and dies with the roadmap, so the plan is the node that
-may name it. That argument needs no reference to the walk's internals.
-
-**Borderline, flagging without demanding a change:** R17 names internal
-components ("the finalization walk", "the lifecycle chain walk") and asserts
-"The opinion about legality lives in the validator alone." Preserving an
-existing consumer's behaviour is a legitimate compatibility requirement and the
-components have to be named to be pinned. The placement claim in the last
-sentence is architecture, but it reads as scope-setting rather than design.
-
-Nothing else crosses. There are no code examples, no API specifications, no
-security analysis, and no competitive content. R5's table is the substance of
-the rule, not a schema — it belongs.
+Nothing else crosses. No code examples, no API specifications, no security
+analysis, no competitive content. R5's table, R22's eval table, and R24's
+document table are all change manifests — the same category, and all three belong.
 
 ## Ambiguity
 
-**1. R16 states a constraint and never discharges it. No requirement says which
-skill records the replacement link.** This is the most serious finding.
+**Resolved: the roadmap link now has a requirement.** R14 states it directly —
+"Where a tactical chain runs under a roadmap, the produced PLAN records that
+ROADMAP among its `upstream:` entries" — R11 now ends "except where a requirement
+below says otherwise" so it no longer points an implementer away from the change,
+R19 explicitly says R14 supplies the link it walks, and the acceptance criterion
+names the field rather than gesturing at reachability: "the produced PLAN carries
+the roadmap among its `upstream:` entries." R14's premise checks out: `/brief`,
+`/prd`, `/roadmap`, `/strategy`, and `/comp` do each carry `--upstream` today and
+`/plan` does not, so "the same flag five siblings already carry" is accurate. The
+slug clause is covered by its own criterion.
 
-R13 is explicit about removal: "`/brief` no longer records a ROADMAP as the
-produced brief's `upstream:`." There is no corresponding requirement about
-recording. R16 says only:
+**Resolved: R20 decides.** The outcome is preserved — exemption, behaviour, and
+tests stay; nothing in the corpus depends on it; no document's validation result
+changes. That is consistent with R24's list staying exact and with the criterion
+"no other document under `docs/` changes its findings." R20 has its own criterion
+and a Known Limitations paragraph covering the notice a lone brief carries. The
+contradiction is gone.
 
-> "The cascade must still locate the ROADMAP whose feature a completed chain
-> implemented... The route must be a link the definition permits."
+**Also resolved, without my raising it: the R21/R22 split.** The previous draft's
+unqualified "No existing test is modified" sat badly against a change that
+obviously required eval updates. R21 is now scoped to `cargo test --workspace`
+plus golden-corpus fixtures, and R22 names the four eval expectations that change
+with their dispositions. That was a latent conflict and it is fixed.
 
-The answer — the PLAN names the roadmap — appears only in Decisions and
-Trade-offs prose and, obliquely, in one acceptance criterion ("the roadmap is
-still reachable from the chain by the cascade"). Two competent readers can
-satisfy every numbered requirement and produce different systems: one has
-`/plan` write a `ROADMAP-` entry into the plan's `upstream:`; another has
-`/scope` pass the value down to the plan (which R14 would forbid, but R16 does
-not); a third notices that R11 says "Where the value is legal, the skill records
-it as it does today" — and `/plan`'s skill contract contains no instruction to
-record a roadmap today — and changes nothing, leaving the cascade unable to find
-the roadmap in exactly the case R16 exists to protect. R11 as written actively
-points away from the change R16 needs.
+**One remaining ambiguity: `R6` means two different things in this document.**
 
-The PRD's central promise is "remove an illegal link, keep the consumer whole."
-The removal is a requirement; the repair is prose.
+Shirabe already ships check codes `R6`, `R7`, `R8`, and `R9` — `R6` is the
+upstream resolution check, and `R7`/`R8`/`R9` are the public-repo visibility
+checks (`shirabe validate --help`: "Codes are the per-file checks: `SCHEMA`,
+`FC01`-`FC13`, `FC-CONVENTIONS`, `R6`-`R9`"). The PRD numbers its requirements
+R1-R25, so the tokens collide.
 
-**2. R18 defers a decision, and one of its two permitted branches contradicts
-R20 and an acceptance criterion.**
+The collision is live in R24's table, which is the document's most load-bearing
+artifact. Its **Today** column reads "R6 error" for five rows — that can only
+mean the existing *check code*, since requirement R6 does not exist yet. But
+sixty lines earlier, "**R6.** `shirabe validate` reports an error-severity
+finding..." defines requirement R6, and Decisions says a rule "is enforced by R5
+and R6," meaning the requirement. Same token, two referents, and one acceptance
+criterion depends on the table verbatim: "The eight documents named in R24
+produce exactly the findings R24 predicts."
 
-> "The change must state what happens to a brief that is correctly the head of
-> its own lineage and has no downstream document yet, and either preserve its
-> current validation result or record the new one as a deliberate change under
-> R20."
+I did not flag this last round and should have — it was present in the original
+draft too. It is recoverable in every instance from context, which is why it does
+not block: nobody implementing this from the shirabe codebase will mis-read the
+Today column. But a reader coming to R24 cold has to work it out, and the
+document never acknowledges the overlap. A footnote under R24 saying the Today
+column's `R6` is the existing resolution check code, distinct from requirement
+R6, would close it. Renumbering is not worth it.
 
-A requirement that instructs the implementer to decide something is not a
-requirement. Both branches are permitted and they produce different validation
-behaviour for an entire class of documents.
+A related non-defect worth noting so it is not mistaken for one: R7 requires
+"two distinct check codes" without naming them, and codes R6-R9 are already
+taken. Leaving the names to the design is correct — the acceptance criterion
+verifies selectability regardless of what they are called.
 
-The branches are not equally available. R20 says "The list is fixed by R5 and is
-exactly:" followed by eight rows, and closes with "The other 73 edges in the
-corpus stay legal." The matching acceptance criterion is stricter still: "The
-eight documents named in R20 produce exactly the findings R20 predicts, and **no
-document outside that list changes its findings**." Taking R18's second branch —
-recording a new result under R20 — adds rows to a list R20 calls exact and
-changes findings for documents outside it, which that criterion forbids. A
-reader cannot satisfy both.
+**Minor: a count that reads as inconsistent.** The Problem Statement and
+Decisions both say "Nine places in the skill corpus state that rule"; R12 says
+"the five skills that already carry this obligation." Nine statements across five
+skills is a perfectly good reading, but nothing in the document says so.
 
-R18 also has no acceptance criterion of its own, so whichever branch is taken,
-nothing verifies it.
+**Minor: R23's exemption is redundant.** It exempts two eval fixtures from
+"R24's no-other-changes clause," but R24 is scoped to documents "under `docs/`"
+and both fixtures live under `skills/execute/evals/fixtures/`. They were never in
+R24's scope. Harmless, but it invites a reader to re-check R24's scope.
 
-**3. Minor — R15 is an Out of Scope statement wearing a requirement number.**
-
-> "The obligation that a document with no recorded upstream be self-contained is
-> discharged by the self-containment each format already requires of its head
-> sections. No new section, field, or check is added for it."
-
-Nothing here is testable and there is no acceptance criterion. The operative
-content is "no new section, field, or check," which is a boundary. It does no
-harm where it is, but it is not a requirement.
-
-Everything else in R1-R21 is unambiguous. R7's precedence rule (lifetime
-reported, direction suppressed) is stated crisply and has a matching criterion.
-R9's "unchecked rather than failed" is clear. R10's per-entry independence is
-clear and matched. R20's table is the model of a testable requirement.
+Everything else in R1-R25 is unambiguous. R5.2 is a notable improvement — the
+previous draft claimed R5 "encodes rather than changes" the settled rule, which
+was false for three rows; the revision now states plainly that three rows change
+what `pipeline-model.md` and `prd-format.md` document, derives each from R4, and
+commits to updating the references. That correction was not on my list and it
+mattered. R15 is new and catches a real defect: `/explore`'s phase-5 reference
+does instruct passing a VISION path as `--upstream` to `/roadmap`, which R5's
+table forbids.
 
 ## Citation vs Restatement
 
-**User Stories: correct.** Four of the five stories carry the brief's four
-journeys forward into the PRD's own required section, re-expressed in
-"As a / I want / so that" form, plus a fifth ("As the cascade") that is new to
-the PRD. This is carrying framing forward into the PRD's own sections, which the
-format prescribes — not summarizing the brief alongside them. There is no
-separate journeys restatement anywhere.
+Unchanged from the previous round and still fine.
 
-**Problem Statement: correct.** An independent, compressed retelling that stands
-on its own. The format explicitly requires exactly this and exempts only this
-section from the citation rule.
-
-**Out of Scope: the closest thing to a restatement problem, but it clears.**
-Four of the PRD's six exclusions reproduce the brief's OUT list, one nearly
-verbatim:
-
-| Brief OUT | PRD Out of Scope |
-|---|---|
-| "Teaching the cascade to strip inbound references when it deletes a working artifact." | identical wording |
-| "Whether a single upstream may have more than one downstream document of the same type." | "Whether one upstream may have several downstream documents of the same type." |
-| "Removing support for a document having several upstreams." | "Removing multi-valued `upstream:`." |
-| "Indexing the strategic document directories." | "Indexing the strategic directories." |
-
-What keeps this from being duplication is that every PRD entry adds reasoning
-the brief does not have, anchored to a requirement number — "R8 rules it out by
-construction", "R10 judges each entry independently", "They are named in R20 so
-the diff is readable, and they stay illegal after this change." And Out of Scope
-is a required section that cannot be discharged by citation; a PRD whose
-boundary section said "see the brief" would be worse. Noting it because it is
-the one place the PRD brushes the trap, not as a required change.
+User Stories carry the brief's four journeys forward into the PRD's own required
+section, in story form, plus a fifth that is new to the PRD — carrying forward,
+not summarizing alongside. The Problem Statement is an independent retelling,
+which the format requires. Out of Scope still overlaps the brief's OUT list on
+four of seven items, but every entry adds reasoning anchored to a requirement
+number, and the section has grown a seventh item ("Canonicalizing the roadmap's
+per-feature downstream field") that is the PRD's own, arising from the rejected
+reverse-lookup alternative. Out of Scope is a required section that cannot be
+discharged by citation; this stays a soft observation, not a finding.
 
 ## Style
 
 Clean. No changes required.
 
-No banned words: no "tier/tiered", "robust", "leverage", "comprehensive",
-"holistic", "facilitate", "utilize", "delve", "foster", "showcase", "seamless",
-"meticulous", "crucial", "pivotal", "paramount". No abstract-noun tells
-("journey", "narrative", "tapestry", "testament", "landscape", "realm"). No
-adverb openers. No emojis anywhere in the file.
+No banned words anywhere in the file: no "tier/tiered", "robust", "leverage",
+"comprehensive", "holistic", "facilitate", "utilize", "delve", "foster",
+"showcase", "seamless", "meticulous", "crucial", "pivotal", "paramount", and no
+abstract-noun tells. No emojis. No preamble phrases. The one "stands as" I noted
+last round survives at line 64; still trivial, still not worth a cycle.
 
-No preamble phrases, no "It's worth noting", no "At its core", no "In summary".
-One structural tell at line 64 — "the document **stands as** the head of its own
-lineage" — where the style guide asks for "is/are/has". Trivial, and the same
-construction appears in the brief; not worth a revision cycle on its own.
+Em dashes: 29 dash-bearing lines in ~4900 words, against 45 in ~5155 for
+PRD-chain-cardinality. At or below the repo's own baseline, so not an outlier.
+British "behaviour" is house style here (43 occurrences across the docs corpus).
 
-Burstiness is genuinely good, which is rare. "Nothing states what makes a link
-legal, and nothing checks." sits next to 40-word sentences. "It is real, and it
-is already written down." "Recording nothing has two." "Checked on its merits,
-the edge is where all the signal is." Paragraph lengths vary. Contractions
-appear ("does not" dominates, but that is register, not avoidance).
-
-Em dashes: 26 in ~4050 words. PRD-chain-cardinality carries 45 dash-bearing
-lines in ~5155 words, so this is at or below the repo's own baseline. Not an
-outlier and not a finding.
-
-British "behaviour" appears three times (Goals, R14, R17). The docs corpus uses
-"behaviour" 43 times, so this is house style, not an inconsistency.
+Burstiness holds up in the new material. "The rule says which node may carry it."
+next to a 40-word sentence. "It is real, and it is already written down."
+"Recording nothing has two." The new R5.2 ends on a bolded one-sentence
+consequence after a long derivation, which is the right shape for the most
+consequential claim in the requirements.
 
 ## Public-visibility cleanliness
 
 Clean. No private repo names, no private paths, no internal codenames, no issue
-numbers of any kind (public or otherwise). Every path referenced is inside this
-public repository: `docs/briefs/`, `docs/prds/`, `docs/roadmaps/`,
-`docs/visions/`, `docs/strategies/`, `references/pipeline-model.md`. Every skill
-named (`/brief`, `/scope`, `/strategy`, `/plan`) ships in this repo. No
-organization-internal workflow or proprietary tooling is mentioned.
+numbers of any kind. Every path in the new material is inside this public
+repository: `skills/brief/evals/evals.json`, `skills/scope/evals/evals.json`,
+`skills/execute/evals/evals.json`, the two cascade fixtures under
+`skills/execute/evals/fixtures/`, and `references/pipeline-model.md`. Every skill
+named — `/brief`, `/prd`, `/roadmap`, `/strategy`, `/comp`, `/plan`, `/scope`,
+`/explore` — ships in this repo. `/comp` is safe to name: the COMP *artifact* is
+private-only, but the skill and the type are public here and R5's table already
+lists COMP.
 
-One note that is not a defect: `wip/` appears three times (lines 321, 322, 463)
-in the discussion of why `wip/` paths are *rejected* rather than omitted. These
-reference the category of wip paths, not any specific file, so no dangling
-pointer is created and the wip-hygiene rule is not violated. Flagging only
-because a naive grep-based CI check keyed on the string `wip/` could trip on
-them.
+The three `wip/` mentions (lines 390, 391, 543) still reference the category of
+wip paths rather than any file, so no dangling pointer is created and the
+wip-hygiene rule holds. Flagging only because a grep-based CI check keyed on the
+bare string could trip.
 
-## Required changes
+## Recommended changes (non-blocking)
 
-1. **Add a requirement that assigns the roadmap link.** R16 states the
-   obligation; something in the R11-R15 band must discharge it — a numbered
-   requirement saying that where a tactical chain runs under a roadmap, the
-   produced PLAN records that ROADMAP among its `upstream:` entries. Without it,
-   R11's "the skill records it as it does today" leaves `/plan` unchanged and
-   the cascade loses the roadmap. Add a matching acceptance criterion naming the
-   plan's field rather than the indirect "still reachable from the chain."
-
-2. **Resolve R18 rather than deferring it.** State the actual outcome for a
-   brief that heads its own lineage with no downstream document. If that outcome
-   changes any document's findings, add those documents to R20's table and drop
-   "The list is fixed by R5 and is exactly" — or reconcile the acceptance
-   criterion "no document outside that list changes its findings," which the
-   second branch currently contradicts. Give R18 an acceptance criterion either
-   way.
-
-3. **Trim the implementation clauses.** Cut "No document index, no filesystem
-   read of the target, and no traversal is required" from R8, keeping the
-   basename statement and the strategic-directory consequence. Cut "This is
-   checked when the declarations are built, not when a document is read"
-   and "from the test suite" from R4, keeping the rule and the
-   before-it-reaches-the-corpus outcome. Restate R14 as observable behaviour —
-   a skill records the same upstream standalone as it does under a parent —
-   rather than as a rule about where the change is authored.
-
-4. **Lift the cascade decision back to requirements altitude.** In "The roadmap
-   pointer moves down the chain rather than disappearing," cut the call-site
-   detail ("assigned in exactly one place in the cascade, from the walk's
-   report"), the "smallest change to the walking machinery" paragraph, and the
-   "puts discovery logic in a shell script when a frontmatter link would do"
-   clause from the rejected alternative. The lifetime argument — the plan dies
-   with the roadmap, so a plan naming a roadmap can never dangle — carries the
-   decision on its own.
-
-Items 1 and 2 are the blocking ones. Items 3 and 4 are deletions, not rewrites.
+1. Add a footnote under R24 noting that `R6` in the Today column is the existing
+   resolution check code, not requirement R6.
+2. Drop `is_known_check_code` from its acceptance criterion, keeping "no format's
+   required-section list changes"; the user-facing selectability criterion above
+   it already covers the codes.
+3. Move R12's grading sentence into its acceptance criterion, where the same
+   statement already partly lives.
+4. Reconcile "nine places" with "five skills" in one clause, or drop the count
+   from R12.
+5. Cut R23's exemption clause — R24 is scoped to `docs/` and the fixtures are
+   not.
