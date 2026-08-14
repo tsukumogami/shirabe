@@ -148,14 +148,19 @@ between two named classes rather than as a negation.
 
 **Option A: two check functions**, one per property, both called from the shared
 cross-format block. Rejected, and the reason is the precedence rule rather than
-taste. The direction check cannot decide whether to emit without knowing the
-lifetime verdict for the same entry, and it has only two ways to find out. It
-can recompute the lifetime predicate, which makes it contain the whole lifetime
-check and leaves an unenforced invariant that the two copies agree. Or the
-suppression can happen after both functions return — which is not expressible,
-because two findings from the same document sit at the same line with no entry
-index, so the filter would have to recover the offending value by string-matching
-the message.
+taste. Its strongest form is not two independent walks but a shared per-entry
+classifier feeding two emitters, and that form is expressible: the normalizer
+returns an ordered vector, so a position in it is a usable key *inside* a check.
+What that buys, though, is Option B with an extra indirection and a second
+function boundary to keep the branch order behind. Its weaker forms are worse:
+recomputing the lifetime predicate inside the direction check makes the
+direction check contain the whole lifetime check and leaves an unenforced
+invariant that the two copies agree. What is genuinely inexpressible is
+suppression *downstream of the finding boundary* — once both functions have
+returned, a finding is a file, a line, a code and a message with no entry index,
+and two findings about the same document sit at the same line, so a filter in
+the caller would have to recover the offending entry by string-matching the
+message.
 
 **Option B (chosen): one check function emitting both codes**, called from the
 shared block immediately after the resolution check. Precedence becomes branch
@@ -210,9 +215,16 @@ writes it, and no format reference defines it — so choosing this option means
 canonicalizing that field first.
 
 **Option D: `/scope` writes the roadmap into the produced plan's frontmatter
-after `/plan` returns.** Rejected against the parent-child isolation rule: it is
-a parent reaching into a child's artifact to add something the child's own
-contract does not know about, which is exactly the shape the pattern forbids.
+after `/plan` returns.** Rejected on a decisive mechanical objection before any
+argument about layering: the produced plan is outside `/scope`'s closed
+write-target set, and a write outside that set fails the parent's own
+hard-finalization check. The layering objection is real but weaker than it first
+looks — the write happens after the child has recorded, so it does not violate
+the letter of the same-behaviour-standalone rule; what it violates is the reason
+behind it, since a plan produced standalone would then carry no roadmap while an
+otherwise identical plan produced under a parent would. That is the divergence
+the rule exists to prevent, and it is why the mechanical objection and the
+layering one point the same way.
 
 **The hand-off is duplicated, not moved.** `/brief` still receives the roadmap
 for grounding; `/plan` receives it for the record. `/scope` validates the value
@@ -307,6 +319,24 @@ Findings carry the field's line, matching the resolution check's existing
 behaviour. The message names the document, the offending value, the resolved
 type pair, and the property that failed.
 
+The codes are `R10` for direction and `R11` for lifetime. Neither collides with
+a code an existing test asserts is unrecognized, and both land error-level
+without touching the intrinsic-notice set or the posture classifier, which
+default every unlisted code to always-enforced. The validator's check-code
+namespace is unrelated to the requirement numbering in the upstream PRD despite
+sharing an `R` prefix; `R10` the check and `R10` the requirement name different
+things, and the code registry is the authority for the former.
+
+The predicate the lifetime branch actually implements is narrower than the
+property the requirements state. The stated property is that the target outlives
+the naming document or is retired with it; the implemented predicate is that a
+durable document may not name a working one. The two agree on every pair the
+declared table admits, because the only working-names-working pair in it is a
+plan naming a roadmap, and the cascade that deletes the roadmap deletes the plan
+first. A future artifact type with a shorter working life than another working
+type would separate them, and the implemented predicate is the one to revisit
+then.
+
 ### The call site
 
 Inside `validate_file`, in the cross-format block, immediately after the
@@ -316,19 +346,56 @@ the per-file driver loop outside `validate_file` — superficially attractive
 because both arguments are already in scope there — and anything that makes the
 private-only gate run after legality.
 
+The whole-tree lifecycle traversal is undisturbed by any of this. It is a
+separate mode that emits its own codes and never calls the per-file pass, so
+`shirabe validate --lifecycle . --mode=draft` exits 0 after the change exactly
+as it does before, with the same two orphan notices.
+
 ### The flag path
 
 `/scope` Phase 0 validates the supplied roadmap once and records it. Phase 2's
 child-argument table gains the flag on the `/plan` row and rewords the `/brief`
-row to say the roadmap grounds the framing and is not recorded. `/plan` parses
-the flag ahead of its positional argument, validates it against the full
-record-time set its five sibling skills run — canonicalization with symlink
-resolution, bounds-check against the working tree, roadmap basename, not under
-`wip/`, tracked by git, and the private-upstream omission — and writes it into
-the produced plan's `upstream:` as a second sequence entry after the design.
-Both `/scope` and `/brief` confine the flag's canonical path to the roadmaps
-directory, which is the constraint `/brief`'s positional input mode already
-carries.
+row to say the roadmap grounds the framing and is not recorded.
+
+`/plan` parses the flag ahead of its positional argument and validates it
+against the full record-time set its five sibling skills run, in this order:
+
+1. **Cross-repo discrimination first.** An `owner/repo:path` value names a file
+   in another repository, is not a working-tree path, and is not resolved
+   against the filesystem at all. It skips checks 2, 3 and 5, keeps the basename
+   rule on its file component, and lands on the visibility check, which is the
+   only one that can say anything about it. Putting this first is what keeps the
+   flag able to express the case that motivates it — a tactical chain run in one
+   repository underneath a roadmap that lives in another. Run in any other
+   order, the checks below would reject every cross-repo roadmap and the
+   visibility check would become unreachable, which is the check that matters
+   most for exactly those values.
+2. **Canonicalize with symlink resolution and bounds-check** against the working
+   tree.
+3. **Confine the canonical path to the roadmaps directory**, which is the
+   constraint `/brief`'s positional input mode already carries.
+4. **Enforce the `ROADMAP-` basename**, on the file component for a cross-repo
+   value.
+5. **Reject a path under `wip/`, and reject an untracked path.**
+6. **Omit rather than record** when this repository is public and the roadmap is
+   private, announcing the omission and its reason.
+
+It then writes the value into the produced plan's `upstream:` as a second
+sequence entry after the design.
+
+The directory confinement applies to all three skills that hold the value —
+`/scope`, `/brief` and `/plan` — not to the two that read it. Confining only the
+readers would leave standalone `/plan` accepting what standalone `/brief`
+rejects, and `/plan` is the one that commits the value; a tracked file with a
+roadmap basename outside the roadmaps directory is exactly the input the
+confinement exists to refuse, and this repository contains four of them in
+fixture trees.
+
+Two of these are changes to `/brief`'s flag validation, which R13 otherwise
+describes as unchanged: check 5's tracked-by-git half is dropped there because a
+read-only input has no durability to protect, and check 3 is added there because
+dropping it opened a directory-scope residual that the confinement closes. Both
+are named here rather than left inside "unchanged as inputs".
 
 The plan's own pre-flight script reads `upstream:` as a scalar and silently
 skips its entire upstream check when the value is a sequence. That is a
@@ -345,6 +412,22 @@ the finalization walk already dispatches a roadmap node to the roadmap handoff
 from whichever node names it. A chain authored before this change, in which a
 brief names a roadmap, walks and cascades exactly as it does today; the cascade
 fixtures that encode that shape are kept frozen as the evidence.
+
+The orphan rule is untouched. Its exemption for a document whose upstream is an
+Active roadmap keeps its behaviour and its tests, and simply becomes unreachable
+for documents authored under the new rule, since no durable type may name a
+roadmap. A brief that heads its own lineage with no downstream document takes
+the ordinary orphan notice an upstream-less brief takes today — notice-level
+under draft posture, and resolved the moment its PRD names it.
+
+`FormatId` and `lifecycle.rs`'s `ChainRole` overlap without depending on each
+other. `ChainRole` models the four tactical roles the chain walk traverses;
+`FormatId` names all eight types for the legality lookup. Unifying them means
+changing `ChainRole::from_format`'s signature and its tests, which the
+no-modified-tests constraint puts out of reach here. The dependency stays
+one-directional — `lifecycle.rs` already depends on `formats.rs`, and nothing
+new points the other way — so the overlap costs a comment naming `FormatId` as
+the legality authority, not a refactor.
 
 ## Implementation Approach
 
@@ -365,19 +448,30 @@ documents a roadmap as a legal parent for a brief, a PRD, or a design is
 corrected. This phase writes no code and is what makes the prose and the
 declarations agree.
 
-**Fourth, the skill contracts.** `/brief`'s read-versus-record section and its
-write site; `/plan`'s flag; `/scope`'s child-argument table and its pre-authoring
-notice; `/explore`'s roadmap handoff. Each is authored in the skill's own files.
+**Fourth, the skill contracts and the plan pre-flight script together.**
+`/brief`'s read-versus-record section and its write site; `/plan`'s flag and the
+script that validates what the flag records; `/scope`'s child-argument table and
+its pre-authoring notice; `/explore`'s roadmap handoff. Each is authored in the
+skill's own files.
 
-**Fifth, the scripts and evals.** The plan pre-flight script's sequence
-handling — which is a security fix and is sequenced with the flag rather than
-after it, because a plan with two entries would otherwise pass a check that is
-not running — plus the five named eval expectations and the new-shape cascade
-fixture chain beside the frozen old-shape one.
+`/explore` today reads a vision out of its crystallize artifact and passes it to
+`/roadmap` as `--upstream`, and `/roadmap` records whatever it is handed without
+enforcing a basename. A roadmap's only legal parent is a strategy, so that
+handoff produces an illegal link on a live path — and `/roadmap`'s own contract
+already forbids substituting a vision for a strategy, so the handoff contradicts
+it today. After the change `/explore` passes no upstream to `/roadmap` unless it
+is a strategy.
+
+The script's sequence handling belongs in this phase rather than the next one.
+It is a security fix, and it is a hard dependency of the flag: a plan with two
+upstream entries would otherwise pass a check that has silently stopped running,
+in the one continuous gate that validates a plan's upstream at all.
+
+**Fifth, the evals and fixtures.** The five named eval expectations and the
+new-shape cascade fixture chain beside the frozen old-shape one.
 
 Phases one and two are independent of three through five and can land first.
-Phase five depends on four, and the script half of it is a hard dependency of
-the flag rather than a follow-up.
+Phase five depends on four; nothing inside phase four depends on phase five.
 
 ## Security Considerations
 
@@ -389,10 +483,20 @@ main finding. `/plan` has no `--upstream` today and therefore no validation for
 one, and it is now the skill that turns the value into a committed field in a
 public repository. The relaxation Decision 4 applies to `/brief` inverts here:
 `/brief` reads, so it keeps the path-safety checks and drops the durability ones;
-`/plan` records, so it takes all of them. Canonicalization with symlink
-resolution and a bounds check against the working tree is the load-bearing one —
-without it, a roadmap path that is a symlink out of the tree, or a `../`-shaped
-value, resolves outside the repository and lands in a committed field.
+`/plan` records, so it takes all of them, in the order the flag path lays out.
+Canonicalization with symlink resolution and a bounds check against the working
+tree is the load-bearing one — without it, a roadmap path that is a symlink out
+of the tree, or a `../`-shaped value, resolves outside the repository and lands
+in a committed field.
+
+Cross-repo discrimination has to run before any of them, and getting that order
+wrong is a security failure rather than a functional one. A cross-repo value is
+not a working-tree path: it does not canonicalize, it is not inside the tree,
+and the index lookup returns nothing for it. A validation set that runs those
+checks first therefore rejects every cross-repo roadmap and never reaches the
+visibility check — which is the only check that has anything to say about a
+cross-repo value, and the one that keeps a public plan from naming a private
+roadmap.
 
 `/plan`'s existing Phase 7 hygiene re-check does not substitute for Phase 0
 validation. It runs after issues have been created, it does not canonicalize, it
@@ -404,11 +508,15 @@ check that validates it, and nothing reports that it stopped. The script is also
 canonicalizing and rejecting an out-of-root or symlinked target while it is being
 changed, rather than relying on git's index lookup to refuse one.
 
-**One new interpolation site, and it gets the argument boundary.** The value
-reaches a `git ls-files` invocation per entry in the plan pre-flight path. It is
-quoted and passed after `--`, so neither a leading dash nor a shell
-metacharacter in a filename can change what runs. Validation is not the
-guarantee here; the argument boundary is. `/plan`'s contract states this in its
+**Two interpolation sites take the value, and both get the argument boundary.**
+One is new — the per-entry `git ls-files` in `/plan`'s Phase 7 hygiene step,
+whose prose today specifies the invocation unquoted and without a terminator,
+which is the exact shape the discipline forbids. The other is pre-existing, in
+the pre-flight script this change is already rewriting: it quotes the value but
+passes no `--`, so a value beginning with a dash parses as an option rather than
+a pathspec. Both are quoted and passed after `--` when this change lands; the
+script does not have that boundary today and gains it here. Validation is not
+the guarantee; the argument boundary is. `/plan`'s contract states this in its
 own words rather than inheriting it by assumption.
 
 **The private-upstream omission rule is restated in `/plan`'s own contract.**
@@ -431,10 +539,17 @@ provenance unreproducible, and that is as true of a build directory as of
 matching the constraint the positional input mode already carries. This is the
 convergence Decision 4 wanted, completed rather than left halfway, and it
 rejects nothing legitimate: every roadmap the roadmap skill produces lands
-there, and cross-repo values skip path resolution entirely. The confinement is
-applied at `/scope`'s Phase 0 as well as `/brief`'s — at both or at neither,
-since a divergence would let a chain accept a path at the parent that the child
-then rejects.
+there, and cross-repo values skip path resolution entirely.
+
+The confinement applies to all three skills that hold the value, not to the two
+that read it. Confining `/scope` and `/brief` alone would make the chain
+direction safe — the parent is then stricter than the child, so nothing is
+rejected mid-flight — while leaving standalone `/plan` accepting what standalone
+`/brief` refuses, and `/plan` is the one that commits. What that halfway version
+leaves open is a tracked file with a roadmap basename outside the roadmaps
+directory, of which this repository has four in its fixture trees, and a
+committed frontmatter pointer to one is strictly worse than grounding prose in
+it.
 
 **The check performs no I/O: N/A.** Legality is decided by matching two
 basenames against a compiled table. There is no path to canonicalize, no file to
