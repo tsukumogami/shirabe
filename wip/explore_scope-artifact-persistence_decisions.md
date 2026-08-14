@@ -8,12 +8,17 @@
   outcome is currently fixed rather than decided, so the fix is to make the
   judgment answer honestly per run, not to bias it toward absorbing.
 
-- **Stage 1's absorbability test moves from the type to the document.** The
-  shipped test asks whether the downstream *type's* required sections have a
-  home for every required section of the upstream *type* -- a schema comparison
-  with the same answer on every run, which short-circuits Stage 2's content
-  question above BRIEF-to-PRD. The test must instead ask whether *this* upstream
-  document holds content *this* downstream document has no home for.
+- **Stage 1's structural test very nearly dissolves.** The shipped test asks
+  whether the downstream *type's* required sections have a home for every
+  required section of the upstream *type* -- a schema comparison with the same
+  answer on every run, which short-circuits Stage 2's content question above
+  BRIEF-to-PRD. Under the contribution model a home can always be written, since
+  adding a Why section is always possible, so absorbability stops being a
+  property of the types at all. The verdict collapses into the content question:
+  does this upstream hold anything beyond its contribution that compression would
+  lose? That is the answer #280 was reaching for, and it arrives more cleanly
+  through contributions than through the document-level mapping test considered
+  earlier in this exploration.
 
 - **DESIGN-to-PLAN absorption is in scope and must be supported.** Not every
   activity needs a persistent design. When a DESIGN's value was decomposing
@@ -21,30 +26,62 @@
   the DESIGN has nothing the PLAN lacks a home for. This reverses DESIGN
   Decision 8 Option D from #260.
 
-- **A surviving document inherits the required sections of everything folded
-  into it.** Each type has a base set of required sections; a document that
-  absorbs an upstream is required to carry the union of its own base set and the
-  required sections of every document upstream of it that folded in. So a
-  surviving DESIGN that absorbed a BRIEF and a PRD must carry sections from both,
-  and that is statically validated rather than asserted. The union is additive by
-  construction, which is what makes composed absorbs expressible without a
-  combinatorial rule per absorbed set.
+- **A surviving document owes its ancestors' contributions, not their sections.**
+  Superseded an earlier formulation in which the survivor inherited the union of
+  its ancestors' required sections. The union rule was rejected because it can
+  only be satisfied by copying, producing a survivor that is its ancestors
+  stapled together and growing without bound.
 
-- **This re-scopes the artifact types, deliberately.** Under the union rule a
-  type is no longer a fixed shape -- it is a base shape plus whatever it
-  absorbed. That is the move the consolidation BRIEF fenced off as "renaming or
-  re-scoping the artifact types themselves." The fence comes down properly, not
-  narrowly, and the design must say so rather than present it as a validator
-  tweak.
+  Each type contributes one thing to the chain. As an illustration rather than a
+  fixed spec: BRIEF contributes WHY, PRD contributes WHAT, DESIGN contributes
+  HOW, PLAN contributes WHEN in the sense of sequence rather than time. A
+  document that absorbed an ancestor carries that ancestor's contribution as one
+  compact section, placed before its own content in chain order. A PRD that
+  absorbed a BRIEF opens with one Why. A DESIGN that absorbed both opens with
+  Why, then What, then its own How sections.
 
-- **The terminal fold is the one discard in the system, and it is deliberate.**
-  Every non-terminal fold preserves content by the union rule. Content that
-  lands in the PLAN exits the document system when the PLAN is deleted at
-  execution. So folding into the terminal artifact is not a move -- it is an
-  explicit determination that the accumulated required sections are not worth
-  persisting in a separate artifact *for this scope*. The judgment weight scales
-  with how much the chain already folded: a DESIGN that absorbed a BRIEF and a
-  PRD discharges all three at once.
+  Contributions accumulate transitively: a DESIGN that absorbed a PRD which had
+  already absorbed a BRIEF owes both. The count is capped at the number of
+  ancestor types, so the survivor grows by a bounded amount rather than by
+  concatenation.
+
+- **Contribution sections are owed only where an ancestor actually folded.**
+  Under `/scope` a child is never skipped, so every run produces the full chain
+  and the only question is which members survive. The existing `chain_skipped:`
+  concept fires on re-entry protection, when a settled artifact already exists,
+  so the document is present and can still fold or survive -- it never produces a
+  missing ancestor. Manual invocation of child skills outside `/scope` can leave
+  a genuine gap; that is deferred and out of scope here.
+
+- **Every fold is a distillation, so loss is by design.** This supersedes the
+  earlier "reduction is always a content-preserving move" principle.
+  Compressing a BRIEF's sections into one Why discards whatever was not the
+  essence. That means there is no longer a single special discard at the terminal
+  fold: there is one operation, and what varies is whether the distillate lands
+  in a durable document or in the PLAN, which dies. The judgment at every hop is
+  therefore the same question -- does this upstream hold anything beyond its
+  contribution that would be lost under compression.
+
+- **This re-scopes the artifact types, deliberately.** A type is no longer a
+  fixed shape -- it is a base shape plus a bounded, ordered set of contribution
+  sections for whatever it absorbed. That is the move the consolidation BRIEF
+  fenced off as "renaming or re-scoping the artifact types themselves." The fence
+  comes down properly, not narrowly, and the design must say so rather than
+  present it as a validator tweak.
+
+- **Static validation gets simpler under contributions, and the fidelity gap
+  widens.** One known heading per absorbed ancestor type is easier to check than
+  a variable inherited section list. But under the union rule a suspiciously
+  short carried section was a smell, whereas here compression is the goal, so
+  length carries no signal. Presence is the whole of what the machine can assert;
+  whether a Why actually carries the BRIEF's why is entirely the judging agent's
+  call.
+
+- **The terminal fold is where the distillate lands in a doomed document.**
+  Folding into the PLAN is an explicit determination that the accumulated
+  contributions are not worth persisting in a separate artifact *for this scope*.
+  The judgment weight scales with how much the chain already folded: a DESIGN
+  that absorbed a BRIEF and a PRD discharges all three at once.
 
 - **The justification for that discard is worth, not survival elsewhere.** The
   load-bearing argument is not that the reasoning survives in code. It is that

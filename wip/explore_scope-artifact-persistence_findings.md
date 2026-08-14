@@ -270,28 +270,50 @@ the stranding failure is already live in the tree on five documents. Those are
 what "content-preserving move" means in practice, and the guard they need already
 exists unwired from #271.
 
-The shape settled during convergence. A surviving document inherits the union of
-its own required sections and those of everything folded into it, statically
-validated, which makes non-terminal folds content-preserving by construction and
-composed absorbs additive. That re-scopes the types -- a type becomes a base
-shape plus whatever it absorbed -- which is the fence the consolidation BRIEF put
-up, coming down deliberately rather than narrowly. Static validation buys
-presence, not fidelity: an empty carried heading passes, so the agent-side carry
-check still has to catch a gutted move.
+The shape settled during convergence, in two passes. The first formulation had a
+survivor inherit the union of its ancestors' required sections; it was rejected
+because a section list can be satisfied by copying, which produces a survivor
+that is its ancestors stapled together and grows without bound.
 
-Folding into the terminal artifact is the one place content leaves the document
-system, and it is justified by worth rather than by the reasoning surviving
-elsewhere. For the class of work where it fires -- bug reports, and tasks that
-turn out to be obvious or self-contained -- the accumulated sections were never
-worth a separate durable artifact, and the 366-DESIGN corpus is evidence that the
-current floor accumulates documents by never asking rather than by judging. The
-judgment scales with how much already folded, and cannot key off document size.
+What replaced it: each type contributes one thing to the chain -- illustratively
+BRIEF/WHY, PRD/WHAT, DESIGN/HOW, PLAN/WHEN-as-sequence -- and a survivor carries
+each absorbed ancestor's *contribution* as one compact section, ahead of its own
+content in chain order. A DESIGN that absorbed a BRIEF and a PRD opens with Why,
+then What, then its own How sections. Contributions accumulate transitively and
+are capped at the number of ancestor types, so growth is bounded and the operation
+is compression rather than concatenation.
 
-What remains open is the enforcement floor around that single discard: whether it
-is purely the judging agent's call or gets a structural backstop, whether a
-folded-away artifact leaves any visible trace in the survivor, whether the
-existing corpus is in scope for the same judgment, and whether the `/execute`
-rationale-in-code job still needs to land first now that it is not the
+Three consequences. Static validation gets simpler -- one known heading per
+absorbed ancestor type -- but the fidelity gap widens, because compression is the
+goal so section length carries no signal at all; presence is the whole of the
+machine's assertion. Every fold is now lossy by design, which supersedes the
+content-preserving-move principle: distilling four BRIEF sections into one Why
+discards whatever was not the essence. And Stage 1's structural test very nearly
+dissolves, since a home can always be written, leaving the verdict to the content
+question alone -- does this upstream hold anything beyond its contribution that
+compression would lose.
+
+Folding into the terminal artifact is therefore not a different operation, only
+the case where the distillate lands in a document that dies. It is justified by
+worth rather than by the reasoning surviving elsewhere. For the class of work
+where it fires -- bug reports, and tasks that turn out to be obvious or
+self-contained -- the content was never worth a separate durable artifact, and the
+366-DESIGN corpus is evidence that the current floor accumulates documents by
+never asking rather than by judging. The judgment scales with how much already
+folded, and cannot key off document size.
+
+What remains open: whether the fold verdict is purely the judging agent's call or
+gets a structural backstop, given that presence-checking is all the machine can
+contribute and the terminal case is irreversible; whether a contribution section
+has any depth expectation, which decides whether a reviewer can ever call a Why
+inadequate or whether any non-empty Why passes; whether a folded-away artifact
+leaves a visible trace in the survivor or the survivor reads as though it had
+always been that shape; whether the existing 366-DESIGN corpus is in scope for
+the same judgment retroactively; and whether the `/execute` rationale-in-code job
+still needs to land before the terminal hop opens now that it is not the
 load-bearing argument. The constraint on all of them is that the result must
 replace the consolidation judgment rather than sit beside it -- the
 single-mechanism rule is what killed the entry altitude and it still binds.
+
+Deferred by the author: manual invocation of child skills outside `/scope`, which
+is the only way to reach a chain with a genuinely missing ancestor.
