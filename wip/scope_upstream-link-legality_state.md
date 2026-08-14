@@ -12,12 +12,18 @@ planned_chain:
   - design
   - plan
 chain_skipped: []
-chain_ran: []
-child_snapshots: {}
+chain_ran:
+  - brief
+child_snapshots:
+  brief:
+    path: docs/briefs/BRIEF-upstream-link-legality.md
+    status: Accepted
+    jury: all-PASS
+consolidation_judgments: []
 phase_1_result: empty-cold-start
 parent_orchestration:
   parent_skill: scope
-  child: brief
+  child: prd
   topic: upstream-link-legality
   invoked_at: 2026-08-14T00:00:00Z
 shape_predicates:
