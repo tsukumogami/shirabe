@@ -169,8 +169,9 @@ for that child:
   this chain did not produce — the invocation is
   `/brief <topic-slug> --upstream <roadmap-path>` and the brief
   is **grounded** in that roadmap: it reads the feature entry and
-  derives its problem and outcome from it, and records no
-  `upstream:` field. A BRIEF's legal-parent set is empty.
+  derives its problem and outcome from it. What it records is the
+  roadmap's nearest durable ancestor, which `/brief` resolves for
+  itself in one hop — the roadmap is never recorded.
 - **Every later child** — invoked with the path of the nearest
   artifact this chain produced above it:
 
@@ -196,10 +197,16 @@ not extending its input surface.
 
 **The roadmap travels to two children, for two different reasons.**
 `/scope` validates it once at Phase 0 and hands it to the first child
-and the last one. `/brief` **reads** it: the feature entry and the
-sequencing rationale ground the problem and outcome, and nothing is
-written to frontmatter. `/plan` **records** it: the produced PLAN names
-the design first and the roadmap second.
+and the last one. `/brief` **grounds** on it: the feature entry and the
+sequencing rationale supply the problem and outcome, and what the brief
+records is the roadmap's own durable ancestor, resolved by `/brief` at
+its Phase 0. `/plan` **records the roadmap itself**: the produced PLAN
+names the design first and the roadmap second.
+
+`/scope` hands over the roadmap path in both cases and resolves nothing
+itself. The walk up from an ephemeral document to its nearest durable
+ancestor is `/brief`'s own contract, so a standalone `/brief --upstream
+<roadmap>` behaves identically to one under this parent.
 
 Which child records is decided by the lifetime rule in
 `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`, not by convenience.

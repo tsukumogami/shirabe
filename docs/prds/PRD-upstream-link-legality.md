@@ -144,10 +144,10 @@ corpus.
 | VISION | Durable | VISION |
 | STRATEGY | Durable | VISION |
 | ROADMAP | Working | STRATEGY, VISION |
-| BRIEF | Durable | *(none)* |
-| PRD | Durable | BRIEF |
-| DESIGN | Durable | PRD, BRIEF |
-| PLAN | Working | DESIGN, PRD, BRIEF, ROADMAP |
+| BRIEF | Durable | STRATEGY, VISION |
+| PRD | Durable | BRIEF, STRATEGY, VISION |
+| DESIGN | Durable | PRD, BRIEF, STRATEGY, VISION |
+| PLAN | Working | DESIGN, PRD, BRIEF, ROADMAP, STRATEGY, VISION |
 | COMP | Durable | *(none)* |
 
 **R5.1.** One reading governs both chains: an artifact may name any
@@ -181,12 +181,20 @@ forbidden shapes is updated to match, so that after the change no format or
 pipeline reference documents a ROADMAP as a legal upstream for a BRIEF, a PRD,
 or a DESIGN.
 
-**R5.3.** Two rows are wider than the nearest-parent shape and both follow from
-R5.1 rather than from a separate judgment. PLAN's set gains BRIEF, which no
-`/plan` input mode produces today; ROADMAP's gains VISION, which `/roadmap`
-declines to write. Both are admitted because the rule allows any strictly-higher
-altitude, and excluding either would be a special case the check has no way to
-police correctly.
+**R5.3.** Every row is the type's strictly-higher altitudes minus the working
+ones, and nothing in the table is narrower than that. Several rows are therefore
+wider than the shape a nearest-parent reading would give — PLAN reaches BRIEF,
+ROADMAP reaches VISION, and every durable tactical type reaches the strategic
+altitudes — and all of them follow from R5.1 rather than from separate
+judgments. Narrowing any of them would be a special case the check has no way to
+police, since it cannot see whether the skipped altitude exists.
+
+The tactical-reaches-strategic rows are not hypothetical. A BRIEF records the
+STRATEGY it resolved from its roadmap (R13), and `/scope`'s consolidation absorb
+re-points a surviving PRD to the absorbed BRIEF's own upstream — so a PRD
+inherits that STRATEGY the moment an absorb fires on a roadmap-grounded chain.
+A table that stopped at BRIEF would make the absorb produce an illegal document
+and revert itself.
 
 ### Enforcement
 
@@ -230,8 +238,22 @@ which is how the five skills that already carry this obligation are graded.
 
 **R13.** `/brief` no longer records a ROADMAP as the produced brief's
 `upstream:`. Its roadmap input mode and its `--upstream` flag are unchanged as
-*inputs* — the roadmap is still read, and still grounds the framing conversation
-— and the produced brief carries no `upstream:` field.
+*inputs* — the roadmap is still read, and still grounds the framing conversation.
+What the produced brief records is the roadmap's nearest durable ancestor,
+resolved by walking up from the roadmap exactly one hop and reading its own
+`upstream:`: the STRATEGY it sequences, or a VISION when it traces straight to
+one. The walk terminates in one hop because a ROADMAP's own parents are the two
+strategic types and neither is working.
+
+The resolved value takes the full record-time validation, the private-upstream
+omission included, and the field is omitted when the roadmap names no upstream
+or the ancestor is private in a public repo. The resolution belongs to `/brief`'s
+own contract so a standalone invocation behaves identically to one under a
+parent (R16).
+
+Recording the ancestor rather than nothing is what keeps the lineage alive across
+the roadmap's deletion: a reader following a brief's upstream reaches the
+strategy that chose the feature, which is durable and stays reachable.
 
 **R14.** Where a tactical chain runs under a roadmap, the produced PLAN records
 that ROADMAP among its `upstream:` entries, alongside the design or other
@@ -241,9 +263,12 @@ tactical source it already records. `/plan` accepts the roadmap path on the same
 derives the plan's topic slug. This is the requirement that discharges R19.
 
 **R15.** `/explore` no longer passes a VISION path to `/roadmap` as its
-`--upstream` value. A ROADMAP's only legal parent is a STRATEGY, and `/roadmap`'s
-own contract already says a VISION must not be substituted for one; the handoff
-contradicts it today and produces a link the definition forbids.
+`--upstream` value. `/roadmap`'s own contract says a VISION must not be
+substituted for a STRATEGY, and the handoff contradicts it today. This is an
+authoring correction rather than a legality one: R5 permits a ROADMAP to name
+either strategic altitude, because the check cannot see whether the skipped
+STRATEGY exists, so the preference for the nearest one lives in the producing
+skill and not in the validator.
 
 **R16.** A skill records the same `upstream:` value when invoked standalone as it
 does when a parent skill invoked it. No parent suppresses or rewrites what a
@@ -257,11 +282,13 @@ absorbed brief carries no upstream, so the absorb's existing rule — remove the
 survivor's field when the absorbed artifact had none — leaves the survivor
 correctly headed, with no separate guard needed.
 
-**R17.** The obligation that a document with no recorded upstream be
-self-contained is discharged by the self-containment each format already
-requires of its head sections. No section, field, or check is added for it: the
-change introduces exactly the two check codes R7 names and alters no format's
-required-section list.
+**R17.** The obligation that a document absorb the framing of the artifact it
+was scoped against is discharged by the self-containment each format already
+requires of its head sections. It is owed whatever the `upstream:` field ends up
+holding: a brief covers a slice of its roadmap's scope, so it absorbs that slice
+whether or not the resolution found an ancestor to record. No section, field, or
+check is added for it — the change introduces exactly the two check codes R7
+names and alters no format's required-section list.
 
 ### Keeping consumers whole
 
@@ -425,26 +452,37 @@ malformed input the author can fix, not legitimate values this document cannot
 record, and collapsing that distinction would silently continue a run that
 should stop.
 
-### The mechanism is to record nothing, not to navigate further up
+### The mechanism is to navigate up, not to record nothing
 
 The brief left two candidates open: record the nearest durable ancestor, or
 record nothing and require self-containment.
 
-Navigating up was rejected on three counts. It crosses a chain boundary — a
-brief's nearest durable ancestor above a roadmap is a STRATEGY, which describes
-a medium-term bet rather than this feature, so a reader following the link lands
-somewhere that does not describe what they were reading about. It contradicts
-the strict-strategic-chain rule, which forbids skipping an altitude precisely
-because the skipped reasoning becomes unreachable. And it has no precedent in
-the system, while recording nothing has two: the private-upstream rule, and
-`/strategy`'s refusal to record a grounding PRD it nevertheless reads.
+Navigating up wins, and the deciding property is that the lineage survives the
+deletion the whole rule exists to anticipate. A brief that records the roadmap's
+STRATEGY still answers "where did this come from" after the cascade removes the
+roadmap. A brief that records nothing strands the strategic half of the chain
+behind a document that no longer exists — the reader who follows the trail up
+from a shipped design reaches the brief and stops there, which is the failure
+this work was opened to fix, displaced by one hop rather than removed.
 
-Recording nothing also has a property navigating up does not: it makes the
-brief's declared legal parent set empty, which is a checkable statement. "A
-brief is always the head of its tactical lineage" is enforced by R5 and R6 with
-no special case anywhere. Under the navigate-up mechanism, a brief's legal
-parent set would be `{STRATEGY}` — an edge that skips two altitudes and that the
-chain walk explicitly declines to follow.
+The resolution is deterministic rather than a judgment: read the roadmap's own
+`upstream:`, take what it names. It terminates in one hop, because a ROADMAP's
+parents are the two strategic types and neither is working, so there is no walk
+to bound and no second choice to make.
+
+An earlier revision of this PRD chose to record nothing, and the argument it
+gave has since collapsed in three places. It claimed navigating up contradicts a
+strict strategic chain — R5.1 no longer asserts one, because the check cannot
+tell a skipped altitude from an absent one. It claimed a STRATEGY "does not
+describe the feature", which mistakes what `upstream:` is for: a DESIGN's PRD
+does not describe the architecture either, and the field records provenance
+rather than subject matter. And it claimed navigating up had no precedent, while
+`/scope`'s consolidation absorb has re-pointed a survivor to the absorbed
+artifact's own upstream all along — the same walk, one altitude down.
+
+What does not change is the absorption obligation. The brief covers a slice of
+its roadmap's scope, so it absorbs that framing into its own prose either way;
+that was never justified by the link's absence, and R17 states it independently.
 
 ### The brief edge is checked, not carved out
 

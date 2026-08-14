@@ -199,12 +199,20 @@ it to.
    then runs exactly as it would have with no `--upstream` at all.
 
 The third check is the load-bearing one, because the flag's value
-reaches a committed `upstream:` field in the produced PLAN. It does
-not reach the BRIEF: a BRIEF records no upstream, and the roadmap
-grounds its framing instead. The crossing from the strategic chain
-into the tactical one is recorded on the PLAN alone, because the PLAN
-is deleted by the same cascade that deletes the roadmap and goes
-first — see `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`.
+reaches a committed `upstream:` field in the produced PLAN. The
+roadmap path itself never reaches the BRIEF's frontmatter: the brief
+grounds on the roadmap and records the roadmap's own durable ancestor,
+resolved at `/brief`'s Phase 0 and run through the same visibility
+check there. The crossing from the strategic chain into the tactical
+one is recorded on the PLAN alone, because the PLAN is deleted by the
+same cascade that deletes the roadmap and goes first — see
+`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`.
+
+A private roadmap dropped here is dropped for both children, so the
+brief loses its grounding as well as the plan losing its link. That is
+the pre-existing shape of this check rather than a consequence of the
+split, and it is the case worth revisiting now that reading and
+recording have different targets.
 Public documents must not reference private ones (see the
 visibility-direction table in
 [`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`](${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md)),

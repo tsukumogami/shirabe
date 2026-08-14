@@ -9,6 +9,7 @@ outcome: |
   A chain in which no durable artifact names the ROADMAP, and the PLAN carries
   it instead, cascades exactly as the old shape did: the roadmap feature is
   updated and the roadmap is deleted under the same conditions.
+upstream: skills/execute/evals/fixtures/strategies/STRATEGY-cascade-test.md
 ---
 
 # BRIEF: Cascade Test New Shape
@@ -17,15 +18,19 @@ outcome: |
 
 Accepted
 
-This BRIEF carries **no** `upstream:` field, which is the point of the fixture.
-A brief's legal-parent set is empty: it heads its own tactical lineage, and the
-ROADMAP it was framed against is named by the PLAN instead.
+This BRIEF records the STRATEGY it resolved one hop up from its grounding
+ROADMAP, which is the point of the fixture. It never names the ROADMAP itself —
+that is deleted when its features land, and the PLAN names it instead. The walk
+terminates on the STRATEGY, and the cascade stops there rather than
+transitioning it.
 
 ## Problem Statement
 
 Test fixture for the cascade eval — the BRIEF node of a chain authored under the
-upstream-legality rule. It records nothing, so the cascade must reach the
-ROADMAP through the PLAN rather than through this document.
+upstream-legality rule. It records a STRATEGY rather than the ROADMAP, so the
+cascade must reach the ROADMAP through the PLAN rather than through this
+document, and must stop cleanly on the STRATEGY rather than reporting it as an
+unrecognized node.
 
 ## User Outcome
 

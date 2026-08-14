@@ -74,12 +74,13 @@ Private). Load the appropriate content governance skill:
 BRIEF has no visibility-gated section — there is no competitive framing
 to fence off, so `shirabe validate` runs no custom check for the type.
 The visibility value still matters: a public BRIEF must not reference
-private paths, repos, filenames, or issue numbers. A BRIEF carries no
-`upstream:` field at all, so the older worry about one pointing at a
-private artifact no longer applies; what remains is the prose, which
-must not name a private path or repo even when the roadmap that
-grounded it lives in one. The Phase 4 structural-format reviewer flags
-these; content governance owns the rules.
+private paths, repos, filenames, or issue numbers, and its `upstream:`
+field must not point at a private artifact — Phase 0's resolution runs
+the ancestor it found through the visibility check and omits the field
+rather than naming a private one. The prose carries the same rule even
+when the roadmap that grounded the brief lives in a private repo. The
+Phase 4 structural-format reviewer flags these; content governance owns
+the rules.
 
 ---
 
@@ -139,14 +140,16 @@ do: a bare ROADMAP path supplies both at once, which only works while
 the feature's topic and the roadmap's filename coincide. A roadmap
 normally sequences several features, so they usually do not.
 
-**Both routes read the roadmap; neither records it.** A BRIEF carries
-no `upstream:` field. Its legal-parent set is empty — it heads its own
-tactical lineage — and `shirabe validate` rejects any value it holds.
-The link to the roadmap is recorded on the PLAN the chain produces,
-which the same cascade deletes, so it cannot outlive its target. The
-full contract, and the announcement a grounded run owes the author, are
-in `references/phases/phase-0-setup.md` under "Reading a document vs.
-recording it as `upstream`".
+**Both routes read the roadmap; neither records it.** What the produced
+BRIEF records is the roadmap's nearest durable ancestor, resolved one
+hop up at Phase 0: the STRATEGY the roadmap sequences, or a VISION when
+it traces straight to one. The roadmap itself is never recorded — it is
+deleted when its features land, and `shirabe validate` rejects the link
+as `R11`. The roadmap is instead named by the PLAN the chain produces,
+which the same cascade deletes first. The resolution contract, the
+visibility check it runs, and the announcement a grounded run owes the
+author are in `references/phases/phase-0-setup.md` under "Reading a
+document vs. recording it as `upstream`".
 
 The flag is parsed before the positional argument is classified, and
 its value is never treated as a topic. A bare `--upstream` with no
@@ -166,19 +169,22 @@ topic that contains other characters, including `.`, `/`, `_`, or
 whitespace. Without the constraint, a `../`-shaped topic could redirect
 verdict writes outside `wip/research/`.
 
-**Grounding, not recording.** Check `$ARGUMENTS` for `--upstream
-<path>`. If present, the path is validated at Phase 0 and stored as
-the context file's `## Grounding Path`. Phase 1 reads the ROADMAP,
-finds the feature this brief frames, and derives the problem and
-outcome candidates from it. **Phase 2 writes nothing into the BRIEF's
-`upstream:` field, because a BRIEF has none.** Its legal-parent set is
-empty: a BRIEF heads its own tactical lineage. The link to the roadmap
-is recorded on the PLAN the chain produces, which the same cascade
-deletes, so it cannot be left dangling. `/scope` passes the flag on
-every chain where a ROADMAP is available; an author invoking `/brief`
-standalone passes it when a ROADMAP exists that the topic slug does
-not name. The read-vs-record contract, and the announcement the run
-owes the author, are in `references/phases/phase-0-setup.md`.
+**Ground on the roadmap, record its ancestor.** Check `$ARGUMENTS` for
+`--upstream <path>`. If present, the path is validated at Phase 0 and
+stored as the context file's `## Grounding Path`. Phase 1 reads the
+ROADMAP, finds the feature this brief frames, and derives the problem
+and outcome candidates from it. **Phase 0 step 0.3a separately resolves
+what gets recorded**: it reads the roadmap's own `upstream:` and takes
+that — the STRATEGY, or a VISION — through the visibility check, and
+Phase 2 writes the survivor into the BRIEF's `upstream:`. The roadmap
+itself is never recorded: it is deleted when its features land, so the
+link would dangle, and it is named by the PLAN the chain produces
+instead. The field is omitted when the roadmap names no upstream of its
+own, or when the ancestor is private and this repo is public. `/scope`
+passes the flag on every chain where a ROADMAP is available; an author
+invoking `/brief` standalone passes it when a ROADMAP exists that the
+topic slug does not name. The resolution contract, and the announcement
+the run owes the author, are in `references/phases/phase-0-setup.md`.
 
 **Path canonicalization.** Any user-supplied ROADMAP upstream path
 (Input Mode 3) and any `--upstream` value must be canonicalized at

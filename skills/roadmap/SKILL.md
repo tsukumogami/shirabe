@@ -44,9 +44,10 @@ much:
 - **It is the only bridge from the strategic chain to the tactical one.**
   `/brief` is framed against a ROADMAP -- never a STRATEGY, and never a
   PRD, which sits downstream of a BRIEF rather than above it. The brief
-  reads it and records nothing; the crossing is recorded on the PLAN the
-  chain produces, because a durable document may not name a ROADMAP that
-  the cascade deletes. A strategy
+  reads the roadmap and records the roadmap's own parent, often this
+  roadmap's STRATEGY; the ROADMAP itself is named by the PLAN the chain
+  produces, because a durable document may not name one that the cascade
+  deletes. A strategy
   whose work is a single feature would be stranded if it could not have a
   roadmap: no legal path into `/scope`, and no progress tracking.
 

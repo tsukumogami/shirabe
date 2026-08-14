@@ -99,10 +99,11 @@ rule above is still the rule for anything this skill produces.
 
 The ROADMAP is the last link in the strategic chain. Downstream of it
 the tactical chain takes over: `/brief` crosses the boundary by reading
-a ROADMAP for framing, and the produced PLAN is what records the
-crossing, because a durable document may not name a ROADMAP the cascade
-deletes. No strategic document reaches past the ROADMAP to a BRIEF,
-PRD, DESIGN, or PLAN.
+a ROADMAP for framing and recording that roadmap's own parent, while
+the produced PLAN is what names the ROADMAP itself -- a durable
+document may not name a ROADMAP the cascade deletes, and the PLAN is
+deleted first. No strategic document reaches past the ROADMAP to a
+BRIEF, PRD, DESIGN, or PLAN.
 
 **Two written shapes are supported for `upstream:`.** A scalar -- the
 path on the key's own line -- and a sequence, written either as `- `

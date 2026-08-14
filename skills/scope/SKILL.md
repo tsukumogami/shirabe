@@ -139,10 +139,12 @@ ordered checks (not under `wip/`, tracked by git, and not a private
 artifact named from a public repo). It is then recorded in the state
 file's conditional `consumed_upstream:` field, re-validated on every
 resume, and handed to **two** children: to `/brief` as
-`/brief <topic-slug> --upstream <path>`, which reads it for framing
-and records nothing, and to `/plan` as
-`/plan <design-path> --upstream <path>`, which records it. In both
-the slug stays the parent's and the upstream travels separately.
+`/brief <topic-slug> --upstream <path>`, which grounds on it and
+records the roadmap's own durable ancestor instead, and to `/plan` as
+`/plan <design-path> --upstream <path>`, which records the roadmap
+itself. In both the slug stays the parent's and the upstream travels
+separately, and `/scope` resolves nothing — the walk up from an
+ephemeral document is the child's own contract.
 
 Which child records is the lifetime rule's answer, not a
 convenience. A ROADMAP is deleted when its features land, so no
@@ -762,9 +764,10 @@ interpolation site rather than a repeat of the first (see
 **The flag's value reaches a committed field.** Nothing about a
 flag suggests its value ends up in a committed file, and this one
 does: `/plan` writes it into the produced PLAN's `upstream:`
-frontmatter, and that document is committed. It does **not** reach
-the BRIEF — a BRIEF records no upstream, and the roadmap grounds its
-framing instead — so the committed surface this check protects is the
+frontmatter, and that document is committed. The path itself does
+**not** reach the BRIEF — the brief grounds on the roadmap and records
+the roadmap's own ancestor, which `/brief` resolves and visibility-
+checks for itself — so the committed surface this check protects is the
 PLAN's. Public documents must not reference private ones, and no
 tooling enforces that rule for a cross-repo value — `shirabe
 validate`'s resolution check returns nothing for one, so a public

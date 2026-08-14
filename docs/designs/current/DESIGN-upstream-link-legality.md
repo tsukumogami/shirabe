@@ -13,7 +13,8 @@ decision: |
   inside validate_file after the schema gate, emitting a direction code and a
   lifetime code with the lifetime taking precedence. The roadmap link moves off
   the brief and onto the plan through a --upstream flag /plan gains, and
-  /brief keeps both roadmap input routes as grounding that records nothing.
+  /brief keeps both roadmap input routes as grounding and records the
+  roadmap's own durable ancestor rather than the roadmap itself.
 rationale: |
   Declaring both facts beside the type's other structural facts makes the
   maintainer journey work and lets a plain unit test enforce that no durable
@@ -254,11 +255,19 @@ outcome candidates from the feature's line item and the sequencing rationale.
 That work is the reason a chain run under a roadmap produces a better brief than
 one run cold, and it is unaffected by whether a field is written.
 
-**The precedent this follows.** `/strategy` reads a grounding PRD and
-deliberately does not record it, and says why in a section called "Reading a
-document vs. recording it as `upstream`". `/brief` gets the same section with
-the same shape, and the reason it gives is what a brief *is* — a type whose legal
-parent set is empty — rather than what it happened to be handed.
+**What the brief records instead.** The roadmap is read; what reaches
+frontmatter is the roadmap's own nearest durable ancestor, resolved by reading
+its `upstream:` — one hop, terminating on a STRATEGY or a VISION, because a
+ROADMAP's parents are the two strategic types and neither is working. The
+resolution lives in `/brief`'s Phase 0 rather than in `/scope`, so a standalone
+invocation behaves identically to one under a parent; `/scope` hands over the
+roadmap path and resolves nothing.
+
+`/strategy`'s treatment of a grounding PRD is the nearest precedent for the
+read-versus-record split, and `/brief` gets a section of the same shape. It is
+not the precedent for the *destination*, though: `/strategy` records nothing
+because a PRD sits below it, whereas a brief's grounding document sits above it
+and has durable parents of its own to reach.
 
 ## Decision Outcome
 
@@ -296,9 +305,12 @@ are set out in the flag path below.
 for the record. The produced plan carries its design first and the roadmap
 second.
 
-`/brief` keeps both roadmap routes, writes no `upstream:` field, and announces
-the omission with its reason. Its basename enforcement stays and gains weight:
-with nothing reaching frontmatter, that check is now the only thing standing
+`/brief` keeps both roadmap routes, resolves the roadmap's own durable ancestor
+one hop up, runs it through the visibility check, and writes the survivor into
+`upstream:` — omitting the field when the roadmap names no upstream or the
+ancestor is private in a public repo. It announces what it recorded and why it
+is not the roadmap. Its basename enforcement stays and gains weight: the roadmap
+path never reaches frontmatter itself, so that check is the only thing standing
 between a wrong-type input and a silently mis-framed brief.
 
 ## Solution Architecture

@@ -3969,9 +3969,9 @@ mod tests {
         assert_eq!(errs[0].code, "R10");
         assert_eq!(errs[0].line, 7, "the finding sits at the field's line");
         assert!(errs[0].message.contains("BRIEF may not name DESIGN"));
-        // A brief's parent set is empty, so the message says so rather than
-        // listing alternatives it does not have.
-        assert!(errs[0].message.contains("heads its own lineage"));
+        // The message lists what a brief may name instead: the roadmap's own
+        // durable ancestors, which is what a brief records.
+        assert!(errs[0].message.contains("a BRIEF may name STRATEGY or VISION"));
     }
 
     #[test]
@@ -3980,14 +3980,23 @@ mod tests {
         assert_eq!(errs.len(), 1);
         assert_eq!(errs[0].code, "R11", "a durable doc naming a working one");
         // And the direction-only case for the same format lists its parents.
-        let errs = legality("design/v1", &["docs/visions/VISION-x.md"]);
+        // A sibling DESIGN is sideways, so it is a direction violation with no
+        // lifetime component.
+        let errs = legality("design/v1", &["docs/designs/DESIGN-sibling.md"]);
         assert_eq!(errs.len(), 1);
         assert_eq!(errs[0].code, "R10");
         assert!(
-            errs[0].message.contains("a DESIGN may name PRD or BRIEF"),
+            errs[0]
+                .message
+                .contains("a DESIGN may name PRD or BRIEF or STRATEGY or VISION"),
             "got {:?}",
             errs[0].message
         );
+        // The empty-set phrasing is still reachable, via the one type that
+        // declares no parents at all.
+        let errs = legality("comp/v1", &["docs/visions/VISION-x.md"]);
+        assert_eq!(errs.len(), 1);
+        assert!(errs[0].message.contains("heads its own lineage"));
     }
 
     #[test]
@@ -4050,6 +4059,33 @@ mod tests {
         assert_eq!(errs[0].code, "R10");
     }
 
+    /// A brief records the nearest durable ancestor of the roadmap it was
+    /// framed against -- one hop up, so a STRATEGY, or a VISION when the
+    /// roadmap traces straight to one. The roadmap itself stays forbidden,
+    /// which is the whole point: that is the link with a scheduled death date.
+    #[test]
+    fn legality_lets_a_brief_name_the_roadmaps_durable_ancestor() {
+        assert!(legality("brief/v1", &["docs/strategies/STRATEGY-bet.md"]).is_empty());
+        assert!(legality("brief/v1", &["docs/visions/VISION-org.md"]).is_empty());
+
+        // The document the brief was actually framed against is still refused,
+        // on lifetime rather than direction.
+        let errs = legality("brief/v1", &["docs/roadmaps/ROADMAP-x.md"]);
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "R11");
+
+        // And nothing at or below the brief's own altitude becomes legal.
+        for below in [
+            "docs/briefs/BRIEF-sibling.md",
+            "docs/prds/PRD-x.md",
+            "docs/designs/DESIGN-x.md",
+        ] {
+            let errs = legality("brief/v1", &[below]);
+            assert_eq!(errs.len(), 1, "{below}: {errs:?}");
+            assert_eq!(errs[0].code, "R10");
+        }
+    }
+
     #[test]
     fn legality_permits_a_working_document_naming_a_working_one() {
         // PLAN -> ROADMAP is the one working-names-working pair the table
@@ -4107,14 +4143,14 @@ mod tests {
         let errs = legality(
             "plan/v1",
             &[
-                "docs/designs/DESIGN-x.md",  // legal
+                "docs/designs/DESIGN-x.md",   // legal
                 "docs/roadmaps/ROADMAP-y.md", // legal for a PLAN
-                "docs/visions/VISION-z.md",  // illegal: not a PLAN parent
+                "docs/plans/PLAN-z.md",       // illegal: sideways, not above
             ],
         );
         assert_eq!(errs.len(), 1, "only the third entry is illegal: {errs:?}");
         assert_eq!(errs[0].code, "R10");
-        assert!(errs[0].message.contains("VISION-z.md"));
+        assert!(errs[0].message.contains("PLAN-z.md"));
         assert_eq!(
             errs[0].line, 7,
             "every per-entry finding sits at the field's line, as R6's do"
@@ -4160,29 +4196,39 @@ mod tests {
             assert!(!Path::new(missing).exists());
         }
         // Legal edges: judged clean without the target existing.
-        assert!(legality(
-            "strategy/v1",
-            &["/nonexistent-root-for-shirabe-tests/docs/visions/VISION-x.md"]
-        )
-        .is_empty());
-        assert!(legality(
-            "roadmap/v1",
-            &["/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md"]
-        )
-        .is_empty());
-        // Illegal edges: judged as violations without the target existing.
-        for (missing, named) in [
+        for (schema, missing) in [
             (
+                "strategy/v1",
                 "/nonexistent-root-for-shirabe-tests/docs/visions/VISION-x.md",
-                "VISION",
             ),
             (
+                "roadmap/v1",
+                "/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md",
+            ),
+            (
+                "brief/v1",
+                "/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md",
+            ),
+        ] {
+            assert!(legality(schema, &[missing]).is_empty(), "{schema} -> {missing}");
+        }
+        // Illegal edges: judged as violations without the target existing. A
+        // VISION may name only a VISION, and a COMP names nothing at all, so
+        // both strategic basenames are exercised as violations.
+        for (schema, missing, named) in [
+            (
+                "vision/v1",
                 "/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md",
                 "STRATEGY",
             ),
+            (
+                "comp/v1",
+                "/nonexistent-root-for-shirabe-tests/docs/visions/VISION-x.md",
+                "VISION",
+            ),
         ] {
-            let errs = legality("brief/v1", &[missing]);
-            assert_eq!(errs.len(), 1, "{missing}: {errs:?}");
+            let errs = legality(schema, &[missing]);
+            assert_eq!(errs.len(), 1, "{schema} -> {missing}: {errs:?}");
             assert_eq!(errs[0].code, "R10");
             assert!(errs[0].message.contains(named));
         }

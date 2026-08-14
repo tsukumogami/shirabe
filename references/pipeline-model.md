@@ -110,7 +110,8 @@ a chain from strategic intent to implementation.
 VISION
   └── Strategy (upstream: VISION)
         └── Roadmap (upstream: Strategy)
-              └── Brief (no upstream -- see below)
+              └── Brief (upstream: the Roadmap's own parent --
+                          Strategy, or Vision; never the Roadmap)
                     └── PRD (upstream: Brief)
                           └── Design Doc (upstream: PRD)
                                 └── Plan (upstream: Design Doc, and the
@@ -173,18 +174,27 @@ working artifact, so no durable tactical document may name it: **the crossing is
 recorded on the PLAN alone.** The PLAN is deleted by the same cascade that
 deletes the Roadmap, and it goes first, so that link cannot dangle.
 
-A BRIEF therefore carries no `upstream:` at all. It reads the Roadmap that
-sequences its feature -- the framing, the sequencing rationale, the neighbouring
-features -- and absorbs that context into its own prose, which is what its
-Problem Statement was always required to do. Its legal-parent set is empty,
-which states as a checkable fact that a brief heads its own tactical lineage.
+A BRIEF therefore never names the Roadmap it was framed against. It names the
+Roadmap's own nearest durable ancestor instead, found by walking up exactly one
+hop: the Strategy the roadmap sequences, or the Vision when it traces straight
+to one. Both are durable, so one hop always terminates -- a Roadmap's parents
+are the only two strategic types and neither is working. The lineage survives
+the roadmap's deletion, which is the point: a reader following a brief's
+upstream reaches the strategy that chose this feature, and it is still there.
 
-This is the same shape as the older rule for an upstream a document cannot
-reach: a public document whose upstream is private omits the field, absorbs the
-context, and stands as the head of its own lineage. One rule, two triggers --
-an upstream that cannot be *reached* and an upstream that will not *last*. Only
-the second can be checked by tooling, because a cross-repo value resolves to
-nothing.
+The brief still reads the roadmap -- the framing, the sequencing rationale, the
+neighbouring features -- and absorbs that context into its own prose. It covers
+a slice of the roadmap's scope, so absorbing that slice is owed whatever the
+`upstream:` field ends up holding, and the Problem Statement's standing
+obligation to make sense cold is what carries it.
+
+The field is omitted when the walk finds nothing to record: a roadmap that names
+no upstream of its own, or an ancestor that is private where the brief is
+public. That second case is the older rule for an upstream a document cannot
+reach -- omit the field, absorb the context, stand as the head of the chain.
+The two rules meet here: an upstream that will not *last* is resolved past, and
+an upstream that cannot be *reached* is omitted. Only the first can be checked
+by tooling, because a cross-repo value resolves to nothing.
 
 The chain enables:
 - Finding all downstream work from a VISION

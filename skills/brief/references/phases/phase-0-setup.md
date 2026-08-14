@@ -45,8 +45,10 @@ Re-validate a recorded `## Grounding Path` the same way, against the worktree as
 it is now: a file present when the brief was started can be deleted or moved
 before it finishes. A grounding path that no longer resolves is surfaced naming
 the path and the check it fails, never silently dropped. Offer to re-supply it,
-or to continue without it — saying which one the run took. Nothing is carried
-into frontmatter either way; a BRIEF records no `upstream:`.
+or to continue without it — saying which one the run took. The grounding path
+itself is never carried into frontmatter; what the brief records is resolved
+from it in step 0.3a, so a grounding path that stopped resolving also costs the
+recorded ancestor.
 
 ## 0.1 Detect Entry Mode
 
@@ -193,17 +195,18 @@ One further check applies to a `--upstream` value:
   framing was derived from one has a provenance no reader can reproduce. Name
   the canonical location in the rejection.
 
-**The tracked-by-git check does not apply here, and the omission is
-deliberate.** Its reason was durability of a *recorded* link — "an untracked
-upstream is durable to nobody but this working copy" — and a BRIEF records
-nothing. What survives into the commit is the brief's own prose, so the input's
-commit state stops mattering; an author walking the chain forward in one sitting
+**The tracked-by-git check does not apply to the grounding path, and the
+omission is deliberate.** Its reason was durability of a *recorded* link — "an
+untracked upstream is durable to nobody but this working copy" — and the roadmap
+is read rather than recorded. An author walking the chain forward in one sitting
 can ground a brief in a roadmap they have written but not yet committed. The
-durability checks are record-time checks, and they still run wherever the flag
-records: `/scope` runs them on the value it hands onward, and `/plan` runs the
-whole set on the value it writes into the produced PLAN. The `docs/roadmaps/`
-confinement above is what keeps the relaxation from widening the input class to
-any untracked file in the tree.
+`docs/roadmaps/` confinement above is what keeps that relaxation from widening
+the input class to any untracked file in the tree.
+
+The value step 0.3a *resolves* out of that roadmap is a different matter: it is
+recorded, so it takes the full record-time set, tracked-by-git included. A brief
+may be grounded in an uncommitted roadmap; it may not record an uncommitted
+strategy.
 
 A cross-repo value in the `owner/repo:path` form from
 `references/cross-repo-references.md` is not a working-tree path: it skips
@@ -217,36 +220,56 @@ and wonders where it came from.
 
 ## Reading a document vs. recording it as `upstream`
 
-Both roadmap routes — the positional path and the `--upstream` flag — **read**
-the roadmap. Neither **records** it, and the two acts are not the same act.
+Both roadmap routes — the positional path and the `--upstream` flag — supply the
+ROADMAP the brief is framed against. The brief **reads** that roadmap and
+**records** something else: the roadmap's own nearest durable ancestor. The two
+acts have different targets, and conflating them is the mistake this section
+exists to prevent.
 
 The roadmap is read in Phase 1: the skill finds the feature this brief frames,
 and derives the problem and outcome candidates from that feature's line item and
 the roadmap's sequencing rationale. That is the whole value of supplying one, and
-it is unchanged.
+it is unchanged by anything below.
 
-Nothing is written to `upstream:`, and the reason is what a BRIEF *is* rather
-than what it happened to be handed. A BRIEF's legal-parent set is empty: it heads
-its own tactical lineage. The rule behind that is in
-`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md` — a link runs from the
-shorter-lived document to the longer-lived one, a ROADMAP is deleted when its
-features land, and a BRIEF is durable. Recording the roadmap would produce a
-reference correct on the day it is written and dangling on the day the cascade
-runs, which `shirabe validate` now rejects as `R11`.
+The roadmap is never recorded. A ROADMAP is deleted when its features land and a
+BRIEF is durable, so the link would be correct on the day it is written and
+dangling on the day the cascade runs — `shirabe validate` rejects it as `R11`.
+The rule is in
+`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`: a link runs from the
+shorter-lived document to the longer-lived one.
 
-This mirrors how `/strategy` treats a grounding PRD: read for context, named in
-prose, never recorded. It is also the same shape as the older rule for a public
-document whose upstream is private — omit the field, absorb the context, stand
-as the head of the chain. One obligation, reached by two different roads.
+### 0.3a Resolve the recordable upstream
 
-**Where the link does go.** In a `/scope` chain the roadmap reaches the produced
-PLAN, which is itself deleted by the cascade and so cannot leave a dangling
-reference behind. Nothing is lost; the crossing is recorded one altitude down.
+What gets recorded is found by walking up from the roadmap, deterministically,
+in one hop.
 
-**Announce it.** When a roadmap was supplied, say in the run output that the
-brief was grounded in it and that no `upstream:` field was written, and why. An
-author who passed a flag expecting a link should learn from the run that they
-got framing instead.
+1. **Read the supplied ROADMAP's own `upstream:` field.** A roadmap names the
+   STRATEGY it sequences, or a VISION when it traces straight to one. Both are
+   durable, so one hop always terminates on something recordable or on nothing —
+   there is no loop to bound and no second step to take.
+2. **If the roadmap has no `upstream:`, record nothing.** The brief is then the
+   head of its own lineage in fact, not by rule.
+3. **Run the resolved path through the visibility check** in step 0.5 exactly as
+   any recorded value: when this repo is Public and the ancestor lives in a
+   private repo, omit the field and say so. When the brief and the ancestor are
+   in the same private repo, record it.
+4. **Record the surviving value** in the produced brief's `upstream:`.
+
+Resolve, do not substitute. The brief is still framed against the roadmap and
+still absorbs its problem and outcome — it covers a slice of the roadmap's scope,
+which is why absorption is owed regardless of what the field ends up holding. All
+that changes is which path the field names.
+
+The reason for walking up rather than recording nothing is that the lineage
+survives the roadmap's deletion. A reader following a brief's upstream reaches
+the strategy that chose this feature, which is durable and stays reachable; a
+brief with no upstream would strand the strategic half of the chain behind a
+document the cascade removes.
+
+**Announce it.** When a roadmap was supplied, say in the run output which
+document was recorded and why it is not the roadmap — or, when nothing survived
+the resolution, that the field was omitted and which step dropped it. An author
+who passed a roadmap should learn from the run what the field ended up holding.
 
 ## 0.4 Detect Repo Visibility
 
@@ -351,13 +374,23 @@ Surface the detected context to the user in one short message:
 > Entry mode: <mode>. Visibility: <visibility>.
 > Grounding: <path or "none">.
 
-When a grounding path was supplied, add the omission announcement on the next
-line. It is not optional — an author who passed `--upstream` expecting a link
-learns here that they got framing instead:
+When a grounding path was supplied, add the resolution result on the next line.
+It is not optional — an author who passed a roadmap learns here what the field
+ended up holding and why it is not the roadmap:
 
-> Recorded upstream: none. A BRIEF heads its own tactical lineage, so it records
-> no `upstream:`; the roadmap grounds the problem and outcome instead, and the
-> link to it is recorded on the PLAN this chain produces.
+> Recorded upstream: `docs/strategies/STRATEGY-<name>.md`, resolved one hop up
+> from the roadmap. A ROADMAP is deleted when its features land, so a BRIEF
+> records its nearest durable ancestor instead; the roadmap still grounds the
+> problem and outcome, and the link to the roadmap itself is recorded on the
+> PLAN this chain produces.
+
+When the resolution found nothing to record, say which step dropped it:
+
+> Recorded upstream: none — the roadmap names no upstream of its own.
+
+> Recorded upstream: none — the roadmap's upstream
+> `<owner>/<repo>:docs/strategies/STRATEGY-<name>.md` is private and this repo
+> is Public, so the field is omitted rather than naming it.
 
 Do not block on confirmation for routine cases. If any detection produced an
 unexpected value (visibility defaulted to Private because CLAUDE.md was missing),
@@ -375,8 +408,10 @@ Before proceeding:
       `PRD-` basename was rejected with the chain-inversion message
 - [ ] `--upstream` value (if provided) is not under `wip/`; a bare `--upstream`
       was rejected
-- [ ] The run announced that no `upstream:` will be recorded, and why, whenever
-      a grounding path was supplied
+- [ ] Step 0.3a resolved the recordable upstream by reading the grounding
+      roadmap's own `upstream:`, and ran the result through the visibility check
+- [ ] The run announced what `upstream:` will hold, or which step dropped it,
+      whenever a grounding path was supplied
 - [ ] Visibility is recorded (Public or Private, never empty)
 - [ ] The artifact decision is recorded as `produce`
 - [ ] `wip/brief_<topic>_context.md` exists with the keys above

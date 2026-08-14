@@ -203,7 +203,16 @@ pub fn formats() -> Vec<FormatSpec> {
             name: "Design".to_string(),
             id: FormatId::Design,
             lifetime: Lifetime::Durable,
-            legal_upstream: vec![FormatId::Prd, FormatId::Brief],
+            // The tactical parents, plus the durable strategic altitudes a
+            // tactical document reaches when the altitudes between were never
+            // written -- and which the /scope absorb re-points a survivor to
+            // when it removes an artifact that named one.
+            legal_upstream: vec![
+                FormatId::Prd,
+                FormatId::Brief,
+                FormatId::Strategy,
+                FormatId::Vision,
+            ],
             prefix: "DESIGN-".to_string(),
             schema_version: "design/v1".to_string(),
             required_fields: s(&["status", "problem", "decision", "rationale"]),
@@ -227,7 +236,7 @@ pub fn formats() -> Vec<FormatSpec> {
             name: "PRD".to_string(),
             id: FormatId::Prd,
             lifetime: Lifetime::Durable,
-            legal_upstream: vec![FormatId::Brief],
+            legal_upstream: vec![FormatId::Brief, FormatId::Strategy, FormatId::Vision],
             prefix: "PRD-".to_string(),
             schema_version: "prd/v1".to_string(),
             required_fields: s(&["status", "problem", "goals"]),
@@ -300,7 +309,14 @@ pub fn formats() -> Vec<FormatSpec> {
             name: "Plan".to_string(),
             id: FormatId::Plan,
             lifetime: Lifetime::Working,
-            legal_upstream: vec![FormatId::Design, FormatId::Prd, FormatId::Brief, FormatId::Roadmap],
+            legal_upstream: vec![
+                FormatId::Design,
+                FormatId::Prd,
+                FormatId::Brief,
+                FormatId::Roadmap,
+                FormatId::Strategy,
+                FormatId::Vision,
+            ],
             prefix: "PLAN-".to_string(),
             schema_version: "plan/v1".to_string(),
             required_fields: s(&["status", "execution_mode", "milestone", "issue_count"]),
@@ -344,7 +360,13 @@ pub fn formats() -> Vec<FormatSpec> {
             name: "Brief".to_string(),
             id: FormatId::Brief,
             lifetime: Lifetime::Durable,
-            legal_upstream: vec![],
+            // A brief is framed against a ROADMAP, which it may not record --
+            // a roadmap is deleted when its features land. What it records is
+            // the roadmap's own nearest durable ancestor, reached by one hop
+            // up: the STRATEGY the roadmap sequences, or the VISION when the
+            // roadmap traces straight to one. The walk is bounded at that one
+            // hop, because a ROADMAP's own parents are both durable.
+            legal_upstream: vec![FormatId::Strategy, FormatId::Vision],
             prefix: "BRIEF-".to_string(),
             schema_version: "brief/v1".to_string(),
             required_fields: s(&["status", "problem", "outcome"]),
@@ -482,12 +504,25 @@ mod tests {
                 Lifetime::Working,
                 vec![FormatId::Strategy, FormatId::Vision],
             ),
-            (FormatId::Brief, Lifetime::Durable, vec![]),
-            (FormatId::Prd, Lifetime::Durable, vec![FormatId::Brief]),
+            (
+                FormatId::Brief,
+                Lifetime::Durable,
+                vec![FormatId::Strategy, FormatId::Vision],
+            ),
+            (
+                FormatId::Prd,
+                Lifetime::Durable,
+                vec![FormatId::Brief, FormatId::Strategy, FormatId::Vision],
+            ),
             (
                 FormatId::Design,
                 Lifetime::Durable,
-                vec![FormatId::Prd, FormatId::Brief],
+                vec![
+                    FormatId::Prd,
+                    FormatId::Brief,
+                    FormatId::Strategy,
+                    FormatId::Vision,
+                ],
             ),
             (
                 FormatId::Plan,
@@ -497,6 +532,8 @@ mod tests {
                     FormatId::Prd,
                     FormatId::Brief,
                     FormatId::Roadmap,
+                    FormatId::Strategy,
+                    FormatId::Vision,
                 ],
             ),
             (FormatId::Comp, Lifetime::Durable, vec![]),

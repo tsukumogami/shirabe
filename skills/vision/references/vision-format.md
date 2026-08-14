@@ -82,9 +82,10 @@ Every vision document has these sections in order:
   listed the ROADMAPs, PRDs, and designs under it would go stale on every
   feature that lands, and it would hide the STRATEGY that is supposed to explain
   why that feature exists. The ROADMAP is where the strategic chain hands off to
-  the tactical one -- `/brief` reads the ROADMAP that sequences its feature, and
-  the crossing is recorded on the PLAN, which is deleted alongside the ROADMAP so
-  the link cannot dangle -- so no strategic document reaches past it. To find the PRDs and
+  the tactical one -- `/brief` reads the ROADMAP that sequences its feature and
+  records the ROADMAP's own parent, while the ROADMAP itself is named by the
+  PLAN, which the cascade deletes first so that link cannot dangle -- so no
+  strategic document reaches past it. To find the PRDs and
   designs under a VISION, follow the chain: read the STRATEGY, then its ROADMAP.
 
 ## Visibility-Gated Sections

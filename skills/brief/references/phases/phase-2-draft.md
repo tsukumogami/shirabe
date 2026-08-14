@@ -31,7 +31,8 @@ Read all available context:
 - `wip/brief_<topic>_context.md` (Phase 0)
 - `wip/brief_<topic>_discover.md` (Phase 1)
 - The grounding ROADMAP if Phase 0 recorded one (read for framing; the
-  produced BRIEF records no `upstream:`)
+  produced BRIEF records the ancestor Phase 0 resolved from it, not the
+  roadmap itself)
 - `skills/brief/references/brief-format.md` (format specification — load this in
   full at Phase 2 since the section-by-section guidance lives there)
 
@@ -73,6 +74,8 @@ problem: |
 outcome: |
   <2-4 line summary of the outcome a user should experience; same content the
   User Outcome section elaborates in prose>
+upstream: <the STRATEGY or VISION Phase 0 step 0.3a resolved; omit when the
+           resolution found nothing, and never the grounding ROADMAP>
 ---
 ```
 
@@ -81,20 +84,28 @@ They carry the same content the Problem Statement and User Outcome sections
 elaborate in prose; the two stay in sync (the Phase 4 structural-format reviewer
 checks consistency).
 
-**There is no `upstream:` field.** A BRIEF heads its own tactical lineage: its
-legal-parent set is empty, and `shirabe validate` rejects any value it carries
--- as `R11` when the target is a ROADMAP and `R10` for any other type. Do not
-write the field even when Phase 0 recorded a grounding ROADMAP — that link belongs on the PLAN the chain produces,
-which the cascade deletes alongside the roadmap, so it cannot be left dangling.
-The rule is in `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`; the
-read-versus-record contract is in `phase-0-setup.md`.
+**`upstream:` holds what Phase 0 step 0.3a resolved, never the grounding
+roadmap.** Write the resolved value when there is one, and omit the field
+entirely when the resolution found nothing. A ROADMAP is deleted when its
+features land, so recording one produces a reference `shirabe validate` rejects
+as `R11`; the brief records the roadmap's nearest durable ancestor instead — the
+STRATEGY it sequences, or a VISION — which stays reachable after the cascade
+runs. The link to the roadmap itself is recorded on the PLAN this chain
+produces, which the same cascade deletes. The rule is in
+`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`; the resolution contract is
+in `phase-0-setup.md`.
 
-What the grounding roadmap owes the brief instead is content. The Problem
-Statement has to let a cold reader grasp the gap without opening the roadmap,
-which is what it was always required to do; with no link to fall back on, that
-requirement is the whole of the brief's provenance. Name the initiative in prose
-where it helps a reader — without naming a private path or repo when the roadmap
-lives in one.
+Do not resolve the roadmap's ancestor yourself at this phase. Phase 0 already
+did it and ran the result through the visibility check; writing a value that
+skipped that check is how a public brief ends up naming a private strategy.
+
+The grounding roadmap still owes the brief content regardless of what the field
+holds. The Problem Statement has to let a cold reader grasp the gap without
+opening the roadmap, which is what it was always required to do: the brief
+covers a slice of the roadmap's scope, and absorbing that slice is owed whether
+or not a link survived the resolution. Name the initiative in prose where it
+helps a reader — without naming a private path or repo when the roadmap lives in
+one.
 
 Write the body Status section as:
 
