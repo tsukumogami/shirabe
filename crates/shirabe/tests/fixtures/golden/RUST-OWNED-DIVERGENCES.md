@@ -38,3 +38,21 @@ surfaces here as a parity failure.
 the annotation output format carries `file=` without `line=`. The corrected
 line reaches the `--format json` envelope instead, which the parity fixtures
 do not capture.
+
+**`real/PRD-roadmap-skill.md` gains an FC10 notice for `additionally`
+alongside its existing schema-skip notice.** Prose checks now run above the
+schema gate, so the 33 corpus files that carry no `schema` field and
+therefore ran zero checks are no longer invisible. The word appears
+line-initially at line 29, which is the adverb-opener sense the rulebook
+bans, so this is a true positive rather than a scoping miss.
+
+This one is a deliberate widening of the PRD's stated boundary and the
+DESIGN records it as such: a file that runs no checks and reports success
+is the same silent-success defect the format-gate work exists to end,
+arriving through a different gate.
+
+**Note on the adverb-opener rules.** They match anywhere in a line rather
+than only at a sentence start, so a mid-sentence `additionally` would also
+fire. No corpus file exercises that case today. Narrowing the match to
+sentence-initial position needs sentence segmentation the scoper does not
+have; it is a known imprecision rather than an oversight.

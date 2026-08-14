@@ -37,6 +37,29 @@ pub struct FormatSpec {
     pub execution_mode_required_sections: Option<HashMap<String, Vec<String>>>,
 }
 
+impl FormatSpec {
+    /// A spec carrying no structural expectations, for the prose family.
+    ///
+    /// The prose checks take a `&FormatSpec` for signature uniformity with
+    /// the rest of the check surface but read nothing from it. Every field
+    /// is empty so that a check reaching for a required field or section
+    /// through this spec finds nothing to assert rather than asserting the
+    /// wrong format's shape against an arbitrary file.
+    pub fn prose_only() -> Self {
+        FormatSpec {
+            name: "Prose".to_string(),
+            prefix: String::new(),
+            schema_version: String::new(),
+            required_fields: Vec::new(),
+            valid_statuses: Vec::new(),
+            required_sections: Vec::new(),
+            issues_table_columns: Vec::new(),
+            private: false,
+            execution_mode_required_sections: None,
+        }
+    }
+}
+
 fn s(values: &[&str]) -> Vec<String> {
     values.iter().map(|v| (*v).to_string()).collect()
 }

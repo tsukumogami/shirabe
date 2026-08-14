@@ -107,16 +107,45 @@ fn no_files_exits_zero_with_no_output() {
 }
 
 #[test]
-fn unrecognized_format_is_skipped() {
-    // A path whose basename matches no format prefix is silently skipped;
-    // with no other files the run exits 0 and emits nothing.
-    shirabe()
+fn unrecognized_format_gets_prose_checks_not_structural_ones() {
+    // A path whose basename matches no artifact prefix used to be silently
+    // skipped: `shirabe validate README.md` printed nothing and exited 0,
+    // and this test asserted that as the contract. It was the defect, not
+    // the design — the instruction files that shape every agent run were
+    // the ones nothing checked.
+    //
+    // The file now gets the prose family. It does not get the structural
+    // checks: a README has no frontmatter, no schema, and no required
+    // sections, so FC01/FC04/FC15 firing on it would be a worse regression
+    // than the gap. That invariant is a signature property now, since the
+    // prose entry point takes no FormatSpec.
+    let dir = std::env::temp_dir().join("shirabe-cli-unrecognized-format");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let readme = dir.join("README.md");
+    std::fs::write(&readme, "A robust and comprehensive introduction.\n").unwrap();
+
+    let out = shirabe()
         .arg("validate")
-        .arg("README.md")
+        .arg(readme.to_str().unwrap())
         .assert()
         .success()
-        .stdout("")
-        .stderr("");
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8_lossy(&out);
+
+    assert!(
+        text.contains("FC10"),
+        "the prose family must reach a non-artifact file; got: {text}"
+    );
+
+    for structural in ["FC01", "FC02", "FC03", "FC04", "FC15", "SCHEMA"] {
+        assert!(
+            !text.contains(structural),
+            "structural check {structural} must not fire on a non-artifact file; got: {text}"
+        );
+    }
 }
 
 #[test]

@@ -181,6 +181,32 @@ pub fn is_known_check_code(code: &str) -> bool {
 /// (or the [`is_notice`] wrapper) to distinguish notice-level results from
 /// error-level results.
 pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<ValidationError> {
+    let mut errs = validate_prose(doc, cfg);
+    errs.extend(validate_structural(doc, spec, cfg));
+    errs
+}
+
+/// The schema-independent checks: prose, and the CLAUDE.md conventions.
+///
+/// Runs for every Markdown file the validator is handed, including files
+/// carrying no artifact prefix and files whose `schema` field is missing.
+/// A structural check cannot be reached from here, because none of these
+/// takes a `FormatSpec` — the invariant is a signature property rather than
+/// a convention someone has to remember.
+///
+/// `check_claude_md_conventions` gates on the basename internally. It was
+/// unreachable before this split: it is registered in the dispatch table
+/// and fully unit-tested, but `detect_format` returns `None` for the only
+/// filename it accepts, so `validate_file` was never called for one.
+pub fn validate_prose(doc: &Doc, _cfg: &Config) -> Vec<ValidationError> {
+    let mut errs = Vec::new();
+    errs.extend(check_writing_style(doc, &FormatSpec::prose_only()));
+    errs.extend(check_claude_md_conventions(doc, &FormatSpec::prose_only()));
+    errs
+}
+
+/// The checks that presuppose an artifact schema.
+fn validate_structural(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<ValidationError> {
     // 1. Schema gate: if doc.schema != spec.schema_version, return SCHEMA notice.
     if let Some(schema_err) = check_schema(doc, spec) {
         return vec![schema_err];
@@ -202,12 +228,10 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
     errs.extend(check_fc04(doc, spec));
     errs.extend(check_fc15(doc, spec));
 
-    // 2a. Cross-format notice-level checks (FC10 writing-style, FC13
-    // eval-fixture frontmatter, FC-CONVENTIONS CLAUDE.md headers).
-    // These ride alongside the per-format checks and are notice-level.
-    errs.extend(check_writing_style(doc, spec));
+    // 2a. Cross-format notice-level checks that still need a spec. The
+    // prose family and FC-CONVENTIONS moved to `validate_prose`, which runs
+    // for schema-less files too.
     errs.extend(check_eval_fixture_frontmatter(doc, spec));
-    errs.extend(check_claude_md_conventions(doc, spec));
 
     // 2b. (R6) The `upstream` field resolves for every format that carries
     // it, not just Plan. A dangling link is wrong however it arose, and

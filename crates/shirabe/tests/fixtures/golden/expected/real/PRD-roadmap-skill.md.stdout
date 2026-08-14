@@ -1,1 +1,2 @@
+::notice file=real/PRD-roadmap-skill.md::[FC10] writing-style banned word "additionally" -- see skills/writing-style/rules.yaml for canonical alternatives
 ::notice file=real/PRD-roadmap-skill.md::schema field missing, skipping
