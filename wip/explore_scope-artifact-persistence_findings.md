@@ -1,0 +1,255 @@
+# Exploration Findings: scope-artifact-persistence
+
+## Core Question
+
+`/scope` is the default front door for tactical work of any size, but every
+completed run leaves a permanent PRD and DESIGN in `docs/` regardless of what
+the work turned out to be. The floor is structural, not heuristic: the
+consolidation judgment can only absorb where the downstream *type's* required
+sections have a home for every required section of the upstream *type*, and
+against the current formats only BRIEF-to-PRD qualifies. That test is a schema
+comparison with the same answer on every run, so above the first hop the
+content question never gets to run. What has to change so that each hop's
+verdict is decided by what the two documents in front of it actually contain --
+letting a run end with all four artifacts, some, or none?
+
+## Round 1
+
+Six leads dispatched, six landed: format-mapping, absorb-blast-radius,
+record-survival, child-consumption, strategic-chain, prior-art.
+
+### Key Insights
+
+- **Stage 1 is a type-level test wearing a content-level test's clothes.**
+  Its rule -- the downstream type's required sections provide a home for every
+  required section of the upstream type -- is evaluated identically for every
+  run, so the verdict above BRIEF-to-PRD is fixed at authoring time of
+  `formats.rs`, not decided by the documents. Making the home a property of the
+  *document* forces Stage 1 to be reworded, and that rewording is the core of
+  the work rather than a side effect. (format-mapping)
+
+- **The validator is not the obstacle.** It enforces exactly one thing about
+  sections: each name in a format's ordered `required_sections` list appears as
+  an H2 (FC04, error) in declared relative order (FC15, notice). Extra H2
+  sections are already unconstrained for design, prd and plan, so an absorbed
+  content appendix costs zero validator change -- a DESIGN can carry a
+  Requirements section today without failing anything. (format-mapping)
+
+- **There is a precedent for making the home *required* only on documents that
+  absorbed something.** The Plan profile already swaps its required-section list
+  on a frontmatter key (`execution_mode`), and that lookup fails open for docs
+  lacking the field. Generalizing it to an absorbed-content key gives absorbing
+  docs an enforced home while leaving the other 48 DESIGNs and every existing
+  PLAN untouched. Note the fail-open behaviour on unknown values. (format-mapping)
+
+- **The real fence is prose, not schema.** `design-format.md` tells a DESIGN to
+  cite requirements by their numbers rather than restate them; `plan-format.md`
+  tells a PLAN that drifts into architecture to replace the content with a
+  citation. The chain is built on citation-not-duplication above the PRD. That
+  is an editorial contract with no machine enforcement, and it is the thing an
+  absorbed case has to carve out. (child-consumption, format-mapping)
+
+- **The absorb procedure has never executed.** All 35 PRDs with an `upstream:`
+  point at their same-topic BRIEF and no BRIEF has ever been deleted. Even
+  #260's own dogfood run failed its carry check on User Journeys and shipped all
+  four artifacts. Every code path below the verdict is untested. (child-consumption,
+  prior-art)
+
+- **Four concrete breakages sit in that untested path.** The `upstream:` re-point
+  is a set rather than a splice, so it silently drops sibling parents now that
+  #271 made lineage one-to-many. The `git rm` has no retirement guard, stranding
+  any other document that cites the absorbed artifact, and step 4's re-validate
+  checks only the survivor so the revert condition never fires. The deletion
+  target falls outside the closed write-target set Phase 3 enforces, so an
+  upper-hop absorb fails R9. (absorb-blast-radius)
+
+- **The guard the absorb needs already exists and is simply not wired in.**
+  `lifecycle::build_referrer_map` was written for the finalization walk in #271
+  and is a public API; the consolidation path predates it and never calls it.
+  Applied before the `git rm` rather than after, it is the single change that
+  turns the reduction back into a move. (absorb-blast-radius)
+
+- **The stranding failure mode is already live, independent of #280.** Five
+  documents carry dangling `upstream:` refs today -- three stranded by the
+  DESIGN Accepted-to-Current directory move, two by PLAN deletion. `shirabe
+  validate` exits 2 on them right now and diff-scoped CI does not notice until
+  an unrelated PR touches a victim. (absorb-blast-radius)
+
+- **Absorbing a PRD orphans the chain's most-used cross-reference.** DESIGNs and
+  PLANs both cite requirements as bare `R<n>` numbers. Deleting the PRD those
+  resolve against turns every such citation into an orphan, and R6 only checks
+  that `upstream:` resolves to a tracked file -- it would not catch a dead
+  R-number. (child-consumption)
+
+- **BRIEF-to-PRD works because the child carries, not because the parent
+  merges.** `/prd` Phase 3.2 reads its upstream BRIEF's body and draws Problem
+  Statement, Goals, User Stories and Out of Scope from it, naming the downstream
+  carry check as the reason. Stage 3 only verifies and re-points; it never writes
+  content into the survivor. The BRIEF's complaint that `/prd` ignores its
+  upstream is stale -- #260 fixed it. Any new absorbable hop needs the same
+  child-side consumption block, not just a home. (child-consumption)
+
+- **`/execute` does not keep rationale in code today.** Nothing in `/execute` or
+  `/work-on` instructs writing design rationale, rejected alternatives or
+  decision provenance into code comments, commit trailers or docs. Its one prose
+  surface is a factual what-changed Part 1 built from PLAN framing and
+  child-outcome metadata, explicitly barred from reading the diff. The one
+  structured capture, `koto decisions record` (with `alternatives_considered`),
+  writes to `~/.koto/sessions` outside the repo. The rationale-rich comments that
+  make this codebase readable are house style, unenforced. (record-survival)
+
+- **PR #278 is evidence about the author, not about `/execute`.** Both koto facts
+  do survive into durable code -- but via commit `6e1a22dc`, which hand-deleted
+  730 lines of PRD and DESIGN and hand-wrote 56 lines of comments to replace
+  them, under a message describing the act as moving reasoning into the code.
+  #278 is also still open, so nothing from it is on main. (record-survival)
+
+- **There is a good durable surface nobody is using.** Part 1 of a PR body
+  becomes the squash commit message and lands on main in every clone
+  permanently (`squash_message: PR_BODY`, squash-only, branch deleted). Part 2 is
+  trimmed at merge -- verified against #271 to `9f45603` -- and the trim is a
+  human editing the merge dialog, not automation. (record-survival)
+
+- **Phase 3's chain record is documented but unimplemented, and points at the
+  wrong half.** `phase-3-exit-finalization.md` says the production and absorption
+  record goes into the run's PR body precisely because Phase 4 deletes the state
+  file. There is no `gh pr create`/`edit` on the single-pr or multi-pr path,
+  SKILL.md's own binding records only the PLAN path, and `/execute`'s
+  `pr_finalization` does a full `--body-file` replacement it is forbidden by
+  R14/R15 from merging into. (record-survival)
+
+- **`/execute` already knows about the artifact set in two places.** The R5
+  finalization guard assumes a DESIGN survives and fails as a false L05
+  validation error; `run-cascade.sh`'s roadmap `**Downstream:**` rewrite assumes
+  the same and silently no-ops. Encapsulation is a property to establish, not one
+  to preserve. (absorb-blast-radius)
+
+- **The floor was seen and deliberately built.** DESIGN Decision 8 weighed four
+  options; Option D was absorbing a DESIGN into the PLAN, rejected because the
+  PLAN is deleted so the move "trades a durable audit trail for a shorter run and
+  loses the record of why the work happened." PRD R14 requires the floor, and
+  `phase-1-discovery.md`'s "do not add a guard for this" is that decision's
+  enforcement. The DESIGN did not conclude the type boundary was the real
+  problem. (prior-art)
+
+- **The single-mechanism constraint is the sharper trap.** The entry-altitude
+  removal rests on two claims, the load-bearing one being that only one reduction
+  mechanism may exist. Any per-hop roll-forward must *replace* the consolidation
+  judgment rather than sit beside it, or it reinstates the failure that killed the
+  entry altitude. (prior-art)
+
+- **The strategic chain has no equivalent floor to fix.** `/charter` has no
+  consolidation judgment; DESIGN Decision 9 declined to add one, and the mapping
+  test yields zero absorbable hops there (STRATEGY has no home for VISION's
+  Audience, Value Proposition, Org Fit or Success Criteria; ROADMAP none for
+  STRATEGY's Defensibility Thesis or Building Blocks). ROADMAP is already deleted
+  on completion. No shared reference carries the mapping logic. (strategic-chain)
+
+### Tensions
+
+- **Decision 8 versus the author's direction on DESIGN-to-PLAN.** Prior-art found
+  the exact proposed move considered and rejected on audit-trail grounds.
+  Resolved during convergence: the objection assumed the record of why lives in
+  the DESIGN. The author's position is that it belongs in code, kept current by
+  `/execute` unconditionally, which answers the objection rather than overriding
+  it -- but it converts a documented `/execute` non-capability into required work.
+
+- **Encapsulation asserted versus encapsulation available.** The direction is
+  that the keep-or-fold decision is `/scope`'s alone and `/execute` need not
+  know. Blast-radius found `/execute` already assumes a DESIGN survives in two
+  places, and record-survival found the rationale-in-code job it is being relied
+  on for does not exist. Both must be built before the encapsulation claim is
+  true.
+
+- **Zero-churn homes versus enforced homes.** The appendix convention costs
+  nothing but makes the home merely *available*; the frontmatter-keyed variant
+  makes it *required* on absorbing docs at the price of a small validator change
+  and a fail-open edge. Stage 1's current wording implies required; the
+  content-preserving-move framing does not settle it.
+
+- **Total mapping versus no-loss.** If the PLAN is deleted at execution anyway,
+  it is unclear whether DESIGN-to-PLAN needs a *total* mapping or merely one
+  good enough that nothing is lost between the DESIGN's deletion and the PLAN's.
+  The format-contract cost differs sharply between those readings.
+
+- **Composition.** If a DESIGN absorbs a PRD and a PLAN then absorbs that DESIGN,
+  the PLAN must carry both. Under the frontmatter-variant approach that is a
+  third combinatorial list rather than a composition of two; `execution_mode` has
+  no additive semantics to borrow.
+
+### Gaps
+
+- No worked example of an absorb exists anywhere in the repo's history, so every
+  claim about what an absorb does downstream is read from instructions rather
+  than observed.
+- Prose citations are the largest unexamined surface: 73 files cite a PRD path
+  and nothing validates them.
+- `/design`'s freeform mode (a PRD-less DESIGN) was not examined and interacts
+  with any change to the absorb model.
+- Whether `shirabe validate` has any check that would catch an orphaned `R<n>`
+  citation was not confirmed against `crates/shirabe-validate/src/`.
+- Who actually trims PR body Part 2 at merge. If it is a human, "Part 2 is
+  deleted at merge" is a discipline rather than a guarantee.
+- No evidence base was found for the claim that framing overlap between adjacent
+  artifacts is constant; #260's PRD flags that its corpus was generated by the
+  same pipeline it was measuring.
+
+### Decisions
+
+Recorded in full in `wip/explore_scope-artifact-persistence_decisions.md`. In
+brief: the target is a working per-run judgment rather than a shorter chain;
+Stage 1's test moves from type to document; DESIGN-to-PLAN absorption is
+supported and Decision 8 Option D is reversed on the ground that rationale
+belongs in code; `/execute` gains an unconditional rationale-in-code job and
+loses its two DESIGN-survives assumptions; reduction stays a content-preserving
+move with no discard verdict; the strategic chain is out of scope; adding
+sections to the base required lists is ruled out; the format fence comes down
+narrowly.
+
+### User Focus
+
+The author's clarification reframed the problem from the one the issue implies.
+The goal is not that content rolls forward on every run -- it is that the
+workflow *permits* folding at every hop and lets the run's own content decide.
+Runs ending with every durable doc, with a subset, and with none are all correct
+outcomes; the defect is that only one of those is currently reachable. The
+mechanics of absorption were believed built; the bug is in how absorbability is
+judged.
+
+## Accumulated Understanding
+
+#280 is a bug report about a judgment that cannot answer, sitting on top of a
+mechanism that has never run.
+
+The judgment has three stages per hop: whether absorption is possible, whether
+it is warranted, and then the move plus verification. Stage 2 is the content
+question and the only one that can vary between runs. Stage 1 short-circuits it
+by comparing type schemas, which produces the same verdict every time and makes
+`keep` unconditional above BRIEF-to-PRD. Repointing Stage 1 at the documents
+rather than the types is the central fix, and it is cheap: the validator already
+permits extra sections on design, prd and plan, so a thin DESIGN whose substance
+is decomposition has nothing the PLAN lacks a home for and absorbs honestly,
+while a DESIGN carrying live architectural reasoning fails the same test and
+stays. Same question, different answers, decided per run.
+
+Two things sit beside that fix and are not optional. First, the floor has a
+second, independent cause: Decision 8 rejected DESIGN-to-PLAN on its own
+audit-trail grounds, and PRD R14 plus the "do not add a guard" instruction encode
+that rejection. Reversing it is a deliberate act, and it is grounded rather than
+asserted -- the objection presumed the record of why lives in the DESIGN, and the
+author's position is that it lives in code, maintained by `/execute` as a standing
+unconditional job. That grounding converts the reversal into scoped work, because
+`/execute` does none of that today. Second, the absorb procedure itself is buggy
+in four ways that would make a fold lossy even when the verdict was right, and
+the stranding failure is already live in the tree on five documents. Those are
+what "content-preserving move" means in practice, and the guard they need already
+exists unwired from #271.
+
+The remaining shape questions are about how much enforcement to buy: whether an
+absorbing document's home for carried content is merely available or required,
+whether DESIGN-to-PLAN needs a total mapping given the PLAN dies anyway, how
+composed absorbs express their carried set, and whether the run's production
+record gets a durable home now that PR body Part 1 is known to reach main. The
+constraint on all of them is that the result must replace the consolidation
+judgment rather than sit beside it -- the single-mechanism rule is what killed
+the entry altitude and it still binds.
