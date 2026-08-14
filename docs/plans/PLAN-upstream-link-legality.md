@@ -130,19 +130,19 @@ over the direction finding on an entry that violates both.
 a shape the validator now rejects.
 
 **Acceptance Criteria**:
-- [ ] Neither `references/pipeline-model.md` nor
+- [x] Neither `references/pipeline-model.md` nor
       `skills/prd/references/prd-format.md` documents a ROADMAP as a legal
       upstream for a PRD or a DESIGN. The BRIEF case belongs to Issue 4, which
       owns the brief format reference, and the repo-wide sweep belongs to Issue
       6, the last issue to touch a reference file.
-- [ ] `references/pipeline-model.md` states the lifetime rule positively — a
+- [x] `references/pipeline-model.md` states the lifetime rule positively — a
       link runs from the shorter-lived document to the longer-lived one — and
       says that the crossing from the strategic chain into the tactical one is
       recorded on the PLAN alone.
-- [ ] The nearest-produced rule survives with the roadmap case removed: a PRD
+- [x] The nearest-produced rule survives with the roadmap case removed: a PRD
       written with no brief above it omits the field rather than reaching past
       it.
-- [ ] `shirabe validate --lifecycle . --mode=draft` still exits 0.
+- [x] `shirabe validate --lifecycle . --mode=draft` still exits 0.
 
 **Dependencies**: Blocked by <<ISSUE:1>>
 

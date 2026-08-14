@@ -110,33 +110,64 @@ a chain from strategic intent to implementation.
 VISION
   └── Strategy (upstream: VISION)
         └── Roadmap (upstream: Strategy)
-              └── Brief (upstream: Roadmap, per feature)
+              └── Brief (no upstream -- see below)
                     └── PRD (upstream: Brief)
                           └── Design Doc (upstream: PRD)
-                                └── Plan (upstream: Design Doc)
+                                └── Plan (upstream: Design Doc, and the
+                                          Roadmap when there is one)
                                       └── GitHub Issues (upstream: Plan)
 ```
 
 The diagram above is the full chain, not a mandatory one. Each artifact's
-`upstream` field points to the nearest artifact actually produced above it,
-and the field is omitted when nothing was.
+`upstream` field points to the nearest artifact actually produced above it
+that it is *allowed* to name, and the field is omitted when there is none.
 
-The strategic chain (VISION -> Strategy -> Roadmap) is strict in both
-directions: a VISION's downstream artifacts are STRATEGYs, a STRATEGY's are
-Roadmaps, and a Roadmap's upstream is the STRATEGY it sequences. Skipping an
-altitude there would leave the reasoning at the skipped altitude unreachable
-from the path a reader walks.
+## What makes a link legal
 
-The tactical chain is not strict, because its steps are not all mandatory. A
-feature framed directly in its PRD has no BRIEF, so that PRD's upstream is the
-Roadmap; a feature that needs no architectural decision has no DESIGN, so the
-PLAN's upstream is whatever preceded it. The field records the chain that was
-actually walked. What no artifact does is point downward or sideways -- a
-BRIEF never points at a PRD, which is written from the brief's framing.
+Two properties, both declared per artifact type in the validator's format
+table and both enforced by `shirabe validate`.
 
-The Roadmap is where the strategic chain hands off to the tactical one;
-`/brief` crosses that boundary by taking a Roadmap as its upstream, and no
-strategic document reaches past the Roadmap.
+**Direction.** The target's type is one the naming type may point at. The
+strategic chain (VISION -> Strategy -> Roadmap) is strict: a STRATEGY names a
+VISION and a Roadmap names a STRATEGY, and nothing skips an altitude, because
+skipping one would leave the reasoning at the skipped altitude unreachable
+from the path a reader walks. The tactical chain is not strict, because its
+steps are not all mandatory: a DESIGN written with no BRIEF above it names the
+PRD, and a PLAN names whatever tactical artifact preceded it. What no artifact
+does is point downward or sideways -- a BRIEF never names a PRD, which is
+written from the brief's framing.
+
+**Lifetime.** A link runs from the shorter-lived document to the longer-lived
+one. Roadmaps and Plans are working artifacts: they are deleted when their work
+completes. Every other type is durable. So a durable document never names a
+working one -- the link would be correct on the day it is written and dangling
+on the day the cascade runs. A working document may name anything, because it
+does not outlive what it points at.
+
+The two properties are enforced as `R10` (direction) and `R11` (lifetime). An
+entry violating both reports the lifetime finding, which is the diagnosis that
+survives being acted on.
+
+## Where the chains meet
+
+The Roadmap is where the strategic chain hands off to the tactical one, and the
+lifetime rule decides which document records the crossing. A Roadmap is a
+working artifact, so no durable tactical document may name it: **the crossing is
+recorded on the PLAN alone.** The PLAN is deleted by the same cascade that
+deletes the Roadmap, and it goes first, so that link cannot dangle.
+
+A BRIEF therefore carries no `upstream:` at all. It reads the Roadmap that
+sequences its feature -- the framing, the sequencing rationale, the neighbouring
+features -- and absorbs that context into its own prose, which is what its
+Problem Statement was always required to do. Its legal-parent set is empty,
+which states as a checkable fact that a brief heads its own tactical lineage.
+
+This is the same shape as the older rule for an upstream a document cannot
+reach: a public document whose upstream is private omits the field, absorbs the
+context, and stands as the head of its own lineage. One rule, two triggers --
+an upstream that cannot be *reached* and an upstream that will not *last*. Only
+the second can be checked by tooling, because a cross-repo value resolves to
+nothing.
 
 The chain enables:
 - Finding all downstream work from a VISION
