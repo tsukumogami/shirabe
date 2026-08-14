@@ -11,6 +11,16 @@ variables:
   PLAN_DOC:
     description: Path to the PLAN.md document driving this orchestration run
     required: true
+  PLAN_SLUG:
+    description: >
+      The PLAN's topic slug -- PLAN_DOC's basename with the PLAN- prefix and
+      .md suffix stripped, matching ^[a-z0-9-]+$. Declared as a template
+      variable because the worktree_discipline_check gate interpolates it into
+      a command koto runs itself, and koto resolves and compile-time-validates
+      only {{KEY}} references. A shell-style ${PLAN_SLUG} there is passed to
+      sh -c untouched and expands to the empty string, which is the defect this
+      declaration closes.
+    required: true
   PAUSE_BEFORE_FINALIZE:
     description: >
       Whether to stop at the paused_for_review terminal after pr_finalization
@@ -49,7 +59,7 @@ states:
     gates:
       impact_classified:
         type: command
-        command: "test -f wip/work-on_${PLAN_SLUG}_impact.json"
+        command: "test -f wip/work-on_{{PLAN_SLUG}}_impact.json"
     accepts:
       impact:
         type: enum
@@ -322,7 +332,9 @@ Submit `status: completed` after branch and draft PR exist, `status: override` i
 
 ## worktree_discipline_check
 
-Per-child worktree-discipline check (#162). Before dispatching children, fetch origin, rebase the shared branch on main, classify the upstream impact per `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`, and write the classification to `wip/work-on_${PLAN_SLUG}_impact.json`. Read `${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/phases/phase-2.5-worktree-discipline.md` for the full per-child instruction.
+Per-child worktree-discipline check (#162). Before dispatching children, fetch origin, rebase the shared branch on main, classify the upstream impact per `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`, and write the classification to `wip/work-on_{{PLAN_SLUG}}_impact.json`. Read `${CLAUDE_PLUGIN_ROOT}/skills/work-on/references/phases/phase-2.5-worktree-discipline.md` for the full per-child instruction.
+
+The `impact_classified` gate tests exactly that path: `wip/work-on_{{PLAN_SLUG}}_impact.json`. koto reports a failed command gate as an exit code with no message and discards the command's own output, so if this state will not advance, check that file first -- the gate has no other way to tell you what it wanted.
 
 Submit `impact` as one of:
 
