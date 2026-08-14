@@ -2,10 +2,15 @@
 topic: upstream-link-legality
 chain_started: 2026-08-14T00:00:00Z
 last_updated: 2026-08-14T00:00:00Z
-phase_pointer: phase-2
-exit: UNSET
-exit_artifacts: []
+phase_pointer: phase-3
+exit: full-run
+exit_artifacts:
+  - docs/briefs/BRIEF-upstream-link-legality.md
+  - docs/prds/PRD-upstream-link-legality.md
+  - docs/designs/DESIGN-upstream-link-legality.md
+  - docs/plans/PLAN-upstream-link-legality.md
 visibility: Public
+plan_execution_mode: single-pr
 planned_chain:
   - brief
   - prd
@@ -16,6 +21,7 @@ chain_ran:
   - brief
   - prd
   - design
+  - plan
 child_snapshots:
   brief:
     path: docs/briefs/BRIEF-upstream-link-legality.md
@@ -25,6 +31,11 @@ child_snapshots:
     path: docs/prds/PRD-upstream-link-legality.md
     status: Accepted
     jury: all-PASS-after-two-revision-rounds
+  plan:
+    path: docs/plans/PLAN-upstream-link-legality.md
+    status: Active
+    execution_mode: single-pr
+    review: PASS-after-two-revision-rounds
   design:
     path: docs/designs/DESIGN-upstream-link-legality.md
     status: Accepted
@@ -53,11 +64,6 @@ consolidation_judgments:
     reason: >-
       A failed carry aborts the absorb. Both artifacts stay on disk.
 phase_1_result: empty-cold-start
-parent_orchestration:
-  parent_skill: scope
-  child: plan
-  topic: upstream-link-legality
-  invoked_at: 2026-08-14T00:00:00Z
 shape_predicates:
   p1_architectural_alternatives: fires
   p2_new_component_references: does-not-fire
