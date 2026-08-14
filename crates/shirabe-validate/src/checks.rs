@@ -2618,7 +2618,9 @@ pub fn check_writing_style(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError
             let vocabulary = crate::visibility::resolve_prose_vocabulary(std::path::Path::new(
                 &doc.path,
             ));
-            check_writing_style_with(doc, &rules, &vocabulary)
+            let mut errs = check_writing_style_with(doc, &rules, &vocabulary);
+            errs.extend(check_prose_frequency(doc, &rules));
+            errs
         }
         None => Vec::new(),
     }
@@ -2699,6 +2701,70 @@ pub fn check_writing_style_with(
             code: "FC10".to_string(),
             message: format!(
                 "[FC10] writing-style findings truncated at {PROSE_FINDING_CAP} for this file; fix these and re-run to see the rest"
+            ),
+        });
+    }
+
+    errs
+}
+
+/// FC10 frequency rules: a rate against a threshold, reported per document.
+///
+/// The first check in shirabe that counts rather than matches. Every value
+/// it needs — the threshold, the denominator, the reporting unit, and which
+/// line the finding carries — comes from the rule source rather than from
+/// this code, so changing any of them is a data edit.
+///
+/// Per document rather than per occurrence because the defect is a
+/// document-level property: a rate reported 2,785 times is noise about one
+/// problem. The finding carries the first occurrence's line, because a
+/// document-level finding still has to point somewhere an author can click
+/// and line 1 points at frontmatter.
+pub fn check_prose_frequency(doc: &Doc, rules: &crate::rules::Rules) -> Vec<ValidationError> {
+    let spans = crate::prose::prose_spans(&doc.body, doc.body_start_line);
+    let words = crate::prose::prose_word_count(&spans);
+    let mut errs = Vec::new();
+
+    // A document with no prose has no rate. Dividing by it would report
+    // every stub as infinitely dense.
+    if words == 0 {
+        return errs;
+    }
+
+    for rule in &rules.frequency {
+        let mut count = 0usize;
+        let mut first_line: Option<usize> = None;
+        for span in &spans {
+            let hits = span.text.matches(&rule.pattern).count();
+            if hits > 0 && first_line.is_none() {
+                first_line = Some(span.line);
+            }
+            count += hits;
+        }
+        if count == 0 {
+            continue;
+        }
+
+        // Integer arithmetic: per-thousand scaled by 10 keeps one decimal
+        // place without floating point, so the comparison is exact and the
+        // reported rate is reproducible.
+        let rate_x10 = (count as u64 * 10_000) / words as u64;
+        let threshold_x10 = rule.threshold_per_thousand as u64 * 10;
+        if rate_x10 <= threshold_x10 {
+            continue;
+        }
+
+        errs.push(ValidationError {
+            file: doc.path.clone(),
+            line: first_line.unwrap_or(doc.body_start_line),
+            code: "FC10".to_string(),
+            message: format!(
+                "[FC10] {}: {}.{} per thousand words over {} words, above the threshold of {} -- see skills/writing-style/rules.yaml",
+                rule.id,
+                rate_x10 / 10,
+                rate_x10 % 10,
+                words,
+                rule.threshold_per_thousand
             ),
         });
     }
@@ -6428,6 +6494,63 @@ words:
             "declaring `tier` must not disable the other rules; got {suppressed:?}"
         );
         assert!(suppressed[0].message.contains("robust"));
+    }
+
+    #[test]
+    fn frequency_rule_fires_above_threshold_and_not_below() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let threshold = rules.frequency[0].threshold_per_thousand;
+
+        // Below: one em dash in enough words to sit under the threshold.
+        let words = (2000 / threshold.max(1)) as usize * 10;
+        let filler = vec!["word"; words].join(" ");
+        let under = doc_with_body("t.md", &[&format!("{filler} — one")]);
+        assert!(
+            check_prose_frequency(&under, &rules).is_empty(),
+            "a document below the threshold must not fire"
+        );
+
+        // Above: many em dashes in few words.
+        let over = doc_with_body("t.md", &["a — b — c — d — e — f"]);
+        let errs = check_prose_frequency(&over, &rules);
+        assert_eq!(errs.len(), 1, "one finding per document; got {errs:?}");
+        assert!(errs[0].message.contains("em-dash-density"));
+    }
+
+    #[test]
+    fn frequency_rule_reports_one_finding_per_document_at_the_first_occurrence() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let mut doc = doc_with_body(
+            "t.md",
+            &["clean opening line", "second — line", "third — line"],
+        );
+        doc.body_start_line = 10;
+        let errs = check_prose_frequency(&doc, &rules);
+        assert_eq!(errs.len(), 1, "per document, not per occurrence");
+        assert_eq!(
+            errs[0].line, 11,
+            "the finding points at the first occurrence, not line 1"
+        );
+    }
+
+    #[test]
+    fn frequency_rule_ignores_em_dashes_outside_prose() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let doc = doc_with_body(
+            "t.md",
+            &["```", "a — b — c — d — e — f", "```", "clean prose here"],
+        );
+        assert!(
+            check_prose_frequency(&doc, &rules).is_empty(),
+            "a rate computed over code fences is not the rate the author acts on"
+        );
+    }
+
+    #[test]
+    fn frequency_rule_does_not_divide_by_zero_on_an_empty_document() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let doc = doc_with_body("t.md", &[]);
+        assert!(check_prose_frequency(&doc, &rules).is_empty());
     }
 
     #[test]

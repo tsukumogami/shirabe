@@ -51,6 +51,19 @@ DESIGN records it as such: a file that runs no checks and reports success
 is the same silent-success defect the format-gate work exists to end,
 arriving through a different gate.
 
+**`real/DESIGN-gha-doc-validation.md` gains an em dash density finding** at
+11.2 per thousand words over 3,298 words of scoped prose, against a
+threshold of 10. This is the first check in shirabe that computes a rate
+rather than matching a pattern, and this fixture is the first real document
+it fires on. The word count is scoped prose, so fenced code and table rows
+are excluded from the denominator; a rate computed over them would not be
+the rate the author is asked to act on.
+
+The fixture moves twice under this design: once when prose began running
+above the schema gate, and again here. Both are recorded rather than folded
+together, because they come from independent changes and a reader tracing
+one should not find the other silently bundled.
+
 **Note on the adverb-opener rules.** They match anywhere in a line rather
 than only at a sentence start, so a mid-sentence `additionally` would also
 fire. No corpus file exercises that case today. Narrowing the match to

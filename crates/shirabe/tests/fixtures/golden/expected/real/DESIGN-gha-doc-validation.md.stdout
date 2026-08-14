@@ -1,1 +1,2 @@
+::notice file=real/DESIGN-gha-doc-validation.md::[FC10] em-dash-density: 11.2 per thousand words over 3298 words, above the threshold of 10 -- see skills/writing-style/rules.yaml
 ::notice file=real/DESIGN-gha-doc-validation.md::schema field missing, skipping

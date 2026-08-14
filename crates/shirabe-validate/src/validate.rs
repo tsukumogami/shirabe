@@ -297,6 +297,35 @@ mod tests {
     use crate::formats::formats;
     use std::collections::HashMap;
 
+    /// Every prose code resolves to a notice under both postures.
+    ///
+    /// A prose code missing from `is_intrinsic_notice` ships at error level
+    /// to every repository pinned at `@main` on its next docs PR. That is
+    /// the breaking arrival the requirements forbid, reached through a
+    /// registration list rather than through a decision, which is why it is
+    /// asserted rather than reviewed.
+    #[test]
+    fn prose_codes_are_notice_level_under_both_postures() {
+        for code in ["FC10", "FC-CONVENTIONS"] {
+            let err = ValidationError {
+                file: "t.md".to_string(),
+                line: 1,
+                code: code.to_string(),
+                message: String::new(),
+            };
+            for posture in [ReviewPosture::Draft, ReviewPosture::Ready] {
+                assert!(
+                    is_notice(&err, posture),
+                    "{code} must be notice-level under {posture:?}"
+                );
+            }
+            assert!(
+                is_known_check_code(code),
+                "{code} must be selectable with --check"
+            );
+        }
+    }
+
     fn spec_for(schema: &str) -> FormatSpec {
         formats()
             .into_iter()
