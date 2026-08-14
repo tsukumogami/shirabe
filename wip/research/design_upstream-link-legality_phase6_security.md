@@ -1,221 +1,168 @@
-# Phase 6 security review — DESIGN-upstream-link-legality
+# Phase 6 security review — DESIGN-upstream-link-legality (re-review)
 
-**Verdict:** FAIL
+**Verdict:** PASS
 
-Three required changes, all inside the flag-path subsection and Security
-Considerations, all specification-level rather than re-litigations of a settled
-decision. Two of the five Phase 5 areas are carried faithfully and one is
-carried more strongly than I asked for. The failures are concentrated in the
-surface the design itself identifies as the one that records: `/plan`'s new
-flag.
-
----
-
-## What is carried faithfully
-
-**Area 3 (visibility boundary)** — faithful. The rule is stated in the flag-path
-enumeration and again in Security Considerations, and the reason given is the
-standalone-versus-chain asymmetry with the correct consequence named (a public
-plan naming a private roadmap, uncatchable because a cross-repo value resolves
-to nothing). An implementer cannot satisfy this by pointing at `/scope`.
-
-**Area 5 (validator I/O and basename spoofing)** — faithful, and correctly
-separated: I/O is N/A by construction ("no path to canonicalize, no file to
-open, and no syscall an attacker could steer"), spoofing is accepted with both
-directions priced. The added observation that evading by renaming also costs the
-document its required-sections detection is a better version of my argument than
-the one I wrote.
-
-**Area 1, one part — stronger than my report.** I offered "while
-`validate-plan.sh` is being changed anyway, canonicalize and reject an
-out-of-root or symlinked target" as an aside; the design commits to it in
-Security Considerations and sequences the whole script fix as a hard dependency
-of the flag rather than a follow-up. That is the right call and it is stated in
-a way an implementer cannot defer.
+All three required changes are applied and none of them is satisfiable without
+closing the hole it names. One drafting correction must land with the
+implementation — it is a clause, not a decision, and the correct behaviour is
+already written down in `/scope`'s own Phase 0, so it needs no further review.
+One residual is carried forward as a note because its failure mode is loud.
 
 ---
 
-## Required change 1 — the `/plan` validation set is missing cross-repo discrimination, and the omission makes the visibility check unreachable
+## The three required changes, judged
 
-The flag-path subsection enumerates six checks: canonicalization with symlink
-resolution, bounds-check against the working tree, roadmap basename, not under
-`wip/`, tracked by git, private-upstream omission. The seventh is missing, and
-it is the one that has to run **first**.
+### 1. Cross-repo discrimination — applied, and not hollow
 
-Every sibling skill discriminates a cross-repo `owner/repo:path` value before
-any filesystem check and exempts it from path resolution.
-`skills/scope/references/phases/phase-0-setup.md:146-151`: such a value "is not a
-working-tree path and is not resolved against the filesystem at all. It skips
-this check and the tracked-by-git check." `/brief`'s
-`phase-0-setup.md:189-194` says the same. The Rust side has the discriminator
-public as `crate::upstream::is_cross_repo_reference` (`upstream.rs:133-141`).
+The flag path is now an ordered list with cross-repo discrimination as step 1,
+and the ordering is stated as load-bearing rather than as presentation: "Run in
+any other order, the checks below would reject every cross-repo roadmap and the
+visibility check would become unreachable, which is the check that matters most
+for exactly those values." Security Considerations repeats it with the reason
+sharpened — "getting that order wrong is a security failure rather than a
+functional one."
 
-Applied literally, the design's set rejects every cross-repo roadmap: it does not
-canonicalize, it is not inside the working tree, and `git ls-files` returns
-nothing for it. Two consequences, one functional and one security:
+What would have made this hollow is listing cross-repo as an item without fixing
+its position, leaving an implementer free to run canonicalization first and
+discover the exemption as a special case afterwards. The numbering plus the
+consequence sentence closes that: an implementer who reorders has been told in
+advance what they broke.
 
-- **Functional.** `/scope` deliberately accepts cross-repo upstreams, and its own
-  Phase 0 gives the reason: rejecting them "would also make the flag unable to
-  express the case that motivates it, a tactical chain run in one repo underneath
-  a roadmap that lives in another"
-  (`skills/scope/references/phases/phase-0-setup.md:204-207`). Under R14 that
-  value is now handed to `/plan`. A `/plan` that rejects what `/scope` accepts
-  breaks the chain mid-flight — the same divergence class the design correctly
-  guards against between `/scope` and `/brief`.
-- **Security.** The private-upstream omission check only ever fires on a
-  cross-repo value: a private upstream is by definition in another repository.
-  If cross-repo values never survive canonicalization, the check the design
-  calls out in its own Security Considerations is unreachable code. The ordering
-  is what makes that control real, so the ordering has to be in the contract.
+### 2. The confinement extends to the writer — applied, and not hollow
 
-**Required:** state that a cross-repo `owner/repo:path` value is discriminated
-first and exempted from canonicalization, the bounds check, and the tracked-by-git
-check, retaining the roadmap-basename rule on its file component — and that the
-private-upstream omission check runs on it, because that is the only value class
-it can fire on.
+Both the flag path and Security Considerations say it binds `/scope`, `/brief`
+and `/plan`. The reason survives the trip: the chain direction is identified as
+already safe (parent stricter than child), so the justification rests where it
+should, on standalone `/plan` accepting what standalone `/brief` refuses. The
+concrete input class is named — a tracked file with a roadmap basename outside
+the roadmaps directory — along with the fact that this repository holds four of
+them. That is the sentence that makes the control checkable rather than
+aspirational: an implementer can test it.
 
-**Also required, one sentence, same paragraph.** The design says `/plan`
-canonicalizes the value and then "writes it into the produced plan's `upstream:`
-as a second sequence entry", without saying which form is written. It must be
-the repo-relative path, not the canonical absolute one: `validate-plan.sh:149`
-builds `upstream_abs="${repo_root}/${upstream_val}"` by concatenation, so an
-absolute recorded value produces a doubled path and fails the CI gate this
-change is otherwise repairing. `finalize.rs` resolves relative to the process
-working directory and would accept either, so the script is the binding
-constraint and nothing else would catch the mistake.
+The design also does something I did not ask for and should have: it flags in
+the flag-path subsection that two of `/brief`'s five checks are *changes* to a
+skill R13 elsewhere describes as unchanged, so the diff does not arrive as a
+surprise to a reviewer reading "unchanged as inputs" literally.
+
+### 3. Both interpolation sites — applied, and not hollow
+
+The sites are distinguished by which one is new and by what each lacks today:
+the Phase 7 per-entry invocation is "specified unquoted and without a
+terminator", the pre-flight script "quotes the value but passes no `--`". The
+sentence "the script does not have that boundary today and gains it here"
+forecloses the reading that the script already complies. Both are named as
+getting the boundary when the change lands.
 
 ---
 
-## Required change 2 — the confinement is applied to the reader and not to the writer
+## Must fix with the implementation — step 5's bundling drops a check `/scope` performs
 
-This is the answer to the second question, and it is the reason for the FAIL
-rather than a note.
+This is the interaction the re-review question points at, and it arrives from
+the bundling rather than from the confinement itself.
 
-The design confines the flag's canonical path to the roadmaps directory at
-`/scope` and `/brief`. My at-both-or-neither caveat was written about those two
-skills, before R14 made `/plan` a third holder of the same value. Re-priced with
-`/plan` in the picture, confining two of the three is the wrong two.
+Step 5 bundles two checks into one item: "Reject a path under `wip/`, and reject
+an untracked path." Step 1 then says a cross-repo value "skips checks 2, 3 and
+5" — both halves. Between the two steps the `wip/` rejection has no live domain
+at `/plan` at all:
 
-**The chain direction is safe.** `/scope` is now stricter than `/plan`, so a
-value that reaches `/plan` through the chain has already passed the confinement.
-No mid-flight rejection.
+- **For a local value it is unreachable**, because step 3's confinement to the
+  roadmaps directory already excludes everything under `wip/`. The two
+  directories are disjoint, so the confinement subsumes the `wip/` half. That is
+  fine, and worth a clause so a future maintainer relaxing the confinement knows
+  what else they are relaxing.
+- **For a cross-repo value it is skipped**, and that is the drift.
+  `skills/scope/references/phases/phase-0-setup.md:146-151` exempts a cross-repo
+  value from the canonicalize/bounds check and from the tracked-by-git check —
+  and from those two only. Its three ordered checks then run, and check 1 is the
+  `wip/` rejection, so `/scope` applies `wip/` to a cross-repo value today.
+  `/brief`'s equivalent at `phase-0-setup.md:189-194` reads the same way.
 
-**The standalone direction is not.** Standalone `/plan --upstream <path>` accepts
-what standalone `/brief --upstream <path>` rejects — and `/plan` is the one that
-commits the value. The design's own justification for the confinement is that
-grounding a durable artifact in an unreproducible file makes its provenance
-unrecoverable. Recording a committed frontmatter pointer to such a file is
-strictly the worse case, and it is the case left open.
+So `owner/repo:wip/ROADMAP-x.md` would be accepted by `/plan` and committed to a
+public plan's `upstream:`, where `/scope` rejects it. Nothing downstream catches
+it: the resolution check `continue`s on a cross-repo entry, and the finalization
+walk stops on one. The result is a committed pointer into another repository's
+non-durable directory — the exact defect the workspace's wip-hygiene rule
+declares out of bounds "workspace-wide, to every repo regardless of visibility."
+And it reproduces the divergence class the design otherwise guards against: the
+chain path is protected because `/scope` checks first, and standalone `/plan` is
+where it opens.
 
-**What is actually reachable.** `/plan` keeps tracked-by-git, so the untracked
-class decision 4 opened at `/brief` is closed at `/plan`. What remains is a
-**tracked** file with a `ROADMAP-` basename outside `docs/roadmaps/`. This
-repository has four:
-
-- `skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md`
-- `skills/work-on/evals/fixtures/roadmaps/ROADMAP-cascade-test.md`
-- `crates/shirabe/tests/fixtures/golden/corpus/real/ROADMAP-strategic-pipeline.md`
-- `crates/shirabe/tests/fixtures/golden/corpus/synthetic/ROADMAP-fc05-divergent-header.md`
-
-A plan recording one of these is not merely mislabelled. `finalize.rs:687-691`
-types a node as `Roadmap` from its basename with no directory rule, so the walk
-hands it off; `run-cascade.sh:830-832` routes the handoff to `handle_roadmap`,
-which greps and rewrites the file, and on the all-features-Done path
-`handle_roadmap_deletion` reaches `git rm -f "$path"` at `:563`. The consume-side
-guards I confirmed in Phase 5 (`validate_node_path`: root confinement, regular
-file, symlink rejection) all pass for a tracked in-tree fixture — they were never
-directory-aware, and were never meant to be. The Phase 0 confinement is the only
-place this is decidable.
-
-**Required:** apply the same confinement to `/plan`'s flag, and say in the
-Security Considerations paragraph that it binds at all three skills that carry a
-roadmap on the flag — `/scope`, `/brief`, `/plan` — with the writer being the one
-that most needs it. While editing, state whether the confinement is a prefix
-match on `docs/roadmaps/` or a match against the non-recursive glob `/brief`'s
-positional mode uses (`skills/brief/SKILL.md:107-109`); the two differ for a
-nested subdirectory and an implementer will otherwise pick one silently.
-
-**Priced and not a problem** (checked, so the change can be made without a second
-review round):
-
-- No eval breaks. `/scope`'s `upstream-flag-consumed` uses
-  `docs/roadmaps/ROADMAP-editor.md` (`skills/scope/evals/evals.json:344`), and
-  `/prd`'s `wip/ROADMAP-staging.md` scenario (`skills/prd/evals/evals.json:125`)
-  is a negative test for a check that is unchanged.
-- Resume is covered for free and degrades gracefully.
-  `upstream-flag-stale-on-resume` already specifies that the ladder "re-run[s]
-  the whole Phase 0 battery against the worktree as it is now"; a
-  `consumed_upstream:` recorded before this change that now fails the confinement
-  routes to the already-specified Re-supply / Continue-without / Bail rather than
-  to a hard stop.
-- R23's hand-authored fixture chain is unaffected. The confinement binds the
-  skill's input flag; the validator and the cascade stay directory-agnostic by
-  design, which is exactly why the input flag has to carry it.
+**Required clause:** split step 5, so cross-repo skips checks 2, 3 and the
+untracked half of 5 while retaining the `wip/` rejection on its path component;
+and say in step 3 that the confinement subsumes the `wip/` rejection for
+working-tree values. Two sentences. It changes no decision, contradicts nothing
+already written, and restores parity with the sibling whose text the flag path
+is otherwise reproducing — which is why it is a drafting correction rather than
+a second failure.
 
 ---
 
-## Required change 3 — "one new interpolation site" undercounts by one
+## Residual carried forward — the recorded value's form is still unstated
 
-Security Considerations says "One new interpolation site, and it gets the
-argument boundary... The value reaches a `git ls-files` invocation per entry in
-the plan pre-flight path."
+My first-round change 1 had a second half that has not landed: the design says
+`/plan` canonicalizes the value and then "writes the value into the produced
+plan's `upstream:` as a second sequence entry after the design", without saying
+which form is written. It must be the repo-relative path;
+`validate-plan.sh:149` builds `upstream_abs="${repo_root}/${upstream_val}"` by
+concatenation, so a canonical absolute value produces a doubled path.
 
-Two distinct commands take the value, in two different files, and only one of
-them is new:
-
-1. **New.** Step 7.4b's per-entry `git ls-files`, in
-   `skills/plan/references/phases/phase-7-creation.md`. The step's prose today
-   reads "If `git ls-files <path>` returns empty" (`:308`) — unquoted and with no
-   `--`. This is the site the design is describing, and it is currently
-   specified in the exact shape the stated discipline forbids.
-2. **Pre-existing, in the script the design is already rewriting.**
-   `validate-plan.sh:160` runs `git ls-files --error-unmatch "$upstream_val"` —
-   quoted, but with no `--` terminator, so a value beginning with a dash is
-   parsed as an option rather than a pathspec. The advice string at `:162` has
-   the same shape.
-
-An implementer reading "one new interpolation site" can satisfy the sentence by
-fixing the script and leaving 7.4b's prose as written, or the reverse. Severity
-is low on its own — the roadmap-basename rule makes a leading-dash value require
-a directory literally named `-something` — but the cost of naming both sites is
-one clause, and the design elsewhere insists correctly that the argument
-boundary rather than the validation is the guarantee.
-
-**Required:** name both commands and say both are quoted and passed after `--`.
-The Rust side already models it exactly (`checks.rs:846`:
-`.args(["ls-files", "--error-unmatch", "--", path])`) and is worth citing so the
-shape is not re-derived.
+I am not failing on it, and the reason is the failure mode: an absolute recorded
+value makes the pre-flight script report `upstream file does not exist` and exit
+3 on the first plan produced through the flag. That is loud, immediate, and in
+CI — it cannot ship silently, which is the property that separates it from
+everything above. Worth the clause when the flag's contract is authored;
+not worth a review round.
 
 ---
 
-## Secondary finding — outside my remit, visible from here
+## Answering the interaction question directly
 
-`/prd` still documents its `--upstream` as "Typically points to a Roadmap
-document when the PRD is part of a multi-feature initiative" and writes it to
-frontmatter — `skills/prd/SKILL.md:81-84` and
-`skills/prd/references/phases/phase-3-draft.md:32-35`. Under R5 a PRD's only
-legal parent is a BRIEF, and R11 says no skill records a value the definition
-forbids, so `/prd` is a second skill that will keep producing exactly the edge
-the new direction check errors on.
+**Does step 1's exemption conflict with step 3's confinement?** No, and the
+exemption is the correct resolution rather than a papering-over. A cross-repo
+value's path component describes the *other* repository's layout, and this
+repository has no standing to require `docs/roadmaps/` of it — the cross-repo
+reference convention deliberately does not export local placement rules across
+the boundary. Exempting the confinement is therefore the only coherent
+behaviour, and step 1 already states it.
 
-The design's Implementation Approach phase four lists `/brief`, `/plan`,
-`/scope`, and `/explore` as the skill contracts to author, and does not list
-`/prd`. The reference-sweep AC ("no file under `references/` or
-`skills/*/references/` documents a ROADMAP as a legal upstream for a BRIEF, a
-PRD, or a DESIGN") catches `phase-3-draft.md` but not `SKILL.md`, which is
-neither. So half of it lands by accident of the AC's grep scope and half is
-unowned. This is an R11 completeness gap rather than a security one; I raise it
-because a reviewer finding it after the change ships will reasonably assume it
-was missed rather than deferred.
+**Did extending the confinement to `/plan` create anything unpriced?** One
+thing, and it is the finding above: the confinement makes step 5's `wip/` half
+redundant for local values, which is harmless, and step 1's exemption removes it
+for cross-repo values, which is not. The two are individually correct and
+jointly leave the check with nowhere to fire. Neither would have been visible
+before the confinement landed, which is why it surfaces now rather than in the
+first round.
+
+**Anything else the confinement touches?** Re-checked and clear, as reported
+last round: no eval breaks (`/scope`'s `upstream-flag-consumed` uses
+`docs/roadmaps/ROADMAP-editor.md`), the resume ladder picks the confinement up
+through its existing whole-battery re-validation and degrades to Re-supply /
+Continue-without / Bail, and the hand-authored fixture chain is unaffected
+because the confinement binds the input flag while the validator and the cascade
+stay directory-agnostic by design.
 
 ---
 
 ## Summary
 
-| Area | Carried as reported? |
+| Area | Status |
 |---|---|
-| 1. `/plan --upstream` path handling | Partly — the six-check enumeration drops cross-repo discrimination-first, which breaks the motivating case and makes the visibility check unreachable; the recorded value's form is unstated. Otherwise carried, and the `validate-plan.sh` half is carried more strongly than reported |
-| 2. Interpolation | Partly — discipline stated correctly, site count is one short; both commands need naming |
-| 3. Visibility boundary | Yes, faithfully, with the right reason |
-| 4. `/brief` tracked-by-git | Mitigation 1 taken correctly at `/scope` and `/brief`, but not at `/plan`, which is the skill that records. Breaks no legitimate invocation and no eval; the gap is the writer, not the reader |
-| 5. Validator I/O and spoofing | Yes, faithfully, and better argued than reported |
+| 1. `/plan --upstream` path handling | Applied, ordered, and the ordering's consequence stated. One clause outstanding on the recorded value's form — loud failure, not a blocker |
+| 2. Interpolation | Applied; both sites named and distinguished by what each lacks today |
+| 3. Visibility boundary | Applied, with the standalone-versus-chain reason intact |
+| 4. `/brief` tracked-by-git and the confinement | Applied at all three holders, with the concrete input class and its four instances named. Must-fix clause: step 5's bundling drops the `wip/` rejection for cross-repo values, where `/scope` applies it |
+| 5. Validator I/O and spoofing | Unchanged and faithful |
+
+---
+
+## Secondary finding, unchanged and still unowned
+
+Raised last round and not addressed, restated once so it is a decision rather
+than an oversight: `/prd` still documents its `--upstream` as "Typically points
+to a Roadmap document" and writes it to frontmatter
+(`skills/prd/SKILL.md:81-84`, `skills/prd/references/phases/phase-3-draft.md:32-35`).
+R5 gives a PRD one legal parent and it is not a roadmap, and R11 says no skill
+records a forbidden value. The reference sweep's own acceptance criterion covers
+`phase-3-draft.md` because it lives under `skills/*/references/`; `SKILL.md`
+does not, and `/prd` is absent from the skill-contract phase. This is an R11
+completeness gap rather than a security one, and it does not affect the verdict.

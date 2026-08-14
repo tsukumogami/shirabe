@@ -17,10 +17,11 @@ decision: |
 rationale: |
   Declaring both facts beside the type's other structural facts makes the
   maintainer journey work and lets a plain unit test enforce that no durable
-  type declares a working parent. One check function rather than two is forced
-  by the precedence rule, which is not expressible across function boundaries
-  because a finding carries no entry index. Placing the check after the schema
-  gate is what keeps the golden corpus byte-identical.
+  type declares a working parent. One check function rather than two is chosen
+  because a shared classifier feeding two emitters is that one function with an
+  extra indirection, while suppression downstream of the finding boundary is not
+  expressible at all: a finding carries no entry index. Placing the check after
+  the schema gate is what keeps the golden corpus byte-identical.
 upstream: docs/prds/PRD-upstream-link-legality.md
 ---
 
@@ -95,7 +96,9 @@ to correlate them by.
 **Existing contracts are reused rather than reinvented.** The `--upstream <path>`
 flag is owned by five skills with the same parse-before-positional discipline,
 the same bare-flag rejection, and the same three ordered validation checks. A
-sixth skill adopting it should adopt the contract, not a variant of it.
+sixth skill adopting it should adopt the contract, not a variant of it — and
+where it must extend the contract, the extension applies to every skill that
+holds the value rather than to the new one alone.
 
 **The change is authored in each skill's own contract.** A skill records the
 same value invoked standalone as it does under a parent, so no parent may
@@ -280,9 +283,18 @@ after the private-only gate, which short-circuits before it.
 `/plan` gains `--upstream <path>` with the contract its five sibling skills
 already ship: parsed before the positional argument, never used to derive the
 topic slug, rejected when bare or repeated, canonicalized and bounds-checked,
-and run through the three ordered checks. `/scope` passes its recorded roadmap
-to `/brief` for grounding and to `/plan` for the record. The produced plan
-carries its design first and the roadmap second.
+and run through the ordered validation checks. The contract is extended rather
+than merely adopted, and the extension applies to every skill that validates a
+supplied path rather than to `/plan` alone: cross-repo discrimination is
+promoted to the first check, because running it later makes the visibility check
+unreachable for exactly the values it governs; and the canonical path is
+confined to the roadmaps directory, because dropping the tracked-by-git check
+for a read-only input would otherwise widen what a grounding path may be. Both
+are set out in the flag path below.
+
+`/scope` passes its recorded roadmap to `/brief` for grounding and to `/plan`
+for the record. The produced plan carries its design first and the roadmap
+second.
 
 `/brief` keeps both roadmap routes, writes no `upstream:` field, and announces
 the omission with its reason. Its basename enforcement stays and gains weight:
@@ -349,7 +361,7 @@ private-only gate run after legality.
 The whole-tree lifecycle traversal is undisturbed by any of this. It is a
 separate mode that emits its own codes and never calls the per-file pass, so
 `shirabe validate --lifecycle . --mode=draft` exits 0 after the change exactly
-as it does before, with the same two orphan notices.
+as it does before, with the same single orphan notice.
 
 ### The flag path
 
@@ -383,13 +395,21 @@ against the full record-time set its five sibling skills run, in this order:
 It then writes the value into the produced plan's `upstream:` as a second
 sequence entry after the design.
 
-The directory confinement applies to all three skills that hold the value —
-`/scope`, `/brief` and `/plan` — not to the two that read it. Confining only the
-readers would leave standalone `/plan` accepting what standalone `/brief`
-rejects, and `/plan` is the one that commits the value; a tracked file with a
-roadmap basename outside the roadmaps directory is exactly the input the
-confinement exists to refuse, and this repository contains four of them in
-fixture trees.
+The directory confinement applies to every skill that validates a supplied path
+— `/scope`, `/brief` and `/plan` — and to none of the consumers that later read
+a recorded field, which judge what is written rather than what was typed.
+Confining only the two that do not record would leave standalone `/plan`
+accepting what standalone `/brief` rejects, and `/plan` is the one that commits
+the value.
+
+"The roadmaps directory" means `<root>/docs/roadmaps/` for whichever repository
+root the value was canonicalized against, not any path segment spelled
+`docs/roadmaps/` anywhere beneath it. The distinction is not academic here: this
+repository tracks eight `ROADMAP-*.md` files and has no `docs/roadmaps/` of its
+own, so under this reading every one of them is outside the confinement, four
+of them sitting in fixture corpora that have their own roots. A path-segment
+reading would admit four of the eight and would let a fixture tree launder a
+roadmap path into a real chain.
 
 Two of these are changes to `/brief`'s flag validation, which R13 otherwise
 describes as unchanged: check 5's tracked-by-git half is dropped there because a
@@ -421,7 +441,7 @@ the ordinary orphan notice an upstream-less brief takes today — notice-level
 under draft posture, and resolved the moment its PRD names it.
 
 `FormatId` and `lifecycle.rs`'s `ChainRole` overlap without depending on each
-other. `ChainRole` models the four tactical roles the chain walk traverses;
+other. `ChainRole` models the five roles the chain walk traverses;
 `FormatId` names all eight types for the legality lookup. Unifying them means
 changing `ChainRole::from_format`'s signature and its tests, which the
 no-modified-tests constraint puts out of reach here. The dependency stays
@@ -541,15 +561,15 @@ convergence Decision 4 wanted, completed rather than left halfway, and it
 rejects nothing legitimate: every roadmap the roadmap skill produces lands
 there, and cross-repo values skip path resolution entirely.
 
-The confinement applies to all three skills that hold the value, not to the two
-that read it. Confining `/scope` and `/brief` alone would make the chain
-direction safe — the parent is then stricter than the child, so nothing is
-rejected mid-flight — while leaving standalone `/plan` accepting what standalone
-`/brief` refuses, and `/plan` is the one that commits. What that halfway version
-leaves open is a tracked file with a roadmap basename outside the roadmaps
-directory, of which this repository has four in its fixture trees, and a
-committed frontmatter pointer to one is strictly worse than grounding prose in
-it.
+The confinement applies to every skill that validates a supplied path, and to
+none of the consumers that read a recorded field. Confining `/scope` and
+`/brief` alone would make the chain direction safe — the parent is then stricter
+than the child, so nothing is rejected mid-flight — while leaving standalone
+`/plan` accepting what standalone `/brief` refuses, and `/plan` is the one that
+commits. What that halfway version leaves open is a tracked file carrying a
+roadmap basename outside `<root>/docs/roadmaps/`, of which this repository
+tracks eight, and a committed frontmatter pointer to one is strictly worse than
+grounding prose in it.
 
 **The check performs no I/O: N/A.** Legality is decided by matching two
 basenames against a compiled table. There is no path to canonicalize, no file to
