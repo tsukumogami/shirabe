@@ -66,9 +66,10 @@ arrays (bash 4.0) and one nameref (bash 4.3). macOS ships bash 3.2.57 as
 `/bin/bash` for licensing reasons that will not change, and the script's shebang
 is `#!/usr/bin/env bash`. On a macOS host with no separately installed bash 5,
 the script fails at the first of the nine and exits before emitting a single
-task, so the step that consumes its output has nothing to submit. The
-originally reported instance was one associative array; the first construct a
-real run actually hits is the nameref, several hundred lines earlier.
+task, so the step that consumes its output has nothing to submit. Which one
+fails first depends on the plan: a single-pr plan dies at the associative array
+the report named, a multi-pr plan dies earlier on the nameref. Fixing either
+alone just moves the failure to the next one.
 
 That this shipped at all is a CI gap.
 `.github/workflows/check-plan-scripts.yml` runs the script's tests on a macOS
@@ -227,12 +228,12 @@ learn what the step wanted.
   did not have to touch.
 
 - **The reported bash defect is treated as nine defects, not one.** The issue
-  named one associative array. Running the script under bash 3.2 shows the first
-  construct a real run hits is a nameref several hundred lines earlier, and a
-  sweep finds eight associative arrays behind it. Fixing only the reported line
-  moves the failure and produces a second bug report from the same root cause.
-  R3 scopes to all nine, and R5 exists because a grep for the reported construct
-  would have missed the nameref — only running the script found it.
+  named one associative array — correctly, for the single-pr plan it was run
+  against. A sweep finds seven more, plus a nameref that a multi-pr plan hits
+  first. Fixing only the reported line moves the failure and produces a second
+  bug report from the same root cause. R3 scopes to all nine, and R5 exists
+  because a grep for `declare -A` would have missed the nameref entirely — only
+  running the script under the platform bash found it.
 
 - **R4 (identical output across bash versions) is a requirement, not an
   assumption.** Replacing an associative array with a portable construction can

@@ -92,10 +92,11 @@ plan-to-tasks.sh: line 75: local: -n: invalid option
 plan-to-tasks.sh: line 76: _arr_ref: unbound variable
 ```
 
-The nameref at line 75 is reached before any associative array, so the
-originally reported line 395 is not even the first failure — it is where a run
-that somehow got past `array_to_json` would stop next. The reported defect was
-one of nine.
+Which of the nine fails first depends on the plan. A multi-pr plan reaches
+`array_to_json` early and dies on the nameref at line 75; a single-pr plan
+computes issue names first and dies on `local -A slug_counts` at line 395, which
+is the line the report named. Both are real, and fixing either alone just moves
+the failure. The reported defect was one of nine.
 
 The reason this shipped is in CI. `.github/workflows/check-plan-scripts.yml`
 runs the script's test suite on a macOS runner, and installs Homebrew bash
