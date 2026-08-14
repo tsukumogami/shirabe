@@ -1,13 +1,15 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   Two defects stop /execute's koto-driven single-pr path before it does any
   work. The worktree-discipline gate is written with shell interpolation syntax
   (`${PLAN_SLUG}`) that koto does not resolve and does not validate, so the gate
   tests a path with an empty slug and can never pass. The task-generation script
-  uses bash 4 associative arrays in seven places and dies at the first one on
-  macOS, whose system bash is 3.2. Both failures report a bare exit code or a
+  uses bash 4 constructs in nine places -- eight associative arrays and a
+  nameref -- and dies at the first one on macOS, whose system bash is 3.2. CI
+  hid it by installing bash 5 on its macOS runner. Both failures report a bare
+  exit code or a
   syntax error with no route forward, so a developer who hits either has to read
   the template or the script to find out what happened.
 goals: |
@@ -30,7 +32,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+In Progress
 
 Requirements for the two defects blocking `/execute`'s single-pr path, from
 issue #270. The framing that opened this chain was absorbed into this document
@@ -58,14 +60,21 @@ in the directive prose for the agent to use in its own shell, and that
 derivation never reaches the environment koto evaluates the gate in. The state
 cannot advance no matter what the agent does correctly.
 
-The second is a portability break. `skills/plan/scripts/plan-to-tasks.sh`
-declares associative arrays — a bash 4.0 construct — in seven places. macOS
-ships bash 3.2.57 as `/bin/bash` for licensing reasons that will not change,
-and the script's shebang is `#!/usr/bin/env bash`. On a macOS host with no
-separately installed bash 5, the script fails at the first declaration and
-exits before emitting a single task, so the step that consumes its output has
-nothing to submit. The originally reported instance was one line; it was simply
-the first of seven to execute.
+The second is a portability break. `skills/plan/scripts/plan-to-tasks.sh` uses
+bash constructs newer than the platform floor in nine places: eight associative
+arrays (bash 4.0) and one nameref (bash 4.3). macOS ships bash 3.2.57 as
+`/bin/bash` for licensing reasons that will not change, and the script's shebang
+is `#!/usr/bin/env bash`. On a macOS host with no separately installed bash 5,
+the script fails at the first of the nine and exits before emitting a single
+task, so the step that consumes its output has nothing to submit. The
+originally reported instance was one associative array; the first construct a
+real run actually hits is the nameref, several hundred lines earlier.
+
+That this shipped at all is a CI gap.
+`.github/workflows/check-plan-scripts.yml` runs the script's tests on a macOS
+runner and installs Homebrew bash first, with a comment naming the exact defect
+it is compensating for. The matrix entry that exists to catch platform breakage
+is what kept it from being caught.
 
 What makes two small defects cost a whole run is that neither says what went
 wrong. koto reports a failed command gate as `{"exit_code": 1, "error": ""}` —
@@ -128,8 +137,9 @@ learn what the step wanted.
   shell variables there.
 - **R3 — Task generation runs on the platform bash floor.**
   `skills/plan/scripts/plan-to-tasks.sh` SHALL run to completion on a host whose
-  only available bash is 3.2, for every plan the script accepts today. All seven
-  associative-array uses are in scope, not only the first one to execute.
+  only available bash is 3.2, for every plan the script accepts today. All nine
+  post-3.2 constructs are in scope — the eight associative arrays and the
+  nameref — not only the one named in the report.
 - **R4 — Identical output across bash versions.** For any given plan, the task
   list `plan-to-tasks.sh` emits under bash 3.2 SHALL be byte-identical to the
   list it emits under bash 5, including task ordering, generated names, and
@@ -216,10 +226,13 @@ learn what the step wanted.
   it narrowly. The value is in R7's check, which now covers templates the fix
   did not have to touch.
 
-- **The reported bash defect is treated as seven defects, not one.** The issue
-  named line 395 because it executes first. Fixing only that line moves the
-  failure to the next declaration and produces a second bug report from the same
-  root cause. R3 scopes to all seven.
+- **The reported bash defect is treated as nine defects, not one.** The issue
+  named one associative array. Running the script under bash 3.2 shows the first
+  construct a real run hits is a nameref several hundred lines earlier, and a
+  sweep finds eight associative arrays behind it. Fixing only the reported line
+  moves the failure and produces a second bug report from the same root cause.
+  R3 scopes to all nine, and R5 exists because a grep for the reported construct
+  would have missed the nameref — only running the script found it.
 
 - **R4 (identical output across bash versions) is a requirement, not an
   assumption.** Replacing an associative array with a portable construction can
