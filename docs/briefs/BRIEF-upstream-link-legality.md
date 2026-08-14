@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   The `upstream:` field is a document's only durable record of its lineage,
   but nothing says what makes a link legal and nothing checks. Illegal links
@@ -23,7 +23,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Phase 4 jury returned all-PASS on content quality and structural format. Two
 framing questions were deferred rather than answered here, and the downstream

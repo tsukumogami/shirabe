@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   Upstream-link legality is written in prose across format references and skill
   files, and nothing carries it to the moment a link is created. The validator
@@ -29,7 +29,7 @@ upstream: docs/prds/PRD-upstream-link-legality.md
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
