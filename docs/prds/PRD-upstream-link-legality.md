@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   The `upstream:` field is a document's only durable record of its lineage, and
   nothing defines what makes a link legal or checks that it is. Links point the
@@ -25,7 +25,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
