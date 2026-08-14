@@ -179,6 +179,84 @@ behalf and leaving a dangling reference for whoever next opens the sibling to fi
 - Retrofitting existing documents. Whatever shape is chosen applies going forward; a
   migration of the current corpus is separate work.
 
+## Lineage Shapes
+
+The two chains are drawn below as they actually behave, rather than as the
+`A -> B -> C` notation implies. Solid edges are chain membership; dotted edges are
+real links that skip a level. The strategic shapes are grounded in the public format
+contracts, which sanction them; the tactical counts are a census of the public
+repositories.
+
+### The strategic chain
+
+```mermaid
+graph TD
+    V["VISION<br/>(org scope)"] -->|"1:N"| VP["VISION<br/>(project scope)"]
+    VP -->|"1:N — stated in the format"| S["STRATEGY"]
+    S -->|"1:N permitted"| RM["ROADMAP"]
+    VP -.->|"skips STRATEGY"| RM
+    VP -.->|"skips two levels"| DS["DESIGN"]
+    CP["COMP<br/>no upstream field"] -.->|"parallel trigger,<br/>not a chain member"| S
+```
+
+| Link | Cardinality | Grounding |
+|---|---|---|
+| VISION → VISION | 1:N | An org-scope vision parents project-scope ones. Documented as a project-level-only field, and absent from every chain diagram in the repo. |
+| VISION → STRATEGY | **1:N** | `strategy-format.md` states it outright: multiple STRATEGYs may operate under one upstream VISION when they make distinct bets. The lifecycle table reinforces it — a VISION is Active when *at least one* STRATEGY references it. |
+| STRATEGY → ROADMAP | 1:N permitted | A STRATEGY's Downstream Artifacts is a plural list of the ROADMAPs sequencing its work. Only 1:1 has been observed, and each observed pair was authored in a single sitting — so the 1:1 reflects what the tool emits per run, not what the model allows. |
+| STRATEGY → COMP | **no such link** | Positive evidence of absence: COMP has no `upstream` field at all, its format declares no optional frontmatter fields, and a strategy document in the corpus describes competitive analysis as a parallel trigger into the chain rather than a step within it. |
+| VISION → ROADMAP | skip-level | A ROADMAP may name a VISION directly when no STRATEGY sits between them. Common in practice. |
+
+### The tactical chain
+
+```mermaid
+graph TD
+    RM["ROADMAP"] -->|"1:N by design"| B["BRIEF"]
+    B -->|"1:1 — 58 of 58"| P["PRD"]
+    P -->|"1:N — up to 1:9 observed"| D["DESIGN"]
+    D -->|"1:1 observed, unconstrained"| PL["PLAN"]
+    RM -.->|"skips BRIEF"| P
+```
+
+| Link | Cardinality | Grounding |
+|---|---|---|
+| ROADMAP → BRIEF | **1:N by design** | A roadmap sequences many features; each feature becomes its own scoping run. This fan-out is the one the system handles, and it works because each downstream unit is a wholly separate run with its own slug — not because any mechanism models it. |
+| BRIEF → PRD | **1:1** | 58 of 58 parents. The only uniform link in either chain, reinforced from above by the rule that a feature needing several PRDs is too broad. |
+| PRD → DESIGN | **1:N** | Three real cases: one PRD with nine designs, one with four, one with two. |
+| DESIGN → PLAN | 1:1 observed | 8 of 8, with nothing forbidding N. |
+
+### Three kinds of one-to-many, which behave differently
+
+Lumping these together is what made the problem look like one thing. They are not.
+
+**Fan-out across runs.** One upstream, several downstream documents, each produced by a
+separate invocation with its own slug. This is `ROADMAP → BRIEF` and
+`VISION → STRATEGY`. It needs no multi-valued field: the plurality lives in the graph,
+not in any document's frontmatter. It is also the shape a parent cannot currently
+express, because every path a parent resolves derives from one topic slug.
+
+**Fan-out within a chain, mediated by a roadmap.** This is `PRD → DESIGN` in all three
+real cases: an initiative-sized PRD whose ROADMAP partitions its requirements into
+disjoint feature slices, one design per slice. Intended and documented. A second
+mechanism could produce the same topology without a roadmap — a design splitting on
+decision-question count — but it has never fired, has no naming convention for the
+sibling it would create, and no owner for the prompt it would raise inside a parent run.
+
+**Convergence: one document naming several upstreams.** The inverse shape, expressible
+only through a multi-valued `upstream:`. Until this work, a YAML sequence collapsed to
+the empty string before any reader saw it, so this shape was unreachable regardless of
+intent — including in its single-entry form, which is why it was a parsing problem
+rather than a plurality one.
+
+### The shape that needs no fan-out at all
+
+A ROADMAP reached by walking up from a PLAN becomes a member of that PLAN's chain while
+also rooting a chain of its own. That is two chains over one document with no
+multi-valued field and no second plan root — the plain two-chain shape. It is the reason
+the shared-member problem is reachable without any of the three fan-outs above, and the
+reason a requirement table that cannot tell a document's own chain from a chain it merely
+sits above produces a false positive on correct lineage.
+
 ## References
 
 - `skills/strategy/references/strategy-format.md` — the explicit multiple-STRATEGYs rule
