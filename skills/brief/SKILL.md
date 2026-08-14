@@ -74,10 +74,12 @@ Private). Load the appropriate content governance skill:
 BRIEF has no visibility-gated section — there is no competitive framing
 to fence off, so `shirabe validate` runs no custom check for the type.
 The visibility value still matters: a public BRIEF must not reference
-private paths, repos, filenames, or issue numbers, and its `upstream:`
-field must not point at a private artifact. The Phase 4
-structural-format reviewer flags these; content governance owns the
-rules.
+private paths, repos, filenames, or issue numbers. A BRIEF carries no
+`upstream:` field at all, so the older worry about one pointing at a
+private artifact no longer applies; what remains is the prose, which
+must not name a private path or repo even when the roadmap that
+grounded it lives in one. The Phase 4 structural-format reviewer flags
+these; content governance owns the rules.
 
 ---
 
@@ -108,9 +110,9 @@ From `$ARGUMENTS`:
    execute the lifecycle transition via `shirabe transition <brief-path>
    <status>`. No reason argument; no directory move.
 3. **Path to a ROADMAP document** (matches
-   `docs/roadmaps/ROADMAP-*.md`) — treat as the upstream for the new
-   BRIEF; derive the feature's problem/outcome candidate from upstream
-   content during Phase 1.
+   `docs/roadmaps/ROADMAP-*.md`) — read it to ground the new BRIEF;
+   derive the feature's problem/outcome candidate from its content
+   during Phase 1. The roadmap is read, not recorded (see below).
 4. **Anything else** — use as the starting topic for Phase 1 scoping.
 
 A ROADMAP is the only document Input Mode 3 accepts. A PRD path is
@@ -128,22 +130,32 @@ chain. Reject with:
 > point the PRD at the brief.
 
 Any of the modes above may carry `--upstream <path>`, naming the
-upstream ROADMAP separately from the topic. `/brief <topic-slug>
+grounding ROADMAP separately from the topic. `/brief <topic-slug>
 --upstream docs/roadmaps/ROADMAP-<name>.md` produces
-`BRIEF-<topic-slug>.md` recording that ROADMAP as its upstream — the
-slug comes from the positional argument and the upstream from the
-flag, so the two need not share a name. Input Mode 3 is the special
-case where they do: a bare ROADMAP path supplies both at once, which
-only works while the feature's topic and the roadmap's filename
-coincide. A roadmap normally sequences several features, so they
-usually do not.
+`BRIEF-<topic-slug>.md` grounded in that ROADMAP — the slug comes from
+the positional argument and the grounding path from the flag, so the
+two need not share a name. Input Mode 3 is the special case where they
+do: a bare ROADMAP path supplies both at once, which only works while
+the feature's topic and the roadmap's filename coincide. A roadmap
+normally sequences several features, so they usually do not.
+
+**Both routes read the roadmap; neither records it.** A BRIEF carries
+no `upstream:` field. Its legal-parent set is empty — it heads its own
+tactical lineage — and `shirabe validate` rejects any value it holds.
+The link to the roadmap is recorded on the PLAN the chain produces,
+which the same cascade deletes, so it cannot outlive its target. The
+full contract, and the announcement a grounded run owes the author, are
+in `references/phases/phase-0-setup.md` under "Reading a document vs.
+recording it as `upstream`".
 
 The flag is parsed before the positional argument is classified, and
 its value is never treated as a topic. A bare `--upstream` with no
 value is rejected at Phase 0 naming the missing argument. The value
 must name a ROADMAP: the same basename rule Input Mode 3 enforces
-applies to the flag, PRD rejection included, because both feed the
-same recorded `upstream:` field.
+applies to the flag, PRD rejection included. That rule matters more
+now than it did when the value was recorded — nothing reaches
+frontmatter for a reviewer or the validator to catch, so it is the only
+guard against framing a brief from the wrong artifact.
 
 ### Context Resolution
 
@@ -154,15 +166,19 @@ topic that contains other characters, including `.`, `/`, `_`, or
 whitespace. Without the constraint, a `../`-shaped topic could redirect
 verdict writes outside `wip/research/`.
 
-**Upstream:** check `$ARGUMENTS` for `--upstream <path>`. If present,
-the path is validated at Phase 0 and stored as the context file's
-`## Upstream Path`; Phase 2 writes it into the BRIEF's frontmatter.
-It points to the ROADMAP whose entry this feature is — the brief's
-immediate neighbour one level up the tactical chain. `/scope` passes
-it on every chain where a ROADMAP is available; an author invoking
-`/brief` standalone passes it when a ROADMAP exists that the topic
-slug does not name. When no ROADMAP exists, omit the flag; the
-upstream field is then omitted from frontmatter.
+**Grounding, not recording.** Check `$ARGUMENTS` for `--upstream
+<path>`. If present, the path is validated at Phase 0 and stored as
+the context file's `## Grounding Path`. Phase 1 reads the ROADMAP,
+finds the feature this brief frames, and derives the problem and
+outcome candidates from it. **Phase 2 writes nothing into the BRIEF's
+`upstream:` field, because a BRIEF has none.** Its legal-parent set is
+empty: a BRIEF heads its own tactical lineage. The link to the roadmap
+is recorded on the PLAN the chain produces, which the same cascade
+deletes, so it cannot be left dangling. `/scope` passes the flag on
+every chain where a ROADMAP is available; an author invoking `/brief`
+standalone passes it when a ROADMAP exists that the topic slug does
+not name. The read-vs-record contract, and the announcement the run
+owes the author, are in `references/phases/phase-0-setup.md`.
 
 **Path canonicalization.** Any user-supplied ROADMAP upstream path
 (Input Mode 3) and any `--upstream` value must be canonicalized at
@@ -241,11 +257,12 @@ unchanged when the sentinel is absent.
 - **Topic-slug constraint:** Phase 0 rejects topics not matching
   `^[a-z0-9-]+$`. Non-compliant topics never reach later phases.
 - **Path canonicalization:** Phase 0 canonicalizes and bounds-checks
-  any user-supplied upstream path, whether it arrived positionally or
-  as the `--upstream` flag's value.
+  any user-supplied grounding path, whether it arrived positionally or
+  as the `--upstream` flag's value, and confines it to
+  `docs/roadmaps/`.
 - **Slug independence:** the topic slug is never derived from the
-  `--upstream` value. A flag-supplied upstream names the brief's
-  parent, not the brief.
+  `--upstream` value. A flag-supplied path names what the brief is
+  framed against, not the brief.
 - **Always produces a brief:** there is no branch that declines to
   write one. A brief whose framing turns out to be fully carried by
   its downstream PRD is removed by `/scope`'s consolidation

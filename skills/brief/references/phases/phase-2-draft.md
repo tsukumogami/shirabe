@@ -72,7 +72,6 @@ problem: |
 outcome: |
   <2-4 line summary of the outcome a user should experience; same content the
   User Outcome section elaborates in prose>
-upstream: <path to upstream ROADMAP, omit field if none or if private>
 ---
 ```
 
@@ -81,13 +80,20 @@ They carry the same content the Problem Statement and User Outcome sections
 elaborate in prose; the two stay in sync (the Phase 4 structural-format reviewer
 checks consistency).
 
-Omit the `upstream` field entirely when the upstream is a private artifact a public
-brief cannot name. Nothing downstream will catch it if you do not: `shirabe
-validate` resolves nothing for a cross-repo value, so a public BRIEF naming a
-private ROADMAP validates clean. Say so in the run output rather than dropping
-the link quietly. Cross-repo references that ARE allowed use the
-`owner/repo:path` convention and the direction table in
-`references/cross-repo-references.md`.
+**There is no `upstream:` field.** A BRIEF heads its own tactical lineage: its
+legal-parent set is empty, and `shirabe validate` reports any value it carries
+as an `R10` direction violation. Do not write the field even when Phase 0
+recorded a grounding ROADMAP — that link belongs on the PLAN the chain produces,
+which the cascade deletes alongside the roadmap, so it cannot be left dangling.
+The rule is in `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`; the
+read-versus-record contract is in `phase-0-setup.md`.
+
+What the grounding roadmap owes the brief instead is content. The Problem
+Statement has to let a cold reader grasp the gap without opening the roadmap,
+which is what it was always required to do; with no link to fall back on, that
+requirement is the whole of the brief's provenance. Name the initiative in prose
+where it helps a reader — without naming a private path or repo when the roadmap
+lives in one.
 
 Write the body Status section as:
 

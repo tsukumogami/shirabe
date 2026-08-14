@@ -156,24 +156,24 @@ and the skill says why rather than leaving a flag that writes nothing
 unexplained.
 
 **Acceptance Criteria**:
-- [ ] `/brief` Phase 0 carries a read-versus-record section modelled on
+- [x] `/brief` Phase 0 carries a read-versus-record section modelled on
       `/strategy`'s, giving the reason as what a brief is — a type whose legal
       parent set is empty — rather than what it was handed.
-- [ ] Both roadmap input routes survive: the positional mode and the
+- [x] Both roadmap input routes survive: the positional mode and the
       `--upstream` flag, both still loading the roadmap and deriving the
       problem and outcome candidates from the feature entry.
-- [ ] The produced brief carries no `upstream:` field, and the run announces
+- [x] The produced brief carries no `upstream:` field, and the run announces
       that the field was omitted and why.
-- [ ] The `ROADMAP-` basename check stays on both routes, re-justified: with
+- [x] The `ROADMAP-` basename check stays on both routes, re-justified: with
       nothing reaching frontmatter, it is now the only guard against a
       wrong-type input.
-- [ ] The tracked-by-git check is dropped from the flag, and the canonical path
+- [x] The tracked-by-git check is dropped from the flag, and the canonical path
       is confined to `<root>/docs/roadmaps/` — the constraint the positional
       mode already carries.
-- [ ] `skills/brief/references/brief-format.md` no longer documents a ROADMAP
+- [x] `skills/brief/references/brief-format.md` no longer documents a ROADMAP
       as the brief's upstream, and states that a brief carries no `upstream:`
       field.
-- [ ] The two `skills/brief/evals/evals.json` scenarios that assert the brief
+- [x] The two `skills/brief/evals/evals.json` scenarios that assert the brief
       declares a roadmap upstream are rewritten to assert grounding without a
       recorded field, and to grade that the run announced the omission and its
       reason.

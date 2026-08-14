@@ -28,7 +28,6 @@ problem: |
 outcome: |
   2-4 line summary of the outcome a user should experience. Same content
   the User Outcome section elaborates in prose.
-upstream: docs/roadmaps/ROADMAP-<parent>.md  # optional
 motivating_context: |                          # optional
   Why this brief exists -- the situation, signal, or
   conversation that triggered the framing. Distinct from `problem`
@@ -39,16 +38,12 @@ motivating_context: |                          # optional
 ```
 
 Required fields: `status`, `problem`, `outcome`. Optional:
-`upstream`, `motivating_context`.
+`motivating_context`.
 
-**Two written shapes are supported for `upstream:`.** A scalar -- the
-path on the key's own line -- and a sequence, written either as `- `
-entries on the following lines or inline as `[<path>, <path>]`. Every
-entry of a sequence is read, in written order, and a single-entry
-sequence is still a sequence. Reach for the sequence when the document
-genuinely has more than one parent; the scalar otherwise. Nothing else
-is supported: a scalar is never split, so two paths on one line read as
-one entry that resolves to nothing.
+**A BRIEF carries no `upstream:` field.** Its legal-parent set is empty:
+a brief heads its own tactical lineage, and `shirabe validate` reports
+any value the field holds as an `R10` direction violation. See
+[Why a brief has no upstream](#why-a-brief-has-no-upstream) below.
 
 - **schema** -- `brief/v1`. Pins the artifact-type contract. `schema`
   is the map key the validator routes on, not a checked field.
@@ -58,16 +53,6 @@ one entry that resolves to nothing.
   body.
 - **outcome** -- the outcome a user should experience. A 2-4 line YAML
   literal block scalar (`|`). Matches the User Outcome section body.
-- **upstream** -- path to the ROADMAP the feature was sequenced in.
-  Optional because a brief may be authored from a freeform topic with
-  no single upstream document. Never a PRD: the chain runs ROADMAP ->
-  BRIEF -> PRD, so a PRD is written from the brief's framing and
-  pointing back at it inverts the chain. Omit the field entirely when
-  the upstream is a private artifact a public brief cannot name -- a
-  public brief never points at a private path. Cross-repo upstream
-  references use the `owner/repo:path` convention; see
-  `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` for the
-  visibility-direction rules.
 
 Frontmatter status must match the Status section in the body -- agent
 workflows parse frontmatter to determine lifecycle state, so divergence
@@ -89,6 +74,29 @@ Any explanatory prose goes here, after a blank line. The first
 non-blank line under the heading is the bare status word so the
 validator matches it against the frontmatter status.
 ```
+
+### Why a brief has no upstream
+
+The ROADMAP that sequences a feature is a working artifact: the cascade
+deletes it once every feature on it lands. A BRIEF is durable and stays
+in `docs/briefs/` as the audit trail. A durable document naming a
+working one holds a reference that is correct on the day it is written
+and dangling on the day the cascade runs, so the link is not written at
+all -- `shirabe validate` reports one as `R11` when the target is a
+roadmap and `R10` for any other type.
+
+The roadmap is still read. `/brief` loads it, finds the feature this
+brief frames, and derives the problem and outcome candidates from that
+feature's entry and the roadmap's sequencing rationale. What the brief
+keeps is the content rather than the pointer, which is why its Problem
+Statement is required to stand alone: with no link to fall back on, the
+prose is the whole of the framing's provenance.
+
+The link is not lost. It is recorded one altitude down, on the PLAN the
+chain produces -- a working artifact the same cascade deletes, and
+deletes first, so the reference cannot outlive its target. The rule
+behind all of this is in
+`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`.
 
 ## Required Sections
 

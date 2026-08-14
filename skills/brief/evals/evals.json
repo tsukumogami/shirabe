@@ -25,16 +25,17 @@
       "id": 2,
       "name": "upstream-roadmap-grounding",
       "prompt": "/brief docs/roadmaps/ROADMAP-checkout.md",
-      "expected_output": "Detects the ROADMAP path as upstream input. Canonicalizes the path at Phase 0 and confirms it resolves inside the repo working tree. Reads the ROADMAP content to derive the feature's problem/outcome candidate during Phase 1. Carries forward the upstream framing into the BRIEF's Problem Statement. Declares the ROADMAP path as the BRIEF's frontmatter `upstream`.",
+      "expected_output": "Detects the ROADMAP path as grounding input. Canonicalizes the path at Phase 0, confirms it resolves inside the repo working tree and under docs/roadmaps/, and confirms the ROADMAP- basename. Reads the ROADMAP content to derive the feature's problem/outcome candidate during Phase 1. Carries that framing forward into the BRIEF's Problem Statement, which has to stand alone because no link back to the roadmap is written. Writes NO upstream: field into the BRIEF: a BRIEF's legal-parent set is empty and it heads its own tactical lineage, so the roadmap is read and not recorded. Says so in the run output, naming the reason -- the roadmap is a working artifact the cascade deletes, and the link to it is recorded on the PLAN instead.",
       "files": [
         "docs/roadmaps/ROADMAP-checkout.md"
       ],
       "expectations": [
-        "Plan detects the ROADMAP path argument as upstream input",
-        "Plan canonicalizes the upstream path at Phase 0 and bounds-checks it against the repo working tree",
+        "Plan detects the ROADMAP path argument as grounding input",
+        "Plan canonicalizes the grounding path at Phase 0, bounds-checks it against the repo working tree, and confines it to docs/roadmaps/",
         "Plan reads the ROADMAP document content during Phase 1 (discover) to derive the feature's problem and outcome",
-        "Plan carries forward upstream ROADMAP framing into the Problem Statement section",
-        "Plan declares the ROADMAP path as the BRIEF frontmatter upstream field"
+        "Plan carries forward the ROADMAP framing into the Problem Statement section",
+        "Plan writes NO upstream: field into the BRIEF frontmatter",
+        "Plan announces that no upstream was recorded and gives the reason"
       ]
     },
     {
@@ -73,7 +74,7 @@
       "id": 5,
       "name": "missing-required-section-rejection",
       "prompt": "/brief checkout-flow",
-      "expected_output": "The structural-format reviewer at Phase 4 (and shirabe validate, FC04) requires all five required sections — Status, Problem Statement, User Outcome, User Journeys, Scope Boundary — present and ordered. A draft missing any required section fails the structural reviewer and FC04, and the verdict names the missing section. The jury does not return all-PASS, so the brief cannot reach Phase 5.",
+      "expected_output": "The structural-format reviewer at Phase 4 (and shirabe validate, FC04) requires all five required sections \u2014 Status, Problem Statement, User Outcome, User Journeys, Scope Boundary \u2014 present and ordered. A draft missing any required section fails the structural reviewer and FC04, and the verdict names the missing section. The jury does not return all-PASS, so the brief cannot reach Phase 5.",
       "files": [],
       "expectations": [
         "Plan requires all five required sections (Status, Problem Statement, User Outcome, User Journeys, Scope Boundary) present and in order",
@@ -177,13 +178,16 @@
       "id": 12,
       "name": "upstream-flag",
       "prompt": "/brief inline-diff --upstream docs/roadmaps/ROADMAP-editor.md",
-      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before classifying the remainder, so the entry mode is freeform and the topic slug is 'inline-diff' derived from the positional argument alone -- never from the ROADMAP's filename. The value is canonicalized, bounds-checked, confirmed to have a ROADMAP- basename (a PRD- basename gets the chain-inversion rejection on the flag exactly as it does positionally), confirmed not to be under wip/, and confirmed tracked by git. The path is stored as the context file's ## Upstream Path, Phase 1 grounds the problem/outcome candidate in it, and Phase 2 writes upstream: docs/roadmaps/ROADMAP-editor.md into docs/briefs/BRIEF-inline-diff.md. A bare --upstream with no value would be rejected at Phase 0 naming the missing argument.",
-      "files": ["docs/roadmaps/ROADMAP-editor.md"],
+      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before classifying the remainder, so the entry mode is freeform and the topic slug is 'inline-diff' derived from the positional argument alone -- never from the ROADMAP's filename. The value is canonicalized, bounds-checked, confined to docs/roadmaps/, confirmed to have a ROADMAP- basename (a PRD- basename gets the chain-inversion rejection on the flag exactly as it does positionally), and confirmed not to be under wip/. The tracked-by-git check does NOT run: it is a record-time check and this value is only read. The path is stored as the context file's ## Grounding Path, Phase 1 grounds the problem/outcome candidate in it, and Phase 2 writes NO upstream: field into docs/briefs/BRIEF-inline-diff.md. The run says the field was omitted and why. A bare --upstream with no value would be rejected at Phase 0 naming the missing argument.",
+      "files": [
+        "docs/roadmaps/ROADMAP-editor.md"
+      ],
       "expectations": [
         "Plan detects and parses the --upstream flag from $ARGUMENTS",
         "Plan derives the topic slug 'inline-diff' from the positional argument, NOT from the ROADMAP basename",
-        "Plan validates the --upstream value: canonicalized, inside the working tree, ROADMAP- basename, not under wip/, tracked by git",
-        "Plan records the path as ## Upstream Path and writes it into the BRIEF frontmatter's upstream: field",
+        "Plan validates the --upstream value: canonicalized, inside the working tree, under docs/roadmaps/, ROADMAP- basename, not under wip/",
+        "Plan records the path as ## Grounding Path and writes NO upstream: field into the BRIEF frontmatter",
+        "Plan announces that no upstream was recorded and gives the reason",
         "Plan produces docs/briefs/BRIEF-inline-diff.md rather than BRIEF-editor.md"
       ]
     }
