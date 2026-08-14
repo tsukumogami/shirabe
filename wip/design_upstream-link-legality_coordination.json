@@ -1,0 +1,38 @@
+{
+  "topic": "upstream-link-legality",
+  "upstream_prd": "docs/prds/PRD-upstream-link-legality.md",
+  "decisions": [
+    {
+      "id": 1,
+      "question": "Where do a type's lifetime class and legal-parent set get declared, and in what data shape?",
+      "options": ["two FormatSpec fields", "separate legality module", "derive from ChainRole", "read skill prose at runtime"],
+      "status": "pending",
+      "report": "wip/design_upstream-link-legality_decision_1_report.md"
+    },
+    {
+      "id": 2,
+      "question": "How are the two legality checks structured, dispatched, and coded?",
+      "options": ["two functions", "one function two finding kinds", "fold into check_upstream_resolves", "separate pass"],
+      "status": "pending",
+      "report": "wip/design_upstream-link-legality_decision_2_report.md"
+    },
+    {
+      "id": 3,
+      "question": "How does the ROADMAP path reach the produced PLAN's upstream field?",
+      "options": ["/plan gains --upstream", "positional hand-off", "/plan discovers the roadmap", "/scope post-edits the plan"],
+      "status": "pending",
+      "report": "wip/design_upstream-link-legality_decision_3_report.md"
+    },
+    {
+      "id": 4,
+      "question": "What happens to /brief's roadmap input surface once nothing is recorded?",
+      "options": ["keep both, rename the act", "drop the flag", "drop the input mode", "drop both"],
+      "status": "pending",
+      "report": "wip/design_upstream-link-legality_decision_4_report.md"
+    }
+  ],
+  "not_decomposed": [
+    "The reference sweep (which format and pipeline references change) is mechanical once D1 fixes the parent sets; it is synthesized in Phase 4 rather than decided.",
+    "The check-code precedence rule is fixed by PRD R7; D2 chooses how to express it, not whether."
+  ]
+}
