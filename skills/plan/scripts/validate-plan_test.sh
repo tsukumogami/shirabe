@@ -346,6 +346,213 @@ test_file_not_found() {
     fi
 }
 
+# ── Test: block-sequence upstream is enumerated, not skipped ──
+# A sequence-valued `upstream:` reads as EMPTY through a scalar-only field
+# reader, which used to make the script log "no upstream field" and exit 0 --
+# silently disabling the whole upstream check for exactly the PLANs that carry
+# two entries. Both entries must be validated.
+test_block_sequence_upstream_is_validated() {
+    local name="block-sequence upstream validates every entry exits 0"
+    setup
+
+    cat > "$TEST_DIR/repo/docs/designs/DESIGN-seq.md" <<'EOF'
+---
+status: Accepted
+---
+
+# DESIGN: seq
+EOF
+    mkdir -p "$TEST_DIR/repo/docs/roadmaps"
+    cat > "$TEST_DIR/repo/docs/roadmaps/ROADMAP-seq.md" <<'EOF'
+---
+status: Active
+---
+
+# ROADMAP: seq
+EOF
+    git -C "$TEST_DIR/repo" add docs/designs/DESIGN-seq.md docs/roadmaps/ROADMAP-seq.md
+    git -C "$TEST_DIR/repo" commit -q -m "add design and roadmap"
+
+    write_valid_plan "$TEST_DIR/repo/docs/plans/PLAN-test.md" \
+        "upstream:
+  - docs/designs/DESIGN-seq.md
+  - docs/roadmaps/ROADMAP-seq.md"
+
+    local output exit_code=0
+    output=$("$VALIDATOR" "$TEST_DIR/repo/docs/plans/PLAN-test.md" 2>&1) || exit_code=$?
+
+    if [[ "$exit_code" -ne 0 ]]; then
+        fail "$name" "expected exit 0, got: $exit_code -- $output"
+    elif [[ "$output" == *"no upstream field"* ]]; then
+        fail "$name" "the sequence was skipped rather than enumerated: $output"
+    elif [[ "$output" != *"DESIGN-seq.md"* || "$output" != *"ROADMAP-seq.md"* ]]; then
+        fail "$name" "both entries must be reported: $output"
+    else
+        pass "$name"
+    fi
+
+    teardown
+}
+
+# ── Test: inline-sequence upstream is enumerated ──
+test_inline_sequence_upstream_is_validated() {
+    local name="inline-sequence upstream validates every entry exits 0"
+    setup
+
+    cat > "$TEST_DIR/repo/docs/designs/DESIGN-inline.md" <<'EOF'
+---
+status: Planned
+---
+
+# DESIGN: inline
+EOF
+    mkdir -p "$TEST_DIR/repo/docs/roadmaps"
+    cat > "$TEST_DIR/repo/docs/roadmaps/ROADMAP-inline.md" <<'EOF'
+---
+status: Active
+---
+
+# ROADMAP: inline
+EOF
+    git -C "$TEST_DIR/repo" add docs/designs/DESIGN-inline.md docs/roadmaps/ROADMAP-inline.md
+    git -C "$TEST_DIR/repo" commit -q -m "add design and roadmap"
+
+    write_valid_plan "$TEST_DIR/repo/docs/plans/PLAN-test.md" \
+        "upstream: [docs/designs/DESIGN-inline.md, docs/roadmaps/ROADMAP-inline.md]"
+
+    local output exit_code=0
+    output=$("$VALIDATOR" "$TEST_DIR/repo/docs/plans/PLAN-test.md" 2>&1) || exit_code=$?
+
+    if [[ "$exit_code" -ne 0 ]]; then
+        fail "$name" "expected exit 0, got: $exit_code -- $output"
+    elif [[ "$output" != *"DESIGN-inline.md"* || "$output" != *"ROADMAP-inline.md"* ]]; then
+        fail "$name" "both entries must be reported: $output"
+    else
+        pass "$name"
+    fi
+
+    teardown
+}
+
+# ── Test: a bad second entry is caught ──
+# The proof that enumeration is real rather than cosmetic: the first entry is
+# fine and the second is not, so a reader that stops at the first passes.
+test_sequence_second_entry_failure_is_caught() {
+    local name="sequence with a bad second entry exits 3"
+    setup
+
+    cat > "$TEST_DIR/repo/docs/designs/DESIGN-ok.md" <<'EOF'
+---
+status: Accepted
+---
+
+# DESIGN: ok
+EOF
+    git -C "$TEST_DIR/repo" add docs/designs/DESIGN-ok.md
+    git -C "$TEST_DIR/repo" commit -q -m "add design"
+
+    write_valid_plan "$TEST_DIR/repo/docs/plans/PLAN-test.md" \
+        "upstream:
+  - docs/designs/DESIGN-ok.md
+  - docs/roadmaps/ROADMAP-missing.md"
+
+    local exit_code=0
+    "$VALIDATOR" "$TEST_DIR/repo/docs/plans/PLAN-test.md" >/dev/null 2>&1 || exit_code=$?
+
+    if [[ "$exit_code" -eq 3 ]]; then
+        pass "$name"
+    else
+        fail "$name" "expected exit 3, got: $exit_code"
+    fi
+
+    teardown
+}
+
+# ── Test: a ROADMAP entry must be Active ──
+test_roadmap_upstream_must_be_active() {
+    local name="ROADMAP upstream at Draft exits 3"
+    setup
+
+    mkdir -p "$TEST_DIR/repo/docs/roadmaps"
+    cat > "$TEST_DIR/repo/docs/roadmaps/ROADMAP-draft.md" <<'EOF'
+---
+status: Draft
+---
+
+# ROADMAP: draft
+EOF
+    git -C "$TEST_DIR/repo" add docs/roadmaps/ROADMAP-draft.md
+    git -C "$TEST_DIR/repo" commit -q -m "add roadmap"
+
+    write_valid_plan "$TEST_DIR/repo/docs/plans/PLAN-test.md" \
+        "upstream: docs/roadmaps/ROADMAP-draft.md"
+
+    local exit_code=0
+    "$VALIDATOR" "$TEST_DIR/repo/docs/plans/PLAN-test.md" >/dev/null 2>&1 || exit_code=$?
+
+    if [[ "$exit_code" -eq 3 ]]; then
+        pass "$name"
+    else
+        fail "$name" "expected exit 3, got: $exit_code"
+    fi
+
+    teardown
+}
+
+# ── Test: a symlinked upstream is rejected ──
+# The value reaches a committed frontmatter field, so a symlink -- which can
+# resolve outside the tree, and resolves differently for different readers --
+# is refused here rather than relied on the index lookup to refuse by accident.
+test_symlinked_upstream_is_rejected() {
+    local name="symlinked upstream exits 3"
+    setup
+
+    cat > "$TEST_DIR/repo/docs/designs/DESIGN-real.md" <<'EOF'
+---
+status: Accepted
+---
+
+# DESIGN: real
+EOF
+    ln -s DESIGN-real.md "$TEST_DIR/repo/docs/designs/DESIGN-link.md"
+    git -C "$TEST_DIR/repo" add docs/designs/DESIGN-real.md docs/designs/DESIGN-link.md
+    git -C "$TEST_DIR/repo" commit -q -m "add design and symlink"
+
+    write_valid_plan "$TEST_DIR/repo/docs/plans/PLAN-test.md" \
+        "upstream: docs/designs/DESIGN-link.md"
+
+    local exit_code=0
+    "$VALIDATOR" "$TEST_DIR/repo/docs/plans/PLAN-test.md" >/dev/null 2>&1 || exit_code=$?
+
+    if [[ "$exit_code" -eq 3 ]]; then
+        pass "$name"
+    else
+        fail "$name" "expected exit 3, got: $exit_code"
+    fi
+
+    teardown
+}
+
+# ── Test: a cross-repo entry skips the local checks ──
+test_cross_repo_upstream_skips_local_checks() {
+    local name="cross-repo upstream skips local checks exits 0"
+    setup
+
+    write_valid_plan "$TEST_DIR/repo/docs/plans/PLAN-test.md" \
+        "upstream: owner/repo:docs/designs/DESIGN-elsewhere.md"
+
+    local exit_code=0
+    "$VALIDATOR" "$TEST_DIR/repo/docs/plans/PLAN-test.md" >/dev/null 2>&1 || exit_code=$?
+
+    if [[ "$exit_code" -eq 0 ]]; then
+        pass "$name"
+    else
+        fail "$name" "expected exit 0, got: $exit_code"
+    fi
+
+    teardown
+}
+
 # ── Run all tests ──
 echo "Running validate-plan.sh tests..." >&2
 echo "" >&2
@@ -360,6 +567,12 @@ test_upstream_file_not_tracked
 test_upstream_wrong_status
 test_valid_with_accepted_upstream
 test_valid_with_planned_upstream
+test_block_sequence_upstream_is_validated
+test_inline_sequence_upstream_is_validated
+test_sequence_second_entry_failure_is_caught
+test_roadmap_upstream_must_be_active
+test_symlinked_upstream_is_rejected
+test_cross_repo_upstream_skips_local_checks
 test_file_not_found
 
 echo "" >&2

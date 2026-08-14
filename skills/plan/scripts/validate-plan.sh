@@ -71,6 +71,54 @@ get_field() {
     '
 }
 
+# Emit one `upstream:` entry per line, handling every written shape the
+# document format supports. Reading only the text after `upstream:` -- which is
+# what get_field does -- returns EMPTY for a sequence, and the caller then
+# skipped the whole upstream check without saying so. A PLAN that names both a
+# DESIGN and a ROADMAP is a sequence, so that silent skip would disable the one
+# continuous gate that validates a plan's upstream at all.
+#
+# Supported shapes:
+#   upstream: docs/designs/DESIGN-x.md          (scalar)
+#   upstream: [docs/a.md, docs/b.md]            (inline sequence)
+#   upstream:                                    (block sequence)
+#     - docs/a.md
+#     - docs/b.md
+get_upstream_entries() {
+    awk '
+        /^upstream:[ \t]*$/       { block = 1; next }
+        /^upstream:[ \t]*\[/ {
+            line = $0
+            sub(/^upstream:[ \t]*\[/, "", line)
+            sub(/\][ \t]*$/, "", line)
+            n = split(line, items, ",")
+            for (i = 1; i <= n; i++) {
+                gsub(/^[ \t]+|[ \t]+$/, "", items[i])
+                gsub(/^["'"'"']|["'"'"']$/, "", items[i])
+                if (items[i] != "") print items[i]
+            }
+            exit
+        }
+        /^upstream:/ {
+            line = $0
+            sub(/^upstream:[ \t]*/, "", line)
+            gsub(/^["'"'"']|["'"'"']$/, "", line)
+            sub(/[ \t]+$/, "", line)
+            if (line != "") print line
+            exit
+        }
+        block && /^[ \t]*-[ \t]*/ {
+            line = $0
+            sub(/^[ \t]*-[ \t]*/, "", line)
+            gsub(/^["'"'"']|["'"'"']$/, "", line)
+            sub(/[ \t]+$/, "", line)
+            if (line != "") print line
+            next
+        }
+        block && /^[^ \t-]/ { exit }
+    '
+}
+
 # ── Argument parsing ──
 
 if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
@@ -131,10 +179,16 @@ if [[ -z "$issue_count" ]]; then
 fi
 
 # ── Optional field: upstream ──
+#
+# Every entry is validated, not just the first, and a sequence is enumerated
+# rather than skipped. A PLAN may name a DESIGN and the ROADMAP whose feature
+# it implements; the ROADMAP entry is the strategic-to-tactical crossing, which
+# lives on the PLAN because the PLAN is deleted by the same cascade and goes
+# first, so the link cannot dangle.
 
-upstream_val=$(echo "$frontmatter" | get_field "upstream")
+mapfile -t upstream_entries < <(echo "$frontmatter" | get_upstream_entries)
 
-if [[ -z "$upstream_val" ]]; then
+if [[ ${#upstream_entries[@]} -eq 0 ]]; then
     log_ok "no upstream field — skipping upstream validation"
     log_ok "${PLAN_PATH} is valid"
     exit 0
@@ -146,36 +200,89 @@ repo_root=$(git -C "$(dirname "$(_realpath "$PLAN_PATH")")" rev-parse --show-top
     exit 3
 }
 
-upstream_abs="${repo_root}/${upstream_val}"
+for upstream_val in "${upstream_entries[@]}"; do
+    # An unfilled template placeholder names nothing to resolve.
+    if [[ "$upstream_val" == *"<"* || "$upstream_val" == *">"* ]]; then
+        log_ok "upstream '${upstream_val}' is an unfilled placeholder — skipping"
+        continue
+    fi
 
-# ── Upstream: file existence ──
+    # A cross-repo `owner/repo:path` value names a file in another repository:
+    # there is no local path to resolve and no local status to read.
+    selector="${upstream_val%%:*}"
+    if [[ "$upstream_val" == *:* && "$selector" == */* && "$selector" != *" "* ]]; then
+        log_ok "upstream '${upstream_val}' is a cross-repo reference — skipping local checks"
+        continue
+    fi
 
-if [[ ! -f "$upstream_abs" ]]; then
-    log_error "upstream file does not exist: '${upstream_val}' (resolved to ${upstream_abs}) — ${PLAN_PATH}"
-    exit 3
-fi
+    upstream_abs="${repo_root}/${upstream_val}"
 
-# ── Upstream: git tracking ──
+    # ── Upstream: file existence ──
 
-if ! git -C "$repo_root" ls-files --error-unmatch "$upstream_val" &>/dev/null; then
-    log_error "upstream file exists but is not tracked by git: '${upstream_val}' — ${PLAN_PATH}"
-    log_error "  run 'git add ${upstream_val}' or check the path"
-    exit 3
-fi
+    if [[ ! -f "$upstream_abs" ]]; then
+        log_error "upstream file does not exist: '${upstream_val}' (resolved to ${upstream_abs}) — ${PLAN_PATH}"
+        exit 3
+    fi
 
-# ── Upstream: status field ──
+    # ── Upstream: containment and symlink rejection ──
+    #
+    # The value reaches a committed frontmatter field, so a symlink out of the
+    # tree or a `../`-shaped path is rejected here rather than left for the
+    # index lookup below to refuse by accident.
 
-upstream_frontmatter=$(extract_frontmatter "$upstream_abs")
-upstream_status=$(echo "$upstream_frontmatter" | get_field "status")
+    if [[ -L "$upstream_abs" ]]; then
+        log_error "upstream '${upstream_val}' is a symlink — ${PLAN_PATH}"
+        log_error "  name the target directly; a symlinked upstream resolves differently for different readers"
+        exit 3
+    fi
 
-# Accept both Accepted and Planned: /plan transitions the upstream design from
-# Accepted → Planned when creating the PLAN doc, so both are valid states on PRs.
-if [[ "$upstream_status" != "Accepted" && "$upstream_status" != "Planned" ]]; then
-    log_error "upstream file '${upstream_val}' has status '${upstream_status}' — expected 'Accepted' or 'Planned' — ${PLAN_PATH}"
-    log_error "  the upstream document must be Accepted (before planning) or Planned (after planning starts)"
-    exit 3
-fi
+    upstream_real=$(_realpath "$upstream_abs")
+    repo_root_real=$(_realpath "$repo_root")
+    if [[ "$upstream_real" != "$repo_root_real"/* ]]; then
+        log_error "upstream '${upstream_val}' resolves outside the repository: ${upstream_real} — ${PLAN_PATH}"
+        exit 3
+    fi
 
-log_ok "upstream '${upstream_val}' is ${upstream_status}"
+    # ── Upstream: git tracking ──
+    #
+    # `--` terminates option parsing so a value beginning with a dash is a
+    # pathspec rather than an option. Validation is not the guarantee; the
+    # argument boundary is.
+
+    if ! git -C "$repo_root" ls-files --error-unmatch -- "$upstream_val" &>/dev/null; then
+        log_error "upstream file exists but is not tracked by git: '${upstream_val}' — ${PLAN_PATH}"
+        log_error "  run 'git add -- ${upstream_val}' or check the path"
+        exit 3
+    fi
+
+    # ── Upstream: status field ──
+
+    upstream_frontmatter=$(extract_frontmatter "$upstream_abs")
+    upstream_status=$(echo "$upstream_frontmatter" | get_field "status")
+
+    upstream_base="${upstream_val##*/}"
+    if [[ "$upstream_base" == ROADMAP-* ]]; then
+        # A ROADMAP entry is the strategic-to-tactical crossing. It is Active
+        # for as long as any of its features is still being built, which is
+        # exactly the window in which a PLAN naming it exists.
+        if [[ "$upstream_status" != "Active" ]]; then
+            log_error "upstream roadmap '${upstream_val}' has status '${upstream_status}' — expected 'Active' — ${PLAN_PATH}"
+            log_error "  a ROADMAP is Active while its features are being built; a PLAN should not name a Draft or Done one"
+            exit 3
+        fi
+    else
+        # Accept both Accepted and Planned: /plan transitions the upstream design
+        # from Accepted → Planned when creating the PLAN doc, so both are valid
+        # states on PRs.
+        if [[ "$upstream_status" != "Accepted" && "$upstream_status" != "Planned" ]]; then
+            log_error "upstream file '${upstream_val}' has status '${upstream_status}' — expected 'Accepted' or 'Planned' — ${PLAN_PATH}"
+            log_error "  the upstream document must be Accepted (before planning) or Planned (after planning starts)"
+            exit 3
+        fi
+    fi
+
+    log_ok "upstream '${upstream_val}' is ${upstream_status}"
+done
+
 log_ok "${PLAN_PATH} is valid"
 exit 0

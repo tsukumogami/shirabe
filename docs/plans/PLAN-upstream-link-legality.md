@@ -190,29 +190,29 @@ full record-time check set, and the pre-flight script stops silently skipping
 its upstream check when it meets a sequence.
 
 **Acceptance Criteria**:
-- [ ] `/plan` accepts `--upstream <path>`, parsed before the positional
+- [x] `/plan` accepts `--upstream <path>`, parsed before the positional
       argument, never used to derive the topic slug, rejected when bare or
       repeated.
-- [ ] The value is validated in this order: cross-repo discrimination first,
+- [x] The value is validated in this order: cross-repo discrimination first,
       then canonicalization with symlink resolution and a bounds check against
       the working tree, then confinement to `<root>/docs/roadmaps/`, then the
       `ROADMAP-` basename, then the `wip/` and tracked-by-git rejections, then
       the private-upstream omission. Running the filesystem checks before the
       cross-repo discrimination would reject every cross-repo roadmap and make
       the visibility check unreachable for exactly the values it governs.
-- [ ] The private-upstream omission rule is stated in `/plan`'s own contract, so
+- [x] The private-upstream omission rule is stated in `/plan`'s own contract, so
       a standalone invocation runs the check the chain-driven path performs.
-- [ ] The produced plan records the design first and the roadmap second in a
+- [x] The produced plan records the design first and the roadmap second in a
       sequence-valued `upstream:`.
-- [ ] `validate-plan.sh` enumerates sequence entries instead of skipping the
+- [x] `validate-plan.sh` enumerates sequence entries instead of skipping the
       check, applies the existing status gate to the tactical entry, accepts a
       roadmap entry at Active, canonicalizes the target and rejects one that is
       out of root or a symlink, and passes every path after `--`.
-- [ ] The Phase 7 hygiene step's prose specifies its per-entry invocation
+- [x] The Phase 7 hygiene step's prose specifies its per-entry invocation
       quoted and after `--`; it does so unquoted and without a terminator today.
-- [ ] New `validate-plan_test.sh` cases cover both written shapes of the field
+- [x] New `validate-plan_test.sh` cases cover both written shapes of the field
       and the roadmap-at-Active pass. No existing case is modified.
-- [ ] A `/plan` eval asserts the flag is recorded and the topic slug still comes
+- [x] A `/plan` eval asserts the flag is recorded and the topic slug still comes
       from the positional argument.
 
 **Dependencies**: None
