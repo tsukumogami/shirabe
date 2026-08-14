@@ -381,12 +381,12 @@ words:
   - category: organizing
     guidance: Prefer level.
     terms:
-      - tier
-      - robust
+      - alphaterm
+      - betaterm
   - category: verbs
     guidance: Prefer the plain verb.
     terms:
-      - leverage
+      - gammaterm
 frequency:
   - id: em-dash-density
     guidance: Document-level property.
@@ -408,7 +408,7 @@ judgment_only:
         assert_eq!(r.words.len(), 2);
         assert_eq!(r.frequency.len(), 1);
         assert_eq!(r.judgment_only.len(), 1);
-        assert_eq!(r.all_terms(), vec!["leverage", "robust", "tier"]);
+        assert_eq!(r.all_terms(), vec!["alphaterm", "betaterm", "gammaterm"]);
     }
 
     #[test]
@@ -424,7 +424,10 @@ judgment_only:
     #[test]
     fn category_for_finds_the_owning_category() {
         let r = parse_rules(sample(), "test").expect("parses");
-        assert_eq!(r.category_for("Tier").map(|c| c.category.as_str()), Some("organizing"));
+        assert_eq!(
+            r.category_for("Alphaterm").map(|c| c.category.as_str()),
+            Some("organizing")
+        );
         assert_eq!(r.category_for("nope"), None);
     }
 
@@ -434,7 +437,7 @@ judgment_only:
 words:
   - category: c
     guidance: g
-    terms: [tier]
+    terms: [alphaterm]
 frequency:
   - id: em-dash-density
     pattern: "—"
