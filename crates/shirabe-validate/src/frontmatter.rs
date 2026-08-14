@@ -106,6 +106,7 @@ pub fn parse_doc_bytes(path: &str, data: &[u8]) -> Result<Doc, ParseError> {
                 fields: HashMap::new(),
                 sections: Vec::new(),
                 body: Vec::new(),
+                body_start_line: 1,
             };
             let (sections, body) = scan_body(data, 1);
             doc.sections = sections;
@@ -136,6 +137,7 @@ pub fn parse_doc_bytes(path: &str, data: &[u8]) -> Result<Doc, ParseError> {
         fields,
         sections,
         body,
+        body_start_line,
     })
 }
 

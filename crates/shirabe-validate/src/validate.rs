@@ -305,6 +305,7 @@ mod tests {
             fields,
             sections,
             body,
+            body_start_line: 1,
         }
     }
 

@@ -21,6 +21,7 @@ pub mod lifecycle;
 pub mod merge_gate;
 pub mod mermaid;
 pub mod pr_body;
+pub mod prose;
 pub mod report;
 pub mod rules;
 pub mod table;

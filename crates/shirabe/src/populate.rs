@@ -2597,6 +2597,7 @@ mod tests {
                 })
                 .collect(),
             body: body.into_iter().map(str::to_string).collect(),
+            body_start_line: 1,
         }
     }
 

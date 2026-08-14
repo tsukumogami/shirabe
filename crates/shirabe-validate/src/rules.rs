@@ -338,6 +338,38 @@ pub fn parse_rules(text: &str, path: &str) -> Result<Rules, RulesError> {
     Ok(rules)
 }
 
+/// Process-wide rule source, resolved once per run.
+///
+/// Resolved lazily rather than at startup so a caller that never runs a
+/// prose check pays nothing, and cached so a run over hundreds of files
+/// reads the source once. The cache holds the resolution *result*: a run
+/// that could not find its rules keeps reporting that rather than retrying
+/// per file and producing different findings for different documents.
+static RULES_CACHE: std::sync::OnceLock<Option<Rules>> = std::sync::OnceLock::new();
+
+/// Install an explicit rule source for this process.
+///
+/// Returns `false` when the cache was already set, since the first
+/// resolution wins for the whole run.
+pub fn set_rules(rules: Rules) -> bool {
+    RULES_CACHE.set(Some(rules)).is_ok()
+}
+
+/// The resolved rule source, or `None` when resolution failed.
+///
+/// Callers that need the failure *reason* (the CLI, which turns it into a
+/// tool error) call `resolve_rules_path` and `load_rules` directly. This
+/// accessor exists for check functions, which have no error channel.
+pub fn cached_rules() -> Option<Rules> {
+    RULES_CACHE
+        .get_or_init(|| {
+            let cwd = std::env::current_dir().ok()?;
+            let path = resolve_rules_path(None, &cwd).ok()?;
+            load_rules(&path).ok()
+        })
+        .clone()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
