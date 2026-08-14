@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   Two defects stop /execute's koto-driven single-pr path before it does any
   work. The worktree-discipline gate is written with shell interpolation syntax
@@ -32,7 +32,7 @@ motivating_context: |
 
 ## Status
 
-In Progress
+Done
 
 Requirements for the two defects blocking `/execute`'s single-pr path, from
 issue #270. The framing that opened this chain was absorbed into this document

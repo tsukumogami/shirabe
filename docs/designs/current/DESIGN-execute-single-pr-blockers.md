@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Current
 upstream: docs/prds/PRD-execute-single-pr-blockers.md
 user_visible_surface: false
 problem: |
@@ -35,7 +35,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Current
 
 Mechanism choices for the two defects specified in
 `docs/prds/PRD-execute-single-pr-blockers.md`. Four decisions: how the gate
