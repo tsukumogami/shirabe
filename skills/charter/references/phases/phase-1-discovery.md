@@ -179,11 +179,12 @@ not keyword lists.
 
 When none of the three categories fits the author's response, the
 default is no-signal. What no-signal costs depends on what is
-already on disk: it drops `/vision` from the chain proposal when an
-Accepted or Active VISION exists at the published path, and changes
-nothing on a cold start, where `/vision` runs either way (see the
-`/vision` Invocation Rule in
-`skills/charter/references/phases/phase-2-chain-orchestration.md`).
+already on disk or was supplied at invocation: it drops `/vision`
+from the chain proposal when an Accepted or Active VISION exists at
+the published path or the state file carries `consumed_upstream:`,
+and changes nothing on a cold start with no supplied upstream,
+where `/vision` runs either way (see the `/vision` Invocation Rule
+in `skills/charter/references/phases/phase-2-chain-orchestration.md`).
 
 Signal detection is agent judgment. The pattern-level requirement
 is: the thesis-shift question is SURFACED to the author (verbatim
@@ -241,8 +242,11 @@ Accepted VISION already exists and the thesis isn't shifting",
 "skip `/comp` because this repo is public and a COMP is
 private-only"). `/vision` is the only child whose entry turns on
 what is already on disk: it reads "run" on every cold start, and
-reads "skip" only when an Accepted or Active VISION exists at the
-published path and discovery surfaced no thesis shift.
+reads "skip" when an Accepted or Active VISION exists at the
+published path and discovery surfaced no thesis shift, or when the
+author supplied one with `--upstream` and Phase 0 recorded it (the
+reason then names the supplied upstream — "skip `/vision` because
+the chain was given an upstream VISION").
 `/strategy` and `/roadmap`
 always appear as "run" — both gates are unconditional. The author's
 opportunity to drop `/roadmap` comes later, at the roadmap
@@ -272,6 +276,20 @@ entries do not vary — both read "run" on every proposal. The three
 options at the end of the prompt — Proceed, Adjust, Bail — are
 stable across all variations.
 
+A cold start also carries the pre-authoring upstream notice, which
+rides with the `/vision` run entry (see The Pre-Authoring Upstream
+Notice below):
+
+> *"Based on our conversation, here's the chain I propose: run
+> `/vision`, skip `/comp` because this repo is public and a COMP is
+> private-only, run `/strategy`, run `/roadmap`. A new VISION will
+> be written for this topic. If one already exists that this chain
+> should build on, re-invoke as `/charter <topic> --upstream
+> <path-to-the-VISION>` and this chain will consume it instead of
+> authoring another. No candidate has been looked for; this is a
+> notice, not a question, and the chain proceeds as proposed.
+> Proceed / Adjust chain / Bail?"*
+
 The skip entries state the reason rather than omitting the child.
 A public-repo proposal and a private-repo-without-`/comp` proposal
 therefore differ, and each names its own reason — the two
@@ -282,6 +300,75 @@ Rule in
 The reason lands in the conversation only; the chain's committed
 output (the state file and everything under `docs/`) carries no
 trace of the skipped child.
+
+### The Pre-Authoring Upstream Notice
+
+When the proposal's `/vision` entry reads "run", `/charter` is
+about to have a new VISION written for a topic that may already
+have one somewhere in the corpus. The proposal carries a notice
+saying so, as part of the `/vision` entry — after the chain list,
+before the option line.
+
+The wording is fixed. Emit it verbatim:
+
+> *"A new VISION will be written for this topic. If one already
+> exists that this chain should build on, re-invoke as `/charter
+> <topic> --upstream <path-to-the-VISION>` and this chain will
+> consume it instead of authoring another. No candidate has been
+> looked for; this is a notice, not a question, and the chain
+> proceeds as proposed."*
+
+Substitute the run's validated topic slug for `<topic>`. Leave
+`<path-to-the-VISION>` as written — it is a shape, not a candidate.
+
+#### When It Fires
+
+Both conditions, and nothing else:
+
+1. The `/vision` entry reads "run" — the head child will author a
+   NEW head-altitude artifact on this run.
+2. Phase 0 recorded no `consumed_upstream:` — no upstream was
+   supplied.
+
+Both are known at chain-proposal time from what Phase 0 and Phase 1
+have already established; the notice adds no filesystem work beyond
+the globs Phase 1 already runs.
+
+It does NOT fire when the author supplied `--upstream` and Phase 0
+recorded it — the author already did the thing the notice describes
+— and it does NOT fire when the `/vision` entry reads "skip"
+because an Accepted or Active VISION exists at the published path
+and no thesis shift surfaced. In that second case the head child is
+held back to protect what is already there, and telling an author
+how to attach to an upstream while nothing is about to be written
+is noise.
+
+#### A Notice Is Not a Prompt
+
+The notice states a fact and changes nothing. It adds no option, no
+default, and no decision point; the only way to act on it is to
+re-invoke with the flag. It follows the same shape as the
+stated-skip sentences under Stated-Skip Rule in
+`skills/charter/references/phases/phase-2-chain-orchestration.md`
+and as `/scope`'s slug-prefix recommendation — surfaced
+informationally, explicitly non-blocking.
+
+Four properties follow from where it sits, and the wording above
+keeps each of them true:
+
+- **It precedes the authoring.** The chain proposal is emitted
+  before any child fires, so an author reads it before a VISION is
+  written rather than after.
+- **It scans no directory.** The notice names no candidate. It does
+  not need to know whether an upstream exists, which is exactly why
+  it is cheap where a discovery scan would not be.
+- **It is defined in `--auto` mode.** The proposal is emitted and
+  the run auto-proceeds; the notice rides along as output and the
+  chain continues. Nothing blocks, so there is no default to get
+  wrong.
+- **It is not a prompt on every run.** The option line below it is
+  unchanged, and the author still answers exactly one question
+  here.
 
 ### The Three Options
 

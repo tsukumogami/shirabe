@@ -1036,9 +1036,13 @@ requirement that motivates them and the user story they exercise
   `[a-z0-9-]`. Each rejection MUST surface a clear error naming
   the violated pattern. `[automated-eval]` (R3)
 - [ ] **AC4** Invoking `/scope docs/prds/PRD-foo.md` (path as
-  `$ARGUMENTS`) is treated as a freeform topic after slug
-  derivation; not interpreted as an upstream path.
-  `[automated-eval]` (R2)
+  `$ARGUMENTS`) is rejected at Phase 0 by the same `^[a-z0-9-]+$`
+  check AC3b covers — the path carries slashes, dots, and
+  uppercase letters — and the rejection names the violated
+  pattern. The path is neither interpreted as an upstream nor
+  reduced to a topic slug; an upstream the chain should consume is
+  named with `--upstream <path>`, whose value never reaches this
+  check. `[automated-eval]` (R2, R3)
 
 ### Child invocation gates
 

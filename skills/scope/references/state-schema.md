@@ -27,6 +27,24 @@ state-schema reference).
   Phase 2's validator pass-through reads it back for
   `shirabe validate --visibility=<value>`, so it is a recorded
   field rather than a per-phase re-detection.
+- **`consumed_upstream`** — conditional path string naming an
+  upstream artifact this chain consumed but did not produce: the
+  value the author supplied with `--upstream <path>`, canonicalized,
+  after it passed every check in
+  `skills/scope/references/phases/phase-0-setup.md` (bounds check,
+  `ROADMAP-` basename, not under `wip/`, tracked by git, and not a
+  private artifact named from a public repo). The value is a
+  working-tree-relative path, or an `owner/repo:path` cross-repo
+  reference. Required iff the invocation supplied `--upstream` and
+  the value passed validation; absent otherwise — including when
+  the value was dropped by the visibility check, which is
+  deliberately indistinguishable from no flag at all, since
+  recording a private path in a public repo's state file would leak
+  it onto the pushed feature branch. Written at Phase 0 rather than
+  at finalization, because its trigger fires at invocation or
+  never. Read at Phase 2, where it becomes the `--upstream`
+  argument `/scope` hands `/brief`, and re-validated by the resume
+  ladder on every re-entry.
 - **`planned_chain`** — list of child names the chain plans to
   invoke: the whole tactical chain (`brief`, `prd`, `design`,
   `plan`) in order, minus any child held back by re-entry

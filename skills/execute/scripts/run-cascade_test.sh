@@ -1273,6 +1273,68 @@ scenario_deletion_idempotent_reinvoke() {
 # named repo directly (no origin-equality rejection) while still rejecting an
 # owner/repo that fails the GitHub charset validation. We source just the
 # function and stub gh/git so the test is hermetic.
+# ── Scenario 15: fail-open note reaches the cascade's surfaced output ─────────
+# One document that cannot be indexed leaves finalize-chain's referrer map short,
+# so the retirement guard clears transitions it could not fully check. The walk
+# fails open — otherwise one malformed file would block every finalization — and
+# records a note on each node it retires. The cascade exits 0 either way, so the
+# note is the only signal, and it is worth nothing if it stops at finalize-chain's
+# own JSON: this asserts it arrives on the step `detail` the agent reads.
+scenario_fail_open_note_surfaced() {
+    local scenario="Scenario 15: fail-open note reaches steps[].detail"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    write_brief "$repo/docs/briefs/BRIEF-cascade-test-failopen.md"
+    write_prd "$repo/docs/prds/PRD-cascade-test-failopen.md" \
+        "docs/briefs/BRIEF-cascade-test-failopen.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-failopen.md" \
+        "docs/prds/PRD-cascade-test-failopen.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-failopen.md" \
+        "docs/designs/DESIGN-cascade-test-failopen.md"
+
+    # A document the index cannot read: the frontmatter opens and never closes.
+    # It is dropped from the index, so anything it referred to is missing from
+    # the referrer map — the partial failure, and the silent one.
+    mkdir -p "$repo/docs/prds"
+    cat > "$repo/docs/prds/PRD-cascade-test-unreadable.md" <<'EOF'
+---
+status: Accepted
+
+# PRD: Unreadable
+EOF
+
+    commit_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-failopen.md")
+
+    local ok=true
+
+    # The transitions still ran — fail open, not closed.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_prd" and .status == "ok")] | length == 1' \
+        "transition_prd still ran (fail open)" || ok=false
+
+    # And every retired node's note reached the detail field.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.detail != null and (.detail | test("retirement guard could not see the whole corpus")))] | length >= 2' \
+        "fail-open note reaches steps[].detail" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.detail != null and (.detail | test("PRD-cascade-test-unreadable.md")))] | length >= 1' \
+        "the surfaced note names the document that could not be indexed" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 scenario_check_issue_closed_sibling_repo() {
     local scenario="Scenario 14: check_issue_closed — sibling repo accepted, bad charset rejected"
     echo "Running $scenario..."
@@ -1443,6 +1505,9 @@ scenario_deletion_idempotent_reinvoke
 cd "$ORIG_DIR"
 
 scenario_check_issue_closed_sibling_repo
+cd "$ORIG_DIR"
+
+scenario_fail_open_note_surfaced
 cd "$ORIG_DIR"
 
 echo ""

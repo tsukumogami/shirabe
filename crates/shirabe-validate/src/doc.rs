@@ -41,8 +41,51 @@ pub struct Doc {
 /// A frontmatter field's string value and its 1-indexed line number.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldValue {
+    /// The field's scalar text: the source text for a scalar, the empty
+    /// string for every other YAML shape (sequence, mapping, alias).
+    ///
+    /// This is what the FC02/FC03 annotation bytes are built from, and the
+    /// cross-implementation parity gate compares those bytes against a
+    /// frozen baseline. It stays the empty string for a sequence. Readers
+    /// that want a sequence's items read [`FieldValue::entries`].
     pub value: String,
     pub line: usize,
+    /// The field's value decomposed into entries, preserving written order.
+    pub entries: FieldEntries,
+}
+
+/// A frontmatter field's value by YAML shape, carrying each entry's
+/// original source text.
+///
+/// The three shapes stay distinct rather than collapsing into one list,
+/// because a value that is neither a scalar nor a sequence is a distinct
+/// authoring mistake from an empty sequence and is reported as such.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FieldEntries {
+    /// A scalar. Exactly one entry holding the whole text, never split on
+    /// newlines: a `problem: |` block scalar is one value, not many.
+    Scalar(String),
+    /// A sequence, one entry per item in written order, for both block
+    /// (`- a`) and flow (`[a, b]`) syntax. Empty for `[]`. An item that is
+    /// itself a sequence or mapping contributes an empty entry, so entry
+    /// count and position still match what the author wrote.
+    Sequence(Vec<String>),
+    /// Neither a scalar nor a sequence: a mapping, a tagged node, or an
+    /// alias.
+    Other,
+}
+
+impl FieldValue {
+    /// Build a scalar field value, keeping `value` and the single entry in
+    /// agreement.
+    pub fn scalar(value: impl Into<String>, line: usize) -> Self {
+        let value = value.into();
+        Self {
+            entries: FieldEntries::Scalar(value.clone()),
+            value,
+            line,
+        }
+    }
 }
 
 /// A `## ` heading name and its 1-indexed line number.

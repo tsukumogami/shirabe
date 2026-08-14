@@ -359,6 +359,22 @@ add_step() {
     fi
 }
 
+# Surface a note finalize-chain attached to a node it acted on.
+#
+# A transitioned node carries a note when the retirement guard could not see the
+# whole corpus — one document that failed to index leaves the referrer map short,
+# and the walk fails open rather than letting a single malformed file block every
+# finalization. That is the only place the incompleteness is recorded, so it has
+# to leave the report: it goes on the step's `detail` (where the agent reads it)
+# and to the log (where a human running the cascade reads it). A cascade with a
+# short guard still exits 0, so nothing else would ever mention it.
+surface_node_note() {
+    local target="$1"
+    local note="$2"
+    [[ -n "$note" ]] || return 0
+    log_warn "finalize-chain note on $target: $note"
+}
+
 emit_result() {
     local cascade_status="$1"
     local steps_array="[$STEPS_JSON]"
@@ -765,17 +781,20 @@ if [[ "$FINALIZE_RC" -eq 0 ]]; then
                 git add "$new_path" 2>/dev/null || git add "$target" 2>/dev/null || true
                 STAGED_FILES+=("$effective_path")
                 CASCADE_DESIGN_PATH="$effective_path"
-                add_step "transition_design" "$target" "$prev_path" "ok" ""
+                surface_node_note "$target" "$note"
+                add_step "transition_design" "$target" "$prev_path" "ok" "$note"
                 ;;
             transition_prd)
                 git add "$target" 2>/dev/null || true
                 STAGED_FILES+=("$target")
-                add_step "transition_prd" "$target" "$prev_path" "ok" ""
+                surface_node_note "$target" "$note"
+                add_step "transition_prd" "$target" "$prev_path" "ok" "$note"
                 ;;
             transition_brief)
                 git add "$target" 2>/dev/null || true
                 STAGED_FILES+=("$target")
-                add_step "transition_brief" "$target" "$prev_path" "ok" ""
+                surface_node_note "$target" "$note"
+                add_step "transition_brief" "$target" "$prev_path" "ok" "$note"
                 ;;
             roadmap_handoff)
                 # Defer the roadmap handler until after the design path is known

@@ -41,6 +41,15 @@ motivating_context: |                          # optional
 Required fields: `status`, `problem`, `outcome`. Optional:
 `upstream`, `motivating_context`.
 
+**Two written shapes are supported for `upstream:`.** A scalar -- the
+path on the key's own line -- and a sequence, written either as `- `
+entries on the following lines or inline as `[<path>, <path>]`. Every
+entry of a sequence is read, in written order, and a single-entry
+sequence is still a sequence. Reach for the sequence when the document
+genuinely has more than one parent; the scalar otherwise. Nothing else
+is supported: a scalar is never split, so two paths on one line read as
+one entry that resolves to nothing.
+
 - **schema** -- `brief/v1`. Pins the artifact-type contract. `schema`
   is the map key the validator routes on, not a checked field.
 - **status** -- lifecycle state (Draft, Accepted, Done).

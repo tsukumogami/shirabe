@@ -167,6 +167,20 @@
         "Plan does NOT ask a rehash question such as 'does the thesis look right?'",
         "Plan does NOT present the alternatives side by side with no stated preference"
       ]
+    },
+    {
+      "id": 12,
+      "name": "upstream-flag",
+      "prompt": "/strategy payment-retries --upstream docs/visions/VISION-platform.md",
+      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before classifying the remainder, so the entry mode is freeform and the topic slug is 'payment-retries' derived from the positional argument alone -- never from the VISION's filename. The value is canonicalized, bounds-checked, confirmed to have a VISION- basename, confirmed not to be under wip/, and confirmed tracked by git; a PRD- basename is rejected on the flag because the flag records and a PRD is never recorded. The path is stored as the context file's ## Recorded Upstream, and Phase 2 writes upstream: docs/visions/VISION-platform.md into docs/strategies/STRATEGY-payment-retries.md. A bare --upstream with no value would be rejected at Phase 0 naming the missing argument.",
+      "files": ["docs/visions/VISION-platform.md"],
+      "expectations": [
+        "Plan detects and parses the --upstream flag from $ARGUMENTS",
+        "Plan derives the topic slug 'payment-retries' from the positional argument, NOT from the VISION basename",
+        "Plan validates the --upstream value: canonicalized, inside the working tree, VISION- basename, not under wip/, tracked by git",
+        "Plan records the path as ## Recorded Upstream and writes it into the STRATEGY frontmatter's upstream: field",
+        "Plan produces docs/strategies/STRATEGY-payment-retries.md rather than STRATEGY-platform.md"
+      ]
     }
   ]
 }

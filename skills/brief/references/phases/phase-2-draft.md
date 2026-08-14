@@ -82,8 +82,12 @@ elaborate in prose; the two stay in sync (the Phase 4 structural-format reviewer
 checks consistency).
 
 Omit the `upstream` field entirely when the upstream is a private artifact a public
-brief cannot name. Cross-repo references use the `owner/repo:path` convention
-defined in `references/cross-repo-references.md`.
+brief cannot name. Nothing downstream will catch it if you do not: `shirabe
+validate` resolves nothing for a cross-repo value, so a public BRIEF naming a
+private ROADMAP validates clean. Say so in the run output rather than dropping
+the link quietly. Cross-repo references that ARE allowed use the
+`owner/repo:path` convention and the direction table in
+`references/cross-repo-references.md`.
 
 Write the body Status section as:
 

@@ -36,6 +36,30 @@ every chain, or by the user in standalone invocation. If `--upstream` is not
 provided, omit the field from frontmatter; do not substitute a VISION path,
 which would skip a level of the chain.
 
+**Validate upstream:** If a path was detected, run these checks in order
+before storing it. They are the same three `/prd` runs against the same flag,
+so the flag behaves identically whichever skill an author hands it to. These
+are hard-stops -- do not write a failing value into frontmatter:
+
+1. **Is the path under `wip/`?** STOP. wip/ paths are non-durable and would
+   leave the ROADMAP's `upstream:` orphaned after wip-hygiene cleanup. Resolve
+   the canonical location and use that path instead, or OMIT the field.
+2. **Does the path resolve in this repo?** Run `git ls-files <path>`. If
+   non-empty, the upstream is durable -- continue.
+3. **Path is out-of-repo?** Detect this repo's visibility from CLAUDE.md
+   (`## Repo Visibility:`). If public AND the canonical upstream lives in a
+   private repo, STOP and OMIT the `upstream:` field. Public artifacts must
+   not reference private resources, and no tooling enforces it: `shirabe
+   validate` resolves nothing for a cross-repo value, so a public ROADMAP
+   naming a private STRATEGY validates clean. See
+   `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` for the
+   visibility-direction table and the cross-repo `owner/repo:path` syntax for
+   allowed cases (public->public, private->public, private->private).
+
+When omitting the field, say so in the run output, and optionally describe the
+source context in the ROADMAP's Theme prose without naming a private path or
+repo.
+
 ### 3.2 Draft the ROADMAP
 
 Write a complete ROADMAP draft following `references/roadmap-format.md`. Use the Write

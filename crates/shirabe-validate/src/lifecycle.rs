@@ -15,7 +15,8 @@
 //!   present-Done multi-pr PLANs, present single-pr PLANs at merge,
 //!   BRIEFs stuck at Accepted while their PLAN is Done, and every
 //!   other state-vs-posture mismatch. The message names the posture
-//!   so the author can read the rule directly.
+//!   so the author can read the rule directly — every posture that
+//!   demands the state, since a doc can sit in more than one chain.
 //! - **L02**: an orphan doc at non-terminal status that is neither
 //!   rooted at an Active ROADMAP (its own `upstream:`) nor linked into a
 //!   coherent multi-member tactical chain (a downstream child points at
@@ -34,6 +35,13 @@
 //! - **L07**: a DESIGN's directory disagrees with its status — a
 //!   `Current` design outside `docs/designs/current/`, or a
 //!   non-`Current` design inside it.
+//! - **L08**: two chains require the same document in states no
+//!   single status satisfies. The message names each conflicting
+//!   chain and the full set it requires, and it supersedes the L01
+//!   findings those chains' requirements would have produced on that
+//!   document — the document is told once that its consumers
+//!   disagree, rather than handed instructions it cannot both follow.
+//!   Findings of every other kind on it are unaffected.
 //!
 //! Posture detection follows
 //! `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`:
@@ -79,7 +87,11 @@ pub enum TargetState {
 
 /// Posture of a chain — derived from the PLAN's `execution_mode` and
 /// frontmatter `status:` value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Ordered so a set of postures has a stable presentation order; the
+/// order is the declaration order below and carries no meaning beyond
+/// determinism.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Posture {
     /// Multi-pr chain in flight: PLAN present at `Active`.
     MultiPrInFlight,
@@ -161,18 +173,38 @@ pub struct ChainMember {
     pub status: String,
 }
 
-/// A discovered chain, with members in BRIEF -> PRD -> DESIGN ->
-/// PLAN/ROADMAP order (some leading members may be absent if the
-/// upstream chain doesn't go all the way up).
+/// A discovered chain: the PLAN or ROADMAP it is rooted at, plus every
+/// doc reachable from that root along the `upstream:` edge.
+///
+/// `members` reads BRIEF -> PRD -> DESIGN -> PLAN/ROADMAP for a chain
+/// whose upstreams are single-valued (some leading members may be
+/// absent if the upstream chain doesn't go all the way up). Once an
+/// upstream fans out the walk branches and no single line-up survives,
+/// so member order is presentational only: it is the reverse of walk
+/// order, and nothing reads meaning out of a member's position. Root
+/// identity in particular does not live there — `root` carries it. It
+/// used to be recoverable as `members.last()`, which held only while
+/// the walk was a single path.
 #[derive(Debug, Clone)]
 pub struct Chain {
+    /// Canonical path of the PLAN or ROADMAP this chain is rooted at.
+    /// Also present in `members`; this is the handle a consumer that
+    /// has to name the chain uses.
+    pub root: PathBuf,
     pub members: Vec<ChainMember>,
     pub root_kind: RootKind,
     pub posture: Posture,
 }
 
-/// Computed passing state for a chain member.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Computed passing state for a chain member — the set of statuses
+/// that satisfy one chain's demand on one document.
+///
+/// Each variant denotes a distinct set: `Status` a singleton,
+/// `Deleted` the empty set (the document must not be there at all),
+/// and the two compound variants their named pairs. No two variants
+/// denote the same set, which is what lets the variant itself stand in
+/// for "the required status set" as part of a finding's identity.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PassingState {
     /// The doc should be at this named status.
     Status(&'static str),
@@ -200,6 +232,28 @@ impl PassingState {
             }
             Self::PrdAcceptedOrInProgress => {
                 "status 'Accepted' or 'In Progress'".to_string()
+            }
+        }
+    }
+
+    /// The variant expanded into the concrete set of statuses it
+    /// denotes.
+    ///
+    /// `matches` answers the question one status at a time, which is
+    /// all the per-document check ever needed. Comparing two
+    /// requirements to each other needs the sets themselves, and this
+    /// is the one place they are written down.
+    ///
+    /// `Deleted` expands to the empty set — correctly, since no status
+    /// satisfies "not there at all" — which is exactly why
+    /// [`requirements_conflict`] cannot be a bare disjointness test.
+    fn statuses(&self) -> BTreeSet<&'static str> {
+        match self {
+            Self::Status(s) => [*s].into_iter().collect(),
+            Self::Deleted => BTreeSet::new(),
+            Self::DesignPlannedOrCurrent => ["Planned", "Current"].into_iter().collect(),
+            Self::PrdAcceptedOrInProgress => {
+                ["Accepted", "In Progress"].into_iter().collect()
             }
         }
     }
@@ -387,39 +441,28 @@ fn index_doc(
     })
 }
 
-/// Pull the `upstream:` field from a parsed doc.
+/// Pull the `upstream:` field from a parsed doc and resolve each entry
+/// against the root.
 ///
-/// Handles two shapes: scalar (`upstream: path`) and list-of-lines
-/// (the `FieldValue` carries multi-line content when the YAML is a
-/// list). Strips template placeholders containing `<` or `>`.
-/// Resolves relative paths against the root.
+/// Entries come from [`crate::upstream::upstream_entries`], the one
+/// normalization path all three `upstream:` readers share: it handles the
+/// scalar and sequence shapes, trims, and skips template placeholders. What
+/// is left here is the resolution this function owns -- joining the
+/// canonical root, canonicalizing, and suppressing a self-reference -- plus
+/// dropping cross-repo entries, which name a file in another repository and
+/// so have no local path to join. (The entry is marked rather than removed
+/// by the shared helper precisely because the finalization walk needs to see
+/// it in order to stop at it; the lifecycle index holds resolved local paths,
+/// which a cross-repo reference has none of.)
 fn extract_upstreams(canon_root: &Path, canon_path: &Path, doc: &Doc) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let raw = match doc.fields.get("upstream") {
-        Some(f) => f.value.clone(),
-        None => return out,
-    };
 
-    // Split on newlines; each line may be a `- path` list item, a
-    // bare `path` scalar, or a multi-doc string. Defensive parsing:
-    // strip leading whitespace and `- ` prefixes, ignore template
-    // placeholders, ignore empty lines.
-    for line in raw.lines() {
-        let trimmed = line.trim().trim_start_matches('-').trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        // Strip inline `# ...` comments.
-        let bare = trimmed.split('#').next().unwrap_or("").trim();
-        if bare.is_empty() {
-            continue;
-        }
-        // Skip template placeholders.
-        if bare.contains('<') || bare.contains('>') {
+    for entry in crate::upstream::upstream_entries(doc) {
+        if entry.cross_repo {
             continue;
         }
         // Resolve as relative-to-root.
-        let resolved = canon_root.join(bare);
+        let resolved = canon_root.join(&entry.value);
         // Try to canonicalize; if it fails (file missing), keep the
         // joined path so L04 can report the missing reference.
         let final_path = fs::canonicalize(&resolved).unwrap_or(resolved);
@@ -449,14 +492,103 @@ fn build_inverse_upstream(idx: &DocIndex) -> InverseGraph {
     inv
 }
 
+// ---------- referrer map (the narrow API the finalization walk reads) ----------
+
+/// One document that names another document as its `upstream:`.
+///
+/// The finalization walk consults these before retiring an ancestor: a
+/// document that still names the ancestor, has not reached its own terminal
+/// state, and is not itself being retired by that walk is a consumer whose
+/// reference the retirement would strand.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Referrer {
+    /// Canonical path of the referring document.
+    pub path: PathBuf,
+    /// Detected format name: `Brief`, `PRD`, `Design`, `Plan`, `Roadmap`.
+    pub format: String,
+    /// The referring document's frontmatter `status:`.
+    pub status: String,
+}
+
+impl Referrer {
+    /// Whether this document has reached its type's terminal state, and so
+    /// has stopped consuming what it points at. A PLAN or ROADMAP retires by
+    /// deletion ([`TargetState::Deleted`]), so one still present in the tree
+    /// has not reached its terminal state whatever its status says.
+    pub fn is_terminal(&self) -> bool {
+        match target_state_for(&self.format) {
+            TargetState::Status(terminal) => self.status == terminal,
+            TargetState::Deleted | TargetState::Unknown => false,
+        }
+    }
+}
+
+/// Referrer map: a document's canonical path -> every document that names it
+/// as an upstream, in canonical-path order.
+pub type ReferrerMap = BTreeMap<PathBuf, Vec<Referrer>>;
+
+/// Build the referrer map for the doc tree under `root`, keyed by the same
+/// canonical paths the index is keyed by (see [`canonicalize_indexed_path`]).
+///
+/// This is the narrow graph-level API over the lifecycle index: one index
+/// build, one inversion, and no second `upstream:` parse -- the entries come
+/// from the same [`crate::upstream`] helper every other reader uses. The
+/// returned errors are the index-construction errors, which a caller that
+/// must know the map may be incomplete reads; the map itself is usable
+/// either way.
+pub fn build_referrer_map(root: &Path) -> (ReferrerMap, Vec<ValidationError>) {
+    let (idx, errors) = build_doc_index(root);
+    let mut map = ReferrerMap::new();
+    for (upstream_path, children) in build_inverse_upstream(&idx) {
+        let referrers: Vec<Referrer> = children
+            .iter()
+            .filter_map(|child| idx.get(child))
+            .map(|doc| Referrer {
+                path: doc.path.clone(),
+                format: doc.format.clone(),
+                status: doc.status.clone(),
+            })
+            .collect();
+        if !referrers.is_empty() {
+            map.insert(upstream_path, referrers);
+        }
+    }
+    (map, errors)
+}
+
+/// The canonicalization primitive the doc index keys on. A caller that looks
+/// a path up in a [`ReferrerMap`] must canonicalize it the same way, or the
+/// two disagree about which document a path names.
+pub fn canonicalize_indexed_path(path: &Path) -> Option<PathBuf> {
+    fs::canonicalize(path).ok()
+}
+
 // ---------- chain discovery + posture inference ----------
 
 /// Discover all chains in the index. Each chain is rooted at a PLAN
 /// or ROADMAP and walks the forward `upstream:` edge to gather BRIEF,
 /// PRD, DESIGN members.
 ///
+/// The walk follows *every* entry of a multi-valued `upstream:`, not
+/// just the first. A document naming two upstreams is therefore a
+/// member of both chains above it, which is the whole point: an
+/// `upstream:` entry is a membership edge, and a walk that reads only
+/// the first entry silently decides that the rest are not.
+///
 /// Cycles in the upstream graph produce an L03 error and the cyclic
-/// chain is dropped from the result.
+/// chain is dropped from the result. Cycles are tracked per branch
+/// rather than across the traversal, because the fan-out makes the two
+/// different: a *diamond* — two upstream entries reconverging on a
+/// common ancestor — revisits a node the traversal has already seen
+/// without that node ever appearing twice on one root-to-node path. A
+/// shared visited set cannot tell the two apart and would report the
+/// diamond as a cycle, dropping a legal chain.
+///
+/// Reconvergence is not re-walked: the second branch to reach a node
+/// stops there, since the node and everything above it are already
+/// members. That cannot hide a cycle. Any cycle among a node's
+/// ancestors is a property of the graph above it, so the branch that
+/// expanded the node first walked into it and reported it.
 fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
     let mut chains = Vec::new();
     let mut errors = Vec::new();
@@ -469,16 +601,27 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
         };
 
         let mut members: Vec<ChainMember> = Vec::new();
-        let mut visited: HashSet<PathBuf> = HashSet::new();
-        let mut order: Vec<PathBuf> = Vec::new();
-        let mut cur = Some(indexed.path.clone());
+        // Nodes this chain's walk has already expanded, over the whole
+        // traversal. Guards against re-walking a reconvergence point,
+        // and against recording a diamond's shared ancestor twice.
+        let mut expanded: HashSet<PathBuf> = HashSet::new();
+        // Depth-first frontier. Each entry carries the node to expand
+        // and the walk order that reached it — the root-to-parent path,
+        // which is both the cycle-detection set for this branch and the
+        // path an L03 message prints.
+        let mut frontier: Vec<(PathBuf, Vec<PathBuf>)> =
+            vec![(indexed.path.clone(), Vec::new())];
 
-        while let Some(cur_path) = cur {
-            if !visited.insert(cur_path.clone()) {
-                // Cycle detected — emit L03 naming the cycle.
-                order.push(cur_path.clone());
-                let cycle_str = order
+        while let Some((cur_path, branch)) = frontier.pop() {
+            // Cycle check first, before the reconvergence check: a node
+            // already on this branch is also already expanded, so
+            // testing expansion first would swallow the cycle.
+            if branch.contains(&cur_path) {
+                // Cycle detected — emit L03 naming the cycle, in walk
+                // order along the branch that closed it.
+                let cycle_str = branch
                     .iter()
+                    .chain(std::iter::once(&cur_path))
                     .map(|p| rel_path_lossy(p))
                     .collect::<Vec<_>>()
                     .join(" -> ");
@@ -490,12 +633,19 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
                 members.clear();
                 break;
             }
-            order.push(cur_path.clone());
+
+            // Reached again from a second branch: a diamond, not a
+            // cycle. It is already a member and its own upstreams are
+            // already walked, so this branch ends here.
+            if !expanded.insert(cur_path.clone()) {
+                continue;
+            }
 
             let node = match idx.get(&cur_path) {
                 Some(n) => n,
                 None => {
-                    // Upstream points at a missing parent — L04.
+                    // Upstream points at a missing parent — L04. Only
+                    // this branch ends; sibling entries still resolve.
                     errors.push(error_path(
                         indexed.path.clone(),
                         "L04",
@@ -504,7 +654,7 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
                             rel_path_lossy(&cur_path)
                         ),
                     ));
-                    break;
+                    continue;
                 }
             };
 
@@ -516,10 +666,8 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
                 });
             }
 
-            // Walk to the parent. PLAN -> DESIGN -> PRD -> BRIEF in
-            // the forward upstream direction. Take the first upstream
-            // if multiple are present (the additional upstreams are
-            // typically optional context, e.g. ROADMAP parents).
+            // Walk to the parents. PLAN -> DESIGN -> PRD -> BRIEF in
+            // the forward upstream direction.
             //
             // Stop the walk at a BRIEF: BRIEF is the chain's anchor.
             // If a BRIEF carries an `upstream:` field (e.g. pointing
@@ -536,21 +684,35 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
             // edge reports a present file as a missing chain member
             // (L04). The strategic chain is out of scope here, not
             // absent.
+            //
+            // Both stops happen after the push above, so the stopping
+            // node is itself a member.
             if matches!(node.format.as_str(), "Brief" | "Roadmap") {
-                break;
+                continue;
             }
-            cur = node.upstreams.first().cloned();
+
+            let mut child_branch = branch;
+            child_branch.push(cur_path);
+            // Pushed in reverse so the frontier pops them in written
+            // order: the first `upstream:` entry is walked first, which
+            // is the order a single-valued chain has always walked in.
+            for parent in node.upstreams.iter().rev() {
+                frontier.push((parent.clone(), child_branch.clone()));
+            }
         }
 
         if members.is_empty() {
             continue;
         }
 
-        // Reverse so chain reads BRIEF -> PRD -> DESIGN -> PLAN.
+        // Reverse so a single-path chain reads BRIEF -> PRD -> DESIGN
+        // -> PLAN. See `Chain::members` on what this ordering does and
+        // does not mean once the walk branches.
         members.reverse();
 
         let posture = infer_posture_from(indexed);
         chains.push(Chain {
+            root: indexed.path.clone(),
             members,
             root_kind,
             posture,
@@ -611,6 +773,11 @@ fn infer_posture_from(root: &IndexedDoc) -> Posture {
 
 /// The passing state for a chain member given the chain's posture.
 ///
+/// Role and posture alone, which is to say: what one chain demands of
+/// a document at the *root* of that chain's lineage. Position is not a
+/// parameter here and cannot be — see [`required_state`], which holds
+/// the one rule that depends on it.
+///
 /// The DESIGN is the only artifact type with a non-trivial passing-
 /// state lifecycle outside the chain's primary state machine: it
 /// lives at `Planned` in `docs/designs/` during in-flight phases and
@@ -659,14 +826,416 @@ fn compute_passing_state(role: ChainRole, posture: Posture) -> PassingState {
         (Plan, SinglePrMidPR) => PassingState::Status("Active"),
         (Roadmap, SinglePrMidPR) => PassingState::Status("Active"),
 
-        // Single-pr at-merge (PLAN absent; this branch is mostly for
-        // ROADMAP shape).
+        // Single-pr at-merge (PLAN absent).
         (Brief, SinglePrAtMerge) => PassingState::Status("Done"),
         (Prd, SinglePrAtMerge) => PassingState::Status("Done"),
         (Design, SinglePrAtMerge) => PassingState::Status("Current"),
         (Plan, SinglePrAtMerge) => PassingState::Deleted,
+        // Unreachable, and left saying what it has always said. A
+        // single-pr posture only ever comes from a PLAN root
+        // (`infer_posture_from` maps a ROADMAP root to a multi-pr
+        // posture and nothing else), so a ROADMAP holding this cell is
+        // a member rather than a root — the case [`required_state`]
+        // now answers before the table is consulted. `Active` is what
+        // it answers, so the cell is not a contradiction left behind;
+        // it is the same rule written twice, and flipping it to match
+        // its row would make it one.
         (Roadmap, SinglePrAtMerge) => PassingState::Status("Active"),
     }
+}
+
+// ---------- obligation map ----------
+//
+// Every chain containing a document demands something of it. The map
+// below collects those demands once, keyed by the document, so both
+// entry points evaluate a document against all of them and neither can
+// see a different answer from the other. The mode chooses which
+// documents get reported on; it does not change what is said about
+// one.
+
+/// The chains behind one requirement: each (effective posture, chain
+/// root) pair that demands it. The posture is what the message reads;
+/// the root is the handle a diagnostic uses when it has to name which
+/// chains are involved.
+type Imposers = BTreeSet<(Posture, PathBuf)>;
+
+/// Document path -> required status set -> the chains imposing it.
+///
+/// The two key levels are two thirds of a finding's identity — the
+/// check code is the third, and L01 is the only code emitted from this
+/// map. That is the point of keying rather than filtering afterwards:
+/// two chains demanding the same state of the same document land on
+/// one entry, so the duplicate is never built. It cannot be recovered
+/// by textual comparison either, because the message names every
+/// posture behind the entry and so differs from what either chain
+/// alone would have written.
+type ObligationMap = BTreeMap<PathBuf, BTreeMap<PassingState, Imposers>>;
+
+/// The posture a chain is evaluated at, which is not always the
+/// posture it carries.
+///
+/// Under `ReviewPosture::Ready` a single-pr chain mid-PR is held to
+/// the at-merge row: the PR is up for review, so the PLAN should be
+/// gone and BRIEF/PRD/DESIGN at their terminal states. Multi-pr
+/// postures are unaffected. Applied once, at map-build time, so no
+/// consumer downstream of the map ever handles a raw chain posture.
+fn effective_posture(chain: Posture, review: ReviewPosture) -> Posture {
+    if review == ReviewPosture::Ready && chain == Posture::SinglePrMidPR {
+        Posture::SinglePrAtMerge
+    } else {
+        chain
+    }
+}
+
+/// What one chain requires of one of its members.
+///
+/// The passing-state table is keyed by role and posture, and a posture
+/// is a property of the chain's root. That is the right reading for a
+/// document evaluated against its own lineage, and the wrong one for a
+/// document a chain merely passes through on its way up: the table
+/// cannot tell the two apart, so it answers as though every member's
+/// own work were the work the posture describes.
+///
+/// For a ROADMAP the difference is the difference between a live
+/// document and a deleted one. `discover_chains` records a node as a
+/// member before the stop check, so a ROADMAP reached by walking up
+/// from a PLAN is a full member of that PLAN's chain — and a multi-pr
+/// PLAN at `Done` puts that chain at `MultiPrWorkCompleting`, whose
+/// ROADMAP cell requires absence. Read straight off the table, one
+/// feature finishing beneath a ROADMAP demands the ROADMAP be deleted
+/// while the rest of its features are still running.
+///
+/// So: a ROADMAP that is not the root of the chain being evaluated is
+/// required to be `Active`. Only a ROADMAP's own chain — the one
+/// rooted at it, whose completion is its completion — can require its
+/// absence, and that path still runs through the table unchanged.
+///
+/// `Active` rather than the weaker "present": the two differ on a
+/// retired ROADMAP above a still-completing chain, which "present"
+/// lets pass and which is a real finding.
+fn required_state(member: &ChainMember, chain: &Chain, posture: Posture) -> PassingState {
+    if member.role == ChainRole::Roadmap && member.path != chain.root {
+        return PassingState::Status("Active");
+    }
+    compute_passing_state(member.role, posture)
+}
+
+/// Build the obligation map over every discovered chain.
+fn build_obligations(chains: &[Chain], review: ReviewPosture) -> ObligationMap {
+    let mut map = ObligationMap::new();
+    for chain in chains {
+        let posture = effective_posture(chain.posture, review);
+        for member in &chain.members {
+            map.entry(member.path.clone())
+                .or_default()
+                .entry(required_state(member, chain, posture))
+                .or_default()
+                .insert((posture, chain.root.clone()));
+        }
+    }
+    map
+}
+
+/// The trailing clause of an L01 message, naming the postures that
+/// demand the state.
+///
+/// One requirement can come from several chains at once, so the clause
+/// has to stay true for all of them rather than pick one and imply the
+/// others do not exist. A single posture reads exactly as it always
+/// has; beyond one the names are listed and the noun pluralizes.
+fn posture_clause(imposers: &Imposers) -> String {
+    let postures: BTreeSet<Posture> = imposers.iter().map(|(p, _)| *p).collect();
+    let names: Vec<&'static str> = postures.iter().map(|p| p.name()).collect();
+    match names.split_last() {
+        Some((last, [])) => format!("{} posture", last),
+        Some((last, init)) => format!("{} and {} postures", init.join(", "), last),
+        // Unreachable: an entry exists only because something inserted
+        // an imposer into it.
+        None => "an unknown posture".to_string(),
+    }
+}
+
+// ---------- conflict detection ----------
+
+/// One chain's demand on one document: which chain, at what posture,
+/// and the set it requires.
+///
+/// The obligation map keys by required set and folds every chain
+/// demanding it into a single entry, which is what makes an L01
+/// unique. A conflict is about the chains rather than about the
+/// requirement, and its message has to name them, so this reads the
+/// map back apart into one requirement per chain.
+#[derive(Clone, Copy)]
+struct Requirement<'a> {
+    state: &'a PassingState,
+    posture: Posture,
+    root: &'a Path,
+}
+
+/// Whether two chains' demands on one document cannot both be met.
+///
+/// Disjointness of the required status sets, not inequality. Two
+/// chains wanting different-but-overlapping things — one accepting a
+/// DESIGN at `Planned` or `Current`, another insisting on `Current` —
+/// agree at the intersection, and that is the ordinary shape of a
+/// shared document rather than a fault. Inequality as the test would
+/// fire on every shared DESIGN, which is the case the intersection
+/// protects.
+///
+/// `Deleted` is the value that needs the rule stated rather than
+/// inferred. It denotes the empty set, and the empty set is disjoint
+/// from everything including itself, so a bare disjointness test fires
+/// on two chains that both correctly require the same PLAN deleted —
+/// perfect agreement reported as conflict, on correct state. So:
+/// absence against a status conflicts, and absence against absence
+/// agrees.
+fn requirements_conflict(a: &PassingState, b: &PassingState) -> bool {
+    match (a, b) {
+        (PassingState::Deleted, PassingState::Deleted) => false,
+        (PassingState::Deleted, _) | (_, PassingState::Deleted) => true,
+        _ => a.statuses().is_disjoint(&b.statuses()),
+    }
+}
+
+/// The chain-level requirements on one document, in the map's order:
+/// by required set, then by (posture, chain root) within a set. Both
+/// levels are ordered collections, so the order is stable across runs
+/// and the message reads the same twice.
+fn requirements_of(required: &BTreeMap<PassingState, Imposers>) -> Vec<Requirement<'_>> {
+    required
+        .iter()
+        .flat_map(|(state, imposers)| {
+            imposers.iter().map(move |(posture, root)| Requirement {
+                state,
+                posture: *posture,
+                root: root.as_path(),
+            })
+        })
+        .collect()
+}
+
+/// Every requirement participating in at least one conflicting pair.
+///
+/// Pairwise over chains rather than over the map's entries. The two
+/// give the same answer — whether a requirement conflicts depends only
+/// on the set it names, so two chains behind one entry participate or
+/// abstain together — but the entry-level scan would never compare two
+/// requirements of absence to each other, since they share a key and
+/// merge. Comparing chains keeps the absence-agrees rule on a path the
+/// code actually walks.
+fn conflicting_requirements<'a>(reqs: &[Requirement<'a>]) -> Vec<Requirement<'a>> {
+    let mut participates = vec![false; reqs.len()];
+    for i in 0..reqs.len() {
+        for j in (i + 1)..reqs.len() {
+            if requirements_conflict(reqs[i].state, reqs[j].state) {
+                participates[i] = true;
+                participates[j] = true;
+            }
+        }
+    }
+    reqs.iter()
+        .zip(participates)
+        .filter(|(_, p)| *p)
+        .map(|(r, _)| *r)
+        .collect()
+}
+
+/// The conflict finding: one message naming every chain that
+/// participates and the full set each requires.
+///
+/// A new code rather than a second flavour of L01. The `L0n` family
+/// names kinds, and a lineage conflict is not a state-versus-posture
+/// mismatch — the document may well be at a status some chain is happy
+/// with. It is also unregistered in
+/// [`crate::validate::posture_class`], which falls through to
+/// always-enforced, so it carries the severity of the findings it
+/// replaces in both postures.
+fn conflict_finding(
+    path: &Path,
+    role: ChainRole,
+    conflicting: &[Requirement<'_>],
+) -> ValidationError {
+    let roots: BTreeSet<&Path> = conflicting.iter().map(|r| r.root).collect();
+    let clauses: Vec<String> = conflicting
+        .iter()
+        .map(|r| {
+            format!(
+                "the chain rooted at {} ({}) expected {}",
+                rel_path_lossy(r.root),
+                r.posture.name(),
+                r.state.describe(),
+            )
+        })
+        .collect();
+    error_path(
+        path.to_path_buf(),
+        "L08",
+        &format!(
+            "{} is required in conflicting states by {} chains: {}. No single status satisfies all of them, so the per-chain status findings are withheld in favour of this one.",
+            role.as_str(),
+            roots.len(),
+            clauses.join("; "),
+        ),
+    )
+}
+
+// ---------- emission ----------
+
+/// Report on every document in `scope`, against the obligations the
+/// whole corpus places on it.
+///
+/// The single place a per-document lifecycle finding is produced. A
+/// document some chain demands something of is checked against every
+/// demand; a document no chain reaches is subject to the orphan rule
+/// instead, which is the same partition the two loops drew before
+/// (chain membership always yields an obligation, since every member
+/// has a role and the passing-state table is total).
+///
+/// The location rule (L07) is emitted here too, ahead of the
+/// obligation lookup, because it holds of a document regardless of
+/// whether a chain reaches it: a `Current` DESIGN is terminal and
+/// orphan, and its directory must still agree with its status. Running
+/// it here rather than in one mode's entry point is what makes the two
+/// modes state the same thing about a misplaced document.
+///
+/// `scope` is what the mode controls, and the only thing it controls.
+fn emit_document_findings(
+    scope: &BTreeSet<PathBuf>,
+    obligations: &ObligationMap,
+    idx: &DocIndex,
+    inv: &InverseGraph,
+) -> Vec<ValidationError> {
+    let mut errors: Vec<ValidationError> = Vec::new();
+    for path in scope {
+        let doc = match idx.get(path) {
+            Some(d) => d,
+            None => continue,
+        };
+        if let Some(err) = check_location(doc) {
+            errors.push(err);
+        }
+        let required = match obligations.get(path) {
+            Some(r) => r,
+            None => {
+                if let Some(err) = check_orphan(doc, idx, inv) {
+                    errors.push(err);
+                }
+                continue;
+            }
+        };
+        let role = match ChainRole::from_format(&doc.format) {
+            Some(r) => r,
+            None => continue,
+        };
+        // Conflict first: when no status satisfies every chain, the
+        // document is told so once instead of being handed the
+        // instructions it cannot both follow. The requirements behind
+        // the conflict are withheld; any requirement that intersects
+        // everything else still speaks for itself below, and so do the
+        // findings of every other kind on this document.
+        //
+        // Supersession is safe by construction rather than by care: if
+        // no status satisfies every chain, this document's status
+        // satisfies at most one of them, so at least one of the
+        // withheld findings had fired. The replacement is one-for-N
+        // with N at least one, never one-for-zero.
+        let conflicting = conflicting_requirements(&requirements_of(required));
+        let superseded: BTreeSet<&PassingState> =
+            conflicting.iter().map(|r| r.state).collect();
+        if !conflicting.is_empty() {
+            errors.push(conflict_finding(path, role, &conflicting));
+        }
+
+        for (state, imposers) in required {
+            if superseded.contains(state) {
+                continue;
+            }
+            // The document was discovered by walking the index, so it
+            // is present in the tree by definition and
+            // `PassingState::Deleted` always fails — that is the
+            // work-completing posture's forcing function for the
+            // deletion commit. Other variants compare against the
+            // document's current status.
+            let mismatch = match state {
+                PassingState::Deleted => true,
+                _ => !state.matches(&doc.status),
+            };
+            if !mismatch {
+                continue;
+            }
+            errors.push(error_path(
+                path.clone(),
+                "L01",
+                &format!(
+                    "{} at status '{}' (expected {} for {})",
+                    role.as_str(),
+                    doc.status,
+                    state.describe(),
+                    posture_clause(imposers),
+                ),
+            ));
+        }
+    }
+    errors
+}
+
+/// Report on every chain in `scope`, for the findings a document path
+/// alone cannot produce.
+///
+/// The companion to [`emit_document_findings`]. L06 is chain-scoped,
+/// not member-scoped: it needs the chain to locate its subject — the
+/// chain's single-pr PLAN — so it cannot be folded into the
+/// per-document pass, which knows only a path. Keeping it here, keyed
+/// to the chain and evaluated once per chain in scope, gives it a
+/// stated home in the emission layer rather than leaving it in each
+/// entry point.
+///
+/// Whole-tree mode passes every chain; chain-targeted mode passes the
+/// chains containing the target, which is the same set its document
+/// scope is drawn from.
+fn emit_chain_findings(
+    scope: &[&Chain],
+    idx: &DocIndex,
+    cfg: &Config,
+) -> Vec<ValidationError> {
+    let mut errors: Vec<ValidationError> = Vec::new();
+    for chain in scope {
+        errors.extend(check_l06_outline_acs(chain, idx, cfg));
+    }
+    errors
+}
+
+/// The documents the chain-targeted mode reports on: the members of
+/// every chain containing `target`.
+///
+/// A *shallow* closure. It deliberately does not go on to add the
+/// members of chains containing those members: in a corpus where the
+/// chains interlock, that transitive walk reaches everything and the
+/// targeted mode stops being distinguishable from the whole-tree one,
+/// which is the entire reason the mode exists.
+///
+/// A target no chain contains yields just the target, so the orphan
+/// rule reaches it.
+fn chain_targeted_scope(chains: &[Chain], target: &Path) -> BTreeSet<PathBuf> {
+    let mut scope: BTreeSet<PathBuf> = BTreeSet::new();
+    for chain in containing_chains(chains, target) {
+        for member in &chain.members {
+            scope.insert(member.path.clone());
+        }
+    }
+    if scope.is_empty() {
+        scope.insert(target.to_path_buf());
+    }
+    scope
+}
+
+/// The chains `target` is a member of. More than one once a document
+/// names two upstreams, or two documents name it.
+fn containing_chains<'a>(chains: &'a [Chain], target: &Path) -> Vec<&'a Chain> {
+    chains
+        .iter()
+        .filter(|c| c.members.iter().any(|m| m.path == target))
+        .collect()
 }
 
 // ---------- orphan-doc rule ----------
@@ -776,10 +1345,17 @@ fn check_orphan(
 // `Current` DESIGN still sitting in `docs/designs/` -- or a non-`Current`
 // DESIGN already in `docs/designs/current/` -- is drift the chain check does
 // not catch (it validates status against posture, not status against path).
-// This is a corpus-wide, path-dependent check, so it runs through the
-// lifecycle traversal rather than the per-file `validate_file` pass, and its
-// code stays out of the per-file `--check` registry like the rest of the
-// L-family.
+// This is a path-dependent check needing the indexed on-disk location, so it
+// runs through the lifecycle traversal rather than the per-file `validate_file`
+// pass, and its code stays out of the per-file `--check` registry like the rest
+// of the L-family.
+//
+// It is emitted from `emit_document_findings`, so it runs over whatever scope
+// the mode set: every indexed doc in whole-tree mode, the members of the
+// target's chains in chain-targeted mode. Both modes therefore say the same
+// thing about a misplaced document they both report on. Chain membership is
+// irrelevant to the rule itself -- a `Current` design is terminal and orphan,
+// and its directory must still agree with its status.
 
 fn check_location(doc: &IndexedDoc) -> Option<ValidationError> {
     if doc.format != "Design" {
@@ -820,9 +1396,15 @@ fn check_location(doc: &IndexedDoc) -> Option<ValidationError> {
 /// is a passing posture — BRIEF/PRD at Accepted, DESIGN at
 /// Planned/Current, PLAN at Draft is healthy iteration. Under
 /// `ReviewPosture::Ready`, `Posture::SinglePrMidPR` is re-targeted to the
-/// `Posture::SinglePrAtMerge` passing-state row at check time, so a
-/// present single-pr PLAN fails and single-pr BRIEF/PRD at Accepted
-/// fail. Multi-pr postures are unchanged by the posture.
+/// `Posture::SinglePrAtMerge` passing-state row, so a present single-pr
+/// PLAN fails and single-pr BRIEF/PRD at Accepted fail. Multi-pr
+/// postures are unchanged by the posture. The re-target happens once,
+/// as the obligation map is built (see [`effective_posture`]).
+///
+/// The scope is every indexed document. Corpus-integrity findings —
+/// the index and chain errors, L03/L04/L05 — are whole-corpus here and
+/// in the chain-targeted mode alike; they are properties of the corpus
+/// rather than of a document under review.
 ///
 /// `ReviewPosture::Ready` is the successor of the old `strict == true`:
 /// the CI workflow asserts `Ready` when the PR is ready-for-review
@@ -838,89 +1420,19 @@ pub fn run_lifecycle_check(
     let (chains, chain_errors) = discover_chains(&idx);
     errors.extend(chain_errors);
 
-    // Track which docs participate in any chain so we can apply the
-    // orphan rule only to non-chain-participating docs.
-    let mut chain_participants: HashSet<PathBuf> = HashSet::new();
-    for chain in &chains {
-        for member in &chain.members {
-            chain_participants.insert(member.path.clone());
-        }
-    }
+    // Per-document findings — passing state where a chain reaches the
+    // document, the orphan rule where none does, and the location rule
+    // over every document in scope.
+    let obligations = build_obligations(&chains, posture);
+    let scope: BTreeSet<PathBuf> = idx.keys().cloned().collect();
+    errors.extend(emit_document_findings(&scope, &obligations, &idx, &inv));
 
-    // Per-chain passing-state check.
-    for chain in &chains {
-        // Apply the ready-posture re-target. Under ReviewPosture::Ready,
-        // when the chain's posture is single-pr-mid-PR, the
-        // passing-state computation uses the single-pr at-merge row
-        // (PLAN deleted, BRIEF/PRD Done, DESIGN Current) instead of
-        // the mid-PR exemption. Multi-pr postures are unchanged.
-        let effective_posture =
-            if posture == ReviewPosture::Ready && chain.posture == Posture::SinglePrMidPR {
-                Posture::SinglePrAtMerge
-            } else {
-                chain.posture
-            };
-        for member in &chain.members {
-            let passing = compute_passing_state(member.role, effective_posture);
-            // The chain root is present in the tree by definition (we
-            // discovered it by walking the index). If its passing
-            // state is Deleted, that's the work-completing posture's
-            // forcing function — fail L01.
-            // The member was discovered by walking the index, so it is
-            // present in the tree by definition. `PassingState::Deleted`
-            // therefore always fails for a discovered member (the
-            // forcing-function shape); other variants compare against
-            // the member's current status via `matches`.
-            let mismatch = match &passing {
-                PassingState::Deleted => true,
-                _ => !passing.matches(&member.status),
-            };
-            if mismatch {
-                errors.push(error_path(
-                    member.path.clone(),
-                    "L01",
-                    &format!(
-                        "{} at status '{}' (expected {} for {} posture)",
-                        member.role.as_str(),
-                        member.status,
-                        passing.describe(),
-                        effective_posture.name()
-                    ),
-                ));
-            }
-        }
+    // Chain-level findings — L06, which needs the chain rather than a
+    // document path. Whole-tree scope is every chain.
+    let chain_scope: Vec<&Chain> = chains.iter().collect();
+    errors.extend(emit_chain_findings(&chain_scope, &idx, cfg));
 
-        // L06: outline-AC completeness on single-pr PLAN members.
-        errors.extend(check_l06_outline_acs(chain, &idx, cfg));
-    }
-
-    // Orphan rule for non-chain-participating docs.
-    for (path, doc) in &idx {
-        if chain_participants.contains(path) {
-            continue;
-        }
-        if let Some(err) = check_orphan(doc, &idx, &inv) {
-            errors.push(err);
-        }
-    }
-
-    // L07 location-vs-status rule, over every indexed doc (chain member or
-    // not -- a Current design is terminal and orphan, but its directory must
-    // still agree with its status).
-    for doc in idx.values() {
-        if let Some(err) = check_location(doc) {
-            errors.push(err);
-        }
-    }
-
-    // Stable error ordering: by file, then by code, then by message.
-    errors.sort_by(|a, b| {
-        a.file
-            .cmp(&b.file)
-            .then(a.code.cmp(&b.code))
-            .then(a.message.cmp(&b.message))
-    });
-    errors.dedup();
+    sort_findings(&mut errors);
     errors
 }
 
@@ -992,19 +1504,24 @@ fn check_l06_outline_acs(
 // ---------- chain-targeted entry point ----------
 
 /// Run the chain-aware passing-state lifecycle check against the
-/// single chain containing `doc_path`.
+/// chains containing `doc_path`.
 ///
-/// The whole-tree mode (`run_lifecycle_check`) walks every chain in
-/// the tree; this chain-targeted mode walks only the chain whose
-/// members include `doc_path`. The cascade script in
+/// The whole-tree mode (`run_lifecycle_check`) reports on every
+/// indexed document; this chain-targeted mode reports only on the
+/// members of the chains `doc_path` belongs to. The cascade script in
 /// `skills/work-on/scripts/run-cascade.sh` uses this mode to verify
 /// its own chain's posture without surfacing unrelated drift as noise.
+///
+/// The narrowing is a scope, not a different check. Both modes state
+/// the same thing about a document they both report on, because both
+/// read the same obligation map, built over every chain in the corpus.
+/// Corpus-integrity findings (L03/L04/L05) are whole-corpus here too.
 ///
 /// The `doc_path` argument may name any chain member: PLAN, DESIGN,
 /// PRD, BRIEF, or ROADMAP. The function canonicalizes the path,
 /// derives the implied root by stripping the matching `docs/...`
-/// suffix, builds the doc index against that root, and filters the
-/// discovered chains to the one containing the canonicalized path.
+/// suffix, builds the doc index against that root, and takes the
+/// chains containing the canonicalized path.
 ///
 /// Returns an empty vec on a clean pass. Returns one or more
 /// `ValidationError`s otherwise. A non-doc-path input, a path with
@@ -1109,52 +1626,34 @@ pub fn run_lifecycle_chain_check(
     let (chains, chain_errors) = discover_chains(&idx);
     errors.extend(chain_errors);
 
-    // Find the chain whose members include the input doc.
-    let matched_chain = chains
-        .iter()
-        .find(|c| c.members.iter().any(|m| m.path == canon_doc));
+    // The obligation map is built over every chain in the corpus, not
+    // only the ones in scope. That is what makes the two modes agree:
+    // a document reported on here is held to the same requirements the
+    // whole-tree mode would state, including ones arriving from chains
+    // the target is not part of.
+    let obligations = build_obligations(&chains, posture);
+    let scope = chain_targeted_scope(&chains, &canon_doc);
+    errors.extend(emit_document_findings(&scope, &obligations, &idx, &inv));
 
-    if let Some(chain) = matched_chain {
-        let effective_posture =
-            if posture == ReviewPosture::Ready && chain.posture == Posture::SinglePrMidPR {
-                Posture::SinglePrAtMerge
-            } else {
-                chain.posture
-            };
-        for member in &chain.members {
-            let passing = compute_passing_state(member.role, effective_posture);
-            let mismatch = match &passing {
-                PassingState::Deleted => true,
-                _ => !passing.matches(&member.status),
-            };
-            if mismatch {
-                errors.push(error_path(
-                    member.path.clone(),
-                    "L01",
-                    &format!(
-                        "{} at status '{}' (expected {} for {} posture)",
-                        member.role.as_str(),
-                        member.status,
-                        passing.describe(),
-                        effective_posture.name()
-                    ),
-                ));
-            }
-        }
+    // Chain-level findings — L06, once per chain in scope.
+    errors.extend(emit_chain_findings(
+        &containing_chains(&chains, &canon_doc),
+        &idx,
+        cfg,
+    ));
 
-        // L06: outline-AC completeness on single-pr PLAN members.
-        errors.extend(check_l06_outline_acs(chain, &idx, cfg));
-    } else {
-        // The doc is an orphan — not a member of any discovered
-        // chain. Apply the orphan rule to it directly.
-        if let Some(orphan_doc) = idx.get(&canon_doc) {
-            if let Some(err) = check_orphan(orphan_doc, &idx, &inv) {
-                errors.push(err);
-            }
-        }
-    }
+    sort_findings(&mut errors);
+    errors
+}
 
-    // Stable error ordering: by file, then by code, then by message.
+/// Order findings by file, then code, then message, and drop exact
+/// repeats.
+///
+/// The dedup is not what keeps L01 unique — the obligation map's keys
+/// do that, by construction — it is for the codes emitted outside the
+/// map, where one document can be reached by two chains' worth of
+/// chain-keyed checking.
+fn sort_findings(errors: &mut Vec<ValidationError>) {
     errors.sort_by(|a, b| {
         a.file
             .cmp(&b.file)
@@ -1162,7 +1661,6 @@ pub fn run_lifecycle_chain_check(
             .then(a.message.cmp(&b.message))
     });
     errors.dedup();
-    errors
 }
 
 /// Walk up from `doc_path` to find the implied lifecycle root — the
@@ -1254,8 +1752,6 @@ fn rel_path_lossy(path: &Path) -> String {
 // by future expansions of the lifecycle module.
 #[allow(dead_code)]
 fn _hashmap_used<K, V>(_: HashMap<K, V>) {}
-#[allow(dead_code)]
-fn _btreeset_used(_: BTreeSet<()>) {}
 
 // ---------- tests ----------
 
@@ -1872,6 +2368,1086 @@ mod tests {
             errors.iter().any(|e| e.code == "L02" && e.file.contains("DESIGN-foo.md")),
             "expected L02 on a lone DESIGN with a dangling upstream, got {:?}",
             errors
+        );
+    }
+
+    // ---- the chain walk follows every upstream entry ----
+
+    /// A block-sequence `upstream:` value, for the fan-out cases. The
+    /// scalar helpers above interpolate a single path; these tests need
+    /// the multi-entry shape the walk is supposed to follow whole.
+    fn upstream_seq(paths: &[&str]) -> String {
+        let mut out = String::from("\n");
+        for p in paths {
+            out.push_str(&format!("  - {}\n", p));
+        }
+        // The caller's own `upstream: {}\n` supplies the last newline.
+        out.pop();
+        out
+    }
+
+    /// Discover the chains of a built tree, for tests that assert on
+    /// chain shape rather than on emitted findings.
+    fn chains_of(root: &Path) -> (Vec<Chain>, Vec<ValidationError>) {
+        let (idx, _) = build_doc_index(root);
+        discover_chains(&idx)
+    }
+
+    fn member_names(chain: &Chain) -> Vec<String> {
+        let mut names: Vec<String> = chain
+            .members
+            .iter()
+            .map(|m| m.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn every_upstream_entry_is_a_membership_edge() {
+        // PLAN names two DESIGNs. Both, and everything above each of
+        // them, are members. The old walk took the first entry and
+        // discarded the second, so DESIGN-b and PRD-b were invisible.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-a.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-a.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-a.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/prds/PRD-b.md",
+                &make_prd("Accepted", ""),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-a.md",
+                &make_design("Planned", "docs/prds/PRD-a.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/designs/DESIGN-b.md",
+                &make_design("Planned", "docs/prds/PRD-b.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    &upstream_seq(&[
+                        "docs/designs/DESIGN-a.md",
+                        "docs/designs/DESIGN-b.md",
+                    ]),
+                ),
+                &plan_body("Active"),
+            ),
+        ]);
+        let (chains, errors) = chains_of(&root);
+        assert_eq!(chains.len(), 1, "expected one chain, got {:?}", chains);
+        assert!(
+            errors.is_empty(),
+            "a two-entry upstream is not an error, got {:?}",
+            errors
+        );
+        // BRIEF-a is present because the walk records the node it stops
+        // at; PRD-b and DESIGN-b because it followed the second entry.
+        assert_eq!(
+            member_names(&chains[0]),
+            vec![
+                "BRIEF-a.md",
+                "DESIGN-a.md",
+                "DESIGN-b.md",
+                "PLAN-foo.md",
+                "PRD-a.md",
+                "PRD-b.md",
+            ],
+        );
+        assert_eq!(chains[0].root, root.join("docs/plans/PLAN-foo.md"));
+    }
+
+    #[test]
+    fn document_with_two_upstreams_is_a_member_of_both_chains() {
+        // DESIGN-shared is named by two PLANs, each of which names a
+        // second DESIGN too — and names it first in one case, second in
+        // the other. A walk that reads only the first entry puts
+        // DESIGN-shared in PLAN-1's chain and not PLAN-2's.
+        let root = build_tree(&[
+            (
+                "docs/designs/DESIGN-shared.md",
+                &make_design("Planned", ""),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/designs/DESIGN-1.md",
+                &make_design("Planned", ""),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/designs/DESIGN-2.md",
+                &make_design("Planned", ""),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-1.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    &upstream_seq(&[
+                        "docs/designs/DESIGN-shared.md",
+                        "docs/designs/DESIGN-1.md",
+                    ]),
+                ),
+                &plan_body("Active"),
+            ),
+            (
+                "docs/plans/PLAN-2.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    &upstream_seq(&[
+                        "docs/designs/DESIGN-2.md",
+                        "docs/designs/DESIGN-shared.md",
+                    ]),
+                ),
+                &plan_body("Active"),
+            ),
+        ]);
+        let (chains, _) = chains_of(&root);
+        let shared = root.join("docs/designs/DESIGN-shared.md");
+        let holding: Vec<&PathBuf> = chains
+            .iter()
+            .filter(|c| c.members.iter().any(|m| m.path == shared))
+            .map(|c| &c.root)
+            .collect();
+        assert_eq!(
+            holding.len(),
+            2,
+            "DESIGN-shared belongs to both chains, got {:?}",
+            holding
+        );
+    }
+
+    #[test]
+    fn diamond_is_not_a_cycle_and_does_not_drop_the_chain() {
+        // Two upstream entries reconverge on PRD-shared. The node is
+        // seen twice by the traversal but never twice on one branch, so
+        // it is a diamond, not a cycle.
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-x.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-shared.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-x.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-a.md",
+                &make_design("Planned", "docs/prds/PRD-shared.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/designs/DESIGN-b.md",
+                &make_design("Planned", "docs/prds/PRD-shared.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-d.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    &upstream_seq(&[
+                        "docs/designs/DESIGN-a.md",
+                        "docs/designs/DESIGN-b.md",
+                    ]),
+                ),
+                &plan_body("Active"),
+            ),
+        ]);
+        let (chains, errors) = chains_of(&root);
+        assert!(
+            !errors.iter().any(|e| e.code == "L03"),
+            "a diamond is not a cycle, got {:?}",
+            errors
+        );
+        assert_eq!(
+            chains.len(),
+            1,
+            "the chain must survive the reconvergence, got {:?}",
+            chains
+        );
+        // The reconvergence point is recorded once, not once per branch,
+        // and the walk continued past it to the BRIEF.
+        assert_eq!(
+            member_names(&chains[0]),
+            vec![
+                "BRIEF-x.md",
+                "DESIGN-a.md",
+                "DESIGN-b.md",
+                "PLAN-d.md",
+                "PRD-shared.md",
+            ],
+        );
+    }
+
+    #[test]
+    fn cycle_below_a_fan_out_still_reports_walk_order_and_drops_the_chain() {
+        // One branch of a fan-out closes a genuine cycle. Per-branch
+        // tracking must still catch it: the L03 path reads in walk
+        // order along the branch that closed it, and the chain goes.
+        let root = build_tree(&[
+            (
+                "docs/prds/PRD-plain.md",
+                &make_prd("Accepted", ""),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/prds/PRD-a.md",
+                &make_prd("Accepted", "docs/prds/PRD-b.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/prds/PRD-b.md",
+                &make_prd("Accepted", "docs/prds/PRD-a.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/plans/PLAN-c.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    &upstream_seq(&["docs/prds/PRD-a.md", "docs/prds/PRD-plain.md"]),
+                ),
+                &plan_body("Active"),
+            ),
+        ]);
+        let (chains, errors) = chains_of(&root);
+        let l03: Vec<&ValidationError> = errors.iter().filter(|e| e.code == "L03").collect();
+        assert_eq!(l03.len(), 1, "expected one L03, got {:?}", errors);
+        assert!(
+            l03[0].message.ends_with(
+                "upstream cycle detected: docs/plans/PLAN-c.md -> docs/prds/PRD-a.md -> docs/prds/PRD-b.md -> docs/prds/PRD-a.md"
+            ),
+            "L03 must name the cycle in walk order, got {:?}",
+            l03[0].message
+        );
+        assert!(
+            chains.is_empty(),
+            "a cyclic chain is dropped, got {:?}",
+            chains
+        );
+    }
+
+    #[test]
+    fn chain_root_is_explicit_not_positional() {
+        // A ROADMAP sits above a fanned-out PLAN. The walk stops at the
+        // ROADMAP while recording it, so the PLAN's chain holds a node
+        // that is itself a root — exactly the case member ordering can
+        // no longer answer. `root` answers it.
+        let root = build_tree(&[
+            (
+                "docs/roadmaps/ROADMAP-r.md",
+                &make_roadmap("Active"),
+                &roadmap_body("Active"),
+            ),
+            (
+                "docs/prds/PRD-r.md",
+                &make_prd("Accepted", "docs/roadmaps/ROADMAP-r.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-r.md",
+                &make_design("Planned", "docs/prds/PRD-r.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/designs/DESIGN-s.md",
+                &make_design("Planned", ""),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-r.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    &upstream_seq(&[
+                        "docs/designs/DESIGN-r.md",
+                        "docs/designs/DESIGN-s.md",
+                    ]),
+                ),
+                &plan_body("Active"),
+            ),
+        ]);
+        let (chains, _) = chains_of(&root);
+        let plan_chain = chains
+            .iter()
+            .find(|c| c.root == root.join("docs/plans/PLAN-r.md"))
+            .expect("the PLAN roots a chain");
+        assert_eq!(plan_chain.root_kind, RootKind::Plan);
+        assert!(
+            plan_chain
+                .members
+                .iter()
+                .any(|m| m.role == ChainRole::Roadmap),
+            "the walk records the ROADMAP it stops at, got {:?}",
+            member_names(plan_chain)
+        );
+    }
+
+    // ---- the obligation map and the single emitter ----
+
+    /// The findings naming one document, in the order the entry point
+    /// returned them.
+    fn findings_on<'a>(
+        errors: &'a [ValidationError],
+        basename: &str,
+    ) -> Vec<&'a ValidationError> {
+        errors.iter().filter(|e| e.file.ends_with(basename)).collect()
+    }
+
+    /// Two chains, of different postures, converging on one PRD. Both
+    /// demand the PRD be Done; the PRD is at Accepted, so both are
+    /// unsatisfied.
+    fn two_chains_over_one_prd() -> PathBuf {
+        build_tree(&[
+            (
+                "docs/prds/PRD-shared.md",
+                &make_prd("Accepted", ""),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-a.md",
+                &make_design("Planned", "docs/prds/PRD-shared.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/designs/DESIGN-b.md",
+                &make_design("Planned", "docs/prds/PRD-shared.md"),
+                &design_body("Planned"),
+            ),
+            // multi-pr at Done -> multi-pr work-completing.
+            (
+                "docs/plans/PLAN-a.md",
+                &make_plan("Done", "multi-pr", "docs/designs/DESIGN-a.md"),
+                &plan_body("Done"),
+            ),
+            // single-pr at Done -> single-pr at-merge.
+            (
+                "docs/plans/PLAN-b.md",
+                &make_plan("Done", "single-pr", "docs/designs/DESIGN-b.md"),
+                &plan_body("Done"),
+            ),
+        ])
+    }
+
+    #[test]
+    fn one_requirement_from_two_chains_is_one_finding() {
+        // The reproduced defect: two chains of different postures each
+        // demanding the PRD be Done. Same code, same path, same
+        // required set — one finding, not two that differ only in
+        // which posture the message names.
+        let root = two_chains_over_one_prd();
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let on_prd = findings_on(&errors, "PRD-shared.md");
+        assert_eq!(
+            on_prd.len(),
+            1,
+            "two chains demanding the same state is one finding, got {:?}",
+            on_prd
+        );
+        assert_eq!(
+            on_prd[0].message,
+            "[L01] PRD at status 'Accepted' (expected status 'Done' for multi-pr work-completing and single-pr at-merge postures)",
+            "the message names every posture behind the requirement",
+        );
+    }
+
+    #[test]
+    fn differing_required_sets_on_one_document_are_separate_findings() {
+        // Same document, same code, two different required sets: the
+        // in-flight chain accepts Planned or Current, the completing
+        // chain insists on Current. Both are unsatisfied at Proposed
+        // and both are said, because the requirement — not the chain —
+        // is what a finding is about.
+        let root = build_tree(&[
+            (
+                "docs/designs/DESIGN-shared.md",
+                &make_design("Proposed", ""),
+                &design_body("Proposed"),
+            ),
+            (
+                "docs/plans/PLAN-inflight.md",
+                &make_plan("Active", "multi-pr", "docs/designs/DESIGN-shared.md"),
+                &plan_body("Active"),
+            ),
+            (
+                "docs/plans/PLAN-completing.md",
+                &make_plan("Done", "multi-pr", "docs/designs/DESIGN-shared.md"),
+                &plan_body("Done"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let on_design = findings_on(&errors, "DESIGN-shared.md");
+        assert_eq!(
+            on_design.len(),
+            2,
+            "two different required sets are two findings, got {:?}",
+            on_design
+        );
+        assert!(
+            on_design
+                .iter()
+                .any(|e| e.message.contains("status 'Planned' or 'Current'")),
+            "the in-flight requirement is stated, got {:?}",
+            on_design
+        );
+        assert!(
+            on_design
+                .iter()
+                .any(|e| e.message.contains("expected status 'Current'")),
+            "the completing requirement is stated, got {:?}",
+            on_design
+        );
+    }
+
+    #[test]
+    fn both_modes_agree_on_a_shared_document() {
+        // The chain-targeted run points at DESIGN-a, which sits in
+        // PLAN-a's chain and not PLAN-b's. The PRD below it is in
+        // both. What the targeted mode says about that PRD has to be
+        // what the whole-tree mode says — including the half of the
+        // requirement that arrives from the chain the target is not
+        // part of. The mode picks the documents, not the verdict.
+        let root = two_chains_over_one_prd();
+        let whole = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let targeted = run_lifecycle_chain_check(
+            &root.join("docs/designs/DESIGN-a.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        assert_eq!(
+            findings_on(&targeted, "PRD-shared.md"),
+            findings_on(&whole, "PRD-shared.md"),
+            "the two modes disagree about PRD-shared.md",
+        );
+        assert!(
+            !findings_on(&targeted, "PRD-shared.md").is_empty(),
+            "the fixture is meant to produce a finding to compare",
+        );
+    }
+
+    #[test]
+    fn both_modes_agree_on_a_misplaced_document() {
+        // A DESIGN at status Current still sitting in docs/designs/ is
+        // in the wrong directory whichever way it is reached. The
+        // location rule used to run only in the whole-tree entry point,
+        // so the targeted mode stayed silent about a document it was
+        // otherwise reporting on. Emitting it over the scope set closes
+        // that: both modes now say the same thing about the same file.
+        let root = build_tree(&[
+            (
+                "docs/designs/DESIGN-misplaced.md",
+                &make_design("Current", ""),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Active", "single-pr", "docs/designs/DESIGN-misplaced.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let whole = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let targeted = run_lifecycle_chain_check(
+            &root.join("docs/plans/PLAN-foo.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        assert!(
+            findings_on(&whole, "DESIGN-misplaced.md")
+                .iter()
+                .any(|e| e.code == "L07"),
+            "the fixture is meant to produce an L07, got {:?}",
+            whole
+        );
+        assert_eq!(
+            findings_on(&targeted, "DESIGN-misplaced.md"),
+            findings_on(&whole, "DESIGN-misplaced.md"),
+            "the two modes disagree about DESIGN-misplaced.md",
+        );
+    }
+
+    #[test]
+    fn chain_targeted_scope_is_shallow_not_transitive() {
+        // PLAN-1 and PLAN-2 share DESIGN-shared; DESIGN-far hangs off
+        // PLAN-2 alone and is at a status its chain rejects. Targeting
+        // PLAN-1 reaches DESIGN-shared, because it is a member of
+        // PLAN-1's chain. It must not go on to PLAN-2's other members:
+        // one more hop through a shared document and the targeted mode
+        // is reporting the whole corpus.
+        let root = build_tree(&[
+            (
+                "docs/designs/DESIGN-shared.md",
+                &make_design("Planned", ""),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/designs/DESIGN-far.md",
+                &make_design("Proposed", ""),
+                &design_body("Proposed"),
+            ),
+            (
+                "docs/plans/PLAN-1.md",
+                &make_plan("Active", "single-pr", "docs/designs/DESIGN-shared.md"),
+                &plan_body("Active"),
+            ),
+            (
+                "docs/plans/PLAN-2.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    &upstream_seq(&[
+                        "docs/designs/DESIGN-shared.md",
+                        "docs/designs/DESIGN-far.md",
+                    ]),
+                ),
+                &plan_body("Active"),
+            ),
+        ]);
+        let whole = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            !findings_on(&whole, "DESIGN-far.md").is_empty(),
+            "the fixture needs DESIGN-far to be reportable, got {:?}",
+            whole
+        );
+
+        let targeted = run_lifecycle_chain_check(
+            &root.join("docs/plans/PLAN-1.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        assert!(
+            findings_on(&targeted, "DESIGN-far.md").is_empty(),
+            "DESIGN-far is two hops out and must stay out of scope, got {:?}",
+            targeted
+        );
+        assert!(
+            targeted.is_empty(),
+            "PLAN-1's own chain is clean, got {:?}",
+            targeted
+        );
+    }
+
+    #[test]
+    fn renaming_an_unreferenced_document_moves_only_its_own_finding() {
+        // Nothing points at the PLAN, so its name is not part of any
+        // other document's lineage. Renaming it must not add, remove,
+        // or reword a finding anywhere else — only the path the
+        // PLAN's own finding names changes.
+        let members: Vec<(&str, String, String)> = vec![
+            (
+                "docs/prds/PRD-foo.md",
+                make_prd("Accepted", ""),
+                prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                make_design("Proposed", "docs/prds/PRD-foo.md"),
+                design_body("Proposed"),
+            ),
+        ];
+        let with_plan = |plan_rel: &str| -> Vec<ValidationError> {
+            let mut docs: Vec<(&str, &str, &str)> = members
+                .iter()
+                .map(|(p, f, b)| (*p, f.as_str(), b.as_str()))
+                .collect();
+            let fm = make_plan("Done", "multi-pr", "docs/designs/DESIGN-foo.md");
+            let body = plan_body("Done");
+            docs.push((plan_rel, &fm, &body));
+            let root = build_tree(&docs);
+            run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft)
+        };
+
+        let before = with_plan("docs/plans/PLAN-original.md");
+        let after = with_plan("docs/plans/PLAN-renamed.md");
+
+        let elsewhere = |errors: &[ValidationError]| -> Vec<String> {
+            errors
+                .iter()
+                .filter(|e| !e.file.contains("PLAN-"))
+                .map(|e| format!("{} {}", e.file, e.message))
+                .collect()
+        };
+        assert_eq!(
+            elsewhere(&before),
+            elsewhere(&after),
+            "renaming the PLAN changed a finding on another document",
+        );
+        assert_eq!(
+            findings_on(&before, "PLAN-original.md").len(),
+            1,
+            "the PLAN reports once before the rename, got {:?}",
+            before
+        );
+        assert_eq!(
+            findings_on(&after, "PLAN-renamed.md")
+                .iter()
+                .map(|e| e.message.clone())
+                .collect::<Vec<_>>(),
+            findings_on(&before, "PLAN-original.md")
+                .iter()
+                .map(|e| e.message.clone())
+                .collect::<Vec<_>>(),
+            "only the path should have moved",
+        );
+    }
+
+    #[test]
+    fn corpus_integrity_findings_are_whole_corpus_in_both_modes() {
+        // An unrelated chain's cycle (L03) is a property of the corpus,
+        // not of the document under review, so the targeted mode
+        // reports it even though none of its documents are in scope.
+        let root = build_tree(&[
+            (
+                "docs/prds/PRD-cyc-a.md",
+                &make_prd("Accepted", "docs/prds/PRD-cyc-b.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/prds/PRD-cyc-b.md",
+                &make_prd("Accepted", "docs/prds/PRD-cyc-a.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/plans/PLAN-cyc.md",
+                &make_plan("Active", "multi-pr", "docs/prds/PRD-cyc-a.md"),
+                &plan_body("Active"),
+            ),
+            (
+                "docs/designs/DESIGN-clean.md",
+                &make_design("Planned", ""),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-clean.md",
+                &make_plan("Active", "single-pr", "docs/designs/DESIGN-clean.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let whole = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let targeted = run_lifecycle_chain_check(
+            &root.join("docs/plans/PLAN-clean.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        let l03s = |errors: &[ValidationError]| -> Vec<String> {
+            errors
+                .iter()
+                .filter(|e| e.code == "L03")
+                .map(|e| e.message.clone())
+                .collect()
+        };
+        assert!(
+            !l03s(&whole).is_empty(),
+            "the fixture needs a cycle to report, got {:?}",
+            whole
+        );
+        assert_eq!(
+            l03s(&targeted),
+            l03s(&whole),
+            "the cycle is corpus integrity and belongs in both modes",
+        );
+    }
+
+    // ---- root versus member ----
+
+    /// A ROADMAP, a chain hanging beneath it, and a PLAN at the given
+    /// execution mode and status. Everything but the ROADMAP sits at
+    /// the status a completing chain wants, so the ROADMAP is the only
+    /// document these tests have to reason about.
+    fn roadmap_over_a_chain(
+        roadmap_status: &str,
+        execution_mode: &str,
+        plan_status: &str,
+    ) -> PathBuf {
+        build_tree(&[
+            (
+                "docs/roadmaps/ROADMAP-r.md",
+                &make_roadmap(roadmap_status),
+                &roadmap_body(roadmap_status),
+            ),
+            (
+                "docs/prds/PRD-f.md",
+                &make_prd("Done", "docs/roadmaps/ROADMAP-r.md"),
+                &prd_body("Done"),
+            ),
+            (
+                "docs/designs/current/DESIGN-f.md",
+                &make_design("Current", "docs/prds/PRD-f.md"),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-f.md",
+                &make_plan(
+                    plan_status,
+                    execution_mode,
+                    "docs/designs/current/DESIGN-f.md",
+                ),
+                &plan_body(plan_status),
+            ),
+        ])
+    }
+
+    #[test]
+    fn a_live_member_roadmap_under_a_completing_chain_is_not_required_absent() {
+        // The false positive this repair removes. The PLAN is a
+        // multi-pr PLAN at Done, so its chain is work-completing and
+        // the passing-state table's ROADMAP cell for that posture is
+        // Deleted. The ROADMAP is a member of that chain — the walk
+        // stops at it while recording it — but the work completing is
+        // one feature's, not the ROADMAP's. It is live at Active and
+        // nothing is owed.
+        let root = roadmap_over_a_chain("Active", "multi-pr", "Done");
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            findings_on(&errors, "ROADMAP-r.md").is_empty(),
+            "a live ROADMAP above a completing feature owes nothing, got {:?}",
+            findings_on(&errors, "ROADMAP-r.md")
+        );
+    }
+
+    #[test]
+    fn a_live_member_roadmap_under_a_completing_single_pr_chain_stays_active() {
+        // The same position reached the other way: a single-pr PLAN at
+        // Done puts its chain at the at-merge posture. This is the one
+        // cell that already read Active before the repair, which is
+        // what made it look anomalous; it is now the answer for the
+        // position rather than for the row, and the verdict here has to
+        // be the one it always gave.
+        let root = roadmap_over_a_chain("Active", "single-pr", "Done");
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            findings_on(&errors, "ROADMAP-r.md").is_empty(),
+            "a live ROADMAP above a completing single-pr chain owes nothing, got {:?}",
+            findings_on(&errors, "ROADMAP-r.md")
+        );
+    }
+
+    #[test]
+    fn a_retired_member_roadmap_is_asked_for_active_not_absence() {
+        // Why the requirement is Active and not the weaker "present".
+        // A ROADMAP at Done sitting above a chain that is still
+        // finishing is a real finding: the chain beneath it is not done
+        // with it. "Present" would let it pass.
+        //
+        // Its own chain asks for absence at the same time, since a
+        // ROADMAP at Done roots a work-completing chain of its own.
+        // Those two demands are disjoint and are what the conflict
+        // finding is for; until that lands they are simply both said.
+        let root = roadmap_over_a_chain("Done", "multi-pr", "Done");
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let on_roadmap = findings_on(&errors, "ROADMAP-r.md");
+        assert!(
+            on_roadmap
+                .iter()
+                .any(|e| e.message.contains("expected status 'Active'")),
+            "the chain beneath a retired ROADMAP asks for it live, got {:?}",
+            on_roadmap
+        );
+    }
+
+    #[test]
+    fn a_roadmap_rooted_chain_still_requires_its_own_absence() {
+        // The half of the table the repair does not touch. A ROADMAP at
+        // Done is the root of its own chain and that chain is
+        // completing, so the deletion commit is still owed. Only a
+        // ROADMAP's own chain can ask this of it.
+        let root = build_tree(&[(
+            "docs/roadmaps/ROADMAP-r.md",
+            &make_roadmap("Done"),
+            &roadmap_body("Done"),
+        )]);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let on_roadmap = findings_on(&errors, "ROADMAP-r.md");
+        assert!(
+            on_roadmap
+                .iter()
+                .any(|e| e.code == "L01" && e.message.contains("DELETED")),
+            "a completed ROADMAP-rooted chain still owes the deletion, got {:?}",
+            on_roadmap
+        );
+    }
+
+    // ---------- L08: conflicting chains ----------
+
+    /// One BRIEF beneath two chains that want different things of it:
+    /// a single-pr chain mid-PR, which wants it at `Accepted`, and a
+    /// multi-pr chain finishing its work, which wants it at `Done`.
+    /// The two sets are disjoint under the draft posture and identical
+    /// under ready, which is what makes this fixture serve both the
+    /// conflict case and the effective-posture case.
+    fn two_disjoint_chains_over_one_brief() -> PathBuf {
+        build_tree(&[
+            (
+                "docs/briefs/BRIEF-shared.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/plans/PLAN-a.md",
+                &make_plan("Active", "single-pr", "docs/briefs/BRIEF-shared.md"),
+                &plan_body("Active"),
+            ),
+            (
+                "docs/plans/PLAN-b.md",
+                &make_plan("Done", "multi-pr", "docs/briefs/BRIEF-shared.md"),
+                &plan_body("Done"),
+            ),
+        ])
+    }
+
+    #[test]
+    fn disjoint_chains_over_one_document_are_one_conflict_finding() {
+        let root = two_disjoint_chains_over_one_brief();
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let on_brief = findings_on(&errors, "BRIEF-shared.md");
+        assert_eq!(
+            on_brief.len(),
+            1,
+            "a conflicted document is told once, got {:?}",
+            on_brief
+        );
+        assert_eq!(on_brief[0].code, "L08", "got {:?}", on_brief);
+        // Each chain by name, each requirement in full.
+        for fragment in [
+            "docs/plans/PLAN-a.md",
+            "docs/plans/PLAN-b.md",
+            "expected status 'Accepted'",
+            "expected status 'Done'",
+        ] {
+            assert!(
+                on_brief[0].message.contains(fragment),
+                "the conflict message is missing {:?}: {}",
+                fragment,
+                on_brief[0].message
+            );
+        }
+    }
+
+    #[test]
+    fn the_conflict_supersedes_the_status_findings_it_replaces() {
+        // The same fixture read from the other side: the multi-pr
+        // chain's demand for `Done` fired an L01 before this landed,
+        // and the conflict finding is what replaces it. One-for-one
+        // here, one-for-N in general, never one-for-zero — a document
+        // no status satisfies satisfies at most one chain.
+        let root = two_disjoint_chains_over_one_brief();
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            !findings_on(&errors, "BRIEF-shared.md")
+                .iter()
+                .any(|e| e.code == "L01"),
+            "the superseded status findings are withheld, got {:?}",
+            findings_on(&errors, "BRIEF-shared.md")
+        );
+    }
+
+    #[test]
+    fn intersecting_required_sets_pass_at_the_intersection() {
+        // The case the intersection rule protects, and the reason
+        // conflict is disjointness rather than inequality: the
+        // in-flight chain accepts `Planned` or `Current`, the
+        // completing chain insists on `Current`, and a DESIGN at
+        // `Current` satisfies both. Inequality as the test would fire
+        // on every shared DESIGN, this one included.
+        let root = build_tree(&[
+            (
+                "docs/designs/current/DESIGN-shared.md",
+                &make_design("Current", ""),
+                &design_body("Current"),
+            ),
+            (
+                "docs/plans/PLAN-inflight.md",
+                &make_plan(
+                    "Active",
+                    "multi-pr",
+                    "docs/designs/current/DESIGN-shared.md",
+                ),
+                &plan_body("Active"),
+            ),
+            (
+                "docs/plans/PLAN-completing.md",
+                &make_plan("Done", "multi-pr", "docs/designs/current/DESIGN-shared.md"),
+                &plan_body("Done"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            findings_on(&errors, "DESIGN-shared.md").is_empty(),
+            "a document at the intersection owes nothing, got {:?}",
+            findings_on(&errors, "DESIGN-shared.md")
+        );
+    }
+
+    #[test]
+    fn two_chains_requiring_the_same_document_absent_agree() {
+        // PLAN-f is the root of its own completing chain, which wants
+        // it deleted, and a member of PLAN-g's completing chain, which
+        // wants the same. Absence expands to the empty set and the
+        // empty set is disjoint from itself, so a bare disjointness
+        // test would report perfect agreement as conflict. What is
+        // owed here is the deletion commit, said once.
+        let root = build_tree(&[
+            (
+                "docs/plans/PLAN-f.md",
+                &make_plan("Done", "multi-pr", ""),
+                &plan_body("Done"),
+            ),
+            (
+                "docs/plans/PLAN-g.md",
+                &make_plan("Done", "multi-pr", "docs/plans/PLAN-f.md"),
+                &plan_body("Done"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let on_f = findings_on(&errors, "PLAN-f.md");
+        assert!(
+            !on_f.iter().any(|e| e.code == "L08"),
+            "two demands for absence agree, got {:?}",
+            on_f
+        );
+        assert!(
+            on_f.iter()
+                .any(|e| e.code == "L01" && e.message.contains("DELETED")),
+            "the deletion is still owed, got {:?}",
+            on_f
+        );
+    }
+
+    #[test]
+    fn the_conflict_rule_states_the_absence_case_rather_than_inferring_it() {
+        use PassingState::*;
+        // Absence against absence agrees; absence against a status
+        // conflicts.
+        assert!(!requirements_conflict(&Deleted, &Deleted));
+        assert!(requirements_conflict(&Deleted, &Status("Active")));
+        assert!(requirements_conflict(&Status("Active"), &Deleted));
+        // Statuses: disjoint sets conflict, overlapping ones do not.
+        assert!(requirements_conflict(&Status("Accepted"), &Status("Done")));
+        assert!(!requirements_conflict(&Status("Done"), &Status("Done")));
+        assert!(!requirements_conflict(
+            &DesignPlannedOrCurrent,
+            &Status("Current")
+        ));
+        assert!(requirements_conflict(
+            &DesignPlannedOrCurrent,
+            &PrdAcceptedOrInProgress
+        ));
+        assert!(!requirements_conflict(
+            &PrdAcceptedOrInProgress,
+            &Status("In Progress")
+        ));
+    }
+
+    /// A PLAN wanted absent by its own completing chain and alive by
+    /// an in-flight chain below it, whose `upstream:` also names a
+    /// document that is not there. The conflict and the dangling
+    /// upstream are different kinds of fault about the same file.
+    fn conflicted_plan_with_a_dangling_upstream() -> PathBuf {
+        build_tree(&[
+            (
+                "docs/plans/PLAN-f.md",
+                &make_plan("Done", "multi-pr", "docs/designs/DESIGN-missing.md"),
+                &plan_body("Done"),
+            ),
+            (
+                "docs/plans/PLAN-g.md",
+                &make_plan("Active", "multi-pr", "docs/plans/PLAN-f.md"),
+                &plan_body("Active"),
+            ),
+        ])
+    }
+
+    #[test]
+    fn other_kinds_of_finding_survive_on_a_conflicted_document() {
+        let root = conflicted_plan_with_a_dangling_upstream();
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let on_f = findings_on(&errors, "PLAN-f.md");
+        assert!(
+            on_f.iter().any(|e| e.code == "L08"),
+            "the conflict is reported, got {:?}",
+            on_f
+        );
+        assert!(
+            on_f.iter().any(|e| e.code == "L04"),
+            "the unresolvable upstream is still reported, got {:?}",
+            on_f
+        );
+        assert!(
+            !on_f.iter().any(|e| e.code == "L01"),
+            "only the status findings are withheld, got {:?}",
+            on_f
+        );
+    }
+
+    #[test]
+    fn the_conflict_carries_the_severity_of_what_it_replaced() {
+        use crate::validate::{effective_severity, posture_class, PostureClass};
+        // L08 is unregistered in the draft-tolerable set, which falls
+        // through to always-enforced — the same class L01 carries, so
+        // the replacement is an error wherever the pair was.
+        assert_eq!(posture_class("L08"), PostureClass::AlwaysEnforced);
+        for posture in [ReviewPosture::Draft, ReviewPosture::Ready] {
+            assert_eq!(
+                effective_severity("L08", posture),
+                effective_severity("L01", posture),
+                "L08 and L01 must resolve alike under {:?}",
+                posture
+            );
+        }
+        // And it is reported under both modes, not only the strict one.
+        let root = conflicted_plan_with_a_dangling_upstream();
+        for posture in [ReviewPosture::Draft, ReviewPosture::Ready] {
+            let errors = run_lifecycle_check(&root, &Config::default(), posture);
+            assert!(
+                findings_on(&errors, "PLAN-f.md")
+                    .iter()
+                    .any(|e| e.code == "L08"),
+                "the conflict is reported under {:?}, got {:?}",
+                posture,
+                findings_on(&errors, "PLAN-f.md")
+            );
+        }
+    }
+
+    #[test]
+    fn required_sets_are_computed_from_effective_postures() {
+        // The single-pr chain is mid-PR under draft, where it wants
+        // the BRIEF at `Accepted` against the other chain's `Done` —
+        // a conflict. Ready re-targets it to the at-merge row, where
+        // both chains want `Done` and there is nothing to conflict
+        // about. Computed from the raw chain postures, the conflict
+        // would be reported in a mode that does not have it.
+        let root = two_disjoint_chains_over_one_brief();
+        let ready = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Ready);
+        let on_brief = findings_on(&ready, "BRIEF-shared.md");
+        assert!(
+            !on_brief.iter().any(|e| e.code == "L08"),
+            "ready mode has no conflict here, got {:?}",
+            on_brief
+        );
+        assert!(
+            on_brief
+                .iter()
+                .any(|e| e.code == "L01" && e.message.contains("expected status 'Done'")),
+            "both chains want the BRIEF at Done under ready, got {:?}",
+            on_brief
         );
     }
 

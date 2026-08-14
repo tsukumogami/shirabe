@@ -52,6 +52,15 @@ implements; omit if authored without a single upstream DESIGN).
   decomposes into. Must match the row count of the Implementation
   Issues table.
 
+**Two written shapes are supported for `upstream:`.** A scalar -- the
+path on the key's own line -- and a sequence, written either as `- `
+entries on the following lines or inline as `[<path>, <path>]`. Every
+entry of a sequence is read, in written order, and a single-entry
+sequence is still a sequence. Reach for the sequence when the document
+genuinely has more than one parent; the scalar otherwise. Nothing else
+is supported: a scalar is never split, so two paths on one line read as
+one entry that resolves to nothing.
+
 Frontmatter status must match the body `## Status` first line --
 the validator's FC03 check compares the two case-insensitively and
 the body's first non-blank line under `## Status` must be the bare

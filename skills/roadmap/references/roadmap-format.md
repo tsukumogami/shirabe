@@ -92,6 +92,15 @@ the tactical chain takes over, and `/brief` is what crosses the
 boundary by taking a ROADMAP as its own upstream; no strategic
 document reaches past the ROADMAP to a BRIEF, PRD, DESIGN, or PLAN.
 
+**Two written shapes are supported for `upstream:`.** A scalar -- the
+path on the key's own line -- and a sequence, written either as `- `
+entries on the following lines or inline as `[<path>, <path>]`. Every
+entry of a sequence is read, in written order, and a single-entry
+sequence is still a sequence. Reach for the sequence when the document
+genuinely has more than one parent; the scalar otherwise. Nothing else
+is supported: a scalar is never split, so two paths on one line read as
+one entry that resolves to nothing.
+
 For cross-repo upstream references and the visibility-direction rules,
 see `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
 

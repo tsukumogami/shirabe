@@ -9,7 +9,9 @@ write, and records the bootstrap context for later phases.
 
 Establish the runtime context for the rest of the workflow:
 
-- Identify which entry mode this invocation falls into (cold start, freeform
+- Parse `--upstream <path>` out of `$ARGUMENTS` before the remainder is
+  classified, and validate its value.
+- Identify which entry mode the remainder falls into (cold start, freeform
   topic, or upstream ROADMAP path).
 - Detect repo visibility (`Public` or `Private`) from CLAUDE.md.
 - Constrain the `<topic>` slug to a safe character set.
@@ -39,9 +41,48 @@ If the context file exists but its recorded visibility no longer matches CLAUDE.
 Phase 0 or keep the recorded value. Visibility drift mid-workflow is a red flag
 worth surfacing.
 
+Re-validate a recorded `## Upstream Path` the same way, against the worktree as
+it is now: a file tracked when the brief was started can be deleted or moved
+before it finishes. A recorded upstream that no longer resolves is surfaced
+naming the path and the check it fails, never silently carried into frontmatter
+and never silently dropped. Offer to re-supply it, or to continue without it and
+omit the field — saying which one the run took.
+
 ## 0.1 Detect Entry Mode
 
-Parse `$ARGUMENTS` and classify into one of three modes:
+### Parse `--upstream` First
+
+`--upstream <path>` names the ROADMAP this feature comes from, separately from
+whatever the positional argument says. Consume the flag and the token
+following it BEFORE classifying the remainder: the flag's value is never
+tested as a topic string, never tested as a path argument in the entry-mode
+table below, and never used to derive the topic slug.
+
+A bare `--upstream` — the flag as the last token, or followed by another
+`--`-prefixed token — is rejected before anything is written, naming the
+missing argument:
+
+> `--upstream` requires a path argument naming the upstream ROADMAP, for
+> example `--upstream docs/roadmaps/ROADMAP-<name>.md`. Re-invoke
+> `/brief <topic> --upstream <path>`.
+
+The flag may appear at most once; a second occurrence is rejected the same
+way, naming the repeated flag. When the flag is present and the remainder is
+empty, the cold-start branch fires — the flag is not a topic, and no slug is
+derived from the ROADMAP's filename.
+
+The flag is what makes an upstream usable whose name does not match the
+feature's topic, which is the ordinary case here: a roadmap sequences several
+features and none of them is named after it. The upstream-path entry mode
+supplies the topic and the upstream in one token and therefore only works
+when the two coincide; `--upstream` is the general form, and it is how
+`/scope` hands a ROADMAP down (`/brief <topic-slug> --upstream
+<roadmap-path>`). An author invoking `/brief` directly uses the same flag for
+the same reason.
+
+### Classify the Remainder
+
+Parse what remains of `$ARGUMENTS` and classify into one of three modes:
 
 | Mode | Trigger | Phase 1 behavior |
 |------|---------|------------------|
@@ -76,14 +117,19 @@ Phase 4, and in the final artifact filename. Without constraint, a slug containi
 
 **Rule:** the slug MUST match `^[a-z0-9-]+$`.
 
-Derive the slug as follows:
+Derive the slug as follows. In every case the derivation reads the POSITIONAL
+argument only; the `--upstream` value is never an input to it.
 
-1. If `$ARGUMENTS` is an upstream path, take the basename, strip the `ROADMAP-`
-   prefix and `.md` suffix, and use the remainder.
-2. If `$ARGUMENTS` is a freeform topic string, lowercase it, replace whitespace
-   and underscores with `-`, and strip any character outside `[a-z0-9-]`.
-3. If `$ARGUMENTS` is empty, ask the user to name the feature and re-derive from
-   their answer.
+1. If the positional argument is an upstream path, take the basename, strip
+   the `ROADMAP-` prefix and `.md` suffix, and use the remainder.
+2. If the positional argument is a freeform topic string, lowercase it,
+   replace whitespace and underscores with `-`, and strip any character
+   outside `[a-z0-9-]`.
+3. If the positional argument is empty, ask the user to name the feature and
+   re-derive from their answer -- even when `--upstream` supplied a ROADMAP.
+   A roadmap's filename names the initiative, not the feature inside it, and
+   naming the brief after it is exactly the conflation the flag exists to
+   undo.
 
 After derivation, test the slug against `^[a-z0-9-]+$`. If the slug is empty,
 contains characters outside the allowed set after derivation, or starts/ends with
@@ -92,7 +138,8 @@ to a "best effort" slug — silent normalization hides input the user did not in
 
 ## 0.3 Canonicalize Upstream Path
 
-If Phase 0 detected upstream-path mode, canonicalize the path before any read:
+If Phase 0 detected upstream-path mode, or `--upstream` supplied a value,
+canonicalize the path before any read:
 
 1. Resolve the path against the repo root (the working directory the skill was
    invoked from).
@@ -122,7 +169,32 @@ with:
 > (`/brief <topic>`) or from the ROADMAP entry that names it
 > (`/brief docs/roadmaps/ROADMAP-<name>.md`), then point the PRD at the brief.
 
-Stop there. Do not offer to proceed with the PRD as upstream anyway.
+Stop there. Do not offer to proceed with the PRD as upstream anyway. The same
+rejection fires when the `PRD-` basename arrives as the `--upstream` value:
+the flag records, and a recorded PRD inverts the chain whichever route it took
+to get there.
+
+Two further checks apply to a `--upstream` value, in this order, before it is
+recorded:
+
+- **Not under `wip/`.** Reject. `wip/` artifacts are non-durable — the
+  wip-hygiene cleanup deletes them before the PR can merge — so the recorded
+  `upstream:` would point at a file that disappears. Name the canonical
+  location in the rejection.
+- **Tracked by git.** Run `git ls-files -- <path>`. An empty result on a path
+  inside the working tree means the file is not committed; reject, naming the
+  untracked path.
+
+A cross-repo value in the `owner/repo:path` form from
+`references/cross-repo-references.md` is not a working-tree path: it skips
+canonicalization and the tracked-by-git check, keeps the `ROADMAP-` basename
+rule on its file component, and is governed by the visibility rule Phase 2
+applies when writing frontmatter (a public BRIEF omits a private upstream
+rather than naming it).
+
+Do not silently drop a rejected `--upstream` value and continue: the author
+asked for a link, and a run that quietly produces a BRIEF without one hides
+the failure until someone reads the frontmatter.
 
 ## 0.4 Detect Repo Visibility
 
@@ -208,6 +280,12 @@ produce
 This file is the resume-detection anchor for Phase 1 onward. Subsequent phases
 update the `## Phase` line as they begin.
 
+`## Entry Mode` classifies the positional argument, so a `--upstream` run
+records whichever mode the remainder produced — usually `freeform`. The
+flag's validated value is what `## Upstream Path` holds, and Phase 1 grounds
+the problem/outcome candidate in it the same way it would for a positional
+ROADMAP.
+
 Do NOT commit the context file at this stage. The wip-hygiene rule treats `wip/`
 artifacts as non-durable; the final cleanup at Phase 5 removes them before the PR
 can merge.
@@ -228,10 +306,13 @@ direction.
 ## Quality Checklist
 
 Before proceeding:
-- [ ] `<topic>` slug matches `^[a-z0-9-]+$`
+- [ ] `<topic>` slug matches `^[a-z0-9-]+$` and was derived from the positional
+      argument alone, never from a `--upstream` value
 - [ ] Upstream path (if provided) is canonicalized and inside the repo working tree
 - [ ] Upstream file (if provided) exists and has a `ROADMAP-` basename; a `PRD-`
       basename was rejected with the chain-inversion message
+- [ ] `--upstream` value (if provided) is not under `wip/` and is tracked by
+      git; a bare `--upstream` was rejected
 - [ ] Visibility is recorded (Public or Private, never empty)
 - [ ] The artifact decision is recorded as `produce`
 - [ ] `wip/brief_<topic>_context.md` exists with the keys above

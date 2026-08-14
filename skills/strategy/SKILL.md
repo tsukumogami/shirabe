@@ -15,7 +15,7 @@ description: >-
   requirements (/prd), or open-ended exploration (/explore). Drives a
   six-phase workflow: conversational scoping, structured drafting,
   Building Blocks decomposition, three-reviewer jury, finalization.
-argument-hint: '<project or org topic, optional VISION or PRD path, or STRATEGY path + lifecycle verb>'
+argument-hint: '<project or org topic, optional VISION or PRD path, or STRATEGY path + lifecycle verb> [--upstream <path>]'
 ---
 
 @.claude/shirabe-extensions/strategy.md
@@ -120,6 +120,25 @@ From `$ARGUMENTS`:
    VISION sits above the strategy, the draft omits the field.
 5. **Anything else** — use as the starting topic for Phase 1 scoping.
 
+Any of the modes above may carry `--upstream <path>`, naming the
+upstream VISION separately from the topic. `/strategy <topic-slug>
+--upstream docs/visions/VISION-<name>.md` produces
+`STRATEGY-<topic-slug>.md` recording that VISION as its upstream —
+the slug comes from the positional argument and the upstream from
+the flag, so the two need not share a name. Input Mode 3 is the
+special case where they do: a bare VISION path supplies both at
+once, which only works while the strategy's topic and the vision's
+filename coincide.
+
+The flag is parsed before the positional argument is classified,
+and its value is never treated as a topic. A bare `--upstream` with
+no value is rejected at Phase 0 naming the missing argument. The
+value must name a VISION: the same basename rule Input Mode 3
+enforces applies to the flag, because both feed the same recorded
+`upstream:` field. A grounding PRD (Input Mode 4) is never passed
+this way — it is read, not recorded, and the flag is the recording
+route.
+
 ### Context Resolution
 
 **Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive`
@@ -135,10 +154,22 @@ rejecting any topic that contains other characters, including `.`,
 `/`, `_`, or whitespace. Without the constraint, `../`-shaped topics
 could redirect verdict writes outside `wip/research/`.
 
-**Path canonicalization.** Any user-supplied VISION or PRD path (Input
-Modes 3 and 4) must be canonicalized at Phase 0 and rejected if
-the canonical path resolves outside the repo working tree. Symlinks
-resolving to arbitrary filesystem content would otherwise leak into a
+**Upstream:** check `$ARGUMENTS` for `--upstream <path>`. If
+present, the path is validated at Phase 0 and stored as the
+context file's `## Recorded Upstream`; Phase 2 writes it into the
+STRATEGY's frontmatter. It points to the VISION this strategy
+operationalizes — the strategy's immediate neighbour one level up
+the strategic chain. `/charter` passes it on every chain where a
+VISION is available; an author invoking `/strategy` standalone
+passes it when a VISION exists that the topic slug does not name.
+When no VISION exists, omit the flag rather than reaching past the
+neighbour; the upstream field is then omitted from frontmatter.
+
+**Path canonicalization.** Any user-supplied VISION or PRD path
+(Input Modes 3 and 4) and any `--upstream` value must be
+canonicalized at Phase 0 and rejected if the canonical path
+resolves outside the repo working tree. Symlinks resolving to
+arbitrary filesystem content would otherwise leak into a
 public commit.
 
 Detect visibility (Private/Public) from CLAUDE.md or repo path.
@@ -209,7 +240,11 @@ unchanged when the sentinel is absent.
 - **Topic-slug constraint:** Phase 0 rejects topics not matching
   `[a-z0-9-]+`. Non-compliant topics never reach later phases.
 - **Path canonicalization:** Phase 0 canonicalizes and bounds-checks
-  any user-supplied upstream path.
+  any user-supplied upstream path, whether it arrived positionally
+  or as the `--upstream` flag's value.
+- **Slug independence:** the topic slug is never derived from the
+  `--upstream` value. A flag-supplied upstream names the strategy's
+  parent, not the strategy.
 - **Conversational scoping:** Phase 1 is a dialogue, not a form to
   fill out. Org-scope STRATEGYs without an upstream VISION need this
   conversation to ground Strategic Context.

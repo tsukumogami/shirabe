@@ -163,8 +163,12 @@ Which mode depends on whether this chain produced an upstream
 for that child:
 
 - **`/brief`** — invoked with the topic slug,
-  `/brief <topic-slug>`. It is the head of the chain, so there is
-  nothing above it to hand it.
+  `/brief <topic-slug>`. It heads the chain, so this chain
+  produces nothing above it to hand it. When the state file
+  carries `consumed_upstream:` — the author supplied a ROADMAP
+  this chain did not produce — the invocation is
+  `/brief <topic-slug> --upstream <roadmap-path>` and the brief
+  records that path in its `upstream:` frontmatter.
 - **Every later child** — invoked with the path of the nearest
   artifact this chain produced above it:
 
@@ -182,18 +186,36 @@ for that child:
 These are input modes each child already ships: `/prd`'s Input
 Mode 2 takes a BRIEF path and transitions it Draft to Accepted,
 `/design`'s PRD mode reads the accepted PRD and bumps it to In
-Progress, `/plan` accepts a DESIGN path. Passing the path is
-choosing among a child's shipped modes, not extending its input
-surface.
+Progress, `/plan` accepts a DESIGN path, and `/brief`'s
+`--upstream <path>` flag is authored in its own SKILL.md input
+modes and Phase 0 contract, equally usable by an author invoking
+`/brief` directly. Passing the path is choosing among a child's
+shipped modes, not extending its input surface.
+
+**Why the slug and the upstream travel separately.** `/brief`
+derives its topic slug from the BASENAME of a positional path it
+is handed. Handing it the ROADMAP positionally would therefore
+name the produced document after the ROADMAP — a brief for
+`payment-retries` under a `ROADMAP-billing.md` upstream would land
+at `docs/briefs/BRIEF-billing.md`, under a slug `/scope` never
+validated, and the R20 file-existence check that looks for
+`docs/briefs/BRIEF-<topic>.md` would then fail against the
+chain's own artifact. That has worked until now only because the
+two slugs coincided by construction; consuming an upstream this
+chain did not produce is defined by that coincidence not holding.
+The flag decouples them: the slug is the parent's, the upstream is
+a separate argument, and neither is derived from the other.
 
 R14 child-isolation is preserved — `/scope` reads only the
 child's durable artifact's frontmatter `status:` value plus the
 artifact's git blob hash; `/scope` does NOT extend the child's
 `$ARGUMENTS` parser, does NOT add env-var consumption, does NOT
-add flags or arguments per the L13 amendment in
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`. The
+add flags or arguments of its own invention per the L13 amendment
+in `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`. The
 sentinel is the pattern-level convention every child reads
-identically; the child's input surface is untouched.
+identically; the child's input surface is untouched, and
+`--upstream` is part of that surface rather than an addition to
+it.
 
 Invoking every child in its cold-start mode was the mechanical
 cause of the duplication this skill's consolidation judgment

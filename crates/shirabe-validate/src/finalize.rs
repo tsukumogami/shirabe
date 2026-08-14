@@ -16,8 +16,44 @@
 //!
 //! The input PLAN is always reported for deletion and never transitioned
 //! (finalize-chain never deletes); the caller owns the `git rm`. ROADMAP/VISION
-//! stop the walk; an unknown prefix is a per-node error. The typed-error/exit-code
+//! end their branch; an unknown prefix is a per-node error. The typed-error/exit-code
 //! surface and the `run-cascade.sh` refactor are later issues.
+//!
+//! ## The walk is multi-branch, and it asks before it retires
+//!
+//! A document may name several upstreams, so the walk is a worklist over every
+//! entry rather than a loop over the first, and a shared ancestor reached
+//! through two branches is visited once -- otherwise it would be transitioned
+//! twice and the outcome would depend on traversal order. Branches are followed
+//! in *written* order; nothing here sorts by path.
+//!
+//! Before any ancestor is transitioned the walk consults a referrer map built
+//! once per invocation from the validator's own index
+//! ([`crate::lifecycle::build_referrer_map`]). A document that this walk is not
+//! itself retiring, that still names the ancestor as an upstream, and that has
+//! not reached its own terminal state blocks the transition. The block is a
+//! reported skip, not a failure: the walk continues, the exit code is
+//! unaffected, and the node carries the blocking documents and their statuses.
+//! This is the path that produced the dangling `upstream:` references already in
+//! this repository.
+//!
+//! The carve-out is *documents this walk retires*, not *documents it visits*,
+//! which earns one property for free: a blocked node is never transitioned, so
+//! it stays non-terminal and remains a blocking referrer for its own ancestors.
+//! The block propagates upward with no additional rule.
+//!
+//! ## The guard fails open, and says so
+//!
+//! The guard is only as good as the index behind it, and failing closed would
+//! let one malformed document block every finalization in the repository. So an
+//! index that comes up short does not stop the walk -- but every node the walk
+//! then retires carries a note saying the check was incomplete. That covers the
+//! partial failure as much as the total one: a single document dropped during
+//! index construction yields a map missing whatever it referred to, which looks
+//! from the inside exactly like a document nothing refers to. The note is the
+//! only thing that tells those two apart, so it must reach the caller's rendered
+//! output rather than sitting in the report for whoever thinks to read it --
+//! `run-cascade.sh` puts it on the step's `detail` and logs it.
 //!
 //! ## Why the PLAN is a delete, not a transition
 //!
@@ -32,11 +68,19 @@
 //! [`walk_chain`] by checking the format is `Plan` (the only valid input
 //! type), rather than hardcoded against the `"PLAN-"` filename prefix.
 
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
 use crate::coordination::parse_cross_repo_ref;
 use crate::frontmatter::{self, ParseError};
 use crate::gh::{ClientError, IssueState, IssueStateClient};
+// The cross-repo discriminator lives in the shared `upstream` module now that
+// all three `upstream:` readers normalize through one path; the walk reads the
+// flag off the entry rather than calling it. The import keeps this module's own
+// test for the discriminator pointed at the one implementation.
+#[cfg(test)]
+use crate::upstream::is_cross_repo_reference as is_cross_repo_ref;
+use crate::upstream::UpstreamEntry;
 use crate::{detect_format, run_transition, Flags, TransitionError};
 
 /// The terminal action a chain node would take. The variants are exactly the
@@ -98,6 +142,18 @@ pub enum Mode {
     DryRun,
 }
 
+/// A document whose reference blocks an ancestor's retirement: it still names
+/// that ancestor as an upstream, this walk is not retiring it, and it has not
+/// reached its own terminal state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockingReferrer {
+    /// The referring document's path, relative to the repo root when it lies
+    /// inside it.
+    pub path: String,
+    /// The referring document's status when the referrer map was built.
+    pub status: String,
+}
+
 /// One node in the walked chain.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeEntry {
@@ -122,6 +178,43 @@ pub struct NodeEntry {
     pub new_path: Option<String>,
     /// Whether the node's file moved during the transition (`Mode::Apply` only).
     pub moved: Option<bool>,
+    /// Whether the retirement guard blocked this node's transition. A blocked
+    /// node is a reported skip: nothing was applied to it, the walk continued,
+    /// and the exit code is unaffected.
+    pub blocked: bool,
+    /// The documents that blocked the transition, with their statuses. Empty
+    /// unless `blocked`, and empty even then when the block came from a
+    /// canonicalization failure rather than from a referrer.
+    pub blocked_by: Vec<BlockingReferrer>,
+    /// A rendered, human-readable note for this node -- the text field the
+    /// automated caller surfaces. Set when the node was blocked; the
+    /// `Stop`/`Error` actions carry their own note through
+    /// [`NodeAction::note`].
+    pub note: Option<String>,
+}
+
+impl NodeEntry {
+    /// A node as discovery found it: classified, nothing decided or applied.
+    fn new(
+        path: String,
+        format: Option<String>,
+        action: NodeAction,
+        target_status: Option<String>,
+    ) -> Self {
+        Self {
+            path,
+            format,
+            action,
+            target_status,
+            old_status: None,
+            new_status: None,
+            new_path: None,
+            moved: None,
+            blocked: false,
+            blocked_by: Vec::new(),
+            note: None,
+        }
+    }
 }
 
 /// The ordered result of a chain walk.
@@ -173,7 +266,29 @@ impl Report {
             if let Some(moved) = node.moved {
                 tail.push(format!("      \"moved\": {}", moved));
             }
-            if let Some(note) = node.action.note() {
+            if node.blocked {
+                tail.push("      \"blocked\": true".to_string());
+            }
+            if !node.blocked_by.is_empty() {
+                let items: Vec<String> = node
+                    .blocked_by
+                    .iter()
+                    .map(|b| {
+                        format!(
+                            "        {{\n          \"path\": {},\n          \"status\": {}\n        }}",
+                            json_string(&b.path),
+                            json_string(&b.status)
+                        )
+                    })
+                    .collect();
+                tail.push(format!(
+                    "      \"blocked_by\": [\n{}\n      ]",
+                    items.join(",\n")
+                ));
+            }
+            // The node's own rendered note takes precedence; `Stop`/`Error`
+            // carry theirs on the action.
+            if let Some(note) = node.note.as_deref().or_else(|| node.action.note()) {
                 tail.push(format!("      \"note\": {}", json_string(note)));
             }
             // `action` is always present; it gets a trailing comma only when a
@@ -353,8 +468,17 @@ pub fn walk_chain(plan_path: &str) -> Result<Report, WalkError> {
 /// `moved` are recorded on the node. In [`Mode::DryRun`] nothing is modified and
 /// only `target_status` is recorded.
 ///
-/// A DESIGN transition relocates the file into `current/`; the chain continues
-/// from that post-move path so the next node's `upstream` link still resolves.
+/// The walk follows *every* `upstream` entry, in written order, visiting each
+/// document once. Before a node is transitioned the retirement guard runs
+/// against the pre-move path: a document outside the set this walk retires that
+/// still names the node and has not reached its own terminal state blocks the
+/// transition, which is reported on the node (`blocked`, `blocked_by`, `note`)
+/// and skipped. The walk continues and the exit code is unaffected.
+///
+/// The whole chain is discovered and every decision taken before the first
+/// document is touched: the guard's verdicts come from the corpus as it stood
+/// when the walk started, so no node's fate depends on how far the walk had got
+/// when it was reached.
 pub fn walk_chain_mode(plan_path: &str, mode: Mode) -> Result<Report, WalkError> {
     let plan = Path::new(plan_path);
     // The input PLAN gets the same path validation every chain node does:
@@ -374,147 +498,452 @@ pub fn walk_chain_mode(plan_path: &str, mode: Mode) -> Result<Report, WalkError>
         "input PLAN's format must be `Plan` (delete, not transition); cascade owns Active -> Done"
     );
 
-    let mut nodes = vec![NodeEntry {
-        path: plan_path.to_string(),
-        format: plan_fmt.map(|f| f.name),
-        action: NodeAction::DeletePlan,
-        target_status: None,
-        old_status: None,
-        new_status: None,
-        new_path: None,
-        moved: None,
+    // The referrer map is built once per walk, before anything is read or
+    // written, so every verdict below is taken against the corpus as it stood
+    // when the walk started. The index-construction errors are the fail-open
+    // half of the guard: an unindexable corpus yields a thinner map rather than
+    // a refusal, and every node the walk then retires says so.
+    let (referrers, index_errors) = crate::lifecycle::build_referrer_map(&repo_root);
+    let gap = referrer_map_gap(&repo_root, &index_errors);
+
+    // ---- Discovery: every branch, in written order, each document once. ----
+    let mut nodes: Vec<WalkNode> = vec![WalkNode {
+        canonical: crate::lifecycle::canonicalize_indexed_path(plan),
+        entry: NodeEntry::new(
+            plan_path.to_string(),
+            plan_fmt.map(|f| f.name),
+            NodeAction::DeletePlan,
+            None,
+        ),
     }];
+    let mut by_key: HashMap<String, usize> = HashMap::new();
+    by_key.insert(nodes[0].key(), 0);
+    let mut pending: VecDeque<usize> = VecDeque::from([0]);
 
-    // Follow the chain. `current_doc_path` is the on-disk path to read the next
-    // `upstream` link from; after applying a DESIGN move it becomes the post-
-    // move path so the link still resolves.
-    let mut current_doc_path = plan_path.to_string();
-    loop {
-        let upstream = match read_upstream(&current_doc_path)? {
-            Some(value) if !value.trim().is_empty() => value.trim().to_string(),
-            _ => break, // No upstream: chain complete.
-        };
-
-        // A cross-repo `owner/repo:path` reference is out of scope: stop.
-        if is_cross_repo_ref(&upstream) {
-            nodes.push(NodeEntry {
-                path: upstream.clone(),
-                format: None,
-                action: NodeAction::Stop(format!(
-                    "cross-repo reference '{}' is out of scope; stopping chain walk",
-                    upstream
-                )),
-                target_status: None,
-                old_status: None,
-                new_status: None,
-                new_path: None,
-                moved: None,
-            });
-            break;
+    while let Some(i) = pending.pop_front() {
+        if !expands(&nodes[i].entry.action) {
+            continue;
         }
-
-        // Path validation before any read or transition: the untrusted
-        // `upstream` value must resolve inside the repo root, be a regular file,
-        // and not be a symlink (mirroring run-cascade.sh's
-        // `validate_upstream_path` intent). A failure is a tool error (exit 1).
-        let node_root = repo_root_for(Path::new(&upstream));
-        validate_node_path(&upstream, &node_root).map_err(WalkError::invalid_path)?;
-
-        let fmt = detect_format(basename(&upstream));
-        let format_name = fmt.as_ref().map(|f| f.name.clone());
-
-        let (action, target_status, stop) = match format_name.as_deref() {
-            Some("Design") => (
-                NodeAction::TransitionDesign,
-                Some("Current".to_string()),
-                false,
-            ),
-            Some("PRD") => (NodeAction::TransitionPrd, Some("Done".to_string()), false),
-            Some("Brief") => (NodeAction::TransitionBrief, Some("Done".to_string()), false),
-            Some("Roadmap") => (NodeAction::RoadmapHandoff, None, true),
-            Some("VISION") => (
-                NodeAction::Stop(format!(
-                    "reached VISION node '{}'; handing off to the caller",
-                    upstream
-                )),
-                None,
-                true,
-            ),
-            _ => (
-                NodeAction::Error(format!(
-                    "upstream '{}' has an unrecognized filename prefix; stopping chain walk",
-                    upstream
-                )),
-                None,
-                true,
-            ),
-        };
-
-        // Apply the terminal transition for a tactical node when in Apply mode.
-        // A DESIGN is stripped of its Implementation Issues section first, then
-        // transitioned (and may move). The applied result is recorded on the
-        // node; `current_doc_path` advances to the post-move path so the chain
-        // continues to resolve.
-        let mut entry = NodeEntry {
-            path: upstream.clone(),
-            format: format_name,
-            action: action.clone(),
-            target_status: target_status.clone(),
-            old_status: None,
-            new_status: None,
-            new_path: None,
-            moved: None,
-        };
-        let mut next_doc_path = upstream.clone();
-
-        if mode == Mode::Apply {
-            if let Some(target) = &target_status {
-                if matches!(action, NodeAction::TransitionDesign) {
-                    strip_implementation_issues(&upstream)
-                        .map_err(|e| WalkError::io(&upstream, entry.format.as_deref(), &e))?;
-                }
-                let outcome =
-                    run_transition(&upstream, target, &Flags::default()).map_err(|e| {
-                        // The engine's TransitionError carries only its reason and
-                        // code; we know the node's resolved type and the attempted
-                        // edge. Read the node's current status best-effort for the
-                        // `from` side so the message names the full transition.
-                        let from = current_status_of(&upstream);
-                        WalkError::transition(
-                            &upstream,
-                            entry.format.as_deref(),
-                            from.as_deref().unwrap_or("?"),
-                            target,
-                            &e,
-                        )
-                    })?;
-                entry.old_status = Some(outcome.old_status.clone());
-                entry.new_status = Some(outcome.new_status.clone());
-                entry.new_path = Some(outcome.new_path.clone());
-                entry.moved = Some(outcome.moved);
-                // `run_transition`'s `new_path` is repo-relative after a move.
-                // To keep reading the chain, advance to the post-move location;
-                // when the input `upstream` was absolute, re-anchor the repo-
-                // relative `new_path` to the doc's work-tree root so the next
-                // `read_upstream` resolves regardless of the process cwd.
-                next_doc_path = if outcome.moved {
-                    reanchor_moved_path(&upstream, &outcome.new_path)
-                } else {
-                    upstream.clone()
-                };
+        // Read the node's own `upstream:` before anything has been applied, so
+        // a DESIGN that is about to move is still read from where it is.
+        let doc_path = nodes[i].entry.path.clone();
+        for upstream in read_upstream_entries(&doc_path)? {
+            let node = classify_node(upstream)?;
+            let key = node.key();
+            // A shared ancestor reached through two branches is one node, not
+            // two: visiting it twice would transition it twice and make the
+            // outcome depend on traversal order.
+            if by_key.contains_key(&key) {
+                continue;
+            }
+            let idx = nodes.len();
+            let expandable = expands(&node.entry.action);
+            nodes.push(node);
+            by_key.insert(key, idx);
+            if expandable {
+                pending.push_back(idx);
             }
         }
-
-        nodes.push(entry);
-
-        if stop {
-            break;
-        }
-
-        current_doc_path = next_doc_path;
     }
 
-    Ok(Report { nodes })
+    // ---- The retirement guard: one verdict per node, before any mutation. ----
+    let mut verdicts: Vec<Eval> = vec![Eval::Unresolved; nodes.len()];
+    for i in 0..nodes.len() {
+        decide(i, &nodes, &by_key, &referrers, &repo_root, &mut verdicts);
+    }
+
+    // ---- Apply. ----
+    for i in 0..nodes.len() {
+        let verdict = match &verdicts[i] {
+            Eval::Done(v) => v.clone(),
+            // `decide` resolves every node above; a still-unresolved node is
+            // treated as not retired, which skips its transition.
+            _ => Verdict::kept(),
+        };
+        if let Some(blocked) = verdict.block {
+            nodes[i].entry.blocked = true;
+            nodes[i].entry.blocked_by = blocked.blocked_by;
+            nodes[i].entry.note = Some(blocked.note);
+            continue;
+        }
+        // The fail-open note, on every node this walk retires on a transition.
+        // It is recorded in both modes: a dry run that cannot see the whole
+        // corpus is reporting a verdict it could not fully take, which is worth
+        // exactly as much warning as applying one. The input PLAN carries no
+        // note -- its deletion is unconditional and never consulted the map --
+        // and a blocked node carries its block instead, since the hazard is
+        // retiring something, not declining to.
+        if verdict.retires && nodes[i].entry.target_status.is_some() {
+            if let Some(gap) = &gap {
+                nodes[i].entry.note = Some(gap.note_for(&nodes[i].entry.path));
+            }
+        }
+        if mode != Mode::Apply || !verdict.retires {
+            continue;
+        }
+        let path = nodes[i].entry.path.clone();
+        let format = nodes[i].entry.format.clone();
+        let target = match nodes[i].entry.target_status.clone() {
+            Some(t) => t,
+            // The input PLAN and the branch-ending nodes have no transition.
+            None => continue,
+        };
+        // A DESIGN is stripped of its Implementation Issues section first, then
+        // transitioned (and may move into `current/`).
+        if matches!(nodes[i].entry.action, NodeAction::TransitionDesign) {
+            strip_implementation_issues(&path)
+                .map_err(|e| WalkError::io(&path, format.as_deref(), &e))?;
+        }
+        let outcome = run_transition(&path, &target, &Flags::default()).map_err(|e| {
+            // The engine's TransitionError carries only its reason and code; we
+            // know the node's resolved type and the attempted edge. Read the
+            // node's current status best-effort for the `from` side so the
+            // message names the full transition.
+            let from = current_status_of(&path);
+            WalkError::transition(
+                &path,
+                format.as_deref(),
+                from.as_deref().unwrap_or("?"),
+                &target,
+                &e,
+            )
+        })?;
+        let entry = &mut nodes[i].entry;
+        entry.old_status = Some(outcome.old_status);
+        entry.new_status = Some(outcome.new_status);
+        entry.new_path = Some(outcome.new_path);
+        entry.moved = Some(outcome.moved);
+    }
+
+    Ok(Report {
+        nodes: nodes.into_iter().map(|n| n.entry).collect(),
+    })
+}
+
+/// A discovered node: its report entry plus the canonical path the referrer
+/// map is keyed by. `canonical` is `None` when the path does not canonicalize,
+/// which blocks the node's transition -- the guard cannot ask what refers to a
+/// document it cannot name.
+struct WalkNode {
+    entry: NodeEntry,
+    canonical: Option<PathBuf>,
+}
+
+impl WalkNode {
+    /// The identity two branches reconverging on one document must agree on:
+    /// the canonical path, falling back to the written value for a node that
+    /// has none (a cross-repo reference, or a path that failed to canonicalize).
+    fn key(&self) -> String {
+        match &self.canonical {
+            Some(p) => p.to_string_lossy().into_owned(),
+            None => self.entry.path.clone(),
+        }
+    }
+}
+
+/// Whether the walk follows a node's own `upstream:`. A branch-ending node
+/// (ROADMAP handoff, VISION or cross-repo stop, unrecognized prefix) is not
+/// expanded; every other node is, including a node the guard goes on to block,
+/// so the block can propagate to its ancestors.
+fn expands(action: &NodeAction) -> bool {
+    matches!(
+        action,
+        NodeAction::DeletePlan
+            | NodeAction::TransitionDesign
+            | NodeAction::TransitionPrd
+            | NodeAction::TransitionBrief
+    )
+}
+
+/// Turn one `upstream:` entry into a walk node: validate its path, resolve its
+/// format, and dispatch to the action its type takes.
+fn classify_node(upstream: UpstreamEntry) -> Result<WalkNode, WalkError> {
+    let path = upstream.value;
+
+    // A cross-repo `owner/repo:path` reference is out of scope: this branch
+    // ends here, and the walk never writes across a repo boundary.
+    if upstream.cross_repo {
+        return Ok(WalkNode {
+            canonical: None,
+            entry: NodeEntry::new(
+                path.clone(),
+                None,
+                NodeAction::Stop(format!(
+                    "cross-repo reference '{}' is out of scope; stopping chain walk",
+                    path
+                )),
+                None,
+            ),
+        });
+    }
+
+    // Path validation before any read or transition: the untrusted `upstream`
+    // value must resolve inside the repo root, be a regular file, and not be a
+    // symlink (mirroring run-cascade.sh's `validate_upstream_path` intent). A
+    // failure is a tool error (exit 1).
+    let node_root = repo_root_for(Path::new(&path));
+    validate_node_path(&path, &node_root).map_err(WalkError::invalid_path)?;
+
+    let format_name = detect_format(basename(&path)).map(|f| f.name);
+    let (action, target_status) = match format_name.as_deref() {
+        Some("Design") => (NodeAction::TransitionDesign, Some("Current".to_string())),
+        Some("PRD") => (NodeAction::TransitionPrd, Some("Done".to_string())),
+        Some("Brief") => (NodeAction::TransitionBrief, Some("Done".to_string())),
+        Some("Roadmap") => (NodeAction::RoadmapHandoff, None),
+        Some("VISION") => (
+            NodeAction::Stop(format!(
+                "reached VISION node '{}'; handing off to the caller",
+                path
+            )),
+            None,
+        ),
+        _ => (
+            NodeAction::Error(format!(
+                "upstream '{}' has an unrecognized filename prefix; stopping chain walk",
+                path
+            )),
+            None,
+        ),
+    };
+
+    Ok(WalkNode {
+        canonical: crate::lifecycle::canonicalize_indexed_path(Path::new(&path)),
+        entry: NodeEntry::new(path, format_name, action, target_status),
+    })
+}
+
+/// Why a node was not retired.
+#[derive(Debug, Clone)]
+struct Block {
+    blocked_by: Vec<BlockingReferrer>,
+    note: String,
+}
+
+/// What the guard decided about one node.
+#[derive(Debug, Clone)]
+struct Verdict {
+    /// Whether this walk retires the document. This is the carve-out the
+    /// blocking rule reads: *retires*, not *visits*.
+    retires: bool,
+    /// Set when the node's transition was blocked.
+    block: Option<Block>,
+}
+
+impl Verdict {
+    /// Retired by this walk: the input PLAN, or a node whose transition the
+    /// guard cleared.
+    fn retired() -> Self {
+        Self {
+            retires: true,
+            block: None,
+        }
+    }
+
+    /// Not retired and not blocked: a branch-ending node the walk leaves alone.
+    fn kept() -> Self {
+        Self {
+            retires: false,
+            block: None,
+        }
+    }
+
+    /// Blocked: not retired, and the report says by what.
+    fn blocked(block: Block) -> Self {
+        Self {
+            retires: false,
+            block: Some(block),
+        }
+    }
+}
+
+/// A node's guard state. `InProgress` guards against a cycle in the upstream
+/// graph, which resolves as not-retired rather than recursing forever.
+#[derive(Debug, Clone)]
+enum Eval {
+    Unresolved,
+    InProgress,
+    Done(Verdict),
+}
+
+/// Decide whether the walk retires node `i`, memoized in `verdicts`.
+///
+/// The rule: a document that this walk is not itself retiring, that still names
+/// the node as an upstream, and that has not reached its own terminal state
+/// blocks the transition. Retirement is decided recursively over the referrers,
+/// which is what makes the block propagate: a blocked node is not retired, so it
+/// keeps blocking its own ancestors.
+fn decide(
+    i: usize,
+    nodes: &[WalkNode],
+    by_key: &HashMap<String, usize>,
+    referrers: &crate::lifecycle::ReferrerMap,
+    repo_root: &Path,
+    verdicts: &mut Vec<Eval>,
+) -> Verdict {
+    match &verdicts[i] {
+        Eval::Done(v) => return v.clone(),
+        // Reached through a cycle: treat as not retired, the conservative
+        // reading (it then blocks, rather than silently clearing a transition).
+        Eval::InProgress => return Verdict::kept(),
+        Eval::Unresolved => {}
+    }
+    verdicts[i] = Eval::InProgress;
+
+    let verdict = if matches!(nodes[i].entry.action, NodeAction::DeletePlan) {
+        // The input PLAN counts as retired: finalize reports it for deletion and
+        // the cascade performs the `git rm`. Were it not retired it would block
+        // its own DESIGN and no chain could finalize.
+        Verdict::retired()
+    } else if nodes[i].entry.target_status.is_none() {
+        // A branch-ending node is neither retired nor blocked.
+        Verdict::kept()
+    } else {
+        match &nodes[i].canonical {
+            // A canonicalization failure blocks: the walk and the map would
+            // otherwise disagree about what names this document, and the guard
+            // would silently miss its referrers.
+            None => Verdict::blocked(Block {
+                blocked_by: Vec::new(),
+                note: format!(
+                    "not retiring {}: its path could not be canonicalized, so the \
+                     retirement guard cannot tell what still refers to it",
+                    nodes[i].entry.path
+                ),
+            }),
+            Some(canonical) => {
+                let mut blockers: Vec<BlockingReferrer> = Vec::new();
+                for referrer in referrers.get(canonical).map(Vec::as_slice).unwrap_or(&[]) {
+                    let key = referrer.path.to_string_lossy().into_owned();
+                    let retired_here = match by_key.get(&key) {
+                        Some(&j) if j != i => {
+                            decide(j, nodes, by_key, referrers, repo_root, verdicts).retires
+                        }
+                        // Not in this walk (or the node itself): nothing here
+                        // retires it.
+                        _ => false,
+                    };
+                    if retired_here || referrer.is_terminal() {
+                        continue;
+                    }
+                    blockers.push(BlockingReferrer {
+                        path: display_path(repo_root, &referrer.path),
+                        status: referrer.status.clone(),
+                    });
+                }
+                if blockers.is_empty() {
+                    Verdict::retired()
+                } else {
+                    let rendered: Vec<String> = blockers
+                        .iter()
+                        .map(|b| format!("{} (status: {})", b.path, b.status))
+                        .collect();
+                    Verdict::blocked(Block {
+                        note: format!(
+                            "not retiring {}: still named as upstream by {}",
+                            nodes[i].entry.path,
+                            rendered.join(", ")
+                        ),
+                        blocked_by: blockers,
+                    })
+                }
+            }
+        }
+    };
+
+    verdicts[i] = Eval::Done(verdict.clone());
+    verdict
+}
+
+/// The opening of the fail-open note. Both ways the map can come up short get
+/// the same sentence, because they are the same hazard: the guard cleared a
+/// retirement it could not fully check.
+const GUARD_GAP_NOTE: &str = "retirement guard could not see the whole corpus";
+
+/// How many unindexable documents the note names before it stops listing.
+const GAP_NAMES_SHOWN: usize = 3;
+
+/// A gap in the referrer map the guard's verdicts were taken against.
+///
+/// The guard is only as complete as the index behind it, and the index can come
+/// up short in two ways. *Totally*: the corpus root does not resolve, nothing is
+/// indexed, and the map is empty. *Partially*: individual documents fail to
+/// parse or canonicalize during index construction and are dropped, so the map
+/// is missing whatever they referred to. The partial case is the one that
+/// actually happens -- one malformed document is a normal state for a repository
+/// mid-edit -- and it is the silent one, since a thinner map looks exactly like
+/// a document nothing refers to. Both produce this note.
+struct ReferrerMapGap {
+    /// What went short, rendered into the note after the shared opening.
+    cause: String,
+}
+
+impl ReferrerMapGap {
+    /// The note as it lands on one retired node.
+    fn note_for(&self, path: &str) -> String {
+        format!(
+            "{}: {}; {} is retired without a complete check of what still refers to it",
+            GUARD_GAP_NOTE, self.cause, path
+        )
+    }
+}
+
+/// Whether the referrer map the guard just consulted is known to be incomplete.
+///
+/// The total case is checked with the index's own canonicalization primitive
+/// against the root, which is the one condition under which index construction
+/// gives up before reading a single document. The partial case is the index's
+/// own construction errors: each is a document that was dropped from the index
+/// and whose upstreams are therefore missing from the map.
+///
+/// A directory the index skips because it cannot be read is neither -- it
+/// produces no error and leaves the root resolvable -- so it stays outside what
+/// this can report.
+fn referrer_map_gap(
+    repo_root: &Path,
+    index_errors: &[crate::ValidationError],
+) -> Option<ReferrerMapGap> {
+    if crate::lifecycle::canonicalize_indexed_path(repo_root).is_none() {
+        return Some(ReferrerMapGap {
+            cause: format!(
+                "the corpus root {} could not be resolved, so no document was indexed",
+                repo_root.display()
+            ),
+        });
+    }
+    if index_errors.is_empty() {
+        return None;
+    }
+    let mut named: Vec<&str> = index_errors.iter().map(|e| e.file.as_str()).collect();
+    named.sort_unstable();
+    named.dedup();
+    let shown = named
+        .iter()
+        .take(GAP_NAMES_SHOWN)
+        .copied()
+        .collect::<Vec<&str>>()
+        .join(", ");
+    let listed = if named.len() > GAP_NAMES_SHOWN {
+        format!("{}, and {} more", shown, named.len() - GAP_NAMES_SHOWN)
+    } else {
+        shown
+    };
+    Some(ReferrerMapGap {
+        cause: format!(
+            "{} document{} could not be indexed ({})",
+            named.len(),
+            if named.len() == 1 { "" } else { "s" },
+            listed
+        ),
+    })
+}
+
+/// A referrer's path as the report shows it: relative to the repo root when it
+/// lies inside it, so the note reads like the paths the author wrote.
+fn display_path(repo_root: &Path, path: &Path) -> String {
+    path.strip_prefix(repo_root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// The outcome of the read-only cross-repo upstream verification pass.
@@ -660,23 +1089,6 @@ pub fn verify_cross_repo_upstream_terminal(
     decide_terminal(&parsed.slug(), &parsed.path, number, read)
 }
 
-/// Re-anchor a repo-relative post-move `new_path` to an absolute path, so the
-/// chain walk can keep reading `upstream` from the moved file no matter the
-/// process cwd. The doc's work-tree root is resolved from the *original*
-/// (pre-move) path's directory. When `original` was already repo-relative the
-/// `new_path` is returned unchanged (callers that pass repo-relative paths run
-/// from the repo root, the same convention `run_transition` assumes).
-fn reanchor_moved_path(original: &str, new_path: &str) -> String {
-    let orig = Path::new(original);
-    if !orig.is_absolute() {
-        return new_path.to_string();
-    }
-    // `repo_root_for` anchors on the path's parent directory, matching how the
-    // transition engine resolves a doc's work tree.
-    let root = repo_root_for(orig);
-    root.join(new_path).to_string_lossy().into_owned()
-}
-
 /// Port of `run-cascade.sh`'s `strip_implementation_issues` (awk, lines
 /// 182-200): idempotently remove the `## Implementation Issues` section from a
 /// DESIGN doc, from that heading to (but not including) the next `## ` heading
@@ -719,24 +1131,19 @@ fn strip_implementation_issues(doc_path: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Read a node's `upstream` frontmatter field, or `None` when absent.
-fn read_upstream(doc_path: &str) -> Result<Option<String>, WalkError> {
+/// Read the `upstream` entries the walk follows from one node, in the order
+/// the author wrote them. The list is empty when the field names none:
+/// absent, empty, an unfilled `<placeholder>`, or a shape that is neither a
+/// scalar nor a sequence.
+///
+/// Entries come from [`crate::upstream::upstream_entries`], the one
+/// normalization path all three `upstream:` readers share. Every entry is
+/// followed; written order is the branch order, and nothing here sorts by
+/// path -- ordering by filename is the dependence the rest of this change
+/// removes.
+fn read_upstream_entries(doc_path: &str) -> Result<Vec<UpstreamEntry>, WalkError> {
     let doc = frontmatter::parse_doc(doc_path)?;
-    Ok(doc.fields.get("upstream").map(|f| f.value.clone()))
-}
-
-/// Whether an upstream value is a cross-repo `owner/repo:path` reference. The
-/// `owner/repo:` prefix carries a `:` before the first `/`-rooted path
-/// segment; a plain repo-relative path (`docs/designs/DESIGN-x.md`) has no `:`.
-fn is_cross_repo_ref(value: &str) -> bool {
-    match value.find(':') {
-        // A `:` that precedes the first path separator marks a repo selector.
-        Some(colon) => {
-            let before = &value[..colon];
-            before.contains('/') && !before.contains(' ')
-        }
-        None => false,
-    }
+    Ok(crate::upstream::upstream_entries(&doc))
 }
 
 /// The final path component, matching the binary's `basename`.
@@ -1545,6 +1952,471 @@ mod tests {
             verify_cross_repo_upstream_terminal("tsukumogami/shirabe:../escape.md", 1, &client)
                 .expect_err("traversal reference must fail closed");
         assert!(err2.message.contains("invalid cross-repo reference"));
+    }
+
+    // ---- Issue 9: the retirement guard + multi-branch traversal ----
+
+    /// Write a doc whose `upstream:` is a block sequence, so a test can build a
+    /// document with two branches. Written order is the sequence order.
+    fn write_repo_doc_multi(
+        root: &Path,
+        rel_path: &str,
+        status: &str,
+        upstreams: &[&str],
+        extra_body: &str,
+    ) -> String {
+        let mut fm = format!("---\nschema: x/v1\nstatus: {}\nupstream:\n", status);
+        for u in upstreams {
+            fm.push_str(&format!("  - {}\n", u));
+        }
+        fm.push_str(&format!("---\n\n## Status\n\n{}\n{}", status, extra_body));
+        let path = root.join(rel_path);
+        fs::create_dir_all(path.parent().unwrap()).expect("mkdir doc dir");
+        fs::write(&path, fm).expect("write doc");
+        run_git(root, &["add", rel_path]);
+        path.to_string_lossy().into_owned()
+    }
+
+    fn node_for<'a>(report: &'a Report, needle: &str) -> &'a NodeEntry {
+        let hits: Vec<&NodeEntry> = report
+            .nodes
+            .iter()
+            .filter(|n| n.path.contains(needle))
+            .collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "expected exactly one node for {}, got {:?}",
+            needle,
+            report.nodes.iter().map(|n| &n.path).collect::<Vec<_>>()
+        );
+        hits[0]
+    }
+
+    /// An ancestor another document still points at is not retired. The report
+    /// names the blocking document and its status, the file is left untouched,
+    /// and the walk still returns Ok — a block is a reported skip, not a
+    /// failure.
+    ///
+    /// The block then propagates with no extra rule: the blocked PRD stays
+    /// non-terminal, so it is itself a blocking referrer for the BRIEF above it.
+    #[test]
+    fn shared_ancestor_is_not_retired_and_the_block_propagates() {
+        let root = fresh_git_repo();
+        let brief = write_repo_doc(&root, "docs/briefs/BRIEF-shared.md", "Accepted", None, "");
+        let prd = write_repo_doc(
+            &root,
+            "docs/prds/PRD-shared.md",
+            "Draft",
+            Some(&brief),
+            "",
+        );
+        // The walked branch.
+        let design = write_repo_doc(&root, "docs/designs/DESIGN-mine.md", "Draft", Some(&prd), "");
+        // A second consumer of the same PRD, outside this walk and still live.
+        write_repo_doc(&root, "docs/designs/DESIGN-other.md", "Draft", Some(&prd), "");
+        let plan = write_repo_doc(
+            &root,
+            "docs/plans/PLAN-shared.md",
+            "Draft",
+            Some(&design),
+            "",
+        );
+
+        let report = walk_chain_mode(&plan, Mode::Apply).expect("a block never fails the walk");
+
+        // The walked DESIGN is retired as usual: its only referrer is the input
+        // PLAN, which this walk retires.
+        let d = node_for(&report, "DESIGN-mine.md");
+        assert!(!d.blocked);
+        assert_eq!(d.new_status.as_deref(), Some("Current"));
+
+        // The shared PRD is not transitioned, and says who is still holding it.
+        let p = node_for(&report, "PRD-shared.md");
+        assert!(p.blocked, "the shared ancestor must be blocked");
+        assert!(p.new_status.is_none(), "nothing was applied to it");
+        assert_eq!(p.blocked_by.len(), 1, "{:?}", p.blocked_by);
+        assert!(p.blocked_by[0].path.ends_with("DESIGN-other.md"));
+        assert_eq!(p.blocked_by[0].status, "Draft");
+        let note = p.note.as_deref().expect("a rendered note for humans");
+        assert!(note.contains("DESIGN-other.md"), "note: {}", note);
+        assert!(note.contains("Draft"), "note: {}", note);
+        // On disk the PRD is untouched.
+        assert!(fs::read_to_string(&prd).unwrap().contains("status: Draft"));
+
+        // The walk continued past the block, and the BRIEF above it is blocked
+        // in turn by the PRD that stayed non-terminal.
+        let b = node_for(&report, "BRIEF-shared.md");
+        assert!(b.blocked, "the block propagates upward");
+        assert_eq!(b.blocked_by.len(), 1, "{:?}", b.blocked_by);
+        assert!(b.blocked_by[0].path.ends_with("PRD-shared.md"));
+        assert!(fs::read_to_string(&brief).unwrap().contains("status: Accepted"));
+    }
+
+    /// A referrer that has already reached its own terminal status does not
+    /// block: a finished sibling cannot pin an ancestor open forever.
+    #[test]
+    fn terminal_referrer_does_not_block() {
+        let root = fresh_git_repo();
+        let prd = write_repo_doc(&root, "docs/prds/PRD-term.md", "Draft", None, "");
+        let design = write_repo_doc(&root, "docs/designs/DESIGN-term.md", "Draft", Some(&prd), "");
+        // A second consumer, already at its terminal status (a DESIGN retires at
+        // `Current`, in `docs/designs/current/`).
+        write_repo_doc(
+            &root,
+            "docs/designs/current/DESIGN-done.md",
+            "Current",
+            Some(&prd),
+            "",
+        );
+        let plan = write_repo_doc(
+            &root,
+            "docs/plans/PLAN-term.md",
+            "Draft",
+            Some(&design),
+            "",
+        );
+
+        let report = walk_chain_mode(&plan, Mode::Apply).expect("apply ok");
+        let p = node_for(&report, "PRD-term.md");
+        assert!(!p.blocked, "a terminal referrer must not block: {:?}", p);
+        assert!(p.blocked_by.is_empty());
+        assert_eq!(p.new_status.as_deref(), Some("Done"));
+        assert!(fs::read_to_string(&prd).unwrap().contains("status: Done"));
+    }
+
+    /// A document with two upstreams has both branches walked, in written
+    /// order rather than path order, and an ancestor reachable through both is
+    /// visited once — so it is transitioned once and the outcome does not
+    /// depend on traversal order.
+    #[test]
+    fn diamond_walks_both_branches_and_visits_the_shared_ancestor_once() {
+        let root = fresh_git_repo();
+        let prd = write_repo_doc(&root, "docs/prds/PRD-diamond.md", "Draft", None, "");
+        // Written second alphabetically-first, so written order and path order
+        // disagree: the report must follow what the author wrote.
+        let zeta = write_repo_doc(&root, "docs/designs/DESIGN-zeta.md", "Draft", Some(&prd), "");
+        let alpha = write_repo_doc(&root, "docs/designs/DESIGN-alpha.md", "Draft", Some(&prd), "");
+        let plan = write_repo_doc_multi(
+            &root,
+            "docs/plans/PLAN-diamond.md",
+            "Draft",
+            &[&zeta, &alpha],
+            "",
+        );
+
+        let report = walk_chain_mode(&plan, Mode::Apply).expect("apply ok");
+
+        // Four nodes: the PLAN, both DESIGNs, and the shared PRD exactly once.
+        assert_eq!(
+            report.nodes.len(),
+            4,
+            "{:?}",
+            report.nodes.iter().map(|n| &n.path).collect::<Vec<_>>()
+        );
+        assert!(report.nodes[1].path.ends_with("DESIGN-zeta.md"), "written order");
+        assert!(report.nodes[2].path.ends_with("DESIGN-alpha.md"), "written order");
+        let p = node_for(&report, "PRD-diamond.md");
+        assert!(!p.blocked, "both referrers are retired by this walk");
+        assert_eq!(p.new_status.as_deref(), Some("Done"));
+        assert_eq!(p.old_status.as_deref(), Some("Draft"));
+        // Both branches were applied.
+        assert!(root.join("docs/designs/current/DESIGN-zeta.md").is_file());
+        assert!(root.join("docs/designs/current/DESIGN-alpha.md").is_file());
+        assert!(fs::read_to_string(&prd).unwrap().contains("status: Done"));
+    }
+
+    /// A branch that ends at a VISION does not end the other branch: the
+    /// worklist is per-branch, not a single loop.
+    #[test]
+    fn one_branch_stopping_does_not_end_the_other() {
+        let root = fresh_git_repo();
+        let vision = write_repo_doc(&root, "docs/VISION-product.md", "Draft", None, "");
+        let prd = write_repo_doc(&root, "docs/prds/PRD-two.md", "Draft", None, "");
+        let plan = write_repo_doc_multi(
+            &root,
+            "docs/plans/PLAN-two.md",
+            "Draft",
+            &[&vision, &prd],
+            "",
+        );
+
+        let report = walk_chain_mode(&plan, Mode::Apply).expect("apply ok");
+        let actions: Vec<&str> = report.nodes.iter().map(|n| n.action.as_str()).collect();
+        assert_eq!(actions, vec!["delete_plan", "stop", "transition_prd"]);
+        assert_eq!(
+            node_for(&report, "PRD-two.md").new_status.as_deref(),
+            Some("Done")
+        );
+    }
+
+    /// A dry run reports the block without touching anything: the guard's
+    /// verdict is the same in both modes.
+    #[test]
+    fn dry_run_reports_the_block_and_the_json_carries_it() {
+        let root = fresh_git_repo();
+        let prd = write_repo_doc(&root, "docs/prds/PRD-dryblock.md", "Draft", None, "");
+        let design = write_repo_doc(
+            &root,
+            "docs/designs/DESIGN-dryblock.md",
+            "Draft",
+            Some(&prd),
+            "",
+        );
+        write_repo_doc(&root, "docs/designs/DESIGN-holder.md", "Draft", Some(&prd), "");
+        let plan = write_repo_doc(
+            &root,
+            "docs/plans/PLAN-dryblock.md",
+            "Draft",
+            Some(&design),
+            "",
+        );
+        let before = fs::read_to_string(&prd).unwrap();
+
+        let report = walk_chain_mode(&plan, Mode::DryRun).expect("dry-run ok");
+        assert!(node_for(&report, "PRD-dryblock.md").blocked);
+        assert_eq!(fs::read_to_string(&prd).unwrap(), before);
+
+        let json = report.to_json();
+        assert!(json.contains("\"blocked\": true"), "{}", json);
+        assert!(json.contains("\"blocked_by\": ["), "{}", json);
+        assert!(json.contains("DESIGN-holder.md"), "{}", json);
+        assert!(json.contains("\"status\": \"Draft\""), "{}", json);
+        assert!(json.contains("\"note\": \"not retiring"), "{}", json);
+    }
+
+    /// A node whose path does not canonicalize blocks: the walk and the
+    /// referrer map would otherwise disagree about which document a path names,
+    /// and the guard would silently miss the referrers it could not look up.
+    /// Exercised against the decision core, since a node that reaches the guard
+    /// has already passed path validation.
+    #[test]
+    fn a_canonicalization_failure_blocks() {
+        let nodes = vec![
+            WalkNode {
+                canonical: Some(PathBuf::from("/repo/docs/plans/PLAN-x.md")),
+                entry: NodeEntry::new(
+                    "docs/plans/PLAN-x.md".to_string(),
+                    Some("Plan".to_string()),
+                    NodeAction::DeletePlan,
+                    None,
+                ),
+            },
+            WalkNode {
+                // The canonicalization failed.
+                canonical: None,
+                entry: NodeEntry::new(
+                    "docs/prds/PRD-x.md".to_string(),
+                    Some("PRD".to_string()),
+                    NodeAction::TransitionPrd,
+                    Some("Done".to_string()),
+                ),
+            },
+        ];
+        let by_key: HashMap<String, usize> = HashMap::new();
+        let referrers = crate::lifecycle::ReferrerMap::new();
+        let mut verdicts = vec![Eval::Unresolved; nodes.len()];
+
+        let plan = decide(
+            0,
+            &nodes,
+            &by_key,
+            &referrers,
+            Path::new("/repo"),
+            &mut verdicts,
+        );
+        assert!(plan.retires, "the input PLAN counts as retired");
+
+        let prd = decide(
+            1,
+            &nodes,
+            &by_key,
+            &referrers,
+            Path::new("/repo"),
+            &mut verdicts,
+        );
+        assert!(!prd.retires, "a canonicalization failure blocks");
+        let block = prd.block.expect("the block is reported");
+        assert!(block.blocked_by.is_empty(), "no referrer to name");
+        assert!(
+            block.note.contains("could not be canonicalized"),
+            "note: {}",
+            block.note
+        );
+    }
+
+    // ---- Issue 10: the fail-open note ----
+
+    /// Write a document the index cannot read: the frontmatter opens and never
+    /// closes, which is a parse failure rather than a document without
+    /// frontmatter. It is dropped from the index, so whatever it referred to is
+    /// missing from the referrer map -- the partial failure, which is the one
+    /// that actually happens.
+    fn write_unindexable_doc(root: &Path, rel_path: &str) -> String {
+        let path = root.join(rel_path);
+        fs::create_dir_all(path.parent().unwrap()).expect("mkdir doc dir");
+        fs::write(&path, "---\nschema: x/v1\nstatus: Draft\n\n## Status\n").expect("write doc");
+        run_git(root, &["add", rel_path]);
+        path.to_string_lossy().into_owned()
+    }
+
+    /// Build the standard BRIEF -> PRD -> DESIGN -> PLAN chain in a fresh repo,
+    /// returning the repo root and the PLAN's path.
+    fn chain_repo(slug: &str) -> (PathBuf, String) {
+        let root = fresh_git_repo();
+        let brief = write_repo_doc(
+            &root,
+            &format!("docs/briefs/BRIEF-{}.md", slug),
+            "Accepted",
+            None,
+            "",
+        );
+        let prd = write_repo_doc(
+            &root,
+            &format!("docs/prds/PRD-{}.md", slug),
+            "Draft",
+            Some(&brief),
+            "",
+        );
+        let design = write_repo_doc(
+            &root,
+            &format!("docs/designs/DESIGN-{}.md", slug),
+            "Draft",
+            Some(&prd),
+            "",
+        );
+        let plan = write_repo_doc(
+            &root,
+            &format!("docs/plans/PLAN-{}.md", slug),
+            "Draft",
+            Some(&design),
+            "",
+        );
+        (root, plan)
+    }
+
+    /// One document that fails to index leaves the map missing whatever it
+    /// referred to, and the walk carries on retiring against it. Every node it
+    /// retires says so, in both modes -- this is the reachable half of the
+    /// fail-open compromise and the half that would otherwise be silent, since
+    /// a thinner map is indistinguishable from a document nothing refers to.
+    #[test]
+    fn a_partial_index_failure_notes_every_retired_node() {
+        let (root, plan) = chain_repo("partial");
+        write_unindexable_doc(&root, "docs/prds/PRD-unreadable.md");
+
+        let report = walk_chain_mode(&plan, Mode::Apply).expect("apply ok");
+
+        for needle in ["DESIGN-partial.md", "PRD-partial.md", "BRIEF-partial.md"] {
+            let node = node_for(&report, needle);
+            let note = node.note.as_deref().unwrap_or_else(|| {
+                panic!("{} must carry the fail-open note; got {:?}", needle, node)
+            });
+            assert!(note.starts_with(GUARD_GAP_NOTE), "{}: {}", needle, note);
+            assert!(
+                note.contains("PRD-unreadable.md"),
+                "the note names what could not be indexed: {}",
+                note
+            );
+            // Fail *open*: the transition still happened.
+            assert!(!node.blocked, "{} must not be blocked", needle);
+            assert!(node.new_status.is_some(), "{} was still retired", needle);
+        }
+
+        // The input PLAN's deletion never consulted the map, so it carries no
+        // note about the map being short.
+        assert_eq!(report.nodes[0].action.as_str(), "delete_plan");
+        assert_eq!(report.nodes[0].note, None);
+
+        // And it reaches the rendered report the caller parses.
+        let json = report.to_json();
+        assert!(
+            json.contains(&format!("\"note\": \"{}", GUARD_GAP_NOTE)),
+            "{}",
+            json
+        );
+    }
+
+    /// The same note in a dry run: a verdict the guard could not fully take is
+    /// worth the same warning whether or not it is applied.
+    #[test]
+    fn a_dry_run_carries_the_fail_open_note_too() {
+        let (root, plan) = chain_repo("partialdry");
+        write_unindexable_doc(&root, "docs/briefs/BRIEF-unreadable.md");
+
+        let report = walk_chain_mode(&plan, Mode::DryRun).expect("dry-run ok");
+        let note = node_for(&report, "PRD-partialdry.md")
+            .note
+            .clone()
+            .expect("the note is recorded in dry-run too");
+        assert!(note.starts_with(GUARD_GAP_NOTE), "{}", note);
+        assert!(note.contains("BRIEF-unreadable.md"), "{}", note);
+    }
+
+    /// A corpus that indexes cleanly says nothing: the note is a signal, not
+    /// decoration, so it must not fire on the ordinary path.
+    #[test]
+    fn a_clean_corpus_carries_no_fail_open_note() {
+        let (_root, plan) = chain_repo("clean");
+
+        let report = walk_chain_mode(&plan, Mode::Apply).expect("apply ok");
+        for node in &report.nodes {
+            assert_eq!(
+                node.note, None,
+                "clean corpus, unexpected note on {:?}",
+                node
+            );
+        }
+        assert!(!report.to_json().contains(GUARD_GAP_NOTE));
+    }
+
+    /// The total failure -- no document indexed at all -- produces the same
+    /// note as the partial one. It is checked against the gap helper directly
+    /// because the walk cannot reach it: `repo_root_for` derives the root from
+    /// an existing file that path validation has already stat'd, so the root
+    /// always resolves by the time the map is built.
+    #[test]
+    fn a_total_index_failure_produces_the_same_note() {
+        let missing = fresh_dir().join("no-such-corpus");
+        let gap = referrer_map_gap(&missing, &[]).expect("an unresolvable root is a gap");
+        let note = gap.note_for("docs/prds/PRD-x.md");
+        assert!(note.starts_with(GUARD_GAP_NOTE), "{}", note);
+        assert!(note.contains("no document was indexed"), "{}", note);
+        assert!(note.contains("docs/prds/PRD-x.md"), "{}", note);
+
+        // A resolvable root with no index errors is not a gap.
+        let clean = fresh_dir();
+        assert!(referrer_map_gap(&clean, &[]).is_none());
+    }
+
+    /// The note names the documents that were dropped, and stops naming them
+    /// before it turns into a wall of paths.
+    #[test]
+    fn the_gap_note_names_what_was_dropped_and_stops_at_three() {
+        let root = fresh_dir();
+        let errs: Vec<crate::ValidationError> = ["d.md", "c.md", "b.md", "a.md"]
+            .iter()
+            .map(|f| crate::ValidationError {
+                file: f.to_string(),
+                line: 1,
+                code: "L05".to_string(),
+                message: "frontmatter parse failed".to_string(),
+            })
+            .collect();
+        let note = referrer_map_gap(&root, &errs)
+            .expect("index errors are a gap")
+            .note_for("docs/prds/PRD-x.md");
+        assert!(
+            note.contains("4 documents could not be indexed"),
+            "{}",
+            note
+        );
+        assert!(note.contains("a.md, b.md, c.md, and 1 more"), "{}", note);
+
+        let one = referrer_map_gap(&root, &errs[..1])
+            .expect("one index error is a gap")
+            .note_for("docs/prds/PRD-x.md");
+        assert!(one.contains("1 document could not be indexed"), "{}", one);
     }
 
     /// The pure decision core encodes the fail-closed policy directly: only a

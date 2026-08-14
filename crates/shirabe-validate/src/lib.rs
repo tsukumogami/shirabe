@@ -24,6 +24,7 @@ pub mod pr_body;
 pub mod report;
 pub mod table;
 pub mod transition;
+pub mod upstream;
 pub mod validate;
 pub mod visibility;
 
@@ -39,11 +40,11 @@ pub use coordination::{
     GatePrStatus, GateUpstreamStatus, GuardIndexNode, IndexedPr, Visibility,
     VisibilityGuardDecision, VisibilityResolver, COORDINATION_DECLARATION_MARKER,
 };
-pub use doc::{Config, Doc, FieldValue, Section, ValidationError};
+pub use doc::{Config, Doc, FieldEntries, FieldValue, Section, ValidationError};
 pub use features::{extract_needs_label, parse_features, strip_label_decoration, Feature};
 pub use finalize::{
-    verify_cross_repo_upstream_terminal, walk_chain, walk_chain_mode, CrossRepoVerification, Mode,
-    NodeAction, NodeEntry, Report, VerifyError, WalkError,
+    verify_cross_repo_upstream_terminal, walk_chain, walk_chain_mode, BlockingReferrer,
+    CrossRepoVerification, Mode, NodeAction, NodeEntry, Report, VerifyError, WalkError,
 };
 pub use formats::{detect_format, formats, FormatSpec};
 pub use frontmatter::{parse_doc, ParseError};
@@ -67,6 +68,7 @@ pub use transition::{
     run_transition, transition_spec, transition_table, BodyTemplate, ExtraInput, Flags, Moves,
     Outcome, Precondition, ResultFields, Rule, TransitionError, TransitionSpec,
 };
+pub use upstream::{field_entries, is_cross_repo_reference, upstream_entries, UpstreamEntry};
 pub use validate::{
     effective_severity, is_known_check_code, is_notice, posture_class, validate_file, PostureClass,
     ReviewPosture, Severity,

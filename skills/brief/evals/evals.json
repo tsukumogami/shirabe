@@ -172,6 +172,20 @@
         "Plan does NOT ask a rehash question such as 'does the Problem Statement look right?'",
         "Plan does NOT present the framing alternatives side by side with no stated preference"
       ]
+    },
+    {
+      "id": 12,
+      "name": "upstream-flag",
+      "prompt": "/brief inline-diff --upstream docs/roadmaps/ROADMAP-editor.md",
+      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before classifying the remainder, so the entry mode is freeform and the topic slug is 'inline-diff' derived from the positional argument alone -- never from the ROADMAP's filename. The value is canonicalized, bounds-checked, confirmed to have a ROADMAP- basename (a PRD- basename gets the chain-inversion rejection on the flag exactly as it does positionally), confirmed not to be under wip/, and confirmed tracked by git. The path is stored as the context file's ## Upstream Path, Phase 1 grounds the problem/outcome candidate in it, and Phase 2 writes upstream: docs/roadmaps/ROADMAP-editor.md into docs/briefs/BRIEF-inline-diff.md. A bare --upstream with no value would be rejected at Phase 0 naming the missing argument.",
+      "files": ["docs/roadmaps/ROADMAP-editor.md"],
+      "expectations": [
+        "Plan detects and parses the --upstream flag from $ARGUMENTS",
+        "Plan derives the topic slug 'inline-diff' from the positional argument, NOT from the ROADMAP basename",
+        "Plan validates the --upstream value: canonicalized, inside the working tree, ROADMAP- basename, not under wip/, tracked by git",
+        "Plan records the path as ## Upstream Path and writes it into the BRIEF frontmatter's upstream: field",
+        "Plan produces docs/briefs/BRIEF-inline-diff.md rather than BRIEF-editor.md"
+      ]
     }
   ]
 }

@@ -40,6 +40,15 @@ Required fields: `status`, `thesis`, `scope`. Optional: `upstream`.
   upstream references and the visibility-direction rules, see
   `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
 
+**Two written shapes are supported for `upstream:`.** A scalar -- the path
+on the key's own line -- and a sequence, written either as `- ` entries on
+the following lines or inline as `[<path>, <path>]`. Every entry of a
+sequence is read, in written order, and a single-entry sequence is still a
+sequence. Reach for the sequence when the document genuinely has more than
+one parent; the scalar otherwise. Nothing else is supported: a scalar is
+never split, so two paths on one line read as one entry that resolves to
+nothing.
+
 Frontmatter status must match the Status section in the body -- agent workflows
 parse frontmatter to determine lifecycle state, so divergence causes silent
 errors.

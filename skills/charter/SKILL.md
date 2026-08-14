@@ -11,7 +11,7 @@ description: >-
   `/charter <topic>` invocations. Do NOT use when the author already
   knows which artifact altitude they want (reach for `/vision`,
   `/strategy`, or `/roadmap` directly).
-argument-hint: '<topic-slug or freeform topic>'
+argument-hint: '<topic-slug or freeform topic> [--upstream <path>]'
 ---
 
 # Charter
@@ -62,6 +62,9 @@ See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN
 
 From `$ARGUMENTS`:
 
+Flags are parsed and removed first (see Execution-Mode Flags and
+Upstream Flag below); the input modes classify what remains.
+
 1. **Empty** — surface a cold-start prompt asking the author what
    strategic conversation they want to have. The cold-start prompt
    names the three trigger phrases from CLAUDE.md ("start a strategic
@@ -87,10 +90,12 @@ regex check (slashes, dots, and uppercase letters all violate
 `^[a-z0-9-]+$`); it is NOT treated as a pointer to the VISION at
 that path, and Phase 0 stops without creating any state file.
 
-Path-as-upstream is the wrong shape for `/charter`'s entry mode —
-upstream artifact references are detected during Phase 1 discovery
-by inspecting the topic-related child docs that exist in the repo,
-not by parsing them out of `$ARGUMENTS`.
+Path-as-upstream is the wrong shape for `/charter`'s entry mode.
+An upstream the chain should consume is named with `--upstream
+<path>` (below); an upstream the chain can find for itself is
+detected during Phase 1 discovery by inspecting the topic-related
+child docs that exist in the repo. Neither route parses a path out
+of the positional slot.
 
 ## Execution-Mode Flags
 
@@ -109,6 +114,47 @@ The execution mode applies to all phases. `--auto` mode does not
 suppress R9's hard-finalization check; an `--auto` run that cannot
 record a valid exit still fails finalization rather than silently
 absorbing the violation.
+
+## Upstream Flag
+
+`/charter` accepts `--upstream <path>`, naming an existing VISION
+this chain consumes rather than produces. It is the same flag token,
+with the same meaning, that `/prd`, `/roadmap`, and `/comp` already
+carry, that `/scope` carries on the tactical side, and that
+`/charter` itself already EMITS when it invokes `/roadmap`.
+
+The flag is parsed at Phase 0 alongside the execution-mode flags,
+BEFORE the positional slug is read. The token following it is
+consumed as the flag's argument and is never tested against the
+topic-slug regex, which is what leaves the positional contract
+untouched: a path in the positional slot is still rejected.
+`--upstream` with no value is a Phase 0 rejection naming the
+missing argument, and it stops before any state file is written.
+
+A supplied upstream is validated inbound — canonicalized and
+bounds-checked, its basename required to start with `VISION-`, and
+run through three ordered checks (not under `wip/`, tracked by git,
+and not a private artifact named from a public repo). It is then
+recorded in the state file's conditional `consumed_upstream:`
+field, re-validated on every resume, and handed to `/strategy` as
+`/strategy <topic-slug> --upstream <path>` — the slug stays the
+parent's, the upstream travels separately.
+
+An author who supplies no upstream is told the flag exists before a
+VISION is written for them. The chain proposal carries a fixed,
+non-blocking notice with the `/vision` run entry, naming no
+candidate and scanning no directory; its verbatim wording and its
+two firing conditions are in
+`skills/charter/references/phases/phase-1-discovery.md` under The
+Pre-Authoring Upstream Notice.
+
+Basename enforcement is deliberately inbound-only: the `--upstream`
+`/charter` emits to `/roadmap` carries no such check, because there
+the parent is handing over an artifact it just watched a child
+produce. Inbound it is routing on a string the author typed, and a
+wrong type silently mis-frames the chain head. The full procedure
+is `skills/charter/references/phases/phase-0-setup.md` steps 0.1
+and 0.4.
 
 ## Topic-Slug Constraint
 
@@ -232,3 +278,63 @@ N. **Finalization** — set the `exit:` field to one of `full-run`,
 | `skills/charter/references/phases/phase-state-management.md` | All phases — state-file schema, conditional-field gating, R9 hard finalization check spec |
 | `skills/charter/references/phases/phase-resume.md` | All phases — 10-row resume ladder, dual-check drift detection, R14 child-internals isolation |
 | `skills/charter/references/phases/phase-finalization.md` | Phase N |
+
+## Security Considerations
+
+`/charter`'s security envelope binds the six pattern-level contract
+surfaces enumerated in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` — slug
+re-validation on resume, closed write-target set, state-file enum
+re-validation, stale `parent_orchestration:` self-heal, visibility
+boundary, and no untrusted-input interpolation. Two of the six need
+`/charter`-specific statements, because `--upstream` is the first
+author-supplied value this skill accepts that is not derived from a
+validated slug.
+
+**Interpolation discipline.** The pattern reference binds parents
+to a metadata-read surface and requires that a parent adding direct
+author-input handling re-state the interpolation contract
+explicitly rather than silently broaden the surface. Stated in this
+repository's own terms: the `--upstream` value is canonicalized to
+an absolute path and rejected if it resolves outside the working
+tree, then quoted and passed after `--` in every command
+`/charter` emits with it (`git ls-files -- <path>`) and in the
+`/strategy <topic-slug> --upstream <path>` invocation it feeds. So
+neither a leading dash nor a shell metacharacter in a filename can
+change what runs. Validation alone is not the guarantee — the
+argument boundary is. The same discipline binds the re-validation
+the resume ladder performs against `consumed_upstream:`, which is a
+second interpolation site rather than a repeat of the first (see
+`skills/charter/references/phases/phase-resume.md`).
+
+**The flag's value reaches a committed field.** Nothing about a
+flag suggests its value ends up in a committed file, and this one
+does: `/strategy` writes it into the produced STRATEGY's
+`upstream:` frontmatter, and that document is committed. Public
+documents must not reference private ones, and no tooling enforces
+that rule for a cross-repo value — `shirabe validate`'s resolution
+check returns nothing for one, so a public STRATEGY carrying a
+private cross-repo upstream validates clean and always will. The
+three ordered checks in
+`skills/charter/references/phases/phase-0-setup.md` step 0.4 are
+where that gap is closed: reject a path into the non-durable `wip/`
+directory, confirm the target is tracked by git, and — when this
+repo is Public and the upstream is private — stop and omit the
+field rather than write it. Cross-repo values are accepted rather
+than rejected outright, which is what makes the third check
+mandatory rather than advisory: rejecting them would be safe and
+would also make the flag unable to express the one case that
+motivates it, since the strategic corpus commonly lives outside the
+repo the chain runs in.
+
+**Closed write-target set.** `/charter` writes to exactly five
+places: the state file at `wip/charter_<topic>_state.md`, the
+`/roadmap` handoff at `wip/roadmap_<topic>_scope.md`, Decision
+Records under `docs/decisions/`, the force-materialized partial
+artifact its abandonment path produces under `docs/strategies/`
+(plus the `git rm` of a rejected Draft at the same path), and the
+`wip/` cleanup its finalization performs. Every one of those paths
+is composed from the validated topic slug, never from
+author-supplied text. The `--upstream` value does not widen the
+set: it is a read target only — validated, recorded, handed to a
+child — and is never written to.

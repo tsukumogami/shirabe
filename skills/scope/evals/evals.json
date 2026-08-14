@@ -329,13 +329,66 @@
       "id": 22,
       "name": "upstream-path-invocation-preserves-child-isolation",
       "prompt": "/scope chain-topic",
-      "expected_output": "Phase 2 invokes /brief with the topic slug, since it heads the chain, then /prd with docs/briefs/BRIEF-chain-topic.md, /design with docs/prds/PRD-chain-topic.md, and /plan with docs/designs/DESIGN-chain-topic.md -- input modes each child already ships. No flag, argument, environment variable or new parse branch is added to any child. R14 child isolation is preserved: /scope still reads only each child's frontmatter status and git blob hash.",
+      "expected_output": "Phase 2 invokes /brief with the topic slug, since it heads the chain and no --upstream was supplied on this run, then /prd with docs/briefs/BRIEF-chain-topic.md, /design with docs/prds/PRD-chain-topic.md, and /plan with docs/designs/DESIGN-chain-topic.md -- input modes each child already ships. /scope invents no flag, argument, environment variable or new parse branch of its own; the only flag it ever passes is /brief's own --upstream, authored in /brief's contract and used only when the state file carries consumed_upstream:. R14 child isolation is preserved: /scope still reads only each child's frontmatter status and git blob hash.",
       "files": [],
       "expectations": [
         "Plan invokes /brief with the topic slug and each later child with the path of the artifact the chain produced above it",
         "Plan states these are input modes the children already ship, not new ones",
-        "Plan adds no flag, argument or environment variable to any child",
+        "Plan adds no argument, flag or environment variable of /scope's own invention to any child",
         "Plan preserves R14 child isolation: /scope reads only frontmatter status and the git blob hash"
+      ]
+    },
+    {
+      "id": 23,
+      "name": "upstream-flag-consumed",
+      "prompt": "/scope inline-diff --upstream docs/roadmaps/ROADMAP-editor.md",
+      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before the positional slug is read, so the topic slug validated against ^[a-z0-9-]+$ is 'inline-diff' and the ROADMAP path is never tested against the regex. The value is canonicalized and bounds-checked, its basename is confirmed to start with ROADMAP-, and the three ordered checks run: not under wip/, tracked by git (git ls-files), and not a private artifact named from a public repo. The validated path is recorded in the state file's conditional consumed_upstream: field. Phase 2 invokes the head child as '/brief inline-diff --upstream docs/roadmaps/ROADMAP-editor.md' -- the slug positional, the upstream in the flag -- and the produced docs/briefs/BRIEF-inline-diff.md carries upstream: docs/roadmaps/ROADMAP-editor.md in its frontmatter. Passing the ROADMAP positionally would have named the brief after the roadmap and broken the R20 file-existence check, which looks for docs/briefs/BRIEF-inline-diff.md.",
+      "files": ["docs/roadmaps/ROADMAP-editor.md"],
+      "expectations": [
+        "Plan parses --upstream and consumes the following token as its argument before validating the positional slug",
+        "Plan validates 'inline-diff' as the topic slug and does NOT test the ROADMAP path against the topic-slug regex",
+        "Plan enforces a ROADMAP- basename on the --upstream value and runs the three ordered checks (wip/ rejection, git-tracked confirmation, public-repo-to-private-upstream omission)",
+        "Plan records the validated path in the state file as consumed_upstream:",
+        "Plan invokes /brief with the topic slug positionally and the ROADMAP path as --upstream, not the ROADMAP path positionally",
+        "Plan produces docs/briefs/BRIEF-inline-diff.md, named after the topic slug rather than after the upstream ROADMAP"
+      ]
+    },
+    {
+      "id": 24,
+      "name": "upstream-flag-stale-on-resume",
+      "prompt": "/scope inline-diff",
+      "expected_output": "Re-entry against an existing wip/scope_inline-diff_state.md that carries consumed_upstream: docs/roadmaps/ROADMAP-editor.md, where that file no longer exists. The resume ladder re-validates the recorded upstream before any slot's action runs and before the path is interpolated into a child invocation, re-running the whole Phase 0 battery against the worktree as it is now. The failure is SURFACED rather than silently ignored: the ladder names the recorded path and the check it now fails, and offers Re-supply (clear the field and ask the author to re-invoke with a working path -- the interactive default), Continue without (remove the field and resume with no upstream, stated plainly), or Bail. Under --auto the ladder takes Continue without and announces it.",
+      "files": ["wip/scope_inline-diff_state.md"],
+      "expectations": [
+        "Plan re-validates consumed_upstream: on re-entry rather than trusting the recorded value",
+        "Plan surfaces the failure naming the recorded path and the check it fails, and does not silently drop or silently keep the value",
+        "Plan offers Re-supply, Continue without, and Bail, with Re-supply as the interactive default",
+        "Plan states that --auto takes Continue without and announces the dropped link"
+      ]
+    },
+    {
+      "id": 25,
+      "name": "pre-authoring-notice-cold-start",
+      "prompt": "/scope inline-diff",
+      "expected_output": "Cold start under public-repo visibility: no settled BRIEF at docs/briefs/BRIEF-inline-diff.md, so /brief is in planned_chain, and no --upstream was supplied, so Phase 0 recorded no consumed_upstream:. The chain-proposal output therefore carries the pre-authoring upstream notice inside the /brief entry, verbatim: \"A new BRIEF will be written for this topic, with no ROADMAP behind it. If one already sequences this feature, re-invoke as /scope inline-diff --upstream <path-to-the-ROADMAP> and this chain will attach the BRIEF to it. No candidate has been looked for; this is a notice, not a question, and the chain proceeds as proposed.\" The notice sits in the entry list above the options block, which still reads \"Proceed / Adjust / Bail?\" byte-for-byte. No directory is scanned for a candidate ROADMAP and no candidate is named. The notice adds no option, no default, and no decision point.",
+      "files": [],
+      "expectations": [
+        "Plan emits the pre-authoring upstream notice verbatim inside the /brief entry, before any child fires",
+        "Plan names no candidate ROADMAP and performs no directory scan to produce the notice",
+        "Plan leaves the options block \"Proceed / Adjust / Bail?\" unchanged and adds no new option or decision point",
+        "Plan treats the notice as non-blocking output rather than a prompt, including under --auto"
+      ]
+    },
+    {
+      "id": 26,
+      "name": "pre-authoring-notice-suppressed",
+      "prompt": "/scope inline-diff --upstream docs/roadmaps/ROADMAP-editor.md",
+      "expected_output": "Two suppression cases for the pre-authoring upstream notice, both of which leave the chain proposal carrying no notice at all. First, this invocation: the --upstream value passes Phase 0's Upstream Validation and is recorded in consumed_upstream:, so the notice does not fire -- the author already did the thing it describes, and /brief is invoked as /brief inline-diff --upstream docs/roadmaps/ROADMAP-editor.md. Second, the held-back case: on /scope inline-diff with an Accepted BRIEF already at docs/briefs/BRIEF-inline-diff.md, re-entry protection records /brief in chain_skipped with reason settled-artifact-at-canonical-path-reentry-protection and keeps it out of planned_chain, so the notice does not fire either -- nothing is about to be authored at the head altitude. In both cases the rest of the chain-proposal output and its options block are unchanged.",
+      "files": [],
+      "expectations": [
+        "Plan suppresses the pre-authoring upstream notice when consumed_upstream: was recorded",
+        "Plan suppresses the pre-authoring upstream notice when re-entry protection held /brief back",
+        "Plan does not otherwise alter the chain-proposal output or its options block in either case"
       ]
     }
   ]
