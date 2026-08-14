@@ -57,6 +57,22 @@ states:
 
   worktree_discipline_check:
     gates:
+      # Keep the {{PLAN_SLUG}} reference. Two shapes that look simpler are not:
+      #
+      #   ls wip/work-on_*_impact.json   -- passes on a classification left by
+      #     an earlier run or a different plan in the same worktree. This gate
+      #     exists to confirm THIS run classified THIS drift, and a glob cannot
+      #     tell those apart. It trades a gate that never passes for one that
+      #     passes on the wrong evidence.
+      #
+      #   test -f wip/work-on_$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')...
+      #     -- works, but puts command substitution and a sed expression back
+      #     into an sh -c string, which is the fragility that produced the
+      #     original defect, and duplicates a derivation koto init already does.
+      #
+      # The declared-variable form is the only one where a future mistake is
+      # loud: koto rejects a {{KEY}} that is not in the variables block at
+      # compile time, naming the state.
       impact_classified:
         type: command
         command: "test -f wip/work-on_{{PLAN_SLUG}}_impact.json"

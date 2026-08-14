@@ -83,7 +83,30 @@ validate_name() {
 # map rehashed.
 #
 # Keys must contain no tab and no newline or the framing breaks; kv_set
-# enforces that rather than trusting callers.
+# enforces that rather than trusting callers. Keys here are issue numbers,
+# node ids already validated against ^[a-z][a-z0-9-]*$, edge strings built
+# from those ids, slugs, and file paths; only file paths are unconstrained,
+# and the existing unquoted `for fpath in $files_str` already word-splits
+# those. The guard costs one test per kv_set, so it does not rely on that.
+#
+# Two alternatives were considered and rejected, both of which look shorter:
+#
+#   Dynamic variable names via eval ("eval m_${key}=..."). Keys contain / and
+#   ->, so each needs sanitizing into a valid identifier first, and the
+#   sanitization has to be collision-free or two keys silently merge. It also
+#   introduces eval over strings derived from a PLAN document this script
+#   parses and does not control -- a shell-injection surface the script does
+#   not currently have.
+#
+#   Per-map bespoke rewrites (parallel arrays here, a sorted list there).
+#   Each site gets the tightest code, at the cost of eight mechanisms for a
+#   reviewer to check and eight places for a future edit to reintroduce a -A
+#   because the local idiom did not suggest otherwise.
+#
+# The likely right long-term answer is neither: a thousand lines of graph
+# contraction and topological ordering is not what shell is for, and the repo
+# already ships a Rust binary that could own it. That is a rewrite of the
+# single-pr path's most load-bearing script and wants its own design.
 # ---------------------------------------------------------------------------
 KV_TAB=$'\t'
 KV_NL=$'\n'

@@ -27,6 +27,17 @@ jobs:
       # invokes /bin/bash explicitly rather than `bash`: a newer bash on the
       # runner's PATH would otherwise hide a portability regression, which is
       # exactly what an earlier `brew install bash` step here did.
+      #
+      # This matrix IS the guard against reintroducing a post-3.2 construct;
+      # there is deliberately no grep for `declare -A` and friends. A pattern
+      # list only catches what its author remembered: the sweep that fixed
+      # plan-to-tasks.sh found `declare -A` by grep and missed a bash 4.3
+      # nameref entirely, which only surfaced by running the script here.
+      # Running the suite on the floor catches constructs nobody enumerated.
+      #
+      # The two legs together are also the cross-version output check: the
+      # same tests, with the same recorded expectations, have to pass under
+      # bash 3.2 and bash 5.
       - name: Run plan-to-tasks tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/plan/scripts/plan-to-tasks_test.sh

@@ -27,6 +27,11 @@ set -euo pipefail
 # koto hands to a shell are in scope -- gate `command:` values and
 # `default_action` command values.
 #
+# This lives as a grep in a workflow rather than as a check inside
+# `shirabe validate` on purpose. It is a statement about this repository's own
+# file layout, not about an artifact schema the validator owns, and folding it
+# in would put a Rust change and a release in front of every adjustment to it.
+#
 # Usage: scripts/check-template-interpolation.sh [template-glob-root]
 # Exit code: 0 if clean, 1 if any offending field is found.
 
