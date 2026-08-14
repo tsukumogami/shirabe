@@ -23,3 +23,8 @@ Test roadmap for cascade e2e eval validation.
 
 **Status:** Planned
 **Downstream:** PLAN-cascade-test-full.md
+
+### Feature 3: New Shape Chain Feature
+
+**Status:** Planned
+**Downstream:** PLAN-cascade-test-new-shape.md

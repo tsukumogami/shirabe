@@ -263,16 +263,16 @@ producing an illegal link.
 a corpus authored before this change still cascades through the old one.
 
 **Acceptance Criteria**:
-- [ ] A new-shape fixture chain exists in which the plan carries the roadmap and
+- [x] A new-shape fixture chain exists in which the plan carries the roadmap and
       no durable node does.
-- [ ] The execute eval's full-chain cascade scenario runs against it and asserts
+- [x] The execute eval's full-chain cascade scenario runs against it and asserts
       the roadmap feature's status is updated and the roadmap is deleted under
       the same conditions the current eval expects.
-- [ ] The old-shape fixtures — the cascade brief that names a roadmap and the
+- [x] The old-shape fixtures — the cascade brief that names a roadmap and the
       short-chain design that names one directly — are kept unchanged as the
       evidence that the chain walkers stayed type-agnostic, and a scenario
       asserts that chain still reaches the roadmap.
-- [ ] No eval outside the five named in `docs/prds/PRD-upstream-link-legality.md`
+- [x] No eval outside the five named in `docs/prds/PRD-upstream-link-legality.md`
       R22 changes. Fixtures added here are deliverables under R23 and are not
       counted against that list.
 
