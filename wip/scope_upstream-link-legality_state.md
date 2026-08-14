@@ -15,6 +15,7 @@ chain_skipped: []
 chain_ran:
   - brief
   - prd
+  - design
 child_snapshots:
   brief:
     path: docs/briefs/BRIEF-upstream-link-legality.md
@@ -22,6 +23,10 @@ child_snapshots:
     jury: all-PASS
   prd:
     path: docs/prds/PRD-upstream-link-legality.md
+    status: Accepted
+    jury: all-PASS-after-two-revision-rounds
+  design:
+    path: docs/designs/DESIGN-upstream-link-legality.md
     status: Accepted
     jury: all-PASS-after-two-revision-rounds
 consolidation_judgments:
@@ -50,7 +55,7 @@ consolidation_judgments:
 phase_1_result: empty-cold-start
 parent_orchestration:
   parent_skill: scope
-  child: design
+  child: plan
   topic: upstream-link-legality
   invoked_at: 2026-08-14T00:00:00Z
 shape_predicates:

@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   Upstream-link legality is written in prose across format references and skill
   files, and nothing carries it to the moment a link is created. The validator
@@ -29,7 +29,7 @@ upstream: docs/prds/PRD-upstream-link-legality.md
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
@@ -98,7 +98,7 @@ flag is owned by five skills with the same parse-before-positional discipline,
 the same bare-flag rejection, and the same three ordered validation checks. A
 sixth skill adopting it should adopt the contract, not a variant of it — and
 where it must extend the contract, the extension applies to every skill that
-holds the value rather than to the new one alone.
+validates a supplied path rather than to the new one alone.
 
 **The change is authored in each skill's own contract.** A skill records the
 same value invoked standalone as it does under a parent, so no parent may
@@ -370,7 +370,8 @@ child-argument table gains the flag on the `/plan` row and rewords the `/brief`
 row to say the roadmap grounds the framing and is not recorded.
 
 `/plan` parses the flag ahead of its positional argument and validates it
-against the full record-time set its five sibling skills run, in this order:
+against the record-time set its five sibling skills run, extended as Decision
+Outcome describes, in this order:
 
 1. **Cross-repo discrimination first.** An `owner/repo:path` value names a file
    in another repository, is not a working-tree path, and is not resolved
