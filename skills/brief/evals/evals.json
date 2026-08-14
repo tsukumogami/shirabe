@@ -74,7 +74,7 @@
       "id": 5,
       "name": "missing-required-section-rejection",
       "prompt": "/brief checkout-flow",
-      "expected_output": "The structural-format reviewer at Phase 4 (and shirabe validate, FC04) requires all five required sections \u2014 Status, Problem Statement, User Outcome, User Journeys, Scope Boundary \u2014 present and ordered. A draft missing any required section fails the structural reviewer and FC04, and the verdict names the missing section. The jury does not return all-PASS, so the brief cannot reach Phase 5.",
+      "expected_output": "The structural-format reviewer at Phase 4 (and shirabe validate, FC04) requires all five required sections — Status, Problem Statement, User Outcome, User Journeys, Scope Boundary — present and ordered. A draft missing any required section fails the structural reviewer and FC04, and the verdict names the missing section. The jury does not return all-PASS, so the brief cannot reach Phase 5.",
       "files": [],
       "expectations": [
         "Plan requires all five required sections (Status, Problem Statement, User Outcome, User Journeys, Scope Boundary) present and in order",

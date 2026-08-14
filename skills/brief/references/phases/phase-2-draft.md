@@ -30,7 +30,8 @@ Read all available context:
 
 - `wip/brief_<topic>_context.md` (Phase 0)
 - `wip/brief_<topic>_discover.md` (Phase 1)
-- The upstream ROADMAP if Phase 0 recorded one
+- The grounding ROADMAP if Phase 0 recorded one (read for framing; the
+  produced BRIEF records no `upstream:`)
 - `skills/brief/references/brief-format.md` (format specification — load this in
   full at Phase 2 since the section-by-section guidance lives there)
 

@@ -227,26 +227,26 @@ its plan, and the one live path that hands a vision to `/roadmap` stops
 producing an illegal link.
 
 **Acceptance Criteria**:
-- [ ] `/scope`'s child-argument table carries `--upstream <roadmap-path>` on the
+- [x] `/scope`'s child-argument table carries `--upstream <roadmap-path>` on the
       `/plan` row, and its `/brief` row says the roadmap grounds the framing and
       is not recorded.
-- [ ] `/scope` Phase 0 confines the flag's canonical path to
+- [x] `/scope` Phase 0 confines the flag's canonical path to
       `<root>/docs/roadmaps/`, matching what `/brief` and `/plan` enforce, so no
       chain accepts a path at the parent that a child then rejects.
-- [ ] The pre-authoring notice no longer says the chain will attach the brief to
+- [x] The pre-authoring notice no longer says the chain will attach the brief to
       the roadmap. The sentence is committed twice in
       `phase-1-discovery.md` and once in `skills/scope/evals/evals.json`; all
       three change together.
-- [ ] `/scope`'s durable artifact record names the roadmap the chain consumed,
+- [x] `/scope`'s durable artifact record names the roadmap the chain consumed,
       so a run that ends before its plan does not lose it with the state file.
-- [ ] `/explore` passes no `--upstream` value to `/roadmap` that is not a
+- [x] `/explore` passes no `--upstream` value to `/roadmap` that is not a
       STRATEGY. A roadmap's only legal parent is a strategy, and `/roadmap`'s own
       contract already forbids substituting a vision for one.
-- [ ] A `/scope` run supplied with a roadmap produces a chain in which no
+- [x] A `/scope` run supplied with a roadmap produces a chain in which no
       durable artifact names it and the produced plan does, and where the run's
       consolidation absorbs the brief, the surviving PRD is left with no
       `upstream:` field rather than the roadmap's path.
-- [ ] The repo-wide sweep holds: no file under `references/` or
+- [x] The repo-wide sweep holds: no file under `references/` or
       `skills/*/references/` documents a ROADMAP as a legal upstream for a
       BRIEF, a PRD, or a DESIGN. Language describing a roadmap as a grounding
       *input* is not a violation and is expected to remain — the sweep is about
