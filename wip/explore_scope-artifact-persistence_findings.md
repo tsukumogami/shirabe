@@ -75,11 +75,15 @@ record-survival, child-consumption, strategic-chain, prior-art.
   validate` exits 2 on them right now and diff-scoped CI does not notice until
   an unrelated PR touches a victim. (absorb-blast-radius)
 
-- **Absorbing a PRD orphans the chain's most-used cross-reference.** DESIGNs and
-  PLANs both cite requirements as bare `R<n>` numbers. Deleting the PRD those
-  resolve against turns every such citation into an orphan, and R6 only checks
-  that `upstream:` resolves to a tracked file -- it would not catch a dead
-  R-number. (child-consumption)
+- **Absorbing a PRD orphans the chain's most-used cross-reference, undetectably.**
+  DESIGNs and PLANs both cite requirements as bare `R<n>` numbers. Deleting the
+  PRD those resolve against turns every such citation into an orphan, and R6 only
+  checks that `upstream:` resolves to a tracked file. Confirmed directly against
+  `crates/shirabe-validate/src/`: no rule anywhere validates a requirement
+  citation. The rule set is FC01-FC16 plus FC99, L01-L08, and R5-R9; the only
+  code matching `requirement` is lifecycle-state machinery in `lifecycle.rs`,
+  unrelated to citations. So the failure is silent by construction.
+  (child-consumption, confirmed in convergence)
 
 - **BRIEF-to-PRD works because the child carries, not because the parent
   merges.** `/prd` Phase 3.2 reads its upstream BRIEF's body and draws Problem
@@ -216,6 +220,27 @@ outcomes; the defect is that only one of those is currently reachable. The
 mechanics of absorption were believed built; the bug is in how absorbability is
 judged.
 
+The author then supplied the model for what a survivor owes: a document that
+absorbs an upstream inherits the union of its own required sections and those of
+everything folded into it, statically validated. That makes every non-terminal
+fold content-preserving by construction and makes composed absorbs additive.
+
+Folding into the PLAN is the exception, and the author's justification for it is
+worth rather than survival-elsewhere. The expected common case is a `/scope` run
+over a bug report or a coding task that turns out to be obvious or
+self-contained, where the accumulated sections were never worth a separate
+durable artifact. The corpus is the evidence: the workspace holds 366 DESIGN
+docs, 107 PRDs and 64 BRIEFs, kept because the workflow never asked whether they
+should be deleted rather than because each was judged worth keeping. Agents
+should be able to make that call against the real bodies.
+
+Measured during convergence and worth carrying into the design: document length
+does *not* support a thin-DESIGN reading. The smallest DESIGN in tsuku is 132
+lines and in shirabe 227; the distributions are substantial throughout. So the
+terminal-fold judgment cannot use size as a proxy for worth -- a 300-line DESIGN
+for a self-contained fix can still be ceremony. It has to judge content, which
+is the harder call and the one being delegated.
+
 ## Accumulated Understanding
 
 #280 is a bug report about a judgment that cannot answer, sitting on top of a
@@ -245,11 +270,28 @@ the stranding failure is already live in the tree on five documents. Those are
 what "content-preserving move" means in practice, and the guard they need already
 exists unwired from #271.
 
-The remaining shape questions are about how much enforcement to buy: whether an
-absorbing document's home for carried content is merely available or required,
-whether DESIGN-to-PLAN needs a total mapping given the PLAN dies anyway, how
-composed absorbs express their carried set, and whether the run's production
-record gets a durable home now that PR body Part 1 is known to reach main. The
-constraint on all of them is that the result must replace the consolidation
-judgment rather than sit beside it -- the single-mechanism rule is what killed
-the entry altitude and it still binds.
+The shape settled during convergence. A surviving document inherits the union of
+its own required sections and those of everything folded into it, statically
+validated, which makes non-terminal folds content-preserving by construction and
+composed absorbs additive. That re-scopes the types -- a type becomes a base
+shape plus whatever it absorbed -- which is the fence the consolidation BRIEF put
+up, coming down deliberately rather than narrowly. Static validation buys
+presence, not fidelity: an empty carried heading passes, so the agent-side carry
+check still has to catch a gutted move.
+
+Folding into the terminal artifact is the one place content leaves the document
+system, and it is justified by worth rather than by the reasoning surviving
+elsewhere. For the class of work where it fires -- bug reports, and tasks that
+turn out to be obvious or self-contained -- the accumulated sections were never
+worth a separate durable artifact, and the 366-DESIGN corpus is evidence that the
+current floor accumulates documents by never asking rather than by judging. The
+judgment scales with how much already folded, and cannot key off document size.
+
+What remains open is the enforcement floor around that single discard: whether it
+is purely the judging agent's call or gets a structural backstop, whether a
+folded-away artifact leaves any visible trace in the survivor, whether the
+existing corpus is in scope for the same judgment, and whether the `/execute`
+rationale-in-code job still needs to land first now that it is not the
+load-bearing argument. The constraint on all of them is that the result must
+replace the consolidation judgment rather than sit beside it -- the
+single-mechanism rule is what killed the entry altitude and it still binds.
