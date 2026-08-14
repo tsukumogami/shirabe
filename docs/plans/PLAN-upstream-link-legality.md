@@ -122,7 +122,7 @@ over the direction finding on an entry that violates both.
 **Dependencies**: Blocked by <<ISSUE:1>>
 
 **Type**: code
-**Files**: `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/validate.rs`, `crates/shirabe/src/main.rs`
+**Files**: `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/validate.rs`, `crates/shirabe-validate/src/lifecycle.rs`, `crates/shirabe/src/main.rs`, `crates/shirabe/tests/cli.rs`
 
 ### Issue 3: Correct the references that name a roadmap as a durable type's parent
 
@@ -181,7 +181,7 @@ unexplained.
 **Dependencies**: None
 
 **Type**: docs
-**Files**: `skills/brief/SKILL.md`, `skills/brief/references/brief-format.md`, `skills/brief/references/phases/phase-0-setup.md`, `skills/brief/references/phases/phase-2-draft.md`, `skills/brief/evals/evals.json`
+**Files**: `skills/brief/SKILL.md`, `skills/brief/references/brief-format.md`, `skills/brief/references/phases/phase-0-setup.md`, `skills/brief/references/phases/phase-1-discover.md`, `skills/brief/references/phases/phase-2-draft.md`, `skills/brief/evals/evals.json`
 
 ### Issue 5: `/plan` gains `--upstream`, and its pre-flight reads sequences
 
@@ -255,7 +255,7 @@ producing an illegal link.
 **Dependencies**: Blocked by <<ISSUE:3>>, <<ISSUE:4>>, <<ISSUE:5>>
 
 **Type**: docs
-**Files**: `skills/scope/references/phases/phase-0-setup.md`, `skills/scope/references/phases/phase-1-discovery.md`, `skills/scope/references/phases/phase-2-chain-orchestration.md`, `skills/scope/references/phases/phase-3-exit-finalization.md`, `skills/scope/evals/evals.json`, `skills/explore/references/phases/phase-5-produce-roadmap.md`
+**Files**: `skills/scope/SKILL.md`, `skills/scope/references/phases/phase-0-setup.md`, `skills/scope/references/phases/phase-1-discovery.md`, `skills/scope/references/phases/phase-2-chain-orchestration.md`, `skills/scope/references/phases/phase-3-exit-finalization.md`, `skills/scope/evals/evals.json`, `skills/explore/references/phases/phase-5-produce-roadmap.md`, `references/cross-repo-references.md`, `skills/vision/references/vision-format.md`, `skills/strategy/references/phases/phase-3-structural-fill.md`, `skills/roadmap/SKILL.md`, `skills/roadmap/references/roadmap-format.md`, `skills/strategy/references/strategy-format.md`, `skills/charter/references/phases/phase-2-chain-orchestration.md`
 
 ### Issue 7: Cascade fixtures and the execute eval
 
@@ -279,7 +279,7 @@ a corpus authored before this change still cascades through the old one.
 **Dependencies**: Blocked by <<ISSUE:6>>
 
 **Type**: task
-**Files**: `skills/execute/evals/evals.json`, `skills/execute/evals/fixtures/plans/`, `skills/execute/evals/fixtures/roadmaps/`
+**Files**: `skills/execute/evals/evals.json`, `skills/execute/evals/fixtures/{briefs,prds,designs,plans,roadmaps,scenarios}/`
 
 ## Implementation Sequence
 

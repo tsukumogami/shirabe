@@ -82,9 +82,9 @@ elaborate in prose; the two stay in sync (the Phase 4 structural-format reviewer
 checks consistency).
 
 **There is no `upstream:` field.** A BRIEF heads its own tactical lineage: its
-legal-parent set is empty, and `shirabe validate` reports any value it carries
-as an `R10` direction violation. Do not write the field even when Phase 0
-recorded a grounding ROADMAP — that link belongs on the PLAN the chain produces,
+legal-parent set is empty, and `shirabe validate` rejects any value it carries
+-- as `R11` when the target is a ROADMAP and `R10` for any other type. Do not
+write the field even when Phase 0 recorded a grounding ROADMAP — that link belongs on the PLAN the chain produces,
 which the cascade deletes alongside the roadmap, so it cannot be left dangling.
 The rule is in `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`; the
 read-versus-record contract is in `phase-0-setup.md`.

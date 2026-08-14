@@ -213,7 +213,7 @@ struct ValidateArgs {
     /// Run only the named check(s) instead of the full applicable pass.
     /// Repeatable and comma-splittable (e.g. `--check FC01 --check R7` or
     /// `--check FC01,R7`). Codes are the per-file checks: `SCHEMA`,
-    /// `FC01`-`FC16`, `FC-CONVENTIONS`, `R6`-`R9`. An unknown code is a tool
+    /// `FC01`-`FC16`, `FC-CONVENTIONS`, `R6`-`R11`. An unknown code is a tool
     /// error. A valid but format-inapplicable code is a clean no-op.
     #[arg(long, value_delimiter = ',')]
     check: Vec<String>,

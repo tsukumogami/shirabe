@@ -88,9 +88,11 @@ rather than reaching past its neighbour. Recording the VISION here
 would claim a link the chain does not have.
 
 The ROADMAP is the last link in the strategic chain. Downstream of it
-the tactical chain takes over, and `/brief` is what crosses the
-boundary by taking a ROADMAP as its own upstream; no strategic
-document reaches past the ROADMAP to a BRIEF, PRD, DESIGN, or PLAN.
+the tactical chain takes over: `/brief` crosses the boundary by reading
+a ROADMAP for framing, and the produced PLAN is what records the
+crossing, because a durable document may not name a ROADMAP the cascade
+deletes. No strategic document reaches past the ROADMAP to a BRIEF,
+PRD, DESIGN, or PLAN.
 
 **Two written shapes are supported for `upstream:`.** A scalar -- the
 path on the key's own line -- and a sequence, written either as `- `
@@ -286,8 +288,9 @@ is the progress ledger for a strategy's execution (its per-feature
 status is the only record of how far along the work is, and the
 completion cascade updates it as downstream plans land), and it is
 the only bridge from the strategic chain to the tactical one --
-`/brief` takes a ROADMAP as its upstream, never a STRATEGY and never a
-PRD. A
+`/brief` is framed against a ROADMAP, never a STRATEGY and never a PRD,
+and the produced PLAN is what records the crossing (a durable document
+may not name a ROADMAP, which is deleted when its features land). A
 strategy whose work is a single feature still needs both, so it still
 gets a roadmap. Most roadmaps do sequence several features and that
 is where the sequencing rationale earns its keep, but there is no

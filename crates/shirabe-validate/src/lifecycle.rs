@@ -147,6 +147,13 @@ impl ChainRole {
         }
     }
 
+    /// The role's display name.
+    ///
+    /// These five strings also appear in [`crate::formats::FormatId::display`],
+    /// which covers all eight artifact types rather than the five this walk
+    /// traverses. The two enums are deliberately not unified — `ChainRole`
+    /// models the walk, `FormatId` is the authority for upstream legality —
+    /// but a reader changing one should know the other exists.
     fn as_str(self) -> &'static str {
         match self {
             Self::Brief => "BRIEF",

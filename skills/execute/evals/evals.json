@@ -369,6 +369,7 @@
         "PRD-cascade-test-full.md is transitioned to Done",
         "BRIEF-cascade-test-full.md is transitioned to Done",
         "ROADMAP-cascade-test.md Feature 2 Status is updated to Done",
+        "ROADMAP-cascade-test.md Feature 2 Downstream references the DESIGN doc at Current",
         "cascade_status is completed",
         "Plan does NOT propose removing the BRIEF's upstream: field \u2014 the old shape is the evidence this scenario exists to preserve"
       ]

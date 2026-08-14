@@ -157,8 +157,9 @@ instead of landing two levels down with the reasoning in between
 skipped. A DESIGN or PRD entry would skip the ROADMAP -- the progress
 ledger for this strategy's execution -- and cross out of the strategic
 chain into the tactical one. The ROADMAP is the boundary: `/brief`
-crosses it by taking a ROADMAP as upstream, and no strategic document
-reaches past it. If a Building Block already has a design or a PRD, it
+crosses it by reading the ROADMAP for framing, and the crossing is
+recorded on the PLAN rather than on any durable document, so no
+strategic document reaches past it. If a Building Block already has a design or a PRD, it
 belongs on the ROADMAP's per-feature entry, not here.
 
 **Required content properties:**

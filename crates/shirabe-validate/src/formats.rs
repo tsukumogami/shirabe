@@ -132,11 +132,6 @@ fn s(values: &[&str]) -> Vec<String> {
     values.iter().map(|v| (*v).to_string()).collect()
 }
 
-/// The declared legal-parent list for a format, as a `Vec<FormatId>`.
-fn parents(ids: &[FormatId]) -> Vec<FormatId> {
-    ids.to_vec()
-}
-
 /// Build the Plan profile's per-`execution_mode` required-sections map.
 ///
 /// Returns a map with `"single-pr"`, `"multi-pr"`, and `"coordinated"` keys.
@@ -186,7 +181,7 @@ pub fn formats() -> Vec<FormatSpec> {
             name: "Comp".to_string(),
             id: FormatId::Comp,
             lifetime: Lifetime::Durable,
-            legal_upstream: parents(&[]),
+            legal_upstream: vec![],
             prefix: "COMP-".to_string(),
             schema_version: "comp/v1".to_string(),
             required_fields: s(&["status", "problem", "scope"]),
@@ -208,7 +203,7 @@ pub fn formats() -> Vec<FormatSpec> {
             name: "Design".to_string(),
             id: FormatId::Design,
             lifetime: Lifetime::Durable,
-            legal_upstream: parents(&[FormatId::Prd, FormatId::Brief]),
+            legal_upstream: vec![FormatId::Prd, FormatId::Brief],
             prefix: "DESIGN-".to_string(),
             schema_version: "design/v1".to_string(),
             required_fields: s(&["status", "problem", "decision", "rationale"]),
@@ -232,7 +227,7 @@ pub fn formats() -> Vec<FormatSpec> {
             name: "PRD".to_string(),
             id: FormatId::Prd,
             lifetime: Lifetime::Durable,
-            legal_upstream: parents(&[FormatId::Brief]),
+            legal_upstream: vec![FormatId::Brief],
             prefix: "PRD-".to_string(),
             schema_version: "prd/v1".to_string(),
             required_fields: s(&["status", "problem", "goals"]),
@@ -254,7 +249,7 @@ pub fn formats() -> Vec<FormatSpec> {
             name: "VISION".to_string(),
             id: FormatId::Vision,
             lifetime: Lifetime::Durable,
-            legal_upstream: parents(&[FormatId::Vision]),
+            legal_upstream: vec![FormatId::Vision],
             prefix: "VISION-".to_string(),
             schema_version: "vision/v1".to_string(),
             required_fields: s(&["status", "thesis", "scope"]),
@@ -276,7 +271,7 @@ pub fn formats() -> Vec<FormatSpec> {
             name: "Roadmap".to_string(),
             id: FormatId::Roadmap,
             lifetime: Lifetime::Working,
-            legal_upstream: parents(&[FormatId::Strategy]),
+            legal_upstream: vec![FormatId::Strategy],
             prefix: "ROADMAP-".to_string(),
             schema_version: "roadmap/v1".to_string(),
             required_fields: s(&["status", "theme", "scope"]),
@@ -298,7 +293,7 @@ pub fn formats() -> Vec<FormatSpec> {
             name: "Plan".to_string(),
             id: FormatId::Plan,
             lifetime: Lifetime::Working,
-            legal_upstream: parents(&[FormatId::Design, FormatId::Prd, FormatId::Brief, FormatId::Roadmap]),
+            legal_upstream: vec![FormatId::Design, FormatId::Prd, FormatId::Brief, FormatId::Roadmap],
             prefix: "PLAN-".to_string(),
             schema_version: "plan/v1".to_string(),
             required_fields: s(&["status", "execution_mode", "milestone", "issue_count"]),
@@ -319,7 +314,7 @@ pub fn formats() -> Vec<FormatSpec> {
             name: "Strategy".to_string(),
             id: FormatId::Strategy,
             lifetime: Lifetime::Durable,
-            legal_upstream: parents(&[FormatId::Vision]),
+            legal_upstream: vec![FormatId::Vision],
             prefix: "STRATEGY-".to_string(),
             schema_version: "strategy/v1".to_string(),
             required_fields: s(&["status", "bet", "scope"]),
@@ -342,7 +337,7 @@ pub fn formats() -> Vec<FormatSpec> {
             name: "Brief".to_string(),
             id: FormatId::Brief,
             lifetime: Lifetime::Durable,
-            legal_upstream: parents(&[]),
+            legal_upstream: vec![],
             prefix: "BRIEF-".to_string(),
             schema_version: "brief/v1".to_string(),
             required_fields: s(&["status", "problem", "outcome"]),
@@ -557,13 +552,27 @@ mod tests {
         }
     }
 
+    /// Every spec's `id` is the id of the format it sits on, and every id is
+    /// used once. This is the mistake `FormatId` exists to make impossible: a
+    /// newly added `FormatSpec` literal with a copy-pasted `id:` would mistype
+    /// every finding message and every parent lookup for that format, and
+    /// nothing else in the file would notice. Tying the id to the prefix
+    /// catches it, because the prefix is what `detect_format` routes on.
     #[test]
-    fn format_id_display_is_upper_case_and_total() {
+    fn each_spec_id_matches_its_prefix_and_is_unique() {
+        let mut seen: HashMap<FormatId, String> = HashMap::new();
         for spec in formats() {
-            let shown = spec.id.display();
-            assert!(!shown.is_empty());
-            assert_eq!(shown, shown.to_uppercase(), "{shown} must be upper-case");
+            assert_eq!(
+                spec.prefix,
+                format!("{}-", spec.id.display()),
+                "{}'s id and prefix disagree",
+                spec.name
+            );
+            if let Some(other) = seen.insert(spec.id, spec.name.clone()) {
+                panic!("{} and {} both declare id {}", other, spec.name, spec.id.display());
+            }
         }
+        assert_eq!(seen.len(), formats().len(), "every format declares its own id");
     }
 
     #[test]

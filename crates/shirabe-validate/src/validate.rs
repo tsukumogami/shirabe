@@ -559,9 +559,10 @@ mod tests {
     }
 
     /// The two legality codes are selectable and error-level, and the
-    /// selectable set gained exactly them. The whole set is asserted rather
-    /// than only the additions, so a third code added without a decision
-    /// fails here.
+    /// selectable set is exactly the documented one. Membership is asserted
+    /// over the full list AND non-membership over every unused code in the
+    /// two families' plausible ranges, so a third code added without a
+    /// decision fails here rather than passing because nobody enumerated it.
     #[test]
     fn the_legality_codes_are_selectable_and_the_set_gained_exactly_two() {
         for code in ["R10", "R11"] {
@@ -604,14 +605,24 @@ mod tests {
         for code in expected {
             assert!(is_known_check_code(code), "{code} must be selectable");
         }
-        // Nothing beyond the listed set is selectable. `R12` and `FC17` are
-        // the next codes anyone would reach for, so they stand in for "the
-        // set did not grow past the two this change added".
-        for code in ["R12", "R13", "FC17", "R5", "FC99"] {
-            assert!(
-                !is_known_check_code(code),
-                "{code} must not be selectable yet"
-            );
+        // Nothing beyond the listed set is selectable. Sweeping both families
+        // rather than naming a couple of neighbours is what makes this an
+        // "exactly" assertion: any code added to the registry without also
+        // being added to `expected` above fails here.
+        let known: std::collections::HashSet<&str> = expected.iter().copied().collect();
+        for n in 1..=40u32 {
+            for code in [format!("R{n}"), format!("FC{n:02}"), format!("FC{n}")] {
+                if known.contains(code.as_str()) {
+                    continue;
+                }
+                assert!(
+                    !is_known_check_code(&code),
+                    "{code} is selectable but is not in the documented set"
+                );
+            }
+        }
+        for code in ["R5", "FC99", "L01", "IO", "fc01", ""] {
+            assert!(!is_known_check_code(code), "{code} must not be selectable");
         }
     }
 
@@ -621,25 +632,116 @@ mod tests {
     #[test]
     fn the_legality_change_alters_no_required_section_list() {
         use crate::formats::formats;
-        let expected: &[(&str, usize)] = &[
-            ("comp/v1", 7),
-            ("design/v1", 9),
-            ("prd/v1", 7),
-            ("vision/v1", 7),
-            ("roadmap/v1", 7),
-            ("plan/v1", 6),
-            ("strategy/v1", 8),
-            ("brief/v1", 5),
+        // The lists are compared element for element, not by length. The
+        // `required_sections` doc comment makes element order contractual --
+        // FC15 enforces it -- so a rename or a reorder has to fail here, and a
+        // length check would let both through.
+        let expected: &[(&str, &[&str])] = &[
+            (
+                "comp/v1",
+                &[
+                    "Status",
+                    "Market Overview",
+                    "Competitors",
+                    "Comparative Matrix",
+                    "Opportunities",
+                    "Implications",
+                    "References",
+                ],
+            ),
+            (
+                "design/v1",
+                &[
+                    "Status",
+                    "Context and Problem Statement",
+                    "Decision Drivers",
+                    "Considered Options",
+                    "Decision Outcome",
+                    "Solution Architecture",
+                    "Implementation Approach",
+                    "Security Considerations",
+                    "Consequences",
+                ],
+            ),
+            (
+                "prd/v1",
+                &[
+                    "Status",
+                    "Problem Statement",
+                    "Goals",
+                    "User Stories",
+                    "Requirements",
+                    "Acceptance Criteria",
+                    "Out of Scope",
+                ],
+            ),
+            (
+                "vision/v1",
+                &[
+                    "Status",
+                    "Thesis",
+                    "Audience",
+                    "Value Proposition",
+                    "Org Fit",
+                    "Success Criteria",
+                    "Non-Goals",
+                ],
+            ),
+            (
+                "roadmap/v1",
+                &[
+                    "Status",
+                    "Theme",
+                    "Features",
+                    "Sequencing Rationale",
+                    "Progress",
+                    "Implementation Issues",
+                    "Dependency Graph",
+                ],
+            ),
+            (
+                "plan/v1",
+                &[
+                    "Status",
+                    "Scope Summary",
+                    "Decomposition Strategy",
+                    "Implementation Issues",
+                    "Dependency Graph",
+                    "Implementation Sequence",
+                ],
+            ),
+            (
+                "strategy/v1",
+                &[
+                    "Status",
+                    "Strategic Context",
+                    "Defensibility Thesis",
+                    "Building Blocks",
+                    "Coordination Dependencies",
+                    "Bet-Specific Falsifiability",
+                    "Non-Goals",
+                    "Downstream Artifacts",
+                ],
+            ),
+            (
+                "brief/v1",
+                &[
+                    "Status",
+                    "Problem Statement",
+                    "User Outcome",
+                    "User Journeys",
+                    "Scope Boundary",
+                ],
+            ),
         ];
-        for (schema, count) in expected {
+        for (schema, sections) in expected {
             let spec = formats()
                 .into_iter()
                 .find(|f| f.schema_version == *schema)
                 .unwrap_or_else(|| panic!("no format for {schema}"));
             assert_eq!(
-                spec.required_sections.len(),
-                *count,
-                "{schema} required-section count"
+                spec.required_sections, *sections,
+                "{schema} required sections (order is contractual)"
             );
         }
     }

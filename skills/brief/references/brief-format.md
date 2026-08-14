@@ -41,8 +41,9 @@ Required fields: `status`, `problem`, `outcome`. Optional:
 `motivating_context`.
 
 **A BRIEF carries no `upstream:` field.** Its legal-parent set is empty:
-a brief heads its own tactical lineage, and `shirabe validate` reports
-any value the field holds as an `R10` direction violation. See
+a brief heads its own tactical lineage, and `shirabe validate` rejects
+any value the field holds -- as `R11` when the target is a ROADMAP, whose
+deletion is scheduled, and `R10` for any other type. See
 [Why a brief has no upstream](#why-a-brief-has-no-upstream) below.
 
 - **schema** -- `brief/v1`. Pins the artifact-type contract. `schema`

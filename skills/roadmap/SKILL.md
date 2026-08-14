@@ -40,8 +40,11 @@ much:
   records how far along the work is, and the completion cascade updates it
   as downstream plans land. Without a roadmap, a strategy has no ledger.
 - **It is the only bridge from the strategic chain to the tactical one.**
-  `/brief` takes a ROADMAP as its upstream -- never a STRATEGY, and never
-  a PRD, which sits downstream of a BRIEF rather than above it. A strategy
+  `/brief` is framed against a ROADMAP -- never a STRATEGY, and never a
+  PRD, which sits downstream of a BRIEF rather than above it. The brief
+  reads it and records nothing; the crossing is recorded on the PLAN the
+  chain produces, because a durable document may not name a ROADMAP that
+  the cascade deletes. A strategy
   whose work is a single feature would be stranded if it could not have a
   roadmap: no legal path into `/scope`, and no progress tracking.
 

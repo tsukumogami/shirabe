@@ -151,8 +151,9 @@ specify what content must appear, not how prose must be shaped.
   ledger for this strategy's execution, so skipping it hides how far
   along the work is -- and would also cross out of the strategic chain
   into the tactical one. The ROADMAP is the boundary: `/brief` crosses it
-  by taking a ROADMAP as its upstream, and no strategic document reaches
-  past it. To find the PRDs and designs under a strategy, open its
+  by reading a ROADMAP for framing, and the crossing is recorded on the
+  PLAN rather than on any durable document, so no strategic document
+  reaches past it. To find the PRDs and designs under a strategy, open its
   ROADMAP and follow the per-feature entries.
 
 ## Optional Sections

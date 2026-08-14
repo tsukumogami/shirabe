@@ -906,12 +906,27 @@ pub fn check_upstream_legality(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationEr
     let mut errs = Vec::new();
     for entry in crate::upstream::field_entries(field) {
         // A cross-repo value's file component is the part that can name a
-        // type; everything before the `:` is the repository selector.
-        let file_component = match entry.value.rfind(':') {
+        // type; everything before the FIRST `:` is the repository selector.
+        // Splitting at the first colon is not a detail -- it is what
+        // `upstream::is_cross_repo_reference` used to set `cross_repo`, and
+        // what `coordination::parse_cross_repo_ref` uses. A last-colon split
+        // would disagree with the flag that gated it whenever the path itself
+        // contains a colon, and disagree in the direction that drops the
+        // check.
+        let file_component = match entry.value.find(':') {
             Some(idx) if entry.cross_repo => &entry.value[idx + 1..],
             _ => entry.value.as_str(),
         };
-        let target = match detect_format(upstream_basename(file_component)) {
+        // `file_name` rather than a fourth hand-rolled basename helper --
+        // `finalize.rs` and `transition.rs` each carry a private one, and a
+        // third copy here would be duplication for its own sake. A value with
+        // no final component (`""`, `"/"`) yields None and is unchecked,
+        // which is the same answer those helpers' results would reach.
+        let base = Path::new(file_component)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let target = match detect_format(base) {
             Some(t) => t,
             // Not a recognizable artifact: unchecked rather than failed.
             None => continue,
@@ -968,16 +983,6 @@ fn legal_parents_phrase(spec: &FormatSpec) -> String {
     }
     let names: Vec<&str> = spec.legal_upstream.iter().map(|p| p.display()).collect();
     format!("a {} may name {}", spec.id.display(), names.join(" or "))
-}
-
-/// The final path component of an `upstream:` entry, matching the basename
-/// the format detection elsewhere in the crate is given.
-fn upstream_basename(path: &str) -> &str {
-    let trimmed = path.trim_end_matches('/');
-    match trimmed.rfind('/') {
-        Some(idx) => &trimmed[idx + 1..],
-        None => trimmed,
-    }
 }
 
 /// Whether a scalar `upstream:` names nothing: empty after trimming, or one
@@ -4048,6 +4053,24 @@ mod tests {
         assert!(legality("prd/v1", &["owner/repo:docs/briefs/BRIEF-x.md"]).is_empty());
     }
 
+    /// The file component is split at the FIRST colon, matching
+    /// `upstream::is_cross_repo_reference` (which set `cross_repo` in the
+    /// first place) and `coordination::parse_cross_repo_ref`. Splitting at the
+    /// last colon instead would disagree with the flag that gated it whenever
+    /// the path contains a colon of its own, and the disagreement drops the
+    /// check: the value below would type as nothing and pass silently.
+    #[test]
+    fn legality_splits_a_cross_repo_value_at_the_first_colon() {
+        let errs = legality("brief/v1", &["owner/repo:docs/roadmaps/ROADMAP-q3:2026.md"]);
+        assert_eq!(
+            errs.len(),
+            1,
+            "a colon inside the path must not hide the roadmap: {errs:?}"
+        );
+        assert_eq!(errs[0].code, "R11");
+        assert!(errs[0].message.contains("ROADMAP"));
+    }
+
     #[test]
     fn legality_judges_each_entry_of_a_sequence_independently() {
         let errs = legality(
@@ -4086,21 +4109,52 @@ mod tests {
         assert!(check_upstream_legality(&doc, &spec_for("brief/v1")).is_empty());
     }
 
-    /// The check decides from two basenames and the compiled table. Nothing it
-    /// names has to exist, which is what keeps `docs/visions/` and
-    /// `docs/strategies/` out of the document index and so out of the orphan
-    /// rule. A path that cannot exist proves the point.
+    /// The verdict does not depend on the target existing. That is what keeps
+    /// `docs/visions/` and `docs/strategies/` out of the document index and so
+    /// out of the orphan rule, which was never written for them. Both a
+    /// strategic basename and a vision basename are exercised, because the
+    /// requirement names both.
+    ///
+    /// This proves the verdict is independent of the filesystem, not that no
+    /// syscall is made -- an implementation that stat'd the path and ignored
+    /// the answer would pass. Independence is the property the requirement
+    /// needs; the absence of the syscall is visible in the function body,
+    /// which resolves no path and opens no file.
     #[test]
-    fn legality_reads_no_file_from_disk() {
-        let missing = "/nonexistent-root-for-shirabe-tests/docs/visions/VISION-x.md";
-        assert!(!Path::new(missing).exists());
-        // Legal edge: judged clean without the target existing.
-        assert!(legality("strategy/v1", &[missing]).is_empty());
-        // Illegal edge: judged as a violation without the target existing.
-        let errs = legality("brief/v1", &[missing]);
-        assert_eq!(errs.len(), 1);
-        assert_eq!(errs[0].code, "R10");
-        assert!(errs[0].message.contains("VISION"));
+    fn legality_verdict_does_not_depend_on_the_target_existing() {
+        for missing in [
+            "/nonexistent-root-for-shirabe-tests/docs/visions/VISION-x.md",
+            "/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md",
+        ] {
+            assert!(!Path::new(missing).exists());
+        }
+        // Legal edges: judged clean without the target existing.
+        assert!(legality(
+            "strategy/v1",
+            &["/nonexistent-root-for-shirabe-tests/docs/visions/VISION-x.md"]
+        )
+        .is_empty());
+        assert!(legality(
+            "roadmap/v1",
+            &["/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md"]
+        )
+        .is_empty());
+        // Illegal edges: judged as violations without the target existing.
+        for (missing, named) in [
+            (
+                "/nonexistent-root-for-shirabe-tests/docs/visions/VISION-x.md",
+                "VISION",
+            ),
+            (
+                "/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md",
+                "STRATEGY",
+            ),
+        ] {
+            let errs = legality("brief/v1", &[missing]);
+            assert_eq!(errs.len(), 1, "{missing}: {errs:?}");
+            assert_eq!(errs[0].code, "R10");
+            assert!(errs[0].message.contains(named));
+        }
     }
 
     #[test]
