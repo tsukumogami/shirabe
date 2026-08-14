@@ -11,7 +11,7 @@ use crate::checks::{
     check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09, check_fc14,
     check_fc15, check_plan_design_field_consistency, check_plan_section_structure,
     check_private_only, check_roadmap_reserved_sections, check_schema, check_strategy_public,
-    check_upstream_resolves, check_vision_public, check_writing_style,
+    check_upstream_legality, check_upstream_resolves, check_vision_public, check_writing_style,
 };
 use crate::doc::{Doc, ValidationError};
 use crate::formats::FormatSpec;
@@ -144,7 +144,7 @@ pub fn is_notice(err: &ValidationError, posture: ReviewPosture) -> bool {
 
 /// Reports whether `code` is a known per-file check code that the `--check`
 /// selector can address. The set is the codes the per-file validation pass
-/// can emit: `SCHEMA`, `FC01`-`FC16`, `FC-CONVENTIONS`, and `R6`-`R9`. The
+/// can emit: `SCHEMA`, `FC01`-`FC16`, `FC-CONVENTIONS`, and `R6`-`R11`. The
 /// lifecycle codes (`L01`-`L05`) are produced by the `--lifecycle` traversal
 /// modes, not the per-file pass, so they are not selectable here.
 pub fn is_known_check_code(code: &str) -> bool {
@@ -172,6 +172,8 @@ pub fn is_known_check_code(code: &str) -> bool {
             | "R7"
             | "R8"
             | "R9"
+            | "R10"
+            | "R11"
     )
 }
 
@@ -239,6 +241,19 @@ fn validate_structural(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Valida
     // artifact -- a missed re-point has to fail here rather than survive to
     // the finalize-chain walk at cascade time.
     errs.extend(check_upstream_resolves(doc));
+
+    // 2c. (R10/R11) The `upstream` field names something this doc is allowed
+    // to name, on both properties legality has: the target's type, and whether
+    // it outlives this document. Placement is load-bearing rather than
+    // incidental. It sits after the schema gate above, which returns early for
+    // a doc whose `schema:` does not match its profile -- a golden-corpus
+    // fixture carries a durable-names-working edge and its frozen expected
+    // output is that schema notice alone, so a call before the gate (or in the
+    // per-file driver loop outside this function, where both arguments are
+    // also in scope) would change bytes the parity test pins. It also sits
+    // after the R9 private-only gate, which short-circuits for the same
+    // single-authoritative-reason motive.
+    errs.extend(check_upstream_legality(doc, spec));
 
     // 3. Format-specific checks dispatched by spec.name.
     // Casing is intentional per the formats-map entries -- existing names
@@ -541,6 +556,92 @@ mod tests {
             effective_severity("L01", ReviewPosture::Draft),
             Severity::Error
         );
+    }
+
+    /// The two legality codes are selectable and error-level, and the
+    /// selectable set gained exactly them. The whole set is asserted rather
+    /// than only the additions, so a third code added without a decision
+    /// fails here.
+    #[test]
+    fn the_legality_codes_are_selectable_and_the_set_gained_exactly_two() {
+        for code in ["R10", "R11"] {
+            assert!(is_known_check_code(code), "{code} must be selectable");
+            for posture in [ReviewPosture::Draft, ReviewPosture::Ready] {
+                assert_eq!(
+                    effective_severity(code, posture),
+                    Severity::Error,
+                    "{code} is error-level in every posture"
+                );
+            }
+        }
+
+        let expected = [
+            "SCHEMA",
+            "FC01",
+            "FC02",
+            "FC03",
+            "FC04",
+            "FC05",
+            "FC06",
+            "FC07",
+            "FC08",
+            "FC09",
+            "FC10",
+            "FC11",
+            "FC12",
+            "FC13",
+            "FC14",
+            "FC15",
+            "FC16",
+            "FC-CONVENTIONS",
+            "R6",
+            "R7",
+            "R8",
+            "R9",
+            "R10",
+            "R11",
+        ];
+        for code in expected {
+            assert!(is_known_check_code(code), "{code} must be selectable");
+        }
+        // Nothing beyond the listed set is selectable. `R12` and `FC17` are
+        // the next codes anyone would reach for, so they stand in for "the
+        // set did not grow past the two this change added".
+        for code in ["R12", "R13", "FC17", "R5", "FC99"] {
+            assert!(
+                !is_known_check_code(code),
+                "{code} must not be selectable yet"
+            );
+        }
+    }
+
+    /// The legality change adds two codes and touches no format's structural
+    /// section contract. A required-sections edit would surface as an FC04 or
+    /// FC15 change across the corpus, which is not what this work is for.
+    #[test]
+    fn the_legality_change_alters_no_required_section_list() {
+        use crate::formats::formats;
+        let expected: &[(&str, usize)] = &[
+            ("comp/v1", 7),
+            ("design/v1", 9),
+            ("prd/v1", 7),
+            ("vision/v1", 7),
+            ("roadmap/v1", 7),
+            ("plan/v1", 6),
+            ("strategy/v1", 8),
+            ("brief/v1", 5),
+        ];
+        for (schema, count) in expected {
+            let spec = formats()
+                .into_iter()
+                .find(|f| f.schema_version == *schema)
+                .unwrap_or_else(|| panic!("no format for {schema}"));
+            assert_eq!(
+                spec.required_sections.len(),
+                *count,
+                "{schema} required-section count"
+            );
+        }
     }
 
     #[test]

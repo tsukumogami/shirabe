@@ -57,23 +57,23 @@ property of a type rather than prose, and enforce the durable-names-working
 prohibition against the declarations themselves.
 
 **Acceptance Criteria**:
-- [ ] `FormatId` enum with one variant per format and a display form for
+- [x] `FormatId` enum with one variant per format and a display form for
       messages, defined in `formats.rs` and separate from `FormatSpec::name`,
       whose casing the format dispatch depends on.
-- [ ] `Lifetime` enum with `Durable` and `Working` variants.
-- [ ] `FormatSpec` carries `id`, `lifetime`, and `legal_upstream`, and all eight
+- [x] `Lifetime` enum with `Durable` and `Working` variants.
+- [x] `FormatSpec` carries `id`, `lifetime`, and `legal_upstream`, and all eight
       literals are populated per the design's table: VISION names VISION;
       STRATEGY names VISION; ROADMAP names STRATEGY; BRIEF names nothing; PRD
       names BRIEF; DESIGN names PRD and BRIEF; PLAN names DESIGN, PRD, BRIEF and
       ROADMAP; COMP names nothing.
-- [ ] A test asserts no format whose lifetime is `Durable` lists a `Working`
+- [x] A test asserts no format whose lifetime is `Durable` lists a `Working`
       format in `legal_upstream`, and fails when one is added.
-- [ ] A test asserts all eight lifetime classes and all eight parent sets
+- [x] A test asserts all eight lifetime classes and all eight parent sets
       verbatim, and fails on a single changed entry in any row.
-- [ ] A test asserts the new lifetime field agrees with the terminal-status map
+- [x] A test asserts the new lifetime field agrees with the terminal-status map
       in `lifecycle.rs` on the five types they both cover, with a comment naming
       the new field as the legality authority.
-- [ ] `cargo test --workspace` passes with no existing test modified, and no
+- [x] `cargo test --workspace` passes with no existing test modified, and no
       document's validation result changes — nothing reads the declarations yet.
 
 **Dependencies**: None
@@ -88,36 +88,36 @@ upstream entry at authoring time, with the lifetime finding taking precedence
 over the direction finding on an entry that violates both.
 
 **Acceptance Criteria**:
-- [ ] One check function takes the document and its spec, walks the `upstream:`
+- [x] One check function takes the document and its spec, walks the `upstream:`
       field through the shared normalizer in `upstream.rs`, resolves each
       target's type from its basename, and emits at most one finding per entry.
-- [ ] `R10` reports a direction violation and names the resolved type pair;
+- [x] `R10` reports a direction violation and names the resolved type pair;
       `R11` reports a lifetime violation and names the offending value and the
       target's Working class. Neither code is `R5` or `FC99`.
-- [ ] An entry violating both properties produces exactly one finding, the
+- [x] An entry violating both properties produces exactly one finding, the
       lifetime one.
-- [ ] An entry whose target basename matches no artifact prefix produces no
+- [x] An entry whose target basename matches no artifact prefix produces no
       finding. A cross-repo `owner/repo:path` value is judged on its file
       component when that names a known prefix.
-- [ ] Every entry of a multi-valued `upstream:` is reported independently, each
+- [x] Every entry of a multi-valued `upstream:` is reported independently, each
       finding carrying the field's line number as the resolution check's
       findings already do.
-- [ ] Both codes are selectable with `--check`, and the CLI's valid-codes
+- [x] Both codes are selectable with `--check`, and the CLI's valid-codes
       message names them.
-- [ ] The check is called from `validate_file`, after the schema gate and after
+- [x] The check is called from `validate_file`, after the schema gate and after
       the private-only gate. Every golden-corpus fixture's frozen expected
       output is byte-identical — the fixture that carries a durable-names-working
       edge is protected by the schema gate and must stay protected.
-- [ ] The eight documents named in `docs/prds/PRD-upstream-link-legality.md`
+- [x] The eight documents named in `docs/prds/PRD-upstream-link-legality.md`
       R24 produce exactly the findings that table predicts, and no other
       document under `docs/` changes its findings.
-- [ ] A document whose `upstream:` names a `VISION-` or `STRATEGY-` basename is
+- [x] A document whose `upstream:` names a `VISION-` or `STRATEGY-` basename is
       judged without that file being read from disk.
-- [ ] `is_known_check_code` gains exactly the two new codes, and no format's
+- [x] `is_known_check_code` gains exactly the two new codes, and no format's
       required-section list changes.
-- [ ] `shirabe validate --lifecycle . --mode=draft` exits 0 and emits the same
+- [x] `shirabe validate --lifecycle . --mode=draft` exits 0 and emits the same
       single orphan notice it emits before the change.
-- [ ] `cargo test --workspace` passes with no existing test modified.
+- [x] `cargo test --workspace` passes with no existing test modified.
 
 **Dependencies**: Blocked by <<ISSUE:1>>
 
