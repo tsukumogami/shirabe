@@ -115,13 +115,17 @@ learn what the step wanted.
   evaluate against the same path the worktree-discipline directive instructs the
   agent to write, for any plan slug the single-pr path can produce. The gate
   SHALL pass when that file exists and SHALL fail when it does not.
-- **R2 — No unresolvable interpolation in shipped koto templates.** No koto
-  template shirabe ships SHALL contain a variable interpolation that koto does
-  not resolve. Shell-style `${NAME}` interpolation is not resolved by koto and
-  is not covered by its compile-time declared-reference check, so it SHALL NOT
-  appear in any template field koto passes to a shell or to an agent, with the
-  exception of koto's own `${evidence.<field>}` reference namespace, which koto
-  resolves itself.
+- **R2 — No unresolvable interpolation in koto-executed template fields.** No
+  koto template shirabe ships SHALL use shell-style `$NAME` or `${NAME}`
+  interpolation in a field koto executes itself — a gate `command` or a
+  `default_action` command. koto resolves only `{{KEY}}` references and only
+  validates those against the template's `variables:` block, so a `${NAME}` in
+  such a field is silently passed to `sh -c` and expands to the empty string.
+  Two forms are excluded from this prohibition because koto resolves them:
+  `{{KEY}}` variable references, and koto's own `${evidence.<field>}` reference
+  namespace used in `context_assignments`. Directive prose is also excluded: the
+  agent runs those snippets in its own shell and legitimately sets and reads
+  shell variables there.
 - **R3 — Task generation runs on the platform bash floor.**
   `skills/plan/scripts/plan-to-tasks.sh` SHALL run to completion on a host whose
   only available bash is 3.2, for every plan the script accepts today. All seven
@@ -130,22 +134,28 @@ learn what the step wanted.
   list `plan-to-tasks.sh` emits under bash 3.2 SHALL be byte-identical to the
   list it emits under bash 5, including task ordering, generated names, and
   collision-suffixed names.
-- **R5 — Diagnosable preconditions.** When either precondition genuinely fails,
+- **R5 — CI stops working around the bash defect.**
+  `.github/workflows/check-plan-scripts.yml` installs bash 5 on its macOS runner
+  specifically so `plan-to-tasks.sh` can use `declare -A`, which is why the
+  defect never surfaced in CI. That step SHALL be removed, so the macOS job
+  exercises the script under the system bash and R7's guard has something real
+  behind it.
+- **R6 — Diagnosable preconditions.** When either precondition genuinely fails,
   the developer-facing output SHALL name the missing input and the path where it
   was expected. For the gate, whose stdout and stderr koto discards, the naming
   SHALL be carried by the surface koto does surface to the agent on a blocked
   gate rather than by the gate command's own output.
-- **R6 — Mechanical regression check.** A check runnable in CI SHALL fail on
-  reintroduction of either defect class: an unresolvable interpolation in a
-  shipped koto template, and a bash-4-or-newer construct in a script on the
-  single-pr path.
+- **R7 — Mechanical regression check.** A check runnable in CI SHALL fail on
+  reintroduction of either defect class: shell-style interpolation in a
+  koto-executed template field, and a bash-4-or-newer construct in a script on
+  the single-pr path.
 
 ### Non-functional
 
-- **R7 — No behavior change where the path already worked.** On a host with
+- **R8 — No behavior change where the path already worked.** On a host with
   bash 5 and on the multi-pr and coordinated execution paths, the observable
   behavior of `/execute` and `plan-to-tasks.sh` SHALL be unchanged.
-- **R8 — No new runtime dependency.** Meeting R3 SHALL NOT require installing a
+- **R9 — No new runtime dependency.** Meeting R3 SHALL NOT require installing a
   newer bash, a different interpreter, or any tool not already required to run
   `/execute`.
 
@@ -154,8 +164,10 @@ learn what the step wanted.
 - [ ] With a plan whose slug is non-empty, the `impact_classified` gate passes
       when the impact classification exists at the path the worktree-discipline
       directive names, and fails when it does not.
-- [ ] No shipped koto template contains a `${NAME}` interpolation outside koto's
-      `${evidence.<field>}` namespace.
+- [ ] No shipped koto template uses shell-style interpolation in a gate
+      `command` or a `default_action` command.
+- [ ] CI exercises `plan-to-tasks.sh` under macOS's system bash, with no step
+      that installs a newer bash to work around the defect.
 - [ ] `plan-to-tasks.sh` runs to completion under `/bin/bash` on macOS (bash
       3.2.57) against a representative multi-issue plan, emitting the full task
       list.
@@ -180,14 +192,14 @@ learn what the step wanted.
   substitute variables is separate work with a much wider blast radius, and it
   lives in the koto repository rather than this one.
 - **Changing koto to surface gate stdout and stderr.** koto discards both on a
-  failed command gate. That is a real diagnosability limit, and R5 is written to
+  failed command gate. That is a real diagnosability limit, and R6 is written to
   be satisfiable without changing it; a koto-side change is a separate request
   against a separate repository.
 - **The multi-pr and coordinated execution paths.** Neither defect is reachable
   from them. Widening the change to paths this run did not exercise adds risk
   without evidence.
 - **A repo-wide bash-version policy.** R3 makes one script run under the bash
-  macOS ships and R6 guards the scripts on the single-pr path. Deciding what
+  macOS ships and R7 guards the scripts on the single-pr path. Deciding what
   bash version the whole repository requires would need an audit of every script
   shirabe ships and is a separate decision.
 - **The pre-existing data race in `tsukumogami/niwa`'s `internal/cli`**, observed
@@ -201,7 +213,7 @@ learn what the step wanted.
   the reported gate — and every other `${...}` occurrence is in koto's
   `${evidence.<field>}` namespace, which koto resolves. Because the wider
   boundary costs one extra grep and no extra edits, there was no reason to draw
-  it narrowly. The value is in R6's check, which now covers templates the fix
+  it narrowly. The value is in R7's check, which now covers templates the fix
   did not have to touch.
 
 - **The reported bash defect is treated as seven defects, not one.** The issue
@@ -216,12 +228,20 @@ learn what the step wanted.
   keeps a plan's task list stable regardless of which host generated it, and
   makes the property testable rather than hoped for.
 
-- **R5 is scoped to what is reachable without changing koto.** koto renders a
+- **R6 is scoped to what is reachable without changing koto.** koto renders a
   failed command gate as an exit code with an empty error string and drops the
   command's own output, so a diagnostic echoed by the gate command would go
   nowhere. The requirement therefore targets the surface koto does pass to the
   agent on a blocked gate. Accepting this constraint keeps the work inside this
   repository; the alternative was blocking on a koto change.
+
+- **Removing CI's bash 5 install (R5) is part of the fix, not incidental
+  cleanup.** `check-plan-scripts.yml` installs Homebrew bash on its macOS runner
+  with a comment naming the exact defect it is compensating for. That step is
+  why a portability break shipped: CI's macOS job never ran the script under the
+  bash macOS actually provides. Leaving the step in place while fixing the
+  script would keep the guard cosmetic — nothing would fail if a `declare -A`
+  came back.
 
 ## Known Limitations
 
@@ -230,6 +250,6 @@ learn what the step wanted.
   not a message from the gate command itself. If koto later surfaces gate output,
   the gate command can carry its own diagnostic and the indirection can be
   removed.
-- R6's bash check guards the scripts on the single-pr path. A bash 4 construct
+- R7's bash check guards the scripts on the single-pr path. A bash 4 construct
   introduced in a script elsewhere in the repository is not caught, which is the
   cost of leaving the repo-wide policy out of scope.
