@@ -2,19 +2,27 @@
 topic: skill-preflight-checks
 chain_started: 2026-08-15T01:53:49Z
 last_updated: 2026-08-15T01:53:49Z
-phase_pointer: phase-2
-exit: UNSET
-exit_artifacts: []
+phase_pointer: phase-4
+exit: full-run
+exit_artifacts:
+  - docs/plans/PLAN-skill-preflight-checks.md
+  - docs/briefs/BRIEF-skill-preflight-checks.md
+  - docs/prds/PRD-skill-preflight-checks.md
+  - docs/designs/DESIGN-skill-preflight-checks.md
+  - docs/decisions/DECISION-skill-preflight-verification-depth-2026-08-14.md
+plan_execution_mode: single-pr
 planned_chain:
   - brief
   - prd
   - design
+  - plan
   - plan
 chain_skipped: []
 chain_ran:
   - brief
   - prd
   - design
+  - plan
 child_snapshots:
   brief:
     status: Accepted
@@ -23,8 +31,15 @@ child_snapshots:
     artifact: docs/briefs/BRIEF-skill-preflight-checks.md
     validator: clean
     jury: all-PASS on second pass; first pass FAIL on content quality, 7 required changes applied
+  plan:
+    status: Active
+    content_hash: a18f3640199c41f6ca66874cfcab14b22b5ffdc4
+    captured_at: 2026-08-15T06:30:00Z
+    artifact: docs/plans/PLAN-skill-preflight-checks.md
+    validator: clean (one deliberate FC14 notice)
+    issue_count: 19
   design:
-    status: Accepted
+    status: Planned
     content_hash: 65bf3a8037b53be8977df31007e1f51ccee034f6
     captured_at: 2026-08-15T05:10:00Z
     artifact: docs/designs/DESIGN-skill-preflight-checks.md
@@ -49,6 +64,13 @@ child_snapshots:
     validator: clean
     jury: PASS on final pass; three-axis jury FAILed all three on pass 1 (35 required changes), combined re-review FAILed with 6 must-fix, all applied
 consolidation_judgments:
+  - hop: design-into-plan
+    verdict: keep
+    reason: >-
+      Not absorbable. A PLAN's required sections have no home for a DESIGN's
+      Considered Options, Decision Outcome, Solution Architecture, or Security
+      Considerations. The PLAN is also deleted by the completion cascade while
+      the DESIGN is durable, so absorbing would destroy the record.
   - hop: prd-into-design
     verdict: keep
     reason: >-
@@ -73,10 +95,6 @@ worktree_rebases:
     impact: none
     rebased_at: 2026-08-15T01:58:00Z
     notes: origin/main fetched; branch 0 behind, 4 ahead. No rebase required.
-parent_orchestration:
-  invoking_child: plan
-  suppress_status_aware_prompt: true
-  rationale: fresh-chain
 execution_mode: auto
 max_rounds: 5
 coordinated: false
