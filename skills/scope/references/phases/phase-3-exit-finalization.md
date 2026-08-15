@@ -276,36 +276,45 @@ substring is present in those child prompts.
 
 ## Closed Write-Target Set
 
-Phase 3's filesystem write surface is confined to the
-enumerated set. Writes outside this set fail the R9 hard-
-finalization check.
+Phase 3's filesystem write surface is confined to the enumerated
+set. Writes outside it fail the R9 hard-finalization check.
 
-The allowed write targets:
+**`skills/scope/SKILL.md` is the authoritative declaration.** This
+is a restatement for readers working in this phase, and the two
+must not diverge — they did before, disagreeing about whether the
+PLAN was a Phase 3 write target, and that disagreement was one of
+three defects this enumeration corrects.
+
+Phase 3's own writes:
 
 - `docs/decisions/DECISION-{prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md`
   — Decision Records on `re-evaluation` exit.
 - `docs/{briefs,prds,designs}/{BRIEF,PRD,DESIGN}-<topic>.md` —
   force-materialization only, on `abandonment-forced` exit.
-- `wip/scope_<topic>_*` — state file
-  (`wip/scope_<topic>_state.md`) and ancillary scratch the
-  substrate may write under the same prefix.
+- `wip/scope_<topic>_*` — state file and ancillary scratch under
+  the same prefix.
 
-Phase 2's consolidation judgment adds one deletion target,
-`docs/briefs/BRIEF-<topic>.md`, on a completed absorb. The path is
-composed from the validated topic slug, never from author-supplied
-text, so the set stays closed and enumerable. Phase 3 does not
-delete; it records the deletion the judgment already performed.
+Phase 2's absorb adds three groups, recorded here because the
+enumeration is closed across the skill rather than per phase:
 
-The PLAN artifact at `docs/plans/PLAN-<topic>.md` is produced
-by `/plan` (not directly by Phase 3); Phase 3's full-run exit
-only updates the state file's `exit_artifacts:` list to
-reference the PLAN, it does not write the PLAN itself. Phase 3
-does NOT remove `wip/{brief,prd,design,plan}_<topic>_*` files
-— those removals happen in Phase 4 according to the exit-path
-matrix in `phase-4-cleanup.md`. Phase 3 owns the terminal-
-artifact finalization act (PLAN reference, Decision Record
-write, or abandonment-forced marker placement) but does not
-sweep the workflow's child-prefixed intermediates.
+- **Deletions:** `docs/briefs/BRIEF-<topic>.md`,
+  `docs/prds/PRD-<topic>.md`, `docs/designs/DESIGN-<topic>.md`.
+  The PLAN is never a deletion target of a fold.
+- **Mutations:** `docs/{prds,designs,plans}/{PRD,DESIGN,PLAN}-<topic>.md`
+  — the survivor, at whichever hop. `docs/plans/` is included
+  because the PLAN is the survivor at the terminal hop.
+- **Append:** `docs/folds.md`, a fixed constant.
+
+Phase 3 does not delete and does not write the PLAN; it records
+the deletion Phase 2 already performed and lists the terminal
+artifact's path in `exit_artifacts:`. Both of those remain true —
+what changed is that the phase performing each write is now named,
+which is what lets "Phase 3 does not write the PLAN" and "Phase 2's
+absorb writes it" both stand.
+
+Every path is composed from the validated topic slug or is a fixed
+constant, never from author-supplied text, so the set stays closed
+and enumerable.
 
 ## State-File Enum Re-Validation Before Path Interpolation
 

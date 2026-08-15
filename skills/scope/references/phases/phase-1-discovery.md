@@ -263,27 +263,29 @@ from `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`;
 the predicate verdicts feed both the chain-proposal narration
 and `/design`'s decision roster cardinality.
 
-## The Durable-Artifact Floor
+## What Phase 1 Does Not Decide About the Artifact Set
 
-A `/scope` run always leaves at least one durable artifact, and
-nothing here enforces that — it follows from the chain's shape.
-The chain always writes BRIEF, PRD, DESIGN and PLAN, and Phase 2's
-consolidation judgment can only absorb at a hop where the
-downstream type's required sections have a home for every one of
-the upstream's. No hop above BRIEF-to-PRD qualifies, so the
-smallest set a run can end with is a PRD, a DESIGN and a PLAN.
+Nothing here bounds how many artifacts a run ends with. That is
+Phase 2's, decided per hop against two documents that exist.
 
-A run that leaves nothing behind — a PLAN alone, deleted once its
-work is implemented — is therefore not reachable through `/scope`
-at all. An author who genuinely wants no durable record beyond the
-code invokes `/plan <topic>` directly. That is a claim they are
-entitled to make, and making it by hand keeps it visible in what
-they typed rather than buried in a judgment `/scope` made for
-them.
+This section previously stated a durable-artifact floor: that the
+smallest set a run could end with was a PRD, a DESIGN and a PLAN,
+because no hop above BRIEF-to-PRD was absorbable. It also told
+maintainers not to guard the zero-artifact case, on the ground
+that its condition could not hold, and redirected an author who
+wanted no durable record to invoke `/plan` directly.
 
-Do not add a guard for this. Its condition cannot hold, and a
-check that can never fire teaches the next maintainer that the
-case is possible.
+All three of those rested on the type-level absorbability test,
+which is gone. Every hop is now decidable, a run can absorb its
+way down to nothing, and the redirect describes an escape hatch
+from a constraint that no longer exists.
+
+The prohibition on guarding it survives, with a corrected reason,
+and lives beside the judgment in
+`phase-2-chain-orchestration.md` — because that is where the
+temptation now is. The Phase 1 form of the same temptation, an
+entry-altitude shortcut, is forbidden elsewhere and graded by
+eval 17.
 
 ## Chain-Proposal Output
 
