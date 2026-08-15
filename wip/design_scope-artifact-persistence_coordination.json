@@ -23,7 +23,17 @@
         "R7",
         "R13"
       ],
-      "status": "pending"
+      "status": "complete",
+      "outcome": "Parent composes the contribution section at fold time, sourced from the SURVIVOR's own body -- not from the doomed original -- with the child owning the consumption instruction that puts the material into the survivor in the first place.",
+      "why_child_authoring_is_eliminated": "Not outscored, ruled out by settled requirements: the judgment is step 8 of Phase 2's eight-step loop, so a child cannot know the verdict at draft time, and every keep run would leave an orphan section R4 does not sanction and R10's carve-out (scoped to the absorbed case) does not cover. formats.rs has no per-section optionality primitive to express a conditional one.",
+      "why_sourcing_from_the_survivor_matters": "It makes the non-independence tolerable: the material was already jury-reviewed when it landed in the survivor's ordinary sections, and an under-distillation leaves the omitted content still visible in the survivor's body rather than gone at git rm.",
+      "file_count_for_plan": "~9 instruction files. Child consumption instructions: skills/prd/references/phases/phase-3-draft.md (AMEND), skills/design/references/phases/phase-2-execution.md (NEW), skills/plan/references/phases/phase-7-creation.md (NEW). /brief needs none. Plus 4 format references and 2 /scope phase files. Zero jury prompt files.",
+      "corrections_to_prior_decisions": [
+        "D1's stated rationale is falsified in one clause. It rejected a fold-time reviewer because 'the child's own jury reads the upstream and the draft together, with a spawn already budgeted.' The tactical juries do NOT receive the upstream -- verified across /prd, /design and /brief reviewer prompts. D1's conclusion survives; its reason must be replaced with R12's structural bar.",
+        "The structural bar is stronger than recorded. parent-skill-pattern.md binds dispatch to the Skill tool called inline from the parent's own agent context, so parent and child SHARE one agent context. The child/parent fork was never about which agent holds the pen -- only about which instruction file holds the drafting instruction, and therefore whether the child's jury spawns see the section."
+      ],
+      "pre_existing_defect_found": "/scope's closed write-target set already understates the parent's reach: the existing upstream: re-point writes the survivor and is not listed. R19 fixes this regardless of which answer won.",
+      "report": "wip/design_scope-artifact-persistence_decision_2_report.md"
     },
     {
       "id": 3,
