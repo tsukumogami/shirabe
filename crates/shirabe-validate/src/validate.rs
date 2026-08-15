@@ -10,8 +10,9 @@ use crate::checks::{
     check_claude_md_conventions, check_eval_fixture_frontmatter, check_fc01, check_fc02,
     check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09, check_fc14,
     check_fc15, check_fc17, check_plan_design_field_consistency, check_plan_section_structure,
-    check_private_only, check_roadmap_reserved_sections, check_schema, check_strategy_public,
-    check_upstream_legality, check_upstream_resolves, check_vision_public, check_writing_style,
+    check_private_only, check_roadmap_reserved_sections, check_schema, check_stale_references,
+    check_strategy_public, check_upstream_legality, check_upstream_resolves, check_vision_public,
+    check_writing_style,
 };
 use crate::doc::{Doc, ValidationError};
 use crate::formats::FormatSpec;
@@ -74,7 +75,7 @@ pub enum PostureClass {
 /// from notice to error in a single-line diff. The match expression is
 /// the one place that drives the intrinsic notice-vs-error split.
 ///
-/// `SCHEMA` is the long-standing notice; `FC07` through `FC15` and
+/// `SCHEMA` is the long-standing notice; `FC07` through `FC15`, `FC18`, and
 /// `FC-CONVENTIONS` are notice-level additions pending their respective
 /// corpus-cleanup PRs. These remain notices in both postures. `FC16`
 /// (roadmap reserved-section shape) is intentionally *absent* here: it
@@ -93,6 +94,7 @@ fn is_intrinsic_notice(code: &str) -> bool {
             | "FC13"
             | "FC14"
             | "FC15"
+            | "FC18"
             | "FC-CONVENTIONS"
     )
 }
@@ -144,7 +146,7 @@ pub fn is_notice(err: &ValidationError, posture: ReviewPosture) -> bool {
 
 /// Reports whether `code` is a known per-file check code that the `--check`
 /// selector can address. The set is the codes the per-file validation pass
-/// can emit: `SCHEMA`, `FC01`-`FC16`, `FC-CONVENTIONS`, and `R6`-`R11`. The
+/// can emit: `SCHEMA`, `FC01`-`FC18`, `FC-CONVENTIONS`, and `R6`-`R11`. The
 /// lifecycle codes (`L01`-`L05`) are produced by the `--lifecycle` traversal
 /// modes, not the per-file pass, so they are not selectable here.
 pub fn is_known_check_code(code: &str) -> bool {
@@ -168,6 +170,7 @@ pub fn is_known_check_code(code: &str) -> bool {
             | "FC15"
             | "FC16"
             | "FC17"
+            | "FC18"
             | "FC-CONVENTIONS"
             | "R6"
             | "R7"
@@ -205,6 +208,11 @@ pub fn validate_prose(doc: &Doc, _cfg: &Config) -> Vec<ValidationError> {
     let mut errs = Vec::new();
     errs.extend(check_writing_style(doc, &FormatSpec::prose_only()));
     errs.extend(check_claude_md_conventions(doc, &FormatSpec::prose_only()));
+    // FC18 belongs here rather than beside R6: two of the stale references
+    // this repository carries are in `skills/` instruction files with no
+    // frontmatter at all, and `validate_structural` returns early behind the
+    // schema gate before it could reach them.
+    errs.extend(check_stale_references(doc, &FormatSpec::prose_only()));
     errs
 }
 
@@ -569,6 +577,25 @@ mod tests {
         );
     }
 
+    /// FC18 ships notice-level in both postures.
+    ///
+    /// The staging is deliberate rather than a verdict on the defect: the
+    /// corpus this check inherits is dirty, so error level would turn CI red
+    /// the day it lands. Pinning the severity here makes the promotion a
+    /// deliberate edit -- delete the `FC18` arm from `is_intrinsic_notice`
+    /// and this test -- rather than something a refactor can do by accident.
+    #[test]
+    fn fc18_is_a_notice_in_both_postures() {
+        for posture in [ReviewPosture::Draft, ReviewPosture::Ready] {
+            assert_eq!(
+                effective_severity("FC18", posture),
+                Severity::Notice,
+                "FC18 ships notice-level pending its corpus cleanup"
+            );
+        }
+        assert!(is_known_check_code("FC18"), "--check FC18 must select it");
+    }
+
     /// The two legality codes are selectable and error-level, and the
     /// selectable set is exactly the documented one. Membership is asserted
     /// over the full list AND non-membership over every unused code in the
@@ -606,6 +633,7 @@ mod tests {
             "FC15",
             "FC16",
             "FC17",
+            "FC18",
             "FC-CONVENTIONS",
             "R6",
             "R7",
