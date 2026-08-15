@@ -285,9 +285,10 @@ the shared normalizer, resolves each target's type from its basename, and emits
 at most one finding per entry: the lifetime code when the naming type is durable
 and the target working, the direction code when the target's type is absent from
 the parent set, and nothing when the basename resolves to no known type. It is
-called from `validate_file`'s cross-format block immediately after the resolution
-check — after the schema gate, which is what preserves the golden fixture, and
-after the private-only gate, which short-circuits before it.
+called from the cross-format block of `validate_file`'s structural half,
+immediately after the resolution check — after the schema gate, which is what
+preserves the golden fixture, and after the private-only gate, which
+short-circuits before it.
 
 `/plan` gains `--upstream <path>` with the contract its five sibling skills
 already ship: parsed before the positional argument, never used to derive the
@@ -363,12 +364,16 @@ then.
 
 ### The call site
 
-Inside `validate_file`, in the cross-format block, immediately after the
-resolution check. Three placements break the golden corpus and are named here so
-the constraint is not rediscovered: anything before the schema gate, anything in
-the per-file driver loop outside `validate_file` — superficially attractive
-because both arguments are already in scope there — and anything that makes the
-private-only gate run after legality.
+Inside `validate_file`'s structural half, in the cross-format block,
+immediately after the resolution check. Structural is the correct half by
+construction: the check presupposes an artifact schema, while the prose half
+runs for every Markdown file the validator is handed, schema-less ones included.
+
+Four placements break the golden corpus and are named here so the constraint is
+not rediscovered: anything before the schema gate, anything in the prose half,
+anything in the per-file driver loop outside `validate_file` — superficially
+attractive because both arguments are already in scope there — and anything that
+makes the private-only gate run after legality.
 
 The whole-tree lifecycle traversal is undisturbed by any of this. It is a
 separate mode that emits its own codes and never calls the per-file pass, so

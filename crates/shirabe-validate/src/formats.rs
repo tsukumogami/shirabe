@@ -20,6 +20,12 @@ pub enum FormatId {
     Design,
     Plan,
     Comp,
+    /// The synthetic identity of the prose family: a Markdown file the
+    /// validator was handed that carries no artifact prefix. `detect_format`
+    /// never returns it and `formats()` never contains it -- it exists so
+    /// [`FormatSpec::prose_only`] can name what it is rather than borrow an
+    /// artifact type's identity.
+    Prose,
 }
 
 impl FormatId {
@@ -35,6 +41,7 @@ impl FormatId {
             FormatId::Design => "DESIGN",
             FormatId::Plan => "PLAN",
             FormatId::Comp => "COMP",
+            FormatId::Prose => "PROSE",
         }
     }
 }
@@ -116,6 +123,13 @@ impl FormatSpec {
     pub fn prose_only() -> Self {
         FormatSpec {
             name: "Prose".to_string(),
+            id: FormatId::Prose,
+            // Inert. A prose spec never reaches `validate_structural`, so the
+            // upstream-legality check never reads either field; they are set
+            // to the most restrictive honest values rather than left to
+            // resemble an artifact type.
+            lifetime: Lifetime::Durable,
+            legal_upstream: vec![],
             prefix: String::new(),
             schema_version: String::new(),
             required_fields: Vec::new(),

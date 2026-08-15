@@ -452,12 +452,12 @@ malformed input the author can fix, not legitimate values this document cannot
 record, and collapsing that distinction would silently continue a run that
 should stop.
 
-### The mechanism is to navigate up, not to record nothing
+### The mechanism is to walk up one hop, not to record nothing
 
 The brief left two candidates open: record the nearest durable ancestor, or
 record nothing and require self-containment.
 
-Navigating up wins, and the deciding property is that the lineage survives the
+Walking up wins, and the deciding property is that the lineage survives the
 deletion the whole rule exists to anticipate. A brief that records the roadmap's
 STRATEGY still answers "where did this come from" after the cascade removes the
 roadmap. A brief that records nothing strands the strategic half of the chain
@@ -471,12 +471,12 @@ parents are the two strategic types and neither is working, so there is no walk
 to bound and no second choice to make.
 
 An earlier revision of this PRD chose to record nothing, and the argument it
-gave has since collapsed in three places. It claimed navigating up contradicts a
+gave has since collapsed in three places. It claimed walking up contradicts a
 strict strategic chain — R5.1 no longer asserts one, because the check cannot
 tell a skipped altitude from an absent one. It claimed a STRATEGY "does not
 describe the feature", which mistakes what `upstream:` is for: a DESIGN's PRD
 does not describe the architecture either, and the field records provenance
-rather than subject matter. And it claimed navigating up had no precedent, while
+rather than subject matter. And it claimed walking up had no precedent, while
 `/scope`'s consolidation absorb has re-pointed a survivor to the absorbed
 artifact's own upstream all along — the same walk, one altitude down.
 

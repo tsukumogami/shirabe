@@ -245,12 +245,17 @@ fn validate_structural(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Valida
     // 2c. (R10/R11) The `upstream` field names something this doc is allowed
     // to name, on both properties legality has: the target's type, and whether
     // it outlives this document. Placement is load-bearing rather than
-    // incidental. It sits after the schema gate above, which returns early for
-    // a doc whose `schema:` does not match its profile -- a golden-corpus
-    // fixture carries a durable-names-working edge and its frozen expected
-    // output is that schema notice alone, so a call before the gate (or in the
-    // per-file driver loop outside this function, where both arguments are
-    // also in scope) would change bytes the parity test pins. It also sits
+    // incidental, and this is a structural check specifically: it presupposes
+    // an artifact schema, so it belongs here and not in `validate_prose`,
+    // which runs for every Markdown file including schema-less ones.
+    //
+    // Within this function it sits after the schema gate, which returns early
+    // for a doc whose `schema:` does not match its profile. The golden-corpus
+    // fixture `real/PRD-roadmap-skill.md` carries a durable-names-working edge
+    // and has no `schema:` field, so its frozen expected output is a prose
+    // notice plus that schema notice and nothing else. A call before the gate,
+    // in `validate_prose`, or in the per-file driver loop in `main.rs` would
+    // add a finding there and change bytes the parity test pins. It also sits
     // after the R9 private-only gate, which short-circuits for the same
     // single-authoritative-reason motive.
     errs.extend(check_upstream_legality(doc, spec));
