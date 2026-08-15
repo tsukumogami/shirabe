@@ -34,6 +34,33 @@ variables:
 
 states:
   orchestrator_setup:
+    gates:
+      # The settled branch this state records is the ONLY thing that knows
+      # which branch children commit to on the adopt path, where the branch is
+      # not derivable from the PLAN's name. This gate is what makes that a
+      # guarantee rather than an instruction: with the key absent or its value
+      # malformed, neither success transition below resolves and the run cannot
+      # reach spawn_and_await, whose `|| impl/$PLAN_SLUG` fallback would
+      # otherwise hand every child a branch the adopt path never created.
+      #
+      # Two details are not stylistic:
+      #
+      #   The pattern is anchored at BOTH ends. context-matches evaluates
+      #   Regex::is_match, a substring test, so an unanchored
+      #   [A-Za-z0-9._/-]+ would pass "main; rm -rf /" because "main" matches.
+      #   The anchors are what make this a validator instead of a formality.
+      #
+      #   The gate must be referenced in a when clause to bind. A failed gate
+      #   on a state that has an `accepts` block does NOT block on its own --
+      #   it falls through to transition resolution, and a conditional
+      #   transition matching on agent evidence alone still fires. The two
+      #   `gates.settled_branch_recorded.matches` keys below are what make the
+      #   gate load-bearing; deleting them leaves a gate that is evaluated,
+      #   reported, and ignored.
+      settled_branch_recorded:
+        type: context-matches
+        key: settled_branch
+        pattern: '^[A-Za-z0-9._/-]+$'
     accepts:
       status:
         type: enum
@@ -46,9 +73,14 @@ states:
       - target: worktree_discipline_check
         when:
           status: completed
+          gates.settled_branch_recorded.matches: true
       - target: worktree_discipline_check
         when:
           status: override
+          gates.settled_branch_recorded.matches: true
+      # No gate reference here, deliberately. The failure exit must stay
+      # reachable when the context store is exactly what is broken; a run that
+      # cannot record its branch has to be able to reach a terminal state.
       - target: done_blocked
         when:
           status: blocked
