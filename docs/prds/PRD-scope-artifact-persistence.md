@@ -159,14 +159,31 @@ carry SHALL abort the absorb, downgrade the verdict to `keep`, and delete
 nothing.
 
 **R15.** Before deleting an artifact, the procedure SHALL search the repository's
-git-tracked files, excluding `wip/`, for citations of it. A citation containing
-the artifact's repo-relative path SHALL downgrade the verdict to `keep` through
-the existing abort path. A citation naming the artifact without its path SHALL
-be surfaced to the judging agent as a finding and SHALL NOT by itself change the
-verdict. The check SHALL have no override and SHALL NOT be capable of any
-outcome stronger than `keep`. It is justified entirely by the hops this work
-opens forward; it carries no retroactive commitment and produces no verdict
-about any document already on disk.
+git-tracked files for citations of it, excluding `wip/` and excluding the
+survivor of this fold. A citation containing the artifact's repo-relative path
+SHALL downgrade the verdict to `keep` through the existing abort path. A
+citation naming the artifact without its path SHALL be surfaced to the judging
+agent as a finding and SHALL NOT by itself change the verdict. The check SHALL
+have no override and SHALL NOT be capable of any outcome stronger than `keep`.
+It is justified entirely by the hops this work opens forward; it carries no
+retroactive commitment and produces no verdict about any document already on
+disk.
+
+The survivor exclusion is a precondition of the mechanism working at all, not a
+convenience. The survivor always cites the absorbed artifact by repo-relative
+path in its own `upstream:` — and that is behaviour the consolidation change
+deliberately shipped, having named the old non-citing behaviour as the defect it
+was fixing. Without the exclusion the guard refuses every fold, including the one
+hop absorbable today. Excluding only the `upstream:` line is insufficient,
+because most survivors cite the path more than once. The exclusion is a named,
+static, design-time rule rather than an override: it narrows what is searched,
+never what the search is allowed to conclude.
+
+Where a record of the fold names a still-live document, that name SHALL NOT
+cause a later hop in the same chain to refuse. The design SHALL state how — by
+re-pointing prior records before the scan, by naming the survivor in a form the
+path tier does not match, or otherwise — because a chain that folds twice
+otherwise refuses at its second hop.
 
 **R16.** `shirabe validate` SHALL fail when an `R<n>` requirement citation whose
 target document this run absorbed resolves neither within the surviving document
@@ -347,9 +364,16 @@ See Known Limitations for what the [judg] instrument does and does not buy.
 
 - [ ] **[judg]** An absorb whose contribution does not carry leaves both
       documents on disk and records the failure.
-- [ ] **[judg]** An absorb of an artifact cited by repo-relative path from any
-      tracked file outside `wip/` is refused, both documents stay, and the
-      citing file is named.
+- [ ] **[mech]** An absorb of an artifact cited by repo-relative path from any
+      tracked file outside `wip/`, other than the survivor, is refused and the
+      citing file is named. Exercised by the guard's own test harness under a
+      merge gate.
+- [ ] **[mech]** A fold whose only path citation is the survivor's own
+      `upstream:` is NOT refused. This is the canonical BRIEF-to-PRD case;
+      without the survivor exclusion every fold refuses, so this criterion is
+      the tripwire for the whole mechanism.
+- [ ] **[mech]** A chain that folds at two hops in sequence is not refused at
+      its second hop by a record written at its first.
 - [ ] **[judg]** A citation naming an artifact without its path is surfaced as a
       finding and does not by itself change the verdict.
 - [ ] **[mech]** A DESIGN citing `R7` whose PRD was absorbed without carrying
