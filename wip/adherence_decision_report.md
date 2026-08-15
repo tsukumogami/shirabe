@@ -50,10 +50,15 @@ model arbitrates at all.
 - `SubagentStart.additionalContext` remains doc-only and untested. It is the only
   surface reaching `spawn_and_await` children, so anything depending on it must
   be verified empirically first.
-- Two of six validators (restricted-tool orchestrator, skill-registered hooks)
-  died before reporting. Their alternatives are assessed from peer attacks and
-  from direct verification rather than from advocacy, which is a real weakness in
-  the evidence for those two positions specifically.
+- All six validators reported. Two arrived after the first synthesis draft and
+  changed it materially -- the primary predicate below is theirs, not the
+  decider's.
+- **Open, and load-bearing for implementation:** whether skill-registered hooks
+  fire inside subagents. Tool hooks from settings and plugins demonstrably do, but
+  the skill-frontmatter case is unverified. It matters because `/work-on` children
+  legitimately write source files, so a write-target gate registered by the parent
+  must exempt them -- the hook input carries `agent_id`/`agent_type`, so the
+  exemption is expressible, but the behavior must be tested before the gate ships.
 
 **Chosen: A staged portfolio -- detect locally, publish off-machine, narrow the
 ambiguity; defer the gate and the policy surface**
@@ -68,13 +73,34 @@ new configuration system:
    not, and shipping that would be a worse outcome than either incident. Cheapest
    change in the field, and the only one testable with shirabe's existing eval
    format today.
-2. **An adherence detector**, delivered as a `Stop` hook registered from
-   `shirabe:execute`'s own frontmatter -- no niwa change, no policy surface, no
-   org-owner action. Its predicate must assert **delegation, not registration**: a
-   `scheduler_ran` event with `spawned_count >= 1`, not mere session existence. It
-   reports; it does not block. `Stop`'s `additionalContext` is delivered as
-   non-error feedback with the conversation continuing, so the agent gets a
-   steerable correction rather than a dead end.
+2. **Two complementary checks, both delivered from `shirabe:execute`'s own
+   frontmatter** -- no niwa change, no policy surface, no org-owner action.
+
+   *The primary predicate is R9 write-target conformance, enforced at write time.*
+   `/execute` already declares a **closed write-target set** (Security
+   Considerations point 2): its state file and scratch under
+   `wip/execute_<topic>_*`, the skill's own files, the home PR or coordination body
+   via `gh`, the finalization cascade's chain transitions under `docs/`, and
+   Decision Records on `re-evaluation`. Today a write outside that set "fails the
+   R9 hard-finalization check" -- which is self-administered, and only at the end.
+   Move it to a skill-scoped `PreToolUse` hook that denies `Edit`/`Write` outside
+   the declared set, with `permissionDecisionReason` naming the sanctioned move.
+
+   This predicate is strictly better than the koto-session one it replaces. It is
+   **not gameable** -- there is no equivalent of running `koto init` to buy
+   permission, because the check is on the write itself. It needs **no
+   coordinated-plan carve-out**, because the write-target set governs both
+   execution paths identically. It rests on a contract the skill **already
+   declares**, so it enforces an existing invariant rather than inventing one.
+   And both incidents fail it directly: hand-editing 22 (or six) issues' source
+   files is precisely a write outside the closed set.
+
+   *The secondary check is a delegation detector at `Stop`*, asserting a
+   `scheduler_ran` event with `spawned_count >= 1` -- delegation, not mere
+   registration. It reports rather than blocks; `Stop`'s `additionalContext` is
+   delivered as non-error feedback with the conversation continuing, so the agent
+   gets a steerable correction. This is where the coordinated-plan carve-out
+   applies, since that path has no koto session by design.
 3. **`execute` description repair plus trigger evals.** The description is
    defective by shirabe's own published standard -- ~40 words of internal
    vocabulary, no trigger phrases -- while ten sibling skills follow the house
@@ -92,9 +118,14 @@ problem below, and it is the precondition for any future CI-side verification.
 Alongside it, define the plan-derived-PR completion property in the
 single-authority form of `references/pr-body-conformance.md`.
 
-*Defer.* The `[claude.skills]` policy surface in niwa and the `gate` rung
-(PreToolUse deny). Neither is justified until the detector produces data on how
-often adherence actually fails and on what the false-positive rate would be.
+*Defer.* The `[claude.skills]` policy surface in niwa. Validator 6 put the case
+against it plainly while arguing for its own delivery mechanism: Alternative 3's
+diagnosis is right, but its vehicle "is a new `[claude.skills]` policy system in
+niwa, which is the most machinery in the field" and collides with the
+`[workspace]` tombstone reasoning. Skill-frontmatter delivery gets the same
+enforcement grade with none of that, and reaches every shirabe adopter whether or
+not they use niwa. Revisit only if evidence shows per-repo policy variation is
+actually needed.
 
 *Two constraints bind every component.* A **coordinated-plan carve-out** is
 mandatory: `skills/execute/SKILL.md:242-246` establishes that a coordinated
@@ -159,12 +190,17 @@ the artifact the design proposes to trust.
   `remind` restates knowledge the agent already has and so fails the disqualifying
   test. Its predicate survives, strengthened to assert delegation; its
   configuration system is deferred as unjustified until data exists.
-- **Restricted-tool orchestrator** -- rejected as primary. It binds to an agent
-  definition, so it misses a human typing `/execute` entirely -- half the
-  requirement. The Bash bypass is confirmed real (deny rules "don't apply to
-  arbitrary subprocesses that read or write files indirectly"). And it is the
-  worst case under the deadlock finding: an orchestrator that can *only* proceed
-  by spawning, in a session forbidding spawning, has no legal move at all.
+- **Restricted-tool orchestrator** -- its *principle* is adopted and became the
+  primary predicate; its *vehicle* is rejected. Its advocate reached the same
+  split independently: an agent-definition tool list "misses the interactive path,
+  carries no reason string, and under a spawn-forbidding session degrades into the
+  silent Bash bypass rather than an honest stall." The substitution -- a
+  skill-scoped `PreToolUse` hook denying writes outside the R9 closed set, with a
+  reason naming the sanctioned move -- keeps the "remove the capability to
+  implement inline" insight while fixing coverage (it reaches the human path),
+  observability (it explains itself), and the deadlock (the reason can name the
+  recorded-override route). This is the single largest improvement the adversarial
+  round produced over the provisional recommendation.
 - **Conflict-surfacing protocol** -- adopted as a component, not as the mechanism.
   Its diagnosis is confirmed structurally and its cheapest piece (the ordering
   statement) has the best value-per-token in the field. It cannot stand alone: it
