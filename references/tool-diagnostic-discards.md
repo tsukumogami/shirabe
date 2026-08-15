@@ -35,10 +35,21 @@ would mean landing code that fails CI and fixing it afterward. The entry MUST be
 its own commit in that PR, so it is reviewable as a decision rather than buried
 in a diff about something else.
 
-`.github/CODEOWNERS` names an adjudicator for this file. An addition therefore
-requires that reviewer's approval rather than whoever happened to be on the PR.
-"It costs a reviewed edit" is a claim about a process, and a process with no
-owner is not a control.
+**No adjudicator is named, and that is a known gap.** "It costs a reviewed
+edit" is a claim about a process, and a process with no owner is not a control:
+today an addition needs whoever happened to be on the PR, not a reviewer who
+owns this decision. A `CODEOWNERS` entry is the obvious mechanism and was
+deliberately not added here, because this repository has no `CODEOWNERS` file
+and introducing the first one changes review mechanics repository-wide — that
+is a maintainer's decision, not a side effect of shipping a check. It also only
+binds if branch protection sets `require_code_owner_reviews`; without that the
+file is inert, which is the same silent-no-op this document exists to prevent.
+
+Until an owner is named, the enumeration is enforced mechanically (an
+unenumerated discard fails CI) and adjudicated socially (the same-PR,
+own-commit rule above keeps the decision visible in review). The mechanical
+half holds on its own. The social half is discipline, and should be read as
+discipline rather than as a gate.
 
 ## Record format
 
@@ -194,6 +205,11 @@ Six entries are enumerated so the tree is green today, and are flagged as
 discards that should be fixed rather than kept. Each carries `shirabe#279` in
 field six because each is that incident's own class: a failure that is silenced
 and then reported as success.
+
+`shirabe#279` is **closed** — it was fixed at its own call site. The citation
+names the canonical example of the class, not open work. A reader chasing an
+entry here should read #279 for what the failure looks like and then fix the
+site named in field one, which is still live.
 
 - **`skills/execute/scripts/run-cascade.sh`, the three `git add` sites.** All
   three append to `STAGED_FILES` and record the step as `"ok"` unconditionally.

@@ -1701,11 +1701,23 @@ earlier draft, demanded nothing of the file that actually gates CI. That is clos
 the same way the sibling file closes it. Every record carries a justification
 field and a mandatory issue or incident citation, so an exemption with nothing
 behind it fails the scan rather than a reviewer's memory.
-`references/tool-diagnostic-discards.md` gets a `CODEOWNERS` entry naming its
-adjudicator, because "it costs a reviewed edit" is a claim about a process, and a
-process with no owner is not a control. A new entry may land in the same PR as the
-code it exempts -- splitting them would mean landing code that fails CI -- but it
-must be its own commit, so it is reviewable as a decision rather than buried.
+The design called for `references/tool-diagnostic-discards.md` to get a
+`CODEOWNERS` entry naming its adjudicator, because "it costs a reviewed edit" is
+a claim about a process, and a process with no owner is not a control. A new
+entry may land in the same PR as the code it exempts -- splitting them would
+mean landing code that fails CI -- but it must be its own commit, so it is
+reviewable as a decision rather than buried.
+
+**Shipped without the CODEOWNERS entry.** This repository has no `CODEOWNERS`
+file, and introducing the first one changes review mechanics repository-wide,
+which is a maintainer's decision rather than a side effect of shipping this
+check. The entry also only binds when branch protection sets
+`require_code_owner_reviews`; without that it is inert, which is the same
+silent no-op the enumeration exists to prevent. The mechanical half of the
+control shipped and holds on its own -- an unenumerated discard fails CI. The
+adjudication half is currently reviewer discipline, and
+`references/tool-diagnostic-discards.md` says so in its own words rather than
+claiming an owner it does not have.
 
 The failure mode this leaves open is a reviewer approving an entry they did think
 about and got wrong, which is the same failure mode every allowlist has and which
