@@ -354,16 +354,23 @@ fresh-path parity is verifiable by inspection. R5's read-side validation becomes
 structural rather than a shell idiom the agent could omit.
 
 **Negative.** The change now spans the template's state definitions as well as
-the directive prose, so a reviewer reads both. A failed gate reports as a bare
-exit code with no message, so an operator who ignores the directive's stdout
-diagnostic sees a stuck state without a stated reason. And the fresh path, which
+the directive prose, so a reviewer reads both. And the fresh path, which
 previously could advance with a broken context store, now cannot — intended, but
 a behaviour change on a path the PRD otherwise freezes.
 
-**Mitigations.** The directive prose names the gate and what to check when the
-state will not advance, in the shape `worktree_discipline_check` already uses for
-its own gate. The round-trip test pins both the positive and the negative case, so
-a later edit that removes the gate or unanchors its pattern fails a test.
+**A correction to an earlier draft of this section.** It claimed a failed gate
+reports as a bare exit code with no message, generalizing from the note
+`worktree_discipline_check` carries about its own `command` gate. That note is
+specific to command gates, whose output koto discards. A `context-matches` gate
+reports itself: the held submission returns `"advanced": false` with a
+`blocking_conditions` entry naming `settled_branch_recorded` and `"matches":
+false`. The design is better than the draft assumed, and the directive says so
+instead of sending the operator to guess.
+
+**Mitigations.** The directive prose names the gate and what the held submission
+looks like. The round-trip test pins the positive case, the two negative cases,
+and the anchoring, so a later edit that removes the gate, drops a `when`
+reference, or unanchors the pattern fails a test rather than a production run.
 
 **Sweep result (PRD R7).** Recorded here as the durable home for the audit.
 koto's context group is `add`, `get`, `exists`, `list` and nothing else, so the

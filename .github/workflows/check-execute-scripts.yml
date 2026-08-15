@@ -33,6 +33,28 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/preflight_test.sh
 
+      # settled-branch-record_test.sh drives real koto sessions -- it asserts
+      # that orchestrator_setup's gate holds the state when the settled branch
+      # was not recorded, which cannot be checked without the engine that
+      # evaluates the gate. koto arrives through the project tool manifest, the
+      # same way validate-templates.yml gets it.
+      - name: Install tsuku (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://get.tsuku.dev/now | bash
+          echo "$HOME/.tsuku/bin" >> $GITHUB_PATH
+          echo "$HOME/.tsuku/tools/current" >> $GITHUB_PATH
+
+      - name: Install project tools (Linux)
+        if: runner.os == 'Linux'
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y
+
+      - name: Run settled-branch-record tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/settled-branch-record_test.sh
+
       # The macOS leg is the floor check, and until now it was not one: it
       # invoked `bash`, which resolves to whatever the runner image has on
       # PATH, so a post-3.2 construct would have passed here unnoticed. That is

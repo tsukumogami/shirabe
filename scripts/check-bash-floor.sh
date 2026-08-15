@@ -110,6 +110,10 @@ suite_scripts() {
         execute)
             echo "skills/execute/scripts/run-cascade_test.sh"
             echo "skills/execute/scripts/preflight_test.sh"
+            # Skips cleanly when koto is absent, which it is on the macOS
+            # runner. It is here for the floor's own sake: a developer running
+            # this suite on macOS has koto, so the cases execute on 3.2 there.
+            echo "skills/execute/scripts/settled-branch-record_test.sh"
             ;;
         templates)
             echo "scripts/check-template-interpolation_test.sh"
