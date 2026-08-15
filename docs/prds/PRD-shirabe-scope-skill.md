@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Done
 problem: |
   shirabe ships `/brief`, `/prd`, `/design`, and `/plan` at the

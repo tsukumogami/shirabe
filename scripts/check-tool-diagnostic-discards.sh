@@ -24,6 +24,11 @@
 #      skills/execute/koto-templates/execute.md assigns CASCADE_STATUS and
 #      never references it in shell, but the surrounding prose instructs the
 #      agent to submit it, so the consumer is an agent reading prose.
+#      Arm 1 has the mirror-image carve-out, for the same reason and at a
+#      narrower width: an inline-code span holding ONLY a redirect shape is
+#      the document naming the shape, and is removed before the shape test.
+#      Unfenced .md lines stay in scope, because a koto template's YAML
+#      `command:` field is a real call site and is not in a fence.
 #
 # Scope rules that are stated coverage limits rather than oversights:
 #
@@ -192,11 +197,22 @@ list_files() {
 
 scan_redirects() {
   local file="$1" rel="$2"
-  local lineno=0 line
+  local lineno=0 line probe
 
   while IFS= read -r line || [ -n "$line" ]; do
     lineno=$((lineno + 1))
-    case "$line" in
+    # An inline-code span whose ENTIRE content is one of the four shapes is the
+    # document naming the redirect, not running it -- prose explaining this
+    # rule, or a template paragraph justifying the call in the block above it.
+    # It is removed before the shape test the same way `command -v <word>` is
+    # removed before the tool test: strip the text that is not a call, then
+    # judge what is left. A span with a command inside it (`foo 2>/dev/null`)
+    # keeps its redirect and is still a site, and a bare redirect outside
+    # backticks is untouched -- which is what keeps the unfenced call sites in
+    # koto-template YAML (`command: "... 2>/dev/null"`) in scope.
+    probe=$(printf '%s\n' "$line" \
+      | sed 's|`2>/dev/null`||g; s|`&>/dev/null`||g; s|`2>&1 >/dev/null`||g; s|`>/dev/null 2>&1`||g')
+    case "$probe" in
       *'2>/dev/null'*|*'&>/dev/null'*|*'2>&1 >/dev/null'*|*'>/dev/null 2>&1'*) ;;
       *) continue ;;
     esac

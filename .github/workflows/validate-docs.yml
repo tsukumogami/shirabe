@@ -98,3 +98,68 @@ jobs:
             --visibility=${{ github.repository_visibility }} \
             ${CUSTOM_STATUSES:+--custom-statuses="$CUSTOM_STATUSES"} \
             $FILES
+
+      - name: Verify the fold record
+        # A /scope absorb deletes a chain document and records the fold in
+        # docs/folds.md. This asserts the record kept up.
+        #
+        # It triggers on a FOLD SIGNATURE, not on deletion. A chain document
+        # being deleted is ordinary housekeeping -- superseded roadmaps have
+        # been removed from this repository with no fold involved -- and a
+        # deletion-triggered check would fail that in every repo pinning this
+        # workflow. The signature is a deleted chain document PLUS an
+        # absorbed: declaration naming its path added in the same diff. That
+        # couples this check to the declaration, which is deliberate: the
+        # declaration is what makes a deletion a fold.
+        run: |
+          set -uo pipefail
+          BASE='${{ github.event.pull_request.base.sha }}'
+          HEAD='${{ github.event.pull_request.head.sha }}'
+
+          DELETED=$(git diff --name-only --diff-filter=D "$BASE...$HEAD" \
+            | grep -E '^docs/(briefs|prds|designs)/(BRIEF|PRD|DESIGN)-[a-z0-9-]+\.md$' || true)
+
+          if [ -z "$DELETED" ]; then
+            exit 0
+          fi
+
+          # Only the added lines of the diff, so a pre-existing declaration
+          # cannot make an unrelated deletion look like a fold.
+          ADDED=$(git diff -U0 "$BASE...$HEAD" -- '*.md' | grep '^+' || true)
+
+          status=0
+          for doc in $DELETED; do
+            case "$ADDED" in
+              *"$doc"*) ;;
+              *) continue ;;   # deleted, but nothing declared absorbing it
+            esac
+
+            if ! git show "$HEAD:docs/folds.md" 2>/dev/null | grep -qF "$doc"; then
+              echo "::error::$doc was absorbed but docs/folds.md has no row for it"
+              status=1
+              continue
+            fi
+
+            # The row's blob hash must match the artifact as it was before the
+            # fold. Recovering the pre-fold bytes needs full history, which
+            # this workflow already fetches.
+            want=$(git rev-parse "$BASE:$doc" 2>/dev/null || true)
+            row=$(git show "$HEAD:docs/folds.md" | grep -F "$doc" | head -1)
+            if [ -n "$want" ] && ! printf '%s' "$row" | grep -qF "$want"; then
+              echo "::error::$doc: fold record hash does not match the pre-fold blob ($want)"
+              status=1
+            fi
+          done
+
+          # The record is append-only. Union merge resolves silently, so a
+          # rewritten row would merge clean and nobody would see it; the
+          # pre-deletion append ordering is what makes this assertion sound.
+          if git diff --name-only "$BASE...$HEAD" | grep -qx 'docs/folds.md'; then
+            if git diff -U0 "$BASE...$HEAD" -- docs/folds.md \
+                 | grep -E '^-[^-]' | grep -q '|'; then
+              echo "::error::docs/folds.md rows were removed or rewritten; the record is append-only"
+              status=1
+            fi
+          fi
+
+          exit "$status"

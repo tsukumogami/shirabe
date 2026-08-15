@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Current
 problem: |
   After a plan's implementation completes, a sequence of artifact lifecycle

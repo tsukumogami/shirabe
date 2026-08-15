@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Current
 problem: |
   /explore dispatches research agents to investigate topics, but its framing is always

@@ -1,9 +1,38 @@
 name: Check PLAN docs
 
+# Pre-flight for changed PLAN documents. This used to call a bash pre-flight
+# validator under skills/plan/scripts/ that duplicated most of
+# `shirabe validate` and contradicted the lifecycle check about which
+# status a PLAN's upstream may hold. The script accepted an upstream at
+# `Accepted` and rejected one at `Current`; the lifecycle check did the
+# reverse on both, and both ran on the same pull request. One implementation
+# answers that question now, and it is the lifecycle model's.
+#
+# Two invocations, because they answer two different questions:
+#
+#   shirabe validate <plan>                  frontmatter, structure, and R6
+#                                            upstream resolution (exists, is
+#                                            tracked, is not a symlink, does
+#                                            not escape the tree).
+#   shirabe validate --lifecycle-chain       whether the PLAN's upstream is at
+#                                            a status a PLAN may be built from.
+#
+# Exit codes are the shared contract in docs/guides/multi-consumer-cli-contract.md:
+# 0 clean, 1 tool error, 2 violations, 3 I/O, 4 incomplete. Anything non-zero
+# fails the job. A 4 in particular means the document was accepted and then not
+# checked -- a PLAN whose `schema:` is missing or wrong -- which is the gate the
+# retired script was the only thing holding.
+
 on:
   pull_request:
     paths:
       - 'docs/plans/PLAN-*.md'
+      # The validator itself decides these verdicts now, so a crate change can
+      # alter this job's result without touching a file under docs/.
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
 
 jobs:
   validate-plan-docs:
@@ -13,6 +42,26 @@ jobs:
         with:
           fetch-depth: 0
 
+      # SHA pin for dtolnay/rust-toolchain@stable, matching build-and-test.yml.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Cache cargo
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build shirabe
+        run: |
+          cargo build --release --bin shirabe
+          install -m 0755 target/release/shirabe /usr/local/bin/shirabe
+
       - name: Validate changed PLAN docs
         run: |
           BASE_REF="${{ github.event.pull_request.base.sha }}"
@@ -20,7 +69,10 @@ jobs:
           while IFS= read -r plan_file; do
             if [[ -f "$plan_file" ]]; then
               echo "Validating: $plan_file"
-              bash skills/plan/scripts/validate-plan.sh "$plan_file" || FAILED=1
+              shirabe validate "$plan_file" \
+                --visibility=${{ github.repository_visibility }} || FAILED=1
+              shirabe validate --lifecycle-chain "$plan_file" \
+                --visibility=${{ github.repository_visibility }} || FAILED=1
             fi
           done < <(git diff --name-only "$BASE_REF"...HEAD -- 'docs/plans/PLAN-*.md')
           exit $FAILED

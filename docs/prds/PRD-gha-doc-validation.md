@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Done
 problem: |
   Repos using shirabe's doc formats have no way to enforce structural correctness

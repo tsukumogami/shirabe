@@ -474,11 +474,10 @@ it what was being lost.
 One mechanism follows from that, and only one. **The
 consolidation judgment** (Phase 2) reduces the set after the
 fact. It reads two written bodies and asks whether the upstream
-does work the downstream does not. It can only absorb where the
-downstream type's required sections have a home for every one of
-the upstream's, so absorbing never discards content or invents
-somewhere to put it. Nothing else in a `/scope` run removes a
-document.
+holds anything beyond its contribution that folding would lose.
+Where it does not, the upstream's contribution is carried into the
+survivor as one compact section and the upstream is removed.
+Nothing else in a `/scope` run removes a document.
 
 A briefly-shipped revision of this skill also let Phase 1 choose
 an entry altitude for the chain. It was withdrawn. The question it
@@ -489,15 +488,19 @@ decision that shrank the artifact set before any artifact existed,
 and having two reduction mechanisms fire at different times meant
 neither read as the rule.
 
-**A shorter chain is reached by invoking a child directly.**
-`/design <topic>` and `/plan <topic>` enter the tactical chain
-above `/brief`, which is what CLAUDE.md already tells authors to
-do when they know the altitude they want. `/scope` means "walk the
-whole chain." The consequence is that a `/scope` run ends with
-either all four artifacts or the chain minus an absorbed BRIEF,
-since no hop above BRIEF-to-PRD is absorbable — and, because the
-PLAN is deleted once its work is implemented, that a `/scope` run
-always leaves something durable behind.
+**A shorter chain is still reached by invoking a child
+directly.** `/design <topic>` and `/plan <topic>` enter the
+tactical chain above `/brief`, which is what CLAUDE.md tells
+authors to do when they know the altitude they want. `/scope`
+means "walk the whole chain."
+
+What it no longer means is a fixed outcome. Every hop is
+decidable, so a run ends with all four artifacts, or some, or —
+once the PLAN is implemented and deleted — none. Which one is
+decided per hop against the two documents at that hop, not chosen
+in advance by the author and not fixed by the types involved.
+There is no durable-artifact floor; the prohibition on
+reintroducing one lives beside the judgment in Phase 2.
 
 Anything held back for any other reason is re-entry protection —
 a settled artifact is already on disk and re-running would clobber
@@ -507,33 +510,48 @@ again.
 ## Consolidation Judgment
 
 After each child returns and its artifact validates, Phase 2
-compares that artifact against the nearest surviving durable
-artifact this chain produced above it and reaches one of two
-verdicts:
+judges the hop this run drew — the artifact that just landed
+against the artifact this run handed it as its invocation
+argument — and reaches one of two verdicts:
 
-- **`keep`** — both artifacts stay. Either the hop is not
-  absorbable, or the upstream does work the downstream does not.
-- **`absorb`** — the upstream's durable content is confirmed
-  present in the downstream artifact, section by section, and the
-  upstream is then removed and every link to it re-pointed.
+- **`keep`** — both artifacts stay. Either something else still
+  cites the upstream, or the upstream holds work the downstream
+  does not.
+- **`absorb`** — the upstream's contribution is carried into the
+  survivor, the upstream is removed, every link to it re-pointed,
+  and the fold recorded.
 
-Absorption is available only where a total mapping exists from the
-upstream type's required sections into the downstream type's.
-Against the current formats that is BRIEF into PRD alone: a PRD
-has a home for a BRIEF's problem, outcome, journeys, and boundary,
-while a DESIGN has none for a PRD's requirements or acceptance
-criteria, and a PLAN has none for a DESIGN's decisions or
-architecture.
+The judgment fires only when both endpoints of that edge appear in
+`chain_ran:`. An artifact held back by re-entry protection was
+never a party to a judgment.
 
-Before any deletion, a per-section carry check records where each
-of the absorbed artifact's concerns landed. A section that did not
-arrive aborts the absorb and leaves both artifacts in place — the
-check is the receiving mechanism, and an absorb without one is a
-recommendation that nothing confirms.
+Absorbability is decided against the two documents, never against
+their types. Each type declares one contribution to the chain, and
+a survivor carries each absorbed ancestor's contribution as one
+section immediately after `## Status`, in chain order, declared in
+its `absorbed:` frontmatter. So there is no hop the types make
+impossible: the question is only ever whether this upstream holds
+something beyond its contribution that folding would lose.
 
-The mechanism, the mapping table, the carry-check schema, and the
-re-point rule live in the Consolidation Judgment section of
-`skills/scope/references/phases/phase-2-chain-orchestration.md`.
+Two things bound the judgment. Its first stage — a citation
+preflight that refuses a fold anything else still cites by path —
+can reach no outcome stronger than `keep`. And no check anywhere
+in the judgment may read either type's required-section list or
+compare the two types' section sets; the test for a violation is
+that a condition refusing one pair while permitting its structural
+twin under identical repository state is a type rule.
+
+Before any deletion, a carry check itemizes where each of the
+absorbed artifact's concerns landed, including every contribution
+the ancestor itself carried. Anything that did not arrive aborts
+the absorb and leaves both artifacts in place — the check is the
+receiving mechanism, and an absorb without one is a recommendation
+that nothing confirms.
+
+The full nine-step procedure, its rollback table, the firing
+condition, the record, and the prohibition on reintroducing a
+durable-artifact floor live in the Consolidation Judgment section
+of `skills/scope/references/phases/phase-2-chain-orchestration.md`.
 
 ## Three Exit Paths
 
@@ -677,7 +695,11 @@ check code, so it is not prepended again) so the author sees which
 check failed in plain terms; **1 (tool-error)** is a validator
 failure DISTINCT from a content violation (the validator could
 not run, or was invoked wrongly) and halts without reporting a
-document violation, surfacing the captured stderr.
+document violation, surfacing the captured stderr;
+**4 (incomplete)** means the validator accepted the intermediate
+and then did not check it (its `schema:` is missing or out of
+range) and halts, surfacing the envelope's `skipped` entries —
+also not a content violation, because the content was never read.
 `/scope` does NOT auto-fix validator failures and does NOT
 re-implement the validator's checks — only the consumption
 mechanism changed (envelope-presence precedence, then the
@@ -772,16 +794,57 @@ surfaces enumerated in
 re-validation on resume, closed write-target set, state-file enum
 re-validation, stale `parent_orchestration:` self-heal, visibility
 boundary, and no untrusted-input interpolation. `/scope` v1 binds
-to public-repo tactical chains exclusively; the closed write-target
-set is the concrete enumeration in the pattern reference applied
-to `/scope`'s chain shape (Decision Records under
-`docs/decisions/`, the terminal PLAN under `docs/plans/`, force-
-materialized partials under `docs/{briefs,prds,designs}/`, the
-consolidation judgment's deletion of an absorbed artifact under
-`docs/briefs/`, and state-file plus child-wip cleanup under
-`wip/`). The absorbed artifact's path is composed from the
-validated topic slug, never from author-supplied text, so the
-write-target set stays closed and enumerable. The `--upstream`
+to public-repo tactical chains exclusively. This is the
+authoritative declaration of the closed write-target set; the
+Phase 3 reference restates it and must not diverge from it.
+
+**Deletions**, by Phase 2's absorb:
+
+- `docs/briefs/BRIEF-<topic>.md`
+- `docs/prds/PRD-<topic>.md`
+- `docs/designs/DESIGN-<topic>.md`
+
+The PLAN is never a deletion target of a fold. At the terminal hop
+it is the *survivor*; the implementation cascade deletes it later,
+outside `/scope`.
+
+**Mutations**, by Phase 2's absorb — the survivor, at whichever hop:
+
+- `docs/{prds,designs,plans}/{PRD,DESIGN,PLAN}-<topic>.md`
+
+`docs/plans/` belongs in that list precisely because the PLAN is the
+survivor at the terminal hop and takes four writes there: the
+`upstream:` splice, the `absorbed:` declaration, the `## Status`
+line, and the contribution section. Phase 3 still does not *write*
+the PLAN — `/plan` produces it — and Phase 2's absorb does; naming
+the phase is what makes both true at once.
+
+**Append**, by Phase 2's absorb:
+
+- `docs/folds.md` — a fixed constant with nothing interpolated,
+  which is a stronger injection posture than the slug-composed
+  paths beside it. Enumerated here and carved out of Phase 4's
+  sweep, so it is a known target that is never swept.
+
+**Phase 3 and Phase 4**, unchanged: Decision Records under
+`docs/decisions/`, force-materialized partials under
+`docs/{briefs,prds,designs}/` on `abandonment-forced`, and
+state-file plus child-wip cleanup under `wip/`.
+
+Three corrections are folded into that enumeration, each a
+pre-existing defect rather than a consequence of this change. The
+deletion set named `docs/briefs/` alone, which was the type-level
+floor written into the security surface: an absorb removing a PRD
+or a DESIGN would have failed the hard-finalization check for a
+reason unrelated to safety. The `docs/{briefs,prds,designs}/` entry
+was gated on `abandonment-forced` only, so the existing `upstream:`
+re-point's mutation of the survivor was *already* outside the set.
+And this file and the Phase 3 reference disagreed about whether the
+PLAN was a Phase 3 write target.
+
+Every path above is composed from the validated topic slug or is a
+fixed constant, never from author-supplied text, so the set stays
+closed and enumerable. The `--upstream`
 value does not widen the set: it is a read target only —
 validated, recorded, handed to a child — and is never written to.
 Future cross-visibility extension MUST re-state placement

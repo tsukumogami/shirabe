@@ -17,19 +17,25 @@
 # independent release cadence, so its record names the tool alone and multi-pr
 # cannot change what verifying it means.
 #
-# jq backs build-dependency-graph.sh (Phase 5) and create-issues-batch.sh;
-# python3 is the portable realpath in validate-plan.sh; git backs the same
-# script's tracked-file test and the Phase 7 wip-hygiene scan.
+# jq backs build-dependency-graph.sh (Phase 5), create-issues-batch.sh, and the
+# outline-envelope read in plan-to-tasks.sh; git backs the Phase 7 wip-hygiene
+# scan and the same script's repo-root resolution.
 #
-# The `shirabe validate --lifecycle` and `--lifecycle-chain` lines in SKILL.md
-# describe the CI workflow and the /execute cascade. /plan does not run either.
-# Nothing mechanical separates that documentation from a call site, so both are
-# exempted by name for scripts/check-skill-requires.sh; an exemption that stops
-# matching its line fails as stale.
+# `shirabe validate --lifecycle-chain` is a call /plan makes: Phase 7 runs it
+# over the finished PLAN to decide whether the upstream is at a status a PLAN
+# may be built from. That check used to live in skills/plan/scripts/validate-plan.sh,
+# which is why python3 (its portable realpath) was declared here; the script is
+# gone and the validator owns the rule, so the record went with it.
+#
+# The `shirabe validate --lifecycle` line in SKILL.md describes the CI
+# workflow, which /plan does not run. Nothing mechanical separates that
+# documentation from a call site, so it is exempted by name for
+# scripts/check-skill-requires.sh; an exemption that stops matching its line
+# fails as stale.
 #not-a-call-site	skills/plan/SKILL.md	shirabe	--lifecycle	Documents the validator's whole-tree mode, which CI runs; /plan does not.
-#not-a-call-site	skills/plan/SKILL.md	shirabe	--lifecycle-chain	Documents the validator's chain-targeted mode, which the /execute cascade runs; /plan does not.
+#not-a-call-site	skills/plan/scripts/plan-to-tasks.sh	shirabe	--release	cargo's build flag, quoted in the "shirabe binary not found" message; not a shirabe flag.
 shirabe	transition	-	always
+shirabe	validate	--lifecycle-chain	always
 gh	-	-	always
 jq	-	-	always
 git	-	-	always
-python3	-	-	always

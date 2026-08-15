@@ -567,7 +567,8 @@ the execution mode is known -- so multi-pr cannot be what makes `gh` needed.
 Multi-pr in Phase 7 does reach more `gh` subcommands (issue creation,
 labelling, milestone work), but `gh` has an independent release cadence, so its
 record names the tool alone and is satisfied identically either way. The rest
--- `shirabe transition`, `jq`, `git`, `python3` -- back scripts both modes run.
+-- `shirabe transition`, `shirabe validate`, `jq`, `git` -- back scripts and
+steps both modes run.
 
 A mode-scoped record exists only where a mode changes which tool is needed, or
 changes a first-party subcommand or flag. Neither happens here, so there is

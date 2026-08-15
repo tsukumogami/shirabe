@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Done
 problem: |
   As the single-issue executor, `/work-on` decides one issue is done by the agent's own

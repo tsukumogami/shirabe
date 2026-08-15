@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Done
 problem: |
   `/scope` and `/work-on` operate one repository at a time. When an effort spans

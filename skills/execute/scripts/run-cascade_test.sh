@@ -419,6 +419,66 @@ commit_all() {
 }
 
 # ── Scenario 1: DESIGN → ROADMAP (short chain, no PRD) ───────────────────────
+# ── PLAN → ROADMAP with no DESIGN (the chain folded everything away) ─────────
+scenario_plan_roadmap_no_design() {
+    local scenario="Scenario: PLAN→ROADMAP, no DESIGN (folded chain)"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    # /scope's judgment can absorb at any hop, so a chain can reach the cascade
+    # with no DESIGN: it folded into the PLAN, which this cascade then deletes.
+    # The roadmap's **Downstream:** line must not be left pointing at a document
+    # that no longer exists.
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+
+    commit_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md")
+
+    local ok=true
+
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "cascade_status is completed with no DESIGN in the chain" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_plan" and .status == "ok")] | length == 1' \
+        "delete_plan ok" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_design")] | length == 0' \
+        "no transition_design step (no DESIGN in chain)" || ok=false
+
+    # The assertion this scenario exists for. The fixture's Downstream line
+    # starts out naming the PLAN. With a DESIGN in the chain the cascade
+    # rewrites it to name the DESIGN at Current. With no DESIGN, the old code
+    # fell through to a bare print and left the line naming the PLAN -- which
+    # this same cascade then deletes. That is a dangling reference nothing
+    # downstream catches: the doc validator is diff-scoped, and this line's
+    # bytes do not change when its target disappears.
+    local downstream
+    downstream=$(grep -m1 '^\*\*Downstream:\*\*' \
+        "$repo/docs/roadmaps/ROADMAP-cascade-test.md" || true)
+
+    if printf '%s' "$downstream" | grep -qE 'PLAN-|DESIGN-'; then
+        fail "$scenario: roadmap Downstream points at a deleted artifact: $downstream"
+        ok=false
+    else
+        pass "$scenario: roadmap Downstream points at no deleted artifact"
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 scenario_design_roadmap() {
     local scenario="Scenario 1: DESIGN→ROADMAP"
     echo "Running $scenario..."
@@ -1508,6 +1568,8 @@ scenario_check_issue_closed_sibling_repo
 cd "$ORIG_DIR"
 
 scenario_fail_open_note_surfaced
+
+scenario_plan_roadmap_no_design
 cd "$ORIG_DIR"
 
 echo ""

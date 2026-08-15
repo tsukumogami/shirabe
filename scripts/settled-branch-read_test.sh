@@ -230,11 +230,20 @@ assert_eq "the branch-name sanitizer survives at both sites" 2 "$SANITIZERS"
 #
 # Last, and on its own, because it is the weakest assertion in the file: the
 # redirect was never the mechanism, so its absence proves nothing by itself.
+#
+# It is anchored on the SETTLED_BRANCH assignment rather than on the redirect,
+# and that is the whole of its precision. orchestrator_setup's recording block
+# reads the key straight back through `RECORDED=$(koto context get ...
+# 2>/dev/null)` to verify the write took, and there the redirect is fine: the
+# string comparison on the next line, not the presence of an error message, is
+# what decides. A pattern that only asked whether `koto context get
+# settled_branch 2>/dev/null` appears anywhere would fail on that verifying read
+# and say nothing about the two sites this file is actually about.
 
-if grep -q 'koto context get .* settled_branch 2>/dev/null' "$TEMPLATE"; then
-    bad "the 2>/dev/null || echo shape is still present"
+if grep -q 'SETTLED_BRANCH=\$(koto context get .* settled_branch 2>/dev/null' "$TEMPLATE"; then
+    bad "the 2>/dev/null || echo shape is still present at a spawn_and_await read"
 else
-    ok "the inert 2>/dev/null || echo shape is gone"
+    ok "the inert 2>/dev/null || echo shape is gone from both spawn_and_await reads"
 fi
 
 echo

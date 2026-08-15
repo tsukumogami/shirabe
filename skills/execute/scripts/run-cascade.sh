@@ -436,6 +436,19 @@ handle_roadmap() {
     ' "$path" > "$tmp" && mv "$tmp" "$path"
 
     # Update **Downstream:** to reference the DESIGN doc at Current using ENVIRON (not -v)
+    #
+    # A chain need not leave a DESIGN behind. /scope's consolidation judgment can
+    # absorb at any hop, so the DESIGN may have folded into the PLAN, which this
+    # cascade then deletes. When that happens there is no reference to point at.
+    #
+    # The old branch fell through to a bare `print`, leaving whatever the line
+    # already said. If it named a DESIGN the fold deleted, the dangling reference
+    # survived -- silently, because nothing downstream resolves this field: the
+    # doc validator's diff-scoped run never sees a document whose bytes did not
+    # change, and this line's target vanishing does not change its bytes.
+    #
+    # So say the chain completed with nothing durable, rather than leaving a
+    # pointer to a file that is gone.
     local design_ref=""
     if [[ -n "${CASCADE_DESIGN_PATH:-}" ]]; then
         design_ref=$(basename "$CASCADE_DESIGN_PATH")
@@ -449,7 +462,7 @@ handle_roadmap() {
             if (ref != "") {
                 print "**Downstream:** " ref " (Current)"
             } else {
-                print
+                print "**Downstream:** _none (chain folded; see docs/folds.md)_"
             }
             next
         }

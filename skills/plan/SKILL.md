@@ -327,10 +327,10 @@ unreachable.
    parent skill so a standalone `/plan` runs it too.
 
 **Quote it and pass it after `--` in every command it reaches.** The value flows
-into `git ls-files` in the Phase 7 hygiene step and in `validate-plan.sh`; both
-pass it after `--` so neither a leading dash nor a shell metacharacter in a
-filename can change what runs. Validation is not the guarantee -- the argument
-boundary is.
+into `git ls-files` in the Phase 7 hygiene step and inside `shirabe validate`'s
+own `R6` upstream resolution; both pass it after `--` so neither a leading dash
+nor a shell metacharacter in a filename can change what runs. Validation is not
+the guarantee -- the argument boundary is.
 
 #### 2. Detect Visibility
 

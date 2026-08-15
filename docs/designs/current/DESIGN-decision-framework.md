@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Current
 problem: |
   Shirabe's workflow skills make decisions at 39 blocking points across 5 skills,

@@ -51,8 +51,33 @@ state-schema reference).
   protection (output of Phase 1's chain-proposal). There is no
   field recording where the chain starts, because it always starts
   at `brief`.
-- **`chain_ran`** — list of child names whose invocations
-  completed.
+- **`chain_ran`** — list of children whose invocations completed,
+  each with the timestamp its invocation began:
+
+  ```yaml
+  chain_ran:
+    - name: brief              # brief | prd | design | plan
+      started_at: <ISO-8601 timestamp>
+  ```
+
+  Written by Phase 2's child-invocation loop, in the same step that
+  captures the child snapshot. That is the field's only write site,
+  and until this change it had none — the field was specified here
+  and read in four places by Phase 3 (R9 Part 3's chain-membership
+  gate, the PR-body record, the R8 tie-break, and
+  `plan_execution_mode:`'s presence condition) while nothing
+  appended to it.
+
+  `started_at` is not decoration. Phase 3's R8 tie-break already
+  resolves the most-recently-running child from these timestamps,
+  a claim this schema previously contradicted by declaring a bare
+  name list.
+
+  Entry names are re-validated against `{brief, prd, design, plan}`
+  before use, because the consolidation judgment's firing condition
+  reads this field. That promotes it from bookkeeping to a gate on
+  a destructive operation, and a tampered entry would otherwise put
+  a document this run did not produce on the deletion path.
 - **`chain_skipped`** — list of `{name, reason}` entries for
   children held back by re-entry protection (e.g. `/prd` when an
   Accepted PRD already exists at the canonical path, per the
@@ -72,20 +97,42 @@ state-schema reference).
   ```yaml
   consolidation_judgments:
     - hop: brief->prd            # <upstream-type>-><downstream-type>
-      absorbable: true           # is the required-section mapping total?
+      stage: carry               # preflight | judgment | carry
       verdict: absorb            # absorb | keep
       carry_check:               # present only when verdict is absorb
         <upstream section>: {target: <downstream section>, carried: <bool>}
       absorbed: docs/briefs/BRIEF-<topic>.md   # present on a completed absorb
       into: docs/prds/PRD-<topic>.md           # present on a completed absorb
       finding: <free text>       # why keep, or which section failed to carry
+      reverted: true             # present only when a completed absorb was rolled back
   ```
 
-  A `keep` entry carries `hop`, `absorbable`, `verdict`, and
-  `finding`. An aborted absorb is recorded as `verdict: keep`
-  with the carry check that failed, so the abort is auditable
-  rather than indistinguishable from a judgment that never
-  considered absorbing.
+  A `keep` entry carries `hop`, `stage`, `verdict`, and `finding`.
+  An aborted absorb is recorded as `verdict: keep` with the carry
+  check that failed, so the abort is auditable rather than
+  indistinguishable from a judgment that never considered
+  absorbing.
+
+  `stage:` names where the verdict settled: `preflight` when the
+  citation guard refused, `judgment` when the content question
+  reached `keep`, `carry` when the carry check decided. It replaces
+  a boolean `absorbable:` that asked whether the required-section
+  mapping was total — the type-level question the judgment no
+  longer asks, and which under the current rule would be `true` at
+  every hop it could ever be written. The replacement is strictly
+  more informative: it answers the question a reader of the PR body
+  actually has, which is *why* this hop landed where it did.
+
+  Retiring it costs no migration. The absorb procedure has never
+  completed a run in this repository — no BRIEF has ever been
+  deleted — so there are no entries on disk carrying the old field.
+
+  `reverted:` marks an absorb that completed and was then rolled
+  back by the post-absorb re-validation. It is not a third verdict:
+  the verdict is `keep`, because nothing was ultimately removed. The
+  flag exists so a reverted fold is distinguishable from one that
+  aborted before mutating, which is a different and much less
+  interesting event.
 - **`boundary`** — conditional on `exit: re-evaluation`. Values:
   `prd | design`. Discriminates which upstream boundary the
   Decision Record attaches to. Gated per the state-schema

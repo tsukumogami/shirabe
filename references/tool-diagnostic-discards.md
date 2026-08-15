@@ -175,6 +175,19 @@ in the `transition_prd` and `transition_brief` arms. 23 entries in 21 records,
 not 22. Recorded here rather than reconciled, because the count field carries
 the difference and the scan checks it.
 
+The seed is a seed and the tree moved under it. The scan reports its own
+current numbers on every clean run -- **26 sites in 24 records** as this is
+written -- and that line, not the table above, is the figure to trust. The
+three-site delta is the whole of it: `shirabe validate` absorbed the
+upstream-status rule and `skills/plan/scripts/validate-plan.sh` went with its
+two records; `skills/execute/koto-templates/execute.md` gained the
+`koto context add` write and its verifying read; `skills/plan/scripts/plan-to-tasks.sh`
+gained the repo-root probe and the outline-envelope parse; and
+`skills/scope/scripts/check-citations.sh` arrived with a work-tree predicate.
+The paragraph in `execute.md` that *explains* those two koto redirects is not
+among them: it names the shape inside backticks and runs nothing, which the
+redirect arm's inline-code carve-out is there to tell apart.
+
 ## Flagged for remediation
 
 Six entries are enumerated so the tree is green today, and are flagged as
@@ -206,6 +219,8 @@ and then reported as success.
 #schema	tool-diagnostic-discards/v1
 #path	command	count	exit-status	justification	citation
 skills/execute/koto-templates/execute.md	git checkout impl/$PLAN_SLUG 2>/dev/null || git checkout -b impl/$PLAN_SLUG	1	1	Branch-existence probe: exit 1 means the shared branch does not exist yet and the -b fallback creates it, reaching the same end state.	PLAN-skill-preflight-checks.md#issue-17
+skills/execute/koto-templates/execute.md	printf '%s' "$SETTLED_BRANCH" | koto context add {{SESSION_NAME}} settled_branch 2>/dev/null	1	1,2	Silences koto's migration-skipped noise on stderr; the read-back comparison on the next line, not the absence of an error, is what decides whether the record took.	shirabe#306
+skills/execute/koto-templates/execute.md	RECORDED=$(koto context get {{SESSION_NAME}} settled_branch 2>/dev/null)	1	3	Same noise suppression on the verifying read; koto writes its key-absent payload to stdout, so the string comparison still sees the failure and the block exits 1 with a stdout diagnostic.	shirabe#306
 skills/execute/koto-templates/execute.md	git push -u origin impl/$PLAN_SLUG 2>/dev/null || true	1	1,128	Re-run path expects an already-tracked branch to reject the push, but the guard also swallows a real push failure.	shirabe#279
 skills/execute/scripts/run-cascade.sh	state=$(gh issue view "$number" --repo "$owner/$repo" --json state --jq '.state' 2>/dev/null) || {	1	1	Handled: the block logs a named warning and returns 1, so an unreachable issue is reported rather than treated as closed.	PLAN-skill-preflight-checks.md#issue-17
 skills/execute/scripts/run-cascade.sh	finding_count=$(jq -r '.findings | length' <<< "$output" 2>/dev/null) || finding_count=""	2	5	The captured output is not guaranteed to be JSON; a parse failure sets the empty sentinel the very next conditional tests for.	PLAN-skill-preflight-checks.md#issue-17
@@ -214,6 +229,8 @@ skills/execute/scripts/run-cascade.sh	git add "$new_path" 2>/dev/null || git add
 skills/execute/scripts/run-cascade.sh	git add "$target" 2>/dev/null || true	2	128	Staging a path finalize-chain just reported, where a failure is silenced and the step is still recorded ok.	shirabe#279
 skills/execute/scripts/run-cascade.sh	errmsg=$(echo "$FINALIZE_ERR" | jq -r '.error // empty' 2>/dev/null) || errmsg=""	1	5	The captured stderr may not be JSON; the empty sentinel routes to the head -1 fallback that prints the raw text instead.	PLAN-skill-preflight-checks.md#issue-17
 skills/plan/scripts/build-dependency-graph.sh	if ! echo "$input" | jq -e 'type == "array"' >/dev/null 2>&1; then	1	1,5	Used as a predicate over untrusted stdin; the branch emits its own json_error naming the expected shape.	PLAN-skill-preflight-checks.md#issue-17
+skills/plan/scripts/plan-to-tasks.sh	root=$(git rev-parse --show-toplevel 2>/dev/null) || root=""	1	128	Repo-root probe inside resolve_shirabe_bin: outside a repo there is no target/ to look in, the empty sentinel skips both probes, and the caller's die_input names every way to supply the binary.	PLAN-skill-preflight-checks.md#issue-17
+skills/plan/scripts/plan-to-tasks.sh	schema=$(printf '%s' "$envelope" | jq -r '.schema // empty' 2>/dev/null) || schema=""	1	5	The envelope is not guaranteed to be JSON; the empty sentinel fails the very next schema comparison, which reports the version skew by name.	PLAN-skill-preflight-checks.md#issue-17
 skills/plan/scripts/create-issues-batch.sh	repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)	1	1	Handled: the next conditional tests for an empty result, logs a named error and exits 1.	PLAN-skill-preflight-checks.md#issue-17
 skills/plan/scripts/create-issues-batch.sh	2>/dev/null | jq -r --arg title "$MILESTONE" '.[] | select(.title == $title) | .number' 2>/dev/null || true)	1	1,5	Milestone-existence probe, but an API failure is indistinguishable from absence and the fallback creates a possibly-duplicate milestone.	shirabe#279
 skills/plan/scripts/create-issues-batch.sh	if gh issue edit "$github_number" --body "$body" >/dev/null 2>&1; then	1	1	Status is tested and the else branch logs the failed issue number, though gh's own reason for the failure is lost.	PLAN-skill-preflight-checks.md#issue-17
@@ -221,8 +238,7 @@ skills/plan/scripts/create-issues-batch.sh	current_body=$(gh issue view "$github
 skills/plan/scripts/render-template.sh	if ! echo "$input" | jq -e '.' >/dev/null 2>&1; then	1	5	Parse predicate over untrusted stdin; the branch emits its own json_error naming invalid JSON.	PLAN-skill-preflight-checks.md#issue-17
 skills/plan/scripts/render-template.sh	if ! echo "$input" | jq -e '.complexity' >/dev/null 2>&1; then	1	1	Field-presence predicate; jq exits 1 on a null result and the branch names the missing field.	PLAN-skill-preflight-checks.md#issue-17
 skills/plan/scripts/render-template.sh	if ! echo "$input" | jq -e '.goal' >/dev/null 2>&1; then	1	1	Field-presence predicate; jq exits 1 on a null result and the branch names the missing field.	PLAN-skill-preflight-checks.md#issue-17
-skills/plan/scripts/validate-plan.sh	repo_root=$(git -C "$(dirname "$(_realpath "$PLAN_PATH")")" rev-parse --show-toplevel 2>/dev/null) || {	1	128	Handled: the block logs which plan path failed to resolve to a repo root and exits 3.	PLAN-skill-preflight-checks.md#issue-17
-skills/plan/scripts/validate-plan.sh	if ! git -C "$repo_root" ls-files --error-unmatch -- "$upstream_val" &>/dev/null; then	1	1	Tracked-file predicate: exit 1 means untracked, and the branch prints the path plus the git add that fixes it.	PLAN-skill-preflight-checks.md#issue-17
+skills/scope/scripts/check-citations.sh	git rev-parse --is-inside-work-tree >/dev/null 2>&1 \	1	128	Work-tree predicate guarding the git grep sweep below; the || branch calls die_incomplete "not inside a git work tree", which is the actionable form of what was discarded.	PLAN-skill-preflight-checks.md#issue-17
 skills/release/SKILL.md	LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")	1	128	A repo with no matching tag yet is the expected first-release case and the empty string is the value that path wants.	PLAN-skill-preflight-checks.md#issue-17
 skills/work-on/references/scripts/extract-context.sh	if ! gh auth status &>/dev/null; then	1	1	Authentication predicate; the branch emits json_failed "gh CLI not authenticated", which is the actionable form of what was discarded.	PLAN-skill-preflight-checks.md#issue-17
 skills/work-on/references/scripts/extract-context.sh	issue_body=$(gh issue view "$issue" --json body --jq '.body' 2>/dev/null) || {	1	1	Handled: the block emits json_failed "Failed to fetch issue" and exits, so the caller gets a structured failure.	PLAN-skill-preflight-checks.md#issue-17

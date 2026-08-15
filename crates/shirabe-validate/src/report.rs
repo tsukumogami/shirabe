@@ -63,6 +63,35 @@ fn json_string(value: &str) -> String {
     out
 }
 
+/// One input the run accepted and then did not check.
+///
+/// The `reason` is the skip finding's own message, so the envelope and the
+/// findings list say the same thing about the same file rather than two
+/// independently-worded versions of it.
+pub struct SkippedInput {
+    pub file: String,
+    pub reason: String,
+}
+
+/// The inputs a run declined to check, in the order their findings were
+/// emitted.
+///
+/// This is the envelope-side companion to the incomplete run outcome: the
+/// exit code says a run declined something, and this says which and why. It
+/// is diagnosis alongside the exit code rather than instead of it — the
+/// consumer that most needs the signal (the reusable validation workflow)
+/// reads the exit code and never parses this.
+pub fn skipped_inputs(findings: &[ValidationError]) -> Vec<SkippedInput> {
+    findings
+        .iter()
+        .filter(|e| e.code == crate::checks::SCHEMA_SKIP_CODE)
+        .map(|e| SkippedInput {
+            file: e.file.clone(),
+            reason: e.message.clone(),
+        })
+        .collect()
+}
+
 /// Render the findings as the `shirabe-validate/v1` JSON envelope: a
 /// `schema_version`, a `summary` block (the outcome label plus error and
 /// notice counts), and a flat `findings` array. Each finding carries its
@@ -107,10 +136,20 @@ pub fn render_json_with_advisory(
     out.push_str(&format!("    \"notices\": {}\n", notices));
     out.push_str("  },\n");
 
-    // The findings array is emitted with a trailing comma only when an
-    // advisory block follows it, so the existing (advisory-free) bytes are
-    // unchanged while the additive block stays well-formed.
-    let findings_trailer = if advisory.is_some() { "," } else { "" };
+    // Inputs the run accepted and then did not check. Derived from the same
+    // finding vector the envelope already renders, so the array and the
+    // findings list cannot disagree about what was skipped.
+    let skipped = skipped_inputs(findings);
+
+    // The findings array is emitted with a trailing comma only when a block
+    // follows it, so the existing bytes are unchanged while the additive
+    // blocks stay well-formed.
+    let findings_trailer = if advisory.is_some() || !skipped.is_empty() {
+        ","
+    } else {
+        ""
+    };
+    let skipped_trailer = if advisory.is_some() { "," } else { "" };
 
     if findings.is_empty() {
         out.push_str(&format!("  \"findings\": []{}\n", findings_trailer));
@@ -142,6 +181,22 @@ pub fn render_json_with_advisory(
             out.push_str(close);
         }
         out.push_str(&format!("  ]{}\n", findings_trailer));
+    }
+
+    if !skipped.is_empty() {
+        out.push_str("  \"skipped\": [\n");
+        for (i, s) in skipped.iter().enumerate() {
+            out.push_str("    {\n");
+            out.push_str(&format!("      \"file\": {},\n", json_string(&s.file)));
+            out.push_str(&format!("      \"reason\": {}\n", json_string(&s.reason)));
+            let close = if i + 1 == skipped.len() {
+                "    }\n"
+            } else {
+                "    },\n"
+            };
+            out.push_str(close);
+        }
+        out.push_str(&format!("  ]{}\n", skipped_trailer));
     }
 
     if let Some(adv) = advisory {
@@ -288,6 +343,74 @@ mod tests {
         assert!(out.contains("\"severity\": \"notice\""));
         assert!(out.contains("\"errors\": 1"));
         assert!(out.contains("\"notices\": 1"));
+    }
+
+    #[test]
+    fn skipped_inputs_names_every_declined_document_and_nothing_else() {
+        let findings = vec![
+            err("a.md", 3, "FC01", "missing field"),
+            err("b.md", 1, "SCHEMA", "schema field missing, skipping"),
+            err(
+                "c.md",
+                1,
+                "SCHEMA",
+                "schema \"plan/v2\" not in supported range, skipping",
+            ),
+        ];
+        let skipped = skipped_inputs(&findings);
+        assert_eq!(skipped.len(), 2, "the FC01 finding is not a skip");
+        assert_eq!(skipped[0].file, "b.md");
+        assert_eq!(skipped[0].reason, "schema field missing, skipping");
+        assert_eq!(skipped[1].file, "c.md");
+    }
+
+    #[test]
+    fn json_emits_the_skipped_array_when_something_was_declined() {
+        let out = render_json(
+            &[err("b.md", 1, "SCHEMA", "schema field missing, skipping")],
+            "incomplete",
+            ReviewPosture::Draft,
+        );
+        assert!(out.contains("\"outcome\": \"incomplete\""));
+        assert!(out.contains("\"skipped\": ["));
+        assert!(out.contains("\"reason\": \"schema field missing, skipping\""));
+        // The skip is still a notice in the findings list; only the run
+        // outcome moved.
+        assert!(out.contains("\"severity\": \"notice\""));
+    }
+
+    #[test]
+    fn json_omits_the_skipped_array_when_nothing_was_declined() {
+        // Conditional emission is what keeps every existing envelope
+        // byte-identical, the same way the advisory block is conditional.
+        let out = render_json(
+            &[err("a.md", 3, "FC01", "missing field")],
+            "violations",
+            ReviewPosture::Draft,
+        );
+        assert!(!out.contains("\"skipped\""));
+        let clean = render_json(&[], "clean", ReviewPosture::Draft);
+        assert!(!clean.contains("\"skipped\""));
+    }
+
+    #[test]
+    fn json_stays_well_formed_with_both_skipped_and_advisory() {
+        let adv = AdvisoryReport {
+            summary: "s".to_string(),
+            notes: Vec::new(),
+        };
+        let out = render_json_with_advisory(
+            &[err("b.md", 1, "SCHEMA", "schema field missing, skipping")],
+            "incomplete",
+            ReviewPosture::Draft,
+            Some(&adv),
+        );
+        // Both additive blocks present, and the separators between the three
+        // arrays are what keeps this parseable.
+        assert!(out.contains("\"findings\": ["));
+        assert!(out.contains("\"skipped\": ["));
+        assert!(out.contains("\"advisory\": {"));
+        assert!(!out.contains(",\n}"), "no trailing comma before the close");
     }
 
     #[test]

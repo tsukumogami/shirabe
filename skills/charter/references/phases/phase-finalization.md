@@ -213,6 +213,14 @@ Procedure:
      invocation problem before retrying finalization. A run with
      no parseable envelope lands here too, via step 5, whatever
      its exit code.
+   - **4 (incomplete)** — the validator accepted the file and then
+     did not check it: the filename prefix routed it to a format
+     but its `schema:` field is missing or out of range. This is
+     not a verdict on the Draft's content either — the content was
+     never read. Halt and surface the envelope's `skipped` entries;
+     the `exit:` field stays UNSET and the author adds the
+     `schema:` field before retrying, after which the real checks
+     run and report normally.
 
 The pass-through is NOT a re-implementation of `shirabe validate`.
 `/charter` does not duplicate the validator's checks, does not

@@ -280,6 +280,26 @@ add_file 'koto-templates/execute.md' \
 enum_open; enum_close
 assert_accepts "an unread capture in a .md template is not a finding"
 
+# --- Case 16b: a backticked redirect is prose, not a call site --------------
+# skills/execute/koto-templates/execute.md explains why the two koto calls
+# above it may redirect: "appending `2>/dev/null` to a koto call is the routine
+# operator response". The paragraph names the shape and names koto, and it runs
+# nothing. The carve-out is narrow -- ONLY a span whose entire content is one
+# of the four shapes -- so the two cases below must split.
+new_fixture backticked-shape
+add_requires koto
+add_file 'koto-templates/execute.md' \
+  'Both diagnostics go to stdout, not stderr. Appending `2>/dev/null` to a koto call is the routine operator response.'
+enum_open; enum_close
+assert_accepts "a backticked-only redirect in prose naming a tool is not a site"
+
+new_fixture backticked-command
+add_requires koto
+add_file 'koto-templates/execute.md' \
+  'Read the key with `koto context get sess key 2>/dev/null` before submitting.'
+enum_open; enum_close
+assert_rejects "a backtick span holding a whole command is still a site" "is not enumerated"
+
 # --- Case 17: a capture that IS read is not a finding -----------------------
 new_fixture read-var
 add_requires jq

@@ -217,7 +217,10 @@ now). The states and their tick mechanics:
   (no second PR is opened and no distinct one is linked), the run stays on that
   **settled branch**, and the settled branch (HEAD) is recorded into a koto context
   key for `spawn_and_await`. The recovered branch is re-validated against a safe
-  ref pattern before it is stored or interpolated into emitted shell.
+  ref pattern before it is stored or interpolated into emitted shell, and the
+  `settled_branch_recorded` gate holds this state until that record verifies, so a
+  run that could not record its branch reaches `done_blocked` rather than
+  dispatching children against a branch it never settled on.
 - `spawn_and_await` — run `plan-to-tasks.sh` against the PLAN, inject `SHARED_BRANCH`
   into each task — read from the recorded settled branch with an
   `|| impl/<slug>` fallback, so the adopt/override path routes children to the settled
@@ -580,15 +583,30 @@ seed depends on what you are checking:
   (`docs/plans/PLAN-<slug>.md`). Ready posture fails `L01` (present PLAN / untransitioned
   upstream) and the guard fires (exit 2); this is the scenario R5 names.
 - **A finalized chain (CI, or a human confirming completion).** Post-finalization the
-  PLAN is **GONE** (the cascade `git rm`s it), so the seed must be the **durable surviving
+  PLAN is **GONE** (the cascade `git rm`s it), so the seed must be a **durable surviving
   anchor**: the DESIGN at its terminal `docs/designs/current/DESIGN-<slug>.md`, or the
   BRIEF/PRD at Done — **never the deleted PLAN path** (which returns `L05` / exit 2 and
   reads as a false failure). The same invocation then returns exit 0 on a complete chain
   and exit 2 on an incomplete one.
+- **A finalized chain that folded every artifact away.** `/scope`'s consolidation
+  judgment can absorb at any hop, so a chain can end with no durable artifact at all:
+  the DESIGN folded into the PLAN, and the cascade then deleted the PLAN. There is no
+  anchor to seed on, and that is **completion, not a missing seed**. Treat it as
+  complete rather than reporting `L05`.
 
-CI seeds on the surviving DESIGN anchor (always present in a finalized chain, an
-unambiguous chain root); a human investigating a suspected mid-run seeds on the
-still-present PLAN. The guard is meant to run **at finalization time**, not mid-effort —
+  Distinguishing it from a genuinely unfinalized chain is what `docs/folds.md` is for:
+  a chain that folded away leaves a row naming what was absorbed into what, and a
+  chain that never ran leaves nothing. The record is the evidence; it is not a seed,
+  and nothing here reads it to make a lifecycle decision.
+
+**`/execute` does not know what the chain decided, and must not start knowing.**
+Whether any artifact survives is `/scope`'s call, made per hop against two documents.
+This rule is written so `/execute` behaves correctly across every outcome of that call
+rather than assuming one — which is what it did when it named the DESIGN as "always
+present in a finalized chain."
+
+CI seeds on a surviving durable anchor where one exists; a human investigating a
+suspected mid-run seeds on the still-present PLAN. The guard is meant to run **at finalization time**, not mid-effort —
 a chain legitimately mid-flight has a present PLAN and reads "not done," which is
 correct but noisy if asked too early. CI gates it on a ready (non-draft) PR for exactly
 this reason (see **CI wiring** below).

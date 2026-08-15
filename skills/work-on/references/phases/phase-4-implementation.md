@@ -29,6 +29,23 @@ For each step in the plan:
 - One logical unit at a time
 - Follow project conventions
 - Keep changes focused and atomic
+- **Record why the code is shaped this way, next to the code** — the
+  decision the diff cannot show, and keep it current when the code
+  changes
+
+On that last point, because it is the one that gets skipped: a comment
+explaining *what* the code does is usually redundant with the code. A
+comment explaining *why* it is this way and not the obvious
+alternative is not recoverable from anywhere else. When you rejected an
+approach, when a constraint forced a shape, when an ordering is
+load-bearing — that reasoning exists only in your head at the moment you
+write it, and nothing downstream captures it.
+
+This holds regardless of what documents the work leaves behind. A chain
+may fold its scoping artifacts away and leave the code as the record; it
+may keep all four. Either way this instruction is the same, because the
+code is the thing that outlives every other artifact and the thing the
+next person reads first.
 
 ### B. Validate
 

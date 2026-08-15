@@ -34,6 +34,33 @@ variables:
 
 states:
   orchestrator_setup:
+    gates:
+      # The settled branch this state records is the ONLY thing that knows
+      # which branch children commit to on the adopt path, where the branch is
+      # not derivable from the PLAN's name. This gate is what makes that a
+      # guarantee rather than an instruction: with the key absent or its value
+      # malformed, neither success transition below resolves and the run cannot
+      # reach spawn_and_await, whose `|| impl/$PLAN_SLUG` fallback would
+      # otherwise hand every child a branch the adopt path never created.
+      #
+      # Two details are not stylistic:
+      #
+      #   The pattern is anchored at BOTH ends. context-matches evaluates
+      #   Regex::is_match, a substring test, so an unanchored
+      #   [A-Za-z0-9._/-]+ would pass "main; rm -rf /" because "main" matches.
+      #   The anchors are what make this a validator instead of a formality.
+      #
+      #   The gate must be referenced in a when clause to bind. A failed gate
+      #   on a state that has an `accepts` block does NOT block on its own --
+      #   it falls through to transition resolution, and a conditional
+      #   transition matching on agent evidence alone still fires. The two
+      #   `gates.settled_branch_recorded.matches` keys below are what make the
+      #   gate load-bearing; deleting them leaves a gate that is evaluated,
+      #   reported, and ignored.
+      settled_branch_recorded:
+        type: context-matches
+        key: settled_branch
+        pattern: '^[A-Za-z0-9._/-]+$'
     accepts:
       status:
         type: enum
@@ -46,9 +73,14 @@ states:
       - target: worktree_discipline_check
         when:
           status: completed
+          gates.settled_branch_recorded.matches: true
       - target: worktree_discipline_check
         when:
           status: override
+          gates.settled_branch_recorded.matches: true
+      # No gate reference here, deliberately. The failure exit must stay
+      # reachable when the context store is exactly what is broken; a run that
+      # cannot record its branch has to be able to reach a terminal state.
       - target: done_blocked
         when:
           status: blocked
@@ -320,19 +352,42 @@ states:
 
 Before running the script, check the current branch context. Derive `PLAN_SLUG` from `{{PLAN_DOC}}` (strip the `PLAN-` prefix), then run `git rev-parse --abbrev-ref HEAD` to get the current branch and `gh pr list --head <current-branch> --json number --jq '.[0].number'` to find any open PR on it. If the current branch is non-main and an open PR already covers this work, submit `status: override` rather than running the creation script.
 
-On the `override` path, the branch you stay on (the author's or `/scope` branch — NOT `impl/<slug>`) is the **settled branch**, and the open PR on it (including a `docs/<topic>` scoping PR) is **ADOPTED** as the home PR: `/execute` does not open a second PR and does not link a distinct one. Persist the settled branch so `spawn_and_await` routes children to it instead of recomputing `impl/<slug>`. After the create-or-override decision, record HEAD into a koto context key, validating it first as an input surface (treat the recovered branch name as untrusted — reject anything not matching `^[A-Za-z0-9._/-]+$` before it is stored or interpolated into emitted shell):
+On the `override` path, the branch you stay on (the author's or `/scope` branch — NOT `impl/<slug>`) is the **settled branch**, and the open PR on it (including a `docs/<topic>` scoping PR) is **ADOPTED** as the home PR: `/execute` does not open a second PR and does not link a distinct one. Persist the settled branch so `spawn_and_await` routes children to it instead of recomputing `impl/<slug>`. After the create-or-override decision, record HEAD into a koto context key, validating it first as an input surface (treat the recovered branch name as untrusted — reject anything not matching `^[A-Za-z0-9._/-]+$` before it is stored or interpolated into emitted shell).
+
+**Run this block LAST, whichever path you took.** It reads HEAD, so it has to run once HEAD is already the branch the run settled on: on the override path that is true the moment you decide to override, but on the create path it is only true after the creation script below has checked out `impl/$PLAN_SLUG`. Recording before that checkout stores `main`, and `main` is a perfectly well-formed branch name — the gate accepts it and every child then commits to `main`. That is the one wrong value neither the pattern nor the read-back can catch, because nothing about it is malformed; the ordering is the only thing that prevents it.
 
 ```bash
 SETTLED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 case "$SETTLED_BRANCH" in
-  *[!A-Za-z0-9._/-]*|"") echo "refusing unsafe settled branch: $SETTLED_BRANCH" >&2; exit 1 ;;
+  *[!A-Za-z0-9._/-]*|"") echo "refusing unsafe settled branch: $SETTLED_BRANCH"; exit 1 ;;
 esac
-printf '%s' "$SETTLED_BRANCH" | koto context add {{SESSION_NAME}} settled_branch
+printf '%s' "$SETTLED_BRANCH" | koto context add {{SESSION_NAME}} settled_branch 2>/dev/null
+RECORDED=$(koto context get {{SESSION_NAME}} settled_branch 2>/dev/null)
+if [ "$RECORDED" != "$SETTLED_BRANCH" ]; then
+  echo "settled_branch NOT recorded: read back [$RECORDED], expected [$SETTLED_BRANCH]"
+  echo "submit status: blocked -- do NOT submit completed or override"
+  exit 1
+fi
+echo "settled_branch recorded and verified: $SETTLED_BRANCH"
 ```
 
-On the create path this records `impl/$PLAN_SLUG` (the branch just checked out), preserving today's value byte-for-byte; on the override path it records the settled branch.
+Four details in that block are load-bearing, and each one is a way the previous version of this step failed silently.
 
-Create the shared branch and draft PR. This runs once before children are spawned.
+**`koto context add`, not `koto context set`.** There is no `context set`; koto's context group is `add`, `get`, `exists`, `list`. The old line failed on every run since it was written.
+
+**`printf '%s'`, not `echo`, and a pipe rather than a positional argument.** `add` takes its value from stdin (or `--from-file`), and it stores what it receives verbatim. `echo` would append a newline that becomes part of the branch name.
+
+**The read-back is a comparison, not an emptiness test.** `koto context get` on a missing key writes its error as JSON to **stdout** and exits 3, so `RECORDED` on failure holds an error payload rather than nothing. Comparing against `$SETTLED_BRANCH` catches that case and every other; testing `-z "$RECORDED"` would not.
+
+**Both diagnostics go to stdout, not stderr.** koto emits a large volume of `migration skipped` lines on stderr in any workspace with accumulated sessions, so appending `2>/dev/null` to a koto call is the routine operator response — and it is what hid the original `unrecognized subcommand` error. A failure message this step writes to stderr would be swallowed by exactly the reflex that made the original defect invisible. The `2>/dev/null` on the two koto calls above is safe only because the comparison, and not the absence of an error message, is what decides whether the record took.
+
+If the verification fails, submit `status: blocked` with the diagnostic as `detail`. Do not submit `completed` or `override`: the `settled_branch_recorded` gate on this state (see the template's frontmatter) references the recorded value from both success transitions, so neither will resolve and the run will sit in `orchestrator_setup` without advancing.
+
+Unlike the command gate on `worktree_discipline_check`, this one says what it wanted. A submission the gate holds comes back with `"advanced": false` and a `blocking_conditions` entry naming `settled_branch_recorded` with `"matches": false`, so if this state will not advance, read the submission response before anything else — then `koto context get {{SESSION_NAME}} settled_branch` to see what is actually stored.
+
+On the create path this records `impl/$PLAN_SLUG` — the branch the script below checks out, which is why the block runs after it — preserving today's value byte-for-byte; on the override path it records the settled branch you are already standing on.
+
+Create the shared branch and draft PR. This runs once before children are spawned, and on the create path it runs BEFORE the recording block above.
 
 ```bash
 PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')

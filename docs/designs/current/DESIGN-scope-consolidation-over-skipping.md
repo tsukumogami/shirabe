@@ -817,3 +817,53 @@ artifact on an error.
   contracts the absorbability mapping is derived from.
 - `crates/shirabe-validate/src/checks.rs` — `check_plan_upstream`, the check
   being generalized.
+
+
+## Amendment — 2026-08-15
+
+Superseded in part by `DESIGN-scope-artifact-persistence.md`, which makes
+the consolidation judgment decide absorbability from the two documents at
+a hop rather than from their types. The original text above is left
+unedited; this section records what no longer holds and why.
+
+**Decision 8 (the durable-artifact floor) — the conclusion is falsified,
+and the option it rejected is the one now adopted.**
+
+Option A concluded that "the smallest set a run can end with is a PRD, a
+DESIGN and a PLAN" and that "a run that leaves no durable artifact is
+unreachable through `/scope`." Both followed from Decision 4 making every
+hop above BRIEF-to-PRD unabsorbable. That premise is gone: absorbability
+is now a question about the two documents, so every hop is decidable and
+a chain can fold to nothing.
+
+Option D — "make DESIGN absorbable into PLAN so the shortest outcome
+stays reachable" — was rejected here on the ground that the PLAN is
+deleted, so the move "trades a durable audit trail for a shorter run and
+loses the record of why the work happened." That objection was answered
+rather than overruled. The record of *why* belongs in the code, kept
+current as the code changes, which is now a standing instruction in
+`/work-on` and independent of what any chain decided. And the record of
+*what happened* is `docs/folds.md`, which survives on the default branch
+whether or not any chain artifact does.
+
+Option B — an explicit guard refusing to reduce below one durable
+artifact — was rejected as dead code whose "condition cannot hold." The
+condition now holds, and the guard is still forbidden, for a different
+reason: it would decide a fold from the artifact *set* rather than from
+the two documents at the hop. That prohibition now lives beside the
+judgment in `phase-2-chain-orchestration.md`, because the single-mechanism
+rule does not catch a keep-only guard and so cannot be relied on to
+forbid it.
+
+**Decision 9 (`/charter` is out of scope) — the conclusion stands, the
+reasoning does not.**
+
+The reasoning was that "zero strategic hops are absorbable, so porting
+the judgment would install a rule that can only ever return `keep`."
+That rests on the same type-level mapping test, and under the current
+rule no chain can be declared unabsorbable in advance.
+
+The conclusion survives on grounds that do not depend on it: there is no
+consolidation judgment in `/charter` to change, and the judgment's logic
+lives entirely inside `/scope`'s own phase files, so extending it to the
+strategic chain would be new machinery rather than a follow-on edit.
