@@ -201,12 +201,17 @@ have no plans at all, and one `stat` disposes of those. Worst case — a real
 plan-scale repo — is ~10 ms of predicate work against Decision 3's measured
 ~94 ms of remaining R16 headroom.
 
-**The predicate should ship inside the existing hook adapter process, not as a
-second hook.** The dominant cost here is process startup (~4-6 ms), not the
-predicate (~1-10 ms). Decision 3's 6 ms p95 figure is for the shipped
-`shirabe pr-body-hook` adapter; adding a separate hook process would roughly
-double the fixed cost to buy nothing, while folding the predicate into that
-adapter makes the marginal cost the table above.
+**Retracted: I argued the predicate should ship inside the existing
+`shirabe pr-body-hook` adapter to avoid doubling process startup. The premise was
+wrong.** That hook is registered with `"matcher": "Bash"` and nothing else
+(`niwa/internal/workspace/materialize.go:838`, verified); the adherence gate
+matches `Edit|Write|MultiEdit|NotebookEdit`. The matchers are **disjoint**, so no
+tool call ever triggers both and the per-tool-call cost R16 measures is one
+process either way. There is no doubled fixed cost to recover, and merging would
+put the adherence gate on the `Bash` matcher — the precise footgun niwa documents
+at `materialize.go:592-606`, where a hook matching *every* Bash command bricks
+every session if the binary goes stale. Two subcommands, two matchers. Decided,
+not open.
 
 ### Option B — `agent_id` / `agent_type` absence alone as the orchestrator test
 
@@ -264,8 +269,15 @@ orchestration session bound to the PLAN.
   out of scope. Every clause fails open on a missing file, a parse error, or an
   unresolvable reference, satisfying R8.
 - **R16** — ~10 ms against a 4 MB transcript (E4), well inside the 100 ms budget.
-- **R6/AC14** — `PreToolUse` deny is documented to beat `bypassPermissions`, and
-  the hook demonstrably fires in `-p` sessions with `agent_id` populated (E1).
+- **R6/AC14** — no longer an inference. Decision 3's plugin-route probe observed
+  a deny land under permission-bypassing mode with neither target file created,
+  and the deny reason returned to the model as tool-error text verbatim **in both
+  the subagent and the parent role**. That is R5's steerable reason and AC13's
+  next-attempt correction observed rather than assumed.
+- **AC11 timing** — also settled by that probe: a plugin-declared hook fires on
+  the session's *first* tool call, against a prompt whose opening move was a
+  write. AC11 names the first out-of-set write as the one that must be refused,
+  so this was load-bearing and it holds.
 - **R1 admissibility** — worth stating explicitly because it is easy to
   misapply: R1 constrains the *determination*, not arming. Clause A's `agent_id`
   is harness-supplied and inadmissible-proof; clause B reads the agent's inbound
@@ -427,15 +439,23 @@ only makes it *stand down*. An unmarked handoff of a whole plan still arms.
    worked in its own worktree on its own branch, which a Task subagent sharing
    the parent's cwd does not naturally do. **Blocking for implementation, not for
    the design shape** — Option A is the right shape under all three.
-2. **What session-local escape exists for Attack 1?** Options: a recorded R10
-   conflict clears the arm for the remainder of the session; an explicit
-   per-session disarm token; or nothing, and Attack 1 is accepted as a documented
-   cost paid down by R15's global switch. Note the tension the DESIGN must state
-   plainly: any session-local escape is by definition session-produced, so the
-   refusal becomes a speed bump plus an audit trail rather than a sandbox. That
-   is defensible — R2 gives it teeth by making an unrecorded departure
-   non-conforming — but it should be claimed honestly rather than discovered
-   later.
+2. ~~**What session-local escape exists for Attack 1?**~~ **Resolved with
+   Decision 3.** The escape is R10's recorded-conflict route (Decision 4's
+   vehicle): in-band, per-session, no configuration, available with no human
+   present. No new mechanism. The DESIGN must add one thing — **the refusal
+   reason has to name that route**, so it is discoverable at the moment it is
+   needed rather than documented elsewhere. R15's global switch is not the answer
+   here and stays global. Decision 3 also correctly bounds the population my
+   Attack 1 exposes: step 4 of the ladder requires `schema: plan/v1`, so an
+   unrelated `docs/plans/PLAN-*.md` does not arm, and repos with no
+   `docs/plans/` at all die at the step-1 `stat`. The exposed set is shirabe
+   adopters doing mixed work, not the machine.
+
+   The tension still worth stating plainly in the DESIGN: any session-local
+   escape is by definition session-produced, so the refusal is a speed bump plus
+   an audit trail rather than a sandbox. That is defensible — R2 gives it teeth by
+   making an unrecorded departure non-conforming — but it should be claimed
+   honestly rather than discovered later.
 3. **Should `niwa dispatch` stamp a machine-readable plan reference into the
    briefs it writes?** This closes Attack 2 at its source, and the BRIEF already
    locates journey 2's entry point upstream of the worker ("the omission happens
