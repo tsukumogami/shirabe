@@ -538,6 +538,27 @@ surfaces, which is decision 4's territory.
    transcript is not small. The not-armed early-out must precede the transcript
    read, and AC28 should measure late in a long run rather than at session start.
 
+   Decision 2 proposes caching per `session_id`+`agent_id` to take transcript
+   growth out of the budget. The direction is right and it belongs in the DESIGN,
+   with two corrections it should carry:
+
+   - **Cache the arming determination, never the refusal verdict.** Clause C is a
+     property of *this write's target path*, not of the session. AC9 requires an
+     in-set write to be permitted in the same session where an out-of-set write is
+     refused, and AC12 requires two different targets to produce different reason
+     text. A cached session-level verdict breaks both. Only the transcript-derived
+     clauses and the PLAN frontmatter read are cacheable.
+   - **Use an incremental tail scan, not a frozen result, because the exclusion is
+     not monotone.** Decision 2 flags the single-issue-marker exclusion as the one
+     clause that could flip armed → not-armed and asks whether it is monotone. It
+     is not: an author who re-scopes mid-session ("actually, just do issue 3")
+     appends a later inbound record whose delegation marker should *disarm* the
+     session. A frozen cache would keep it armed — stricter when stale, which is
+     against R8's grain and produces exactly the false refusal this decision's
+     adversarial case is about. Recording a byte offset and scanning only the tail
+     on each call preserves the O(1)-amortized property without freezing the
+     answer.
+
 *Decided here, not left open:* **do not fold the adherence predicate into the
 existing `pr-body-hook` adapter process.** Decision 2 proposed it on the grounds
 that process startup (~4-6ms) dominates the predicate (~1-10ms), so a second hook

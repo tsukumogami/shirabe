@@ -344,6 +344,27 @@ writes it so the determination can distinguish "this run did not register" from
 "nothing was watching." Without it the determination misreports every run that
 predates the recording path.
 
+Four properties are required of it, and they are the contract. Anything
+satisfying them is an acceptable implementation.
+
+- **Session-keyed**, so the determination can look it up by the same key it uses
+  for every other surface.
+- **Sufficient to prove liveness over the session's span**, not merely at one
+  instant. A single marker written once cannot distinguish a component that ran
+  throughout from one that ran once and died before the writes that matter.
+- **Distinguishes evaluated-and-did-not-arm from never-ran.** This is the whole
+  purpose. The common case by volume is a hook that evaluates and allows, and
+  that case must leave a trace, or the witness is present only for sessions that
+  were armed.
+- **Readable after the session ends and bounded in growth.** The determination
+  runs after the fact, so the log outlives the session; and it is written on
+  every edit-shaped call, so an unbounded per-call record is not viable. The
+  bounding strategy is an implementation choice and is deliberately not fixed
+  here.
+
+The determination treats absence of a satisfying entry as `indeterminate`, never
+as `non-conforming`.
+
 **The conflict store is an input to the determination.** A delegation shortfall
 covered by a recorded conflict is conforming; the same shortfall uncovered is
 not. The join walks children as well as the parent, because a child records
