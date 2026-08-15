@@ -247,6 +247,24 @@ Riders:
 - **Eval 18 must be rewritten under every alternative.** Its `expected_output`
   asserts "no hop above BRIEF-to-PRD is absorbable" -- the sentence #280 exists to
   falsify -- and grounds its refusal to add a guard on a condition #280 flips.
+
+  **Widened during `/scope` Phase 1, after the D2 report was written.** `/scope`
+  has 26 evals and the consolidation family is four, not one:
+  - **18 `durable-artifact-floor-is-structural`** -- asserts the floor and the
+    no-guard rule. Rewrite required.
+  - **20 `consolidation-keep-at-unmapped-hop`** -- asserts the PRD-to-DESIGN and
+    DESIGN-to-PLAN hops reach `keep` because the *type* mapping is not total, and
+    its fourth expectation explicitly requires absorbability to be derived from
+    "the per-type required-section contracts." Rewrite required; the D2 report did
+    not name this one.
+  - **19 `consolidation-absorb-brief-into-prd`** and **21
+    `consolidation-carry-check-failure-aborts-absorb`** -- check the absorb path
+    and the abort-to-`keep` semantics. Both should survive, since the abort path
+    is preserved, but each needs re-reading against the contribution model rather
+    than assumed compatible.
+
+  Evals 7 and 17 mention consolidation in passing and need a read, not
+  necessarily an edit.
 - **The worth judgment ships ungraded and ungradeable.** A fixture eval can grade
   whether content was lost, because the fixture retains both bodies. It cannot
   grade whether reasoning deserved to persist; after the fold the comparison object
