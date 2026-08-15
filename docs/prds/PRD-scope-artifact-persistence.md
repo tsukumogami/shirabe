@@ -296,8 +296,13 @@ work. Pre-existing breakage SHALL NOT be a reason to narrow a check that is
 otherwise correct.
 
 **R30.** The absorb procedure SHALL fail toward `keep` at every decision point
-this work adds: the replaced first stage, the carry check, the citation check,
-post-absorb re-validation, and record production.
+this work adds: the citation preflight, the carry check, post-absorb
+re-validation, and record production.
+
+Four, not five. An earlier draft listed "the replaced first stage" and "the
+citation check" separately; the design established that they are the same
+decision point, because what occupies the first stage after the type test is
+deleted is the citation check itself.
 
 ## Acceptance Criteria
 
@@ -331,8 +336,9 @@ See Known Limitations for what the [judg] instrument does and does not buy.
 - [ ] **[judg]** On the `absorb` verdict, the plan states the DESIGN is removed
       and the PLAN carries a contribution section for it.
 - [ ] **[judg]** An artifact held back by re-entry protection is not judged.
-- [ ] **[judg]** The replaced first stage fails toward `keep`: a hop whose first
-      stage cannot reach a verdict leaves both documents on disk.
+- [ ] **[mech]** The citation preflight fails toward `keep`: when its search
+      cannot complete — the git-tracked file set is unreadable, or the deletion
+      target's path cannot be composed — both documents stay on disk.
 - [ ] **[judg]** Scenario 17 `chain-shape-is-constant` still passes — an author
       declaring the framing settled is not offered a shorter chain. This is the
       tripwire for R28: implementing R1 is exactly what makes an entry-altitude

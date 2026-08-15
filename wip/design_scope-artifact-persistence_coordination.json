@@ -11,7 +11,23 @@
       "requirements": [
         "R20"
       ],
-      "status": "pending"
+      "status": "complete",
+      "outcome": "A single shared append-only index at docs/folds.md, created on first append, one row per completed fold, written mechanically by /scope Phase 2 at every hop that folds. Site 3 (/execute's cascade deletion of the PLAN) is declared out of R20 with its reason recorded. R21's frontmatter declaration and ## Status line are untouched -- different requirement, different beneficiary.",
+      "row_contents": "date, absorbed artifact's repo-relative path, survivor (or 'none' at the terminal fold), verdict, a mechanical serialization of the state file's existing carry_check mapping (section names and outcomes, never section text), and the git hash-object blob SHA of the pre-fold original.",
+      "hash_provenance": "Recomputed at fold time, NOT promoted from child_snapshots.content_hash -- that value is captured post-invocation and the drift machinery exists precisely because it can differ from the live bytes, while R20 requires the hash of what was actually deleted.",
+      "six_mechanics": [
+        "The record is on disk and staged before anything is deleted, so R30's fail-toward-keep is structural rather than procedural.",
+        "git add docs/folds.md beside the existing git rm. /scope never commits -- the absorb is a bare git rm and the upstream re-point is an unstaged working-tree edit -- and git commit -a does not stage an untracked file. Without this the deletion lands and the record does not. Four of five validators reached this independently.",
+        "docs/folds.md joins R15's exclusion clause beside wip/ and the survivor. Without it the record refuses the NEXT hop's fold, because the row names a still-live survivor by path. Re-pointing prior rows was rejected as barred by 'R15 aborts before any mutation'; bare-naming was rejected as trading the record's most useful field for a dismissable finding on every cascading fold.",
+        "On an R18 revert the row is removed, not marked. R20's criterion is scoped to a completed fold, and the row is uncommitted at that point, so removal is a line edit.",
+        "The checker is deletion-driven (git diff --diff-filter=D) and lives in validate-docs.yml -- the REUSABLE workflow adopters pin, because folds happen in adopter repos and a shirabe-local check would leave every adopter's destructive operation unverified. It already sets fetch-depth: 0, so git rev-parse BASE:<path> recovers the pre-fold blob; check-sentinel.yml and pr-body.yml are depth 1 and cannot.",
+        "One line of .gitattributes: docs/folds.md merge=union. Verified by running it -- without a driver two branches appending produce a conflict; with it, a clean merge keeping both rows."
+      ],
+      "why_the_r20_ruling_decided_it": "Under 'the default branch keeps a record', every surface living inside a chain document is disqualified: this repository merges a whole chain as one squash, so any document a later hop folds away takes its record with it. That kills the hybrid in the case the feature exists to serve -- a self-contained fix that folds down to its code -- and kills the minimal answer outright, since the terminal fold is exactly where the corpus otherwise retains no evidence the work happened.",
+      "write_target_amendment": "Explicit, not a quiet widening: one bullet in phase-3-exit-finalization.md and one in SKILL.md; corrects 'one deletion target' to one deletion and one append target; corrects 'Phase 3 does not delete; it records' to name Phase 2 as the recorder; adds a Phase 4 carve-out so the file is enumerated but never swept; rewrites the absorb steps in phase-2. The path is a fixed constant with nothing interpolated, which is stronger for the injection argument than the slug-composed paths already in the set.",
+      "pre_existing_defects_folded_in": "The current set gates docs/{briefs,prds,designs}/ writes on force-materialization only, so the full-run absorb's mutation of the survivor is ALREADY outside the enumerated set; and SKILL.md names docs/plans/ while phase-3 says Phase 3 does not write it. R19 owes both fixes regardless of this decision.",
+      "execute_impact": "None. /execute needs no change at all for this decision.",
+      "report": "wip/design_scope-artifact-persistence_decision_1_report.md"
     },
     {
       "id": 2,
@@ -61,7 +77,22 @@
         "R11",
         "R30"
       ],
-      "status": "pending"
+      "status": "complete",
+      "outcome": "The type test and the mapping table are deleted. The position survives as a Citation Preflight whose sole content is R15's citation search relocated to run before the content question -- mechanical, body-blind, type-blind, able to return only 'proceed' or 'keep'. R2's scoping moves OUT of the stage to the firing condition at step 8, reading chain_ran: membership.",
+      "why_not_full_dissolution": "Dissolution was the serious rival and lost on one point: it does not remove the attractor that already filled this position once with a hand-authored type table, it relocates that attractor to the head of the content stage -- which is the stage that CAN return absorb and where no ceiling applies. A type-shaped shortcut is worse there, not better.",
+      "structural_clauses": "(1) A stated ceiling: the stage cannot reach any outcome stronger than keep, in R15's own shipped words. (2) An input restriction: no check in the judgment may read either type's required-section list or compare the two types' section sets. Chain position and provenance are admissible; a type's content contract is not. Test for a violation: a condition that refuses one pair while permitting its structural twin under identical repository state is a type rule. Written at the head of the content stage too, because that is where absorb is reachable.",
+      "verified_facts_that_reshaped_it": [
+        "The mapping table's claim to be 'derived from the per-type required-section contracts in formats.rs, not enumerated by hand' is FALSE. formats.rs holds only per-format required_sections lists; there is no mapping structure anywhere in crates/. Every semantic edge in the table is authored prose, and the table silently drops Status from the BRIEF's five required sections. Its re-derivation instruction has never been runnable.",
+        "Non-adjacent hops are reachable today and undefined. Re-entry protection plus four children yields brief->design, prd->plan and brief->plan; brief->design is produced by shipped eval id 8, and the table has no row for it. An absent row is neither total nor not-total, so the procedure has no defined next action.",
+        "R15 cannot cover those hops. The deletion target at a non-adjacent hop is always minutes old, and a document written before the run cannot cite one created during it -- disjoint by construction. All 36 BRIEFs sit at a settled status, so every pre-existing BRIEF is held back by re-entry protection and can never be a run-produced upstream. Disjointness is total, not partial."
+      ],
+      "contradiction_the_design_must_settle": "Phase 2's child-invocation table hard-codes '/design | docs/prds/PRD-<topic>.md' while the prose two lines above says the argument is 'the path of the nearest artifact this chain produced above it'. These disagree on exactly the eval-8 trace. Everything about non-adjacent hops is downstream of that one sentence.",
+      "absorbable_field": "Retired, not re-annotated -- under R1 it would be true at every hop it could ever be written. Replaced by stage: preflight | judgment | carry, naming the stage at which the entry's verdict was settled. Free to change: the procedure has never executed, so there are no entries on disk to migrate. hop: and verdict: should also join Phase 2's enum re-validation list, which today covers four fields and omits verdict: despite the schema declaring it an enum.",
+      "floor_section": "Replaced rather than edited, and moved from phase-1-discovery.md to Phase 2 beside the judgment. The /plan redirect goes with the premise -- an author wanting no durable record no longer has to leave /scope. The no-guard instruction survives with a corrected reason, sited in Phase 2 because that is where the unguarded temptation lives. The prohibition also becomes a graded expectation on rewritten eval id 18.",
+      "sharpest_finding": "R27 does NOT forbid a floor guard -- a mechanism whose only possible effect is to force keep does not count as a second reduction mechanism. So the guard now looks reasonable to anyone not told why it is forbidden, which is why deleting the Floor section outright was rejected: the instruction is needed more than it was, not less.",
+      "chain_ran_write_site": "Confirmed with a fourth consumer I had not found: Phase 3 reads chain_ran: in four places, including the R8 tie-break's per-child start timestamps. This work must create the write site, in Phase 2's loop step 6 alongside the child snapshot, with entries carrying a started-at timestamp so phase-3's existing claim about reading timestamps out of chain_ran: becomes true.",
+      "prd_amendment_applied": "R30 amended from five decision points to four; its criterion retagged [mech] and bound to the preflight's single mechanical operation.",
+      "report": "wip/design_scope-artifact-persistence_decision_4_report.md"
     },
     {
       "id": 5,
