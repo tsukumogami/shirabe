@@ -12,8 +12,22 @@ planned_chain:
   - design
   - plan
 chain_skipped: []
-chain_ran: []
+chain_ran:
+  - name: brief
+    started_at: 2026-08-15T19:58:00Z
+worktree_rebases:
+  - phase: brief
+    upstream_commits: [83d29e1, 778913e, b8b20eb, e227d7a]
+    impact: informational
+parent_orchestration:
+  invoking_child: prd
+  suppress_status_aware_prompt: true
+  rationale: fresh-chain
 child_snapshots:
+  brief:
+    status: Draft
+    content_hash: f6d6abeea9a20fd68ec9f480f14a4b8d2fbeb2e8
+    captured_at: 2026-08-15T20:10:00Z
   design:
     status: Proposed
     content_hash: c5d14f04c74b0f1ce608c0a2ba79b8d5d6883974
