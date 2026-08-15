@@ -188,9 +188,10 @@ conforming one.
 
 ## References
 
-- `docs/designs/DESIGN-execute-skill.md` and `docs/prds/PRD-execute-skill.md`
-  for the plan-execution workflow this feature governs, including the
-  closed write-target set the enforcement binds to.
+- `docs/designs/current/DESIGN-execute-skill.md` and
+  `docs/prds/PRD-execute-skill.md` for the plan-execution workflow this
+  feature governs, including the closed write-target set the enforcement
+  binds to.
 - `docs/briefs/BRIEF-pr-template-gate.md`, which names the same class of
   failure (work reaching a durable surface without passing through the skill
   that governs it) and scopes the workflow-routing half of it out as separate
