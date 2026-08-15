@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   shirabe's skills call host tools and almost none of those calls says
   what it needs or checks that it is there. The failures this produces
@@ -28,7 +28,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 

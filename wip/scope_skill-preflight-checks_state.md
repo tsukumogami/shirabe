@@ -13,6 +13,7 @@ planned_chain:
 chain_skipped: []
 chain_ran:
   - brief
+  - prd
 child_snapshots:
   brief:
     status: Accepted
@@ -21,6 +22,24 @@ child_snapshots:
     artifact: docs/briefs/BRIEF-skill-preflight-checks.md
     validator: clean
     jury: all-PASS on second pass; first pass FAIL on content quality, 7 required changes applied
+  prd:
+    status: Accepted
+    content_hash: 8e184dd2967e1d3bcef12b441dc1b5d8a744d8f1
+    captured_at: 2026-08-15T03:40:00Z
+    artifact: docs/prds/PRD-skill-preflight-checks.md
+    validator: clean
+    jury: PASS on final pass; three-axis jury FAILed all three on pass 1 (35 required changes), combined re-review FAILed with 6 must-fix, all applied
+consolidation_judgments:
+  - hop: brief-into-prd
+    verdict: keep
+    reason: >-
+      The BRIEF's Problem Statement carries the survey of six coexisting
+      mechanisms and the answer to Decision 6, neither restated in the PRD.
+      Its five journeys name concrete entry points the PRD's role-framed
+      user stories compress away. The upstream does work the downstream
+      does not, so the hop is not absorbable.
+decisions_recorded:
+  - docs/decisions/DECISION-skill-preflight-verification-depth-2026-08-14.md
 visibility: Public
 pre_invocation_sha: 6872e04fea7c67de2f19c443ac43f85a85877786
 worktree_rebases:
@@ -30,7 +49,7 @@ worktree_rebases:
     rebased_at: 2026-08-15T01:58:00Z
     notes: origin/main fetched; branch 0 behind, 4 ahead. No rebase required.
 parent_orchestration:
-  invoking_child: prd
+  invoking_child: design
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 execution_mode: auto
