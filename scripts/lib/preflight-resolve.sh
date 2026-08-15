@@ -50,7 +50,6 @@ PREFLIGHT_PATH=""
 
 # Filled by preflight_split_roots.
 PREFLIGHT_ROOTS=()
-PREFLIGHT_ROOTS_COUNT=0
 
 # Memo, in the two-string form bash 3.2 forces. Keys are tool names that have
 # already passed the character allowlist, so no glob metacharacter can enter
@@ -88,7 +87,6 @@ preflight_split_roots() {
 
     PREFLIGHT_ROOTS=()
     IFS=: read -r -a PREFLIGHT_ROOTS <<<"$raw"
-    PREFLIGHT_ROOTS_COUNT=${#PREFLIGHT_ROOTS[@]}
 }
 
 # preflight_valid_path <path>
