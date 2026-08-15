@@ -102,8 +102,26 @@ assert_eq() {
     fi
 }
 
+# The report wraps its prose, and where it wraps depends on how long the
+# resolved path is -- which is a temp directory, so it differs between a Linux
+# runner (/tmp/tmp.XXXX) and a macOS one (/var/folders/...). A needle spanning
+# a wrap point then matches on one platform and not the other. That is a
+# rendering detail, not a behaviour difference, so both helpers compare with
+# every run of whitespace flattened to one space. Assertions that genuinely
+# care about line structure use grep against "$OUT" directly.
+squash_ws() {
+    local s="$1"
+    s=$(printf '%s' "$s" | tr '\n\t' '  ')
+    while case "$s" in *"  "*) true ;; *) false ;; esac; do
+        s=${s//  / }
+    done
+    printf '%s' "$s"
+}
+
 assert_has() {
-    local name="$1" hay="$2" needle="$3"
+    local name="$1" hay needle
+    hay=$(squash_ws "$2")
+    needle=$(squash_ws "$3")
     case "$hay" in
         *"$needle"*) pass "$name" ;;
         *) fail "$name: expected to find '$needle' in: $hay" ;;
@@ -111,7 +129,9 @@ assert_has() {
 }
 
 assert_lacks() {
-    local name="$1" hay="$2" needle="$3"
+    local name="$1" hay needle
+    hay=$(squash_ws "$2")
+    needle=$(squash_ws "$3")
     case "$hay" in
         *"$needle"*) fail "$name: '$needle' must not appear in: $hay" ;;
         *) pass "$name" ;;

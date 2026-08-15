@@ -84,8 +84,23 @@ assert_eq() {
     fi
 }
 
+# See the note in preflight-probe_test.sh: the report wraps its prose, the wrap
+# point moves with the length of the resolved temp path, and that path differs
+# between a Linux runner and a macOS one. Compare with whitespace flattened so
+# a needle spanning a wrap matches on both.
+squash_ws() {
+    local s="$1"
+    s=$(printf '%s' "$s" | tr '\n\t' '  ')
+    while case "$s" in *"  "*) true ;; *) false ;; esac; do
+        s=${s//  / }
+    done
+    printf '%s' "$s"
+}
+
 assert_has() {
-    local name="$1" hay="$2" needle="$3"
+    local name="$1" hay needle
+    hay=$(squash_ws "$2")
+    needle=$(squash_ws "$3")
     case "$hay" in
         *"$needle"*) pass "$name" ;;
         *) fail "$name: expected to find '$needle' in: $hay" ;;
@@ -93,7 +108,9 @@ assert_has() {
 }
 
 assert_lacks() {
-    local name="$1" hay="$2" needle="$3"
+    local name="$1" hay needle
+    hay=$(squash_ws "$2")
+    needle=$(squash_ws "$3")
     case "$hay" in
         *"$needle"*) fail "$name: '$needle' must not appear in: $hay" ;;
         *) pass "$name" ;;
