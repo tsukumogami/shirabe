@@ -44,12 +44,32 @@ Three implementations walk `## Issue Outlines` today:
 | `parse_outline_acs` | `crates/shirabe-validate/src/table.rs` | L06 |
 | `process_single_pr` | `skills/plan/scripts/plan-to-tasks.sh` | `/execute` |
 
-They disagree in eight identified ways, catalogued during the PRD's research.
-Collapsing them to one is straightforward for six of those. The two that need
-actual decisions are what counts as a block boundary, and what the collapsed
-parser's acceptance-criteria tolerance should be — because the two Rust
-readers already answer both differently, and each answer is load-bearing for
-its own consumer.
+They disagree in eight ways. Two were named in the filed issue; the rest came
+out of reading the three against each other and running the current binary
+over the whole tracked corpus.
+
+| # | Shape | Reader 1 (FC14) | Reader 2 (L06) | Reader 3 (extractor) |
+|---|---|---|---|---|
+| D1 | `### 4. Title` heading | Opens a block | Opens a block | Not an outline |
+| D2 | `**Dependencies**: 3` | Unresolved token, notice | n/a | No dependency at all |
+| D3 | `**Dependencies**: None.` | Unresolved token `None` | n/a | No dependencies |
+| D4 | `### Dependencies` sub-heading | Opens a phantom block | Opens a phantom block | Dependencies sub-section |
+| D5 | `**Dependencies:**` | Not a dependencies line | Not a label | A dependencies line |
+| D6 | Dependency resolution key | Positional index | n/a | Number parsed from heading |
+| D7 | Token matching | Prefix match, either direction | n/a | Literal `Issue <digits>` scan |
+| D8 | `**Type**:` / `**Files**:` | Unknown | AC-block terminators only | Values read |
+
+D3 is worth singling out because it is a live false positive rather than a
+latent disagreement: the contract's own example writes `**Dependencies**:
+None.` with the period, and reader 1 reports it as an unresolved dependency
+today on three fixtures. D2 is the one the issue was filed for, and the only
+one that fails open and silently.
+
+Collapsing the readers is straightforward for six of the eight. The two that
+need actual decisions are what counts as a block boundary, and what the
+collapsed parser's acceptance-criteria tolerance should be — because the two
+Rust readers already answer both differently, and each answer is load-bearing
+for its own consumer.
 
 **Block boundary.** `parse_issue_outlines` and `parse_outline_acs` both open a
 new block on any `### ` line. `process_single_pr` opens one only on

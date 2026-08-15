@@ -51,9 +51,9 @@ consumer. The arrangement is not: the lenient reader gates the strict one,
 so the document that passes validation is not the document that gets read.
 
 Reading the three against each other turns up eight disagreements. Two were
-named in the filed issue; the other six were found during this PRD's research
-and are recorded in full in the design's inputs. The ones that matter for
-requirements:
+named in the filed issue; the other six came out of this PRD's research, and
+all eight are tabulated in the downstream design's Context section. The ones
+that matter for requirements:
 
 - A dependency written as a bare number, or in any shape the extractor does
   not recognize, is a **notice** to the validator and **nothing at all** to
