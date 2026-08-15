@@ -105,7 +105,20 @@ what it measured. Recorded because the reasoning is visible in the artifacts.
 2. I told decision 3 the plugin-hooks placement was "directly adverse" because a
    `--plugin-dir` probe showed zero invocations. That is a fact about the
    dev-loading path. Installed plugins do fire their hooks, as superpowers does in
-   this session. Decision 3 chose the plugin route regardless.
+   this session. Decision 3 chose the plugin route regardless and then settled it
+   properly by probing the supported load path.
+3. I told decisions 2 and 3 that absence of `agent_type` is the orchestrator
+   signal. The measurement was sound; the inference was not. Absence means only
+   "not a Task subagent of this process," so under separately-dispatched or
+   per-worktree delegation every child is a main thread with no `agent_type` and
+   the permitted-write criterion for delegated children would fail on every
+   delegated write. Both decisions declined the framing independently. The design
+   carries the brief-based role test instead.
+
+All three errors share one shape: a probe generalized past the configuration it
+measured. The probes were sound and the generalizations were not, which is worth
+naming because the artifacts record the measurements and a later reader could
+reasonably re-derive the same wrong conclusions from them.
 
 Both corrections are written into
 `wip/design_skill-adherence-enforcement_probe_subagent_hooks.md` and
@@ -113,10 +126,13 @@ Both corrections are written into
 
 ## Open questions promoted to the DESIGN
 
-1. **Plugin `PreToolUse` startup ordering.** Whether registration completes before
-   the first tool call in a `-p` session whose opening move is a write. The
-   superpowers evidence is a `SessionStart` hook and does not settle it. Decision
-   3 names the one-command probe; it blocks implementation, not the design shape.
+1. ~~**Plugin `PreToolUse` startup ordering.**~~ **Closed by probe.** Decision 3
+   scaffolded a plugin through the supported load path and observed: the hook
+   fires on the session's first tool call against a prompt whose opening move
+   was a write; it fires inside a subagent; it denies under permission-bypassing
+   mode; and the deny reason returns to the model as tool-error text in both the
+   subagent and the parent. Plugin and settings placement are therefore
+   equivalent on mechanism, and the choice rests on distribution and lifetime.
 2. **The delegated-child conflict join** (interface 2's unresolved detail).
 3. **Session-local escape from the refusal.** Decision 2 states the tension
    plainly: any session-local escape is session-produced, so the refusal is a
