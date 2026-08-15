@@ -226,9 +226,18 @@ it is written to is public.
 
 ## Acceptance Criteria
 
-The check's output domain is exactly four values: `conforming`,
-`non-conforming`, `coordinated`, and `indeterminate`. Every criterion below that
-names an outcome names one of these.
+The check's output domain is exactly five values: `conforming`,
+`non-conforming`, `coordinated`, `departed`, and `indeterminate`. Every criterion
+below that names an outcome names one of these.
+
+`departed` is the reading for a run whose delegation was incomplete but whose
+shortfall is covered by a conflict recorded under R10. It is deliberately not
+`conforming`: R2 reserves that value for a run that was registered and fully
+delegated, and collapsing the two would let a session buy the verified reading
+with one invocation of the conflict recorder. It is deliberately not
+`non-conforming` either, because a recorded departure is the sanctioned
+behavior R10 asks for, and reporting it as failure would penalize the agent for
+doing the right thing.
 
 **The determination (R1, R2, R7, R9)**
 
@@ -294,6 +303,14 @@ names an outcome names one of these.
       an orchestration session. (R10)
 - [ ] AC22. A session that departs from the workflow without recording a conflict
       is reported `non-conforming` by the check. (R10, the teeth)
+- [ ] AC22b. A session whose delegation was incomplete but whose shortfall is
+      covered by a conflict recorded under R10 is reported `departed`, and not
+      `conforming`. Recording a conflict SHALL NOT be sufficient to obtain the
+      `conforming` reading. (R2, R10)
+- [ ] AC22c. A conflict record naming a workflow step other than the one whose
+      delegation is missing does not cover that shortfall, and the session is
+      reported `non-conforming`. (R10, prevents one record covering arbitrary
+      gaps)
 - [ ] AC23. A conflict record written into a public repository contains no path,
       repository name, or issue number belonging to a private repository. (R19)
 
