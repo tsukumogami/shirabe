@@ -351,6 +351,17 @@ selects which GitHub artifacts a plan's work items get. Neither reads the other,
 and the tracking level is consulted independently of `execution_mode` whenever it
 is stated; only its default is derived from the mode.
 
+**The resolved tracking level is written into the PLAN's frontmatter**, as a
+`tracking_level` field, at the moment the plan is authored. This is not
+bookkeeping. Task extraction runs against a committed PLAN, potentially long
+after authoring, and if it re-resolved the level from CLAUDE.md then a repository
+that changed its header would change how an already-written plan's work items
+key — silently, and after the fact. Persisting the resolved value makes
+extraction a function of the document, which is the same property that makes
+`split_rationale` worth writing down. It also gives `process_multi_pr` a
+deterministic branch signal rather than forcing it to infer the level by
+inspecting the table's shape.
+
 The record is a `split_rationale` frontmatter field on the PLAN, holding free
 text that names one of three branches — Hard Constraint, Incremental Value, or
 Stated Preference — together with the specific justification. It is required
@@ -383,7 +394,7 @@ the parser and the local-id algorithm the single-pr path already runs.
 | `skills/plan/.../phase-7-creation.md` | Issue and milestone creation gated on the resolved tracking level rather than on `execution_mode`; gate prose re-keyed |
 | `skills/plan/references/plan-format.md` | `split_rationale` documented; the issueless multi-pr table row shape documented; the `### Transitions` section re-keyed off `execution_mode` onto whether the transition creates issues |
 | `skills/plan/references/quality/plan-doc-structure.md` | Status-transition table re-keyed the same way; one of Decision E's five prose sites |
-| `skills/plan/scripts/plan-to-tasks.sh` | `process_multi_pr` branches on tracking level; the `none` path reuses the outline parse and emits `plan_item` |
+| `skills/plan/scripts/plan-to-tasks.sh` | `process_multi_pr` branches on the PLAN's `tracking_level` field; the `none` path reuses the outline parse and emits `plan_item` |
 | `skills/plan/references/plan-to-tasks-contract.md` | Third source-var scheme documented |
 | `crates/shirabe-validate/src/lifecycle.rs` | `L09` implemented alongside `L06`, whose single-document draft-tolerable shape it follows |
 | `crates/shirabe-validate/src/validate.rs` | `L09` added to `posture_class`'s `DraftTolerable` arm; the two doc comments enumerating that set updated to name it; `posture_class_classifies_lifecycle_codes` extended |
@@ -420,8 +431,10 @@ plan-to-tasks.sh
   +-- execution_mode == coordinated    -> process_coordinated -> pr-/gate- nodes
   +-- execution_mode == multi-pr
         |
-        +-- tracking level != none     -> process_multi_pr    -> ISSUE_SOURCE=github, #N
-        +-- tracking level == none     -> outline parse       -> ISSUE_SOURCE=plan_item, m-<slug>
+        +-- tracking_level != none     -> process_multi_pr    -> ISSUE_SOURCE=github, #N
+        +-- tracking_level == none     -> outline parse       -> ISSUE_SOURCE=plan_item, m-<slug>
+                                          (read from the PLAN, not re-resolved
+                                           from CLAUDE.md)
                                           (shared with single-pr's parser
                                            and local-id algorithm)
 ```
@@ -502,10 +515,10 @@ unrecognized visibility. Neither value is interpolated into a path, a command, o
 a URL; each selects a branch. `resolve_claude_md_header` stops at the first
 `.git` boundary walking up, so a CLAUDE.md outside the repository cannot be
 reached. It resolves to the nearest CLAUDE.md or CLAUDE.local.md above the
-document rather than to the repository root specifically, which means FC20's
+document rather than to the repository root specifically, which means L09's
 departure predicate can differ by directory within one repository. That is the
 same resolution visibility detection already uses and is inherited rather than
-introduced, but FC20 is a new consumer of it and the property is stated here so
+introduced, but L09 is a new consumer of it and the property is stated here so
 a reader does not assume repository-root semantics.
 
 **Free-text field reaching a committed artifact.** `split_rationale` holds author

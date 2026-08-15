@@ -193,9 +193,12 @@ feat
 **Goal**:
 Add `## Tracking Level: none|issues|issues-and-milestone` to the registry,
 defaulting to `issues-and-milestone` for `multi-pr` plans and `none` for
-`single-pr` plans. Change Phase 7's issue and milestone creation to branch on the
-resolved level rather than on `execution_mode`, leaving `coordinated` plans
-governed by the coordination contract.
+`single-pr` plans. Write the resolved value into the PLAN as a `tracking_level`
+frontmatter field, so later consumers read it from the document rather than
+re-resolving it from configuration that may since have changed. Change Phase 7's
+issue and milestone creation to branch on the resolved level rather than on
+`execution_mode`, leaving `coordinated` plans governed by the coordination
+contract.
 
 **Acceptance Criteria**:
 - The registry carries the header with accepted values, default, and precedence.
@@ -208,6 +211,9 @@ governed by the coordination contract.
 - The flag overrides the header and the header overrides the default, each
   producing a different observable set of artifacts.
 - A `coordinated` plan's tracking is unchanged under every value.
+- Every authored PLAN carries `tracking_level` in frontmatter recording what was
+  resolved, and changing the repository header afterwards does not change the
+  value in an already-authored plan.
 
 **Dependencies**:
 Issue 1 only, for vocabulary consistency. Independent of Issues 2 through 4 —
@@ -275,7 +281,7 @@ in the contract.
 - `plan-to-tasks_test.sh` covers the new path and passes.
 
 **Dependencies**:
-Issue 5 — extraction cannot branch on a level that does not resolve.
+Issue 5 — extraction reads the `tracking_level` field, which Issue 5 writes.
 
 **Type**:
 feat
