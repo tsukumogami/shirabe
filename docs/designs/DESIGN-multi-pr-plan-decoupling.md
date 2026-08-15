@@ -358,7 +358,7 @@ found the hard way during review. The phrasing is not uniform — "human approva
 approval gate" with no "human" in it — so a pattern must cover all four forms.
 And the mode is often named on a neighbouring line rather than the same one, so
 filtering to lines containing `multi-pr` silently drops `transition.rs:1960` and
-`:2011` and `lifecycle.rs:61` and `:764`. A file-scoped completeness grep over
+`:2011` and `lifecycle.rs:61`. A file-scoped completeness grep over
 the six `re-key` files and a tree-wide discovery grep answer different questions
 and are both required; either alone passes while real sites survive.
 

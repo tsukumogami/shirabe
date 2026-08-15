@@ -292,9 +292,8 @@ changed while its decision stands.
   `leave` sites and the amendment's quotation, catching any site the design's
   table failed to enumerate. This check is deliberately paired with the one above
   rather than used alone: it requires `multi-pr` on the *same line*, so it misses
-  `transition.rs:1960` and `:2011` and `lifecycle.rs:61` and `:764`, where the
-  mode is named on a neighbouring line. Either check alone passes while real
-  sites survive.
+  `transition.rs:1960` and `:2011` and `lifecycle.rs:61`, where the mode is named
+  on a neighbouring line. Either check alone passes while real sites survive.
 - The gate-framing text at each of the four `leave` sites is unchanged, confirmed
   by `git diff` on the specific lines the design's table names. Re-keying a
   historical record is a defect, not thoroughness. Note this is a line-level

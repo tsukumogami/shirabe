@@ -1,142 +1,147 @@
 # Category C: FAIL
 
-Re-review of the corrected plan. Full pattern pass re-run over all eight issues
-(not only the ones previously flagged), plus verification of every prior finding
-against the applied text and against the actual current source for Issue 6's
-grep-based ACs.
+Third pass. Full pattern scan re-run over all eight issues; Issue 6 re-reviewed
+in depth, including running every grep command in its ACs against the real tree
+and checking the "leave" judgment against this project's own design-lifecycle
+documentation rather than taking the framing at face value.
 
 ---
 
-## Method
+## Issues 1, 2, 3, 4, 5, 7, 8 — unchanged, no findings
 
-1. Re-ran the Pattern 1/3/7 keyword scan over the full updated plan text.
-2. Re-verified each of my eight prior findings against the corrected AC text.
-3. For Issue 6 specifically — since its correction is a shell command — actually
-   ran the grep against the real tree and read every site it's meant to cover,
-   rather than trusting the AC's own site count.
-4. Applied adversarial reasoning (patterns 2/4/5/6) fresh to every AC that changed,
-   to catch anything the correction itself introduced.
+Re-scanned; nothing in these issues changed since the last pass and the keyword
+scan shows the same result (fail/error/conflict language present in 2, 3, 4, 7;
+substantive negative-path coverage present in 1, 5, 8 without the taxonomy's
+exact trigger words, as previously assessed). No new findings.
 
 ---
 
-## Issues 1, 2, 3, 4, 5, 7, 8 — all prior findings resolved, no new findings
+## Issue 6 — two new, narrow findings; plus a direct answer on the `leave` judgment
 
-- **Issue 1** AC1 now requires the shared-core section to name and define all
-  three branches at `issues-table.md`'s specificity and states "matching section
-  headings is not sufficient" — closes the existence-without-correctness gap.
-  The new retirement AC ("independently mergeable/rollback-able appear only
-  inside... not as free-standing bullets... reviewability appears nowhere outside
-  Stated Preference") gives the issue real negative/exclusion coverage.
-- **Issue 2** AC1 now states both disjuncts of the condition explicitly, and the
-  new AC ties the format contract to `L09`'s actual behavior ("a `split_rationale`
-  present but naming none of the three branches fails `L09`") — closes both the
-  weak-conditional gap and the format-contract/check agreement gap.
-- **Issue 3** AC3 now exercises both directions with the reasoning inlined
-  (constructibility before Issue 4, and what a stubbed departure branch would get
-  away with) — closes the vacuous-departure-test gap completely; this is the
-  strongest of the corrections, it reads as a definition of done rather than a
-  checkbox.
-- **Issue 4** AC2 now pins verification to the recorded resolved preference rather
-  than to comparing final shapes, and states directly why shape-comparison alone
-  can't distinguish a real header parse from a correlated fixture — closes the
-  Pattern 5 / unchecked-causal-chain gap.
-- **Issue 5** gained the malformed-header-value AC ("falls back to the default
-  rather than using the value or erroring") — closes the missing-edge-case gap,
-  and ties it to the design's own stated security mitigation.
-- **Issue 7** AC1 now requires the fixture to carry a real edge and states the
-  vacuous-truth reasoning inline; the new AC2 covers an unresolvable reference
-  producing an error rather than a silently dropped edge — closes both the
-  vacuous-pass and missing-failure-path gaps.
-- **Issue 8** all three ACs now carry explicit negative/exclusion clauses: AC1
-  ("a pointer to another document... does not satisfy this"), AC2 (bounded to
-  two-to-three sentences, "does not re-argue"), AC3 ("appended as a clearly
-  separated section rather than interleaved," "not phrased as superseding") —
-  closes both the unbounded-prose-presence gap and the missing-negative-case gap.
+The eleven-site table, the file-scoped completeness check, and the byte-identity
+check on the four `leave` lines are all independently verified accurate: I ran
+`grep -cniE "(human[ -]approv|approval gate)"` against all six `re-key` files and
+got exactly the "before" counts the AC states — SKILL.md 1, plan-doc-structure.md
+3, phase-7-creation.md 1, plan-format.md 0, lifecycle.rs 3, transition.rs 4,
+totaling twelve. That part is solid and matches the tree exactly.
 
-**On the fresh Pattern 3 pass:** a literal keyword-only re-scan still shows no
-hits in Issues 1, 5, 6, and 8 (their new negative-path ACs use "does not
-satisfy," "falls back... rather than erroring," "blocked," "does not re-argue,"
-"is not phrased as" — none of which are in the taxonomy's fixed trigger-word
-list: fail/failure/error/invalid/edge case/empty/missing/etc.). Read
-substantively rather than by regex, all four now carry genuine negative-path or
-exclusion coverage, which is what the false-positive guard's *intent* protects
-against — a wrong implementation that only handles the happy path would fail
-these new criteria. I'm treating this as resolved rather than flagging a finding
-that would only exist by being more literal than the taxonomy's own guard
-intends. Flagging it here as a process note rather than a finding: an automated,
-regex-only pattern pass over this plan would still under-count negative-path
-coverage by four issues, because correction agents phrase exclusions
-idiomatically rather than with the taxonomy's specific vocabulary.
+### Finding 1 — the discovery check's own explanation is wrong about one line
 
----
+AC text: "it requires `multi-pr` on the *same line*, so it misses
+`transition.rs:1960` and `:2011` and `lifecycle.rs:61` and `:764`." I ran the
+exact command:
 
-## Issue 6 — one finding survives the correction, narrower and independently verified
+```
+grep -rniE "multi-pr" skills/ crates/ docs/ | grep -iE "(human[ -]approv|approval gate)"
+```
 
-The correction added the co-occurrence grep, the reviewer-confirms-each-site
-clause, and the behavioral check against Phase 7's actual gate. All three are
-real improvements. But the Goal's site inventory is still wrong, and one real
-site still evades every mechanical check in the issue.
+`transition.rs:1960`, `:2011`, and `lifecycle.rs:61` are indeed absent from the
+output — confirmed. But `lifecycle.rs:764` **is** in the output: `/// (human-approved
+for multi-pr, auto-fired for single-pr), so the` — "multi-pr" and "human-approved"
+are on the same line there, unlike the other three. The claim that the discovery
+check misses it is simply false; it's a misreading of which sites the two checks
+overlap on. This doesn't break the AC's soundness (the file-scoped completeness
+check still catches `:764` correctly, since it's pattern-based, not co-occurrence-
+based), but the AC as written misdescribes its own paired-check reasoning, which
+is exactly the kind of unverified claim that produced the original three-error
+version of this issue.
 
-**Verified against actual source (not the Goal's claims):**
+*Correction:* drop `lifecycle.rs:764` from the "misses" list — the discovery
+check misses only `transition.rs:1960`, `transition.rs:2011`, and
+`lifecycle.rs:61`, all because the mode name sits on a neighbouring line, not
+because of the "human-approved" wording variant.
 
-`crates/shirabe-validate/src/transition.rs` carries the gate-asymmetry comment at
-**four** sites — lines 263, 469, 1960, 2011 — not the "two comment sites" the
-Goal still states. All four were re-read directly and confirmed as real
-Draft→Active-gate-keyed-on-mode comments. This part turns out *not* to be a live
-gap for AC4: `grep -rn "human approval\|human-approval"` matches all four,
-because each uses "human approval" or "human-approval" (with a hyphen) verbatim.
-The grep is exhaustive over the whole tree, so it will force fixing all four
-regardless of the Goal's undercount — the undercount is real but doesn't
-translate into a surviving AC gap here.
+### Finding 2 — the discovery check's own success bound is unsatisfiable, even for a correct fix
 
-`crates/shirabe-validate/src/lifecycle.rs` carries the gate-asymmetry comment at
-**two** sites, not the one ("module doc") the Goal names: lines 45-61 (the
-module doc — re-verified as one contiguous block, matches the grep) **and a
-separate, unrelated-looking comment at line 764** — `/// (human-approved for
-multi-pr, auto-fired for single-pr), so the` — which the Goal never identifies
-as something to touch, and which evades every check in the issue:
+The AC requires the discovery-check grep to return "hits only at the four `leave`
+sites and the amendment's quotation." I ran it against the tree as it stands
+today (mid-review, with Issue 6's corrected Goal/AC text already in the plan) and
+it also returns two more hits that are neither:
 
-- AC4's literal grep (`human approval\|human-approval`) does not match
-  "human-approved" (different word form — participle vs. noun — confirmed by
-  running the pattern against the line).
-- AC5's co-occurrence grep requires `execution_mode` to co-occur; the literal
-  token "execution_mode" never appears anywhere in that comment or its
-  surrounding lines (760-768) — it says "differs between modes," not
-  "execution_mode" — so the co-occurrence check also does not fire.
-- The reviewer-confirmation clause is scoped to "the seven sites," and the
-  Goal's own enumeration tells a reviewer to look at "lifecycle.rs's module
-  doc" specifically — a reviewer following that instruction has no reason to
-  scan the rest of the file for a second, structurally unrelated comment.
+- `docs/designs/DESIGN-multi-pr-plan-decoupling.md:357` — this design's own
+  Decision E prose, listing "human-approval", "human-approved", and
+  "multi-pr-style approval gate" as the phrasing variants a verification pattern
+  must cover.
+- `docs/plans/PLAN-multi-pr-plan-decoupling.md:270` — this very PLAN's Issue 6
+  Goal text, for the same reason.
 
-A wrong implementation that re-keys the module doc and all four `transition.rs`
-sites (everything the corrected grep AND the Goal's list both point to) but
-leaves `lifecycle.rs:764` exactly as it is today passes AC4, AC5's grep half,
-and — if the reviewer trusts the Goal's site list rather than independently
-re-deriving it — AC5's reviewer-confirmation half too. It would still assert the
-old `execution_mode`-keyed rule in a committed doc comment.
+Both are durable, committed artifacts (not `wip/`) that will remain in the tree
+after Issue 6 merges, and both legitimately quote the old phrasing as
+documentation of what changed — there's no way to write this Goal section, or
+the design's Decision E table, without naming the exact strings being retired.
+A correct implementation of Issue 6 does not remove either quotation, so the
+discovery check as literally scoped will never return clean, even once every
+real site is fixed. This is a bound that fails a correct implementation, not one
+that passes a wrong one, but it's the same discriminability defect in the
+opposite direction — the AC can't be satisfied at all as written.
 
-*Corrected Goal text:* "...across all eight sites that carry it — five in skill
-and format prose, and three in Rust doc comments (`lifecycle.rs`'s module doc,
-`lifecycle.rs` line 764's separate posture-inference comment, and four comment
-sites in `transition.rs` at lines 263, 469, 1960, and 2011)."
+*Corrected AC:* "...returns hits only at the four `leave` sites, the amendment's
+quotation, and this design's and this plan's own prose describing the phrasing
+variants (`DESIGN-multi-pr-plan-decoupling.md` and
+`docs/plans/PLAN-multi-pr-plan-decoupling.md` themselves) — catching any other
+site the design's table failed to enumerate."
 
-*Corrected AC (replace the "seven sites" reference in AC5):* "...across all
-eight sites [as enumerated above] returns nothing outside that same quotation,
-AND a reviewer independently re-derives the site list by reading every
-`///`/`//!` doc comment in `lifecycle.rs` and `transition.rs` that mentions the
-Draft→Active gate or execution mode — not by checking only the sites the Goal
-names — since the Goal's own count has already been wrong once."
+### The `leave` judgment — two of the four are wrong, verified against this project's own conventions
+
+You asked me to say so if a historical DESIGN should in fact be re-keyed. Two
+should be.
+
+`skills/design/references/lifecycle.md` and `design-format.md` are explicit about
+what `docs/designs/current/` means: *"Current | The PLAN has shipped. The DESIGN
+documents the current architecture"* and *"The directory move on `Planned ->
+Current` is load-bearing: it distinguishes designs that documented historical
+decisions from designs that document the current architecture. A reader scanning
+`docs/designs/current/` sees only currently-applicable designs."* That is the
+opposite of "records what was decided when written" — a `Current` DESIGN's whole
+reason for living in that directory, instead of staying in `docs/designs/` or
+moving to an archive, is that it is supposed to stay accurate. `DECISION-*.md`
+files are genuinely point-in-time records (hence "amend, do not rewrite" is
+correct there, and for Decision 6's own text in
+`DESIGN-roadmap-plan-standardization.md`, which Issue 8 amends the same way).
+Treating all three `Current` DESIGN mentions the same way as the DECISION file is
+a category error against this project's own stated definition.
+
+I checked all three directly (`status: Current` confirmed in each frontmatter):
+
+- **`DESIGN-lifecycle-draft-ready-discipline.md:398`** — a parenthetical inside a
+  passing-state table description, about a different subject (strict-mode
+  posture detection) that mentions the gate's asymmetry only as supporting
+  context. Should be **re-key**, not leave: it's collateral prose describing
+  current mechanics, structurally identical in kind to the Rust doc comments
+  Issue 6 already re-keys as comment-only edits.
+- **`DESIGN-shirabe-artifact-decision-contract.md:453`** — same situation, a
+  different subject (the durable-vs-working artifact contract) mentioning the
+  gate as context. Should be **re-key** for the same reason.
+- **`DESIGN-roadmap-plan-standardization.md:577`** — closer call, and I'd leave
+  it as currently judged, but flag an inconsistency: this line is in a *Data
+  Flow* paragraph, not in Decision 6's own text, so "amended separately by
+  Decision 6's own amendment" doesn't actually cover it — Issue 8's amendment
+  targets Decision 6 specifically, and line 577 sits elsewhere in the same
+  document. If the "leave because it's amended elsewhere" reasoning is meant to
+  extend to the whole document (not just Decision 6's text), that's worth
+  stating explicitly rather than implying the amendment already covers it.
+- **Golden fixture** — correctly `leave`. Pinned test input; no objection.
+
+Re-classifying the first two as `re-key` changes the split from "six re-key, one
+amend, four leave" to eight re-key, one amend, and one-to-two leave (depending on
+how the `roadmap-plan-standardization.md:577` question above is resolved), adds
+those two DESIGN files to Issue 6's `Files` list and to the file-scoped
+completeness check (one occurrence each, by my count, bringing the "twelve
+occurrences to clear" total to fourteen), and removes them from the discovery
+check's expected-hit set.
 
 ---
 
 ## Summary
 
-FAIL, down from 8/8 issues with findings to 1/8. The seven corrections against
-Issues 1, 2, 3, 4, 5, 7, and 8 each close the gap precisely — verified against
-the actual applied AC text, not just the description of the correction. Issue 6
-improved substantially (three of four original problems closed) but the Goal's
-Rust-site count is still wrong in a way that's independently verifiable against
-the real files, and it produces one concrete, named, currently-unclosed gap:
-`crates/shirabe-validate/src/lifecycle.rs:764` can keep its stale
-"human-approved for multi-pr" wording through every check in Issue 6 as
-currently written.
+FAIL. Issues 1, 2, 3, 4, 5, 7, and 8 are clean — verified fresh, no regressions.
+Issue 6 is close but not there: one factual error in its own explanatory text
+(which line the discovery check misses), one unsatisfiable success bound (the
+discovery check can never return clean because this design and this plan
+legitimately quote the retired phrasing), and a `leave` judgment that's right for
+the golden fixture, arguably right for one DESIGN doc, and wrong for two —
+`DESIGN-lifecycle-draft-ready-discipline.md` and
+`DESIGN-shirabe-artifact-decision-contract.md` are `status: Current` specifically
+*because* this project's own lifecycle documentation wants them to stay accurate,
+which is the opposite of the "falsifies the audit trail" reasoning used to
+exempt them.
