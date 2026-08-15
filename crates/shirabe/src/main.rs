@@ -21,6 +21,7 @@ use shirabe_validate::{
     MergeGateOutcome, Mode, ParseError, PrPosture, ReviewPosture, SlugPrefixCheck, ValidationError,
 };
 
+mod plan_outlines;
 mod populate;
 mod pr_body_hook;
 mod work_summary;
@@ -66,6 +67,8 @@ enum Commands {
     Validate(ValidateArgs),
     /// Roadmap-scoped subcommands.
     Roadmap(RoadmapArgs),
+    /// Plan-scoped subcommands.
+    Plan(plan_outlines::PlanArgs),
     /// Transition a shirabe doc to a new status.
     Transition(TransitionArgs),
     /// Walk a finished PLAN's upstream chain and apply each tactical node's
@@ -405,6 +408,9 @@ fn main() -> ExitCode {
         Some(Commands::Roadmap(args)) => match args.command {
             RoadmapCommands::Populate(p) => populate::run(&p),
         },
+        Some(Commands::Plan(args)) => match args.command {
+            plan_outlines::PlanCommands::Outlines(o) => plan_outlines::run(&o),
+        },
         Some(Commands::Transition(args)) => run_transition_cmd(&args),
         Some(Commands::FinalizeChain(args)) => run_finalize_chain_cmd(&args),
         Some(Commands::SlugPrefixDetect(args)) => run_slug_prefix_detect(&args),
@@ -650,9 +656,7 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
                 file: path.clone(),
                 line: 1,
                 code: "IO".to_string(),
-                message: format!(
-                    "{path} is a directory; pass files (for example: {path}/**/*.md)"
-                ),
+                message: format!("{path} is a directory; pass files (for example: {path}/**/*.md)"),
             });
             worst = worst.merge(ValidateOutcome::ToolError);
             continue;

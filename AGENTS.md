@@ -99,6 +99,36 @@ fixture skill whose declaration cannot be satisfied, one that every host meets
 the same assertion runs on every pull request in
 `scripts/skill-preflight_test.sh`.
 
+## Shell Scripts Target bash 3.2
+
+Every shell script under `skills/` and `scripts/` has to run under bash 3.2,
+because that is what macOS ships as `/bin/bash` and always will. Nothing about
+that is enforced by your editor and most of it is invisible on a modern Linux
+box: bash 5 accepts constructs bash 3.2 either rejects or, worse, accepts and
+handles differently.
+
+Before pushing a change to any of them, run the suite that covers it on the
+floor:
+
+```bash
+# what suites exist and which scripts each one runs
+scripts/check-bash-floor.sh --list
+
+# check one
+scripts/check-bash-floor.sh plan
+
+# check all four
+scripts/check-bash-floor.sh all
+```
+
+On Linux this runs the suite in a `bash:3.2` container (docker required); on
+macOS it uses `/bin/bash` directly. Same command either way, and the same one
+CI runs.
+
+Do not rely on a grep for `declare -A` and friends. A pattern list only catches
+what its author remembered - the sweep that fixed `plan-to-tasks.sh` found
+`declare -A` by grep and missed a bash 4.3 nameref entirely. Run the suite.
+
 ## Skill Quality Standards
 
 Skills in this repo follow the patterns documented in the skill-creator skill:

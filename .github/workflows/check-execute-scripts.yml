@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'skills/execute/scripts/**'
+      # The macOS leg reaches bash 3.2 through the runner, so a change to it
+      # has to re-run this suite.
+      - 'scripts/check-bash-floor.sh'
 
 jobs:
   test-execute-scripts:
@@ -22,8 +25,26 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install jq
 
-      - name: Run cascade tests
+      - name: Run cascade tests (Linux)
+        if: runner.os == 'Linux'
         run: bash skills/execute/scripts/run-cascade_test.sh
 
-      - name: Run assert-child-template tests
+      - name: Run assert-child-template tests (Linux)
+        if: runner.os == 'Linux'
         run: bash skills/execute/scripts/assert-child-template_test.sh
+
+      # The macOS leg is the floor check, and until now it was not one: it
+      # invoked `bash`, which resolves to whatever the runner image has on
+      # PATH, so a post-3.2 construct would have passed here unnoticed. That is
+      # the shape check-plan-scripts.yml calls out.
+      #
+      # Going through the runner rather than calling /bin/bash directly is what
+      # closes the second half of the hole. run-cascade_test.sh re-enters with
+      # a bare `bash "$CASCADE_SCRIPT"`, so /bin/bash alone would put the
+      # harness on the floor and leave run-cascade.sh itself - the 900 lines
+      # that actually ship - running under whatever bash PATH resolves to. The
+      # runner puts a 3.2 shim ahead of PATH so the whole process tree stays on
+      # the floor. It is also the same command a developer runs locally.
+      - name: Run execute suite on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system execute
