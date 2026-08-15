@@ -58,12 +58,12 @@ is filed as tsukumogami/shirabe#304. Nothing here re-does it.
 back out.
 
 **Acceptance Criteria**:
-- [ ] The recording line reads `printf '%s' "$SETTLED_BRANCH" | koto context add {{SESSION_NAME}} settled_branch` -- `printf '%s'` and not `echo`, so no trailing newline enters the store
-- [ ] The block reads the value straight back and compares it to `$SETTLED_BRANCH`, and on mismatch prints a diagnostic naming the step, the value read, and the value expected
-- [ ] Both that diagnostic and the pre-existing `refusing unsafe settled branch` message are written to **stdout**, not stderr, so `2>/dev/null` does not swallow them
-- [ ] The directive prose tells the agent to submit `status: blocked` -- not `completed`, not `override` -- when the comparison fails
-- [ ] Running the block twice against the same session leaves one `settled_branch` key with the same value and no error on the second run
-- [ ] `spawn_and_await`'s read block is unchanged: `git diff` shows no edit inside either of its two ticks
+- [x] The recording line reads `printf '%s' "$SETTLED_BRANCH" | koto context add {{SESSION_NAME}} settled_branch` -- `printf '%s'` and not `echo`, so no trailing newline enters the store
+- [x] The block reads the value straight back and compares it to `$SETTLED_BRANCH`, and on mismatch prints a diagnostic naming the step, the value read, and the value expected
+- [x] Both that diagnostic and the pre-existing `refusing unsafe settled branch` message are written to **stdout**, not stderr, so `2>/dev/null` does not swallow them
+- [x] The directive prose tells the agent to submit `status: blocked` -- not `completed`, not `override` -- when the comparison fails
+- [x] Running the block twice against the same session leaves one `settled_branch` key with the same value and no error on the second run
+- [x] `spawn_and_await`'s read block is unchanged: `git diff` shows no edit inside either of its two ticks
 - [ ] CI green
 
 **Dependencies**: None.
@@ -82,12 +82,12 @@ from the `completed` and `override` transitions, so the state cannot advance to
 `worktree_discipline_check` without a well-formed recorded branch.
 
 **Acceptance Criteria**:
-- [ ] `orchestrator_setup` declares a gate named `settled_branch_recorded` of type `context-matches`, keyed on `settled_branch`, with the pattern anchored at both ends as `^[A-Za-z0-9._/-]+$`
-- [ ] The `completed` and `override` transitions each carry `gates.settled_branch_recorded.matches: true` in their `when` clause
-- [ ] The `blocked` transition carries no gate reference, so a run with an unwritable store can still reach `done_blocked`
-- [ ] The template still compiles: `koto template compile` (or the repo's template-validation scripts) accepts the edited file and names no unresolved reference
-- [ ] The directive prose names the gate and says what to check when the state will not advance, in the shape `worktree_discipline_check`'s existing note uses for its own gate
-- [ ] No new entry is added to the template's `variables:` block -- `{{SESSION_NAME}}` is a koto runtime variable
+- [x] `orchestrator_setup` declares a gate named `settled_branch_recorded` of type `context-matches`, keyed on `settled_branch`, with the pattern anchored at both ends as `^[A-Za-z0-9._/-]+$`
+- [x] The `completed` and `override` transitions each carry `gates.settled_branch_recorded.matches: true` in their `when` clause
+- [x] The `blocked` transition carries no gate reference, so a run with an unwritable store can still reach `done_blocked`
+- [x] The template still compiles: `koto template compile` (or the repo's template-validation scripts) accepts the edited file and names no unresolved reference
+- [x] The directive prose names the gate and says what to check when the state will not advance, in the shape `worktree_discipline_check`'s existing note uses for its own gate
+- [x] No new entry is added to the template's `variables:` block -- `{{SESSION_NAME}}` is a koto runtime variable
 - [ ] CI green
 
 **Dependencies**: Blocked by Issue 1.
@@ -105,19 +105,19 @@ from the `completed` and `override` transitions, so the state cannot advance to
 fail-closed behaviour, so both are evidence rather than assertions.
 
 **Acceptance Criteria**:
-- [ ] The test drives a real koto session: it writes a branch name through the Issue 1 block and reads it back the way `spawn_and_await` does, asserting the two strings are byte-equal
-- [ ] The positive case uses an adopt-path-shaped branch name (`docs/<topic>`, not `impl/<slug>`), so a fallback that silently substituted `impl/<slug>` would fail the assertion
-- [ ] The negative case asserts that with the key absent the gate reports `matches: false` and `orchestrator_setup` does not advance on `status: override`
-- [ ] A third case asserts a value containing a shell metacharacter is rejected by the gate, which fails if a later edit drops either anchor from the pattern
-- [ ] The test passes locally and its output shows the compared strings, not just a pass line
-- [ ] It runs under the repo's bash floor and is wired into whatever runner CI already uses for `scripts/*_test.sh`
-- [ ] No existing test is modified; a test that would have to change is reported as a finding instead
+- [x] The test drives a real koto session: it writes a branch name through the Issue 1 block and reads it back the way `spawn_and_await` does, asserting the two strings are byte-equal
+- [x] The positive case uses an adopt-path-shaped branch name (`docs/<topic>`, not `impl/<slug>`), so a fallback that silently substituted `impl/<slug>` would fail the assertion
+- [x] The negative case asserts that with the key absent the gate reports `matches: false` and `orchestrator_setup` does not advance on `status: override`
+- [x] A third case asserts a value containing a shell metacharacter is rejected by the gate, which fails if a later edit drops either anchor from the pattern
+- [x] The test passes locally and its output shows the compared strings, not just a pass line
+- [x] It is wired into the `execute` suite of `scripts/check-bash-floor.sh` and into `check-execute-scripts.yml`, whose Linux leg installs koto through the project tool manifest so the cases run for real. It parses under bash 3.2 and skips cleanly there; the 3.2 leg has no koto, so its cases do not execute on the floor
+- [x] No existing test is modified; a test that would have to change is reported as a finding instead
 - [ ] CI green
 
 **Dependencies**: Blocked by Issue 1, Issue 2.
 
 **Type**: code
-**Files**: `scripts/settled-branch-record_test.sh`
+**Files**: `skills/execute/scripts/settled-branch-record_test.sh` (moved from the `scripts/` path this outline first named, so the existing `skills/execute/scripts/**` CI path filter and the `execute` floor suite pick it up without a new workflow)
 
 ---
 
@@ -129,10 +129,10 @@ fail-closed behaviour, so both are evidence rather than assertions.
 with the gate, changing only what the contract change actually touches.
 
 **Acceptance Criteria**:
-- [ ] `skills/execute/SKILL.md`'s `orchestrator_setup` bullet names the gate and the fail-closed behaviour, so the prose contract and the template agree
-- [ ] Evals 26 and 27 are re-read against the new contract; each expectation that still holds is left byte-identical
-- [ ] Any eval expectation that changed is changed because the contract changed -- the gate is new; the read site's fallback is not -- and the diff makes which is which obvious
-- [ ] `scripts/check-evals-exist.sh` still passes
+- [x] `skills/execute/SKILL.md`'s `orchestrator_setup` bullet names the gate and the fail-closed behaviour, so the prose contract and the template agree
+- [x] Evals 26 and 27 are re-read against the new contract; each expectation that still holds is left byte-identical
+- [x] Any eval expectation that changed is changed because the contract changed -- the gate is new; the read site's fallback is not -- and the diff makes which is which obvious
+- [x] `scripts/check-evals-exist.sh` still passes
 - [ ] CI green
 
 **Dependencies**: Blocked by Issue 2.
