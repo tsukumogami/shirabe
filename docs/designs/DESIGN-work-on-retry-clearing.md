@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Planned
 upstream: docs/prds/PRD-work-on-retry-clearing.md
 problem: |
   /work-on's three review phases gate their `passed` transition on a
@@ -33,7 +33,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Planned
 
 ## Context and Problem Statement
 

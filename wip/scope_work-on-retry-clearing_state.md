@@ -2,9 +2,13 @@
 topic: work-on-retry-clearing
 chain_started: 2026-08-15T00:00:00Z
 last_updated: 2026-08-15T00:00:00Z
-phase_pointer: phase-2
-exit: UNSET
-exit_artifacts: []
+phase_pointer: phase-4
+exit: full-run
+exit_artifacts:
+  - docs/prds/PRD-work-on-retry-clearing.md
+  - docs/designs/DESIGN-work-on-retry-clearing.md
+  - docs/plans/PLAN-work-on-retry-clearing.md
+plan_execution_mode: single-pr
 planned_chain:
   - brief
   - prd
@@ -16,6 +20,10 @@ chain_ran:
     started_at: 2026-08-15T00:05:00Z
   - name: prd
     started_at: 2026-08-15T00:15:00Z
+  - name: design
+    started_at: 2026-08-15T00:35:00Z
+  - name: plan
+    started_at: 2026-08-15T00:55:00Z
 child_snapshots:
   brief:
     status: Accepted
@@ -25,6 +33,10 @@ child_snapshots:
     status: Accepted
     content_hash: 7c06bfd2c34f3ac988d000a94b4093f43fea1249
     captured_at: 2026-08-15T00:30:00Z
+  design:
+    status: Accepted
+    content_hash: b557bf9ba89bb953215e28c3403dcbffc6ed4cd8
+    captured_at: 2026-08-15T00:50:00Z
 consolidation_judgments:
   - hop: brief->prd
     stage: carry
@@ -36,9 +48,32 @@ consolidation_judgments:
     verdict: absorb
     absorbed: docs/briefs/BRIEF-work-on-retry-clearing.md
     into: docs/prds/PRD-work-on-retry-clearing.md
-pre_invocation_sha: fae9ade
+  - hop: prd->design
+    stage: judgment
+    verdict: keep
+    finding: >
+      The PRD does work the DESIGN does not. It defines R1-R12, eight of which
+      the DESIGN cites by number without defining, and it holds the 18
+      acceptance criteria the implementation is graded against. Folding it would
+      either orphan those citations -- which is the failure FC19 exists to catch
+      -- or require reproducing the whole requirement set inside the DESIGN,
+      which is relocation rather than compression and fails the contribution
+      section's too-long test. The citation preflight came back clean (status 0),
+      so this verdict is the judgment stage's, not the preflight's.
+  - hop: design->plan
+    stage: judgment
+    verdict: keep
+    finding: >
+      The DESIGN holds the entire decision record the PLAN does not: three
+      rejected alternatives at genuine strength, the security analysis, and the
+      consequences carrying three latent defects and the separating rule they
+      forced. The PLAN is four issue outlines. The decisive point is lifetime --
+      the PLAN is a working artifact the cascade deletes when the work lands, so
+      folding the DESIGN into it would destroy the audit trail at the exact
+      moment the plan completes. Preflight clean (status 0).
+pre_invocation_sha: f6f364e
 parent_orchestration:
-  invoking_child: design
+  invoking_child: plan
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 worktree_rebases:
