@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Draft
 problem: |
   shirabe's skills call host tools and almost none of those calls says
@@ -88,8 +89,8 @@ land in.
   I am not left reading a paragraph of prose and guessing.
 - As an agent loading `/execute` against a koto that lacks a subcommand
   the workflow calls, I want that named before I dispatch anything, so
-  that I do not send twelve children at a branch that was never
-  created.
+  that the choice to proceed or stop is one I make knowingly rather
+  than one the run makes for me.
 - As an engineer whose tools are managed by tsuku, I want a check that
   knows the difference between "not installed" and "installed but not
   on this shell's PATH", so that I am not told to reinstall two tools I
@@ -98,7 +99,8 @@ land in.
   one place to declare that dependency, so that the declaration and the
   check stay in step without my writing install prose.
 - As an author running `/decision`, which needs nothing beyond a
-  checkout, I want the feature to be invisible.
+  checkout, I want to see no trace of this feature at all, so that the
+  cost of adding it falls only on the skills that need it.
 - As an author whose `/scope` chain halts, I want to be able to tell a
   stale binary from a document defect, so that I do not spend the next
   hour editing prose that was always fine.
@@ -136,8 +138,10 @@ land in.
   executable.
 - **R7.** The check SHALL verify that each declared subcommand appears
   in the tool's advertised surface.
-- **R8.** The check SHALL verify that each declared flag exists on the
-  subcommand it is declared against.
+- **R8.** The check SHALL verify that each declared flag appears in the
+  advertised surface of the subcommand it is declared against. R7 and
+  R8 read the same thing at two depths: what the installed tool says it
+  offers, not what it accepts when actually run.
 - **R9.** The check SHALL NOT parse, compare, or gate on a version
   number of any tool, anywhere. Version floors are removed from the
   requirements surface entirely; `skills/work-on/SKILL.md`'s stated
@@ -147,9 +151,10 @@ land in.
   satisfied or unsatisfied at load, because the mode has not been
   chosen -- `/plan` selects between Phases 3 and 4, after the skill has
   loaded.
-- **R11.** Mode-scoped requirements SHALL be verified where the mode is
-  actually selected, and the declaration SHALL make that deferral
-  visible rather than silent.
+- **R11.** Mode-scoped requirements SHALL be verified at the point the
+  mode is selected. This PRD requires that verification, not merely a
+  declaration that marks it deferred; a requirement recorded and never
+  checked is the state the feature exists to end.
 
 ### Reporting
 
@@ -192,9 +197,9 @@ land in.
   `shirabe` and `koto` resolve under `~/.tsuku/tools/current/`, on PATH
   only in shells that sourced `~/.tsuku/env`; an agent told to
   reinstall them will do it.
-- **R19.** Install instructions SHALL be resolved against what the host
-  actually has rather than enumerated per operating system, delegating
-  to a package manager already present where one is.
+- **R19.** An emitted command SHALL be one that succeeds on the host it
+  is emitted on. The report SHALL NOT emit a command whose availability
+  it has not established.
 - **R20.** Instruction resolution SHALL account for combinations known
   not to work. `gh` is currently commented out of `.tsuku.toml` as
   segfaulting on Linux, and that exclusion lives only in a TOML comment
@@ -202,19 +207,57 @@ land in.
 
 ### Signal integrity
 
-- **R21.** Neither the check's probes nor the skills' own call sites
-  SHALL discard a tool's stderr. `shirabe#279` was silent because the
-  call site redirected stderr to `/dev/null`, and a preflight added
-  while that redirect remains would not have prevented it.
+- **R21.** No verification performed by the check, and no skill call
+  site, SHALL discard a tool's diagnostic output. Discarding covers
+  redirection to `/dev/null`, capture into a variable that is never
+  read, and any other route by which the text reaches nobody.
+  `shirabe#279` was silent because the call site redirected stderr to
+  `/dev/null`, and a preflight added while that redirect remains would
+  not have prevented it.
+- **R21a.** No verification and no skill call site SHALL ignore a
+  tool's exit status. `shirabe#279` needed both halves to stay silent:
+  the discarded stderr and the unchecked exit code. Fixing one leaves
+  the incident reproducible.
 - **R22.** A tool's CLI-surface failure SHALL be distinguishable from
-  that tool's own application-level outcomes. `shirabe validate`
-  currently returns exit 2 both for an unrecognized flag and for
-  document violations, and `/scope` reads 2 as a content verdict.
+  that tool's own application-level outcomes, for every consumer that
+  branches on those outcomes. `shirabe validate` currently returns exit
+  2 both for an unrecognized flag and for document violations. Two
+  consumers read that contract and both are in scope:
+  `skills/scope/SKILL.md` and `/charter`'s finalization phase. A change
+  satisfying only the first leaves `/charter` misdiagnosing a stale
+  binary as a document defect.
+- **R22a.** A skill invoking a subcommand whose behaviour is governed
+  by a defaulted flag SHALL pass that flag explicitly rather than
+  relying on the default. `roadmap populate` flipped the default of
+  `--no-issues` in #264 while the flag's name and presence were
+  unchanged, which no surface probe at any depth can detect. Passing
+  the flag is the mitigation available; the check is not.
+
+### Verifiability
+
+- **R25a.** The check SHALL be reachable as a single invocable entry
+  point whose combined stdout and stderr can be captured by a test.
+  This PRD does not say what that entry point is; it requires that one
+  exist, because R12's zero-output rule is otherwise unfalsifiable.
+- **R25b.** The filesystem root the check consults when distinguishing
+  "absent" from "present but off PATH" SHALL be overridable for
+  verification. Without an override, the `~/.tsuku/tools/current/` case
+  can only be tested by writing into a developer's real home directory
+  and cannot be tested on a host without tsuku at all.
+- **R25c.** The existing discards of tool diagnostics in shipped skills
+  SHALL be remediated as part of this work, not merely forbidden going
+  forward. `skills/execute/koto-templates/execute.md` lines 390 and 409
+  carry `koto context get ... 2>/dev/null || echo ...`, which is the
+  `shirabe#279` shape still live in the tree. R21 and R21a bind new
+  code; this requirement binds the existing instances.
 
 ### Coverage and retirement
 
 - **R23.** All twenty skills SHALL carry a declaration, including the
-  five whose declaration is empty.
+  five whose declaration is empty. Nine skills need nothing beyond a
+  checkout, but four of those nine call `shirabe transition` at a
+  single finalize step and therefore declare it; five declare nothing
+  at all.
 - **R24.** Prose that the declaration and check supersede SHALL be
   removed in the same change that adds them, so that no skill carries
   both. This covers `skills/work-on/SKILL.md`'s Prerequisites section
@@ -226,49 +269,110 @@ land in.
 
 ## Acceptance Criteria
 
-- [ ] Every one of the twenty skills has a declaration; the five
-      requiring nothing have an explicitly empty one.
+Several criteria below name a state a test must construct. The repo has
+precedent for each shape: `skills/execute/scripts/preflight_test.sh`
+builds fake roots with `mktemp -d`, `run-cascade_test.sh` injects
+`SHIRABE_BIN` stubs and manipulates `PATH`, and
+`skills/work-on/evals/fixtures/bin/koto` is a shim that exits 127 under
+an environment flag. Stubs that report a chosen surface extend that
+last pattern.
+
+### Declaration
+
+- [ ] Every one of the twenty skills has a declaration; the five whose
+      declaration is empty carry it explicitly.
+- [ ] A skill carrying no declaration is distinguishable from one
+      carrying an empty declaration: presenting both to whatever reads
+      declarations produces different results.
+- [ ] For each skill, every flag appearing in a `shirabe` or `koto`
+      command line in that skill's own phases also appears in that
+      skill's declaration. Verified by extracting flags from the
+      skill's command lines and comparing against the declared set.
 - [ ] A declaration naming a tool with an independent release cadence
-      names no subcommands; a declaration naming `shirabe` or `koto`
-      names subcommands, and names flags wherever the skill's logic
-      branches on one.
-- [ ] The policy behind that split is written down with its rationale
-      in a durable document.
-- [ ] With every declared requirement satisfied, loading a skill
-      produces zero bytes of check output. Verified by byte count, not
-      by inspection.
-- [ ] With a declared tool removed from PATH, loading the skill
-      produces a report naming the tool, the affected capability, and
-      one command; the skill still loads and remains usable.
+      names no subcommands.
+- [ ] Adding an entry to one skill's declaration leaves every other
+      skill's evaluated set unchanged.
+- [ ] A declaration distinguishes an always-required entry from a
+      mode-scoped one by inspection, without running the check.
+- [ ] The policy behind the first-party/independent-cadence split, with
+      its rationale, appears in a durable document under `docs/`.
+
+### What the check verifies
+
+- [ ] With a declared tool removed from PATH, the report names the
+      tool and the affected capability; the skill still loads and
+      remains usable.
 - [ ] With a declared tool present but a declared subcommand absent
-      from its surface, the report names the subcommand and says the
-      tool resolved. It does not say the tool is missing.
+      from its advertised surface, the report names the subcommand and
+      states the tool resolved. It does not report the tool as missing.
 - [ ] With a declared flag absent from a present subcommand, the report
-      names the flag and the subcommand.
-- [ ] With a tool present under `~/.tsuku/tools/current/` and absent
-      from PATH, the report says to source the environment file and
-      does not offer an install command.
-- [ ] No requirement, check, or report references a version number.
-      Verified by grep over the shipped check surface.
-- [ ] A mode-scoped requirement is not reported at load; loading
-      `/plan` on a host without `gh` produces no `gh` finding, and the
-      multi-pr branch reports it when that mode is selected.
+      names both the flag and the subcommand.
+- [ ] With a tool present under an injected tool-location root and
+      absent from PATH, the report says to source the environment file
+      and offers no install command. Verified against R25b's override,
+      not against a real `$HOME`.
+- [ ] Nothing the check executes and nothing it emits performs a
+      version comparison or gates on a version. A `--version` call used
+      only as a liveness probe, and a pinned URL inside an install
+      instruction, both remain permitted. Verified over the enumerated
+      set of files the DESIGN names as the check's implementation.
+- [ ] Loading `/plan` on a host without `gh` produces no `gh` finding;
+      selecting multi-pr mode produces one.
+- [ ] A mode-scoped entry is visibly marked as deferred at load, so a
+      reader can tell "not required here" from "not checked yet".
+- [ ] A skill whose declaration is empty produces no report.
+
+### Reporting
+
+- [ ] With every declared requirement satisfied, invoking the check's
+      entry point yields zero bytes across stdout and stderr combined.
+      Measured with `wc -c` over a combined capture, not by inspection.
+      `skills/execute/scripts/preflight.sh` currently prints a success
+      line and must stop doing so.
+- [ ] An unsatisfied report contains no affordance directing the reader
+      to re-run with a flag, an environment variable, or a verbosity
+      setting to obtain more detail.
+- [ ] On a host with a package manager present, the emitted command
+      delegates to that manager.
+- [ ] On Linux, the instruction for a missing `gh` does not route
+      through tsuku, and the exclusion driving that is read from a
+      machine-readable source rather than a comment in `.tsuku.toml`.
 - [ ] On a host with no network and no package manager, the report
-      states that no install route is available and names the tool.
-- [ ] No probe and no skill call site redirects a tool's stderr to
-      `/dev/null`. Verified by grep across `skills/`.
-- [ ] A `shirabe validate` invocation that fails on an unrecognized
-      flag is distinguishable by its consumer from one that fails on
-      document violations.
-- [ ] `skills/work-on/SKILL.md` no longer contains a Prerequisites
-      section, and no skill contains prose stating a tool version
-      floor.
-- [ ] `references/fixes/cli-version-preflight.md` is either removed or
-      has no remaining claim that a skill dereferences it.
-- [ ] `skills/execute/SKILL.md` does not claim a check its preflight
-      does not perform.
-- [ ] Loading a skill whose declaration is empty produces no output and
-      runs no probe.
+      states that no install route is available and names the tool. No
+      command is emitted.
+
+### Signal integrity
+
+- [ ] No verification performed by the check, and no non-test call site
+      for a tool named in any declaration, discards that tool's
+      diagnostic output or ignores its exit status. The scan covers
+      `2>/dev/null`, `&>/dev/null`, `2>&1 >/dev/null`, and capture into
+      a variable that is never read; it covers `koto-templates/` as
+      well as `skills/`. Probes where a non-zero exit is the expected,
+      handled outcome and the fallback is not a masked failure are
+      exempt and enumerated.
+- [ ] `skills/execute/koto-templates/execute.md` lines 390 and 409 no
+      longer discard `koto context get`'s diagnostics behind a
+      defaulting fallback.
+- [ ] `shirabe validate` invoked with an unrecognized flag and `shirabe
+      validate` invoked on a violating document are distinguishable by
+      a named discriminator, and both `skills/scope/SKILL.md`'s
+      documented branch and `/charter`'s finalization branch route the
+      first to a tool-error outcome and the second to a violation
+      outcome. Asserted for both inputs against both consumers.
+- [ ] Every skill invoking a subcommand whose behaviour is governed by
+      a defaulted flag passes that flag explicitly. Verified at the
+      `roadmap populate` call sites and any peer with the same shape.
+
+### Retirement
+
+- [ ] `skills/work-on/SKILL.md` contains no Prerequisites section, and
+      no skill states a tool version floor in prose.
+- [ ] `references/fixes/cli-version-preflight.md` is removed, or
+      retains no claim that a skill dereferences it.
+- [ ] `skills/execute/SKILL.md`'s claim that the preflight will
+      "confirm `gh` auth is live" is removed, or
+      `skills/execute/scripts/preflight.sh` performs a `gh` auth check.
 
 ## Decisions and Trade-offs
 
@@ -329,32 +433,56 @@ call of any kind", and a check that cries wolf on the majority path
 gets ignored on the minority one.
 
 **Silence on success.** Required (R12), and not as a matter of taste.
-Every "doctor" tool surveyed treats a green checklist as the product
-and none can be made quiet; the systems that are silent when healthy
+Of the tools surveyed during exploration, those built around a
+"doctor" command -- `flutter doctor`, `nix doctor`, `brew doctor`,
+`rustup check`, `pre-commit` -- all treat the green checklist as the
+product, and pre-commit's quiet-mode request has sat open across three
+issues for a decade. The ones that are silent when healthy -- direnv's
+`has`, npm `engines`, Cargo's `rust-version`, `go.mod` toolchains --
 separate the predicate from the reporter. The reader here is an agent,
 for which a checkmark list is cost plus a risk that it starts narrating
 environment status to the user.
 
-**Known unknown, carried deliberately.** A flag whose *default* changes
-while the flag itself persists is invisible to this check at every
-depth considered. `roadmap populate --no-issues` did exactly that in
-#264. No alternative in the bakeoff reaches it, and this PRD does not
-claim to.
+**What makes an instruction actionable.** Chosen: the report names
+which posture holds (R13), what the skill cannot do, and one command
+established to work on this host (R14, R19), with PATH-invisibility
+resolved before any install route is offered (R18) and an explicit
+statement when no route exists (R15). Alternatives were a per-operating
+-system install matrix, a single generic install line, and leaving the
+no-route case unhandled. The matrix lost on maintenance: exploration
+counted roughly 36-40 independently drifting cells against about eleven
+strings for host-resolved delegation, and the prior art that maintains
+such matrices does so with funded teams. A generic line lost because
+the agent will run whatever is printed, so a command that fails on this
+host is worse than no command. Leaving the no-route case unhandled lost
+because a sandboxed host is the case that motivates the requirement --
+the remediation for a missing tool is itself unreachable there, and
+saying so is the only honest output.
+
+**Default-flips: mitigated, not merely acknowledged.** A flag whose
+default changes while its name persists is invisible to this check at
+every depth considered; `roadmap populate --no-issues` did exactly that
+in #264. The check cannot reach it, but the caller can: R22a requires
+skills to pass mode-selecting flags explicitly rather than relying on a
+default. That converts the exposure from undetectable to avoided for
+every call site that complies.
 
 ## Known Limitations
 
-- Semantic changes behind a stable surface are out of reach, as above.
+- A default-flip behind a stable flag name remains undetectable by the
+  check itself. R22a avoids it at compliant call sites; a call site
+  that ignores R22a is exposed and nothing will say so.
 - The check verifies a declaration, so a call the declaration omits is
-  unverified. R24's requirement that superseded prose be deleted in the
-  same change is the discipline that keeps declarations honest; nothing
-  mechanically proves a declaration is complete.
+  unverified. Nothing mechanically proves a declaration complete. The
+  acceptance criterion comparing declared flags against flags extracted
+  from a skill's own command lines is the closest available check, and
+  it catches omissions only for the two first-party tools whose
+  declarations name flags at all.
 - Surface probing costs process spawns on skills that declare
-  subcommands. The decision record measured the worst case at 6-9 calls
-  for `/work-on`, under 100ms, because `shirabe --help` and `koto
-  --help` each enumerate their whole command list in one call rather
-  than requiring a call per subcommand. Six of twenty skills spawn
-  nothing. The figure is an input to design, not a budget this PRD
-  sets.
+  subcommands. The decision record measured a worst case of 6-9 calls
+  for `/work-on`, under 100ms. The figure is an input to design, not a
+  budget this PRD sets, and it assumes a probing strategy the DESIGN is
+  free to change.
 - The check cannot resolve `shirabe#217`'s multi-version binding
   ambiguity. It reports on the binary that resolves; it does not say
   that two others are on disk.
