@@ -578,6 +578,43 @@ where an unparseable or unknown-prefix entry fails the carry check closed to
 `keep` and never silently skips the item, and in the new error-level check as a
 sixth clause.
 
+**The sites are not equal, and the design ranks them.** The absorb is the
+**gate** — the only site that can stop a deletion, running at fold time against
+on-disk frontmatter. The error-level check is the **backstop** — it validates
+document conformance, fires on documents nobody is folding including one
+hand-edited long after a fold, and cannot see the fold at all. The record
+checker's fold signature is the **trigger** — it pattern-matches a diff to decide
+whether to demand a row, and validates nothing in a meaningful sense. None
+substitutes for another; collapsing them loses coverage rather than duplication.
+The ranking is written down so a later maintainer cannot relax the absorb's
+validation to match the validator's without noticing they are relaxing the only
+site that can prevent a deletion.
+
+**Drift between the sites is contained, and this states the containment rather
+than relying on it.** A stricter absorb than validator means some documents
+validate but cannot be folded — fails toward `keep`, harmless. A looser absorb
+means the fold proceeds on a list the validator rejects, the survivor is written,
+and **step 8's post-absorb re-validation catches it and triggers the revert**.
+That containment exists for other reasons and is what makes the duplication
+tolerable; without saying so it is an accident of the ordering.
+
+**One owner for the string, not for the behaviour.** The path shape is a named
+constant declared beside the contribution table in `formats.rs`; the skill prose
+and the workflow cite it by name rather than re-typing it, and a grep-based CI
+assertion checks that each site's literal matches the constant. This is strictly
+better than the contribution table's position, which cannot have such a test
+because a table of headings is not a single string. A shared CLI surface is
+explicitly *not* built: the citation-check decision already priced a new
+subcommand and rejected it, because it enters a versioned multi-consumer contract
+with cross-repo consumers pinning tags — a heavy price for a regex.
+
+**A fourth reader lives inside the crate.** `required_sections_for`'s contribution
+branch also reads `absorbed:`, to derive headings. If the splice runs against an
+unvalidated entry the author gets two diagnostics for one cause, and the
+misleading one — a missing required section — is the louder. The splice branch and
+the new check share one parse, and an invalid entry produces only the entry
+diagnostic.
+
 **`hop:`, `verdict:` and the `carry_check:` map** are promoted by a different
 route: from scratch state that cleanup deletes into columns of a durable file on
 the default branch. Domains: `verdict:` against `{absorb, keep}`, `hop:` against
