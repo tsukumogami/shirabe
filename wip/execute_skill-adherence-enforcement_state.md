@@ -91,6 +91,38 @@ Carry this into the PR body at `pr_finalization`: it is the strongest single
 piece of evidence produced across the whole chain, and `wip/` does not survive
 the cascade.
 
+**The determination was run against this very execute run, and got it right.**
+Carry this into the PR body; it is the strongest validation the change has.
+
+```
+shirabe adherence-check \
+  --plan docs/plans/PLAN-skill-adherence-enforcement.md \
+  --session 4d06ff3a-5dfa-44de-b130-442e620bbff1 \
+  --parent execute-skill-adherence-enforcement
+```
+
+Result: `outcome: indeterminate`, with the reason "no liveness witness for this
+session: nothing was watching, which is not evidence of a departure."
+
+That is the correct answer and it is the subtle one. The hook that writes the
+witness ships in this PR but is not installed in this workspace, so nothing
+observed the run. A checker built the obvious way would have read the absent
+record as non-registration and reported a real, correctly-delegated run as
+`non-conforming`. This one declines to, which is exactly the distinction
+cross-validation turned into an interface requirement after finding a completed
+eight-child run on this machine with no workflow record at all.
+
+Everything else it read was accurate against live state: registration resolved
+under the worktree-encoded project directory, workflow identified as
+`execute-skill-adherence-enforcement`, six delegated children counted against
+the PLAN's declared nine, and the conflict store queried for the orchestrator
+plus all six children under their own session identities. That last part is the
+child-walking join from interface 2, working against real data rather than a
+fixture.
+
+It also reports registration status `blocked`, which is honest: the parent is
+still at `spawn_and_await` with three issues outstanding.
+
 **Precedence note.** The session carries an instruction not to call the Agent tool
 unless the user requested it, and `spawn_and_await` materializes one `/work-on`
 child per issue. The author invoked `/execute` on this PLAN, and under the ordering
