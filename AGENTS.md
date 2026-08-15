@@ -78,6 +78,27 @@ point it at the prepared workspace. This gives a tighter feedback loop: the
 skill-creator handles agent spawning, grading, and the eval viewer within
 your session. After running, validate with `scripts/run-evals.sh --validate decision`.
 
+### The preflight check during evals
+
+`scripts/run-evals.sh` exports `SHIRABE_PREFLIGHT_DISABLE=1`, which turns off
+the prerequisite check every skill body injects at load
+(`scripts/skill-preflight.sh`). Tier-2 fixtures put shim binaries under the
+working directory and prepend that directory to PATH; the check refuses to
+probe a binary that resolves under `$PWD` and says so, and since these evals
+are transcript-graded that block would silently change the input to every
+scenario in the corpus. Keep the variable set for every agent the harness
+spawns.
+
+The exception is an eval carrying `"preflight": "live"`. The harness gives
+those a different instruction: run with the variable cleared. They exist to
+prove the injected line still executes, and with the check switched off they
+would assert nothing. `skills/inflight/evals/evals.json` has the pair — one
+fixture skill whose declaration cannot be satisfied, one that every host meets
+— loaded from the self-contained fixture plugin under
+`skills/inflight/evals/fixtures/preflight-liveness/`. The deterministic half of
+the same assertion runs on every pull request in
+`scripts/skill-preflight_test.sh`.
+
 ## Skill Quality Standards
 
 Skills in this repo follow the patterns documented in the skill-creator skill:
