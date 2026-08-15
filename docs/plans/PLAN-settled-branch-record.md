@@ -64,7 +64,7 @@ back out.
 - [x] The directive prose tells the agent to submit `status: blocked` -- not `completed`, not `override` -- when the comparison fails
 - [x] Running the block twice against the same session leaves one `settled_branch` key with the same value and no error on the second run
 - [x] `spawn_and_await`'s read block is unchanged: `git diff` shows no edit inside either of its two ticks
-- [ ] CI green
+- [x] CI green
 
 **Dependencies**: None.
 
@@ -88,7 +88,7 @@ from the `completed` and `override` transitions, so the state cannot advance to
 - [x] The template still compiles: `koto template compile` (or the repo's template-validation scripts) accepts the edited file and names no unresolved reference
 - [x] The directive prose names the gate and says what to check when the state will not advance, in the shape `worktree_discipline_check`'s existing note uses for its own gate
 - [x] No new entry is added to the template's `variables:` block -- `{{SESSION_NAME}}` is a koto runtime variable
-- [ ] CI green
+- [x] CI green
 
 **Dependencies**: Blocked by Issue 1.
 
@@ -112,7 +112,7 @@ fail-closed behaviour, so both are evidence rather than assertions.
 - [x] The test passes locally and its output shows the compared strings, not just a pass line
 - [x] It is wired into the `execute` suite of `scripts/check-bash-floor.sh` and into `check-execute-scripts.yml`, whose Linux leg installs koto through the project tool manifest so the cases run for real. It parses under bash 3.2 and skips cleanly there; the 3.2 leg has no koto, so its cases do not execute on the floor
 - [x] No existing test is modified; a test that would have to change is reported as a finding instead
-- [ ] CI green
+- [x] CI green
 
 **Dependencies**: Blocked by Issue 1, Issue 2.
 
@@ -133,7 +133,7 @@ with the gate, changing only what the contract change actually touches.
 - [x] Evals 26 and 27 are re-read against the new contract; each expectation that still holds is left byte-identical
 - [x] Any eval expectation that changed is changed because the contract changed -- the gate is new; the read site's fallback is not -- and the diff makes which is which obvious
 - [x] `scripts/check-evals-exist.sh` still passes
-- [ ] CI green
+- [x] CI green
 
 **Dependencies**: Blocked by Issue 2.
 
