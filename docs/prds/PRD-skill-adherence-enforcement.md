@@ -226,9 +226,14 @@ it is written to is public.
 
 ## Acceptance Criteria
 
-The check's output domain is exactly five values: `conforming`,
-`non-conforming`, `coordinated`, `departed`, and `indeterminate`. Every criterion
-below that names an outcome names one of these.
+The check's output domain is exactly six values: `conforming`, `non-conforming`,
+`coordinated`, `departed`, `disabled`, and `indeterminate`. Every criterion below
+that names an outcome names one of these.
+
+`disabled` is separated from `indeterminate` deliberately. Both mean the check
+could not verify the run, but "an operator switched the enforcement off" and
+"nothing was watching" are different facts, and the first is the one a reviewer
+most wants to see.
 
 `departed` is the reading for a run whose delegation was incomplete but whose
 shortfall is covered by a conflict recorded under R10. It is deliberately not
@@ -291,6 +296,9 @@ doing the right thing.
 - [ ] AC18. With the refusal disabled through its operator switch, no refusal
       occurs, the session completes, and the read-only determination under R1 is
       still runnable. (R15)
+- [ ] AC18b. A session run with the refusal disabled is reported `disabled` by
+      the check, distinguishable from a session for which no enforcement was
+      present at all, which is reported `indeterminate`. (R15)
 
 **The conflict route (R10, R11, R19)**
 
