@@ -414,13 +414,61 @@ only makes it *stand down*. An unmarked handoff of a whole plan still arms.
    read; nothing observed suggests otherwise.
 5. The refusal is delivered by a `type: "command"` `PreToolUse` hook registered
    through a path that actually fires, and registration completes before the
-   session's first write. Settings registration is confirmed working for main
-   thread and subagent alike by two independent probes (mine via project
-   `.claude/settings.json`, the lead's via `--settings`); plugin registration is
-   confirmed for an installed plugin. The startup-ordering half is unverified and
-   matters to AC11 specifically. A `prompt`- or `agent`-type hook additionally
-   needs `continueOnBlock: true` or a deny ends the turn instead of correcting it
-   (v2.1.210 behavior change).
+   session's first write. **Both halves now confirmed**: settings registration by
+   two independent probes (mine via project `.claude/settings.json`, the lead's
+   via `--settings`), and plugin registration through the supported
+   `claude plugin init` load path by Decision 3, which also observed the hook fire
+   on the session's *first* tool call. A `prompt`- or `agent`-type hook
+   additionally needs `continueOnBlock: true` or a deny ends the turn instead of
+   correcting it (v2.1.210 behavior change).
+
+---
+
+## Interfaces with other decisions
+
+### Interface 1 — the arming component is the determination's liveness witness
+
+Cross-validation raised this and it lands on me. Decision 1 established that
+absence of a koto registration record is *not* evidence of non-registration (a
+fully delegated eight-child run predates the binary that started writing the
+record). The resolution is that my component, which observes tool calls in band,
+proves by its own log that the enforcement stack was live while the session ran.
+
+**Requirement as stated:** write a durable per-session entry whenever a tool call
+is evaluated, armed or not; the determination treats its absence as
+`indeterminate` rather than `non-conforming`.
+
+**How I would satisfy it, with one amendment.** A per-*tool-call* append is more
+than the requirement needs and more than the budget wants: it would fsync on
+every `Write`/`Edit` in every session on the machine and grow without bound. The
+property Decision 1 actually needs is liveness over the session, which is
+**one write-once entry per session**, keyed by `session_id`, carrying the
+component's contract version and a first-seen timestamp. Cost collapses to a
+single file create per session; growth is one small file per session.
+
+**Placement in the ladder matters and is not arbitrary.** The witness must be
+written *after* step 1 (the `docs/plans/` `stat`) so it does not fire in every
+repo on the machine, and *before* steps 2-4 so it records evaluations that did
+**not** arm — which is the whole point of it. That placement gives exactly the
+right scope: a witness exists for every session that ran in a repo capable of
+hosting plan-scale execution, armed or not.
+
+**It is admissible.** The witness is written by the hook process, not by any tool
+call the session issued, so R1's exclusion does not reach it. Worth stating
+explicitly, because a durable file that appears during a session is exactly the
+shape of thing R1 is written to exclude, and a reviewer will check.
+
+Co-locating it with Decision 4's conflict store under `$XDG_STATE_HOME/shirabe/`
+lets the determination read one root.
+
+### Interface 3 — the write-target set must be a readable artifact
+
+Agreed, and it constrains my clause C directly. Clause C currently says "outside
+`/execute`'s declared closed write-target set", which today is prose in
+`skills/execute/SKILL.md` Security Considerations point 2. Two components now
+need to evaluate it mechanically, so the DESIGN owes a declaration format. Until
+that exists, clause C is specified against English, which is the one part of my
+predicate that is not yet implementable as written.
 
 ---
 
@@ -469,14 +517,24 @@ only makes it *stand down*. An unmarked handoff of a whole plan still arms.
    out of scope per the PRD's Known Limitations. The matcher should name
    `Write|Edit|NotebookEdit` explicitly rather than `*`, both to keep the blast
    radius legible and to avoid arming on reads.
-6. **Does plugin hook registration complete before the first tool call in a `-p`
-   session whose opening move is a write?** Carried over from Decision 3's probe,
-   and it lands hardest on this decision: AC11 names the *first* out-of-set write
-   as the one that must be refused. If registration races the first tool call,
-   AC11 fails on exactly its own criterion while every later write is caught. The
-   existing evidence is a `SessionStart` hook, which says nothing about
-   `PreToolUse` ordering.
-7. **Should the arming predicate live in the existing `shirabe pr-body-hook`
-   adapter?** I recommend yes, on cost grounds (see Evaluation order). This is a
-   packaging question that spans Decisions 2 and 3 and neither of us owns it
-   alone.
+6. ~~**Does plugin hook registration complete before the first tool call?**~~
+   **Closed affirmatively by Decision 3's probe**, through the supported
+   `claude plugin init` load path, against a prompt whose opening move was a
+   write. AC11's first-write criterion is safe.
+7. ~~**Should the arming predicate live in the `pr-body-hook` adapter?**~~
+   **Closed: no.** I proposed it on cost grounds and the premise was wrong — that
+   hook matches `Bash` only, mine matches the edit tools, so the matchers are
+   disjoint and one process runs per tool call either way. Merging would also put
+   the gate on the `Bash` matcher, the documented brick-every-session footgun.
+8. **What does the transcript scan cost late in a very long armed run?** My 2 ms
+   figure is against a 4.1 MB transcript; an armed plan-scale session rescans on
+   every write and the file grows all run. Raised by Decision 3 against AC28.
+   **Proposed answer:** memoize the armed/not-armed verdict per
+   `session_id` + `agent_id` alongside the Interface 1 witness. This is
+   semantically free rather than an approximation — clause B is a *presence* test
+   over an append-only log, so it is monotone: once an inbound brief names a
+   resolvable PLAN, no later record can unname it. Memoizing makes the predicate
+   O(1) after first computation and removes transcript growth from the budget
+   entirely. The DESIGN should confirm the monotonicity argument holds for the
+   single-issue-marker exclusion too, which is the one clause that could in
+   principle flip a verdict from armed to not-armed.
