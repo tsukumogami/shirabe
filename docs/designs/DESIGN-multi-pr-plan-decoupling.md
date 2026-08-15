@@ -91,9 +91,9 @@ removes."
 `DECISION-multi-pr-posture-detection-2026-06-06.md` explains the asymmetric
 Draft→Active gate by multi-pr being the moment remote artifacts are created.
 Nothing in `transition.rs` or `lifecycle.rs` implements that gate; it lives in
-prose at eleven sites across the tree — two of them Rust source files carrying
-seven comment occurrences between them — and the phrasing varies across them.
-That changes what re-keying it means.
+prose at eleven sites across the tree, and the phrasing varies across them. Three
+of those sites are `Current` design docs, which assert present architecture rather
+than history, so they need correcting too. That changes what re-keying it means.
 
 ## Decision Drivers
 
@@ -251,9 +251,12 @@ remove exactly the combination the requester asked for by name: several pull
 requests with the work items tracked in the document.
 
 **What is lost.** `/work-on M<N>` has no milestone to resolve against when
-tracking is `none`. The entry point is genuinely gone for that combination; the
-author drives the plan by path instead, the way `/execute` already drives
-single-pr and coordinated plans.
+tracking is `none`, and `/execute` declines `multi-pr` outright
+(`skills/execute/SKILL.md`, Input Modes), so there is no path-driven fallback
+either. No entry point can drive a `multi-pr` plus `none` plan even after this
+lands. That is a capability gap rather than a lost ergonomic; see Consequences
+for why the extraction change is still worth making, and for what closing the
+gap would take.
 
 ### Decision D: Single-sourcing the split rule
 
@@ -320,37 +323,41 @@ sites plus the decision record and calling that the whole surface. It is not. Th
 framing is also restated in Rust doc comments that no longer describe reality once
 the gate is re-keyed:
 
-| Site | Line(s) | Kind | Action |
+| Site | Occurrences | Kind | Action |
 |---|---|---|---|
-| `skills/plan/SKILL.md` | 60 | live skill prose | re-key |
-| `skills/plan/references/quality/plan-doc-structure.md` | 85, 92 | live format contract | re-key |
-| `skills/plan/references/phases/phase-7-creation.md` | 263 | live phase prose | re-key |
+| `skills/plan/SKILL.md` | 1 | live skill prose | re-key |
+| `skills/plan/references/quality/plan-doc-structure.md` | 3 | live format contract | re-key |
+| `skills/plan/references/phases/phase-7-creation.md` | 1 | live phase prose | re-key |
 | `skills/plan/references/plan-format.md` | `### Transitions` | live format contract | re-key |
-| `crates/shirabe-validate/src/lifecycle.rs` | 52, 61, 764 | Rust comment | re-key, comment-only |
-| `crates/shirabe-validate/src/transition.rs` | 263, 469, 1960, 2011 | Rust comment | re-key, comment-only |
-| `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md` | 43, 56 | decision record | amend, do not rewrite |
-| `docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md` | 398 | historical design | leave |
-| `docs/designs/current/DESIGN-shirabe-artifact-decision-contract.md` | 453 | historical design | leave |
-| `docs/designs/current/DESIGN-roadmap-plan-standardization.md` | 577 | historical design | leave; amended separately by Decision 6's own amendment |
-| `crates/shirabe/tests/fixtures/golden/corpus/real/PLAN-roadmap-plan-standardization.md` | 73 | golden fixture | leave |
+| `crates/shirabe-validate/src/lifecycle.rs` | 3 (52, 61, 764) | Rust comment | re-key, comment-only |
+| `crates/shirabe-validate/src/transition.rs` | 4 (263, 469, 1960, 2011) | Rust comment | re-key, comment-only |
+| `docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md` | 1 | Current design | re-key |
+| `docs/designs/current/DESIGN-shirabe-artifact-decision-contract.md` | 4 | Current design | re-key |
+| `docs/designs/current/DESIGN-roadmap-plan-standardization.md` | 7 | Current design | re-key, with Issue 8's amendment |
+| `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md` | 2 | decision record | amend, do not rewrite |
+| `crates/shirabe/tests/fixtures/golden/corpus/real/PLAN-roadmap-plan-standardization.md` | 1 | golden fixture | leave |
 
-**The Action column is the load-bearing part.** Four of the eleven sites must
-not change. A `Current` DESIGN records what was decided when it was written, and
-rewriting it to match a later decision falsifies the audit trail rather than
-correcting it — the same reason Decision 6 gets an appended amendment rather than
-an edit. The golden fixture is test input pinned to a corpus snapshot; editing it
-would change what the test asserts. An earlier draft of this section listed seven
-sites and implied all of them needed re-keying, which was wrong in both
-directions: it missed four sites and would have licensed rewriting three
-historical documents.
+**Why the three `Current` designs are re-key and not leave.** An earlier draft of
+this section marked them `leave`, reasoning that a design records what was decided
+when it was written. That reasoning is wrong for this status, and the format
+contract says so directly: the `Planned -> Current` directory move "is
+load-bearing: it distinguishes designs that documented historical decisions from
+designs that document the current architecture," and "a reader scanning
+`docs/designs/current/` sees only currently-applicable designs"
+(`skills/design/references/design-format.md`). A `Current` design that says the
+gate is mode-keyed after the gate stops being mode-keyed is not a historical
+record; it is a false statement about the present. Each of the three mentions the
+gate only as collateral context while documenting a different subject, so the edit
+is the same comment-only correction the Rust files get.
 
-The re-key is textual at every one of them: each place that says "multi-pr
-requires human approval" becomes "an activation that will create GitHub issues
-requires human approval." The two Rust files are comment-only edits — no
-behaviour changes there, which is exactly why they are easy to miss and why
-naming them here is load-bearing. A downstream issue whose acceptance criterion
-is "a grep for the old framing returns nothing" cannot pass unless its file list
-includes them.
+The `DECISION` record is genuinely point-in-time — that is what a decision record
+is — so it is amended rather than rewritten. The golden fixture is pinned test
+input; editing it would change what the test asserts.
+
+`DESIGN-roadmap-plan-standardization.md` is re-keyed by **Issue 8**, not Issue 6,
+because Issue 8 already edits that file for Decision 6's amendment. Note its line
+577 sits in a Data Flow paragraph rather than in Decision 6, so the amendment does
+not cover it and the re-key is a separate edit within the same issue.
 
 Two properties of these sites defeat a single verification grep, and both were
 found the hard way during review. The phrasing is not uniform — "human approval",
@@ -363,7 +370,7 @@ the six `re-key` files and a tree-wide discovery grep answer different questions
 and are both required; either alone passes while real sites survive.
 
 This also refutes the reading that the re-key is the same Phase 7 branch the
-tracking work already touches. Phase 7 is one site of eleven.
+tracking work already touches. Phase 7 is one site of eleven, nine of which need editing.
 
 Two combinations become reachable that the current transition tables have no row
 for, and both need one:
@@ -437,7 +444,7 @@ the parser and the local-id algorithm the single-pr path already runs.
 | `skills/plan/.../phase-3-decomposition.md` | Step 3.6 resolves the preference before recommending; emits the branch name for the record |
 | `skills/plan/.../phase-7-creation.md` | Issue and milestone creation gated on the resolved tracking level rather than on `execution_mode`; gate prose re-keyed |
 | `skills/plan/references/plan-format.md` | `split_rationale` documented; the issueless multi-pr table row shape documented; the `### Transitions` section re-keyed off `execution_mode` onto whether the transition creates issues |
-| `skills/plan/references/quality/plan-doc-structure.md` | Status-transition table re-keyed the same way; one of Decision E's five prose sites |
+| `skills/plan/references/quality/plan-doc-structure.md` | Status-transition table re-keyed the same way; one of the `re-key` rows in Decision E's site table |
 | `skills/plan/scripts/plan-to-tasks.sh` | `process_multi_pr` branches on the PLAN's `tracking_level` field; the `none` path reuses the outline parse and emits `plan_item` |
 | `skills/plan/references/plan-to-tasks-contract.md` | Third source-var scheme documented |
 | `crates/shirabe-validate/src/lifecycle.rs` | `L09` implemented alongside `L06`, whose single-document draft-tolerable shape it follows; module-doc comment restating the gate as mode-keyed re-keyed |

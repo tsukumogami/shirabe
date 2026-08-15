@@ -260,16 +260,20 @@ feat
 **Goal**:
 Change every statement that the Draft-to-Active gate is human-approved for
 `multi-pr` into one keyed on whether the activation will create GitHub issues,
-at the six live sites the design's Decision E table marks `re-key`: four in skill
-and format prose, plus the Rust doc comments in `lifecycle.rs` (lines 52, 61,
-764) and `transition.rs` (lines 263, 469, 1960, 2011). The Rust edits are
-comment-only. Leave the four sites the table marks `leave` untouched — three
-`Current` DESIGN docs and a golden fixture record what was decided when they were
-written, and editing them falsifies the audit trail rather than correcting it.
-Phrasing varies across sites ("human approval", "human-approval",
-"human-approved", and at `phase-7-creation.md:263` "multi-pr-style approval gate"
-with no "human" in it), so any verification pattern must cover all four forms.
-Amend
+at the eight sites the design's Decision E table assigns to this issue: four in
+skill and format prose, the Rust doc comments in `lifecycle.rs` (lines 52, 61,
+764) and `transition.rs` (lines 263, 469, 1960, 2011), and two `Current` design
+docs that mention the gate as collateral context —
+`DESIGN-lifecycle-draft-ready-discipline.md` (1 occurrence) and
+`DESIGN-shirabe-artifact-decision-contract.md` (4). The Rust and design edits are
+comment-and-prose-only; no behaviour changes in either. A `Current` design asserts
+present architecture rather than history, so leaving one saying the gate is
+mode-keyed would ship a false statement, not preserve a record. The ninth
+re-key site, `DESIGN-roadmap-plan-standardization.md`, belongs to Issue 8, which
+already edits that file. Phrasing varies across sites ("human approval",
+"human-approval", "human-approved", and at `phase-7-creation.md:263`
+"multi-pr-style approval gate" with no "human" in it), so any verification
+pattern must cover all four forms. Amend
 `DECISION-multi-pr-posture-detection-2026-06-06.md` to record that its predicate
 changed while its decision stands.
 
@@ -281,29 +285,32 @@ changed while its decision stands.
 - The decision record carries an amendment naming the new predicate and stating
   that the asymmetry itself is unchanged; it is not superseded.
 - **Completeness check, file-scoped.** `grep -cniE "(human[ -]approv|approval gate)"`
-  over the six `re-key` files returns zero for each. Before the change those
+  over this issue's eight files returns zero for each. Before the change the
   counts are `SKILL.md` 1, `plan-doc-structure.md` 3, `phase-7-creation.md` 1,
-  `plan-format.md` 0, `lifecycle.rs` 3, `transition.rs` 4 — twelve occurrences to
-  clear. Scoping to the named files rather than the tree is deliberate: the
-  pattern alone returns 157 corpus-wide hits from unrelated approval prose in
-  `/roadmap`, `/comp`, `/strategy` and `/brief`.
+  `plan-format.md` 0, `lifecycle.rs` 3, `transition.rs` 4,
+  `DESIGN-lifecycle-draft-ready-discipline.md` 1,
+  `DESIGN-shirabe-artifact-decision-contract.md` 4 — seventeen occurrences to
+  clear. Scoping to named files rather than the tree is deliberate: the pattern
+  alone returns 157 corpus-wide hits from unrelated approval prose in `/roadmap`,
+  `/comp`, `/strategy` and `/brief`.
 - **Discovery check, tree-wide.** `grep -rniE "multi-pr" skills/ crates/ docs/ |
-  grep -iE "(human[ -]approv|approval gate)"` returns hits only at the four
-  `leave` sites and the amendment's quotation, catching any site the design's
-  table failed to enumerate. This check is deliberately paired with the one above
-  rather than used alone: it requires `multi-pr` on the *same line*, so it misses
+  grep -iE "(human[ -]approv|approval gate)"` returns hits only at the golden
+  fixture, the decision record's amendment quotation, and this feature's own
+  PRD, DESIGN and PLAN, which quote the retired phrasing as documentation of the
+  change. Any other hit is a site the design's table failed to enumerate. The
+  allowed set must name those three feature documents explicitly: they quote the
+  old wording legitimately, and a bound that omits them is unsatisfiable even for
+  a correct fix. This check is paired with the one above rather than used alone
+  because it requires `multi-pr` on the *same line*, so it misses
   `transition.rs:1960` and `:2011` and `lifecycle.rs:61`, where the mode is named
   on a neighbouring line. Either check alone passes while real sites survive.
-- The gate-framing text at each of the four `leave` sites is unchanged, confirmed
-  by `git diff` on the specific lines the design's table names. Re-keying a
-  historical record is a defect, not thoroughness. Note this is a line-level
-  check, not a file-level one: `DESIGN-roadmap-plan-standardization.md` is a
-  `leave` site for its line 577 gate framing while Issue 8 separately appends an
-  amendment elsewhere in the same file, so a whole-file byte-identity check would
-  contradict Issue 8.
-- A reviewer reads each of the six `re-key` sites and confirms none conveys the
-  old rule in different words still keyed on `execution_mode`. The grep is
-  evadable by paraphrase, so the reading is not optional.
+- The golden fixture at
+  `crates/shirabe/tests/fixtures/golden/corpus/real/PLAN-roadmap-plan-standardization.md`
+  is unchanged, confirmed by `git diff`. It is pinned test input; editing it would
+  change what the test asserts.
+- A reviewer reads each of the eight sites and confirms none conveys the old rule
+  in different words still keyed on `execution_mode`. The greps are evadable by
+  paraphrase, so the reading is not optional.
 - A Draft-to-Active transition whose resolved tracking level is not `none` is
   blocked without recorded approval, and a `multi-pr` plus `none` transition
   proceeds without it — verified against Phase 7's actual issue-creation gate,
@@ -321,6 +328,8 @@ docs
 `skills/plan/references/phases/phase-7-creation.md`,
 `crates/shirabe-validate/src/lifecycle.rs`,
 `crates/shirabe-validate/src/transition.rs`,
+`docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md`,
+`docs/designs/current/DESIGN-shirabe-artifact-decision-contract.md`,
 `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`
 
 ### Issue 7: Emit issueless multi-pr work items from the plan's outlines
@@ -365,10 +374,15 @@ feat
 ### Issue 8: Amend Decision 6 of the roadmap-plan-standardization design
 
 **Goal**:
-Record in `DESIGN-roadmap-plan-standardization.md` that Decision 6's single-pr
-default is now conditional on the repository's delivery preference. Its
-de-conflation of decomposition strategy from execution mode, and its
-re-anchoring of the roadmap case on value rather than mechanism, are unchanged.
+Two edits to `DESIGN-roadmap-plan-standardization.md`. First, record that
+Decision 6's single-pr default is now conditional on the repository's delivery
+preference; its de-conflation of decomposition strategy from execution mode, and
+its re-anchoring of the roadmap case on value rather than mechanism, are
+unchanged. Second, re-key the seven gate-framing occurrences elsewhere in the same
+file, including line 577's Data Flow paragraph, which Decision 6's amendment does
+not cover. Both edits land here rather than in Issue 6 because this issue already
+owns the file — which is also what keeps Issue 6's checks from having to reason
+about a file another issue is editing.
 
 **Acceptance Criteria**:
 - Decision 6 carries an amendment stating, in its own text, both that the
@@ -382,10 +396,15 @@ re-anchoring of the roadmap case on value rather than mechanism, are unchanged.
 - Nothing in the original decision text is deleted, and the amendment is appended
   as a clearly separated section rather than interleaved into the original
   paragraphs, and is not phrased as superseding the decision.
+- `grep -cniE "(human[ -]approv|approval gate)"` over the file returns zero. It
+  is 7 before the change. This is a `Current` design, so it asserts present
+  architecture: leaving it saying the gate is mode-keyed would ship a false
+  statement rather than preserve a record.
 
 **Dependencies**:
-Issue 4 — the preference must exist before a decision can be amended to depend
-on it.
+Issue 4 for the amendment — the preference must exist before a decision can be
+amended to depend on it. The gate re-key half shares Issue 6's subject but needs
+nothing from it, since both are independent prose corrections.
 
 **Type**:
 docs
