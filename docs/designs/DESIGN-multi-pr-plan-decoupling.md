@@ -334,8 +334,8 @@ the gate is re-keyed:
 | `docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md` | 1 | Current design | re-key |
 | `docs/designs/current/DESIGN-shirabe-artifact-decision-contract.md` | 4 | Current design | re-key |
 | `docs/designs/current/DESIGN-roadmap-plan-standardization.md` | 7 | Current design | re-key, with Issue 8's amendment |
-| `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md` | 2 | decision record | amend, do not rewrite |
-| `crates/shirabe/tests/fixtures/golden/corpus/real/PLAN-roadmap-plan-standardization.md` | 1 | golden fixture | leave |
+| `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md` | 4 | decision record | amend, do not rewrite |
+| `crates/shirabe/tests/fixtures/golden/corpus/real/PLAN-roadmap-plan-standardization.md` | 2 | golden fixture | leave |
 
 **Why the three `Current` designs are re-key and not leave.** An earlier draft of
 this section marked them `leave`, reasoning that a design records what was decided
@@ -366,7 +366,8 @@ approval gate" with no "human" in it — so a pattern must cover all four forms.
 And the mode is often named on a neighbouring line rather than the same one, so
 filtering to lines containing `multi-pr` silently drops `transition.rs:1960` and
 `:2011` and `lifecycle.rs:61`. A file-scoped completeness grep over
-the six `re-key` files and a tree-wide discovery grep answer different questions
+the eight `re-key` files Issue 6 owns and a tree-wide discovery grep answer
+different questions
 and are both required; either alone passes while real sites survive.
 
 This also refutes the reading that the re-key is the same Phase 7 branch the
