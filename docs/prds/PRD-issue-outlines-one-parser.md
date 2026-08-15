@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 upstream: docs/briefs/BRIEF-issue-outlines-one-parser.md
 source_issue: 275
 problem: |
@@ -29,7 +29,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 ## Problem Statement
 

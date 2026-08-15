@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   The `## Issue Outlines` section of a PLAN has three independent readers
   with different rules. The lenient one gates validation; the strict one
@@ -23,7 +23,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Framing for issue #275. The downstream PRD owns the requirements; this
 brief stops at the problem, the outcome, the journeys that exercise it, and
