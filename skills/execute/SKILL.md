@@ -184,7 +184,10 @@ now). The states and their tick mechanics:
   (no second PR is opened and no distinct one is linked), the run stays on that
   **settled branch**, and the settled branch (HEAD) is recorded into a koto context
   key for `spawn_and_await`. The recovered branch is re-validated against a safe
-  ref pattern before it is stored or interpolated into emitted shell.
+  ref pattern before it is stored or interpolated into emitted shell, and the
+  `settled_branch_recorded` gate holds this state until that record verifies, so a
+  run that could not record its branch reaches `done_blocked` rather than
+  dispatching children against a branch it never settled on.
 - `spawn_and_await` — run `plan-to-tasks.sh` against the PLAN, inject `SHARED_BRANCH`
   into each task — read from the recorded settled branch with an
   `|| impl/<slug>` fallback, so the adopt/override path routes children to the settled
