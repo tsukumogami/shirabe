@@ -98,9 +98,10 @@ course without stalling the turn or waiting for a human who is not there.
 requires**, I want a sanctioned way to surface the conflict, so that proceeding
 does not require me to choose privately between two instructions that both bind.
 
-**As a coordinating agent writing a task brief for a worker**, I want the
-workflow the work should run under to be part of what a brief carries, so that I
-do not drop it by omission.
+**As an author whose work was handed to a worker by another agent**, I want the
+worker held to the workflow even though the brief it received never named one,
+so that a method the coordinating agent forgot to specify is not a method the
+run gets to skip.
 
 **As a reviewer establishing what a branch went through**, I want a definite
 answer from a durable trace, so that I am not left inferring from commit shape,
@@ -108,111 +109,216 @@ which a competent hand-rolled implementation reproduces exactly.
 
 ## Requirements
 
+### Defined terms
+
+These four terms carry the requirements and are used with exactly these meanings
+throughout. They name properties, not mechanisms; how each is recognized belongs
+to the DESIGN.
+
+- **Plan-scale execution.** A session is performing plan-scale execution when it
+  is implementing the issues of a PLAN document, whether or not it invoked any
+  skill to do so. The definition is deliberately independent of skill
+  invocation, because the second field incident and the never-invoked case both
+  turn on a session doing this work without having entered the skill.
+- **Orchestrator role.** Within plan-scale execution, the session that owns the
+  plan as a whole, as distinct from a session it delegates a single issue to. A
+  delegated single-issue session is not in the orchestrator role.
+- **Registered.** An orchestration session exists and is bound to the PLAN
+  document under execution.
+- **Delegated.** Every issue whose implementation the run produced was
+  implemented by a session other than the orchestrator.
+
 ### Functional
 
-**R1.** The system SHALL determine whether a given session ran plan-scale work
-under the sanctioned workflow, and SHALL derive that determination from state the
-agent under evaluation did not author.
+**R1.** The system SHALL determine, for a session that performed plan-scale
+execution, whether that session ran under the sanctioned workflow. The
+determination SHALL be derived only from state that no tool call issued by the
+session under evaluation produced. Output of a script the session ran is
+therefore not admissible evidence.
 
-**R2.** The determination SHALL distinguish a run that registered the workflow
-and delegated its work from a run that invoked the skill, executed its scripts,
-and then implemented inline. Invocation alone SHALL NOT satisfy the check.
+**R2.** A session SHALL be reported as conforming only when it was both
+registered and delegated. A session that invoked the skill, executed its
+scripts, and implemented one or more of the plan's issues in the orchestrator
+role SHALL be reported as non-conforming. Invocation SHALL NOT satisfy the
+check, and neither SHALL partial delegation.
 
-**R3.** The system SHALL refuse a filesystem write that falls outside the closed
-write-target set the plan-execution skill declares for itself, at the point the
-write is attempted rather than at a later self-administered check.
+**R3.** The system SHALL refuse a filesystem write when all three hold: the
+session is performing plan-scale execution, the session is in the orchestrator
+role, and the write target falls outside the closed write-target set the
+plan-execution skill declares for itself. The refusal SHALL occur at the point
+the write is attempted, rather than at a later self-administered check.
 
-**R4.** A refusal under R3 SHALL carry a reason that names what was refused and
-what the sanctioned alternative is, in a form the refused agent receives and can
-act on within the same turn.
+**R4.** The system SHALL arm R3 on a signal that the session is performing
+plan-scale execution in the orchestrator role, and that signal SHALL NOT be the
+invocation of the plan-execution skill. A session handed plan-scale work by
+another agent, whose instructions never named a workflow, SHALL be armed on the
+same footing as one whose author invoked the skill by name.
 
-**R5.** The refusal SHALL hold in non-interactive and permission-bypassing
+**R5.** A refusal under R3 SHALL carry a reason naming the refused target and
+the sanctioned alternative for that target, in a form the refused session
+receives and can act on within the same turn. The reason SHALL be specific to
+the refused write rather than a single constant emitted for every refusal.
+
+**R6.** The refusal SHALL hold in non-interactive and permission-bypassing
 sessions, and SHALL NOT depend on a human being available to answer a prompt.
 
-**R6.** The system SHALL NOT report a failure for the coordinated multi-repository
-execution path, which runs without a single orchestration session by design.
+**R7.** For a coordinated multi-repository run, which by design has no single
+orchestration session, the system SHALL report a distinct coordinated-path
+outcome. It SHALL NOT report failure, and SHALL NOT report the plain conforming
+outcome, so that a reader can tell a carve-out from a verified run.
 
-**R7.** Where the system cannot determine conformance, it SHALL permit the action
-and SHALL NOT block on the ambiguity.
+**R8.** Where the system cannot establish that a session is performing plan-scale
+execution in the orchestrator role, it SHALL NOT arm R3, and the write SHALL
+proceed.
 
-**R8.** When an agent determines that a session-level or workspace-level
-instruction forbids a step the workflow requires, the system SHALL provide a
-sanctioned route that records the conflict and surfaces it to the author, and
-that route SHALL be available when no orchestration session yet exists.
+**R9.** Where the system has armed but cannot establish whether a session was
+registered and delegated, it SHALL report an indeterminate outcome. It SHALL NOT
+report conformance on unresolved evidence.
 
-**R9.** The conflict record under R8 SHALL identify the instruction, the workflow
-step it conflicts with, and the course the agent took.
+**R10.** When a session determines that a session-level or workspace-level
+instruction forbids a step the workflow requires, it SHALL record the conflict
+before proceeding by either route, and the system SHALL provide a route that is
+available when no orchestration session yet exists. Departing from the workflow
+without a recorded conflict SHALL itself be a non-conforming outcome under R2.
 
-**R10.** Every behavior in R1 through R9 SHALL apply to sessions launched by
+**R11.** The conflict record under R10 SHALL identify the instruction, the
+workflow step it conflicts with, and the course the session intends to take, and
+SHALL be surfaced to the author without the author querying the session.
+
+**R12.** Every behavior in R1 through R11 SHALL apply to sessions launched by
 another agent, not only to sessions a human started interactively.
 
-**R11.** The plan-execution skill's own description SHALL state the conditions
-under which the skill applies, rather than inventorying its architecture.
+**R13.** The plan-execution skill's description SHALL name the situations in
+which the skill applies. It SHALL contain no term that does not appear in the
+skill's own user-facing documentation.
 
-**R12.** The system SHALL provide a means of measuring how often the correct
-skill is selected for plan-shaped work, so that R11's effect is falsifiable
-rather than asserted.
+**R14.** The system SHALL provide a recorded, re-runnable set of plan-shaped
+prompts and a procedure that reports the rate at which the plan-execution skill
+is selected across that set. The same set SHALL be used before and after any
+change made under R13, and the set SHALL be committed so a later reader can
+re-run it.
 
-**R13.** The system SHALL provide an operator-reachable means of disabling the
-enforcement without editing skill or workflow content.
+**R15.** The system SHALL provide an operator-reachable means of disabling the
+in-band refusal under R3, without editing skill or workflow content. The
+read-only determination under R1 SHALL remain available when the refusal is
+disabled.
 
 ### Non-functional
 
-**R14.** The conformance check SHALL run on the interactive path of tool calls
-without adding latency a user perceives as a stall.
+**R16.** The in-band refusal under R3 SHALL add no more than 100ms at the 95th
+percentile to any tool call it observes.
 
-**R15.** Absence, staleness, or failure of any component of the enforcement
-SHALL degrade to permitting the action rather than to blocking a session.
+**R17.** Where a component of the enforcement is absent, fails to run, or
+implements a contract version older than the one the session's skill declares,
+the system SHALL permit the action rather than block the session.
 
-**R16.** No requirement in this document SHALL be satisfied by a mechanism that
-asserts skills outrank user or session instructions.
+**R18.** No requirement in this document SHALL be satisfied by a mechanism that
+asserts skills outrank user or session instructions. This constraint is verified
+by review rather than by an executable test.
 
-**R17.** Public-facing artifacts produced by the enforcement SHALL NOT embed
-content from private repositories.
+**R19.** The conflict record under R10 and R11, which is written to a durable
+surface, SHALL NOT embed content from a private repository when the repository
+it is written to is public.
 
 ## Acceptance Criteria
 
-- [ ] Given a session that drove the workflow to fan-out, the check reports
-      conformance, using only state the session's agent did not write.
-- [ ] Given a session that invoked the skill, ran its preflight and task-payload
-      scripts, and then implemented inline, the check reports non-conformance.
-      This is the second field incident replayed and is the discriminating case.
-- [ ] Given a session that never invoked the skill and implemented by hand, the
-      check reports non-conformance.
-- [ ] Given a coordinated multi-repository run that completed correctly, the
-      check does not report a failure.
-- [ ] An attempt to write a source file from the orchestrator, outside the
-      declared write-target set, is refused before the write lands.
-- [ ] The refusal text names the refused path and the sanctioned alternative, and
-      the refused agent proceeds correctly on its next attempt without human
-      input.
-- [ ] The refusal occurs in a session running with permissions bypassed and with
-      no interactive human present.
-- [ ] A write inside the declared write-target set is permitted, including the
-      workflow's own state file, its scratch, and its pull-request operations.
-- [ ] With the enforcement binary absent from the path, a session runs to
-      completion unblocked.
-- [ ] With the enforcement disabled through its operator switch, no refusal
-      occurs and the session completes.
-- [ ] An agent that records a conflict under R8 produces a record naming the
-      instruction, the conflicting step, and the course taken, and that record is
-      visible to the author without the author querying the agent.
-- [ ] The conflict route is exercisable in a session that has not created an
-      orchestration session.
-- [ ] A session launched by another agent, with no human-typed invocation, is
-      subject to the same refusal and the same check as an interactively started
-      one.
-- [ ] The plan-execution skill's description contains no internal architecture
-      vocabulary and names the situations in which the skill applies.
-- [ ] A measurement of skill selection over plan-shaped prompts produces a rate
-      before and after the description change, and the two are comparable.
+The check's output domain is exactly four values: `conforming`,
+`non-conforming`, `coordinated`, and `indeterminate`. Every criterion below that
+names an outcome names one of these.
+
+**The determination (R1, R2, R7, R9)**
+
+- [ ] AC1. Given a session that registered and delegated every issue, the check
+      reports `conforming`. (R1, R2)
+- [ ] AC2. Given a session that invoked the skill, ran its preflight and
+      task-payload scripts, produced a valid payload, and then implemented the
+      issues in the orchestrator role, the check reports `non-conforming`. This
+      is the second field incident replayed and is the discriminating case. (R2)
+- [ ] AC3. Given a session that never invoked the skill and implemented the plan
+      by hand, the check reports `non-conforming`. (R2)
+- [ ] AC4. Given a session that delegated five of six issues and implemented the
+      sixth in the orchestrator role, the check reports `non-conforming`. (R2,
+      partial-delegation bar)
+- [ ] AC5. Given a run whose only evidence of conformance is a file the session
+      itself produced by running a script, the check does not count that file and
+      reports `non-conforming` or `indeterminate`. (R1, admissibility)
+- [ ] AC6. Given a coordinated multi-repository run that completed correctly, the
+      check reports `coordinated`, and not `conforming` and not
+      `non-conforming`. (R7)
+- [ ] AC7. Given a session armed under R4 whose registration evidence is missing
+      or unreadable, the check reports `indeterminate` and never `conforming`.
+      (R9)
+
+**The refusal (R3, R4, R5, R6, R8, R15)**
+
+- [ ] AC8. An attempt to write a source file from a session in the orchestrator
+      role, to a path outside the declared write-target set, is refused before
+      the write lands. (R3)
+- [ ] AC9. A write inside the declared write-target set is permitted, including
+      the workflow's own state file, its scratch, and its pull-request
+      operations. (R3, negative control)
+- [ ] AC10. A write from a delegated single-issue session to that issue's source
+      files is permitted. (R3, orchestrator-role scoping)
+- [ ] AC11. A session handed plan-scale work by another agent, whose instructions
+      never named a workflow and which never invoked the skill, is refused on its
+      first out-of-set write. (R4, the arming case)
+- [ ] AC12. Two refusals of different targets in the same session carry different
+      reason text, each naming its own refused target. (R5)
+- [ ] AC13. The refused session proceeds correctly on its next attempt with no
+      human input and no further refusal for the same target. (R5)
+- [ ] AC14. The refusal occurs in a session running with permissions bypassed and
+      with no interactive human present. (R6)
+- [ ] AC15. A session doing work that is not plan-scale execution writes freely to
+      any path, with no refusal. (R8, the fail-open case)
+- [ ] AC16. With the enforcement component absent, a session performing plan-scale
+      execution runs to completion unblocked. (R17)
+- [ ] AC17. With an enforcement component reporting a contract version older than
+      the session's skill declares, the session runs to completion unblocked.
+      (R17, staleness)
+- [ ] AC18. With the refusal disabled through its operator switch, no refusal
+      occurs, the session completes, and the read-only determination under R1 is
+      still runnable. (R15)
+
+**The conflict route (R10, R11, R19)**
+
+- [ ] AC19. A session that departs from the workflow after recording a conflict
+      produces a record naming the instruction, the conflicting step, and the
+      intended course. (R10, R11)
+- [ ] AC20. That record is visible to the author without the author querying the
+      session. (R11)
+- [ ] AC21. The conflict route is exercisable in a session that has not created
+      an orchestration session. (R10)
+- [ ] AC22. A session that departs from the workflow without recording a conflict
+      is reported `non-conforming` by the check. (R10, the teeth)
+- [ ] AC23. A conflict record written into a public repository contains no path,
+      repository name, or issue number belonging to a private repository. (R19)
+
+**Coverage and measurement (R12, R13, R14, R16)**
+
+- [ ] AC24. Every criterion above that concerns a session behavior passes
+      identically when the session was launched by another agent rather than
+      typed by a human. (R12)
+- [ ] AC25. Every term in the plan-execution skill's description appears in that
+      skill's user-facing documentation. (R13, replacing a subjective judgment
+      with a set-membership test)
+- [ ] AC26. The plan-shaped prompt set is committed to the repository, and
+      re-running the measurement procedure against it twice without intervening
+      changes produces the same rate. (R14)
+- [ ] AC27. The measurement is run against the committed set before and after the
+      R13 change, and both rates are recorded. (R14)
+- [ ] AC28. Measured over a run of tool calls the refusal observes, the added
+      latency at the 95th percentile does not exceed 100ms. (R16)
+
+R18 has no acceptance criterion by construction: it constrains the class of
+mechanism an implementation may use, which is verified at design and code review
+rather than by an executable test.
 
 ## Out of Scope
 
 - **Guaranteeing that adversarial reviews or validation steps ran.** The
   orchestration engine records that evidence was submitted in the expected order
   and does not verify the evidence itself. Its spawn primitive is a stub and its
-  review gates are directive text. No requirement here closes that gap, and R16's
+  review gates are directive text. No requirement here closes that gap, and the
   companion obligation is that nothing in the implementation may imply it does.
 - **A workspace-level policy surface for declaring required skills.** Making the
   enforcement configurable per workspace by an organization owner is a separate
@@ -220,9 +326,9 @@ content from private repositories.
   deliberate decision about which configuration layers may alter what a
   contributor's run does.
 - **Changing the documented precedence between session instructions and skills.**
-  R8 removes an ambiguity about whether requesting a workflow requests the
-  subagents that workflow is defined in terms of. It does not reorder the
-  precedence, and R16 forbids any implementation that does.
+  R10 obliges a session to record a conflict before departing, which leaves the
+  departure available to it. It does not reorder the precedence, and R18 forbids
+  any implementation that does.
 - **Making the conformance record travel off the machine.** A post-hoc check by
   someone with no access to the machine that did the work would require the
   record to be published to a durable remote surface, which widens what the
@@ -242,52 +348,78 @@ observes. A write performed indirectly, by a subprocess the agent starts, is not
 covered. Closing that would require operating-system-level confinement, which is
 a different class of mechanism.
 
-R13's operator switch is, by construction, reachable by an agent with the ability
+R15's operator switch is, by construction, reachable by an agent with the ability
 to change configuration. The switch exists because an enforcement mechanism with
 no escape hatch gets removed wholesale the first time it is wrong; the trade-off
 is accepted rather than solved.
 
+R13 and AC25 test the skill description by set membership against the skill's own
+user-facing documentation, which is mechanical but coarse. A description could
+pass by using only documented terms and still be a poor trigger. R14's measured
+selection rate is what actually decides whether the change worked; AC25 only
+stops the description regressing to internal vocabulary.
+
 ## Decisions and Trade-offs
 
-These close the three Open Questions the upstream BRIEF deferred here, plus two
+These close the three Open Questions the upstream BRIEF deferred here, plus five
 decisions the requirements themselves forced.
 
 **Where the enforcement lives, and who can turn it off.** Deferred to DESIGN as a
-mechanism choice, but the requirement is settled: R13 fixes that an operator
-route to disable it must exist, and R10 fixes that coverage must reach
-agent-launched sessions. Two placements were considered. Carrying it with the
-skill reaches every adopter and needs no workspace configuration, but binds the
-enforcement's lifetime to the skill's. Distributing it through the workspace
-manager gives an organization owner a configuration point, but reaches only
-adopters who use that manager and raises a placement question about which
-configuration layer may change a contributor's run. The requirement is written so
-either satisfies it.
+mechanism choice, but the requirement is settled: R15 fixes that an operator
+route to disable the refusal must exist and that the read-only determination
+survives it, and R12 fixes that coverage must reach agent-launched sessions. Two
+placements were considered. Carrying it with the skill reaches every adopter and
+needs no workspace configuration, but binds the enforcement's lifetime to the
+skill's. Distributing it through the workspace manager gives an organization
+owner a configuration point, but reaches only adopters who use that manager and
+raises a placement question about which configuration layer may change a
+contributor's run. The requirement is written so either satisfies it.
 
 **What the check asserts for a plan spanning more than one repository.** Resolved
-into R6 as a carve-out rather than left open. The coordinated execution path runs
-without a single orchestration session by design, so a check that assumes one
-reports a correct run as a failure. Making the carve-out a requirement rather
-than an implementation detail means the DESIGN cannot omit it silently.
+into R7 as a carve-out with its own outcome value rather than left open. The
+coordinated execution path runs without a single orchestration session by design,
+so a check that assumes one reports a correct run as a failure. The carve-out
+reports `coordinated` rather than `conforming`, because telling a reader "this
+path is exempt" and "this run was verified" are different answers and collapsing
+them would hide an unverified run behind an exemption.
 
 **Whether the conflict route needs a durable record of its own.** Resolved yes,
-in R9, and the reason is the second incident: that agent conceded afterward that
-it should have flagged the conflict when it made the decision and did not.
-Surfacing without recording relies on the author being present at the moment it
-happens, which for a dispatched run they are not. The alternative considered was
-surfacing to the author in-session only, which is cheaper and was rejected on
+in R10 and R11, and the reason is the second incident: that agent conceded
+afterward that it should have flagged the conflict when it made the decision and
+did not. Surfacing without recording relies on the author being present at the
+moment it happens, which for a dispatched run they are not. The alternative
+considered was surfacing in-session only, which is cheaper and was rejected on
 that ground.
 
 **Invocation is not the unit of measurement.** R2 exists because the second
 incident invoked the skill and ran its scripts. Any check keyed on "did the skill
 fire" passes that incident, so the requirement names the discriminator directly.
-The alternative was a simpler existence check, rejected because it would report
-the known failure as a success.
+R1's admissibility clause extends the same reasoning: that incident's payload was
+produced by a script the agent ran, so evidence traceable to the session's own
+tool calls cannot count, or the discriminator is defeated by the artifact the
+failure produced.
 
-**Fail open rather than fail closed.** R7 and R15 accept that a broken or absent
-enforcement lets work through. The alternative, failing closed, was rejected
-because the refusal sits on the path of ordinary tool calls: a stale component
-would stop every session rather than the non-conforming ones, and the cost of a
-missed detection is lower than the cost of a workspace that cannot work.
+**Partial delegation is non-conforming.** R2 requires every issue to have been
+delegated. The looser bar, at least one delegation, was rejected because a run
+that delegates five of six and implements the sixth in the orchestrator role is
+most of the failure being fixed, and would pass.
+
+**Arming is separate from determination, and only one of them fails open.** The
+draft conflated these and the two clauses contradicted each other: a worker that
+never invoked the skill is precisely the ambiguous case, so a blanket
+fail-open permitted the write that the never-invoked journey requires be refused.
+They are now split. R8 fails open on arming, so a session that is not doing
+plan-scale execution is never impeded. R9 does not fail open on determination:
+an armed session with unreadable evidence reports `indeterminate`, never
+`conforming`. The asymmetry is deliberate, because permitting an action and
+asserting a run was correct carry very different costs when wrong.
+
+**Recording the conflict is obligatory, not merely available.** R10 was drafted
+as providing a route. The field incident is an agent that had the judgment and
+did not use it, so a route nobody is obliged to take does not address it. R10 now
+obliges the record and R2 gives it teeth by making an unrecorded departure
+non-conforming. This stops short of forbidding the departure itself, which R18
+would prohibit.
 
 ## Downstream Artifacts
 
