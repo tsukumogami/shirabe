@@ -165,6 +165,9 @@ than emit a task set that is missing an edge.
       no-issue-outlines message, so the heading mismatch keeps failing closed.
 - [ ] Naming, `o-` prefixing, 64-character truncation, collision suffixing,
       file-ownership edges, and task-entry assembly are unchanged.
+- [ ] The rewrite stays bash 3.2 compatible: no associative arrays, no
+      namerefs, no GNU-only `sed` forms. The script runs under the macOS
+      system bash the CI matrix invokes directly.
 - [ ] `bash skills/plan/scripts/plan-to-tasks_test.sh` passes with no
       pre-existing case modified. The harness gains a setup step that builds
       the binary and exports `SHIRABE_BIN`, copied from `run-cascade_test.sh`.
