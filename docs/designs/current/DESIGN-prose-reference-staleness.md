@@ -11,7 +11,7 @@ problem: |
 decision: |
   Two halves over one extractor. `shirabe transition` repoints inbound
   references as part of each of the four moving transitions, which is
-  deterministic because the command holds both paths. A new notice-level `FC18`
+  deterministic because the command holds both paths. A new notice-level `FC20`
   in the schema-independent prose arm reports references broken by moves that
   already happened, using a surviving basename of the same name as its
   discriminator -- a property of the target rather than of the referring file,
@@ -282,14 +282,16 @@ referring file's parent.
 
 ### Decision 4 -- Which family, which code, and where the check runs
 
-**Option 4A: a new `FC18` registered in `validate_prose`.** **Chosen.**
+**Option 4A: a new `FC20` registered in `validate_prose`.** **Chosen.**
 `validate_prose` is the schema-independent arm that runs for every markdown
 file the validator is handed, including files with no frontmatter and no
 artifact prefix -- which is the only way to reach D2's two defects in
 `skills/`. FC10 (writing style) and `FC-CONVENTIONS` already live there, so
 the FC family, not the R family, is the precedent for a schema-independent
-check. `FC18` is the next free code: `is_known_check_code` runs `FC01`-`FC17`
-today.
+check. The code is `FC20`. The design was drawn when `is_known_check_code` ran
+`FC01`-`FC17` and reserved `FC18`; `FC18` and `FC19` were taken by the
+absorption checks that landed first, so this one renumbered to the next free
+code on the way in. Nothing but the number changed.
 
 Two properties the per-file driver already provides, so the check does not
 re-implement them. When `detect_format` returns `None` the driver calls
@@ -324,7 +326,7 @@ justifies, and the whole-tree gap is recorded as a consequence instead.
 
 ### Decision 5 -- Severity, and what unblocks promotion
 
-**Option 5A: ship `FC18` in `is_intrinsic_notice`, clean the 21 in a
+**Option 5A: ship `FC20` in `is_intrinsic_notice`, clean the 21 in a
 follow-on, promote by deleting one arm.** **Chosen.** The staging matches
 `FC07`-`FC15`, whose arms in that match expression carry the comment naming
 them "notice-level additions pending their respective corpus-cleanup PRs."
@@ -345,7 +347,7 @@ rule: a finding earns error level when the failure it describes is silent and
 permissive, and stays a notice when the failure already refuses loudly. A
 stale prose reference is the textbook silent-and-permissive case -- the
 document validates clean and the reader finds out by clicking. By that rule
-`FC18` should be an error, and the only thing standing between it and error
+`FC20` should be an error, and the only thing standing between it and error
 level is 21 inherited findings.
 
 ### Decision 6 -- Where the repoint lives
@@ -400,7 +402,7 @@ paths inside fenced blocks for the check to have measured.
 
 ## Decision Outcome
 
-`FC18` lands in `validate_prose` as a notice. For each markdown file the
+`FC20` lands in `validate_prose` as a notice. For each markdown file the
 validator is handed, a new extractor takes a second selection over the same
 CommonMark parse `prose.rs` runs -- inline code spans, link destinations, and
 plain text, with fenced and indented code blocks excluded -- and yields
@@ -565,9 +567,9 @@ prose vocabulary.
 
 ### The finding
 
-One `ValidationError` per occurrence, `code: "FC18"`, `line` set to the file
+One `ValidationError` per occurrence, `code: "FC20"`, `line` set to the file
 line the reference sits on, and a message carrying the four facts from R2.
-`FC18` is added to `is_known_check_code` so `--check FC18` selects it, and to
+`FC20` is added to `is_known_check_code` so `--check FC20` selects it, and to
 `is_intrinsic_notice` so it resolves to a notice under both postures. It is
 absent from `posture_class`'s draft-tolerable arm, which is correct: it is not
 a legitimate intermediate state while a chain is being drafted, it is just not
@@ -582,7 +584,7 @@ only when the resolved `Moves` entry actually relocated the file:
 repoint(root, old_rel, new_rel):
     for file in git ls-files -- '*.md' (run with -C root):
         text = read(file)
-        spans = reference_spans(body_of(text))          # shared with FC18
+        spans = reference_spans(body_of(text))          # shared with FC20
         edits = [s.range for s in spans if s.text == old_rel
                                         or resolves_to(s.text, file) == old_rel]
         edits += frontmatter_upstream_ranges(text, old_rel)
@@ -638,7 +640,7 @@ deliberate edit rather than a side effect.
 
 ```bash
 git ls-files '*.md' \
-  | xargs shirabe validate --format json --check FC18 \
+  | xargs shirabe validate --format json --check FC20 \
   | jq -r '.findings[] | [.file, .line, .code, .message] | @tsv' \
   | sort
 ```
@@ -654,7 +656,7 @@ check wired up. It lands alone because it is the piece with a parser behind it
 and the piece whose contexts have to be right before any count means anything.
 
 **Batch 2 -- the check.** The candidate filter, the resolver, the memoized
-target index, `FC18` registered in `validate_prose`, `is_known_check_code`, and
+target index, `FC20` registered in `validate_prose`, `is_known_check_code`, and
 `is_intrinsic_notice`. The corpus-count test lands here, pinning 21.
 
 **Batch 3 -- the repoint.** The pass above, wired into `transition` for all
@@ -667,7 +669,7 @@ mechanical, it is reviewable as a diff of paths, and it is separate because it
 touches 17 files and the check touches none. It stays a hand edit: those
 documents moved before the repoint existed, so no transition will run over them.
 
-**Batch 5 -- the promotion.** Delete the `FC18` arm from `is_intrinsic_notice`
+**Batch 5 -- the promotion.** Delete the `FC20` arm from `is_intrinsic_notice`
 and flip the severity test. One line plus its test, gated on batch 4 landing.
 
 Batches 2 and 3 can proceed in parallel once batch 1 lands; everything else is
@@ -706,7 +708,7 @@ every other finding rather than formatting bytes of its own.
 of path-shaped strings. The per-file work is one directory index (shared) plus
 one hash lookup per candidate, so the cost is linear in document size with a
 small constant. The writing-style check already truncates at a finding cap;
-`FC18` should adopt the same cap rather than inventing a second policy. The
+`FC20` should adopt the same cap rather than inventing a second policy. The
 repoint must **not** adopt the cap: truncating a rewrite would leave a file
 half-repointed, which is worse than not repointing it. The cap is a reporting
 policy, not an editing one.
@@ -829,7 +831,7 @@ shell script, which this check does not read -- and the mitigation if it ever
 fires is the exclusion `scripts/check-no-fixture-design-leak.sh` already
 computes.
 
-R6 keeps resolving against the process working directory while `FC18` resolves
+R6 keeps resolving against the process working directory while `FC20` resolves
 per file. The divergence is recorded rather than fixed: changing R6 would move
 parity bytes for no gain this design needs, and the two checks read different
 halves of the document.

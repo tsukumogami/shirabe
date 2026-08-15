@@ -758,7 +758,7 @@ pub fn run_transition(
     // Step 9a: repoint. A move that relocated the file leaves every document
     // naming the old path wrong, and the command holds both paths, so the
     // rewrite is determined rather than inferred. This is the half that stops
-    // the defect recurring; FC18 only ever sees moves that predate it.
+    // the defect recurring; FC20 only ever sees moves that predate it.
     //
     // A repoint failure is the transition's failure: it exits non-zero and the
     // move is not reported as successful, because a move whose inbound

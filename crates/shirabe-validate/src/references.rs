@@ -16,7 +16,7 @@
 //! corpus and both miss real defects while admitting placeholders; see
 //! `docs/designs/current/DESIGN-prose-reference-staleness.md` Decision 1.
 //!
-//! Two callers share this: the `FC18` check, which reports, and
+//! Two callers share this: the `FC20` check, which reports, and
 //! `transition`'s repoint, which rewrites. The repoint needs only
 //! [`resolve`] -- it is handed both paths by the transition and infers
 //! nothing -- while the check needs the whole chain.

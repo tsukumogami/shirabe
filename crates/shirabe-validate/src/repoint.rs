@@ -2,13 +2,13 @@
 //! document.
 //!
 //! This is the prevention half of the stale-reference problem, and it is
-//! the half that stops it recurring. `FC18` finds references broken by moves
+//! the half that stops it recurring. `FC20` finds references broken by moves
 //! that already happened; the repoint means no new one is ever created.
 //!
 //! It decides nothing. The transition hands it the old path and the new
 //! one, both from its own resolved `Moves` entry rather than from document
 //! text, so there is no inference and no basename lookup here -- the parts
-//! `FC18` needs precisely because it arrives after the fact.
+//! `FC20` needs precisely because it arrives after the fact.
 //!
 //! Four properties are worth stating because each is a way to get this
 //! wrong.
@@ -249,7 +249,7 @@ pub(crate) fn rewrite_text(
     // that line's text and its replacement.
     let mut edits: Vec<Vec<(std::ops::Range<usize>, String)>> = vec![Vec::new(); lines.len()];
 
-    // The prose half, over the same extractor `FC18` reads, so the two
+    // The prose half, over the same extractor `FC20` reads, so the two
     // halves agree about where a path counts -- including the fenced and
     // indented code blocks both leave alone.
     let body: Vec<String> = lines
@@ -282,7 +282,7 @@ pub(crate) fn rewrite_text(
         }
     }
 
-    // The frontmatter half. The extractor never sees it -- `FC18` reads
+    // The frontmatter half. The extractor never sees it -- `FC20` reads
     // `doc.body` only, deliberately -- but the determinism argument does
     // not change at the frontmatter boundary, and leaving it out produces
     // an odd result: a command that repairs a document's References section

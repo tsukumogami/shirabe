@@ -210,7 +210,7 @@ pub struct RefSpan {
 ///
 /// This is a *where*, not a *what*: deciding which of these paths is a
 /// defect (artifact prefix, cross-repo form, URL, resolution) belongs to the
-/// caller. Both callers -- the `FC18` check and `transition`'s repoint --
+/// caller. Both callers -- the `FC20` check and `transition`'s repoint --
 /// agree on where a path counts and disagree on what to do about it.
 pub fn reference_spans(body: &[String], body_start_line: usize) -> Vec<RefSpan> {
     // Same normalization as `prose_spans`: a retained carriage return breaks

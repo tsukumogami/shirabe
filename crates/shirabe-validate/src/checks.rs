@@ -3526,10 +3526,10 @@ pub fn check_claude_md_conventions(doc: &Doc, _spec: &FormatSpec) -> Vec<Validat
 }
 
 // =============================================================================
-// FC18 -- prose reference invalidated by a relocation
+// FC20 -- prose reference invalidated by a relocation
 // =============================================================================
 
-/// FC18 -- a body-prose reference whose path names no file, when a file of
+/// FC20 -- a body-prose reference whose path names no file, when a file of
 /// the same basename survives elsewhere in the artifact directories.
 ///
 /// A durable artifact's path changes when it reaches its terminal state and
@@ -3592,9 +3592,9 @@ pub fn check_stale_references(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationEr
             errs.push(ValidationError {
                 file: doc.path.clone(),
                 line: 1,
-                code: "FC18".to_string(),
+                code: "FC20".to_string(),
                 message: format!(
-                    "[FC18] stale-reference findings truncated at {PROSE_FINDING_CAP} for this file; fix these and re-run to see the rest"
+                    "[FC20] stale-reference findings truncated at {PROSE_FINDING_CAP} for this file; fix these and re-run to see the rest"
                 ),
             });
             break;
@@ -3611,9 +3611,9 @@ pub fn check_stale_references(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationEr
         errs.push(ValidationError {
             file: doc.path.clone(),
             line: span.line,
-            code: "FC18".to_string(),
+            code: "FC20".to_string(),
             message: format!(
-                "[FC18] reference {:?} names no file; {} exists -- the document moved",
+                "[FC20] reference {:?} names no file; {} exists -- the document moved",
                 span.text, existing
             ),
         });
@@ -8130,7 +8130,7 @@ words:
         assert!(fc16(&doc).is_empty(), "absent sections must be a no-op");
     }
 
-    // --- FC18 (prose reference invalidated by a relocation) ---
+    // --- FC20 (prose reference invalidated by a relocation) ---
 
     /// A scratch work tree: a `.git` marker, an artifact directory layout,
     /// and whatever files the case needs.
@@ -8147,7 +8147,7 @@ words:
             use std::sync::atomic::{AtomicU64, Ordering};
             static COUNTER: AtomicU64 = AtomicU64::new(0);
             let root = std::env::temp_dir().join(format!(
-                "shirabe-fc18-{}-{}-{}",
+                "shirabe-fc20-{}-{}-{}",
                 std::process::id(),
                 COUNTER.fetch_add(1, Ordering::Relaxed),
                 label
@@ -8177,12 +8177,12 @@ words:
         crate::frontmatter::parse_doc_bytes(&path.display().to_string(), &bytes).expect("parse")
     }
 
-    fn fc18(doc: &Doc) -> Vec<ValidationError> {
+    fn fc20(doc: &Doc) -> Vec<ValidationError> {
         check_stale_references(doc, &FormatSpec::prose_only())
     }
 
     #[test]
-    fn fc18_reports_a_design_that_moved_to_current() {
+    fn fc20_reports_a_design_that_moved_to_current() {
         let s = Scratch::new("moved");
         s.write(
             "docs/designs/current/DESIGN-shirabe-scope-skill.md",
@@ -8193,9 +8193,9 @@ words:
             "---\nschema: prd/v1\n---\n\n## Related\n\nSee `docs/designs/DESIGN-shirabe-scope-skill.md`.\n",
         );
 
-        let errs = fc18(&scratch_doc(&referrer));
+        let errs = fc20(&scratch_doc(&referrer));
         assert_eq!(errs.len(), 1, "got {errs:?}");
-        assert_eq!(errs[0].code, "FC18");
+        assert_eq!(errs[0].code, "FC20");
         // The four facts: referring file, 1-indexed line, path as written,
         // and the path that exists.
         assert_eq!(errs[0].file, referrer.display().to_string());
@@ -8219,7 +8219,7 @@ words:
     }
 
     #[test]
-    fn fc18_is_silent_on_a_name_that_never_existed() {
+    fn fc20_is_silent_on_a_name_that_never_existed() {
         // The template-placeholder case: nothing of that basename survives,
         // so nothing moved.
         let s = Scratch::new("placeholder");
@@ -8227,11 +8227,11 @@ words:
             "docs/prds/PRD-a.md",
             "Template example: `docs/designs/DESIGN-foo.md`.\n",
         );
-        assert!(fc18(&scratch_doc(&referrer)).is_empty());
+        assert!(fc20(&scratch_doc(&referrer)).is_empty());
     }
 
     #[test]
-    fn fc18_is_silent_on_a_deliberately_deleted_working_artifact() {
+    fn fc20_is_silent_on_a_deliberately_deleted_working_artifact() {
         // A PLAN the finalization cascade deleted leaves no surviving
         // basename either, which is what keeps the larger deleted-working-
         // artifact population out of the findings.
@@ -8241,11 +8241,11 @@ words:
             "docs/prds/PRD-a.md",
             "Planned in `docs/plans/PLAN-roadmap-plan-standardization.md`.\n",
         );
-        assert!(fc18(&scratch_doc(&referrer)).is_empty());
+        assert!(fc20(&scratch_doc(&referrer)).is_empty());
     }
 
     #[test]
-    fn fc18_is_silent_on_a_path_that_resolves() {
+    fn fc20_is_silent_on_a_path_that_resolves() {
         let s = Scratch::new("resolves");
         s.write("docs/prds/PRD-b.md", "target");
         s.write("docs/designs/current/DESIGN-c.md", "target");
@@ -8253,11 +8253,11 @@ words:
             "docs/designs/DESIGN-a.md",
             "Rooted `docs/prds/PRD-b.md` and relative `./current/DESIGN-c.md`.\n",
         );
-        assert!(fc18(&scratch_doc(&referrer)).is_empty());
+        assert!(fc20(&scratch_doc(&referrer)).is_empty());
     }
 
     #[test]
-    fn fc18_resolves_a_relative_form_against_the_referring_file() {
+    fn fc20_resolves_a_relative_form_against_the_referring_file() {
         // Written from `docs/designs/`, `../prds/PRD-b.md` is `docs/prds/`
         // and resolves. The same text written from `docs/designs/current/`
         // is `docs/designs/prds/` and does not -- which is the defect a
@@ -8265,30 +8265,30 @@ words:
         let s = Scratch::new("relative");
         s.write("docs/prds/PRD-b.md", "target");
         let ok = s.write("docs/designs/DESIGN-a.md", "See `../prds/PRD-b.md`.\n");
-        assert!(fc18(&scratch_doc(&ok)).is_empty(), "must resolve");
+        assert!(fc20(&scratch_doc(&ok)).is_empty(), "must resolve");
 
         let broken = s.write(
             "docs/designs/current/DESIGN-b.md",
             "See `../prds/PRD-b.md`.\n",
         );
-        let errs = fc18(&scratch_doc(&broken));
+        let errs = fc20(&scratch_doc(&broken));
         assert_eq!(errs.len(), 1, "got {errs:?}");
         assert!(errs[0].message.contains("\"docs/prds/PRD-b.md\" exists"));
     }
 
     #[test]
-    fn fc18_is_silent_on_a_cross_repo_reference() {
+    fn fc20_is_silent_on_a_cross_repo_reference() {
         let s = Scratch::new("cross-repo");
         s.write("docs/designs/current/DESIGN-a.md", "survivor");
         let referrer = s.write(
             "docs/prds/PRD-a.md",
             "See `owner/repo:docs/designs/DESIGN-a.md`.\n",
         );
-        assert!(fc18(&scratch_doc(&referrer)).is_empty());
+        assert!(fc20(&scratch_doc(&referrer)).is_empty());
     }
 
     #[test]
-    fn fc18_reads_the_body_and_not_the_frontmatter() {
+    fn fc20_reads_the_body_and_not_the_frontmatter() {
         // R6 owns the frontmatter half. A frontmatter-reading check would
         // add a finding to a pinned golden fixture whose `upstream:` names a
         // pre-move path, which is what keeps the parity suite green.
@@ -8298,11 +8298,11 @@ words:
             "docs/plans/PLAN-a.md",
             "---\nschema: plan/v1\nupstream: docs/designs/DESIGN-a.md\n---\n\n## Status\n\nActive\n",
         );
-        assert!(fc18(&scratch_doc(&referrer)).is_empty());
+        assert!(fc20(&scratch_doc(&referrer)).is_empty());
     }
 
     #[test]
-    fn fc18_reaches_a_file_with_no_frontmatter() {
+    fn fc20_reaches_a_file_with_no_frontmatter() {
         // The two genuine defects in `skills/` live in instruction files
         // with no frontmatter and no artifact prefix. `validate_prose` is
         // the only arm that reaches them.
@@ -8312,17 +8312,17 @@ words:
             "skills/scope/references/phases/phase-3.md",
             "Read `docs/designs/DESIGN-a.md` before finalizing.\n",
         );
-        let errs = fc18(&scratch_doc(&referrer));
+        let errs = fc20(&scratch_doc(&referrer));
         assert_eq!(errs.len(), 1, "got {errs:?}");
         assert_eq!(errs[0].line, 1);
     }
 
     #[test]
-    fn fc18_says_nothing_without_a_git_ancestor() {
+    fn fc20_says_nothing_without_a_git_ancestor() {
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
-            "shirabe-fc18-nogit-{}-{}",
+            "shirabe-fc20-nogit-{}-{}",
             std::process::id(),
             COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
@@ -8330,19 +8330,19 @@ words:
         let path = root.join("docs/prds/PRD-a.md");
         std::fs::write(&path, "See `docs/designs/DESIGN-a.md`.\n").expect("write");
 
-        let errs = fc18(&scratch_doc(&path));
+        let errs = fc20(&scratch_doc(&path));
         let _ = std::fs::remove_dir_all(&root);
         assert!(errs.is_empty(), "a loose file yields no findings: {errs:?}");
     }
 
     #[test]
-    fn fc18_names_every_match_of_a_colliding_basename_in_path_order() {
+    fn fc20_names_every_match_of_a_colliding_basename_in_path_order() {
         let s = Scratch::new("collision");
         s.write("docs/designs/current/DESIGN-x.md", "one");
         s.write("docs/designs/archive/DESIGN-x.md", "two");
         let referrer = s.write("docs/prds/PRD-a.md", "See `docs/designs/DESIGN-x.md`.\n");
 
-        let errs = fc18(&scratch_doc(&referrer));
+        let errs = fc20(&scratch_doc(&referrer));
         assert_eq!(errs.len(), 1, "one finding, not one per match: {errs:?}");
         let archive = errs[0]
             .message
@@ -8356,7 +8356,7 @@ words:
     }
 
     #[test]
-    fn fc18_output_is_stable_across_runs() {
+    fn fc20_output_is_stable_across_runs() {
         let s = Scratch::new("stable");
         s.write("docs/designs/current/DESIGN-a.md", "survivor");
         s.write("docs/designs/current/DESIGN-b.md", "survivor");
@@ -8365,23 +8365,23 @@ words:
             "See `docs/designs/DESIGN-b.md` and `docs/designs/DESIGN-a.md`.\n",
         );
         let doc = scratch_doc(&referrer);
-        assert_eq!(fc18(&doc), fc18(&doc));
+        assert_eq!(fc20(&doc), fc20(&doc));
     }
 
     #[test]
-    fn fc18_truncates_rather_than_emitting_without_bound() {
+    fn fc20_truncates_rather_than_emitting_without_bound() {
         let s = Scratch::new("cap");
         s.write("docs/designs/current/DESIGN-a.md", "survivor");
         let body = "See `docs/designs/DESIGN-a.md`.\n".repeat(PROSE_FINDING_CAP + 10);
         let referrer = s.write("docs/prds/PRD-a.md", &body);
 
-        let errs = fc18(&scratch_doc(&referrer));
+        let errs = fc20(&scratch_doc(&referrer));
         assert_eq!(errs.len(), PROSE_FINDING_CAP + 1);
         assert!(errs[PROSE_FINDING_CAP].message.contains("truncated at"));
     }
 
     #[test]
-    fn fc18_scans_one_file_well_under_the_budget() {
+    fn fc20_scans_one_file_well_under_the_budget() {
         let s = Scratch::new("budget");
         s.write("docs/designs/current/DESIGN-a.md", "survivor");
         // A document larger than anything in the corpus, half of whose
@@ -8394,7 +8394,7 @@ words:
         let doc = scratch_doc(&referrer);
 
         let started = std::time::Instant::now();
-        let errs = fc18(&doc);
+        let errs = fc20(&doc);
         let elapsed = started.elapsed();
         assert!(!errs.is_empty());
         assert!(

@@ -175,15 +175,15 @@ fn a_design_moved_to_current_leaves_its_referrers_naming_the_new_path() {
     // And the check agrees there is nothing left to find.
     let check = repo.validate(&[
         "--check",
-        "FC18",
+        "FC20",
         "docs/prds/PRD-a.md",
         "docs/briefs/BRIEF-a.md",
         "skills/plan/references/contract.md",
     ]);
     let findings = String::from_utf8_lossy(&check.stdout);
     assert!(
-        !findings.contains("FC18"),
-        "FC18 still reports after the repoint: {findings}"
+        !findings.contains("FC20"),
+        "FC20 still reports after the repoint: {findings}"
     );
 }
 

@@ -1,4 +1,4 @@
-//! FC18 corpus count over this repository's own tracked markdown.
+//! FC20 corpus count over this repository's own tracked markdown.
 //!
 //! Pull-request CI validates only the files a diff touches. That blind spot
 //! is how twenty-odd stale references accumulated in documents that every
@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// The exact number of FC18 findings this repository's tracked markdown
+/// The exact number of FC20 findings this repository's tracked markdown
 /// carries.
 ///
 /// Update it in the same commit as whatever moved it, and say in the commit
@@ -58,12 +58,12 @@ fn tracked_markdown(root: &Path) -> Option<Vec<String>> {
 }
 
 #[test]
-fn fc18_corpus_count_is_pinned() {
+fn fc20_corpus_count_is_pinned() {
     let root = worktree_root();
     let Some(files) = tracked_markdown(&root) else {
         // A distribution build that does not vendor the corpus. The unit
         // tests still pin the check's behavior.
-        eprintln!("skipping fc18_corpus_count_is_pinned: no tracked markdown under {root:?}");
+        eprintln!("skipping fc20_corpus_count_is_pinned: no tracked markdown under {root:?}");
         return;
     };
 
@@ -74,21 +74,21 @@ fn fc18_corpus_count_is_pinned() {
         .arg("--format")
         .arg("json")
         .arg("--check")
-        .arg("FC18");
+        .arg("FC20");
     for f in &files {
         cmd.arg(f);
     }
-    let output = cmd.output().expect("run shirabe validate --check FC18");
+    let output = cmd.output().expect("run shirabe validate --check FC20");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Count `"code": "FC18"` rather than parsing JSON: the harness has no
+    // Count `"code": "FC20"` rather than parsing JSON: the harness has no
     // JSON dependency, and the envelope's shape is pinned by its own tests.
-    let found = stdout.matches("\"code\": \"FC18\"").count();
+    let found = stdout.matches("\"code\": \"FC20\"").count();
 
     assert_eq!(
         found, EXPECTED_FINDINGS,
-        "FC18 finding count over {} tracked markdown files moved from {EXPECTED_FINDINGS} to {found}.\n\
-         Re-run: git ls-files '*.md' | xargs shirabe validate --format json --check FC18\n\
+        "FC20 finding count over {} tracked markdown files moved from {EXPECTED_FINDINGS} to {found}.\n\
+         Re-run: git ls-files '*.md' | xargs shirabe validate --format json --check FC20\n\
          --- output ---\n{stdout}",
         files.len()
     );
