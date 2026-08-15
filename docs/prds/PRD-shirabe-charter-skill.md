@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Done
 problem: |
   shirabe ships VISION, STRATEGY, and ROADMAP as loadable child skills

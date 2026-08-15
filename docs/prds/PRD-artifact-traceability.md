@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Done
 problem: |
   The artifact pipeline has traceability fields on most types (VISION, PRD,

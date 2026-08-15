@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Done
 problem: |
   The /plan skill produces a separate PLAN doc when consuming roadmaps,

@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Current
 problem: |
   The work-on plan orchestrator drives all child issues through 10+ state

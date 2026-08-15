@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Current
 problem: |
   The /plan skill's Phase 6 review is passive — it checks coverage and dependency

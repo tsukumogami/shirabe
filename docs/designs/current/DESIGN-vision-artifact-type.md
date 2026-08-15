@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Current
 problem: |
   The /explore workflow's crystallize framework has no artifact type for the

@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Done
 problem: |
   The /explore skill routes work through a 3-level complexity table

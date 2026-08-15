@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Done
 problem: |
   The seven artifact-lifecycle skills (vision, strategy, roadmap, brief, prd,
