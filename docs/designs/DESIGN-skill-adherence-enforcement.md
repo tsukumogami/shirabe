@@ -608,9 +608,51 @@ on the binary's presence, must not exec, and must swallow a non-zero exit.
 
 **The conflict record carries an instruction verbatim.** Machine-local that is
 free, since the store is user-owned and never crosses a visibility boundary. The
-pull-request block is not: a public repository must not carry content from a
-private one, so the published form is a reference and a summary rather than the
-verbatim instruction.
+published block is not, because a public repository must not carry content from
+a private one.
+
+**The published form is produced by the existing redaction control, not by an
+agent summarizing.** An earlier draft said the published form should be "a
+reference and a summary rather than the verbatim instruction," which is agent
+discretion standing in for a mechanical test, and the discretion of the same
+agent that just decided a session instruction outranked the workflow. The
+requirement is not a judgment call: it asks that no path, repository name, or
+issue number belonging to a private repository appear, which is set membership.
+
+This repository already ships that control. The coordination validator's
+redaction path renders a private repository's owner, repository, path, and
+number in redacted form, backed by a visibility resolver that is fail-closed on
+anything it cannot resolve. The conflict recorder's published block reuses it.
+The leak this prevents needs no attacker: a dispatched session carrying private
+context in its brief hits a conflict, records it, and one careless sentence
+reaches a public pull request, on a path where the agent is already under
+pressure.
+
+**Every read is bounded, and over-bound fails open.** Three reads are unbounded
+in the draft and each is reachable. The transcript scan has no byte cap, and
+while measured growth stays inside budget, nothing stops the file being larger
+and a cold-cache read is disk-bound. The plan file is an ordinary file in the
+working tree, so the same contributor who can add a plan can add a very large
+one and make every edit call an unbounded read. And the count of plan-shaped
+references in a record is unbounded, so a record carrying many of them costs a
+resolution apiece on every call. Each read therefore carries an explicit byte
+cap and an explicit match cap; exceeding either allows the write and records the
+reason rather than blocking or retrying.
+
+**Resolution and use must not be separable.** The reference is resolved to a
+path and then read, which is two operations against a tree the session can
+modify in between. The read must operate on the resolved handle rather than
+re-resolving the name, must refuse to follow a symlink at the final component,
+and must confirm the opened file is a regular file. Otherwise a session arms on
+one file and reads another.
+
+**Fail-open is a property of the whole hook, not of the parser.** The draft
+claimed totality for the parse alone. Every path in the handler has the same
+obligation: a missing file, a permission error, an over-cap read, a resolution
+failure, a cache read that does not verify, and an unexpected exception all
+allow the write. The only path that denies is the one that positively
+established all three arming conditions and then found the target outside the
+declared set.
 
 **The enforcement is reachable by what it governs.** The disable switch, the
 plugin's enablement, and a project-level setting that disables all non-managed
@@ -619,6 +661,16 @@ This is accepted rather than solved, and it must be claimed plainly: the refusal
 is a speed bump plus an audit trail, not a sandbox. What gives it teeth is that
 an unrecorded departure is non-conforming, so evading the refusal does not
 produce a clean record.
+
+**Disabling must leave a trace, or the audit loses its most interesting event.**
+If the switch simply suppresses the hook, no witness is written and the
+determination reports `indeterminate`, which is the same value it reports for a
+run predating the feature and for one whose evidence was unreadable. A reader
+then cannot distinguish "somebody turned this off" from "nothing was watching,"
+and the first of those is the one worth knowing about. The disabled path
+therefore still writes the per-session witness, marked disabled, and the
+determination reports a distinct disabled reading rather than folding it into
+indeterminate.
 
 **The refusal does not cover indirect writes.** A subprocess the session starts
 writes without passing through the observed tool call. Closing that requires
