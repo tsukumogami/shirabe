@@ -20,13 +20,22 @@ child_snapshots:
     content_hash: 14b9f0d0f374b31744fe8f0ceba64a78fba4b4b2
     captured_at: 2026-08-15T00:10:00Z
 consolidation_judgments: []
-pre_invocation_sha: e227d7aec797caecfe435e36086ecbf0135b02ad
+pre_invocation_sha: 8872b36
 worktree_rebases:
   - phase: brief
     upstream_commits: []
     impact: none
     rebased_at: 2026-08-15T00:00:00Z
     notes: fresh worktree; HEAD already equals origin/main
+  - phase: prd
+    upstream_commits: []
+    impact: none
+    rebased_at: 2026-08-15T00:12:00Z
+    notes: no upstream movement since the brief hop
+parent_orchestration:
+  invoking_child: prd
+  suppress_status_aware_prompt: true
+  rationale: fresh-chain
 visibility: Public
 execution_mode: auto
 max_rounds: 5
