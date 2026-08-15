@@ -348,11 +348,14 @@ that text will be written.
    required sections *and* each contribution the ancestor carries — its own and
    any it inherited, read from the ancestor's `absorbed:` list and its
    contribution sections. Any non-carry aborts to `keep`.
-5. **Write the survivor**: splice `upstream:` preserving sibling and cross-repo
-   parents, write the `absorbed:` declaration, the `## Status` line, and the
-   contribution section. Rewrite the survivor's own prose citations of the
-   absorbed path, which the preflight's survivor exclusion deliberately does not
-   protect and which become dangling the moment the fold lands.
+5. **Snapshot the survivor's bytes, then write it**: capture the pre-fold bytes
+   in memory first, because nothing has committed them and `git checkout HEAD --`
+   is not guaranteed to resolve to them — `/scope` commits nothing before the
+   fold. Then splice `upstream:` preserving sibling and cross-repo parents, write
+   the `absorbed:` declaration, the `## Status` line, and the contribution
+   section. Rewrite the survivor's own prose citations of the absorbed path,
+   which the preflight's survivor exclusion deliberately does not protect and
+   which become dangling the moment the fold lands.
 6. **Append the row and `git add`** it, before anything is deleted, so a failed
    append aborts with nothing lost.
 7. **`git rm`** the absorbed artifact.
@@ -371,7 +374,7 @@ written since step 5, in reverse:
 
 | Failing step | Undo |
 |---|---|
-| 5 (survivor write) | Restore the survivor's pre-fold bytes |
+| 5 (survivor write) | Restore the survivor from the snapshot step 5 captured before writing |
 | 6 (append/stage) | Un-stage and remove the appended row; restore the survivor |
 | 7 (`git rm`) | Restore the deleted artifact; un-append; restore the survivor |
 | 8 (re-validate) | Restore the deleted artifact; un-append; restore the survivor |
@@ -435,7 +438,7 @@ contradictory.
 | `.github/workflows/validate-docs.yml` | Record checker, triggered on a fold signature |
 | `.gitattributes` | Union merge for the record file |
 | `docs/guides/doc-validation.md` | New check family documented |
-| `skills/scope/evals/evals.json` | Three scenarios rewritten; absorb and keep coverage added above the first hop |
+| `skills/scope/evals/evals.json` | Scenarios 18, 19 and 20 rewritten; absorb and keep coverage added above the first hop. **Scenario 17 is untouched** — it is the tripwire that catches a later maintainer reintroducing an entry-altitude shortcut, and rewriting it alongside its neighbours would remove the guard while the change that makes the shortcut look reasonable lands |
 | Two shipped documents | Appended dated amendment sections |
 
 ### The contribution table is a mirrored constant, not a single source
@@ -447,6 +450,21 @@ after the mutations. This duplication is house pattern — required-section list
 already live in both `formats.rs` and all eight format references with nothing
 tying them — so this design does not fix it, but it names three mirrors rather
 than pretending there is one source.
+
+### What `exit_artifacts:` holds under a fully folded chain
+
+Unchanged: the PLAN's path, as on any full-run exit. Folding does not empty the
+list, because at the terminal hop the PLAN is the *survivor* rather than a
+casualty — it is on disk when `/scope` exits, and only the implementation cascade
+deletes it later.
+
+The state the guard must handle therefore arises after `/scope`, not within it:
+the cascade has removed the PLAN and no DESIGN survives to seed on. The contract
+is that `/execute`'s finalization guard seeds on the chain's surviving durable
+anchor where one exists, and where none does treats a fully folded chain as
+*complete* rather than as a missing seed — which is the condition it reports today
+as a false validation error. The record row is what a reader consults for such a
+chain; it is not a seed.
 
 ### The record checker's trigger
 
