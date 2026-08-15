@@ -282,6 +282,41 @@ redirect stderr or parse only stdout; and the session store has never been reape
 (1,210 directories, essentially all from March and April), which is adjacent cost
 for a hot-path grep.
 
+## Finding 9: The session-id join is confirmed wired end to end
+
+The koto lead flagged one unverified link: it asserted `session_id` is present in
+the PreToolUse hook input from the documented contract, but had not read the gate
+shirabe already ships. Verified directly against
+`crates/shirabe/src/pr_body_hook.rs`.
+
+The hook input carries `session_id` alongside `tool_name` and `tool_input` --
+confirmed by the module's own test fixture:
+
+```rust
+serde_json::json!({
+    "session_id": "s1",
+    "tool_name": "Bash",
+    "tool_input": { "command": command },
+})
+```
+
+And the deny response shape is already implemented, with a documented injection
+defense (the reason is a `serde_json` string value "so an attacker-influenceable
+title/body can never break out of the JSON string or inject a terminal control
+sequence"):
+
+```json
+{"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": "<reason>"}}
+```
+
+So the join is complete: **PreToolUse receives the Claude Code session id, and
+koto's workflow record is keyed by that same id.** No inference remains in the
+chain from "an edit is about to happen" to "this session has no koto workflow
+record over the execute/work-on template." A gate is fully specified, and the
+place to put it is the binary that already implements this exact shape.
+
 ---
 
 ## What only two mechanisms would actually have caught
