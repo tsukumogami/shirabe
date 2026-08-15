@@ -63,11 +63,18 @@ record-survival, child-consumption, strategic-chain, prior-art.
   target falls outside the closed write-target set Phase 3 enforces, so an
   upper-hop absorb fails R9. (absorb-blast-radius)
 
-- **The guard the absorb needs already exists and is simply not wired in.**
-  `lifecycle::build_referrer_map` was written for the finalization walk in #271
-  and is a public API; the consolidation path predates it and never calls it.
-  Applied before the `git rm` rather than after, it is the single change that
-  turns the reduction back into a move. (absorb-blast-radius)
+- ~~**The guard the absorb needs already exists and is simply not wired in.**~~
+  **CORRECTED during the D4 decision, and the original claim was load-bearing.**
+  `lifecycle::build_referrer_map` exists, is a public API, is wired to
+  `finalize-chain` and is unreachable from the absorb path -- all true. But it is
+  NOT "the single change that turns the reduction back into a move." It indexes
+  only `upstream:` frontmatter edges, so it is blind to prose, skill, code, CI and
+  script citations, which are the classes that have actually broken here. It would
+  have permitted commit `a133581` exactly as it happened. What the absorb needs is
+  a point query -- who mentions the one document I am about to delete, in this
+  repo, right now -- scanning the repo's text files, with a path-exact hit
+  downgrading `absorb` to `keep` through the abort path that already exists.
+  (absorb-blast-radius, corrected by D4)
 
 - **The stranding failure mode is already live, independent of #280.** Five
   documents carry dangling `upstream:` refs today -- three stranded by the
@@ -220,26 +227,33 @@ outcomes; the defect is that only one of those is currently reachable. The
 mechanics of absorption were believed built; the bug is in how absorbability is
 judged.
 
-The author then supplied the model for what a survivor owes: a document that
-absorbs an upstream inherits the union of its own required sections and those of
-everything folded into it, statically validated. That makes every non-terminal
-fold content-preserving by construction and makes composed absorbs additive.
+The author then supplied the model for what a survivor owes -- first as a union
+of ancestors' required sections, then replaced by the contribution model above.
 
-Folding into the PLAN is the exception, and the author's justification for it is
-worth rather than survival-elsewhere. The expected common case is a `/scope` run
-over a bug report or a coding task that turns out to be obvious or
-self-contained, where the accumulated sections were never worth a separate
-durable artifact. The corpus is the evidence: the workspace holds 366 DESIGN
-docs, 107 PRDs and 64 BRIEFs, kept because the workflow never asked whether they
-should be deleted rather than because each was judged worth keeping. Agents
-should be able to make that call against the real bodies.
+Folding into the PLAN is where the distillate lands in a doomed document, and the
+author's justification for it is worth rather than survival-elsewhere. The
+expected common case is a `/scope` run over a bug report or a coding task that
+turns out to be obvious or self-contained, where the content was never worth a
+separate durable artifact. Agents should be able to make that call against the
+real bodies.
 
-Measured during convergence and worth carrying into the design: document length
-does *not* support a thin-DESIGN reading. The smallest DESIGN in tsuku is 132
-lines and in shirabe 227; the distributions are substantial throughout. So the
-terminal-fold judgment cannot use size as a proxy for worth -- a 300-line DESIGN
-for a self-contained fix can still be ceremony. It has to judge content, which
-is the harder call and the one being delegated.
+**Corpus figures, corrected by the D4 decision.** The convergence-time counts
+(366 DESIGN, 107 PRD, 64 BRIEF) included 44 golden test fixtures. The real corpus
+is 516 documents: 352 DESIGN, 103 PRD, 61 BRIEF. The redundancy reading those
+numbers seemed to support does not survive measurement -- among DESIGNs actually
+in a PRD chain the ratio is **1.03**, 94 of 103 PRDs have exactly one child, and
+only 12% of DESIGNs share even a two-token topic prefix with a sibling. The 3.42
+headline comes almost entirely from tsuku (21.0) and private/tools (23.5), repos
+that predate the PRD-first workflow. The corpus is independent design work, not a
+pile of duplicates.
+
+The author's "nobody ever asked" argument stands on its own terms and is
+untouched by this. What falls is the separate redundancy inference.
+
+Document length is likewise useless as a proxy, and more so than first reported:
+the smallest DESIGN figures cited during convergence were test fixtures. The real
+floor is 81 lines and the median is 544. The terminal-fold judgment has to judge
+content, which is the harder call and the one being delegated.
 
 ## Accumulated Understanding
 
@@ -297,23 +311,45 @@ Folding into the terminal artifact is therefore not a different operation, only
 the case where the distillate lands in a document that dies. It is justified by
 worth rather than by the reasoning surviving elsewhere. For the class of work
 where it fires -- bug reports, and tasks that turn out to be obvious or
-self-contained -- the content was never worth a separate durable artifact, and the
-366-DESIGN corpus is evidence that the current floor accumulates documents by
-never asking rather than by judging. The judgment scales with how much already
-folded, and cannot key off document size.
+self-contained -- the content was never worth a separate durable artifact. The
+judgment scales with how much already folded, and cannot key off document size.
 
-What remains open: whether the fold verdict is purely the judging agent's call or
-gets a structural backstop, given that presence-checking is all the machine can
-contribute and the terminal case is irreversible; whether a contribution section
-has any depth expectation, which decides whether a reviewer can ever call a Why
-inadequate or whether any non-empty Why passes; whether a folded-away artifact
-leaves a visible trace in the survivor or the survivor reads as though it had
-always been that shape; whether the existing 366-DESIGN corpus is in scope for
-the same judgment retroactively; and whether the `/execute` rationale-in-code job
-still needs to land before the terminal hop opens now that it is not the
-load-bearing argument. The constraint on all of them is that the result must
-replace the consolidation judgment rather than sit beside it -- the
-single-mechanism rule is what killed the entry altitude and it still binds.
+**The reversibility picture, corrected by D2 and D4.** The asymmetry this
+exploration assumed -- durable-survivor folds bounded, terminal fold irreversible
+-- is false on both halves. Nothing is reversible from a clone: an absorbed
+BRIEF's bytes are as unrecoverable as a folded-away DESIGN's, because both are
+created and `git rm`-ed on one branch that squash-merges and is deleted, and only
+one chain-document deletion exists in all of `main`'s history. Nothing is wholly
+lost either: `refs/pull/<N>/head` survives branch deletion and a `git clone
+--mirror` captures all 141, so a deleted PLAN is recoverable byte-exact offline
+(best-effort platform retention, not a git guarantee, and nobody runs a mirror).
+The premise is also backwards in the retroactive direction: deleting a document
+already on `main` is recoverable in two commands, while forward absorption is
+not. What differs between hops is not reversibility but where the distillate
+lands.
+
+All five open questions were then run through the `/decision` framework and
+settled; see the `## Round 1 -- Open Question Decisions` section of
+`explore_scope-artifact-persistence_decisions.md` and the five `_d<N>_report.md`
+files. In brief: contribution sections carry a two-sided standing-alone test
+lifted from the strategic chain; the verdict itself gets no gate while the
+*operation* gets a hardened carry check plus a bounded durable record; a survivor
+records what it absorbed in frontmatter plus one `## Status` line; the existing
+corpus is out of scope with the boundary rewritten to carry its reason and the
+retirement guard pulled in as a point query; and everything ships in one PR with
+rationale-in-code bounded to two diff-checkable edits in `/work-on`.
+
+The constraint that held across all five: the result must replace the
+consolidation judgment rather than sit beside it -- the single-mechanism rule is
+what killed the entry altitude and it still binds. Note that every statement of
+that rule is scoped by a removal verb, so a mechanism that can only force `keep`
+sits outside it, which is what admits both the carry check and the guard.
 
 Deferred by the author: manual invocation of child skills outside `/scope`, which
 is the only way to reach a chain with a genuinely missing ancestor.
+
+Still open for the DESIGN rather than for this exploration: the surface of the
+durable operation record (leading candidate a single shared append-only index);
+whether the contribution section is authored by the child at drafting time or the
+parent at fold time; and the rollout call for the `R<n>` citation-resolution rule,
+which will fire on documents already on disk.

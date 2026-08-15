@@ -192,4 +192,187 @@ Riders:
 - **Open fork, deliberately not settled here:** whether the contribution section
   is authored by the child at drafting time or by the parent at fold time. If the
   child, the criterion rides an existing jury. If the parent, nobody independent
-  reviews the prose and the fold-time reviewer becomes the right answer.
+  reviews the prose and the fold-time reviewer becomes the right answer. Note D2
+  partially answers this: Stage 3 is reordered so the contribution is authored
+  first and the carry table built against authored text.
+
+### D2: No gate on the verdict; a structural backstop on the operation
+
+The fold verdict is the judging agent's call at every hop including the terminal
+one -- no independent reviewer, no human confirmation, in any mode. Both
+advocates withdrew their own alternatives: human confirmation is self-refuting
+against the recorded ruling that agents make this call, and a reviewer agent is
+structurally unavailable because `/scope` owns no team at its own layer, has zero
+sub-agent spawn sites across all seven of its files, and has no row in the
+dispatch binding table. Five of five validators converged.
+
+What gets a structural backstop is the *operation*, in two parts.
+
+**The carry check, hardened.** Stage 3 is reordered so the contribution section is
+authored first and the carry table is built against authored text -- making the
+verdict the mechanical consequence of the table rather than a prediction the table
+is later fitted to. The check becomes per-contribution and runs at every hop
+including the terminal one; any contribution that does not carry aborts to `keep`.
+Step 4's post-absorb re-validation widens from the survivor alone to the survivor
+plus every referrer of the absorbed artifact.
+
+**A bounded, durable record of the operation.** Each completed fold leaves a short
+entry on `main`: what folded into what, on what verdict, the finding, the
+per-contribution carry table, and a content-addressed (blob SHA) pointer to the
+pre-fold original. Written mechanically (`git hash-object` plus `printf`), not
+authored by an agent -- it is the one part of the design that cannot fail by
+misjudgement. Presence at a canonical path is what static validation can assert,
+and it fails in the established direction: no record, no fold.
+
+The record persists no contributions. That distinction is the sharpest argument
+the bakeoff produced: **any destination that preserves the distillate must assert,
+every time it fires, that the verdict was partly wrong** -- the fold's meaning is
+that this content did not warrant a durable artifact, so a mechanism durably
+preserving it contradicts the judgment it backs up. A record that a judgment
+happened, about what, with what carried, asserts nothing the fold denies.
+
+Surface left to the DESIGN. Leading candidate is a single shared append-only index
+(one `docs/deletions.md`, one row per deletion), because it is the only shape that
+is not a per-run artifact and so cannot read as a floor. Note **three deletion
+sites, not one**: BRIEF-to-PRD has a durable survivor and can record in the
+survivor's frontmatter; `/execute`'s cascade deletion and the terminal fold have
+no survivor and need the shared file.
+
+Riders:
+- **Urgent independently of this decision.** `validate-docs.yml` computes its file
+  set with `git diff`, and a document stranded by an absorb is not a changed file
+  -- its bytes are untouched, only its target vanished. R6 can never fire on it, in
+  CI or the pre-commit hook. **Fold time is the only catchable point in the
+  system**, and sixteen documents already point at two nonexistent paths.
+- **Eval 18 must be rewritten under every alternative.** Its `expected_output`
+  asserts "no hop above BRIEF-to-PRD is absorbable" -- the sentence #280 exists to
+  falsify -- and grounds its refusal to add a guard on a condition #280 flips.
+- **The worth judgment ships ungraded and ungradeable.** A fixture eval can grade
+  whether content was lost, because the fixture retains both bodies. It cannot
+  grade whether reasoning deserved to persist; after the fold the comparison object
+  is gone. This belongs in the DESIGN's Consequences so nobody mistakes a green
+  eval for a check on the whole judgment.
+
+### D3: A survivor records what it absorbed, in two paired places
+
+An `absorbed:` frontmatter key listing each folded ancestor's repo-relative path,
+taking the same scalar-or-sequence shape `upstream:` takes after the one-to-many
+change -- and **explicitly excluded from path resolution**. R6 is the only rule
+that resolves a frontmatter value to a tracked file; wiring `absorbed:` into it
+would guarantee a dangling reference on every fold, because the target is deleted
+by construction. The design must write that exclusion down, since adding the
+resolution is exactly the helpful-looking change a future contributor makes.
+
+Plus one sentence per absorbed ancestor spliced into the survivor's `## Status`
+section, naming what was folded *and* which contribution section now carries it.
+Placement and direction do the work: `## Status` is the lifecycle section, so a
+reader who came for content never walks past the trace; and the line points
+forward to the contribution rather than backward at a corpse, which turns
+bookkeeping into navigation.
+
+This is house pattern, not invention: `shirabe transition` already writes a
+`superseded_by:` frontmatter key *and* splices a `Superseded by [name](path)` line
+into `## Status`. Supersession is the nearest existing analogue of absorption.
+
+The beneficiary it serves is the one absorption actually harms -- the reader of
+some third document citing the dead path. There are roughly ninety such citations
+under `docs/` today, none validated by any rule or CI job. That reader is not
+holding the survivor and does not know it exists; a visible line puts the dead
+slug back in the working tree as a grep-reachable string.
+
+Rejected: no trace, which concedes Decision 8's objection in full for zero saving.
+Frontmatter-only, whose sole beneficiary is tooling nobody has written -- it costs
+the same as the recommendation and is that recommendation minus the half that
+pays. A tombstone stub, strongest on the merits and the only option that keeps all
+~90 citations resolving, but it leaves one durable file per fold in the corpus
+that motivated #280, and needs a new format plus a new validator posture.
+
+Note this does not fix the ~90 orphaned prose citations -- it gives them a lead,
+not a resolution. It also does not make the fold lossless; nothing on the list
+would.
+
+### D4: The corpus is out of scope, and the boundary carries its reason
+
+No retroactive pass of any kind in this work -- no deletions, archive moves, pilot
+repo, or corpus report. The `Out of Scope` line is rewritten (see `scope.md`) to
+record the corpus as *unreached* rather than *vindicated*.
+
+The decisive finding is structural, not evidential: for 338 of the 352 DESIGNs
+there is no question to ask. The judgment compares an artifact that just landed
+against a surviving durable artifact above it, and for those the PLAN was deleted
+at finalization by design -- one body, not two, and no landing event. `keep` there
+is the absence of a runnable judgment, not a verdict. A sweep would be inventing a
+discard verdict the mechanism refuses, against 201 surviving files holding broken
+references (111 outside `docs/`), behind CI whose `--diff-filter=ACMR` excludes
+deletions outright. The one precedent, `a133581`, stranded five references that
+have been broken for 64 days and still are. The validator assigned to argue for
+the sweep voted against it after reading the trigger condition.
+
+**The retirement guard comes INTO scope**, respecified as a point query rather
+than the frontmatter index this exploration had committed to (see the corrected
+finding). It runs inside Stage 3 between the `upstream:` re-point and the `git rm`,
+scanning the same repo's text files. Two tiers: a path-exact hit downgrades
+`absorb` to `keep` through the abort path that already exists verbatim; bare-name
+hits route into the judging agent's findings rather than acting mechanically. No
+new severity, no new error code, no override -- a guard whose only power is
+refusing to delete has no unsafe failure mode, and it must never grow an action
+stronger than `keep`.
+
+Fenced OUT: the corpus-wide citation index; a notice-severity validator rule for
+unresolvable citations (it would fire on ~374 pre-existing unresolvable names --
+a repair campaign, not a guard); and the CI deletion blindness, which is not a
+one-line diff-filter fix since it would pass deleted paths to a validator that
+cannot open them.
+
+**Two named follow-ons, both specified:**
+1. *The BRIEF-to-PRD retroactive fold* -- the one coherent retroactive operation.
+   Deferred on ordering, not merit: a validator pre-committed to conceding at 80%
+   carry and the measurement cleared it decisively (53 of 58 pairs at >=0.70, all
+   58 at >=0.61, no low tail, predicted bimodality falsified). So it is
+   verification of a carry that already happened, not authoring into settled
+   artifacts. ~55 candidates after exclusions; population, filters and
+   R-citation carve-outs are recorded in the D4 report.
+2. *A lifecycle criterion for settled documents* -- "live guidance or historical
+   record?" is a lifecycle question with its own criterion and its own disposal
+   (archive, not delete). Needs an `Archived` status (~3 lines) because the
+   existing `Superseded` transition requires a pointer an orphan DESIGN cannot
+   honestly supply. Most defensibly scoped to the 141 DESIGNs cited by nothing.
+
+Recorded honestly: without either follow-on, 240 chainless and 141 uncited
+DESIGNs will never be judged by any current or planned mechanism. That is a
+curation gap, not a pipeline gap -- the instrument already exists and nobody has
+spent an afternoon with it.
+
+### D5: One PR, with rationale-in-code scoped to a diff-checkable deliverable
+
+No ordering constraint. The judgment rewrite, the Durable-Artifact Floor rewrite,
+the absorb repairs, the `/execute` R5 fix, the `run-cascade.sh` roadmap fix and
+the rationale instruction all ship in a single-pr plan and one squash merge, so no
+window exists in which the fold lives without the instruction. The repo's own plan
+rule makes one PR the default and permits a split only on a *named* hard
+constraint; #280 is ~6-10 files in one repo with no landing-order constraint.
+
+Rationale-in-code is bounded to two diff-checkable edits: a subsection under
+`### A. Write Code` in `skills/work-on/references/phases/phase-4-implementation.md`
+(record why the code is shaped this way -- the decision the diff cannot show), and
+one line extending the **maintainer reviewer**'s brief in `phase-4b-review.md`.
+The second is what makes it enforcement rather than aspiration: that phase already
+has a blocking path that collects findings, respawns the coder and re-enters
+implementation. Roughly 15-25 lines of prose across two existing files.
+
+Explicitly not a gate: any mechanical comment-content check, and the long-tail
+effort of raising rationale coverage across the existing codebase.
+
+**Naming correction that propagates into the design:** the rationale-in-code work
+is `/work-on` work, not `/execute` work. R14/R15 bars `/execute` from reading
+diffs, and the only agent in the chain holding the diff is `/work-on`'s
+implementation phase. Only the R5 finalization guard and the `run-cascade.sh`
+roadmap rewrite are genuinely `/execute`-side. Any design or plan should say
+`/work-on` where it currently says `/execute`.
+
+Accepted trade-off, stated plainly: this ships the fold alongside an instruction
+whose effect nobody can measure. There is no check that will tell anyone whether
+`/work-on` actually started writing why-comments. The judgment is that an
+unmeasurable instruction plus a blocking agent reviewer is the honest ceiling for
+a qualitative property, and that holding an atomic change hostage to a property
+nobody can certify buys nothing.

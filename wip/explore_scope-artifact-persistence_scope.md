@@ -84,7 +84,25 @@ Author's direction, given during scoping and refined during convergence:
   rationale in code current, and removing the two places where it already
   assumes a DESIGN survives (the R5 finalization guard and `run-cascade.sh`'s
   roadmap `**Downstream:**` rewrite).
-- Retrofitting artifacts already on disk.
+- **Retroactive application to documents already on disk.** The consolidation
+  judgment runs against two bodies that exist, at the moment a child lands. For
+  338 of the 352 DESIGNs on disk the downstream PLAN was deleted at finalization
+  by design, so there is no second body and no landing event: `keep` is not a
+  verdict the judgment renders on them, it is the absence of a runnable judgment.
+  For the 154 BRIEF-to-PRD and PRD-to-DESIGN pairs where both bodies do survive, a
+  retroactive fold is definable, but it requires the contribution-section format
+  this work is still designing and would edit settled artifacts, so it cannot be
+  specified here. **Neither statement means those documents were judged to earn
+  their place.** Whether a settled document is live guidance or the historical
+  record of shipped work is a lifecycle question with its own criterion and its
+  own disposal (archive, not delete); it is filed as follow-on work rather than
+  left implicit.
+
+  **Firewall:** the retirement guard that IS in scope is justified entirely by the
+  DESIGN-to-PLAN hop this work opens *forward*. It carries no retroactive
+  commitment and produces no verdict about any existing document. Without this
+  sentence, corpus work rides in on the guard's back and this boundary gets
+  re-litigated as an implementation detail.
 - Reintroducing any judgment that runs before the artifact it is about exists.
 - The strategic chain under `/charter`. It has no consolidation mechanism, and
   the mapping test yields zero absorbable hops there.
