@@ -87,9 +87,9 @@ well-formed answer either way.
 
 ### Decision 1: How the run guarantees children reach the settled branch
 
-The full evaluation is in the decision report at
-`wip/design_settled-branch-record_decision_1_report.md`; the substance is
-reproduced here because that file is not durable.
+The decision was evaluated at critical tier through the full `/decision` path.
+Its report is a non-durable working artifact, so the substance is reproduced here
+rather than pointed at.
 
 The question merges three sub-questions that turned out to be coupled: which
 command records the value, how a failed record is detected, and what the read
