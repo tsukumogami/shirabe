@@ -240,3 +240,45 @@ one definition of each rule and nothing to drift. Run `shirabe validate
 - Mixing "what" and "how" -- save technical decisions for design docs
 - Subjective acceptance criteria -- every criterion must be verifiable
 - Missing numbered requirements -- always use R1, R2, etc.
+
+## Contribution to the Chain
+
+Every artifact type contributes one thing to the tactical chain, and a
+document that absorbs an ancestor carries that ancestor's contribution
+forward as a single section. This type's contribution is **WHAT — the requirements the feature must meet and the criteria that decide it is done**.
+
+A survivor that absorbed a PRD carries it as `## Absorbed PRD`,
+placed immediately after `## Status` and before the survivor's own first
+other required section. Where a survivor carries more than one, they
+appear in chain order. `shirabe validate` requires the sections a
+document's `absorbed:` frontmatter implies (FC17), so this is enforced
+rather than conventional.
+
+**The contribution section has a two-sided adequacy test.** It is not
+satisfied by presence:
+
+- **Too long** if it reads as a rewrite of the absorbed document. The
+  point of folding is compression; a section that reproduces the
+  original has moved the document rather than distilled it.
+- **Too thin** if a reader cannot follow *this* document's own argument
+  without going and reading the absorbed one — which they cannot,
+  because it is gone.
+
+The second clause is the load-bearing one. It is phrased against the
+survivor's own content rather than against an abstract standard of
+sufficiency, so a one-line restatement of the topic fails it the moment
+a later section leans on something the contribution never established.
+
+What the machine can check is presence, ordering, and adjacency. Whether
+the section actually carries the ancestor's contribution is a judgment,
+made by the agent performing the fold against both documents while both
+still exist.
+
+A PRD can itself carry `## Absorbed Brief` when it absorbed its BRIEF.
+
+**The absorbed case is an exception to the rule above.** A contribution
+section carried under `absorbed:` restates material from a document that
+no longer exists, which is the whole reason it is there. The
+citation-not-duplication rule governs what this document says about
+documents that are still on disk to be cited; it does not reach a
+section whose subject was deleted by the fold that created it.
