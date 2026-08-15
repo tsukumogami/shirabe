@@ -292,7 +292,7 @@ cross-repo release on the critical path of a shirabe defect.
 
 ## Solution Architecture
 
-Six files change.
+Seven files change and two are new.
 
 **`skills/work-on/koto-templates/work-on.md` -- three gates.** Each of
 `scrutiny`, `review`, `qa_validation` changes `type: context-exists` to
@@ -312,7 +312,6 @@ block on its `blocking_retry` path, byte-identical below its first line:
 ```bash
 CLEARED='{"cleared": true, "superseded_by": "blocking_retry"}'
 for KEY in scrutiny_results.json review_results.json qa_results.json; do
-  koto context exists <WF> "$KEY" >/dev/null 2>&1 || continue
   printf '%s' "$CLEARED" | koto context add <WF> "$KEY" 2>/dev/null
   BACK=$(koto context get <WF> "$KEY" 2>/dev/null)
   if [ "$BACK" != "$CLEARED" ]; then
@@ -324,10 +323,28 @@ done
 koto next <WF> --with-data '{"scrutiny_outcome": "blocking_retry"}'
 ```
 
-The `exists` guard skips keys no phase has written yet, so a retry raised in
-`scrutiny` before `review` or `qa_validation` has ever run exits 0 rather than
-creating sentinels for artifacts that never existed. Both diagnostics go to
-stdout.
+**The loop is unconditional, and that is a correctness property rather than a
+simplification.** An earlier draft guarded each key with
+`koto context exists <WF> "$KEY" || continue`, to skip artifacts no phase had
+written yet. The security review found that this reopens the defect the design
+exists to close: `handle_exists` returns a bare `bool` from `ctx_exists`, so
+koto's CLI cannot distinguish *key never written* from *store unreadable right
+now*, and the guard's `continue` therefore silently skips clearing a key whose
+real verdict is still sitting there. If the store recovers before the phase is
+re-entered -- and `implementation` runs in between, so it has time to -- the
+previous round's `"passed": true` satisfies the gate. Reproduced end to end.
+
+Dropping the guard costs nothing, because the branch it was protecting does not
+exist. `context-matches` reports `matches: false` for an absent key and
+`matches: false` for the sentinel, so writing a sentinel over a never-written
+key changes no gate outcome; `koto context add` creates a key on demand, so the
+block still exits 0 on a `scrutiny`-raised retry before the other two phases
+have run. What the unconditional loop buys is that every key now passes through
+the read-back comparison, so an unreadable store is *caught* rather than skipped.
+
+The only visible difference is that `koto context list` shows three keys after
+any retry instead of one or two, which is the cost this design already accepted
+when it chose a sentinel value over an absence. Both diagnostics go to stdout.
 
 Each file also gains a sentence stating that the value written to context
 carries `"passed": true`, and `phase-4a-scrutiny.md`'s Retry Loop is rewritten
@@ -340,8 +357,10 @@ corrected -- `built_in_default` already supplies that, and the blocks are being
 removed.
 
 **`skills/work-on/scripts/retry-clearing_test.sh`** and
-**`.github/workflows/check-work-on-scripts.yml`**, plus the `work-on` suite in
-`scripts/check-bash-floor.sh`.
+**`.github/workflows/check-work-on-scripts.yml`** are the two new files.
+**`scripts/check-bash-floor.sh`** is modified to register the `work-on` suite:
+`SUITES`, `suite_scripts()`, and `suite_workflow()`. `suite_needs_shirabe()`
+is left alone, since this harness drives koto only.
 
 **`skills/work-on/koto-templates/work-on.mermaid.md`** is regenerated; the gate
 edits produce a diff there, and only koto's reusable freshness workflow catches
@@ -398,8 +417,22 @@ koto advance: gates evaluated on each re-entered phase
 6. **Regenerate the mermaid companion.**
 7. **Update and run `/work-on`'s evals.**
 
-Steps 1 and 2 must land together: step 1 without step 2 gates on a value nothing
-writes, and step 2 without step 1 is the prose-only fix this design rejected.
+**Steps 1 and 2 must land together, and the reason is the opposite of the
+obvious one.** The tempting justification -- that converting the gates without
+adding the clearing block would starve the phases on a value nothing writes --
+is false, and was disproved by building the partial state and driving it through
+real koto. The previous round's artifact already contains `"passed": true`, so
+it satisfies the new pattern trivially: with step 1 alone, a `blocking_retry`
+raised downstream leaves it untouched, and re-entering `scrutiny` and submitting
+`passed` with no new write advances the state, `advanced: true`, no blocking
+condition. Step 1 alone is not a loud block. It is a silent reproduction of the
+exact staleness this design exists to remove, through a different gate type --
+fail-open, not fail-closed.
+
+That is a stronger reason to land them together, not a weaker one: a partial
+deployment that blocks everybody gets noticed on the next run, and one that
+quietly passes stale verdicts does not. Step 2 without step 1 is the prose-only
+fix this design rejected, and it fails in the ordinary way.
 
 ### What the test must cover
 
@@ -416,7 +449,13 @@ not the precedent's `koto context add`.
 - The sentinel holds each phase on `passed`, and koto names the gate.
 - The traversal, three times: a retry raised in `qa_validation`, in `review`,
   and in `scrutiny`.
-- The `scrutiny`-raised retry exits 0 with the two not-yet-written keys absent.
+- The `scrutiny`-raised retry exits 0 with the two not-yet-written keys absent,
+  and leaves all three holding the sentinel afterwards.
+- **An unreadable key is caught, not skipped.** With one key file unreadable,
+  the block exits non-zero and names that key -- the regression test for the
+  guard the security review removed. A version of the block carrying
+  `koto context exists ... || continue` passes every other case in this list and
+  fails this one, which is the point of having it.
 - Both failure exits stay reachable with the gate failing.
 - A failed clear exits non-zero and prints on stdout with stderr discarded.
   **The injection is `chmod 0444` on the key file, not a lock on the ctx
@@ -447,10 +486,20 @@ new sensitivity: a sentinel recording that a round was superseded is less
 sensitive than the verdict it replaces. No network access, no credential
 handling, and no file written outside koto's own session directory.
 
-**The failure mode is fail-closed.** With the store unreadable the gate reports
-`matches: false`, the `passed` transition does not match, and the run cannot
-advance past a phase carrying a stale verdict. The previous behaviour --
-advance on whatever was there -- was fail-open.
+**The failure mode is fail-closed, and the qualification matters.** With the
+store unreadable the gate reports `matches: false`, the `passed` transition does
+not match, and the run cannot advance past a phase carrying a stale verdict. The
+previous behaviour -- advance on whatever was there -- was fail-open.
+
+That claim is unconditional only because the clearing loop is unconditional. An
+earlier draft guarded each key with `koto context exists ... || continue`, and
+under that draft the claim was false: koto cannot distinguish an absent key from
+an unreadable store (`handle_exists` returns a bare `bool`), so a transient
+failure during the guard skipped the clear, and a store that recovered before
+re-entry left the real prior verdict satisfying the gate. The guard is gone for
+that reason, and the property that replaces it is that every key passes through
+the read-back comparison, where a store failure produces a diagnostic and a
+non-zero exit instead of a silent skip.
 
 **One residual, named rather than silently accepted.** `koto overrides record`
 works whether or not a gate declares `override_default`, so an operator can
@@ -473,6 +522,17 @@ previously either a real artifact or nothing. `work-on.md` gains a second gate
 type. And the gate now couples to the artifact's *shape*: an editor who rewrites
 a heredoc breaks the gate. That failure is loud rather than silent, which is the
 right direction, but it is a coupling the file does not have today.
+
+**What a failed clear can and cannot do, since the two are easy to conflate.**
+When the clearing step fails, the gate cannot help: the previous round's
+artifact is a well-formed `"passed": true` value, so `context-matches` accepts
+it exactly as it should. Reproduced -- with the store broken during the clear
+and recovered before re-entry, the phase advances on the stale verdict whether
+or not the block noticed. The entire difference between a caught failure and an
+uncaught one is whether the agent was told: the unconditional loop exits
+non-zero and names the key, and the guarded draft exited 0 in silence. That is
+why R5's diagnostic is load-bearing rather than a convenience, and why the
+guard's removal is a correctness fix rather than a tidy-up.
 
 **The residual risk, stated plainly.** The three artifacts are written by agents
 following a heredoc. If an agent improvises a different shape the gate rejects a
