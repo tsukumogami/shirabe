@@ -233,6 +233,9 @@ echo "--- route resolution ---"
 
 ROUTEDIR=$(mktmp)
 DRIVERS=$(mktmp)
+NODRIVERS=$(mktmp)
+APTDRIVER=$(mktmp)
+BREWDRIVER=$(mktmp)
 CALLS="$DRIVERS/calls"
 : >"$CALLS"
 
@@ -250,92 +253,191 @@ chmod +x "$DRIVERS/tsuku"
 } >"$DRIVERS/brew"
 chmod +x "$DRIVERS/brew"
 
+# Two more single-purpose driver directories, each holding exactly one stub. A
+# case that wants `apt-get` to resolve and nothing else gets $APTDRIVER; a case
+# that wants no driver at all gets $NODRIVERS, which stays empty.
+{
+    printf '#!/bin/bash\n'
+    printf 'exit 0\n'
+} >"$APTDRIVER/apt-get"
+chmod +x "$APTDRIVER/apt-get"
+{
+    printf '#!/bin/bash\n'
+    printf 'exit 0\n'
+} >"$BREWDRIVER/brew"
+chmod +x "$BREWDRIVER/brew"
+
+# Route resolution reads exactly two things off the host: the OS, and whether a
+# driver resolves on PATH. A case that leaves either of them to the runner
+# asserts one thing on macOS and a different thing on Linux -- which is how this
+# file came to pass locally and fail in CI, where `apt-get` resolves and the
+# route the case expected to be unavailable was correctly emitted instead.
+#
+# Every case below therefore states both, and route_case is the only way it is
+# stated:
+#
+#   The OS is pinned through the reporter's own cache. preflight_report_set_os
+#   returns early when PREFLIGHT_REPORT_OS is already non-empty, so assigning it
+#   before the call is the seam the reporter already has, not an override
+#   invented for the test. It is cleared again afterwards so no case inherits
+#   the previous one's OS.
+#
+#   Driver availability is pinned by handing the case a PATH built for it,
+#   never by inheriting the shell's. $DRIVERS carries the tsuku and brew stubs,
+#   $APTDRIVER carries apt-get, $BREWDRIVER carries brew, $NODRIVERS is empty.
+#   PATH is restored afterwards because the harness itself needs its own tools.
+ROUTE_OUT=""
+route_case() {
+    local os="$1" path="$2" tool="$3" mode="${4-install}" saved="$PATH"
+    PREFLIGHT_ROUTE_KEYS=""
+    PREFLIGHT_ROUTE_DATA=""
+    PREFLIGHT_REPORT_OS="$os"
+    PATH="$path"
+    export PATH
+    ROUTE_OUT=$(preflight_render_route "$tool" "$mode")
+    PATH="$saved"
+    export PATH
+    PREFLIGHT_REPORT_OS=""
+    return 0
+}
+
 PREFLIGHT_LIB="$ROUTEDIR"
-PATH="$DRIVERS:$PATH"
-export PATH
 
 # The closed verb vocabulary lives in the reader. A record naming a verb the
 # reader does not implement is rejected rather than executed, which is the
 # property that keeps the table from being able to name any command it likes.
+# Exercised on darwin, with both stub drivers resolvable, so a rejection cannot
+# be mistaken for an absent driver.
 {
     printf '#schema\ttool-routes/v1\n'
     printf 'koto\ttsuku\tany\ttsuku frobnicate\ttsuku install koto@latest\t-\n'
 } >"$ROUTEDIR/tool-routes.tsv"
-PREFLIGHT_ROUTE_KEYS=""
-PREFLIGHT_ROUTE_DATA=""
 : >"$CALLS"
-GOT=$(preflight_render_route "koto" "install")
+route_case darwin "$DRIVERS" koto install
 assert_has "an unknown probe verb leaves the route unavailable" \
-    "$(prose "$GOT")" "No install route is available on this host"
+    "$(prose "$ROUTE_OUT")" "No install route is available on this host"
 assert_has "the unknown verb is named in the enumeration" \
-    "$(prose "$GOT")" "names an availability test this check does not implement"
+    "$(prose "$ROUTE_OUT")" "names an availability test this check does not implement"
 assert_eq "a record naming an unknown verb is rejected rather than executed" "" "$(cat "$CALLS")"
 
 # The first record whose OS matches and whose probe succeeds wins, and that is
-# what makes "exactly one command" fall out of the data.
+# what makes "exactly one command" fall out of the data. On darwin, with tsuku
+# and brew both resolvable and the tsuku stub refusing to know jq.
 {
     printf '#schema\ttool-routes/v1\n'
     printf 'jq\ttsuku\tany\ttsuku tsuku-info\ttsuku install jq@latest\t-\n'
     printf 'jq\thomebrew\tany\tbrew -\tbrew install jq\t-\n'
 } >"$ROUTEDIR/tool-routes.tsv"
-PREFLIGHT_ROUTE_KEYS=""
-PREFLIGHT_ROUTE_DATA=""
 : >"$CALLS"
-GOT=$(preflight_render_route "jq" "install")
+route_case darwin "$DRIVERS" jq install
 assert_has "route availability is probed rather than assumed" "$(cat "$CALLS")" "tsuku info jq"
-assert_has "a route whose package check fails yields to the next record" "$GOT" "  brew install jq"
-assert_lacks "the losing route's command is never printed" "$GOT" "tsuku install jq"
-assert_eq "exactly one command is printed" "1" "$(indented_lines "$GOT")"
+assert_has "a route whose package check fails yields to the next record" "$ROUTE_OUT" "  brew install jq"
+assert_lacks "the losing route's command is never printed" "$ROUTE_OUT" "tsuku install jq"
+assert_eq "exactly one command is printed" "1" "$(indented_lines "$ROUTE_OUT")"
 
 # The winning record is the first one, and the records after it are not probed:
-# running a program for an answer nobody reads is a cost with no reader.
-PREFLIGHT_ROUTE_KEYS=""
-PREFLIGHT_ROUTE_DATA=""
+# running a program for an answer nobody reads is a cost with no reader. On
+# linux, because an `any` record is meant to win on either OS.
 {
     printf '#schema\ttool-routes/v1\n'
     printf 'koto\ttsuku\tany\ttsuku tsuku-info\ttsuku install koto@latest\t-\n'
     printf 'koto\thomebrew\tany\tbrew -\tbrew install koto\t-\n'
 } >"$ROUTEDIR/tool-routes.tsv"
 : >"$CALLS"
-GOT=$(preflight_render_route "koto" "update")
-assert_has "the first matching record wins" "$GOT" "  tsuku install koto@latest"
-assert_eq "exactly one command is printed when the first record wins" "1" "$(indented_lines "$GOT")"
+route_case linux "$DRIVERS" koto update
+assert_has "the first matching record wins" "$ROUTE_OUT" "  tsuku install koto@latest"
+assert_eq "exactly one command is printed when the first record wins" "1" "$(indented_lines "$ROUTE_OUT")"
 assert_lacks "a record after the winner is never probed" "$(cat "$CALLS")" "brew"
-assert_has "update mode leads with an update sentence" "$(prose "$GOT")" "Update to the newest koto:"
+assert_has "update mode leads with an update sentence" "$(prose "$ROUTE_OUT")" "Update to the newest koto:"
 
 # The memo: one driver resolution per probe, however many tools name it.
-PREFLIGHT_ROUTE_KEYS=""
-PREFLIGHT_ROUTE_DATA=""
 {
     printf '#schema\ttool-routes/v1\n'
     printf 'git\thomebrew\tany\tbrew -\tbrew install git\t-\n'
 } >"$ROUTEDIR/tool-routes.tsv"
-GOT=$(preflight_render_route "git" "install")
-assert_has "a driver-only probe needs the driver to resolve" "$GOT" "  brew install git"
+route_case darwin "$DRIVERS" git install
+assert_has "a driver-only probe needs the driver to resolve" "$ROUTE_OUT" "  brew install git"
 
 # The exclusion record is a record, not an absence, and it carries its citation
-# into the enumeration.
+# into the enumeration. Both records are `any`, so the block must read the same
+# whichever OS the host is -- asserted on darwin and again on linux, with a PATH
+# that resolves no driver at all so `apt-get` is unavailable by construction
+# rather than by luck.
 {
     printf '#schema\ttool-routes/v1\n'
     printf 'gh\ttsuku\tany\tnever\t-\ttsukumogami/tsuku#2245\n'
     printf 'gh\tapt-get\tany\tapt-get -\tsudo apt-get install -y gh\t-\n'
 } >"$ROUTEDIR/tool-routes.tsv"
-PREFLIGHT_ROUTE_KEYS=""
-PREFLIGHT_ROUTE_DATA=""
-GOT=$(preflight_render_route "gh" "install")
-assert_has "an excluded route appears in the enumeration with its reason" \
-    "$(prose "$GOT")" "excluded for gh on any -- see tsukumogami/tsuku#2245"
-assert_has "an unavailable driver is named with its reason" \
-    "$(prose "$GOT")" "apt-get does not resolve"
-assert_has "a no-route report says so explicitly" \
-    "$(prose "$GOT")" "this report gives no command"
-assert_lacks "a no-route report offers no command" "$GOT" "apt-get install"
+for CASE_OS in darwin linux; do
+    route_case "$CASE_OS" "$NODRIVERS" gh install
+    assert_has "an excluded route appears in the enumeration with its reason ($CASE_OS)" \
+        "$(prose "$ROUTE_OUT")" "excluded for gh on any -- see tsukumogami/tsuku#2245"
+    assert_has "an unavailable driver is named with its reason ($CASE_OS)" \
+        "$(prose "$ROUTE_OUT")" "apt-get does not resolve"
+    assert_has "a no-route report says so explicitly ($CASE_OS)" \
+        "$(prose "$ROUTE_OUT")" "this report gives no command"
+    assert_lacks "a no-route report offers no command ($CASE_OS)" "$ROUTE_OUT" "apt-get install"
+done
+
+# The same fixture with the driver resolvable: the record that was unavailable a
+# moment ago is the one that wins, so the case above is failing for the reason
+# it names rather than because the reader lost the record.
+route_case linux "$APTDRIVER" gh install
+assert_has "a resolvable driver turns the same record into the one command" \
+    "$ROUTE_OUT" "  sudo apt-get install -y gh"
+assert_eq "exactly one command is printed when the driver resolves" "1" "$(indented_lines "$ROUTE_OUT")"
+assert_lacks "the enumeration is not printed once a route wins" \
+    "$(prose "$ROUTE_OUT")" "Every route was checked"
 
 # The shipped table is the one the report actually prints from.
 PREFLIGHT_LIB="$REPO/scripts/lib"
 assert_has "the shipped route table carries the gh-on-Linux exclusion with its citation" \
     "$(cat "$REPO/scripts/lib/tool-routes.tsv")" \
     "gh	tsuku	linux	never	-	tsukumogami/tsuku#2245"
+
+# The shipped table's gh records are OS-split, so both halves of the split are
+# rendered here rather than only the half this host happens to be. The reader's
+# `never` branch runs ahead of the OS test, which is why the linux exclusion is
+# enumerated on a darwin host too -- a reader on either OS is told the route
+# exists and why it is not used.
+route_case darwin "$NODRIVERS" gh install
+assert_has "shipped table on darwin: the linux exclusion is still enumerated with its citation" \
+    "$(prose "$ROUTE_OUT")" "excluded for gh on linux -- see tsukumogami/tsuku#2245"
+assert_has "shipped table on darwin: the darwin tsuku route names its unresolved driver" \
+    "$(prose "$ROUTE_OUT")" "tsuku does not resolve"
+assert_has "shipped table on darwin: the darwin homebrew route names its unresolved driver" \
+    "$(prose "$ROUTE_OUT")" "brew does not resolve"
+assert_has "shipped table on darwin: the linux-only route says which host this is" \
+    "$(prose "$ROUTE_OUT")" "offered on linux only, and this host is darwin"
+assert_lacks "shipped table on darwin: no command is printed when no route resolves" \
+    "$ROUTE_OUT" "install -y gh"
+
+route_case linux "$NODRIVERS" gh install
+assert_has "shipped table on linux: the exclusion is enumerated with its citation" \
+    "$(prose "$ROUTE_OUT")" "excluded for gh on linux -- see tsukumogami/tsuku#2245"
+assert_has "shipped table on linux: the darwin-only routes say which host this is" \
+    "$(prose "$ROUTE_OUT")" "offered on darwin only, and this host is linux"
+assert_has "shipped table on linux: the apt-get route names its unresolved driver" \
+    "$(prose "$ROUTE_OUT")" "apt-get does not resolve"
+assert_lacks "shipped table on linux: the excluded tsuku route is never offered as a command" \
+    "$ROUTE_OUT" "tsuku install gh"
+
+# And the routes the shipped table does offer, each on the OS that offers it.
+# Without these the OS-pinned cases above would pass against a table that had
+# lost its gh routes entirely.
+route_case linux "$APTDRIVER" gh install
+assert_has "shipped table on linux: apt-get is the route when apt-get resolves" \
+    "$ROUTE_OUT" "  sudo apt-get install -y gh"
+assert_eq "shipped table on linux: exactly one command" "1" "$(indented_lines "$ROUTE_OUT")"
+assert_lacks "shipped table on linux: the excluded tsuku route never wins" \
+    "$ROUTE_OUT" "tsuku install gh"
+
+route_case darwin "$BREWDRIVER" gh install
+assert_has "shipped table on darwin: homebrew is the route when brew resolves" \
+    "$ROUTE_OUT" "  brew install gh"
+assert_eq "shipped table on darwin: exactly one command" "1" "$(indented_lines "$ROUTE_OUT")"
+assert_lacks "shipped table on darwin: the linux apt-get route never wins" \
+    "$ROUTE_OUT" "apt-get install"
 
 echo
 echo "--- end to end ---"
@@ -444,6 +546,36 @@ chmod +x "$WORKDIR/bin/koto"
 # does not refuse them.
 NEUTRAL=$(mktmp)
 
+# make_os_path <dir> <sysname> -- a directory holding one program: a `uname`
+# stub that names the OS the case exercises.
+#
+# An end-to-end case runs the check as a separate process, and the reporter
+# assigns PREFLIGHT_REPORT_OS="" at source time, so the in-process seam the unit
+# cases use cannot be carried across that boundary. `uname -s` is where the
+# cached value comes from, so a stub pins the same value through the same code
+# path without a second override existing for the test to use.
+#
+# Handing the case this directory as its whole PATH pins driver availability at
+# the same time, and pins it to nothing: no tsuku, no brew, no apt-get -- and no
+# gh either, which is the other half of what made the no-route case
+# host-dependent. A hosted Linux runner ships /usr/bin/gh, so a case that put
+# /usr/bin on PATH to reach a no-route report instead found the tool installed
+# and correctly printed nothing at all. The helpers the probe watchdog needs are
+# looked up at /bin and /usr/bin by absolute path, so starving PATH does not
+# starve them.
+make_os_path() {
+    local dir="$1" sysname="$2"
+    printf '#!/bin/bash\n' >"$dir/uname"
+    printf 'printf "%s\\n"\n' "$sysname" >>"$dir/uname"
+    chmod +x "$dir/uname"
+    return 0
+}
+
+OSPATH_DARWIN=$(mktmp)
+OSPATH_LINUX=$(mktmp)
+make_os_path "$OSPATH_DARWIN" Darwin
+make_os_path "$OSPATH_LINUX" Linux
+
 RUN_OUT=""
 RUN_BYTES=0
 RUN_RC=0
@@ -472,9 +604,18 @@ run_preflight() {
 
 ROOT=$(new_root)
 
+# Every PATH below is built out of fixture directories and ends in one of the
+# two $OSPATH_* stubs, so each case states which OS it exercises and which
+# drivers resolve. None of them puts a system directory on PATH: a case that did
+# would be asserting against whatever the runner has installed, which is how a
+# tool this file expected to be absent turned up present in CI. The koto and
+# shirabe routes are `any` records, so linux is as good as darwin for the cases
+# that render one -- the OS-split records are exercised by the two no-route
+# cases and by the shipped-table unit cases above.
+#
 # --- 1. absent from the host, with a route that resolves --------------------
 write_decl "$ROOT" "absent-routed" 'koto\t-\t-\talways'
-run_preflight "$ROOT" "absent-routed" "$DRV:/usr/bin:/bin" "/nonexistent"
+run_preflight "$ROOT" "absent-routed" "$DRV:$OSPATH_LINUX" "/nonexistent"
 assert_has "absent: the posture is stated in words" \
     "$(prose "$RUN_OUT")" "shirabe /absent-routed: prerequisite not met."
 assert_has "absent: the tool is named as not installed" \
@@ -494,7 +635,7 @@ assert_lacks "absent: no verbose affordance is offered" "$(prose "$RUN_OUT")" "v
 
 # --- 2. installed under a root but off PATH ---------------------------------
 write_decl "$ROOT" "offpath" 'shirabe\t-\t-\talways'
-run_preflight "$ROOT" "offpath" "$DRV:/usr/bin:/bin" "$TOOLROOT"
+run_preflight "$ROOT" "offpath" "$DRV:$OSPATH_LINUX" "$TOOLROOT"
 assert_has "off PATH: the first line says nothing needs installing" \
     "$(prose "$RUN_OUT")" "shirabe /offpath: prerequisite not met, and nothing needs installing."
 assert_has "off PATH: the block names where the tool was found" "$RUN_OUT" "$TOOLROOT/shirabe"
@@ -512,7 +653,7 @@ assert_lacks "off PATH: no install command is ever offered" "$RUN_OUT" "tsuku in
 write_decl "$ROOT" "ordering" \
     'koto\t-\t-\talways' \
     'shirabe\t-\t-\talways'
-run_preflight "$ROOT" "ordering" "$DRV:/usr/bin:/bin" "$TOOLROOT"
+run_preflight "$ROOT" "ordering" "$DRV:$OSPATH_LINUX" "$TOOLROOT"
 FIRST_LINE=$(printf '%s\n' "$RUN_OUT" | head -1)
 assert_eq "the off-PATH block sorts ahead of the absent block" \
     "shirabe /ordering: prerequisite not met, and nothing needs installing." "$FIRST_LINE"
@@ -521,7 +662,7 @@ assert_has "the absent block is still emitted, after it" \
 
 # --- 3. resolves, but a declared subcommand is absent -----------------------
 write_decl "$ROOT" "subgap" 'koto\tcontext remove\t-\talways'
-run_preflight "$ROOT" "subgap" "$BIN:$DRV:/usr/bin:/bin" "/nonexistent"
+run_preflight "$ROOT" "subgap" "$BIN:$DRV:$OSPATH_LINUX" "/nonexistent"
 assert_has "subcommand gap: the tool is named as resolving and running" \
     "$(prose "$RUN_OUT")" "koto resolves at $BIN/koto and runs, but it does not have the subcommand \`koto context remove\`"
 assert_has "subcommand gap: the block says the rest of the surface is fine" \
@@ -545,7 +686,7 @@ assert_lacks "subcommand gap: the reporter renders the remedy once, not twice" \
 
 # --- 4. the subcommand is present and a declared flag is absent -------------
 write_decl "$ROOT" "flaggap" 'shirabe\troadmap populate\t--no-issues\talways'
-run_preflight "$ROOT" "flaggap" "$BIN:$DRV:/usr/bin:/bin" "/nonexistent"
+run_preflight "$ROOT" "flaggap" "$BIN:$DRV:$OSPATH_LINUX" "/nonexistent"
 assert_has "flag gap: the subcommand is named as present" \
     "$(prose "$RUN_OUT")" "has the subcommand \`shirabe roadmap populate\`, but that subcommand does not advertise the flag --no-issues"
 assert_has "flag gap: the block says only the flag is absent" \
@@ -565,25 +706,47 @@ assert_has "flag gap: the block closes on the same bound" \
 assert_lacks "flag gap: it is not a subcommand gap" "$RUN_OUT" "does not have the subcommand"
 
 # --- 5. absent with no route available --------------------------------------
+#
+# Twice, once per OS. The shipped gh records split on OS, so a single run only
+# ever sees half the table, and the half it sees would be whichever half the
+# runner happened to be -- the report shape would be asserted on macOS and left
+# unasserted on Linux. Both runs use a PATH holding nothing but the `uname`
+# stub, so gh is absent and no route driver resolves on either.
 write_decl "$ROOT" "noroute" 'gh\t-\t-\talways'
-run_preflight "$ROOT" "noroute" "/usr/bin:/bin" "/nonexistent"
-assert_has "no route: the tool is named as absent" \
+
+run_preflight "$ROOT" "noroute" "$OSPATH_DARWIN" "/nonexistent"
+assert_has "no route (darwin): the tool is named as absent" \
     "$(prose "$RUN_OUT")" "gh is not installed on this host."
-assert_has "no route: the report says explicitly that it gives no command" \
+assert_has "no route (darwin): the report says explicitly that it gives no command" \
     "$(prose "$RUN_OUT")" "No install route is available on this host, so this report gives no command. Every route was checked:"
-assert_has "no route: the excluded route appears with its citation" \
+assert_has "no route (darwin): the excluded route appears with its citation" \
     "$RUN_OUT" "excluded for gh on linux -- see tsukumogami/tsuku#2245"
-assert_has "no route: a route offered on another OS says so" \
-    "$RUN_OUT" "offered on linux only, and this host is"
-assert_has "no route: an unresolvable driver says so" "$RUN_OUT" "brew does not resolve"
-assert_has "no route: the block closes by naming what is left to the reader" \
+assert_has "no route (darwin): a route offered on another OS says so" \
+    "$RUN_OUT" "offered on linux only, and this host is darwin"
+assert_has "no route (darwin): an unresolvable driver says so" "$RUN_OUT" "brew does not resolve"
+assert_has "no route (darwin): the block closes by naming what is left to the reader" \
     "$(prose "$RUN_OUT")" "Install gh by whatever means this host supports."
-assert_lacks "no route: no install command is printed" "$RUN_OUT" "install -y gh"
-assert_lacks "no route: no tsuku command is printed" "$RUN_OUT" "tsuku install gh"
+assert_lacks "no route (darwin): no install command is printed" "$RUN_OUT" "install -y gh"
+assert_lacks "no route (darwin): no tsuku command is printed" "$RUN_OUT" "tsuku install gh"
+
+run_preflight "$ROOT" "noroute" "$OSPATH_LINUX" "/nonexistent"
+assert_has "no route (linux): the tool is named as absent" \
+    "$(prose "$RUN_OUT")" "gh is not installed on this host."
+assert_has "no route (linux): the report says explicitly that it gives no command" \
+    "$(prose "$RUN_OUT")" "No install route is available on this host, so this report gives no command. Every route was checked:"
+assert_has "no route (linux): the excluded route appears with its citation" \
+    "$RUN_OUT" "excluded for gh on linux -- see tsukumogami/tsuku#2245"
+assert_has "no route (linux): a route offered on another OS says so" \
+    "$RUN_OUT" "offered on darwin only, and this host is linux"
+assert_has "no route (linux): an unresolvable driver says so" "$RUN_OUT" "apt-get does not resolve"
+assert_has "no route (linux): the block closes by naming what is left to the reader" \
+    "$(prose "$RUN_OUT")" "Install gh by whatever means this host supports."
+assert_lacks "no route (linux): no install command is printed" "$RUN_OUT" "install -y gh"
+assert_lacks "no route (linux): no tsuku command is printed" "$RUN_OUT" "tsuku install gh"
 
 # --- the two outcomes outside R13's postures --------------------------------
 write_decl "$ROOT" "refused" 'koto\tcontext add\t-\talways'
-run_preflight "$ROOT" "refused" "$WORKDIR/bin:/usr/bin:/bin" "/nonexistent" "$WORKDIR"
+run_preflight "$ROOT" "refused" "$WORKDIR/bin:$OSPATH_LINUX" "/nonexistent" "$WORKDIR"
 assert_has "resolution refused: the posture is named" \
     "$(prose "$RUN_OUT")" "resolves to a path inside the working directory and was not probed"
 assert_has "resolution refused: no surface claim is made" \
@@ -598,7 +761,7 @@ fi
 
 write_decl "$ROOT" "inconclusive" 'jq\t-\t--arg\talways'
 cp "$BIN/notclap" "$BIN/jq"
-run_preflight "$ROOT" "inconclusive" "$BIN:/usr/bin:/bin" "/nonexistent"
+run_preflight "$ROOT" "inconclusive" "$BIN:$OSPATH_LINUX" "/nonexistent"
 assert_has "probe inconclusive: the block says the probe did not complete" \
     "$(prose "$RUN_OUT")" "so the probe did not complete"
 assert_has "probe inconclusive: no surface claim is made" \
@@ -609,7 +772,7 @@ rm -f "$BIN/jq"
 
 # --- the filter, end to end --------------------------------------------------
 write_decl "$ROOT" "hostile" 'koto\tcontext remove\t-\talways'
-run_preflight "$ROOT" "hostile" "$HOSTILEBIN:$DRV:/usr/bin:/bin" "/nonexistent"
+run_preflight "$ROOT" "hostile" "$HOSTILEBIN:$DRV:$OSPATH_LINUX" "/nonexistent"
 assert_has "the hostile fixture still produces its finding" \
     "$(prose "$RUN_OUT")" "does not have the subcommand"
 assert_has "the conforming sibling token is still listed, so the case is not vacuous" \
@@ -626,7 +789,7 @@ write_decl "$ROOT" "satisfied" \
     'koto\tcontext add\t-\talways' \
     'shirabe\troadmap populate\t--issues,--milestone\talways'
 : >"$E2E_CALLS"
-run_preflight "$ROOT" "satisfied" "$BIN:$DRV:/usr/bin:/bin" "/nonexistent"
+run_preflight "$ROOT" "satisfied" "$BIN:$DRV:$OSPATH_LINUX" "/nonexistent"
 assert_eq "a fully satisfied declaration emits zero bytes (wc -c, combined)" "0" "$RUN_BYTES"
 # Route resolution is reached only after a tool is found absent or a surface
 # gap is established. A satisfied declaration must not run a route driver, and
@@ -637,7 +800,7 @@ assert_eq "the satisfied path resolves no route and runs no route driver" \
 write_decl "$ROOT" "modeonly" \
     'gh\t-\t-\tmode:issues' \
     'koto\tcontext remove\t-\tmode:issues'
-run_preflight "$ROOT" "modeonly" "/usr/bin:/bin" "/nonexistent"
+run_preflight "$ROOT" "modeonly" "$OSPATH_LINUX" "/nonexistent"
 assert_eq "a mode-scoped record emits nothing at load, not even a deferral marker" \
     "0" "$RUN_BYTES"
 
