@@ -35,7 +35,7 @@ pub mod visibility;
 // internal-shaped and unstable; see the crate-level doc comment above.
 pub use advisory::{explain as explain_advisory, AdvisoryNote, AdvisoryReport, PrPosture};
 pub use annotation::{format_error, format_notice};
-pub use checks::{check_slug_prefix, detect_slug_prefix, SlugPrefixCheck};
+pub use checks::{check_slug_prefix, detect_slug_prefix, SlugPrefixCheck, SCHEMA_SKIP_CODE};
 pub use coordination::{
     check_coordination_body, decide_gate, decide_visibility_guard, is_acyclic_order,
     parse_cross_repo_ref, redacted_label, CoordinationBodyFinding, CrossRepoRef, GateDecision,

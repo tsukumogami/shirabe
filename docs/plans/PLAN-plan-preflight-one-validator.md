@@ -47,28 +47,28 @@ in the same unit as the R6 additions it depends on.
 and surface the same fact as a `skipped` array in the JSON envelope.
 
 **Acceptance Criteria**:
-- [ ] `ValidateOutcome` carries an `Incomplete` variant whose exit code is 4 and
+- [x] `ValidateOutcome` carries an `Incomplete` variant whose exit code is 4 and
       whose label is `incomplete`.
-- [ ] Severity ranking orders Clean below Incomplete, Incomplete below
+- [x] Severity ranking orders Clean below Incomplete, Incomplete below
       Violations, and leaves ToolError and Io above both, so the existing
       highest-rank-wins merge is unchanged in behaviour for the outcomes that
       already existed.
-- [ ] A `PLAN-*.md` with no `schema:` field exits 4, and its annotation output
+- [x] A `PLAN-*.md` with no `schema:` field exits 4, and its annotation output
       is byte-identical to what it produced before the change.
-- [ ] A `PLAN-*.md` whose `schema:` is `plan/v2` exits 4, and its annotation
+- [x] A `PLAN-*.md` whose `schema:` is `plan/v2` exits 4, and its annotation
       output is byte-identical to what it produced before the change.
-- [ ] A run carrying both an error-level finding and a skipped input exits 2.
-- [ ] A run whose only skipped input was excluded by `--check` selection exits
+- [x] A run carrying both an error-level finding and a skipped input exits 2.
+- [x] A run whose only skipped input was excluded by `--check` selection exits
       0, so selection continues to drive the outcome as the contract states.
-- [ ] `--format json` emits a `skipped` array with one entry per declined input,
+- [x] `--format json` emits a `skipped` array with one entry per declined input,
       each naming the file and the reason, derived from the same finding set the
       envelope already renders.
-- [ ] The three golden parity `.exit` baselines for schema-skipped documents
+- [x] The three golden parity `.exit` baselines for schema-skipped documents
       hold `4`; their `.stdout` and `.stderr` baselines are byte-unchanged. This
       is the one existing-test modification the design records as a known
       exception, and it is reported in the pull request body rather than made
       quietly.
-- [ ] `cargo test --workspace` passes, and no `.rs` test file has been edited.
+- [x] `cargo test --workspace` passes, and no `.rs` test file has been edited.
 
 **Dependencies**: None.
 

@@ -41,6 +41,16 @@ const PROHIBITED_PUBLIC_STRATEGY_SECTIONS: &[&str] = &["Competitive Consideratio
 /// three-column shape.
 const LEGACY_PLAN_TABLE_COLUMNS: &[&str] = &["Issue", "Title", "Dependencies", "Complexity"];
 
+/// The finding code the schema gate reports under.
+///
+/// Named rather than spelled `"SCHEMA"` at each site because three consumers
+/// now key on it and they must agree: `check_schema` produces it,
+/// `main.rs` rolls a run carrying one up to the incomplete outcome, and
+/// `report::skipped_inputs` derives the envelope's `skipped` array from it.
+/// A finding under this code means the document was routed to a format and
+/// then not checked against it.
+pub const SCHEMA_SKIP_CODE: &str = "SCHEMA";
+
 /// Returns a SCHEMA `ValidationError` (to be emitted as `::notice`) if
 /// `doc.schema` is not `spec.schema_version`. Returns `None` if the schema
 /// matches.
