@@ -458,6 +458,11 @@ list, because at the terminal hop the PLAN is the *survivor* rather than a
 casualty — it is on disk when `/scope` exits, and only the implementation cascade
 deletes it later.
 
+This also forecloses a misreading in which the fully-folded contract is an empty
+list. The hard-finalization check fails on an empty `exit_artifacts:` on all three
+exit paths, and a fully folded chain never reaches zero at `/scope` finalization
+— so that requirement and this contract do not collide.
+
 The state the guard must handle therefore arises after `/scope`, not within it:
 the cascade has removed the PLAN and no DESIGN survives to seed on. The contract
 is that `/execute`'s finalization guard seeds on the chain's surviving durable
@@ -524,37 +529,86 @@ names join the pre-interpolation re-validation list, validated against
 `{brief, prd, design, plan}`; an out-of-enum or unparseable entry fails the firing
 condition closed.
 
-**The preflight is the new execution surface.** Its arguments are the deletion
-target's path and the survivor's path, both composed from the validated topic slug
-rather than from author input, and both passed after `--`. The script cannot
-write. Its fail-safe is the default-deny routing above.
+**The preflight is the new execution surface, and `--` is not the mitigation it
+looks like.** Its two arguments are the deletion target's path and the survivor's
+path. Both are composed from the validated topic slug rather than from author
+input — verified across all four routes a path can take, and correct today — but
+that safety is a property of the caller, not of the surface. Passing them after
+`--` protects against a leading dash being read as an option; it does **not**
+disable pathspec globbing, and these arguments are interpolated into the search's
+exclusions. An exclusion of `docs/*` would blind the search across the tree, the
+script would exit clean, and the fold would proceed. `-F` neutralizes regex in the
+pattern, not globbing in the pathspec.
 
-**Enum re-validation covers four fields, not two.** `hop:` and `verdict:` join the
-list as the decision reports asked, and two more that this work promotes or
-inherits. `stage:` is a new enum replacing `absorbable:`, and introducing one
-enum while retiring another without listing it repeats the omission `verdict:`
-already has. The **`absorbed:` basename prefix** is a discriminator that lives
-outside the state file entirely — in a tracked, hand-editable, default-branch
-document — and it selects a contribution heading, feeds `required_sections_for`,
-and is serialized into the record. An unrecognised prefix fails the new
-error-level check closed and the fold does not proceed.
+The script therefore asserts both arguments against
+`^docs/(briefs|prds|designs|plans)/(BRIEF|PRD|DESIGN|PLAN)-[a-z0-9-]+\.md$` and
+exits `3` — did-not-complete, routing to `keep` — otherwise. Its merge gate makes
+this nearly free: the same fixture file, one more case. The script cannot write.
 
-**One claim in an earlier draft of this section was false, and the field it was
-false about is fixed here.** `visibility:` is read back from the state file and
-interpolated into an emitted command — `shirabe validate --format json
---visibility=<value>` — so "no untrusted input reaches an emitted command" was not
-true of `/scope` before this change. A tampered value both routes the validator's
-governance rules and lands on a command line. It joins the re-validation list,
-validated against `Public | Private`. This is a pre-existing defect; the list
-amendment is the natural place to close it.
+### The promoted-field category, closed by rule rather than by enumeration
+
+This work takes several fields that previously only *recorded* and makes them
+*decide*. Closing them one at a time invites a seventh argument for the next one,
+because the re-validation list's scope sentence today reaches only path
+interpolation. It is rewritten rather than extended:
+
+> Every enum-typed or closed-domain field is re-validated against its domain at
+> the read that precedes its use, where a use is: interpolation into an emitted
+> command, construction of a write or delete path, a decision that gates a
+> destructive operation, or serialization into a durable artifact.
+
+That subsumes every member below, and the general rule behind the strictest of
+them: **a gate that reads a list fails closed on a list it cannot fully parse,
+because a partially-parsed list silently weakens the gate.**
+
+**`absorbed:` is the strictest member, and the only one with a
+fail-toward-`absorb` path.** This design gives it three load-bearing jobs: its
+basename prefix selects a contribution heading spliced into
+`required_sections_for`'s output; the carry check derives its itemization set from
+the list; and the record checker's fold signature keys on it. A list that is
+short — truncated, mis-parsed, or hand-corrected — makes the carry check itemize
+*fewer* contributions and therefore pass *more* easily. That is under-declaration
+weakening a gate, in the forbidden direction, on a hand-editable frontmatter key
+of a tracked document that survives cleanup and merges to the default branch, and
+it needs no adversary: a scalar written where a sequence was meant produces it.
+
+Every entry is therefore validated at every read against
+`^docs/(briefs|prds|designs)/(BRIEF|PRD|DESIGN)-[a-z0-9-]+\.md$` — in the absorb,
+where an unparseable or unknown-prefix entry fails the carry check closed to
+`keep` and never silently skips the item, and in the new error-level check as a
+sixth clause.
+
+**`hop:`, `verdict:` and the `carry_check:` map** are promoted by a different
+route: from scratch state that cleanup deletes into columns of a durable file on
+the default branch. Domains: `verdict:` against `{absorb, keep}`, `hop:` against
+the composed type-pair form, `carry_check:` outcomes against `{true, false}` with
+keys drawn from the ancestor's required sections plus its contribution headings.
+`stage:` joins them when Phase C introduces it.
+
+**`consolidation_judgments[].absorbed:` and `.into:`** are closed by prohibition
+rather than validation: no path is ever read back from `consolidation_judgments:`
+for interpolation, which is what the resume rule below enforces.
+
+**`visibility:` is pre-existing, and it falsifies a claim an earlier draft of this
+section made.** It is an enum read back from the state file and interpolated into
+an emitted command — `shirabe validate --format json --visibility=<value>` — so
+"no untrusted input reaches an emitted command" was not true of `/scope` before
+this change. A tampered value crosses the interpolation surface and the visibility
+surface at once. The rewritten scope sentence catches it.
 
 **The visibility boundary is crossed at the splice, not at the record.** The
 record holds paths, section names and outcomes — never section text — so it cannot
-become a content channel. But the `upstream:` splice inherits the absorbed
-artifact's parents into a surviving public document, and a private cross-repo
-parent would ride in that way; the existing `--upstream` visibility check is the
-precedent for the rule that must apply. Cross-repo absorbed values are rejected
-outright by the new check rather than resolved.
+become a content channel. The exposure is the `upstream:` splice, which inherits
+the absorbed artifact's parents into a surviving document, and a private
+cross-repo parent would ride in that way.
+
+The rule, stated rather than gestured at, and run by step 5 rather than assumed:
+**when this repository is public and a spliced parent resolves to a private
+artifact, the entry is dropped and the omission reported, not written.** That is
+the existing `--upstream` check's third ordered condition applied at a second
+site; the check is reused rather than reinvented, because a public document
+naming a private one is the same violation whichever field carries it. Cross-repo
+`absorbed:` values are rejected outright by the new check rather than resolved.
 
 **What the record checker is trusted for.** It runs in a reusable workflow other
 repositories pin, and it proves a row exists and its hash matches. It does not
@@ -563,13 +617,15 @@ would pass. That is acceptable because the record is an audit aid rather than an
 authorization, and nothing reads it to decide anything — but it should not be
 described as proof that a fold was legitimate.
 
-**A partial absorb is never resumed.** The absorb now has a durable staged write
-before the deletion, so a chain interrupted between them is a reachable state.
-The natural implementation would read the absorbed and survivor paths back out of
-the state file into a `git rm` — precisely the surface the enum re-validation
-contract exists to close. Instead: the row is un-appended, nothing is deleted,
-and the hop is re-derived from scratch or left at `keep`. This is also the guard
-against a double append through the resume ladder's re-run path.
+**A partial absorb is never resumed across sessions.** The absorb now has a
+durable staged write before the deletion, so a chain interrupted between them is
+a reachable state. The natural implementation would read the absorbed and
+survivor paths back out of the state file into a `git rm` — precisely the surface
+the re-validation contract exists to close. Instead: the row is un-appended, the
+survivor is restored, nothing is deleted, and the hop is re-derived from scratch
+or left at `keep`. **No path is ever read back from `consolidation_judgments:`
+for interpolation.** This is also the guard against a double append through the
+resume ladder's re-run path.
 
 No new runtime dependency, no external URL, and no credential. With the
 `visibility:` fix above, no untrusted input reaches an emitted command.
