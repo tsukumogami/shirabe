@@ -17,6 +17,11 @@ chain_ran:
     completed_at: 2026-08-15T20:16:00Z
     artifact: docs/briefs/BRIEF-skill-adherence-enforcement.md
     validator: clean
+  - name: prd
+    started_at: 2026-08-15T20:20:00Z
+    completed_at: 2026-08-15T20:41:00Z
+    artifact: docs/prds/PRD-skill-adherence-enforcement.md
+    validator: clean
 visibility: Public
 execution_mode: auto
 max_rounds: 5
@@ -29,8 +34,12 @@ child_snapshots:
     status: Accepted
     content_hash: c15d6665a85788058769f6766d61bab54808e707
     captured_at: 2026-08-15T20:16:00Z
+  prd:
+    status: Accepted
+    content_hash: 0c272547257036315de8999c2d85189acac5b1a9
+    captured_at: 2026-08-15T20:41:00Z
 parent_orchestration:
-  invoking_child: prd
+  invoking_child: design
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 worktree_rebases:
