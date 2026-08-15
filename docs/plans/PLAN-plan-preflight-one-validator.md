@@ -106,19 +106,19 @@ indexing zero documents and reporting a clean tree.
 existing upstream-resolution check, so deleting the script drops no coverage.
 
 **Acceptance Criteria**:
-- [ ] An `upstream:` entry whose resolved target is a symbolic link is refused
+- [x] An `upstream:` entry whose resolved target is a symbolic link is refused
       under `R6`, with the entry named in the message.
-- [ ] An `upstream:` entry whose canonical path resolves outside the working
+- [x] An `upstream:` entry whose canonical path resolves outside the working
       tree is refused under `R6`, with the resolved location named in the
       message.
-- [ ] A refused entry produces exactly one finding rather than falling through
+- [x] A refused entry produces exactly one finding rather than falling through
       into the git-tracking branch and producing a second.
-- [ ] A cross-repo `owner/repo:path` entry is skipped by both new refusals, as
+- [x] A cross-repo `owner/repo:path` entry is skipped by both new refusals, as
       it already is by the resolution check, because it names no local path.
-- [ ] Every golden parity baseline is byte-unchanged, because each fixture
+- [x] Every golden parity baseline is byte-unchanged, because each fixture
       carrying an `upstream:` names a target that does not exist relative to the
       fixture working directory and so returns at the existing finding.
-- [ ] `cargo test --workspace` passes, and no existing test file has been
+- [x] `cargo test --workspace` passes, and no existing test file has been
       edited.
 
 **Dependencies**: Blocked by <<ISSUE:1>>
