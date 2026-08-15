@@ -372,18 +372,50 @@ rescans on every write while the file grows all run. Extrapolating from the
 measured point, a 100MB transcript would be roughly 50ms. Still inside budget,
 with less margin than is comfortable to promise.
 
-Memoizing the verdict per session and agent removes the growth entirely, and it
-is exact rather than approximate **provided the predicate is monotone**. The
-presence half is monotone by construction: the records are an append-only log,
-so once an inbound brief names a resolvable plan, no later record can unname it.
-The exclusion half is the one to be careful about. If the single-issue
-delegation marker is evaluated against the whole received history, a later
-record could introduce a marker and flip an armed verdict to not-armed, which is
-not monotone and would make memoization unsound. The design therefore requires
-the exclusion to be evaluated against the same brief that supplied the plan
-reference, not against records that arrive afterward. With that scoping the
-predicate is monotone and the cache is safe; without it the cache must be
-dropped rather than the scoping quietly assumed.
+Caching removes the growth, but only in a specific form, and two tempting
+simplifications are both wrong.
+
+**Cache the arming determination, not the verdict.** The write-target comparison
+is a property of the target path, not of the session. A session-level cached
+verdict would permit or refuse every write in that session alike, which breaks
+the criterion requiring an in-set write to be permitted in the same session
+where an out-of-set write is refused, and the one requiring two different
+targets to carry different reason text. Only the transcript-derived clauses and
+the plan's frontmatter read are cacheable.
+
+**Do not freeze the arming determination either, because it is not monotone.**
+The presence half is monotone in the append direction: once an inbound brief
+names a resolvable plan, no later record can unname it. The exclusion half is
+not, and the counterexample is ordinary rather than adversarial. An author who
+re-scopes mid-session, saying in effect "actually, just do issue three," appends
+a later record that *should* disarm the session. A frozen cache stays armed.
+That failure is stricter-when-stale, which runs against the requirement that
+uncertainty resolves toward permitting the write, and it produces exactly the
+false-refusal class the arming analysis set out to avoid.
+
+**The form that works is a tail scan.** Persist a byte offset into the record
+file together with the arming state derived up to that offset, and on each call
+re-fold only the bytes appended since. Presence stays monotone in the append
+direction, and the disarming exclusion still gets to fire late. Cost is
+proportional to new bytes rather than to file size, so transcript growth leaves
+the budget intact.
+
+Two guards belong in the design rather than in the implementer's judgment,
+because both failures are silent.
+
+- **Persist the offset and the state as one atomic pair, and re-fold from
+  whichever pair is read.** Hooks for a single event run in parallel, so two
+  hook processes can race the cache. With the pair invariant a stale read costs
+  a redundant rescan over a superset of the new bytes and can never produce a
+  wrong answer. Without it, re-folding a carried state from an earlier offset
+  double-applies the records in between.
+- **Reset to the initial state when the file is shorter than the stored
+  offset.** Truncation or replacement must re-derive from the start rather than
+  read from a position that no longer means what it meant.
+
+The same parallelism argument applies to the per-session witness: create it with
+an exclusive-create operation rather than checking for existence and then
+writing, so the check and the create cannot be separated by another process.
 
 ### Interfaces created by cross-validation
 
