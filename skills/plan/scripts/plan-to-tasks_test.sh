@@ -17,9 +17,32 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PARSER_SCRIPT="$SCRIPT_DIR/plan-to-tasks.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 TEST_DIR=""
 PASS_COUNT=0
 FAIL_COUNT=0
+
+# The single-pr path reads `## Issue Outlines` through `shirabe plan outlines`
+# rather than parsing it here, so the suite needs the real binary. Built once
+# and pinned via SHIRABE_BIN so every scenario exercises the genuine
+# integration point, the same way run-cascade_test.sh does for finalize-chain.
+build_shirabe_binary() {
+    if [[ -n "${SHIRABE_BIN:-}" && -x "${SHIRABE_BIN:-}" ]]; then
+        echo "Using pre-set SHIRABE_BIN=$SHIRABE_BIN" >&2
+        return 0
+    fi
+    echo "Building shirabe release binary (cargo build --release -p shirabe)..." >&2
+    if ! ( cd "$REPO_ROOT" && cargo build --release -p shirabe ) >&2; then
+        echo "Error: failed to build the shirabe release binary" >&2
+        exit 1
+    fi
+    SHIRABE_BIN="$REPO_ROOT/target/release/shirabe"
+    if [[ ! -x "$SHIRABE_BIN" ]]; then
+        echo "Error: built binary not found or not executable: $SHIRABE_BIN" >&2
+        exit 1
+    fi
+    export SHIRABE_BIN
+}
 
 setup() {
     TEST_DIR=$(mktemp -d)
@@ -1325,15 +1348,84 @@ FIXTURE
     teardown
 }
 
-# ── Fixture: line 288 grep test (#156 AC1.2) ──
-# Verifies the loosened regex form is in the script body.
-test_parser_regex_loosened() {
-    local name="plan-to-tasks.sh line 288 regex accepts both colon placements (#156 AC1.2)"
-    if grep -q '\\\*\\\*Dependencies:?\\\*\\\*:?' "$PARSER_SCRIPT"; then
-        pass "$name (regex \\*\\*Dependencies:?\\*\\*:? present in script body)"
-    else
-        fail "$name" "loosened regex not found in $PARSER_SCRIPT"
+# ── Fixture: both colon placements are equivalent (#156 AC1.2) ──
+# This asserted that a specific regex literal appeared in the script body.
+# The parse moved into `shirabe plan outlines`, so there is no regex here to
+# grep for -- and a source-text assertion could only ever have been a proxy
+# for the property it cared about. The property is asserted directly instead:
+# the two colon placements produce byte-identical output.
+test_parser_colon_placements_are_equivalent() {
+    local name="both **Dependencies**: colon placements produce identical output (#156 AC1.2)"
+    setup
+
+    local outside="$TEST_DIR/plan-colon-outside.md"
+    local inside="$TEST_DIR/plan-colon-inside.md"
+
+    cat > "$outside" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Colon Equivalence"
+issue_count: 2
+---
+
+# PLAN: colon-equivalence
+
+## Status
+
+Draft
+
+## Scope Summary
+
+Colon placement equivalence.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: first
+
+**Goal**: First.
+
+**Dependencies**: None
+
+### Issue 2: feat: second
+
+**Goal**: Second.
+
+**Dependencies**: Blocked by Issue 1
+
+## Implementation Sequence
+
+Issue 1 then Issue 2.
+FIXTURE
+
+    sed 's/\*\*Dependencies\*\*:/**Dependencies:**/' "$outside" > "$inside"
+
+    # Guard the fixture itself: if the sed stopped matching, the test would
+    # compare a file against a copy of itself and pass for the wrong reason.
+    if ! grep -q '\*\*Dependencies:\*\*' "$inside"; then
+        fail "$name" "fixture rewrite produced no colon-inside-bold lines"
+        teardown
+        return
     fi
+
+    local out_outside out_inside
+    out_outside=$("$PARSER_SCRIPT" "$outside" 2>/dev/null) || true
+    out_inside=$("$PARSER_SCRIPT" "$inside" 2>/dev/null) || true
+
+    if [[ -z "$out_outside" ]]; then
+        fail "$name" "canonical colon-outside fixture produced no output"
+    elif [[ "$out_outside" != "$out_inside" ]]; then
+        fail "$name" "colon placements diverge: outside=$out_outside inside=$out_inside"
+    else
+        pass "$name (identical task JSON from both spellings)"
+    fi
+
+    teardown
 }
 
 # ── Fixture: #156 AC2.1 asymmetric-empty-deps warning ──
@@ -2204,6 +2296,365 @@ FIXTURE
     teardown
 }
 
+# ── Fixture: an unresolvable dependency refuses rather than dropping the edge ──
+# The #275 fail-open case. A reference in a shape the parser does not
+# recognize used to be dropped silently and the orchestrator ran the work
+# unordered; extraction now refuses.
+test_single_pr_unresolvable_dependency_refuses() {
+    local name="single-pr unresolvable dependency refuses instead of emitting an edgeless task set (#275)"
+    setup
+
+    cat > "$TEST_DIR/plan-bare-numeric.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Bare Numeric"
+issue_count: 2
+---
+
+# PLAN: bare-numeric
+
+## Status
+
+Draft
+
+## Scope Summary
+
+A dependency written as a bare number.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: foundation
+
+**Goal**: Foundation.
+
+**Dependencies**: None
+
+### Issue 2: feat: extension
+
+**Goal**: Extension.
+
+**Dependencies**: 1
+
+## Implementation Sequence
+
+Issue 1 then Issue 2.
+FIXTURE
+
+    local output rc stderr_out
+    rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-bare-numeric.md" 2>/dev/null) || rc=$?
+    stderr_out=$("$PARSER_SCRIPT" "$TEST_DIR/plan-bare-numeric.md" 2>&1 >/dev/null) || true
+
+    if [[ $rc -eq 0 ]]; then
+        fail "$name" "expected a non-zero exit, got 0 with output: $output"
+        teardown
+        return
+    fi
+    pass "$name (non-zero exit)"
+
+    if echo "$stderr_out" | grep -q "name no sibling outline"; then
+        pass "$name (message names the defect)"
+    else
+        fail "$name" "expected 'name no sibling outline' in stderr, got: $stderr_out"
+    fi
+
+    if echo "$stderr_out" | grep -q "issue 2"; then
+        pass "$name (message names the offending outline)"
+    else
+        fail "$name" "expected the offending outline number in stderr, got: $stderr_out"
+    fi
+
+    teardown
+}
+
+# ── Fixture: a reference to a missing sibling still refuses ──
+# This half already refused before the change; the assertion pins that the
+# collapse did not turn it into a silent drop.
+test_single_pr_missing_sibling_refuses() {
+    local name="single-pr Issue N naming a missing sibling refuses"
+    setup
+
+    cat > "$TEST_DIR/plan-missing-sibling.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Missing Sibling"
+issue_count: 1
+---
+
+# PLAN: missing-sibling
+
+## Status
+
+Draft
+
+## Scope Summary
+
+A dependency on an outline that does not exist.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: only
+
+**Goal**: Only.
+
+**Dependencies**: Blocked by Issue 42
+
+## Implementation Sequence
+
+Just the one.
+FIXTURE
+
+    local rc=0
+    "$PARSER_SCRIPT" "$TEST_DIR/plan-missing-sibling.md" >/dev/null 2>&1 || rc=$?
+    if [[ $rc -eq 2 ]]; then
+        pass "$name (exit 2)"
+    else
+        fail "$name" "expected exit 2, got $rc"
+    fi
+
+    teardown
+}
+
+# ── Fixture: the heading-shape mismatch still fails closed ──
+# The safe half of #275. A section whose headings the extractor cannot read
+# must produce no tasks and say so, not a partial graph.
+test_single_pr_noncanonical_headings_fail_closed() {
+    local name="single-pr non-canonical headings fail closed and name what was found"
+    setup
+
+    cat > "$TEST_DIR/plan-bad-headings.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Bad Headings"
+issue_count: 2
+---
+
+# PLAN: bad-headings
+
+## Status
+
+Draft
+
+## Scope Summary
+
+Headings in the wrong shape.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### 1. feat: foundation
+
+**Goal**: Foundation.
+
+**Dependencies**: None
+
+### 2. feat: extension
+
+**Goal**: Extension.
+
+**Dependencies**: None
+
+## Implementation Sequence
+
+One then two.
+FIXTURE
+
+    local rc=0 stderr_out
+    "$PARSER_SCRIPT" "$TEST_DIR/plan-bad-headings.md" >/dev/null 2>&1 || rc=$?
+    stderr_out=$("$PARSER_SCRIPT" "$TEST_DIR/plan-bad-headings.md" 2>&1 >/dev/null) || true
+
+    if [[ $rc -eq 2 ]]; then
+        pass "$name (exit 2)"
+    else
+        fail "$name" "expected exit 2, got $rc"
+    fi
+
+    if echo "$stderr_out" | grep -q "no issue outlines"; then
+        pass "$name (existing no-outlines message preserved)"
+    else
+        fail "$name" "expected 'no issue outlines' in stderr, got: $stderr_out"
+    fi
+
+    if echo "$stderr_out" | grep -q "1. feat: foundation"; then
+        pass "$name (names the headings it found instead)"
+    else
+        fail "$name" "expected the stray heading text in stderr, got: $stderr_out"
+    fi
+
+    teardown
+}
+
+# ── Fixture: a missing binary is a hard failure, never a fallback parse ──
+# A second implementation of this section reachable only when the primary is
+# unavailable is the arrangement #275 removed. It must not come back as an
+# error path.
+test_single_pr_missing_binary_fails_hard() {
+    local name="single-pr missing shirabe binary fails with a clear message and no fallback parse"
+    setup
+
+    cat > "$TEST_DIR/plan-simple.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Simple"
+issue_count: 1
+---
+
+# PLAN: simple
+
+## Status
+
+Draft
+
+## Scope Summary
+
+One outline.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: only
+
+**Goal**: Only.
+
+**Dependencies**: None
+
+## Implementation Sequence
+
+Just the one.
+FIXTURE
+
+    # No SHIRABE_BIN, an empty PATH so `shirabe` cannot be found, and a cwd
+    # outside any checkout so the built-binary fallbacks miss too. Invoked as
+    # `"$BASH" <script>` rather than executed directly, by absolute path,
+    # because an empty PATH defeats both the `#!/usr/bin/env bash` shebang and
+    # any attempt to resolve `bash` by name.
+    # A PATH carrying the script's other dependencies but no `shirabe`, so the
+    # failure under test is the missing binary rather than a missing jq.
+    mkdir -p "$TEST_DIR/tools"
+    local tool tool_path
+    for tool in jq git; do
+        tool_path=$(command -v "$tool" 2>/dev/null) || continue
+        ln -sf "$tool_path" "$TEST_DIR/tools/$tool"
+    done
+
+    # /usr/bin:/bin supplies the coreutils the script uses (head, awk, sed,
+    # tr, grep). shirabe installs under the user's tool prefix, never there,
+    # so this PATH has everything except the binary under test. If a host did
+    # put shirabe in /usr/bin the assertion below fails loudly rather than
+    # passing for the wrong reason.
+    local rc=0 stderr_out
+    stderr_out=$(cd "$TEST_DIR" && env -u SHIRABE_BIN PATH="$TEST_DIR/tools:/usr/bin:/bin" \
+        "$BASH" "$PARSER_SCRIPT" "$TEST_DIR/plan-simple.md" 2>&1 >/dev/null) || rc=$?
+
+    if [[ $rc -ne 0 ]]; then
+        pass "$name (non-zero exit)"
+    else
+        fail "$name" "expected a non-zero exit with no binary available"
+    fi
+
+    if echo "$stderr_out" | grep -q "shirabe binary not found"; then
+        pass "$name (message names the missing binary)"
+    else
+        fail "$name" "expected 'shirabe binary not found' in stderr, got: $stderr_out"
+    fi
+
+    teardown
+}
+
+# ── Fixture: an unrecognized envelope schema is refused ──
+# The binary and this script ship together but can skew across an install.
+# Reading fields positionally from an envelope of unknown shape is how that
+# skew would become a wrong task graph instead of an error.
+test_single_pr_unknown_envelope_schema_refused() {
+    local name="single-pr unrecognized envelope schema is refused rather than read"
+    setup
+
+    cat > "$TEST_DIR/plan-simple.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Simple"
+issue_count: 1
+---
+
+# PLAN: simple
+
+## Status
+
+Draft
+
+## Scope Summary
+
+One outline.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: only
+
+**Goal**: Only.
+
+**Dependencies**: None
+
+## Implementation Sequence
+
+Just the one.
+FIXTURE
+
+    # A stub standing in for a skewed binary: well-formed JSON, wrong schema.
+    cat > "$TEST_DIR/fake-shirabe" <<'STUB'
+#!/usr/bin/env bash
+echo '{"schema":"shirabe-plan-outlines/v99","outlines":[],"nonconforming_headings":[]}'
+STUB
+    chmod +x "$TEST_DIR/fake-shirabe"
+
+    local rc=0 stderr_out
+    stderr_out=$(SHIRABE_BIN="$TEST_DIR/fake-shirabe" \
+        "$PARSER_SCRIPT" "$TEST_DIR/plan-simple.md" 2>&1 >/dev/null) || rc=$?
+
+    if [[ $rc -ne 0 ]]; then
+        pass "$name (non-zero exit)"
+    else
+        fail "$name" "expected a non-zero exit on an unknown envelope schema"
+    fi
+
+    if echo "$stderr_out" | grep -q "unrecognized outline envelope"; then
+        pass "$name (message names the skew)"
+    else
+        fail "$name" "expected 'unrecognized outline envelope' in stderr, got: $stderr_out"
+    fi
+
+    teardown
+}
+
+build_shirabe_binary
+
 echo "Running plan-to-tasks.sh tests..." >&2
 echo "" >&2
 
@@ -2229,7 +2680,12 @@ test_single_pr_type_annotation_mixed_case
 test_single_pr_deps_colon_outside_bold
 test_single_pr_deps_colon_inside_bold
 test_single_pr_deps_colon_both_forms_identical_structure
-test_parser_regex_loosened
+test_parser_colon_placements_are_equivalent
+test_single_pr_unresolvable_dependency_refuses
+test_single_pr_missing_sibling_refuses
+test_single_pr_noncanonical_headings_fail_closed
+test_single_pr_missing_binary_fails_hard
+test_single_pr_unknown_envelope_schema_refused
 test_single_pr_asymmetric_empty_deps_warns
 test_single_pr_all_empty_deps_no_warning
 test_single_pr_single_issue_no_warning

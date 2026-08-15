@@ -377,148 +377,171 @@ process_multi_pr() {
     printf '%s\n' "${json_entries[@]}" | jq -s .
 }
 
-# Process single-pr mode: parse ## Issue Outlines section
+# Resolve the shirabe binary that owns the `## Issue Outlines` parse.
+#
+# Precedence, matching skills/execute/scripts/run-cascade.sh so one behavior
+# covers both scripts:
+#   1. $SHIRABE_BIN if set and executable (the test harness injects a build)
+#   2. `shirabe` on PATH (the plugin-installed binary)
+#   3. a locally built release/debug binary under the repo's target dir
+#
+# Unlike run-cascade.sh this does NOT require a git repository: that script
+# transitions documents, while this one reads a single file and has always
+# worked outside a checkout. The repo-root probe is therefore best-effort and
+# only feeds the built-binary fallbacks.
+#
+# A missing binary is a hard failure. There is deliberately no fallback to a
+# bash parse: a second implementation of this section is what #275 was about,
+# and one reachable only when the primary path is unavailable would be the
+# copy nobody ever tests.
+resolve_shirabe_bin() {
+    if [[ -n "${SHIRABE_BIN:-}" ]]; then
+        printf '%s' "$SHIRABE_BIN"
+        return 0
+    fi
+    if command -v shirabe >/dev/null 2>&1; then
+        printf '%s' "shirabe"
+        return 0
+    fi
+    local root
+    root=$(git rev-parse --show-toplevel 2>/dev/null) || root=""
+    if [[ -n "$root" ]]; then
+        if [[ -x "$root/target/release/shirabe" ]]; then
+            printf '%s' "$root/target/release/shirabe"
+            return 0
+        fi
+        if [[ -x "$root/target/debug/shirabe" ]]; then
+            printf '%s' "$root/target/debug/shirabe"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Process single-pr mode: read the ## Issue Outlines section through the CLI.
+#
+# The parse itself lives in `shirabe-validate` and reaches this script through
+# `shirabe plan outlines`, which emits a versioned JSON envelope. This function
+# used to carry its own line-by-line re-implementation of that parse; the two
+# drifted in eight ways, one of which let a PLAN validate clean and then
+# extract to a task list with every waits_on empty. See
+# docs/designs/DESIGN-issue-outlines-one-parser.md.
+#
+# What stays here is everything downstream of the parse -- slug generation,
+# the o- prefix, truncation, collision suffixing, the file-ownership edges,
+# and the koto task-entry assembly. None of it reads the document.
 process_single_pr() {
     local file="$1"
 
-    # First pass: collect all issue outlines with their titles, dependencies,
-    # optional Type, and optional Files annotations.
-    local -a issue_numbers=()
-    local -a issue_titles=()
-    local -a issue_deps_raw=()
-    local -a issue_types=()    # empty string = not specified
-    local -a issue_files=()    # space-separated list of backtick-quoted paths (no backticks)
+    local bin
+    bin=$(resolve_shirabe_bin) || die_input "shirabe binary not found. Set \$SHIRABE_BIN, install shirabe so it is on PATH, or build it with 'cargo build --release'. The '## Issue Outlines' parse lives in that binary; this script does not carry a copy."
+
+    local err_file envelope rc
+    err_file=$(mktemp)
+    rc=0
+    envelope=$("$bin" plan outlines -- "$file" 2>"$err_file") || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        local detail
+        detail=$(cat "$err_file")
+        rm -f "$err_file"
+        die_input "'$bin plan outlines' exited ${rc} for ${file}: ${detail}"
+    fi
+    rm -f "$err_file"
+
+    # Refuse an envelope this script was not written against rather than
+    # reading its fields positionally: the binary and this script ship
+    # together but can skew across an install, and the version is what makes
+    # that detectable instead of silent.
+    local schema
+    schema=$(printf '%s' "$envelope" | jq -r '.schema // empty' 2>/dev/null) || schema=""
+    if [[ "$schema" != "shirabe-plan-outlines/v1" ]]; then
+        die_input "unrecognized outline envelope from '$bin plan outlines' (expected schema 'shirabe-plan-outlines/v1', got '${schema}'). The shirabe binary and this script are out of step; rebuild or reinstall so both come from the same version."
+    fi
 
     # 64 chars: koto rejects names with length_out_of_range above this limit (empirically verified)
     local KOTO_NAME_MAX=64
-    local in_section=0
-    local in_deps_section=0
-    local current_number=""
-    local current_title=""
-    local current_deps=""
-    local current_type=""
-    local current_files=""
 
-    while IFS= read -r line; do
-        # Detect section header
-        if [[ "$line" =~ ^##[[:space:]]+Issue[[:space:]]+Outlines ]]; then
-            in_section=1
-            continue
-        fi
-        # Stop at next ## section (but not ### which are issue headings)
-        if [[ $in_section -eq 1 && "$line" =~ ^##[[:space:]] && ! "$line" =~ ^###[[:space:]] ]]; then
-            break
-        fi
-        [[ $in_section -eq 0 ]] && continue
+    # Collect the parsed outlines. Fields are joined with U+0001 and the
+    # unresolved list with U+0002: the envelope's writer escapes control
+    # characters, so neither can appear inside a value.
+    local -a issue_numbers=()
+    local -a issue_titles=()
+    local -a issue_declared=()    # true|false -- a **Dependencies**: line or ### Dependencies section
+    local -a issue_waits=()       # space-separated sibling numbers
+    local -a issue_unresolved=()  # U+0002-separated tokens naming no sibling
+    local -a issue_types=()       # empty string = not specified
+    local -a issue_files=()       # space-separated paths (backticks already stripped)
 
-        # Detect issue heading: ### Issue N: Title
-        if [[ "$line" =~ ^###[[:space:]]+Issue[[:space:]]+([0-9]+):[[:space:]]*(.+)$ ]]; then
-            # Save previous issue if any
-            if [[ -n "$current_number" ]]; then
-                issue_numbers+=("$current_number")
-                issue_titles+=("$current_title")
-                issue_deps_raw+=("$current_deps")
-                issue_types+=("$current_type")
-                issue_files+=("$current_files")
-            fi
-            current_number="${BASH_REMATCH[1]}"
-            current_title="${BASH_REMATCH[2]}"
-            current_deps=""
-            current_type=""
-            current_files=""
-            in_deps_section=0
-            continue
+    local o_number o_title o_declared o_none o_waits o_unresolved o_type o_files
+    while IFS=$'\001' read -r o_number o_title o_declared o_none o_waits o_unresolved o_type o_files; do
+        [[ -n "$o_number" ]] || continue
+        issue_numbers+=("$o_number")
+        issue_titles+=("$o_title")
+        # "Declares dependencies" means the author wrote something other than
+        # an absent line: `None` counts, an omitted line does not. This is what
+        # the asymmetry warning below is asking about.
+        if [[ "$o_none" == "true" || -n "$o_waits" || -n "$o_unresolved" ]]; then
+            issue_declared+=("true")
+        else
+            issue_declared+=("false")
         fi
-
-        # Detect dependencies line within an issue outline.
-        # Accept both colon placements (#156):
-        #   **Dependencies**: ...    (canonical, colon outside bold)
-        #   **Dependencies:** ...    (colon inside bold — silently dropped before this fix)
-        if [[ -n "$current_number" && "$line" =~ \*\*Dependencies:?\*\*:?[[:space:]]*(.+)$ ]]; then
-            current_deps="${BASH_REMATCH[1]}"
-            # Remove trailing period
-            current_deps="${current_deps%.}"
-            continue
-        fi
-
-        # Detect **Type**: line (optional field)
-        if [[ -n "$current_number" && "$line" =~ \*\*Type\*\*:[[:space:]]*([a-zA-Z]+) ]]; then
-            current_type=$(echo "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')
-            continue
-        fi
-
-        # Detect **Files**: line (optional field)
-        # Extract only backtick-quoted tokens, e.g. `path/to/file.md`
-        if [[ -n "$current_number" && "$line" =~ \*\*Files\*\*: ]]; then
-            # Extract all backtick-quoted tokens using sed.
-            # Matches `token` patterns and outputs one token per line.
-            local extracted_files
-            extracted_files=$(echo "$line" | grep -o '`[^`]*`' | tr -d '`' | tr '\n' ' ' | sed 's/ $//')
-            current_files="$extracted_files"
-            continue
-        fi
-
-        # Detect section-header dependency format: ### Dependencies
-        if [[ -n "$current_number" && "$line" =~ ^###[[:space:]]+Dependencies([[:space:]]|$) ]]; then
-            in_deps_section=1
-            continue
-        fi
-
-        # Accumulate lines inside a ### Dependencies section
-        if [[ -n "$current_number" && $in_deps_section -eq 1 ]]; then
-            if [[ -z "$line" ]]; then
-                continue
-            elif [[ "$line" =~ ^---$ ]]; then
-                in_deps_section=0
-                continue
-            elif [[ "$line" =~ ^### ]]; then
-                # Another ### heading ends the deps section.
-                # Intentional fall-through: the line is processed by the heading
-                # checks below (e.g., ### Issue N: Title saves the current issue).
-                in_deps_section=0
-            else
-                # Accumulate the line as dependency content
-                if [[ -n "$current_deps" ]]; then
-                    current_deps="${current_deps}, ${line}"
-                else
-                    current_deps="$line"
-                fi
-                continue
-            fi
-        fi
-    done < "$file"
-
-    # Save last issue
-    if [[ -n "$current_number" ]]; then
-        issue_numbers+=("$current_number")
-        issue_titles+=("$current_title")
-        issue_deps_raw+=("$current_deps")
-        issue_types+=("$current_type")
-        issue_files+=("$current_files")
-    fi
+        issue_waits+=("$o_waits")
+        issue_unresolved+=("$o_unresolved")
+        issue_types+=("$o_type")
+        issue_files+=("$o_files")
+    done <<< "$(printf '%s' "$envelope" | jq -r '
+        .outlines[]
+        | [ (.number|tostring),
+            .title,
+            (.dependencies_declared|tostring),
+            (.dependencies_none|tostring),
+            (.waits_on | map(tostring) | join(" ")),
+            (.unresolved_dependencies | join("\u0002")),
+            (.type // ""),
+            (.files | join(" ")) ]
+        | join("\u0001")')"
 
     local count="${#issue_numbers[@]}"
     if [[ $count -eq 0 ]]; then
+        # The heading-shape mismatch fails closed here, and has always done so.
+        # What is new is naming the headings that were found instead, because
+        # "no issue outlines" on a section that visibly has some is a confusing
+        # thing to be told.
+        local strays
+        strays=$(printf '%s' "$envelope" | jq -r '[.nonconforming_headings[].text] | join("; ")')
+        if [[ -n "$strays" ]]; then
+            die_schema "single-pr PLAN has no issue outlines in ## Issue Outlines section. Found these headings, none of which is a '### Issue <N>: <title>' outline heading: ${strays}"
+        fi
         die_schema "single-pr PLAN has no issue outlines in ## Issue Outlines section"
     fi
 
+    # Refuse rather than emit a task set missing an edge (#275). The old
+    # behavior split by shape: an `Issue N` naming a missing sibling died here,
+    # while a reference in a shape the parser did not recognize was dropped
+    # without a word and the orchestrator ran the work unordered. Both are the
+    # same defect and both now stop the run.
+    local i
+    for i in "${!issue_numbers[@]}"; do
+        if [[ -n "${issue_unresolved[$i]}" ]]; then
+            local pretty="${issue_unresolved[$i]//$'\002'/, }"
+            die_schema "issue ${issue_numbers[$i]} declares dependencies that name no sibling outline: ${pretty}. Task extraction would drop these edges, so the declared ordering would be lost. Use 'None', 'Issue <N>', or the <<ISSUE:N>> placeholder."
+        fi
+    done
+
     # Asymmetric-empty-deps warning (#156, AC2.1/AC2.2):
     # When a multi-issue single-pr PLAN has SOME issues with declared deps AND
-    # SOME with empty deps (excluding `None`), warn that the regex previously
-    # silently dropped edges authored with `**Dependencies:**` (colon inside
-    # bold). After this fix both colon placements parse identically, but the
-    # asymmetry pattern is still suspicious enough to flag for the author.
+    # SOME with none at all, warn. The colon-placement bug that motivated this
+    # is fixed, but the asymmetry is still worth flagging: an outline with no
+    # dependencies line at all is more often an omission than a claim of
+    # independence, and `**Dependencies**: None` says the latter out loud.
     if [[ $count -ge 2 ]]; then
         local empty_count=0
         local nonempty_count=0
         for i in "${!issue_numbers[@]}"; do
-            local d="${issue_deps_raw[$i]}"
-            # Treat literal "None" as an empty declaration (legitimate
-            # strictly-independent issue); only count truly empty as suspicious.
-            if [[ -z "$d" ]]; then
-                empty_count=$((empty_count + 1))
-            else
+            if [[ "${issue_declared[$i]}" == "true" ]]; then
                 nonempty_count=$((nonempty_count + 1))
+            else
+                empty_count=$((empty_count + 1))
             fi
         done
         if [[ $empty_count -gt 0 && $nonempty_count -gt 0 ]]; then
@@ -607,36 +630,17 @@ process_single_pr() {
     # Third pass: build JSON entries
     local json_entries=()
     for i in "${!issue_numbers[@]}"; do
-        local issue_num="${issue_numbers[$i]}"
         local name="${issue_names[$i]}"
-        local deps_raw="${issue_deps_raw[$i]}"
         local issue_type="${issue_types[$i]}"
         local files_str="${issue_files[$i]}"
 
-        # Parse waits_on from deps_raw
+        # waits_on comes from the envelope already resolved to sibling numbers;
+        # mapping them to names is the only work left.
         local waits_on=()
-
-        # Normalize <<ISSUE:N>> placeholders to "Issue N" before parsing.
-        # /plan uses <<ISSUE:N>> in single-pr Issue Outlines; without this
-        # normalization, all dependency edges are silently dropped.
-        local re_ph='<<ISSUE:([0-9]+)>>'
-        while [[ "$deps_raw" =~ $re_ph ]]; do
-            local ph_num="${BASH_REMATCH[1]}"
-            deps_raw="${deps_raw/<<ISSUE:${ph_num}>>/Issue ${ph_num}}"
+        local dep_num
+        for dep_num in ${issue_waits[$i]}; do
+            waits_on+=("$(kv_get number_to_name "$dep_num")")
         done
-
-        if [[ "$deps_raw" != "None" && -n "$deps_raw" ]]; then
-            # Extract all "Issue N" references
-            local remaining="$deps_raw"
-            while [[ "$remaining" =~ Issue[[:space:]]+([0-9]+) ]]; do
-                local dep_num="${BASH_REMATCH[1]}"
-                if ! kv_has number_to_name "$dep_num"; then
-                    die_schema "issue ${issue_num} references unknown dependency Issue ${dep_num}"
-                fi
-                waits_on+=("$(kv_get number_to_name "$dep_num")")
-                remaining="${remaining#*Issue ${dep_num}}"
-            done
-        fi
 
         # Add file-based waits_on edges: if this outline declares a file that
         # was already claimed by an earlier outline, wait on that earlier outline.
