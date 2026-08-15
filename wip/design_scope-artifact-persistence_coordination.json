@@ -25,7 +25,11 @@
       "question": "Do the two contradicted claims in the shipped consolidation chain get amended, and how?",
       "complexity": "standard",
       "requirements": ["R1", "R11"],
-      "status": "pending"
+      "status": "complete",
+      "outcome": "amend both via appended dated Amendment sections; original prose untouched, no lifecycle change",
+      "precedent": "commit 26465a2 (PR #224) amended a Done PRD, a Current DESIGN and a BRIEF together, append-only",
+      "scope_widened": "Decision 8 of the shipped DESIGN is also falsified, and more severely than Decision 9: its chosen Option A concluded the smallest reachable set is PRD+DESIGN+PLAN and that a zero-artifact run is unreachable, both of which R11 falsifies — and its rejected Option D (make DESIGN absorbable into PLAN) is exactly what R11 adopts. Decision 9's conclusion survives on other grounds; Decision 8's does not.",
+      "report": "wip/design_scope-artifact-persistence_decision_3_report.md"
     },
     {
       "id": 4,
