@@ -186,11 +186,19 @@ on shipping.
 artifact's parents into the survivor's existing list rather than replacing it,
 preserving sibling parents and cross-repo entries verbatim.
 
-**R18.** Post-absorb re-validation SHALL cover the survivor and every document
-that referenced the absorbed artifact. A failure SHALL revert the absorb in
-full: the absorbed document restored, the survivor's `upstream:` splice undone,
-its absorption declaration and `## Status` line removed, and its contribution
-section removed. The revert SHALL be recorded.
+**R18.** Post-absorb re-validation SHALL cover the survivor. A failure SHALL
+revert the absorb in full: the absorbed document restored, the survivor's
+`upstream:` splice undone, its absorption declaration and `## Status` line
+removed, and its contribution section removed. The revert SHALL be recorded.
+
+Narrowed from "the survivor and every document that referenced the absorbed
+artifact": that second set is empty by construction once R15 has run, because
+every path citer was already refused and `upstream:` referrers are themselves
+path citations. The residue is bare-name referrers, on which the validator has
+no check at all — the population this work explicitly fences out. What R18
+covers that R15 does not is the survivor, which receives four new writes that
+can each fail validation, and the revert semantics: R15 aborts before any
+mutation, R18 reverts after several plus a deletion.
 
 **R19.** `/scope`'s closed write-target set SHALL name every path an absorb at
 any hop writes or deletes.

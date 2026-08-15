@@ -8,7 +8,9 @@
       "slug": "record-surface",
       "question": "What surface carries the durable fold record, across the three deletion sites?",
       "complexity": "critical",
-      "requirements": ["R20"],
+      "requirements": [
+        "R20"
+      ],
       "status": "pending"
     },
     {
@@ -16,7 +18,11 @@
       "slug": "contribution-authorship",
       "question": "Who authors a contribution section: the child at drafting time, or the parent at fold time?",
       "complexity": "standard",
-      "requirements": ["R4", "R7", "R13"],
+      "requirements": [
+        "R4",
+        "R7",
+        "R13"
+      ],
       "status": "pending"
     },
     {
@@ -24,11 +30,14 @@
       "slug": "prior-artifact-amendment",
       "question": "Do the two contradicted claims in the shipped consolidation chain get amended, and how?",
       "complexity": "standard",
-      "requirements": ["R1", "R11"],
+      "requirements": [
+        "R1",
+        "R11"
+      ],
       "status": "complete",
       "outcome": "amend both via appended dated Amendment sections; original prose untouched, no lifecycle change",
       "precedent": "commit 26465a2 (PR #224) amended a Done PRD, a Current DESIGN and a BRIEF together, append-only",
-      "scope_widened": "Decision 8 of the shipped DESIGN is also falsified, and more severely than Decision 9: its chosen Option A concluded the smallest reachable set is PRD+DESIGN+PLAN and that a zero-artifact run is unreachable, both of which R11 falsifies — and its rejected Option D (make DESIGN absorbable into PLAN) is exactly what R11 adopts. Decision 9's conclusion survives on other grounds; Decision 8's does not.",
+      "scope_widened": "Decision 8 of the shipped DESIGN is also falsified, and more severely than Decision 9: its chosen Option A concluded the smallest reachable set is PRD+DESIGN+PLAN and that a zero-artifact run is unreachable, both of which R11 falsifies \u2014 and its rejected Option D (make DESIGN absorbable into PLAN) is exactly what R11 adopts. Decision 9's conclusion survives on other grounds; Decision 8's does not.",
       "report": "wip/design_scope-artifact-persistence_decision_3_report.md"
     },
     {
@@ -36,7 +45,12 @@
       "slug": "stage-1-replacement",
       "question": "What replaces the type-level first stage: does it dissolve into the content judgment, or become a different check?",
       "complexity": "critical",
-      "requirements": ["R1", "R2", "R11", "R30"],
+      "requirements": [
+        "R1",
+        "R2",
+        "R11",
+        "R30"
+      ],
       "status": "pending"
     },
     {
@@ -44,7 +58,13 @@
       "slug": "validator-representation",
       "question": "How does the validator represent and enforce contribution sections: the frontmatter declaration's shape and the required-sections extension?",
       "complexity": "standard",
-      "requirements": ["R5", "R8", "R9", "R21", "R29"],
+      "requirements": [
+        "R5",
+        "R8",
+        "R9",
+        "R21",
+        "R29"
+      ],
       "status": "pending"
     },
     {
@@ -52,8 +72,23 @@
       "slug": "citation-guard",
       "question": "How is the pre-deletion citation guard implemented, and does it live in skill prose or in the validator?",
       "complexity": "standard",
-      "requirements": ["R15", "R16", "R18"],
-      "status": "pending"
+      "requirements": [
+        "R15",
+        "R16",
+        "R18"
+      ],
+      "status": "complete",
+      "outcome": "tested shell script skills/scope/scripts/check-citations.sh doing the search (git grep -I -F -n per tier, pinned pathspec exclusions); verdict routing stays in Stage 3 prose; co-located _test.sh under a new check-scope-scripts.yml merge gate",
+      "timing_correction": "runs at the TOP of Stage 3, before the contribution is authored and before the upstream re-point -- so a downgrade is a pure abort with nothing to undo. Supersedes the exploration's 'between the re-point and the git rm' placement.",
+      "load_bearing_measurement": "the survivor always cites the absorbed artifact via its own upstream:, so a naive search blocks 36 of 36 BRIEF/PRD folds. Excluding the survivor as a file brings it to 20/36; excluding only the upstream: line is insufficient because 22 of 36 survivors cite the path more than once. The exclusion set is the difference between a guard and a total fold-blocker, which is why it needs a test rather than prose.",
+      "coverage_correction": "build_referrer_map sees 77 of 271 path-citing lines (28%) because build_inverse_upstream only iterates indexed.upstreams -- blind to the 194 prose/References/code/CI citations including all three non-markdown ones.",
+      "consequences_for_design": [
+        "The guard bites hard: 15 of 36 BRIEF/PRD pairs (42%) on today's corpus carry a genuine third-party path citation and would fold to keep.",
+        "/scope can permanently block itself: its own Decision Record templates write durable files under docs/decisions/ citing artifact paths verbatim, and that directory is tracked, outside wip/, and not a fixture. Correct under R30 but a designed outcome that belongs in prose.",
+        "The survivor's own now-dead prose citations (22 of 36 pairs) are a rewrite obligation on the fold, not a block -- excluding the survivor is what makes folding possible, so something else must clean them."
+      ],
+      "prd_amendment_applied": "R18 narrowed to the survivor",
+      "report": "wip/design_scope-artifact-persistence_decision_6_report.md"
     }
   ]
 }
