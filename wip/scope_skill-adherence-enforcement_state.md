@@ -20,6 +20,10 @@ child_snapshots:
     status: Proposed
     content_hash: 2ce6abdd1cf9c4096855159c63eeab687c7b386c
     captured_at: 2026-08-15T20:02:00Z
+parent_orchestration:
+  invoking_child: brief
+  suppress_status_aware_prompt: true
+  rationale: fresh-chain
 worktree_rebases:
   - phase: brief
     upstream_commits:
