@@ -35,6 +35,24 @@
 //! Headings are prose by decision, not by omission, and the decision moves
 //! the corpus figure, so a frequency rule whose denominator nobody wrote
 //! down is not reproducible.
+//!
+//! ## Two selections over one parse
+//!
+//! This module projects one CommonMark parse two ways, by opposite criteria.
+//!
+//! [`prose_spans`] answers "which words does a reader read". It excludes
+//! inline code spans, link destinations, HTML, and table cells, because a
+//! writing-style rule must not fire on a path or a URL.
+//!
+//! [`reference_spans`] answers "where in this file does a path count". It
+//! takes the inline code spans and link destinations the first one excludes,
+//! because there the paths *are* the subject. Both exclude fenced and
+//! indented code, where a path is a worked example by construction. The
+//! overlap is plain text, which both take.
+//!
+//! The second selection lives here, over the same parse, for the reason the
+//! first one does: fence handling is the part that goes wrong, and it has
+//! already been paid for once.
 
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
@@ -156,6 +174,145 @@ fn strip_url_tokens(text: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// A path-shaped candidate, the file line it sits on, and its byte range
+/// within that line.
+///
+/// The range is what makes one extractor serve both consumers. A check only
+/// needs a line to report, so an extractor built for the check alone would
+/// hand back `(line, text)` and leave the repoint to re-find the occurrence
+/// with a second matcher -- one that can disagree with the first about which
+/// occurrence it found on a line naming two paths. Carrying the range means
+/// the substitution edits exactly what the extractor matched.
+///
+/// The range is line-relative rather than document-relative because that is
+/// the coordinate a rewriter can act on: it survives the carriage-return
+/// normalization the parse needs (a `\r` sits after every token on its line)
+/// and it needs no offset table to apply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefSpan {
+    /// 1-indexed file line.
+    pub line: usize,
+    /// Byte offsets of the span within its line, as a half-open range.
+    pub range: std::ops::Range<usize>,
+    /// The path exactly as written.
+    pub text: String,
+}
+
+/// Path-shaped spans for a document body: every markdown path token outside
+/// a fenced or indented code block.
+///
+/// `body` and `body_start_line` mean what they do for [`prose_spans`], so
+/// spans carry file lines. A token is a run of path bytes ending in `.md`
+/// and containing a `/`; a bare basename is excluded because no relocation
+/// can invalidate one.
+///
+/// This is a *where*, not a *what*: deciding which of these paths is a
+/// defect (artifact prefix, cross-repo form, URL, resolution) belongs to the
+/// caller. Both callers -- the `FC18` check and `transition`'s repoint --
+/// agree on where a path counts and disagree on what to do about it.
+pub fn reference_spans(body: &[String], body_start_line: usize) -> Vec<RefSpan> {
+    // Same normalization as `prose_spans`: a retained carriage return breaks
+    // fence close-matching. Stripping it is safe for line-relative ranges,
+    // because a `\r` only ever sits at end of line, after any token on it.
+    let source: String = body
+        .iter()
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if source.trim().is_empty() {
+        return Vec::new();
+    }
+
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_TABLES);
+    let parser = Parser::new_ext(&source, options);
+
+    // The parse decides exactly one thing here: where the code blocks are.
+    // A `Start` event's offset range covers the whole element, so one range
+    // per block is the entire exclusion set -- fenced and indented alike,
+    // including the fence whose first content line is itself a fence marker.
+    let mut code_ranges: Vec<std::ops::Range<usize>> = Vec::new();
+    for (event, range) in parser.into_offset_iter() {
+        if let Event::Start(Tag::CodeBlock(_)) = event {
+            code_ranges.push(range);
+        }
+    }
+
+    let mut line_starts = vec![0usize];
+    for (i, b) in source.bytes().enumerate() {
+        if b == b'\n' {
+            line_starts.push(i + 1);
+        }
+    }
+    let line_index_of = |offset: usize| -> usize {
+        match line_starts.binary_search(&offset) {
+            Ok(i) => i,
+            Err(i) => i.saturating_sub(1),
+        }
+    };
+
+    let bytes = source.as_bytes();
+    let mut spans: Vec<RefSpan> = Vec::new();
+    let mut start = 0usize;
+
+    // Maximal runs of path bytes, rather than a search for `.md` with a
+    // walk-back. The run is what decides where a token ends: `x.md.bak` is
+    // not a markdown path and `x.md.` at the end of a sentence is, and only
+    // the whole run tells those apart.
+    while start < bytes.len() {
+        if !is_path_byte(bytes[start]) {
+            start += 1;
+            continue;
+        }
+        let mut end = start;
+        while end < bytes.len() && is_path_byte(bytes[end]) {
+            end += 1;
+        }
+        let run_end = end;
+
+        // Trailing separators belong to the sentence, not the path.
+        while end > start && matches!(bytes[end - 1], b'.' | b'/' | b':' | b'-') {
+            end -= 1;
+        }
+
+        let text = &source[start..end];
+        let is_reference = text.ends_with(MARKDOWN_SUFFIX)
+            && text.contains('/')
+            && !code_ranges.iter().any(|r| r.start <= start && end <= r.end);
+        if is_reference {
+            let idx = line_index_of(start);
+            let line_start = line_starts[idx];
+            spans.push(RefSpan {
+                line: body_start_line + idx,
+                range: (start - line_start)..(end - line_start),
+                text: text.to_string(),
+            });
+        }
+
+        start = run_end;
+    }
+
+    spans
+}
+
+/// The suffix every reference this module reports ends in.
+const MARKDOWN_SUFFIX: &str = ".md";
+
+/// Bytes that continue a path token.
+///
+/// `:` is included so a cross-repo `owner/repo:docs/…` reference and a URL
+/// come back as one token each rather than as their tails. Both are dropped
+/// downstream, and dropping a whole token is a decision a caller can make;
+/// dropping the front of one silently is not.
+///
+/// Non-ASCII bytes are excluded, which is also what keeps every run boundary
+/// on a character boundary: a multi-byte character ends a run rather than
+/// being walked into.
+fn is_path_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'.' | b'/' | b'-' | b'_' | b':')
 }
 
 /// Word count over prose spans. The denominator a frequency rule divides by.
@@ -359,6 +516,196 @@ mod tests {
         let body = lines("one two three\n\n```\nfour five six seven\n```\n\n| a | b |\n|---|---|");
         let spans = prose_spans(&body, 1);
         assert_eq!(prose_word_count(&spans), 3);
+    }
+
+    // ---- reference_spans ------------------------------------------------
+
+    fn ref_texts(spans: &[RefSpan]) -> Vec<&str> {
+        spans.iter().map(|s| s.text.as_str()).collect()
+    }
+
+    #[test]
+    fn a_path_in_an_inline_code_span_is_a_reference() {
+        let body = lines("See `docs/designs/DESIGN-a.md` for the rest.");
+        let spans = reference_spans(&body, 1);
+        assert_eq!(ref_texts(&spans), vec!["docs/designs/DESIGN-a.md"]);
+        assert_eq!(spans[0].line, 1);
+    }
+
+    #[test]
+    fn a_link_destination_is_a_reference() {
+        let body = lines("[the design](docs/designs/DESIGN-a.md) says so.");
+        let spans = reference_spans(&body, 1);
+        assert_eq!(ref_texts(&spans), vec!["docs/designs/DESIGN-a.md"]);
+    }
+
+    #[test]
+    fn a_path_in_plain_text_is_a_reference() {
+        let body = lines("The file docs/prds/PRD-a.md carries the requirements.");
+        let spans = reference_spans(&body, 1);
+        assert_eq!(ref_texts(&spans), vec!["docs/prds/PRD-a.md"]);
+    }
+
+    #[test]
+    fn a_path_in_a_fenced_code_block_is_not_a_reference() {
+        let body = lines(
+            "intro\n\n```\ndocs/designs/DESIGN-fenced.md\n```\n\ndocs/designs/DESIGN-after.md",
+        );
+        let spans = reference_spans(&body, 1);
+        assert_eq!(ref_texts(&spans), vec!["docs/designs/DESIGN-after.md"]);
+    }
+
+    /// The regression `prose_spans` carries, asserted for the second
+    /// selection: CommonMark 4.5 forbids an info string on a closing fence,
+    /// so the inner ```yaml is content and the block runs to the third
+    /// marker. A hand-rolled scoper inverts this and leaks the block.
+    #[test]
+    fn an_inner_fence_marker_does_not_open_a_reference_window() {
+        let body = lines(
+            "```\n```yaml\nupstream: docs/designs/DESIGN-inside.md\n```\n\nSee `docs/designs/DESIGN-outside.md`.",
+        );
+        let spans = reference_spans(&body, 1);
+        assert_eq!(ref_texts(&spans), vec!["docs/designs/DESIGN-outside.md"]);
+    }
+
+    #[test]
+    fn a_path_in_an_indented_code_block_is_not_a_reference() {
+        let body = lines("paragraph\n\n    docs/designs/DESIGN-indented.md\n\nafter");
+        let spans = reference_spans(&body, 1);
+        assert!(spans.is_empty(), "got: {:?}", ref_texts(&spans));
+    }
+
+    #[test]
+    fn reference_lines_are_file_lines_on_a_document_with_frontmatter() {
+        // A 12-line frontmatter puts `body[0]` on file line 13.
+        let body = lines("# Doc\n\nSee `docs/plans/PLAN-a.md`.");
+        let spans = reference_spans(&body, 13);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].line, 15);
+    }
+
+    #[test]
+    fn byte_ranges_are_correct_on_a_line_naming_two_paths() {
+        let line = "Both `docs/prds/PRD-a.md` and `docs/designs/DESIGN-b.md` moved.";
+        let body = lines(line);
+        let spans = reference_spans(&body, 1);
+        assert_eq!(spans.len(), 2, "got: {:?}", ref_texts(&spans));
+        for span in &spans {
+            assert_eq!(
+                &line[span.range.clone()],
+                span.text,
+                "range {:?} must slice back to the span text",
+                span.range
+            );
+        }
+        // The ranges are distinct and ordered, which is what a right-to-left
+        // rewrite depends on.
+        assert!(spans[0].range.end <= spans[1].range.start);
+    }
+
+    #[test]
+    fn a_bare_basename_is_not_a_reference() {
+        let body = lines("See DESIGN-a.md and `PRD-b.md`.");
+        let spans = reference_spans(&body, 1);
+        assert!(spans.is_empty(), "got: {:?}", ref_texts(&spans));
+    }
+
+    #[test]
+    fn the_md_suffix_has_to_end_the_token() {
+        let body = lines("docs/x/thing.mdx and docs/y/thing.md5 are not markdown");
+        let spans = reference_spans(&body, 1);
+        assert!(spans.is_empty(), "got: {:?}", ref_texts(&spans));
+    }
+
+    #[test]
+    fn trailing_punctuation_is_not_part_of_the_path() {
+        let body = lines("(docs/designs/DESIGN-a.md), docs/prds/PRD-b.md.");
+        let spans = reference_spans(&body, 1);
+        assert_eq!(
+            ref_texts(&spans),
+            vec!["docs/designs/DESIGN-a.md", "docs/prds/PRD-b.md"]
+        );
+    }
+
+    #[test]
+    fn a_cross_repo_reference_comes_back_whole() {
+        // The caller drops it; the extractor must not hand back its tail,
+        // which would read as a local path nobody wrote.
+        let body = lines("See `owner/repo:docs/designs/DESIGN-a.md`.");
+        let spans = reference_spans(&body, 1);
+        assert_eq!(
+            ref_texts(&spans),
+            vec!["owner/repo:docs/designs/DESIGN-a.md"]
+        );
+    }
+
+    #[test]
+    fn a_url_comes_back_whole() {
+        let body = lines("See https://example.com/docs/designs/DESIGN-a.md for detail.");
+        let spans = reference_spans(&body, 1);
+        assert_eq!(
+            ref_texts(&spans),
+            vec!["https://example.com/docs/designs/DESIGN-a.md"]
+        );
+    }
+
+    #[test]
+    fn a_relative_reference_keeps_its_written_form() {
+        let body = lines("See `../prds/PRD-a.md` and `./PLAN-b.md`.");
+        let spans = reference_spans(&body, 1);
+        assert_eq!(ref_texts(&spans), vec!["../prds/PRD-a.md", "./PLAN-b.md"]);
+    }
+
+    #[test]
+    fn table_cells_carry_references() {
+        // The mirror of `table_cells_are_not_prose`: a table cell is data
+        // for a writing-style rule and a reference for this one.
+        let body = lines("| doc | path |\n|---|---|\n| A | `docs/designs/DESIGN-a.md` |");
+        let spans = reference_spans(&body, 1);
+        assert_eq!(ref_texts(&spans), vec!["docs/designs/DESIGN-a.md"]);
+        assert_eq!(spans[0].line, 3);
+    }
+
+    #[test]
+    fn crlf_ranges_are_relative_to_the_original_line() {
+        let line = "See `docs/designs/DESIGN-a.md` here.";
+        let body: Vec<String> = vec![format!("{line}\r")];
+        let spans = reference_spans(&body, 1);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(&line[spans[0].range.clone()], spans[0].text);
+    }
+
+    #[test]
+    fn non_ascii_before_a_path_does_not_split_a_character() {
+        let line = "Se \u{00e9}docs/designs/DESIGN-a.md hier";
+        let body = lines(line);
+        let spans = reference_spans(&body, 1);
+        assert_eq!(ref_texts(&spans), vec!["docs/designs/DESIGN-a.md"]);
+        assert_eq!(&line[spans[0].range.clone()], spans[0].text);
+    }
+
+    #[test]
+    fn reference_spans_total_over_arbitrary_input() {
+        let probes: Vec<Vec<String>> = vec![
+            vec![],
+            vec![String::new()],
+            vec![".md".to_string()],
+            vec!["/.md".to_string()],
+            vec!["`".repeat(1000)],
+            vec!["a/".repeat(10_000) + ".md"],
+            vec!["\u{fffd}/x.md".to_string()],
+            vec!["```".into(), "a/b.md".into()],
+            vec!["    a/b.md".to_string()],
+            vec!["|a/b.md|".to_string()],
+        ];
+        for p in probes {
+            let spans = reference_spans(&p, 1);
+            for span in &spans {
+                let line = &p[span.line - 1];
+                let line = line.strip_suffix('\r').unwrap_or(line);
+                assert_eq!(&line[span.range.clone()], span.text);
+            }
+        }
     }
 
     #[test]
