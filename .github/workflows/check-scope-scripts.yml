@@ -1,0 +1,55 @@
+name: Check scope scripts
+
+on:
+  pull_request:
+    paths:
+      - 'skills/scope/scripts/**'
+      - 'crates/shirabe-validate/src/formats.rs'
+      - '.github/workflows/check-scope-scripts.yml'
+
+jobs:
+  test-scope-scripts:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # check-citations.sh uses only POSIX-ish bash plus git grep pathspecs, so
+      # it runs on macOS's bash 3.2 without the newer-bash install the plan
+      # scripts need. Both platforms run to keep that true.
+      - name: Run check-citations tests
+        run: bash skills/scope/scripts/check-citations_test.sh
+
+      # The document-path shape has one owner and three readers: this script
+      # (the gate, the only site that can stop a deletion), the validator's
+      # FC17 (the backstop), and the record checker's fold signature (the
+      # trigger). None substitutes for another, so the string is shared rather
+      # than the behaviour -- and a grep keeps the copies honest, which is
+      # strictly more than the contribution-heading table can have, since a
+      # table of headings is not a single string.
+      - name: Assert the path shape matches its owner in formats.rs
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          owner=$(sed -n 's/.*r"\(\^docs\/(briefs|prds|designs)[^"]*\)".*/\1/p' \
+            crates/shirabe-validate/src/formats.rs | head -1)
+          if [ -z "$owner" ]; then
+            echo "could not read ABSORBED_ENTRY_PATTERN from formats.rs" >&2
+            exit 1
+          fi
+          # The script's copy admits PLAN as well, because the survivor at the
+          # terminal hop is one; everything else must match character for
+          # character.
+          expected="${owner/(briefs|prds|designs)/(briefs|prds|designs|plans)}"
+          expected="${expected/(BRIEF|PRD|DESIGN)/(BRIEF|PRD|DESIGN|PLAN)}"
+          actual=$(sed -n "s/^readonly DOC_PATH_RE='\(.*\)'$/\1/p" \
+            skills/scope/scripts/check-citations.sh)
+          if [ "$actual" != "$expected" ]; then
+            echo "path shape drifted between formats.rs and check-citations.sh" >&2
+            echo "  formats.rs (widened): $expected" >&2
+            echo "  check-citations.sh:   $actual" >&2
+            exit 1
+          fi
+          echo "path shape agrees"
