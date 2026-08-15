@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-skill-preflight-checks.md
 problem: |
   shirabe's twenty skills call six host tools and none of them declares what it
@@ -41,7 +41,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 Specifies the implementation for `docs/prds/PRD-skill-preflight-checks.md`
 (status In Progress, requirements R1 through R28). What the check verifies is

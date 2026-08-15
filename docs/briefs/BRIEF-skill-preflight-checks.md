@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   shirabe's skills call host tools -- the shirabe binary, koto, gh, jq,
   git, python3 -- and almost none of those calls says what it needs or
@@ -22,7 +22,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 The framing here is deliberately not the one this work started from. An
 exploration proposed removing prerequisite prose to save context, then
