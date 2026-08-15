@@ -1,0 +1,55 @@
+{
+  "topic": "scope-artifact-persistence",
+  "upstream": "docs/prds/PRD-scope-artifact-persistence.md",
+  "execution_mode": "auto",
+  "decisions": [
+    {
+      "id": 1,
+      "slug": "record-surface",
+      "question": "What surface carries the durable fold record, across the three deletion sites?",
+      "complexity": "critical",
+      "requirements": ["R20"],
+      "status": "pending"
+    },
+    {
+      "id": 2,
+      "slug": "contribution-authorship",
+      "question": "Who authors a contribution section: the child at drafting time, or the parent at fold time?",
+      "complexity": "standard",
+      "requirements": ["R4", "R7", "R13"],
+      "status": "pending"
+    },
+    {
+      "id": 3,
+      "slug": "prior-artifact-amendment",
+      "question": "Do the two contradicted claims in the shipped consolidation chain get amended, and how?",
+      "complexity": "standard",
+      "requirements": ["R1", "R11"],
+      "status": "pending"
+    },
+    {
+      "id": 4,
+      "slug": "stage-1-replacement",
+      "question": "What replaces the type-level first stage: does it dissolve into the content judgment, or become a different check?",
+      "complexity": "critical",
+      "requirements": ["R1", "R2", "R11", "R30"],
+      "status": "pending"
+    },
+    {
+      "id": 5,
+      "slug": "validator-representation",
+      "question": "How does the validator represent and enforce contribution sections: the frontmatter declaration's shape and the required-sections extension?",
+      "complexity": "standard",
+      "requirements": ["R5", "R8", "R9", "R21", "R29"],
+      "status": "pending"
+    },
+    {
+      "id": 6,
+      "slug": "citation-guard",
+      "question": "How is the pre-deletion citation guard implemented, and does it live in skill prose or in the validator?",
+      "complexity": "standard",
+      "requirements": ["R15", "R16", "R18"],
+      "status": "pending"
+    }
+  ]
+}
