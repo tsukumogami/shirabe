@@ -11,7 +11,12 @@ planned_chain:
   - design
   - plan
 chain_skipped: []
-chain_ran: []
+chain_ran:
+  - name: brief
+    started_at: 2026-08-15T20:08:00Z
+    completed_at: 2026-08-15T20:16:00Z
+    artifact: docs/briefs/BRIEF-skill-adherence-enforcement.md
+    validator: clean
 visibility: Public
 execution_mode: auto
 max_rounds: 5
@@ -20,10 +25,10 @@ child_snapshots:
     status: Proposed
     content_hash: 2ce6abdd1cf9c4096855159c63eeab687c7b386c
     captured_at: 2026-08-15T20:02:00Z
-parent_orchestration:
-  invoking_child: brief
-  suppress_status_aware_prompt: true
-  rationale: fresh-chain
+  brief:
+    status: Accepted
+    content_hash: c15d6665a85788058769f6766d61bab54808e707
+    captured_at: 2026-08-15T20:16:00Z
 worktree_rebases:
   - phase: brief
     upstream_commits:
