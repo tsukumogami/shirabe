@@ -2,11 +2,10 @@
 schema: brief/v1
 status: Draft
 problem: |
-  An agent holding shirabe's skills can be handed a finished plan and still
-  not run it under the sanctioned workflow, either by never invoking the skill
-  or by invoking it and quietly skipping the part that carries the guarantees.
-  Both leave the author with no visibility while the work happens and no
-  durable record that the plan's validation steps ran.
+  An agent holding shirabe's skills can be handed a finished plan and still not
+  run it under the sanctioned workflow, either by never invoking the skill or by
+  invoking it and skipping the part that carries the guarantees. Both leave the
+  author no visibility during the run and no durable record that validation ran.
 outcome: |
   An author who hands a plan to an agent can tell, from outside the agent and
   without asking it, whether the run went through the workflow. Where an agent
@@ -103,14 +102,24 @@ moment it happens, with a reason naming what the sanctioned move is. The agent
 adjusts and delegates. The author never learns this happened, because nothing
 went wrong.
 
-### A background worker never reaches for the workflow
+### A dispatching agent omits the workflow from the brief it writes
 
-A coordinating agent hands work to a background worker with a task brief
-describing what to build. The brief does not name a workflow, and the worker
-starts implementing directly. The worker's first out-of-contract write is
-refused, and the refusal names the workflow the work should run under. The
-worker enters it. The author, who never saw the brief, gets a conforming run
-anyway.
+A coordinating agent finishes a planning conversation and hands the work to a
+background worker, synthesizing the task brief itself. It describes what to
+build and forgets to say which workflow to build it under, because nothing in
+the brief format asks it to. The worker receives a competent description of the
+goal and no instruction about method, and proceeds accordingly.
+
+The worker's first out-of-contract write is refused, and the refusal names the
+workflow the work should run under. The worker enters it, and the author, who
+never saw the brief, gets a conforming run anyway.
+
+The entry point here sits upstream of the worker: the omission happens while
+the brief is being written, by an agent the author is no longer watching, and
+the worker behaves reasonably given what it was handed. What the feature has to
+reach is a session whose own instructions never named the workflow, which is a
+different coverage problem from a session where an author invoked the workflow
+and the agent drifted out of it mid-run.
 
 ### An agent meets a constraint that forbids the sanctioned step
 
@@ -123,12 +132,17 @@ deviation, if it happens, is recorded where a reader will find it.
 
 ### A reviewer asks whether a branch ran the workflow
 
-Someone who was not present when the work happened wants to know whether a
-given branch was produced under the workflow. They run a check that reads a
-durable trace and get a definite answer. The answer does not depend on the
-agent's account, on the branch's commit shape, or on whether the work looks
-careful, because a competent hand-rolled implementation looks exactly like a
-conforming one.
+Someone who was not watching while the work happened wants to know whether a
+given branch was produced under the workflow. They run a check on the machine
+that did the work, which reads a durable trace the agent did not author, and
+get a definite answer. The answer does not depend on the agent's account, on
+the branch's commit shape, or on whether the work looks careful, because a
+competent hand-rolled implementation looks exactly like a conforming one.
+
+The trace this journey reads is machine-local, which is what keeps the journey
+inside the boundary while a post-hoc gate on the merged result stays outside
+it. A reviewer who never had access to that machine is a different reader, and
+serving them means making the record travel, which is the excluded work.
 
 ## Scope Boundary
 
@@ -147,7 +161,12 @@ conforming one.
   sessions a human drives.
 - Correcting the plan-execution skill's own description, which is currently
   written as an inventory of architecture rather than as the conditions under
-  which the skill applies.
+  which the skill applies. This is not in tension with the Problem Statement's
+  finding that neither failure was a discoverability problem: a description
+  governs whether skill *selection* fires in the first place, which is a
+  different mechanism from an agent that already holds the skill and knows the
+  correct path. Repairing it is hygiene that raises the floor, not the
+  enforcement this feature turns on.
 
 ### OUT
 
