@@ -19,7 +19,7 @@ goals: |
 
 Done
 
-## Problem statement
+## Problem Statement
 
 When /plan consumes a roadmap, it creates a separate PLAN doc that
 duplicates the roadmap's feature list, dependencies, and sequencing. The
@@ -41,7 +41,7 @@ Those belong in the roadmap.
 - Per-feature GitHub issues created with needs-* labels
 - Existing /plan behavior for design docs and PRDs is unchanged
 
-## User stories
+## User Stories
 
 1. As a user who planned a roadmap, I want the issues table and dependency
    graph to live in the roadmap itself so I have one document to track
@@ -93,7 +93,7 @@ handled in the skill's Phase 7, not in the Go binary. `parsePlanDoc()`
 continues to parse PLAN docs only — it doesn't need to parse enriched
 roadmaps.
 
-## Acceptance criteria
+## Acceptance Criteria
 
 - [ ] /plan consuming a roadmap writes Issues table + Mermaid graph into
       the roadmap document at reserved positions (no PLAN doc produced)
@@ -106,7 +106,7 @@ roadmaps.
 - [ ] Existing /implement and /work-on workflows are unaffected
 - [ ] /plan's Phase 1 validation still requires Active roadmaps
 
-## Out of scope
+## Out of Scope
 
 - Completion cascade automation (see F8 in roadmap)
 - /prd reading upstream from plan issue context (see F9 in roadmap)
