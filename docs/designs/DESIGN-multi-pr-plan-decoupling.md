@@ -14,7 +14,7 @@ decision: |
   consolidated|atomic` and `## Tracking Level: none|issues|
   issues-and-milestone`, resolved on the existing flag > header > default
   stack. A `split_rationale` PLAN frontmatter field naming one of three
-  branches, checked by a new Plan-only structural check FC20 registered as
+  branches, checked by a new Plan-only lifecycle check L09 registered as
   draft-tolerable. A shared `references/split-triggers.md` that both P1 and the
   Coarsest-Legal-Grouping Rule cite, parameterized by altitude. A third
   ISSUE_SOURCE value, plan_item, so an issueless multi-PR plan keys its work
@@ -165,9 +165,18 @@ decision most likely to be revisited once the ceiling has a value.
 
 ### Decision B: How the validator expresses a conditionally required field
 
-**Chosen: a new Plan-only structural check, `FC20`, in `checks.rs`, dispatched
-from `validate_structural`'s `Plan` arm alongside FC14 and FC17, registered as
+**Chosen: a new Plan-only check, `L09`, in the lifecycle family, registered as
 `DraftTolerable` in `validate::posture_class()`. `FormatSpec` is untouched.**
+
+The code lands in the `L` family rather than the `FC` family, and that is
+load-bearing rather than cosmetic. `validate.rs` documents an invariant twice:
+"the entire FC-family" is `AlwaysEnforced`. An `FC` code in the draft-tolerable
+set would break it and force the invariant to be rewritten with an exception.
+The `L` family already carries exactly this shape: `L06` is outline-AC
+completeness, a single-document property that is a legitimate intermediate state
+while a plan is in flight and must resolve before ready. A missing
+`split_rationale` on a draft plan is the same kind of thing. `L08` is taken, so
+the code is `L09`.
 
 The check short-circuits before touching the filesystem: when `execution_mode`
 is not `single-pr`, R13's first disjunct already holds and the field is required
@@ -196,10 +205,13 @@ requirement, so a plan can fail half of R13, and a reader has to know which half
 they are reading. The short-circuit in the chosen option gets the same
 performance property without splitting the finding.
 
-*Implementing it as an `L`-family lifecycle check, rejected.* The `L` family is
-about status-transition legality across a document chain. This is a
-single-document structural property, and filing it under `L` would put a
-structural check somewhere no one looks for one.
+*Filing it in the `FC` family as `FC20`, rejected on review.* This was the
+first choice, on the reading that the `L` family is about status-transition
+legality across a document chain while this is a single-document property. That
+reading does not survive contact with `L06`, which is single-document too. The
+decisive fact is the other way round: `validate.rs` documents "the entire
+FC-family" as `AlwaysEnforced` in two places, so an `FC` code in the
+draft-tolerable set costs an invariant rewrite that the `L` family does not.
 
 ### Decision C: Work-item keys when tracking is `none`
 
@@ -309,6 +321,18 @@ approval."
 This refutes the reading that the re-key is the same Phase 7 branch the tracking
 work already touches. Phase 7 is one of the five sites, not all of them.
 
+Two combinations become reachable that the current transition tables have no row
+for, and both need one:
+
+| Combination | Draft to Active | Why |
+|---|---|---|
+| `multi-pr` + `none` | automatic | Nothing remote is created, so there is nothing for a human to approve before it appears |
+| `single-pr` + `issues` | human-approved | Issues are created, which is the fact the gate exists to guard |
+
+Stated as a rule rather than as two rows: activation is automatic when the
+resolved tracking level is `none`, and human-approved otherwise. `execution_mode`
+does not appear in the rule at all, which is the point.
+
 *Superseding `DECISION-multi-pr-posture-detection-2026-06-06.md`, rejected.*
 Its decision — that the gate is asymmetric, and why an asymmetric gate is right —
 survives intact. Only its predicate changes, because the fact it keyed on
@@ -331,7 +355,7 @@ The record is a `split_rationale` frontmatter field on the PLAN, holding free
 text that names one of three branches — Hard Constraint, Incremental Value, or
 Stated Preference — together with the specific justification. It is required
 whenever the plan is not `single-pr`, or is `single-pr` in a repository whose
-stated preference would have produced something else. `FC20` checks its presence
+stated preference would have produced something else. `L09` checks its presence
 as a notice while the pull request is a draft and an error once it is ready.
 
 Those three branch names are not invented for the field. They are the branches of
@@ -357,11 +381,12 @@ the parser and the local-id algorithm the single-pr path already runs.
 | `skills/plan/SKILL.md` | Execution Mode Decision reads the delivery preference; keeps a three-branch summary; gate prose re-keyed |
 | `skills/plan/.../phase-3-decomposition.md` | Step 3.6 resolves the preference before recommending; emits the branch name for the record |
 | `skills/plan/.../phase-7-creation.md` | Issue and milestone creation gated on the resolved tracking level rather than on `execution_mode`; gate prose re-keyed |
-| `skills/plan/references/plan-format.md` | `split_rationale` documented; the issueless multi-pr table row shape documented |
+| `skills/plan/references/plan-format.md` | `split_rationale` documented; the issueless multi-pr table row shape documented; the `### Transitions` section re-keyed off `execution_mode` onto whether the transition creates issues |
+| `skills/plan/references/quality/plan-doc-structure.md` | Status-transition table re-keyed the same way; one of Decision E's five prose sites |
 | `skills/plan/scripts/plan-to-tasks.sh` | `process_multi_pr` branches on tracking level; the `none` path reuses the outline parse and emits `plan_item` |
 | `skills/plan/references/plan-to-tasks-contract.md` | Third source-var scheme documented |
-| `crates/shirabe-validate/src/checks.rs` | `FC20` added to the `Plan` structural arm |
-| `crates/shirabe-validate/src/validate.rs` | `FC20` added to the `DraftTolerable` posture class |
+| `crates/shirabe-validate/src/lifecycle.rs` | `L09` implemented alongside `L06`, whose single-document draft-tolerable shape it follows |
+| `crates/shirabe-validate/src/validate.rs` | `L09` added to `posture_class`'s `DraftTolerable` arm; the two doc comments enumerating that set updated to name it; `posture_class_classifies_lifecycle_codes` extended |
 | `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md` | Amended: predicate re-keyed, decision preserved |
 | `docs/designs/current/DESIGN-roadmap-plan-standardization.md` | Decision 6 amended: the default is now preference-conditional |
 
@@ -403,7 +428,7 @@ plan-to-tasks.sh
 
 ### The check
 
-`FC20` runs only for `Plan` documents. Its logic, in order:
+`L09` runs only for `Plan` documents. Its logic, in order:
 
 1. If `execution_mode == "single-pr"`, resolve the repository's delivery
    preference via `resolve_claude_md_header`. If the preference is
@@ -423,17 +448,24 @@ derived from the document.
 Four batches. The sequencing is driven by what each batch unblocks, not by
 file locality.
 
-**Batch 1 — The record and its check.** `split_rationale` documented in
-`plan-format.md`, `FC20` added to `checks.rs` and the `DraftTolerable` set,
-`references/split-triggers.md` authored with its three branches and two
-profiles, and P1 and the Coarsest-Legal-Grouping Rule repointed to cite it.
-This batch ships first because both later capabilities write into the record
-and cite the branch names, and because it is the part that delivers the
-auditability the feature exists for. It is self-contained: the field is required
-of non-single-pr plans, which is decidable without either header existing.
+**Batch 1: the record, its emitter, and its check.** `split_rationale`
+documented in `plan-format.md`, `L09` implemented in `lifecycle.rs` and added to
+the `DraftTolerable` set, `references/split-triggers.md` authored with its three
+branches and two profiles, P1 and the Coarsest-Legal-Grouping Rule repointed to
+cite it, and step 3.6 in `phase-3-decomposition.md` taught to emit the branch
+name it selected.
+
+The emitter belongs in this batch rather than in Batch 2. Without it the batch
+would ship a check for a field nothing writes, and every plan authored between
+Batch 1 and Batch 2 would carry a finding its author had no supported way to
+clear. With it, Batch 1 stands alone and delivers the auditability the feature
+exists for: a repository that stops here gets plans that record why they are
+shaped as they are, using the two branches that exist before any preference
+does. Only the third branch, Stated Preference, waits on Batch 2, and `L09`'s
+departure predicate is inert until there is a header to depart from.
 
 **Batch 2 — The delivery preference.** The `## Delivery Preference:` header, its
-registry entry, step 3.6's resolution, and `FC20`'s departure branch (which needs
+registry entry, step 3.6's resolution, and `L09`'s departure branch (which needs
 the header to exist before it can read one). Depends on Batch 1 for the branch
 vocabulary the record names.
 
@@ -469,11 +501,16 @@ being used — the same treatment `parse_visibility_header` already gives an
 unrecognized visibility. Neither value is interpolated into a path, a command, or
 a URL; each selects a branch. `resolve_claude_md_header` stops at the first
 `.git` boundary walking up, so a CLAUDE.md outside the repository cannot be
-reached.
+reached. It resolves to the nearest CLAUDE.md or CLAUDE.local.md above the
+document rather than to the repository root specifically, which means FC20's
+departure predicate can differ by directory within one repository. That is the
+same resolution visibility detection already uses and is inherited rather than
+introduced, but FC20 is a new consumer of it and the property is stated here so
+a reader does not assume repository-root semantics.
 
 **Free-text field reaching a committed artifact.** `split_rationale` holds author
 prose and is written into PLAN frontmatter. It is never interpolated into an
-emitted shell command, a branch name, or a path — `FC20` reads it and checks it,
+emitted shell command, a branch name, or a path — `L09` reads it and checks it,
 and no consumer executes it. This is the property that makes free text acceptable
 where the PRD's R20 chose it over an enumeration; had the value reached a
 command, the enumeration would have been required regardless of vocabulary
@@ -495,7 +532,7 @@ artifacts appear; it makes the gate track the artifacts rather than a proxy for
 them, which closes rather than opens a case (`single-pr` + `issues` would
 otherwise create artifacts through the automatic path).
 
-**Residual risk accepted.** `FC20` confirms a reason is present and names a
+**Residual risk accepted.** `L09` confirms a reason is present and names a
 branch; it cannot confirm the reason is true. A plan asserting a hard constraint
 that does not exist validates clean. The check is an auditability mechanism, not
 an authorization one, and no security property depends on the field's accuracy.
@@ -513,7 +550,7 @@ an authorization one, and no security property depends on the field's accuracy.
   without issues, and issues without a milestone.
 - Two files stop contradicting each other about reviewability, and the rule they
   disagreed about gains a single source that P4's own examples already model.
-- The common case gets cheaper to validate, not more expensive: `FC20`
+- The common case gets cheaper to validate, not more expensive: `L09`
   short-circuits before any filesystem read for every non-single-pr plan.
 
 ### Negative, with mitigations
@@ -528,7 +565,7 @@ an authorization one, and no security property depends on the field's accuracy.
   milestone to resolve against. *Mitigation:* the author drives the plan by path,
   which is the entry point `/execute` already uses for the other two modes; the
   loss is one ergonomic, not a capability.
-- **`FC20`'s departure branch reads live repository configuration.** A repository
+- **`L09`'s departure branch reads live repository configuration.** A repository
   that changes its delivery preference after a plan is authored can see the
   finding appear or disappear without the plan changing. *Mitigation:* the
   finding is draft-tolerable, so the window in which it matters is the window in
