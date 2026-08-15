@@ -2086,6 +2086,124 @@ FIXTURE
     teardown
 }
 
+# ── Fixture: single-pr slug collision suffixing ──
+# Three outlines whose titles slugify identically, plus one that does not.
+# The first occurrence keeps the bare name; later ones take -2, -3. This is the
+# one output path fed by a map lookup whose iteration order could otherwise
+# leak into the emitted names, so it is asserted explicitly.
+test_single_pr_slug_collision() {
+    local name="single-pr slug collision suffixing"
+    setup
+
+    cat > "$TEST_DIR/plan-collision.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Collision"
+issue_count: 4
+---
+
+# PLAN: collision
+
+## Status
+
+Draft
+
+## Scope Summary
+
+Three outlines slugify to the same base name.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: fix: same title
+
+**Goal**: First.
+
+**Acceptance Criteria**:
+- [ ] a
+
+**Dependencies**: None
+
+---
+
+### Issue 2: fix: same title
+
+**Goal**: Second.
+
+**Acceptance Criteria**:
+- [ ] b
+
+**Dependencies**: None
+
+---
+
+### Issue 3: fix! same title
+
+**Goal**: Third, punctuation differs but slugifies the same.
+
+**Acceptance Criteria**:
+- [ ] c
+
+**Dependencies**: None
+
+---
+
+### Issue 4: chore: distinct title
+
+**Goal**: Fourth, no collision.
+
+**Acceptance Criteria**:
+- [ ] d
+
+**Dependencies**: None
+
+## Implementation Sequence
+
+Any order.
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-collision.md" 2>/dev/null)
+
+    local names
+    names=$(echo "$output" | jq -r '[.[].name] | join(",")' 2>/dev/null) || true
+
+    local base
+    base=$(echo "$output" | jq -r '.[0].name' 2>/dev/null) || true
+
+    if [[ "$names" == "${base},${base}-2,${base}-3,o-chore-distinct-title" ]]; then
+        pass "$name (first bare, later ones suffixed -2 and -3 in outline order)"
+    else
+        fail "$name" "expected '${base},${base}-2,${base}-3,o-chore-distinct-title', got: $names"
+    fi
+
+    # Runs of separators collapse to a single dash. This is platform-sensitive:
+    # the original `sed 's/-\+/-/g'` relied on a GNU extension BSD sed ignores,
+    # so the same PLAN produced different names on macOS than on Linux.
+    if [[ "$base" == "o-fix-same-title" ]]; then
+        pass "$name (separator runs collapse identically on BSD and GNU sed)"
+    else
+        fail "$name" "expected base name 'o-fix-same-title', got: $base"
+    fi
+
+    # Names must stay unique -- the property the suffixing exists to hold.
+    local uniq_count total_count
+    uniq_count=$(echo "$output" | jq -r '[.[].name] | unique | length' 2>/dev/null) || true
+    total_count=$(echo "$output" | jq -r 'length' 2>/dev/null) || true
+    if [[ "$uniq_count" == "$total_count" && "$total_count" == "4" ]]; then
+        pass "$name (all four names unique)"
+    else
+        fail "$name" "expected 4 unique names, got $uniq_count unique of $total_count"
+    fi
+
+    teardown
+}
+
 echo "Running plan-to-tasks.sh tests..." >&2
 echo "" >&2
 
@@ -2116,6 +2234,7 @@ test_single_pr_asymmetric_empty_deps_warns
 test_single_pr_all_empty_deps_no_warning
 test_single_pr_single_issue_no_warning
 test_single_pr_section_header_deps_unchanged
+test_single_pr_slug_collision
 
 echo "" >&2
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed" >&2

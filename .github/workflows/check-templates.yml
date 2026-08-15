@@ -11,3 +11,19 @@ jobs:
     uses: tsukumogami/koto/.github/workflows/check-template-freshness.yml@main
     with:
       template-paths: 'skills/*/koto-templates/*.md'
+
+  # koto compile-checks {{KEY}} references against the template's variables
+  # block, but has no equivalent check for shell-style $NAME in a field it
+  # hands to sh -c -- that form is passed through and expands to the empty
+  # string. Nothing at runtime exercises a template's gate strings in CI, so
+  # this grep is the only guard against reintroducing that class.
+  interpolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run check-template-interpolation tests
+        run: bash scripts/check-template-interpolation_test.sh
+
+      - name: Check koto templates for shell-style interpolation
+        run: bash scripts/check-template-interpolation.sh

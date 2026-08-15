@@ -68,27 +68,163 @@ validate_name() {
     return 0
 }
 
-# Convert a bash array (passed by nameref) to a JSON array on stdout.
-# Handles empty arrays correctly (returns []).
-# Usage: array_to_json <array-variable-name>
+# ---------------------------------------------------------------------------
+# Portable key/value stores
+#
+# bash 3.2 -- the version macOS ships as /bin/bash, and the floor this script
+# targets -- has neither associative arrays (4.0) nor namerefs (4.3). Each map
+# below is a single string variable holding "key<TAB>value" lines in insertion
+# order, and these helpers read and rewrite it.
+#
+# Two properties matter. Lookups are linear rather than hashed, which is not
+# measurable at plan sizes of tens of issues. And iteration follows insertion
+# order, which is stricter than what it replaces -- bash's associative-array
+# key order is unspecified -- so the emitted task list cannot move because a
+# map rehashed.
+#
+# Keys must contain no tab and no newline or the framing breaks; kv_set
+# enforces that rather than trusting callers. Keys here are issue numbers,
+# node ids already validated against ^[a-z][a-z0-9-]*$, edge strings built
+# from those ids, slugs, and file paths; only file paths are unconstrained,
+# and the existing unquoted `for fpath in $files_str` already word-splits
+# those. The guard costs one test per kv_set, so it does not rely on that.
+#
+# Two alternatives were considered and rejected, both of which look shorter:
+#
+#   Dynamic variable names via eval ("eval m_${key}=..."). Keys contain / and
+#   ->, so each needs sanitizing into a valid identifier first, and the
+#   sanitization has to be collision-free or two keys silently merge. It also
+#   introduces eval over strings derived from a PLAN document this script
+#   parses and does not control -- a shell-injection surface the script does
+#   not currently have.
+#
+#   Per-map bespoke rewrites (parallel arrays here, a sorted list there).
+#   Each site gets the tightest code, at the cost of eight mechanisms for a
+#   reviewer to check and eight places for a future edit to reintroduce a -A
+#   because the local idiom did not suggest otherwise.
+#
+# The likely right long-term answer is neither: a thousand lines of graph
+# contraction and topological ordering is not what shell is for, and the repo
+# already ships a Rust binary that could own it. That is a rewrite of the
+# single-pr path's most load-bearing script and wants its own design.
+# ---------------------------------------------------------------------------
+KV_TAB=$'\t'
+KV_NL=$'\n'
+
+# kv_reject_bad_key <key> -- die if the key would corrupt a store's framing.
+kv_reject_bad_key() {
+    case "$1" in
+        *"$KV_TAB"*|*"$KV_NL"*)
+            die_schema "internal: map key contains a tab or newline: '$1'"
+            ;;
+    esac
+}
+
+# kv_get <store-var-name> <key> -- print the value on stdout; exit 1 if absent.
+kv_get() {
+    local __kv_name="$1"
+    local __kv_store="${!__kv_name-}"
+    local key="$2"
+    local line k
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        k="${line%%$KV_TAB*}"
+        if [[ "$k" == "$key" ]]; then
+            printf '%s' "${line#*$KV_TAB}"
+            return 0
+        fi
+    done <<< "$__kv_store"
+    return 1
+}
+
+# kv_has <store-var-name> <key> -- exit 0 if the key is present.
+kv_has() {
+    local __kv_name="$1"
+    local __kv_store="${!__kv_name-}"
+    local key="$2"
+    local line
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        if [[ "${line%%$KV_TAB*}" == "$key" ]]; then
+            return 0
+        fi
+    done <<< "$__kv_store"
+    return 1
+}
+
+# kv_set <store-var-name> <key> <value> -- insert or replace, keeping position.
+kv_set() {
+    local __kv_name="$1"
+    local key="$2"
+    local value="$3"
+    kv_reject_bad_key "$key"
+    local __kv_store="${!__kv_name-}"
+    local out="" line found=0
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        if [[ "${line%%$KV_TAB*}" == "$key" ]]; then
+            out="${out}${key}${KV_TAB}${value}${KV_NL}"
+            found=1
+        else
+            out="${out}${line}${KV_NL}"
+        fi
+    done <<< "$__kv_store"
+    if [[ $found -eq 0 ]]; then
+        out="${out}${key}${KV_TAB}${value}${KV_NL}"
+    fi
+    printf -v "$__kv_name" '%s' "$out"
+}
+
+# kv_keys <store-var-name> -- print keys, one per line, in insertion order.
+kv_keys() {
+    local __kv_name="$1"
+    local __kv_store="${!__kv_name-}"
+    local line
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        printf '%s\n' "${line%%$KV_TAB*}"
+    done <<< "$__kv_store"
+}
+
+# kv_clear <store-var-name> -- empty the store.
+kv_clear() {
+    printf -v "$1" '%s' ""
+}
+
+# set_add <store-var-name> <key> -- add a key to a set-shaped store.
+set_add() {
+    kv_set "$1" "$2" ""
+}
+
+# Convert a list of elements to a JSON array on stdout.
+# Handles the empty case correctly (returns []).
+# Usage: array_to_json "${arr[@]+"${arr[@]}"}"
+#
+# Takes elements positionally rather than by nameref: namerefs are bash 4.3
+# and this script targets 3.2. Call sites use the ${arr[@]+"${arr[@]}"} guard
+# because `"${arr[@]}"` on an empty array trips `set -u` under bash 3.2.
 array_to_json() {
-    local -n _arr_ref=$1
-    if [[ ${#_arr_ref[@]} -eq 0 ]]; then
+    if [[ $# -eq 0 ]]; then
         echo "[]"
     else
-        printf '%s\n' "${_arr_ref[@]}" | jq -R . | jq -s .
+        printf '%s\n' "$@" | jq -R . | jq -s .
     fi
 }
 
 # Sanitize a title to a slug: lowercase, replace non-[a-z0-9] with -, collapse
 # multiple -, strip leading/trailing -
+#
+# The collapse uses `--*` rather than `-\+`: `\+` is a GNU sed extension that
+# BSD sed (macOS) does not honor, so the GNU form left runs of dashes intact on
+# macOS and the same PLAN produced different task names depending on which host
+# generated them. `--*` is POSIX BRE and collapses identically on both.
 slugify() {
     local title="$1"
     local slug
     slug=$(echo "$title" \
         | tr '[:upper:]' '[:lower:]' \
         | sed 's/[^a-z0-9]/-/g' \
-        | sed 's/-\+/-/g' \
+        | sed 's/--*/-/g' \
         | sed 's/^-//;s/-$//')
     echo "$slug"
 }
@@ -227,7 +363,7 @@ process_multi_pr() {
         fi
 
         local waits_json
-        waits_json=$(array_to_json waits_on)
+        waits_json=$(array_to_json "${waits_on[@]+"${waits_on[@]}"}")
 
         json_entries+=("$(jq -n \
             --arg name "$name" \
@@ -392,7 +528,7 @@ process_single_pr() {
 
     # Second pass: compute names with slug + collision handling
     local -a issue_names=()
-    local -A slug_counts=()
+    local slug_counts=""
 
     for i in "${!issue_numbers[@]}"; do
         local title="${issue_titles[$i]}"
@@ -424,13 +560,14 @@ process_single_pr() {
         # slug_counts stores the number of times a base_name has appeared.
         # The first occurrence (count=1) gets no suffix; subsequent occurrences
         # get a numeric suffix equal to their count (e.g. -2, -3).
-        if [[ -z "${slug_counts[$base_name]+x}" ]]; then
-            slug_counts[$base_name]=1
+        if ! kv_has slug_counts "$base_name"; then
+            kv_set slug_counts "$base_name" 1
             issue_names+=("$base_name")
         else
-            local count_val="${slug_counts[$base_name]}"
+            local count_val
+            count_val=$(kv_get slug_counts "$base_name")
             ((count_val++)) || true
-            slug_counts[$base_name]=$count_val
+            kv_set slug_counts "$base_name" "$count_val"
             local suffixed_name="${base_name}-${count_val}"
             if [[ ${#suffixed_name} -gt $KOTO_NAME_MAX ]]; then
                 suffixed_name="${suffixed_name:0:$KOTO_NAME_MAX}"
@@ -446,14 +583,14 @@ process_single_pr() {
     done
 
     # Build a map from issue number to name for dependency resolution
-    declare -A number_to_name=()
+    local number_to_name=""
     for i in "${!issue_numbers[@]}"; do
-        number_to_name["${issue_numbers[$i]}"]="${issue_names[$i]}"
+        kv_set number_to_name "${issue_numbers[$i]}" "${issue_names[$i]}"
     done
 
     # Build a file-to-first-name map for Files-based waits_on edges.
     # When two outlines share a file path, the later one must wait on the earlier one.
-    declare -A file_first_owner=()  # file_path -> name of first outline that declares it
+    local file_first_owner=""  # file_path -> name of first outline that declares it
     for i in "${!issue_numbers[@]}"; do
         local files_str="${issue_files[$i]}"
         if [[ -z "$files_str" ]]; then
@@ -461,8 +598,8 @@ process_single_pr() {
         fi
         local name="${issue_names[$i]}"
         for fpath in $files_str; do
-            if [[ -z "${file_first_owner[$fpath]+x}" ]]; then
-                file_first_owner["$fpath"]="$name"
+            if ! kv_has file_first_owner "$fpath"; then
+                kv_set file_first_owner "$fpath" "$name"
             fi
         done
     done
@@ -493,10 +630,10 @@ process_single_pr() {
             local remaining="$deps_raw"
             while [[ "$remaining" =~ Issue[[:space:]]+([0-9]+) ]]; do
                 local dep_num="${BASH_REMATCH[1]}"
-                if [[ -z "${number_to_name[$dep_num]+x}" ]]; then
+                if ! kv_has number_to_name "$dep_num"; then
                     die_schema "issue ${issue_num} references unknown dependency Issue ${dep_num}"
                 fi
-                waits_on+=("${number_to_name[$dep_num]}")
+                waits_on+=("$(kv_get number_to_name "$dep_num")")
                 remaining="${remaining#*Issue ${dep_num}}"
             done
         fi
@@ -505,9 +642,9 @@ process_single_pr() {
         # was already claimed by an earlier outline, wait on that earlier outline.
         if [[ -n "$files_str" ]]; then
             for fpath in $files_str; do
-                local owner="${file_first_owner[$fpath]+x}"
-                if [[ -n "$owner" ]]; then
-                    local owner_name="${file_first_owner[$fpath]}"
+                if kv_has file_first_owner "$fpath"; then
+                    local owner_name
+                    owner_name=$(kv_get file_first_owner "$fpath")
                     # Only add if the owner is a different outline and not already in waits_on
                     if [[ "$owner_name" != "$name" ]]; then
                         local already=0
@@ -526,7 +663,7 @@ process_single_pr() {
         fi
 
         local waits_json
-        waits_json=$(array_to_json waits_on)
+        waits_json=$(array_to_json "${waits_on[@]+"${waits_on[@]}"}")
 
         # Build the vars object. Always include ISSUE_SOURCE and ARTIFACT_PREFIX.
         # Include ISSUE_TYPE only when the outline specifies a **Type**: annotation.
@@ -737,21 +874,21 @@ process_coordinated() {
     # `issue_to_node` is the mutable assignment the resolver re-writes when it
     # splits a repo at the seam. The issue-level deps in `issue_deps` are the
     # source of truth the contraction re-derives edges from on every attempt.
-    declare -A issue_to_node=()
+    local issue_to_node=""
     for idx in "${!issue_nums[@]}"; do
         local node0
         node0=$(pr_node_id "${issue_repos[$idx]}" "${issue_groups[$idx]}")
         if ! validate_name "$node0"; then
             die_schema "derived PR node id '${node0}' violates R9 regex ^[a-z][a-z0-9-]*\$"
         fi
-        issue_to_node["${issue_nums[$idx]}"]="$node0"
+        kv_set issue_to_node "${issue_nums[$idx]}" "$node0"
     done
 
     # `is_gate` marks gate node ids; populated by build_contracted_graph.
-    declare -A is_gate=()
+    local is_gate=""
     # `node_order` + `edges_set` are the contracted graph, rebuilt each attempt.
     local -a node_order=()
-    declare -A edges_set=()
+    local edges_set=""
 
     # ---- Contraction + acyclicity loop (R13) with split-at-seam resolution.
     # Build the contracted (repo, pr_group) graph, attempt a topological order,
@@ -775,12 +912,12 @@ process_coordinated() {
         local victim=""
         local cand
         for cand in $RESIDUAL_NODES; do
-            [[ -n "${is_gate[$cand]+x}" ]] && continue
+            kv_has is_gate "$cand" && continue
             # Count issues mapped to this node.
             local cnt=0
             local inum
             for inum in "${issue_nums[@]}"; do
-                [[ "${issue_to_node[$inum]}" == "$cand" ]] && cnt=$(( cnt + 1 ))
+                [[ "$(kv_get issue_to_node "$inum")" == "$cand" ]] && cnt=$(( cnt + 1 ))
             done
             if [[ $cnt -gt 1 ]]; then
                 victim="$cand"
@@ -810,14 +947,14 @@ process_coordinated() {
         local -a waits_on=()
         local pred_node
         for pred_node in "${node_order[@]}"; do
-            if [[ -n "${edges_set["${pred_node}->${node}"]+x}" ]]; then
+            if kv_has edges_set "${pred_node}->${node}"; then
                 waits_on+=("$pred_node")
             fi
         done
         local waits_json
-        waits_json=$(array_to_json waits_on)
+        waits_json=$(array_to_json "${waits_on[@]+"${waits_on[@]}"}")
         local kind="pr"
-        [[ -n "${is_gate[$node]+x}" ]] && kind="gate"
+        kv_has is_gate "$node" && kind="gate"
         json_entries+=("$(jq -n \
             --arg name "$node" \
             --arg node_kind "$kind" \
@@ -837,23 +974,25 @@ process_coordinated() {
 build_contracted_graph() {
     node_order=()
     local e
-    for e in "${!edges_set[@]}"; do unset 'edges_set[$e]'; done
-    for e in "${!is_gate[@]}"; do unset 'is_gate[$e]'; done
+    kv_clear edges_set
+    kv_clear is_gate
 
-    declare -A seen=()
+    local seen=""
     local idx
     # PR nodes in first-appearance order.
     for idx in "${!issue_nums[@]}"; do
-        local node="${issue_to_node[${issue_nums[$idx]}]}"
-        if [[ -z "${seen[$node]+x}" ]]; then
-            seen[$node]=1
+        local node
+        node=$(kv_get issue_to_node "${issue_nums[$idx]}")
+        if ! kv_has seen "$node"; then
+            set_add seen "$node"
             node_order+=("$node")
         fi
     done
 
     # Contract issue-level waits_on into PR-node edges.
     for idx in "${!issue_nums[@]}"; do
-        local this_node="${issue_to_node[${issue_nums[$idx]}]}"
+        local this_node
+        this_node=$(kv_get issue_to_node "${issue_nums[$idx]}")
         local deps="${issue_deps[$idx]}"
         [[ "$deps" == "None" || -z "$deps" ]] && continue
         local re_ref="#([0-9]+)"
@@ -861,12 +1000,13 @@ build_contracted_graph() {
         while [[ "$remaining" =~ $re_ref ]]; do
             local dep_num="${BASH_REMATCH[1]}"
             remaining="${remaining#*#${dep_num}}"
-            if [[ -z "${issue_to_node[$dep_num]+x}" ]]; then
+            if ! kv_has issue_to_node "$dep_num"; then
                 die_schema "coordinated issue #${issue_nums[$idx]} references unknown dependency #${dep_num}"
             fi
-            local dep_node_id="${issue_to_node[$dep_num]}"
+            local dep_node_id
+            dep_node_id=$(kv_get issue_to_node "$dep_num")
             if [[ "$dep_node_id" != "$this_node" ]]; then
-                edges_set["${dep_node_id}->${this_node}"]=1
+                set_add edges_set "${dep_node_id}->${this_node}"
             fi
         done
     done
@@ -882,20 +1022,20 @@ build_contracted_graph() {
         if ! validate_name "$gnode"; then
             die_schema "derived gate node id '${gnode}' violates R9 regex ^[a-z][a-z0-9-]*\$"
         fi
-        if [[ -z "${seen[$gnode]+x}" ]]; then
-            seen[$gnode]=1
+        if ! kv_has seen "$gnode"; then
+            set_add seen "$gnode"
             node_order+=("$gnode")
         fi
-        is_gate[$gnode]=1
+        set_add is_gate "$gnode"
         local pred
         for pred in ${gafter//,/ }; do
             [[ -z "$pred" ]] && continue
-            edges_set["${pred}->${gnode}"]=1
+            set_add edges_set "${pred}->${gnode}"
         done
         local succ
         for succ in ${gbefore//,/ }; do
             [[ -z "$succ" ]] && continue
-            edges_set["${gnode}->${succ}"]=1
+            set_add edges_set "${gnode}->${succ}"
         done
     done
 }
@@ -909,19 +1049,20 @@ RESIDUAL_NODES=""
 KAHN_ORDER=""
 kahn_order() {
     local -a nodes=("${node_order[@]}")
-    declare -A indeg=()
+    local indeg=""
     local nd
-    for nd in "${nodes[@]}"; do indeg[$nd]=0; done
+    for nd in "${nodes[@]}"; do kv_set indeg "$nd" 0; done
     local e
-    for e in "${!edges_set[@]}"; do
+    while IFS= read -r e; do
+        [[ -n "$e" ]] || continue
         local to="${e#*->}"
-        indeg[$to]=$(( ${indeg[$to]} + 1 ))
-    done
+        kv_set indeg "$to" $(( $(kv_get indeg "$to") + 1 ))
+    done <<< "$(kv_keys edges_set)"
 
     local -a order=()
     local -a queue=()
     for nd in "${nodes[@]}"; do
-        [[ "${indeg[$nd]}" -eq 0 ]] && queue+=("$nd")
+        [[ "$(kv_get indeg "$nd")" -eq 0 ]] && queue+=("$nd")
     done
     local processed=0
     while [[ ${#queue[@]} -gt 0 ]]; do
@@ -931,9 +1072,9 @@ kahn_order() {
         processed=$(( processed + 1 ))
         local nbr
         for nbr in "${nodes[@]}"; do
-            if [[ -n "${edges_set["${cur}->${nbr}"]+x}" ]]; then
-                indeg[$nbr]=$(( ${indeg[$nbr]} - 1 ))
-                [[ "${indeg[$nbr]}" -eq 0 ]] && queue+=("$nbr")
+            if kv_has edges_set "${cur}->${nbr}"; then
+                kv_set indeg "$nbr" $(( $(kv_get indeg "$nbr") - 1 ))
+                [[ "$(kv_get indeg "$nbr")" -eq 0 ]] && queue+=("$nbr")
             fi
         done
     done
@@ -969,13 +1110,13 @@ split_repo_at_seam() {
     local idx
     for idx in "${!issue_nums[@]}"; do
         local inum="${issue_nums[$idx]}"
-        if [[ "${issue_to_node[$inum]}" == "$victim" ]]; then
+        if [[ "$(kv_get issue_to_node "$inum")" == "$victim" ]]; then
             local split_node
             split_node=$(slugify "${victim}-i${inum}")
             if ! validate_name "$split_node"; then
                 die_schema "derived split PR node id '${split_node}' violates R9 regex ^[a-z][a-z0-9-]*\$"
             fi
-            issue_to_node["$inum"]="$split_node"
+            kv_set issue_to_node "$inum" "$split_node"
         fi
     done
 }
