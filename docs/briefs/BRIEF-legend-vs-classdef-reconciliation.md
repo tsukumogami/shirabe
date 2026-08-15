@@ -19,7 +19,6 @@ outcome: |
   green while the corpus reconciles; promotion to error is a one-line
   change once the docs are clean. The Legend becomes a trustworthy index
   into the diagram by construction.
-upstream: docs/designs/DESIGN-roadmap-plan-standardization.md
 ---
 
 # BRIEF: legend-vs-classdef-reconciliation
@@ -337,7 +336,7 @@ The scope explicitly excludes:
   `docs/prds/PRD-roadmap-plan-standardization.md`.
 - Parent DESIGN (Decision 3 staging the reconciliation increment behind
   a spike and a notice rollout):
-  `docs/designs/DESIGN-roadmap-plan-standardization.md`.
+  `docs/designs/current/DESIGN-roadmap-plan-standardization.md`.
 - Parent PLAN (the row that schedules this increment as the FC08 leaf
   node depending on FC07's class-extraction infrastructure):
   `docs/plans/PLAN-roadmap-plan-standardization.md`.
