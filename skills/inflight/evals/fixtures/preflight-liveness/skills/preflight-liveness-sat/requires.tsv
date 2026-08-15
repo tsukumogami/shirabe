@@ -1,0 +1,12 @@
+#schema	skill-requires/v1
+#
+# The satisfied twin of preflight-liveness-unsat. Same fixture plugin, same
+# injected line, same load path -- one declaration apart.
+#
+# `sh` is declared rather than an empty declaration being used, because an
+# empty declaration exits before it resolves anything: it would prove the
+# script started, not that a satisfied prerequisite is silent. `sh` resolves
+# on every POSIX host to an absolute path outside the working directory,
+# which is the `present` posture, and the present posture emits nothing.
+#
+sh	-	-	always

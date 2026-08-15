@@ -459,6 +459,42 @@ Options:
 - `--dry-run` -- skip `gh` invocations; synthesize a deterministic mapping
 - `-h, --help` -- print help
 
+### Mode-scoped prerequisite check (issue-creating mode)
+
+Selecting issue-creating mode is the moment `/roadmap`'s `mode:issues`
+records become live. `skills/roadmap/requires.tsv` declares two of them:
+`shirabe roadmap populate` with the milestone and mapping flags, and `gh`,
+which no issueless run touches at all. Neither was checked when this skill
+loaded -- the load-time check evaluates `always` records only, because the
+mode had not been chosen and reporting on a record it never evaluated would
+be a claim it can't support. Field four of the declaration is where the
+deferral is visible.
+
+So verify them here, once issue-creating mode is settled and before the R14
+gate presents anything to the author:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh roadmap --mode issues 2>&1 || true
+```
+
+Silence means every `mode:issues` record is satisfied; run the gate and
+carry on. Output means a prerequisite the issue-creating path depends on is
+not met -- report it to the author before filing anything, because a `gh`
+that isn't there fails partway through a per-feature loop and leaves the
+roadmap half-filed.
+
+This is a command the skill runs mid-run through Bash, not a `!`-prefixed
+injected line at column 0, so `scripts/check-skill-injection.sh` -- which
+reads only injected lines -- never sees it and the `allowed-tools`
+frontmatter is not what governs it. It is deliberately placed here rather
+than in the frontmatter: the injected line runs before the model sees the
+body, which is before this decision exists. The `2>&1 || true` guard is carried for the
+same reason the injected line carries it -- a missing script or an
+unexpanded `${CLAUDE_PLUGIN_ROOT}` exits 127, and an unguarded 127 at this
+point kills a run that has already written the roadmap. The contract for the
+`--mode` call is in
+[`${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md`](${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md).
+
 ### R14 approval gate (lives in this caller, not in the subcommand)
 
 Issue creation is the gated step (R14 in the requirements). The gate lives

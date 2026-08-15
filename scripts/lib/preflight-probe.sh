@@ -4,8 +4,11 @@
 #
 # Sourced by scripts/skill-preflight.sh after the plugin root has been
 # validated and after preflight-read.sh and preflight-resolve.sh. It defines
-# preflight_check_surface, which the entry point calls for every `always`
-# record whose tool resolved `present`. Until this file exists the entry point
+# preflight_check_surface, which the entry point calls for every in-scope
+# record whose tool resolved `present` -- the `always` records on a load-time
+# run, the `mode:<name>` records on a `--mode <name>` run. The two runs share
+# this function unchanged: a surface gap is a fact about the binary, and
+# nothing here reads field four. Until this file exists the entry point
 # defines a no-op with the honest posture -- nothing has read the binary's
 # surface -- and sourcing this file replaces it.
 #

@@ -89,6 +89,46 @@
         "Agent notes `shirabe work-summary render` always exits 0 when the binary exists, so the fallback only covers an absent binary",
         "Agent notes `allowed-tools` declares both halves (`Bash(shirabe:*)` and `Bash(echo:*)`) because patterns do not compose across `||`"
       ]
+    },
+    {
+      "id": 8,
+      "name": "preflight-injection-liveness",
+      "tier": 2,
+      "mode": "execute",
+      "preflight": "live",
+      "preflight_skill": "preflight-liveness-unsat",
+      "prompt": "Load the fixture plugin at skills/inflight/evals/fixtures/preflight-liveness in a nested non-interactive claude run and invoke the skill /preflight-liveness-unsat there. Report, verbatim, everything that arrived in that run's context before the skill body, and its byte count. Clear SHIRABE_PREFLIGHT_DISABLE for every command you run. Do not invoke scripts/skill-preflight.sh yourself.",
+      "expected_output": "The nested run loads /preflight-liveness-unsat, whose body opens with the canonical injected line `!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh preflight-liveness-unsat 2>&1 || true``. The fixture's requires.tsv declares `preflight-absent-tool`, which is routed in the fixture's own tool-routes.tsv and installed on no host, so the check resolves it as absent and prints a prerequisite-not-met block. That block reaches the nested model ahead of the skill body, and the agent reproduces it: the skill named as /preflight-liveness-unsat, the tool named as preflight-absent-tool, the roots that were checked, and the no-install-route enumeration. The byte count is greater than zero. The agent does not reconstruct the text by reading requires.tsv or by running the script itself -- a reconstruction shows the file is on disk, and the question is whether the injected line executed.",
+      "files": [],
+      "expectations": [
+        "Agent loads the fixture plugin and invokes /preflight-liveness-unsat rather than calling scripts/skill-preflight.sh directly",
+        "Agent runs with SHIRABE_PREFLIGHT_DISABLE cleared and says so, rather than inheriting the harness default",
+        "Transcript reproduces a NON-EMPTY preflight report that arrived before the skill body",
+        "The reproduced report names the skill as /preflight-liveness-unsat",
+        "The reproduced report names preflight-absent-tool as not installed on this host",
+        "Agent reports a byte count greater than zero for what arrived before the body",
+        "Agent does NOT reconstruct the report from requires.tsv or from its own knowledge of the check"
+      ],
+      "notes": "The failure-open blind spot this eval answers: the check always exits 0 by design, so a script that is missing, unreadable, non-executable, or subverted produces the same observable outcome as a fully satisfied check -- silence. Nothing else in the preflight subsystem detects that. What this eval does NOT cover: a user's host. It exercises the injection path in the eval environment only, and there is no equivalent signal on an ordinary host. Nothing short of emitting bytes on the satisfied path would give one, and that is forbidden (R12) -- a byte on every satisfied skill load is the cost the whole design is written to avoid. The residual is accepted and named here so it does not have to be rediscovered. The deterministic half of this assertion runs on every pull request in scripts/skill-preflight_test.sh, which extracts the same fixture's injected line and executes it; that suite proves the line runs, this eval proves its output reaches a model."
+    },
+    {
+      "id": 9,
+      "name": "preflight-injection-satisfied-control",
+      "tier": 2,
+      "mode": "execute",
+      "preflight": "live",
+      "preflight_skill": "preflight-liveness-sat",
+      "prompt": "Load the fixture plugin at skills/inflight/evals/fixtures/preflight-liveness in a nested non-interactive claude run and invoke the skill /preflight-liveness-sat there. Report whether anything arrived in that run's context before the skill body, reproduce it if so, and give its byte count. Clear SHIRABE_PREFLIGHT_DISABLE for every command you run.",
+      "expected_output": "The nested run loads /preflight-liveness-sat, whose injected line is identical to the unsatisfiable twin's apart from the skill name. Its requires.tsv declares `sh`, which resolves on every host to an absolute path outside the working directory, so the check evaluates the record, finds the prerequisite met, and prints nothing. The agent reports zero bytes before the skill body. Paired with preflight-injection-liveness, this is what separates 'the check ran and found nothing' from 'the check never ran': silence here alone would be consistent with both.",
+      "files": [],
+      "expectations": [
+        "Agent loads the fixture plugin and invokes /preflight-liveness-sat rather than calling scripts/skill-preflight.sh directly",
+        "Agent runs with SHIRABE_PREFLIGHT_DISABLE cleared",
+        "Agent reports that nothing arrived before the skill body",
+        "Agent reports a byte count of zero",
+        "Agent does NOT fabricate a preflight report for the satisfied case"
+      ],
+      "notes": "The control for preflight-injection-liveness. A satisfied declaration costs the model nothing: no bytes and no extra subprocess beyond the one the injected line already runs. This eval is the half that makes the pair discriminating -- on its own it is satisfied by a check that never ran at all."
     }
   ]
 }

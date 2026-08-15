@@ -191,6 +191,33 @@ CLAUDE.md-header > default` stack:
   signal coordinated defaults for routine efforts.
 - default — single-repo (intent absent).
 
+**The moment intent resolves to coordinated, verify the mode-scoped
+prerequisites.** `skills/scope/requires.tsv` declares two `mode:coordinated`
+records — `shirabe validate` with `--coordination-body` and `--merge-gate`,
+and `gh` — and neither was checked when this skill loaded. The load-time
+check evaluates `always` records only, because intent had not resolved yet
+and reporting on a record it never evaluated would be a claim it can't
+support; field four of the declaration is where the deferral is visible.
+Run, before the coordination PR is authored:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode coordinated 2>&1 || true
+```
+
+Silence means the coordinated surface is present and the run proceeds
+normally. Output names a prerequisite the coordinated path depends on and
+the single-repo path does not; surface it to the author before creating the
+PR, since a missing `gh` here means an authored body with nowhere to go.
+
+This is a command the skill runs mid-run through Bash, not a `!`-prefixed
+injected line at column 0, and it is not subject to
+`scripts/check-skill-injection.sh`, which reads only injected lines. It
+carries `2>&1 || true` anyway, for the same reason the injected line does:
+a missing script or an unexpanded `${CLAUDE_PLUGIN_ROOT}` exits 127, and an
+unguarded 127 mid-chain kills a run that has already written state. The
+contract for the `--mode` call is in
+[`${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md`](${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md).
+
 When intent is present, `/scope` creates the coordination PR **up
 front**, before invoking any child. Like every other shirabe
 artifact, the coordination PR body is **authored by the skill**, not

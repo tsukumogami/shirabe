@@ -518,7 +518,12 @@ check_modes() {
     mode="${rest%%"$NL"*}"
     rest="${rest#*"$NL"}"
     [ -n "$mode" ] || continue
-    if ! grep -rqi -- "$mode" "$dir" --include='*.md' --include='*.sh' --include='*.yaml' --include='*.yml' 2>/dev/null; then
+    # `-e` rather than a bare pattern, and the includes ahead of the operands:
+    # a `--` here would end option parsing and turn every --include into a file
+    # operand, which silently widens the search to requires.tsv itself and lets
+    # a mode name match its own declaration.
+    if ! grep -rqi --include='*.md' --include='*.sh' --include='*.yaml' \
+         --include='*.yml' -e "$mode" "$dir" 2>/dev/null; then
       report "skills/$skill/requires.tsv: mode name '$mode' appears nowhere in the skill's own files"
       detail "A mode name is an interface: it has to match a mode string the skill's own"
       detail "phases use, or nothing can ever select the records it gates."

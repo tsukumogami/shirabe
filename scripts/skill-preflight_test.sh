@@ -120,24 +120,39 @@ RUN_CWD=""
 
 RUN_HOME=""
 
+# The kill switch, SHIRABE_PREFLIGHT_DISABLE. Carried as a mode plus a value
+# rather than as one string, because "unset" and "set to the empty string" are
+# different inputs to the `case` that reads it and both have to be reachable
+# from a case.
+RUN_DISABLE_MODE="unset"
+RUN_DISABLE=""
+
 run_reset() {
     RUN_PATH=""
     RUN_ROOTS_MODE="set"
     RUN_ROOTS="/nonexistent"
     RUN_CWD="$REPO"
     RUN_HOME="${HOME-}"
+    RUN_DISABLE_MODE="unset"
+    RUN_DISABLE=""
 }
 
 OUT=""
 OUT_BYTES=0
 RC=0
 
-# run_preflight <root> <skill> [<case-name>]
+# run_preflight <root> <skill> [<case-name>] [<extra-arg>...]
 #
 # Captures stdout and stderr together into a file, the way the injected line's
 # `2>&1` merges them, so the byte count is over the same string a reader sees.
+#
+# Arguments past the case name are appended to the inner invocation verbatim,
+# which is how the `--mode <name>` cases reach the entry point. They go through
+# the same process boundary as everything else: a mode run is the same script
+# with one more pair of arguments, not a second code path a fixture could stub.
 run_preflight() {
     local root="$1" skill="$2" name="${3-run}"
+    shift 3 2>/dev/null || shift $#
     local capture
     capture=$(mktmp)/capture
     RC=0
@@ -153,9 +168,15 @@ run_preflight() {
         fi
         HOME="$RUN_HOME"
         export HOME
+        if [ "$RUN_DISABLE_MODE" = "unset" ]; then
+            unset SHIRABE_PREFLIGHT_DISABLE
+        else
+            SHIRABE_PREFLIGHT_DISABLE="$RUN_DISABLE"
+            export SHIRABE_PREFLIGHT_DISABLE
+        fi
         CLAUDE_PLUGIN_ROOT="$root"
         export CLAUDE_PLUGIN_ROOT
-        "$BASH_BIN" "$root/scripts/skill-preflight.sh" "$skill"
+        "$BASH_BIN" "$root/scripts/skill-preflight.sh" "$skill" "$@"
     ) >"$capture" 2>&1 || RC=$?
     OUT_BYTES=$(wc -c <"$capture" | tr -d ' ')
     OUT=$(cat "$capture")
@@ -389,6 +410,87 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# The kill switch, SHIRABE_PREFLIGHT_DISABLE.
+#
+# The scenario is the one that motivated it: a harness that prepends a fixture
+# `bin` directory under the working directory to PATH, so every declared tool
+# resolves under $PWD and the resolver correctly refuses it. That is a correct
+# refusal and it is not being weakened here -- the case above asserts it still
+# fires. What the seam changes is whether the check runs at all.
+#
+# The pair below is the whole contract: same declaration, same PATH, same
+# working directory, one variable apart. Set, the run is zero bytes; unset, the
+# run reports. Asserting only the silent half would pass against a script that
+# had stopped checking anything.
+# ---------------------------------------------------------------------------
+run_reset
+ROOT=$(new_root)
+WORKDIR=$(mktmp)
+MARKER="$WORKDIR/it-ran"
+fake_bin "$WORKDIR/bin" "koto" "$MARKER"
+write_decl "$ROOT" "killswitch" '#schema\tskill-requires/v1' 'koto\tversion\t-\talways'
+RUN_PATH="$WORKDIR/bin"
+RUN_CWD="$WORKDIR"
+run_preflight "$ROOT" "killswitch" "kill switch unset still reports"
+assert_prose_contains "with the seam unset the fixture-bin refusal is reported" \
+    "resolves to a path inside the working directory and was not probed"
+
+run_reset
+RUN_PATH="$WORKDIR/bin"
+RUN_CWD="$WORKDIR"
+RUN_DISABLE_MODE="set"
+RUN_DISABLE="1"
+run_preflight "$ROOT" "killswitch" "kill switch set is silent"
+assert_zero_bytes "SHIRABE_PREFLIGHT_DISABLE=1 short-circuits to zero bytes"
+
+# The three values that do NOT disable. `0` and `false` are the spellings an
+# operator reaches for to turn the switch back off, and an implementation that
+# treated "set to anything" as disabled would silence the check for everyone
+# who wrote `SHIRABE_PREFLIGHT_DISABLE=0` believing they had enabled it.
+for _off in "0" "false" ""; do
+    run_reset
+    RUN_PATH="$WORKDIR/bin"
+    RUN_CWD="$WORKDIR"
+    RUN_DISABLE_MODE="set"
+    RUN_DISABLE="$_off"
+    run_preflight "$ROOT" "killswitch" "kill switch off-value '$_off'"
+    assert_prose_contains "SHIRABE_PREFLIGHT_DISABLE='$_off' does not disable the check" \
+        "resolves to a path inside the working directory and was not probed"
+done
+
+# An arbitrary truthy value disables too, so the switch is not an exact-match
+# `1` test that an operator's `SHIRABE_PREFLIGHT_DISABLE=true` would miss.
+run_reset
+RUN_PATH="$WORKDIR/bin"
+RUN_CWD="$WORKDIR"
+RUN_DISABLE_MODE="set"
+RUN_DISABLE="true"
+run_preflight "$ROOT" "killswitch" "kill switch truthy value"
+assert_zero_bytes "SHIRABE_PREFLIGHT_DISABLE=true short-circuits to zero bytes"
+
+# A disabled run never reaches the plugin root, so it cannot emit the
+# could-not-locate note either: an invalid root plus the switch is silent, and
+# the same invalid root without it speaks. This is what "reads the variable
+# before anything is resolved or sourced" means, asserted rather than reviewed.
+run_reset
+RUN_DISABLE_MODE="set"
+RUN_DISABLE="1"
+RC=0
+DISABLED_CAPTURE=$(mktmp)/disabled
+(
+    cd "$REPO" || exit 111
+    SHIRABE_PREFLIGHT_DISABLE=1
+    export SHIRABE_PREFLIGHT_DISABLE
+    CLAUDE_PLUGIN_ROOT="relative/root" "$BASH_BIN" "$ROOT/scripts/skill-preflight.sh" "killswitch"
+) >"$DISABLED_CAPTURE" 2>&1 || RC=$?
+OUT=$(cat "$DISABLED_CAPTURE")
+OUT_BYTES=$(wc -c <"$DISABLED_CAPTURE" | tr -d ' ')
+if [ "$RC" -ne 0 ]; then
+    fail "kill switch with an invalid root: the check exited $RC; it must exit 0 on every path"
+fi
+assert_zero_bytes "the kill switch is read before the plugin root is resolved"
+
+# ---------------------------------------------------------------------------
 # Malformed records are skipped and reported, with the line number and field.
 # ---------------------------------------------------------------------------
 run_reset
@@ -477,6 +579,173 @@ run_preflight "$ROOT" "modeonly" "mode-scoped records"
 assert_zero_bytes "a mode-scoped record emits nothing at load, not even a deferral marker"
 
 # ---------------------------------------------------------------------------
+# The mode entry point
+#
+# R11. The load-time run defers a `mode:` record; this is where the record is
+# actually verified. Every case below runs the same script with two more
+# arguments -- there is no second entry point and no fixture standing in for
+# one.
+# ---------------------------------------------------------------------------
+
+# The same declaration, the same absent tool, seen from both sides. This is the
+# pair that makes R10 and R11 falsifiable together: silence at load is only
+# honest if the record is checked somewhere, and a `--mode` report is only
+# meaningful if the load stayed quiet about the same record.
+run_reset
+ROOT=$(new_root)
+BINDIR=$(mktmp)
+fake_bin "$BINDIR" "shirabe"
+write_decl "$ROOT" "twosided" \
+    '#schema\tskill-requires/v1' \
+    'shirabe\ttransition\t-\talways' \
+    'gh\t-\t-\tmode:issues'
+RUN_PATH="$BINDIR"
+run_preflight "$ROOT" "twosided" "load with gh absent"
+assert_zero_bytes "a load says nothing about a mode record even with that tool absent"
+
+run_preflight "$ROOT" "twosided" "--mode issues with gh absent" --mode issues
+assert_prose_contains "the mode run reports the deferred record" \
+    "gh is not installed on this host."
+assert_prose_contains "the mode run names the skill and posture" \
+    "shirabe /twosided: prerequisite not met."
+assert_prose_contains "the mode run names the declared impact" "/twosided declares gh."
+
+# The always records were evaluated at load. Re-reporting them mid-workflow
+# would put a second copy of an already-seen block in front of the model, which
+# is the same dedup argument the zero-byte rule rests on.
+run_reset
+ROOT=$(new_root)
+write_decl "$ROOT" "noreplay" \
+    '#schema\tskill-requires/v1' \
+    'koto\tversion\t-\talways' \
+    'gh\t-\t-\tmode:issues'
+RUN_ROOTS="/nonexistent"
+run_preflight "$ROOT" "noreplay" "--mode does not replay always records" --mode issues
+assert_prose_contains "the mode run reports its own record" "gh is not installed on this host."
+assert_prose_not_contains "the mode run does not re-report an unsatisfied always record" \
+    "koto is not installed on this host"
+
+# Zero bytes when every matching record is satisfied, asserted with wc -c for
+# the same reason the load-time rule is.
+run_reset
+ROOT=$(new_root)
+BINDIR=$(mktmp)
+fake_bin "$BINDIR" "gh"
+write_decl "$ROOT" "modesat" \
+    '#schema\tskill-requires/v1' \
+    'gh\t-\t-\tmode:issues'
+RUN_PATH="$BINDIR"
+run_preflight "$ROOT" "modesat" "satisfied mode run" --mode issues
+assert_zero_bytes "a satisfied mode run emits zero bytes (wc -c, combined)"
+
+# One mode's records are not another's.
+run_reset
+ROOT=$(new_root)
+write_decl "$ROOT" "twomodes" \
+    '#schema\tskill-requires/v1' \
+    'gh\t-\t-\tmode:issues' \
+    'jq\t-\t-\tmode:coordinated'
+RUN_ROOTS="/nonexistent"
+run_preflight "$ROOT" "twomodes" "one mode at a time" --mode coordinated
+assert_prose_contains "the named mode's record is evaluated" "jq is not installed on this host."
+assert_prose_not_contains "another mode's record is not" "gh is not installed on this host"
+
+# An unknown mode, and a declaration with no mode record at all, are silent and
+# exit 0. Neither is a finding this check can make: an unknown mode name is
+# indistinguishable here from a mode whose records are all satisfied, and the
+# scan that can tell them apart is scripts/check-skill-requires.sh.
+run_preflight "$ROOT" "twomodes" "unknown mode name" --mode nosuchmode
+assert_zero_bytes "an unknown mode name emits nothing and exits 0"
+
+run_reset
+ROOT=$(new_root)
+write_decl "$ROOT" "allalways" \
+    '#schema\tskill-requires/v1' \
+    'gh\t-\t-\talways'
+RUN_ROOTS="/nonexistent"
+run_preflight "$ROOT" "allalways" "mode run against an all-always declaration" --mode multi-pr
+assert_zero_bytes "a mode with no matching record emits nothing and exits 0"
+
+# The off-PATH posture, and therefore the whole block-shape set, is shared. The
+# mode run is the same renderer with a different filter.
+run_reset
+ROOT=$(new_root)
+TOOLROOT=$(mktmp)
+fake_bin "$TOOLROOT" "koto"
+write_decl "$ROOT" "modeoffpath" \
+    '#schema\tskill-requires/v1' \
+    'koto\tversion\t-\tmode:coordinated'
+RUN_ROOTS="$TOOLROOT"
+run_preflight "$ROOT" "modeoffpath" "off-PATH under --mode" --mode coordinated
+assert_prose_contains "a mode run renders the off-PATH block unchanged" \
+    "prerequisite not met, and nothing needs installing."
+assert_prose_contains "a mode run's off-PATH block still refuses to offer an install" \
+    "Do not reinstall koto. It is already here."
+
+# Argument shapes. A malformed mode name is a malformed invocation and is
+# reported as one; that is a different thing from an unknown mode, which is
+# silent, and the two must not collapse into each other.
+run_reset
+ROOT=$(new_root)
+write_decl "$ROOT" "modeargs" '#schema\tskill-requires/v1' 'gh\t-\t-\tmode:issues'
+run_preflight "$ROOT" "modeargs" "path-shaped mode name" --mode ../etc
+assert_contains "a mode name outside [a-z0-9-]+ is refused" \
+    "the mode name must match [a-z0-9-]+"
+assert_not_contains "a refused mode name is not echoed into the report" "../etc"
+
+run_preflight "$ROOT" "modeargs" "wrong second argument" --node issues
+assert_contains "a second argument other than --mode is refused" \
+    "the only second argument is \`--mode\`"
+
+run_preflight "$ROOT" "modeargs" "dangling --mode" --mode
+assert_contains "a --mode with no value is refused, not fatal" \
+    "expected a skill name, optionally followed by"
+
+# ---------------------------------------------------------------------------
+# The real tree: /roadmap's mode:issues records, from both sides.
+#
+# skills/roadmap/requires.tsv is the first consumer of the mode entry point, so
+# the committed declaration is exercised rather than only a fixture. PATH is
+# scrubbed and the root list points nowhere, so `gh` is genuinely unresolvable
+# for the duration of both runs.
+# ---------------------------------------------------------------------------
+run_reset
+RC=0
+ROADMAP_LOAD=$(mktmp)/roadmap-load
+(
+    cd "$REPO" || exit 111
+    PATH=""
+    export PATH
+    SHIRABE_PREFLIGHT_ROOTS="/nonexistent"
+    export SHIRABE_PREFLIGHT_ROOTS
+    CLAUDE_PLUGIN_ROOT="$REPO" "$BASH_BIN" "$REPO/scripts/skill-preflight.sh" "roadmap"
+) >"$ROADMAP_LOAD" 2>&1 || RC=$?
+OUT=$(cat "$ROADMAP_LOAD")
+OUT_BYTES=$(wc -c <"$ROADMAP_LOAD" | tr -d ' ')
+if [ "$RC" -ne 0 ]; then
+    fail "roadmap load: the check exited $RC; it must exit 0 on every path"
+fi
+assert_prose_not_contains "a /roadmap load says nothing about gh, which it declares mode:issues" \
+    "gh is not installed on this host"
+
+RC=0
+ROADMAP_MODE=$(mktmp)/roadmap-mode
+(
+    cd "$REPO" || exit 111
+    PATH=""
+    export PATH
+    SHIRABE_PREFLIGHT_ROOTS="/nonexistent"
+    export SHIRABE_PREFLIGHT_ROOTS
+    CLAUDE_PLUGIN_ROOT="$REPO" "$BASH_BIN" "$REPO/scripts/skill-preflight.sh" "roadmap" --mode issues
+) >"$ROADMAP_MODE" 2>&1 || RC=$?
+OUT=$(cat "$ROADMAP_MODE")
+if [ "$RC" -ne 0 ]; then
+    fail "roadmap --mode issues: the check exited $RC; it must exit 0 on every path"
+fi
+assert_prose_contains "/roadmap --mode issues reports the gh the load deferred" \
+    "gh is not installed on this host."
+
+# ---------------------------------------------------------------------------
 # Plugin root validation runs before anything is sourced.
 # ---------------------------------------------------------------------------
 run_reset
@@ -562,7 +831,7 @@ if [ "$RC" -ne 0 ]; then
     fail "no argument: the check exited $RC; it must exit 0 on every path"
 fi
 assert_contains "invoking with no skill name is reported, not fatal" \
-    "expected exactly one argument"
+    "expected a skill name, optionally followed by"
 
 run_reset
 ROOT=$(new_root)
@@ -586,6 +855,125 @@ if [ "$RC" -ne 0 ]; then
     fail "real checkout: the check exited $RC; it must exit 0 on every path"
 fi
 assert_zero_bytes "the entry point is silent against this checkout"
+
+# ---------------------------------------------------------------------------
+# The injection path, not the script.
+#
+# Every case above invokes the entry point directly. None of them would notice
+# if the text inside a skill's `!`-prefixed line stopped working: a typo in the
+# path, a lost `2>&1`, an unexpanded ${CLAUDE_PLUGIN_ROOT}, all give the same
+# zero bytes a satisfied host gives, and the `|| true` swallows the 127.
+#
+# So these cases take the line out of a SKILL.md and run it. The fixture plugin
+# under skills/inflight/evals/fixtures/preflight-liveness carries two skills
+# whose bodies open with the canonical injected line -- one declaring a tool no
+# host ships, one declaring `sh` -- and its scripts/ is symlinked into this
+# tree, so the line under test resolves to the code under test.
+#
+# This is the deterministic half of the liveness check and it runs on every
+# pull request. The other half is the eval in skills/inflight/evals/evals.json,
+# which loads the same fixture through a real skill invocation and asserts the
+# report reaches a model; that one needs an API key and runs on the eval
+# schedule. Neither replaces the other: this suite proves the line executes,
+# the eval proves the model receives what it printed.
+# ---------------------------------------------------------------------------
+
+LIVENESS_ROOT="$REPO/skills/inflight/evals/fixtures/preflight-liveness"
+
+# extract_injected_line <skill-md>
+#
+# Prints the command inside the file's first `!`...`` line: the text the
+# harness runs, taken from the file rather than retyped here. A test that
+# retyped it would pass against a SKILL.md whose line had rotted.
+extract_injected_line() {
+    local file="$1" line body
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            '!`'*)
+                body="${line#!\`}"
+                printf '%s' "${body%%\`*}"
+                return 0
+                ;;
+        esac
+    done <"$file"
+    return 1
+}
+
+# run_injected <root> <command> <case-name> [<disable-value>]
+#
+# Runs the extracted line through `eval`, which is how the harness runs it: it
+# is a shell command line, complete with the `2>&1` and the `|| true`, not an
+# argv the test assembles.
+run_injected() {
+    local root="$1" cmd="$2" name="$3" disable="${4-}"
+    local capture
+    capture=$(mktmp)/injected
+    RC=0
+    (
+        cd "$REPO" || exit 111
+        CLAUDE_PLUGIN_ROOT="$root"
+        export CLAUDE_PLUGIN_ROOT
+        if [ -n "$disable" ]; then
+            SHIRABE_PREFLIGHT_DISABLE="$disable"
+            export SHIRABE_PREFLIGHT_DISABLE
+        else
+            unset SHIRABE_PREFLIGHT_DISABLE
+        fi
+        eval "$cmd"
+    ) >"$capture" 2>&1 || RC=$?
+    OUT_BYTES=$(wc -c <"$capture" | tr -d ' ')
+    OUT=$(cat "$capture")
+    if [ "$RC" -ne 0 ]; then
+        fail "$name: the injected line exited $RC; it must exit 0 on every path"
+    fi
+}
+
+if [ ! -d "$LIVENESS_ROOT" ]; then
+    fail "the liveness fixture is missing from $LIVENESS_ROOT"
+else
+    UNSAT_MD="$LIVENESS_ROOT/skills/preflight-liveness-unsat/SKILL.md"
+    SAT_MD="$LIVENESS_ROOT/skills/preflight-liveness-sat/SKILL.md"
+
+    UNSAT_CMD=$(extract_injected_line "$UNSAT_MD") || UNSAT_CMD=""
+    SAT_CMD=$(extract_injected_line "$SAT_MD") || SAT_CMD=""
+
+    # The shape is asserted before the behaviour. A fixture whose line had
+    # drifted from the twenty shipped ones would still be a live injection, and
+    # it would stop being evidence about them.
+    if [ "$UNSAT_CMD" = 'bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh preflight-liveness-unsat 2>&1 || true' ]; then
+        pass "the unsatisfiable fixture carries the canonical injected line"
+    else
+        fail "the unsatisfiable fixture's injected line has drifted: $UNSAT_CMD"
+    fi
+    if [ "$SAT_CMD" = 'bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh preflight-liveness-sat 2>&1 || true' ]; then
+        pass "the satisfied fixture carries the canonical injected line"
+    else
+        fail "the satisfied fixture's injected line has drifted: $SAT_CMD"
+    fi
+
+    # The liveness assertion. A non-empty report here is the one signal that
+    # separates "the check ran and found nothing" from "the check never ran".
+    run_injected "$LIVENESS_ROOT" "$UNSAT_CMD" "unsatisfiable fixture through the injected line"
+    if [ "$OUT_BYTES" -gt 0 ]; then
+        pass "the injected line produces a non-empty report for an unsatisfiable declaration"
+    else
+        fail "the injected line produced 0 bytes for an unsatisfiable declaration; the injection path is dead"
+    fi
+    assert_prose_contains "the injected line's report names the fixture skill" \
+        "shirabe /preflight-liveness-unsat: prerequisite not met."
+    assert_prose_contains "the injected line's report names the undeclarable tool" \
+        "preflight-absent-tool is not installed on this host."
+
+    # The control. Same plugin, same line, a declaration every host meets.
+    run_injected "$LIVENESS_ROOT" "$SAT_CMD" "satisfied fixture through the injected line"
+    assert_zero_bytes "the injected line is silent for a satisfied declaration"
+
+    # The kill switch reaches the injection path too, which is why the eval
+    # that owns the liveness assertion must run with it cleared. Asserting it
+    # here keeps that requirement from living only in a comment.
+    run_injected "$LIVENESS_ROOT" "$UNSAT_CMD" "unsatisfiable fixture with the kill switch set" "1"
+    assert_zero_bytes "SHIRABE_PREFLIGHT_DISABLE=1 silences the injected line as well"
+fi
 
 echo
 echo "skill-preflight_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"

@@ -218,6 +218,50 @@ shirabe	roadmap populate	--no-issues	always
 gh	-	-	mode:issues
 ```
 
+## Verifying a mode-scoped record
+
+A `mode:<name>` record is not checked when the skill loads. It can't be: the
+skill hasn't chosen a mode yet, and a check that reported the record satisfied
+or unsatisfied at that point would be reporting an evaluation it never made. The
+load-time report is therefore silent about mode records entirely -- not
+"deferred", not "skipped", nothing. The deferral is visible in field four, which
+a reader inspects without running anything.
+
+The record still gets verified. The skill runs the check itself, at the step
+that selects the mode:
+
+```
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh <skill-name> --mode <name> 2>&1 || true
+```
+
+That run evaluates the `mode:<name>` records and only those. The `always`
+records were checked at load and are not re-reported; a second copy of a block
+the model has already read is exactly what the zero-byte rule exists to prevent.
+Everything else matches the load-time report: the same block shapes, the same
+four unsatisfied cases, zero bytes when every matching record is satisfied, and
+exit 0 on every path. A mode name that matches no record is silent too, so
+adding the call to a skill that turns out to need no mode record costs nothing
+and says nothing.
+
+**This is not an injected line, and it must never be written as one.** The
+load-time check is a `!`-prefixed command at column 0 in SKILL.md, resolved by
+the harness before the model sees the body, covered by an `allowed-tools` entry
+in the same file, and checked by `scripts/check-skill-injection.sh`. The
+mode call is none of those things: it is an instruction in the skill's prose
+that the agent follows mid-run, like every other command a phase tells it to
+run. `scripts/check-skill-injection.sh` reads only lines beginning with `` !` ``
+at column 0, so it never sees this one, and the `allowed-tools` frontmatter
+governs the injected line rather than this call.
+
+The `2>&1 || true` guard is carried anyway, and it is not optional. A missing
+script or an unexpanded `${CLAUDE_PLUGIN_ROOT}` still exits 127, and every
+argument for swallowing that at load applies with more force at a phase
+boundary, where a run that dies has already written state.
+
+Where a skill has no mode-scoped record, it makes no mode call, and the reason
+is written down at the step that selects the mode rather than left as an
+absence. `/plan`'s step 3.6 is the worked example.
+
 ## What the conformance scan checks
 
 `scripts/check-skill-requires.sh` runs in CI and checks six things: that every
@@ -230,6 +274,75 @@ strings in the skill's own phases.
 Flag extraction is the check that catches omission, which is the one failure
 mode a description can still have. When a record trips the cadence split, the
 scan's failure text names this file.
+
+The check runs one way. An extracted flag that no record names is a finding; a
+declared flag the extractor never sees is not, because a call can live in prose
+the extractor doesn't read and because over-declaring costs a probe rather than
+a missed prerequisite.
+
+Extraction is scoped so that a fixture or an eval scenario is never read as a
+call: `evals/` and `*_test.sh` are out, a skill's files are searched only inside
+its own directory, a shell comment isn't a command line, and in Markdown a
+command has to sit inside an inline-code span or a fenced block.
+
+## Turning the check off
+
+`SHIRABE_PREFLIGHT_DISABLE` is the kill switch. Set it to anything other than
+empty, `0`, or `false` and `scripts/skill-preflight.sh` short-circuits to
+silence and exit 0 before it resolves the plugin root or sources anything. It
+is the same shape as `PR_BODY_HOOK_DISABLE` in
+`crates/shirabe/src/pr_body_hook.rs`, so the plugin has one spelling for
+"operator turned this off" rather than one per subsystem.
+
+Setting it means the check does not run. No declaration is read, no tool is
+resolved, no report is produced — and since a satisfied host is silent too, a
+session with the variable set looks exactly like a session where every
+prerequisite was met. It is for a host where the check itself is the problem,
+and for a harness that needs a skill body to arrive byte-identical to how it
+arrived before this subsystem existed. It is not a way to make a report go
+away: the report is the finding.
+
+It doesn't weaken anything. There is no path where a declaration is read less
+strictly, a resolution refusal is relaxed, or a block is suppressed after being
+rendered — either the whole check runs or none of it does.
+
+`scripts/run-evals.sh` sets it, and the reason is worth knowing because it will
+recur. Tier-2 eval fixtures put shim binaries under the working directory and
+prepend that directory to PATH; the resolver refuses to execute a binary that
+resolves under `$PWD`, correctly, and emits a "was not probed" block. Those
+evals are transcript-graded, so the block silently changes the input to every
+scenario in the corpus. The fix is to not run the check inside the harness, not
+to teach the resolver to trust a working directory.
+
+The exception is the liveness eval in `skills/inflight/evals/evals.json`, which
+runs with the variable cleared. Its whole subject is whether the injected line
+still executes; disabling the check there would make it assert nothing.
+
+## When the text is a citation, not a call
+
+A skill's files carry two kinds of `shirabe validate --x` text and nothing
+mechanical separates them. `skills/plan/SKILL.md` documents the validator's
+whole-tree mode, which CI runs and `/plan` never invokes; `skills/design/`
+names `shirabe validate --lifecycle-chain <prd-path>` as the authority for a
+posture check it does make. Same shape, opposite answer.
+
+So the judgment is written down, in the declaration, next to the records it
+qualifies:
+
+```
+#not-a-call-site	skills/plan/SKILL.md	shirabe	--lifecycle	Documents the validator's whole-tree mode, which CI runs; /plan does not.
+```
+
+Five fields. It's a comment line, so the load-time reader skips it as it skips
+any other. The path is repo-relative and has to sit inside the declaring
+skill's own directory, so an exemption can't reach across a skill boundary. The
+reason is mandatory. An exemption that stops matching an extracted flag fails as
+stale, in both directions like the discard enumeration, so the list can't rot
+into a permanent allowlist: edit the line it exempts and the judgment comes back
+through review.
+
+Reach for it only when the text really is a citation. The default answer to the
+finding is to add the flag to the record.
 
 The load-time reader enforces the same field rules independently, and it's the
 load-bearing copy. CI runs after the fact, while a reviewer with the plugin root

@@ -1,0 +1,10 @@
+{
+  "name": "shirabe-preflight-liveness-fixture",
+  "description": "Eval fixture: two skills that exercise the injected preflight line, one unsatisfiable and one satisfied",
+  "version": "0.0.0-fixture",
+  "author": {
+    "name": "tsukumogami"
+  },
+  "license": "Apache-2.0",
+  "skills": "./skills/"
+}

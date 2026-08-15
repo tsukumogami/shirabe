@@ -50,6 +50,36 @@ interpolated into any branch name or emitted shell (see **Security Consideration
 `/execute` is the first untrusted-enum consumer; the `/work-on` dispatcher is the
 second, and re-validates the same enum independently.
 
+**When the enum resolves to `coordinated`, verify the mode-scoped
+prerequisites before the coordinated path starts.** `skills/execute/requires.tsv`
+declares one `mode:coordinated` record — `shirabe validate` with
+`--coordination-body` and `--merge-gate`, the two modes a single-pr plan never
+reaches. It was not checked when this skill loaded: the load-time check
+evaluates `always` records only, because the PLAN had not been read yet and
+reporting on a record it never evaluated would be a claim it can't support.
+Field four of the declaration is where the deferral is visible. Run, right
+after the enum re-validation passes and before the loop drives anything:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute --mode coordinated 2>&1 || true
+```
+
+Silence means the coordinated surface is present. Output means the merge-last
+gate this path fails closed on cannot run as declared — surface it before the
+first child is dispatched, not at the gate, where a whole cascade has already
+landed.
+
+The `single-pr` path makes no such call: the declaration has no `mode:single-pr`
+record, because every tool that path needs is already `always`.
+
+This is a command the skill runs mid-run through Bash, not a `!`-prefixed
+injected line at column 0, so `scripts/check-skill-injection.sh` — which reads
+only injected lines — never sees it and the `allowed-tools` frontmatter is not
+what governs it. The `2>&1 || true` guard is carried regardless: a missing
+script or an unexpanded `${CLAUDE_PLUGIN_ROOT}` exits 127, and an unguarded 127
+here kills a run mid-cascade. The contract for the `--mode` call is in
+[`${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md`](${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md).
+
 ## Execution-Mode Flags
 
 `/execute` honors an explicit autonomy mode resolved `flag > CLAUDE.md

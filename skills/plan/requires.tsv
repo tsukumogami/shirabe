@@ -4,10 +4,18 @@
 # Phase 1 and Phase 7 move the upstream design to Planned; no flag is on either
 # call line.
 #
+# Every record here is `always`, and the absence of a mode-scoped record is a
+# recorded finding rather than an oversight. /plan selects single-pr or multi-pr
+# at step 3.6 of phase-3-decomposition.md, which is exactly where a mode call
+# would go; that step says in prose that /plan makes none, and this is the other
+# half of the same statement.
+#
 # gh is always rather than mode:multi-pr because Resume Logic checks for
 # existing issues with `gh issue list --search` on every run, before the
 # execution mode is known. Issue creation, labelling, and milestone work in
-# Phase 7 multi-pr add more gh subcommands but no new tool.
+# Phase 7 multi-pr add more gh subcommands but no new tool -- and gh has an
+# independent release cadence, so its record names the tool alone and multi-pr
+# cannot change what verifying it means.
 #
 # jq backs build-dependency-graph.sh (Phase 5) and create-issues-batch.sh;
 # python3 is the portable realpath in validate-plan.sh; git backs the same

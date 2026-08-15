@@ -11,6 +11,11 @@
 # It is where the milestone and mapping flags appear, and it is the only path
 # that reaches GitHub: `--no-issues` makes no gh call of any kind, so gh is
 # declared for that mode and not always.
+#
+# The two mode:issues records are not checked at load. SKILL.md's "Mode-scoped
+# prerequisite check (issue-creating mode)" section verifies them with
+# `skill-preflight.sh roadmap --mode issues`, once the mode is settled and
+# before the R14 gate.
 shirabe	roadmap populate	--no-issues	always
 shirabe	transition	-	always
 git	-	-	always

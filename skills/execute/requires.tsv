@@ -19,6 +19,9 @@
 # `--coordination-body` for offline authoring feedback on the PR body, and
 # `--merge-gate` for the live merge-last gate. Neither runs on a single-pr
 # plan, which is why they are a mode record rather than part of the always one.
+# That record is not checked at load. SKILL.md's Input Modes section verifies
+# it with `skill-preflight.sh execute --mode coordinated`, right after the
+# execution_mode enum re-validates and before the loop dispatches a child.
 #
 # gh drives the home PR throughout (pr list, pr create, pr edit, pr ready, pr
 # checks, pr view, issue view); git creates and pushes the shared branch and

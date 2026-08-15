@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# skill-preflight.sh -- the load-time prerequisite check for one shirabe skill.
+# skill-preflight.sh -- the prerequisite check for one shirabe skill.
 #
 # Usage: bash scripts/skill-preflight.sh <skill-name>
+#        bash scripts/skill-preflight.sh <skill-name> --mode <mode-name>
 #
 # Injected at column 0 in a skill body as:
 #
@@ -12,6 +13,27 @@
 # that is not met. A fully satisfied declaration prints nothing at all -- zero
 # bytes on stdout and on stderr, which is a rule a test asserts with `wc -c`
 # rather than by inspection.
+#
+# THE TWO ENTRY POINTS ARE ONE SCRIPT
+#
+# Without `--mode` the run evaluates the `always` records and only those. A
+# `mode:` record produces no byte at load, because the mode has not been chosen
+# yet and any byte about it would imply an evaluation that did not happen. The
+# deferral is visible in the declaration's fourth field, which a reader can
+# inspect without running anything, and it is deliberately NOT visible in the
+# load-time report.
+#
+# With `--mode <name>` the run evaluates the `mode:<name>` records and only
+# those. The `always` records were checked at load; repeating them would put a
+# second copy of an already-seen block in front of the model. That call is made
+# by the skill at the step that selects the mode -- an instruction the skill
+# follows mid-run, not a `!`-prefixed injected line -- under the same
+# `2>&1 || true` guard, because aborting mid-workflow after phases have run and
+# written state is worse than aborting at load. See
+# references/tool-declaration-policy.md, "Verifying a mode-scoped record".
+#
+# The two runs share the filter, the block shapes, and the four unsatisfied
+# cases. The only difference is which value of field four passes the filter.
 #
 # THIS SCRIPT ALWAYS EXITS 0.
 #
@@ -42,12 +64,61 @@
 # surface, and preflight_render_route for the one command an absent-tool block
 # prints. Until they exist the corresponding text says what it does not know
 # rather than guessing.
+#
+# Env seams:
+#
+#   CLAUDE_PLUGIN_ROOT          the plugin root; falls back to this script's
+#                               own location one level up
+#   SHIRABE_PREFLIGHT_ROOTS     colon-separated off-PATH install roots
+#   SHIRABE_PREFLIGHT_DISABLE   operator kill switch; see the block below
 
 set -u
 
 # Deterministic byte semantics for every character-class test below.
 LC_ALL=C
 export LC_ALL
+
+# ---------------------------------------------------------------------------
+# Kill switch
+#
+# `SHIRABE_PREFLIGHT_DISABLE=1` short-circuits to silence and exit 0. Any
+# non-empty value other than `0` or `false` disables the check, mirroring
+# `PR_BODY_HOOK_DISABLE` in crates/shirabe/src/pr_body_hook.rs and the `WS_*`
+# seams in work_summary.rs, so the plugin has one spelling for "operator turned
+# this off" rather than one per subsystem.
+#
+# WHAT SETTING IT MEANS. The check does not run. No declaration is read, no
+# tool is resolved, no report is produced -- and because a satisfied host is
+# also silent, a session with this set is indistinguishable from a session
+# where every prerequisite was met. It is an operator kill switch for a host
+# where the check itself is the problem, and a harness seam for a process that
+# needs the skill body to arrive byte-identical to how it arrived before this
+# subsystem existed. It is not a way to make a report go away: the report is
+# the finding.
+#
+# It does NOT weaken the production path. There is no code path where a
+# declaration is read less strictly, a resolution refusal is relaxed, or a
+# block is suppressed after being rendered. The variable is read once, here,
+# before the plugin root is resolved and before anything is sourced; either the
+# whole check runs or none of it does. In particular the resolver's rule that a
+# binary resolving under $PWD is never executed stays exactly as strict -- the
+# eval-harness interaction that motivated this seam is handled by not running
+# the check in the harness, not by teaching the resolver to trust a working
+# directory.
+#
+# The one place that must NOT set it is the liveness eval, whose entire purpose
+# is to prove the injected line still runs. Disabling the check there would
+# make the eval assert nothing at all.
+#
+# Read before the root is resolved so a disabled run forks nothing: the root
+# fallback is a command substitution, and "costs the satisfied path nothing"
+# has to survive the disabled path too.
+# ---------------------------------------------------------------------------
+
+case "${SHIRABE_PREFLIGHT_DISABLE-}" in
+    ''|0|false) ;;
+    *) exit 0 ;;
+esac
 
 PREFLIGHT_EXIT_NOTE="shirabe preflight: could not locate the plugin root, so no prerequisite was checked."
 
@@ -124,11 +195,25 @@ if ! declare -f preflight_read_declaration >/dev/null 2>&1 ||
 fi
 
 # ---------------------------------------------------------------------------
-# Argument
+# Arguments
+#
+# Two shapes, and nothing else:
+#
+#   <skill-name>                     evaluate the `always` records
+#   <skill-name> --mode <mode-name>  evaluate the `mode:<mode-name>` records
+#
+# Both names are data that reaches a filesystem path and report text, so both
+# go through the same allowlist the declaration reader applies to field four:
+# [a-z0-9-]+ with no leading dash. A name that fails the allowlist is a
+# malformed invocation and is reported as one; a name that passes but matches
+# no record is a different thing entirely and is silent, which is the rule the
+# next section explains.
 # ---------------------------------------------------------------------------
 
-if [ "$#" -ne 1 ]; then
-    printf 'shirabe preflight: expected exactly one argument, the skill name; no prerequisite was checked.\n'
+PREFLIGHT_MODE=""
+
+if [ "$#" -ne 1 ] && [ "$#" -ne 3 ]; then
+    printf 'shirabe preflight: expected a skill name, optionally followed by `--mode <mode-name>`; no prerequisite was checked.\n'
     exit 0
 fi
 
@@ -142,6 +227,33 @@ esac
 if [ "${#PREFLIGHT_SKILL}" -gt 64 ]; then
     printf 'shirabe preflight: the skill name is too long; no prerequisite was checked.\n'
     exit 0
+fi
+
+if [ "$#" -eq 3 ]; then
+    if [ "$2" != "--mode" ]; then
+        printf 'shirabe preflight: the only second argument is `--mode`; no prerequisite was checked.\n'
+        exit 0
+    fi
+    PREFLIGHT_MODE="$3"
+    case "$PREFLIGHT_MODE" in
+        ''|-*|*[!a-z0-9-]*)
+            printf 'shirabe preflight: the mode name must match [a-z0-9-]+ with no leading dash; no prerequisite was checked.\n'
+            exit 0
+            ;;
+    esac
+    if [ "${#PREFLIGHT_MODE}" -gt 64 ]; then
+        printf 'shirabe preflight: the mode name is too long; no prerequisite was checked.\n'
+        exit 0
+    fi
+fi
+
+# The one value of field four this run evaluates. Everything downstream reads
+# this rather than testing for `always`, so the two entry points cannot drift
+# into two filters.
+if [ -n "$PREFLIGHT_MODE" ]; then
+    PREFLIGHT_WHEN="mode:$PREFLIGHT_MODE"
+else
+    PREFLIGHT_WHEN="always"
 fi
 
 PREFLIGHT_DECL="$PREFLIGHT_ROOT/skills/$PREFLIGHT_SKILL/requires.tsv"
@@ -302,10 +414,24 @@ preflight_split_roots
 # ---------------------------------------------------------------------------
 # Evaluate
 #
-# Only `always` records are evaluated. A `mode:` record produces no byte at
-# load -- not deferred, not satisfied, not unsatisfied -- because the mode has
-# not been chosen and any byte about it would imply an evaluation that did not
-# happen. The deferral is visible in the declaration's fourth field instead.
+# Exactly one value of field four passes the filter, and it is $PREFLIGHT_WHEN.
+#
+# On a load-time run that is `always`. A `mode:` record produces no byte -- not
+# deferred, not satisfied, not unsatisfied -- because the mode has not been
+# chosen and any byte about it would imply an evaluation that did not happen.
+# The deferral is visible in the declaration's fourth field instead.
+#
+# On a `--mode <name>` run it is `mode:<name>`, and the `always` records are the
+# ones that produce no byte: they were evaluated at load and a second copy of an
+# already-seen block is what the zero-byte rule exists to prevent.
+#
+# A well-formed mode name that matches no record therefore emits nothing and
+# exits 0, which is the same code path as a satisfied run rather than a special
+# case. That is deliberate: an unknown mode is indistinguishable from a mode
+# whose records are all satisfied, and neither is a finding this check can make.
+# The finding that a mode name matches nothing belongs to
+# scripts/check-skill-requires.sh, which sees the declaration and the skill's
+# own phases together and can tell the two apart.
 #
 # Two passes so off-PATH blocks sort first, and one block per tool rather than
 # one per record: the unresolvable postures are facts about the tool, and ten
@@ -328,7 +454,7 @@ preflight_mark_emitted() {
 for _preflight_pass in offpath other; do
     while IFS="$PREFLIGHT_TAB" read -r _tool _sub _flags _when; do
         [ -n "$_tool" ] || continue
-        [ "$_when" = "always" ] || continue
+        [ "$_when" = "$PREFLIGHT_WHEN" ] || continue
 
         preflight_resolve_tool "$_tool"
 

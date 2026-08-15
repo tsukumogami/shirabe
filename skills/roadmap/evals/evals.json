@@ -200,6 +200,23 @@
         "Transcript preserves the user's ability to override the recommendation",
         "Transcript does NOT present the disagreement as 'let user decide' with no recommendation attached"
       ]
+    },
+    {
+      "id": 15,
+      "name": "issue-creating-mode-verifies-its-mode-scoped-records",
+      "prompt": "/roadmap populate docs/roadmaps/ROADMAP-release-automation.md --issues",
+      "expected_output": "Issue-creating mode is the mode /roadmap's mode:issues records are gated on, and those records were NOT checked when the skill loaded -- the load-time preflight evaluates always records only. So before the R14 gate presents anything, the transcript runs bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh roadmap --mode issues 2>&1 || true, keeping the guard. Silence means the mode-scoped prerequisites are met and the run proceeds to the gate; output is relayed to the author as the authority on what is unmet, before any issue is filed. The agent does not substitute its own gh probe or its own install command, and it does not write the call as a !-prefixed injected line.",
+      "files": [
+        "docs/roadmaps/ROADMAP-release-automation.md"
+      ],
+      "expectations": [
+        "Transcript runs the preflight entry point with --mode issues before filing anything",
+        "Transcript keeps the 2>&1 || true guard on that call rather than running it bare",
+        "Transcript places the call on the issue-creating path only, not on the issueless --no-issues path",
+        "Transcript treats a preflight report as the authority on which prerequisite is unmet and on the command that resolves it",
+        "Transcript does NOT run its own gh version or gh auth probe as a substitute for the check",
+        "Transcript does NOT expect the load-time preflight to have already reported on gh"
+      ]
     }
   ]
 }

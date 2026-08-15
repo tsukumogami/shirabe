@@ -552,6 +552,31 @@ execution_mode: single-pr  # or multi-pr
 If the frontmatter was already written in step 3.5 or 3.R4 with a placeholder,
 update the file to reflect the confirmed mode.
 
+#### No mode-scoped prerequisite check runs here
+
+This step is where a skill with mode-scoped tool requirements would verify
+them -- the load-time check evaluates only the `always` records in
+`skills/<name>/requires.tsv`, because at load the mode has not been chosen, and
+this is the step that chooses it. `/plan` makes no such call, and the reason is
+recorded here rather than left as an absence a later reader has to re-derive:
+
+**`skills/plan/requires.tsv` carries no `mode:` record, and correctly so.**
+Every record in it is `always`. `gh` is always-required because Resume Logic
+searches for existing issues with `gh issue list --search` on every run, before
+the execution mode is known -- so multi-pr cannot be what makes `gh` needed.
+Multi-pr in Phase 7 does reach more `gh` subcommands (issue creation,
+labelling, milestone work), but `gh` has an independent release cadence, so its
+record names the tool alone and is satisfied identically either way. The rest
+-- `shirabe transition`, `jq`, `git`, `python3` -- back scripts both modes run.
+
+A mode-scoped record exists only where a mode changes which tool is needed, or
+changes a first-party subcommand or flag. Neither happens here, so there is
+nothing for a `--mode multi-pr` run to evaluate and no call to make. The rule
+is in `${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md` under
+"Verifying a mode-scoped record"; if a future change gives multi-pr a tool or a
+first-party subcommand that single-pr doesn't need, the record and the call both
+land here in the same change.
+
 ## Quality Checklist
 
 Before proceeding:

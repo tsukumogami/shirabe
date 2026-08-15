@@ -583,6 +583,22 @@
         "docs/guides/execute-friction.md documents mode-aware branch/PR targeting (single-pr adopt-the-scoping-PR; coordinated code-in-per-repo-worktrees, coordination-branch docs-only)",
         "docs/guides/execute-friction.md documents the interactive pause (paused_for_review draft before the cascade) versus --auto finalizes, and the finalization guard (shirabe validate --lifecycle-chain --mode=ready, 0/2/1 exit codes, seed-doc rule)"
       ]
+    },
+    {
+      "id": 35,
+      "name": "coordinated-plan-verifies-its-mode-scoped-record",
+      "tier": 2,
+      "mode": "plan_only",
+      "prompt": "/execute docs/plans/PLAN-multi-repo-rollout.md -- the PLAN's frontmatter carries execution_mode: coordinated.",
+      "expected_output": "The enum re-validates against {single-pr, coordinated, multi-pr} and resolves to coordinated, which is the moment /execute's one mode:coordinated record becomes live: shirabe validate's --coordination-body and --merge-gate modes, the two a single-pr plan never reaches. That record was not checked at load, because the load-time preflight evaluates always records only and the PLAN had not been read yet. So right after the re-validation passes and before the loop dispatches any child, the transcript runs bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute --mode coordinated 2>&1 || true, keeping the guard. Silence means the coordinated surface is present. Output means the merge-last gate cannot run as declared, and it is surfaced before the first child rather than at the gate, where a whole cascade has already landed. A single-pr PLAN makes no mode call, because there is no mode:single-pr record to evaluate.",
+      "files": [],
+      "expectations": [
+        "Transcript runs the preflight entry point with --mode coordinated after the enum re-validation and before dispatching any child",
+        "Transcript keeps the 2>&1 || true guard on that call rather than running it bare",
+        "Transcript makes no mode call on a single-pr PLAN, and says the declaration has no mode:single-pr record",
+        "Transcript does NOT expect the load-time preflight to have already reported on the coordination validate modes",
+        "Transcript does NOT substitute its own shirabe validate --help probe for the check"
+      ]
     }
   ]
 }

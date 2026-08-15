@@ -103,6 +103,13 @@ trap cleanup EXIT
 # Field one of every non-comment record in every requires.tsv found under the
 # declaration roots. A hardcoded list would freeze the scan's scope at the
 # moment it was written; the declarations are the thing that grows.
+#
+# `evals/` is excluded, matching list_files below and the sibling declaration
+# scan. An eval fixture declares tools to make a fixture behave, not to
+# describe what this repo calls: skills/inflight/evals/fixtures/ declares `sh`
+# so a satisfied-prerequisite twin resolves on any host, and folding that into
+# the vocabulary would charge every `sh -c ... 2>/dev/null` in the tree to a
+# declaration that exists to test something else.
 TOOLS=""
 collect_tools() {
   local root f tool
@@ -124,7 +131,7 @@ collect_tools() {
         esac
       done < "$f"
     done <<EOF
-$(find "$root" -type f -name 'requires.tsv' | LC_ALL=C sort)
+$(find "$root" -type f -name 'requires.tsv' ! -path '*/evals/*' | LC_ALL=C sort)
 EOF
   done
   return $((1 - found))
