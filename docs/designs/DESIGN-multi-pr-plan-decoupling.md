@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-multi-pr-plan-decoupling.md
 problem: |
   A PLAN's execution_mode answers three questions at once -- can this land in
@@ -33,7 +33,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 

@@ -2,9 +2,12 @@
 topic: multi-pr-plan-decoupling
 chain_started: 2026-08-15T19:45:00Z
 last_updated: 2026-08-15T20:45:00Z
-phase_pointer: phase-2
-exit: UNSET
-exit_artifacts: []
+phase_pointer: phase-4
+exit: full-run
+exit_artifacts:
+  - docs/plans/PLAN-multi-pr-plan-decoupling.md
+  - docs/designs/DESIGN-multi-pr-plan-decoupling.md
+  - docs/prds/PRD-multi-pr-plan-decoupling.md
 visibility: Public
 planned_chain:
   - brief
@@ -19,6 +22,8 @@ chain_ran:
     started_at: 2026-08-15T20:12:00Z
   - name: design
     started_at: 2026-08-15T20:30:00Z
+  - name: plan
+    started_at: 2026-08-15T20:50:00Z
 consolidation_judgments:
   - hop: brief->prd
     stage: judgment
@@ -44,6 +49,7 @@ consolidation_judgments:
       the downstream PLAN decomposes against. The adequacy test fails on its
       second clause: a reader could not follow the DESIGN's own argument
       without the document the fold would delete.
+plan_execution_mode: single-pr
 worktree_rebases:
   - phase: brief
     upstream_commits: [83d29e1, 778913e, b8b20eb, e227d7a]
@@ -51,10 +57,6 @@ worktree_rebases:
   - phase: plan
     upstream_commits: []
     impact: none
-parent_orchestration:
-  invoking_child: plan
-  suppress_status_aware_prompt: true
-  rationale: fresh-chain
 child_snapshots:
   brief:
     status: Draft
