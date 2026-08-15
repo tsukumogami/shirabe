@@ -84,15 +84,15 @@ live in inline code spans, which `prose_spans` deliberately excludes, so reusing
 it finds zero. Tracked as #293.
 
 **Acceptance Criteria**:
-- [ ] `reference_spans(body, body_start_line) -> Vec<RefSpan>` exists in `prose.rs`
-- [ ] `RefSpan` carries `line`, `text`, and `range` (byte offsets within the line)
-- [ ] A path in an inline code span, a link destination, and plain text is returned
-- [ ] A path in a fenced code block is not returned, including a fence whose first content line is itself a fence marker
-- [ ] A path in an indented code block is not returned
-- [ ] Line numbers are file lines on a document with frontmatter
-- [ ] A test asserts the byte range is correct on a line naming two distinct paths
-- [ ] The module header explains how the two functions partition one parse
-- [ ] `cargo test --workspace`, `cargo fmt --check`, `cargo clippy` clean
+- [x] `reference_spans(body, body_start_line) -> Vec<RefSpan>` exists in `prose.rs`
+- [x] `RefSpan` carries `line`, `text`, and `range` (byte offsets within the line)
+- [x] A path in an inline code span, a link destination, and plain text is returned
+- [x] A path in a fenced code block is not returned, including a fence whose first content line is itself a fence marker
+- [x] A path in an indented code block is not returned
+- [x] Line numbers are file lines on a document with frontmatter
+- [x] A test asserts the byte range is correct on a line naming two distinct paths
+- [x] The module header explains how the two functions partition one parse
+- [x] `cargo test --workspace`, `cargo fmt --check`, `cargo clippy` clean
 
 **Dependencies**: None
 
@@ -108,24 +108,24 @@ it reaches schema-less instruction files. Pin the corpus count at 21. Tracked as
 #294.
 
 **Acceptance Criteria**:
-- [ ] A reference naming `DESIGN-shirabe-scope-skill.md` under `docs/designs/` is reported, naming `docs/designs/current/DESIGN-shirabe-scope-skill.md` as the path that exists
-- [ ] The finding carries referring file, 1-indexed line, path as written, and resolved path
-- [ ] `docs/designs/DESIGN-foo.md` produces nothing (no surviving basename)
-- [ ] `docs/plans/PLAN-roadmap-plan-standardization.md` produces nothing (deleted working artifact)
-- [ ] A resolving path produces nothing, including `../prds/PRD-scope-completion-cascade.md` from `docs/designs/current/`
-- [ ] `shirabe validate skills/scope/references/phases/phase-3-exit-finalization.md` reports the stale reference, proving the check reaches a file with no frontmatter
-- [ ] A cross-repo `owner/repo:path` reference produces nothing
-- [ ] The check reads `doc.body` only, so `cargo test -p shirabe --test parity` stays green
-- [ ] Repo root is found per file by walking up to `.git`; a file with no `.git` ancestor yields no findings
-- [ ] The target index covers `docs/{briefs,prds,designs,designs/current,designs/archive,plans,roadmaps,strategies,strategies/sunset,visions,visions/sunset,competitive}`
-- [ ] A basename at more than one path yields one finding naming every match in path order
-- [ ] Resolved paths are canonicalized and any escaping the repo root are dropped
-- [ ] The target index is scanned once per repo root per run
-- [ ] `FC18` is in `is_known_check_code` and in `is_intrinsic_notice`; a test asserts `Notice` under both postures
-- [ ] A corpus test asserts the finding count over tracked markdown is exactly 21
-- [ ] Two runs over unchanged input produce byte-identical output
-- [ ] Single-file validation stays under 250 ms
-- [ ] `cargo test --workspace`, `cargo fmt --check`, `cargo clippy` clean
+- [x] A reference naming `DESIGN-shirabe-scope-skill.md` under `docs/designs/` is reported, naming `docs/designs/current/DESIGN-shirabe-scope-skill.md` as the path that exists
+- [x] The finding carries referring file, 1-indexed line, path as written, and resolved path
+- [x] `docs/designs/DESIGN-foo.md` produces nothing (no surviving basename)
+- [x] `docs/plans/PLAN-roadmap-plan-standardization.md` produces nothing (deleted working artifact)
+- [x] A resolving path produces nothing, including a relative `../prds/PRD-<name>.md` written from `docs/designs/`. **Corrected**: the criterion named `../prds/PRD-scope-completion-cascade.md` from `docs/designs/current/`, which resolves to `docs/designs/prds/` and does not exist. It is a genuine stale reference and outline 4 repairs it.
+- [x] `shirabe validate skills/scope/references/phases/phase-3-exit-finalization.md` reports the stale reference, proving the check reaches a file with no frontmatter
+- [x] A cross-repo `owner/repo:path` reference produces nothing
+- [x] The check reads `doc.body` only, so `cargo test -p shirabe --test parity` stays green
+- [x] Repo root is found per file by walking up to `.git`; a file with no `.git` ancestor yields no findings
+- [x] The target index covers `docs/{briefs,prds,designs,designs/current,designs/archive,plans,roadmaps,strategies,strategies/sunset,visions,visions/sunset,competitive}`
+- [x] A basename at more than one path yields one finding naming every match in path order
+- [x] Resolved paths are canonicalized and any escaping the repo root are dropped
+- [x] The target index is scanned once per repo root per run
+- [x] `FC18` is in `is_known_check_code` and in `is_intrinsic_notice`; a test asserts `Notice` under both postures
+- [x] A corpus test asserts the finding count over tracked markdown is exactly 23. **Corrected** from 21: the design's count omitted the two relative references above, which it recorded as resolving and which do not.
+- [x] Two runs over unchanged input produce byte-identical output
+- [x] Single-file validation stays under 250 ms
+- [x] `cargo test --workspace`, `cargo fmt --check`, `cargo clippy` clean
 
 **Dependencies**: Issue 1
 
@@ -140,22 +140,22 @@ transitions relocates a document, staging the rewritten files with the moved
 one. This is the half that stops the defect recurring. Tracked as #300.
 
 **Acceptance Criteria**:
-- [ ] A design moved to `Current` leaves its three referrers naming the new path
-- [ ] The same holds for `Superseded`, and for a VISION and a STRATEGY moved to `Sunset`
-- [ ] Rewritten files are `git add`-ed alongside the moved file
-- [ ] Output names every rewritten file and its occurrence count
-- [ ] A repointed file's diff contains only the substituted path substrings; asserted on a CRLF file and one with trailing whitespace
-- [ ] A pre-move path inside a fenced or indented code block is not rewritten
-- [ ] An inbound frontmatter `upstream:` is rewritten, and `shirabe validate` reports no R6 dangle afterward
-- [ ] A relative-form referrer is repointed and stays relative
-- [ ] Edits apply right-to-left within a line
-- [ ] A second run reports zero rewritten files rather than failing
-- [ ] Every file is validated before any is written; a mid-run write failure exits non-zero, names the failing file and those already rewritten, and does not report the move as successful
-- [ ] The file set comes from `git ls-files -- '*.md'` with `-C <work-tree-root>`
-- [ ] `git add` uses an argument vector with `--`; nothing reaches a shell
-- [ ] The writing-style finding cap is not applied
-- [ ] `shirabe validate --check FC18` after a moving transition reports zero findings for the moved document
-- [ ] `cargo test --workspace`, `cargo fmt --check`, `cargo clippy` clean
+- [x] A design moved to `Current` leaves its three referrers naming the new path
+- [x] The same holds for `Superseded`, and for a VISION and a STRATEGY moved to `Sunset`
+- [x] Rewritten files are `git add`-ed alongside the moved file
+- [x] Output names every rewritten file and its occurrence count
+- [x] A repointed file's diff contains only the substituted path substrings; asserted on a CRLF file and one with trailing whitespace
+- [x] A pre-move path inside a fenced or indented code block is not rewritten
+- [x] An inbound frontmatter `upstream:` is rewritten, and `shirabe validate` reports no R6 dangle afterward
+- [x] A relative-form referrer is repointed and stays relative
+- [x] Edits apply right-to-left within a line
+- [x] A second run reports zero rewritten files rather than failing
+- [x] Every file is validated before any is written; a mid-run write failure exits non-zero, names the failing file and those already rewritten, and does not report the move as successful
+- [x] The file set comes from `git ls-files -- '*.md'` with `-C <work-tree-root>`
+- [x] `git add` uses an argument vector with `--`; nothing reaches a shell
+- [x] The writing-style finding cap is not applied
+- [x] `shirabe validate --check FC18` after a moving transition reports zero findings for the moved document
+- [x] `cargo test --workspace`, `cargo fmt --check`, `cargo clippy` clean
 
 **Dependencies**: Issue 1
 
@@ -171,11 +171,11 @@ documents moved before the repoint existed, so no transition will run over them.
 Tracked as #295.
 
 **Acceptance Criteria**:
-- [ ] `git ls-files '*.md' | xargs shirabe validate --format json --check FC18` reports zero findings
-- [ ] Only paths change; no surrounding prose is reworded and no file reformatted
-- [ ] The corpus test from outline 2 is updated to expect 0
-- [ ] `shirabe validate --lifecycle . --mode=draft` exits 0
-- [ ] The one stale reference in `skills/plan/scripts/plan-to-tasks.sh` is noticed and a decision recorded; it is a shell comment, outside what the check reads
+- [x] `git ls-files '*.md' | xargs shirabe validate --format json --check FC18` reports zero findings
+- [x] Only paths change; no surrounding prose is reworded and no file reformatted
+- [x] The corpus test from outline 2 is updated to expect 0
+- [x] `shirabe validate --lifecycle . --mode=draft` exits 0
+- [x] The one stale reference in `skills/plan/scripts/plan-to-tasks.sh` is noticed and a decision recorded; it is a shell comment, outside what the check reads. Decision: fixed, since the repair is the same one substring and the scope boundary is about what the check reads rather than what a person may correct.
 
 **Dependencies**: Issue 2
 
@@ -190,12 +190,12 @@ test. One line of non-test code, gated on the corpus being clean. Tracked as
 #296.
 
 **Acceptance Criteria**:
-- [ ] The `"FC18"` arm is removed from `is_intrinsic_notice`
-- [ ] `effective_severity("FC18", ..)` returns `Error` under both postures
-- [ ] The diff to non-test code is one line
-- [ ] `shirabe validate` over all tracked markdown exits 0, proving the cleanup landed
-- [ ] The comment naming the remaining notice-level checks no longer mentions `FC18`
-- [ ] `cargo test --workspace`, `cargo fmt --check`, `cargo clippy` clean
+- [x] The `"FC18"` arm is removed from `is_intrinsic_notice`
+- [x] `effective_severity("FC18", ..)` returns `Error` under both postures
+- [x] The diff to non-test code is one line
+- [x] `shirabe validate --check FC18` over all tracked markdown exits 0, proving the cleanup landed. **Corrected**: an unqualified `shirabe validate` over *all* tracked markdown cannot exit 0 in this repository, because the golden corpora under `tests/fixtures/` and `evals/fixtures/` are deliberately invalid documents. CI excludes both directories; so does this criterion.
+- [x] The comment naming the remaining notice-level checks no longer mentions `FC18`
+- [x] `cargo test --workspace`, `cargo fmt --check`, `cargo clippy` clean
 
 **Dependencies**: Issue 4
 
