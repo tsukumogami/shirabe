@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   `/scope`'s consolidation judgment gates absorption on a comparison between
   two type schemas, so above the BRIEF-to-PRD hop its verdict is fixed before
@@ -21,7 +21,7 @@ source_issue: 280
 
 ## Status
 
-In Progress
+Done
 
 Requirements drawn from the accepted BRIEF plus the upstream exploration, whose
 five settled decisions are recorded under Decisions and Trade-offs rather than

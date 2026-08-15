@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   `/scope`'s consolidation judgment decides absorbability by comparing type
   schemas, so above BRIEF-to-PRD its verdict is fixed before either document
@@ -22,7 +22,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 The framing here is settled; the requirements are the downstream PRD's to
 articulate. Five decisions that would otherwise be open were settled during
