@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A durable artifact's path changes when it reaches its terminal state, and
   `shirabe transition` rewrites only the moving document's own frontmatter.
@@ -23,7 +23,7 @@ source_issue: 289
 
 ## Status
 
-In Progress
+Done
 
 The downstream DESIGN owns how a real reference is told apart from an
 illustrative one, which check code carries the finding, and where the check

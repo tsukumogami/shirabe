@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   A durable artifact's path changes when it reaches its terminal state, and
   `shirabe transition` rewrites only the moving document's own frontmatter.
@@ -19,7 +19,7 @@ outcome: |
 
 ## Status
 
-Accepted
+Done
 
 The framing here is relocation, not deletion. The downstream PRD owns the
 requirements; the design owns how a real reference is told apart from an

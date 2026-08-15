@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   Prose references to a durable artifact break when the artifact reaches its
   terminal state and moves, and nothing reads a path out of prose. The hard
@@ -41,7 +41,7 @@ user_visible_surface: false
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
@@ -101,8 +101,11 @@ context they sit in:
 | **Total** | **421** | **140** | **21** |
 
 "Relocated" means the written path names no file and a file of the same
-basename exists elsewhere in the artifact directories. Those 21 are the whole
-defect population, and their shape decides most of this design:
+basename exists elsewhere in the artifact directories. The enumeration behind
+this table matched a `docs/…/<TYPE>-<name>.md` shape, so it saw only the
+repo-rooted form; the implemented check also resolves the relative form and
+finds two more, for 23. See the correction below. Those 21 are what the design
+was drawn against, and their shape decides most of it:
 
 - All 21 are inside inline code spans. None is in a fenced block, and none is
   in plain prose.
@@ -127,14 +130,27 @@ purpose (`PLAN-roadmap-plan-standardization.md` 17,
 `ROADMAP-strategic-pipeline.md` 6). A check that reports all 140 is a check
 someone disables.
 
-Three smaller facts constrain the mechanism. Three references are written
-relative to their own file (`../prds/PRD-scope-completion-cascade.md` from
-`docs/designs/current/`) and resolve correctly, so a check that anchors every
-path at the repo root reports all three as broken. 171 mentions under `docs/`
-name a document by basename alone, which no relocation can invalidate. And one
-stale reference lives in a shell-script comment
+Three smaller facts constrain the mechanism. Some references are written
+relative to their own file — a `../prds/PRD-<name>.md` form, resolved against
+the referring document's directory rather than the repo root — so a check that
+anchors every path at the root reports every one of them as broken. 171
+mentions under `docs/` name a document by basename alone, which no relocation
+can invalidate. And one stale reference lives in a shell-script comment
 (`skills/plan/scripts/plan-to-tasks.sh:428`), outside anything the validator
 parses as markdown.
+
+**Correction, recorded at implementation.** An earlier revision of this
+paragraph asserted that the relative references in the corpus resolve
+correctly. Two of them do not. `DESIGN-scope-completion-cascade.md` moved from
+`docs/designs/` into `docs/designs/current/` and its two `../prds/` and
+`../briefs/` links moved with it, so they now name a `docs/designs/prds/` and
+a `docs/designs/briefs/` that do not exist. They are stale references of the
+same family this design is about, arriving from the other direction: a
+document's own outbound links going stale because *it* moved, rather than its
+inbound ones going stale because its target did. The corpus figure is
+therefore 23 rather than 21, and resolving the relative form against the
+referring file is what finds the extra two rather than merely keeping them
+quiet.
 
 ## Decision Drivers
 
@@ -471,12 +487,30 @@ with a known artifact prefix and ends in `.md`. The prefix set is derived from
 adding it to the formats map, and the same longest-prefix logic `detect_format`
 uses decides what counts.
 
-Two candidate classes are dropped before resolution:
+Three candidate classes are dropped before resolution:
 
 - **Cross-repo references** in the `owner/repo:path` convention. There is no
   local path to resolve, exactly as `check_upstream_resolves` skips them.
 - **Absolute paths.** They are not a form this corpus uses and resolving them
   would let a finding depend on the host filesystem.
+- **URLs.** A `https://…/DESIGN-a.md` names a document on another host.
+
+**Added at implementation: the base a path is written against.** A candidate
+also has to be one the check knows the base of, and there are two such forms:
+a `./` or `../` path, whose base is the referring file, and a path whose
+directory is one of the artifact directories, whose base is the work tree
+because that is the only place that directory exists. Anything else is written
+against a base the check cannot see, and resolving it against the work-tree
+root manufactures findings — measured, six of them, all from golden-corpus
+fixture names like `real/PRD-roadmap-skill.md` and
+`corpus/real/DESIGN-gha-doc-validation.md` written relative to the corpus
+directory and colliding with real documents that share their basenames.
+
+This is not Option 1B wearing a disguise. That option asked where the
+*referring file* lives, which does not correlate with anything being
+separated; this asks what the *written path* claims, which is the claim under
+test. Both genuine defects in `skills/` survive it, because they write a
+`docs/…` path like everyone else.
 
 ### The resolver
 
