@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   An agent holding shirabe's skills can be handed a finished plan and still not
   run it under the sanctioned workflow, either by never invoking the skill or by
@@ -21,12 +21,22 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 The framing here stops at the boundary of the problem, the outcome, the
 journeys, and the scope. Which mechanism enforces the contract, and how the
 record reaches a reader who was not at the machine, are downstream questions
 the PRD and DESIGN own.
+
+Phase 4 jury returned all-PASS after two rounds. The structural reviewer's
+first pass failed the `problem` frontmatter scalar for exceeding the 2-4 line
+range, a defect `shirabe validate` does not check; the content reviewer passed
+all five criteria and raised two coherence findings, both applied. Three open
+questions carried at Draft were closed out of this document on acceptance and
+handed to the downstream PRD, which owns them: whether the enforcement travels
+with the skill or with the workspace manager, what the check asserts for a plan
+spanning more than one repository, and whether the conflict-surfacing route
+needs a durable record of its own.
 
 ## Problem Statement
 
@@ -191,19 +201,6 @@ serving them means making the record travel, which is the excluded work.
   its own change to what the workflow is permitted to write.
 - **Re-running or repairing past non-conforming work.** The feature governs
   runs from the point it ships forward.
-
-## Open Questions
-
-- Whether the enforcement travels with the skill itself or is distributed by
-  the workspace manager. Both routes reach the same sessions; they differ in
-  who can turn the mechanism off and in whether adopters who do not use the
-  workspace manager receive it. The PRD picks the requirement; the DESIGN picks
-  the mechanism.
-- What the check asserts when a plan spans more than one repository. That
-  execution path deliberately runs without a single orchestration session, so a
-  check that assumes one would report a conforming run as a failure.
-- Whether the conflict-surfacing route needs a durable record of its own, or
-  whether surfacing it to the author at the time is sufficient.
 
 ## References
 
