@@ -303,9 +303,9 @@ Example output skeleton:
 >     A new BRIEF will be written for this topic, with no ROADMAP
 >     behind it. If one already sequences this feature, re-invoke as
 >     `/scope <topic> --upstream <path-to-the-ROADMAP>` and this
->     chain will attach the BRIEF to it. No candidate has been
->     looked for; this is a notice, not a question, and the chain
->     proceeds as proposed.
+>     chain will ground the BRIEF in it and record it on the PLAN. No
+>     candidate has been looked for; this is a notice, not a question,
+>     and the chain proceeds as proposed.
 >   /prd — runs (no settled artifact at the canonical path)
 >   /design — runs; roster shape from P1 fires, P2 does-not-fire,
 >     P3 fires
@@ -340,9 +340,9 @@ The wording is fixed. Emit it verbatim:
 > *"A new BRIEF will be written for this topic, with no ROADMAP
 > behind it. If one already sequences this feature, re-invoke as
 > `/scope <topic> --upstream <path-to-the-ROADMAP>` and this chain
-> will attach the BRIEF to it. No candidate has been looked for;
-> this is a notice, not a question, and the chain proceeds as
-> proposed."*
+> will ground the BRIEF in it and record it on the PLAN. No candidate
+> has been looked for; this is a notice, not a question, and the chain
+> proceeds as proposed."*
 
 Substitute the run's validated topic slug for `<topic>`. Leave
 `<path-to-the-ROADMAP>` as written — it is a shape, not a

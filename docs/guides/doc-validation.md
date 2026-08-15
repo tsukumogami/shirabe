@@ -25,25 +25,25 @@ For recognized files, the validator:
    (R7). STRATEGY docs in public repos: prohibited section headings (R8).
    Private-only formats such as COMP: rejected outside private visibility
    (R9), and the gate fires before FC01-FC04.
-4. **FC17–FC18 -- absorbed documents.** Both are error-level and both are
+4. **FC18–FC19 -- absorbed documents.** Both are error-level and both are
    **gated entirely on a document declaring an `absorbed:` frontmatter
    key**. A document that declares no absorption -- which is every document
    written before `/scope` gained the ability to fold at any hop -- never
    sees either check.
 
-   FC17 covers the declaration and the contribution sections it implies:
+   FC18 covers the declaration and the contribution sections it implies:
    that the field yields a usable entry, that every entry names a real
    upstream document and is not cross-repo, that each names a type above
    the carrying document's own, that the implied `## Absorbed <Type>`
    sections appear contiguously right after `## Status` in chain order,
    and that `## Status` carries a well-formed absorption line for each.
 
-   FC18 covers requirement citations orphaned by a fold: a document that
+   FC19 covers requirement citations orphaned by a fold: a document that
    absorbed a PRD and then cites an `R<n>` it does not itself define. It
    fires only for documents that absorbed a PRD, because a PRD is the only
    type that defines requirement numbers.
 
-   FC18 is deliberately *not* a general check that every `R<n>` citation
+   FC19 is deliberately *not* a general check that every `R<n>` citation
    resolves. Roughly 77 documents in this repository cite a requirement
    number that resolves nowhere, and a general rule would fail all of them
    -- those are a separate cleanup, not this check's business.

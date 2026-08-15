@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Check codes this feature introduces.
-const ADDED_CODES: [&str; 2] = ["FC17", "FC18"];
+const ADDED_CODES: [&str; 2] = ["FC18", "FC19"];
 
 fn worktree_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

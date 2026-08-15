@@ -439,6 +439,23 @@
         "Transcript still asks the user, treating the recommendation as overridable",
         "Transcript does NOT present the needs-* labels as a bare list for the user to pick from"
       ]
+    },
+    {
+      "id": 32,
+      "name": "upstream-flag-records-the-roadmap",
+      "prompt": "/plan docs/designs/DESIGN-inline-diff.md --upstream docs/roadmaps/ROADMAP-editor.md",
+      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before classifying the positional argument, so the input_type is design and the topic slug is 'inline-diff' derived from the DESIGN filename -- never from the ROADMAP's. Handing the roadmap positionally instead would flip input_type to roadmap, displace the design, force multi-pr, and name the plan after the roadmap. The flag's value is validated in order: cross-repo discrimination first, then canonicalization with symlink resolution and a bounds check, then confinement to <repo-root>/docs/roadmaps/, then the ROADMAP- basename, then the wip/ and tracked-by-git rejections, then the private-upstream omission. Phase 7 writes a sequence-valued upstream: into docs/plans/PLAN-inline-diff.md with the design first and the roadmap second. The PLAN carries the roadmap because it is a working artifact the cascade deletes before the roadmap, so the link cannot dangle; no durable document in the chain may name one. A bare --upstream, or a second occurrence, is rejected at Phase 0.",
+      "files": [
+        "docs/designs/DESIGN-inline-diff.md",
+        "docs/roadmaps/ROADMAP-editor.md"
+      ],
+      "expectations": [
+        "Plan parses --upstream and its value before classifying the positional argument",
+        "Plan keeps input_type design and derives the topic slug 'inline-diff' from the positional argument, NOT from the ROADMAP basename",
+        "Plan validates the --upstream value with cross-repo discrimination first, then canonicalization, confinement to docs/roadmaps/, the ROADMAP- basename, the wip/ and tracked-by-git rejections, and the private-upstream omission",
+        "Plan writes a sequence-valued upstream: with the design first and the roadmap second",
+        "Plan explains that the PLAN carries the roadmap because no durable document may name a working artifact"
+      ]
     }
   ]
 }

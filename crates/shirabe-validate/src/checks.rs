@@ -15,7 +15,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::doc::{Config, Doc, FieldEntries, ValidationError};
-use crate::formats::FormatSpec;
+use crate::formats::{detect_format, FormatSpec, Lifetime};
 use crate::gh::{is_valid_owner_or_repo, ClientError, IssueState, IssueStateClient, PrContext};
 use crate::mermaid::{extract_diagram, find_dependency_graph_block, Diagram, Issue};
 use crate::table::{parse_issue_outlines, parse_issues_table, Profile, Row, RowKind, Table};
@@ -40,6 +40,36 @@ const PROHIBITED_PUBLIC_STRATEGY_SECTIONS: &[&str] = &["Competitive Consideratio
 /// specially to emit a migration hint pointing the author at the canonical
 /// three-column shape.
 const LEGACY_PLAN_TABLE_COLUMNS: &[&str] = &["Issue", "Title", "Dependencies", "Complexity"];
+
+/// The canonical root of the git working tree the process is running in, or
+/// `None` when git cannot answer (not a repository, or git is unavailable).
+///
+/// Used as the containment base for an `upstream:` entry. Returning `None`
+/// rather than falling back to the working directory is deliberate: with no
+/// repository there is no "inside the repository" to assert, and inventing a
+/// base would refuse paths on a property nobody established.
+fn git_work_tree_root() -> Option<std::path::PathBuf> {
+    let out = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(out.stdout).ok()?;
+    std::fs::canonicalize(text.trim()).ok()
+}
+
+/// The finding code the schema gate reports under.
+///
+/// Named rather than spelled `"SCHEMA"` at each site because three consumers
+/// now key on it and they must agree: `check_schema` produces it,
+/// `main.rs` rolls a run carrying one up to the incomplete outcome, and
+/// `report::skipped_inputs` derives the envelope's `skipped` array from it.
+/// A finding under this code means the document was routed to a format and
+/// then not checked against it.
+pub const SCHEMA_SKIP_CODE: &str = "SCHEMA";
 
 /// Returns a SCHEMA `ValidationError` (to be emitted as `::notice`) if
 /// `doc.schema` is not `spec.schema_version`. Returns `None` if the schema
@@ -179,7 +209,7 @@ static ABSORBED_ENTRY_RE: LazyLock<Regex> =
 
 /// What a doc's `absorbed:` declaration turned out to be.
 ///
-/// One parse, shared by the required-sections splice and by FC17. Sharing is
+/// One parse, shared by the required-sections splice and by FC18. Sharing is
 /// load-bearing rather than tidy: if the splice ran against an unvalidated
 /// entry, one bad declaration would produce two diagnostics for one cause, and
 /// the misleading one — a missing required section — is the louder of the two.
@@ -191,7 +221,7 @@ pub enum AbsorbedDecl {
     Absent,
     /// Present, and every entry names a known upstream type.
     Valid(Vec<AbsorbedEntry>),
-    /// Present and unusable. Carries the offending entry for FC17's message.
+    /// Present and unusable. Carries the offending entry for FC18's message.
     Invalid(InvalidAbsorbed),
 }
 
@@ -330,7 +360,7 @@ static STATUS_ABSORBED_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^Absorbed \[[^\]]+\]\((?<path>[^)]+)\); carried in (?<heading>.+)\.$").unwrap()
 });
 
-/// FC17 -- the `absorbed:` declaration and the contribution sections it implies.
+/// FC18 -- the `absorbed:` declaration and the contribution sections it implies.
 ///
 /// Gated entirely on `absorbed:` being present, so it is silent on every
 /// document that declares no absorption. Six clauses:
@@ -344,34 +374,34 @@ static STATUS_ABSORBED_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// 5. A `## Status` absorption line is present and well-formed for each entry.
 /// 6. An unparseable or unknown-prefix entry fails closed (clauses 1 and 2).
 ///
-/// Clause 4 is why FC17 is not a severity workaround for FC15. FC15 compares
+/// Clause 4 is why FC18 is not a severity workaround for FC15. FC15 compares
 /// only the *relative* order of the required sections that are present and
 /// explicitly permits unrequired sections between them, so a contribution
 /// section three headings below `## Status` satisfies it at any severity. FC15
 /// is also notice-level behind a documented promotion seam waiting on a corpus
 /// cleanup, so it cannot fail. Neither property is a defect in FC15; they are
 /// simply not what this contract needs.
-pub fn check_fc17(doc: &Doc) -> Vec<ValidationError> {
+pub fn check_fc18(doc: &Doc) -> Vec<ValidationError> {
     let line = doc.fields.get("absorbed").map(|f| f.line).unwrap_or(1);
     let entries = match parse_absorbed(doc) {
         AbsorbedDecl::Absent => return Vec::new(),
         AbsorbedDecl::Invalid(reason) => {
             let message = match reason {
                 InvalidAbsorbed::NoUsableEntry => {
-                    "[FC17] 'absorbed:' is present but yields no usable entry".to_string()
+                    "[FC18] 'absorbed:' is present but yields no usable entry".to_string()
                 }
                 InvalidAbsorbed::Malformed(value) => format!(
-                    "[FC17] 'absorbed:' entry '{value}' does not name an absorbable document (expected {})",
+                    "[FC18] 'absorbed:' entry '{value}' does not name an absorbable document (expected {})",
                     crate::formats::ABSORBED_ENTRY_PATTERN
                 ),
                 InvalidAbsorbed::CrossRepo(value) => format!(
-                    "[FC17] 'absorbed:' entry '{value}' is a cross-repo reference; a document in another repository cannot be absorbed"
+                    "[FC18] 'absorbed:' entry '{value}' is a cross-repo reference; a document in another repository cannot be absorbed"
                 ),
             };
             return vec![ValidationError {
                 file: doc.path.clone(),
                 line,
-                code: "FC17".to_string(),
+                code: "FC18".to_string(),
                 message,
             }];
         }
@@ -388,9 +418,9 @@ pub fn check_fc17(doc: &Doc) -> Vec<ValidationError> {
                 errs.push(ValidationError {
                     file: doc.path.clone(),
                     line,
-                    code: "FC17".to_string(),
+                    code: "FC18".to_string(),
                     message: format!(
-                        "[FC17] 'absorbed:' entry '{}' is not upstream of this document; a document may only absorb a type above its own",
+                        "[FC18] 'absorbed:' entry '{}' is not upstream of this document; a document may only absorb a type above its own",
                         entry.path
                     ),
                 });
@@ -405,7 +435,7 @@ pub fn check_fc17(doc: &Doc) -> Vec<ValidationError> {
     let status_at = doc.sections.iter().position(|s| s.name == "Status");
     match status_at {
         None => {
-            // FC04 owns the missing Status section; FC17 says only that the
+            // FC04 owns the missing Status section; FC18 says only that the
             // adjacency it requires cannot be established.
         }
         Some(idx) => {
@@ -421,9 +451,9 @@ pub fn check_fc17(doc: &Doc) -> Vec<ValidationError> {
                 errs.push(ValidationError {
                     file: doc.path.clone(),
                     line,
-                    code: "FC17".to_string(),
+                    code: "FC18".to_string(),
                     message: format!(
-                        "[FC17] contribution sections must follow '## Status' contiguously in chain order; expected {} but found {}",
+                        "[FC18] contribution sections must follow '## Status' contiguously in chain order; expected {} but found {}",
                         expected.join(", "),
                         if actual.is_empty() {
                             "none".to_string()
@@ -450,9 +480,9 @@ pub fn check_fc17(doc: &Doc) -> Vec<ValidationError> {
             errs.push(ValidationError {
                 file: doc.path.clone(),
                 line,
-                code: "FC17".to_string(),
+                code: "FC18".to_string(),
                 message: format!(
-                    "[FC17] '## Status' is missing the absorption line for '{}' (expected: Absorbed [<name>]({}); carried in {}.)",
+                    "[FC18] '## Status' is missing the absorption line for '{}' (expected: Absorbed [<name>]({}); carried in {}.)",
                     entry.path, entry.path, entry.heading
                 ),
             });
@@ -469,7 +499,7 @@ static REQUIREMENT_DEF_RE: LazyLock<Regex> =
 /// A requirement citation: a bare `R7` token anywhere in prose.
 static REQUIREMENT_CITE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bR(\d+)\b").unwrap());
 
-/// FC18 -- a requirement citation orphaned by this run's own absorb.
+/// FC19 -- a requirement citation orphaned by this run's own absorb.
 ///
 /// Scoped to the absorb event, not to citation resolution generally. That
 /// scoping is the whole point: roughly 77 documents in this repository cite an
@@ -487,7 +517,7 @@ static REQUIREMENT_CITE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bR(
 ///
 /// Fires only when `absorbed:` names a PRD, because a PRD is the only type that
 /// defines requirement numbers.
-pub fn check_fc18(doc: &Doc) -> Vec<ValidationError> {
+pub fn check_fc19(doc: &Doc) -> Vec<ValidationError> {
     let AbsorbedDecl::Valid(entries) = parse_absorbed(doc) else {
         return Vec::new();
     };
@@ -522,9 +552,9 @@ pub fn check_fc18(doc: &Doc) -> Vec<ValidationError> {
     vec![ValidationError {
         file: doc.path.clone(),
         line,
-        code: "FC18".to_string(),
+        code: "FC19".to_string(),
         message: format!(
-            "[FC18] this document absorbed a PRD but cites {} which it does not define; carry the requirement numbering into the contribution section or the citations are orphaned",
+            "[FC19] this document absorbed a PRD but cites {} which it does not define; carry the requirement numbering into the contribution section or the citations are orphaned",
             missing
                 .iter()
                 .map(|n| format!("R{n}"))
@@ -1211,6 +1241,51 @@ pub fn check_upstream_resolves(doc: &Doc) -> Vec<ValidationError> {
             continue;
         }
 
+        // The two refusals absorbed from the retired `validate-plan.sh`. They
+        // are here rather than in a check of their own because this function
+        // already resolves the entry and already reports under R6; a second
+        // check would give one entry two places to be refused from.
+        //
+        // Both matter because the value reaches a committed frontmatter
+        // field. A symlinked upstream resolves to different content for
+        // different readers, so the value a reviewer approves is not
+        // necessarily the value a consumer resolves. One escaping the working
+        // tree names something no other clone has.
+        //
+        // Each refusal `continue`s, so a refused entry produces one finding
+        // rather than also collecting the git-tracking one below.
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                errs.push(finding(format!(
+                    "[R6] upstream {:?} is a symlink; name the target directly, because a symlinked upstream resolves differently for different readers",
+                    path
+                )));
+                continue;
+            }
+            _ => {}
+        }
+
+        // Containment is decided on canonical paths, so a `../`-shaped path
+        // and a symlink hop are both resolved before the comparison rather
+        // than pattern-matched in their written form.
+        //
+        // The base is the git working tree, not the process working
+        // directory. An `upstream:` value is repo-relative, so "inside the
+        // repository" is the property being asserted; comparing against the
+        // CWD would call a perfectly contained path an escape whenever the
+        // validator runs from a subdirectory. This is the base the retired
+        // `validate-plan.sh` used, via `git rev-parse --show-toplevel`.
+        if let (Ok(canon), Some(root)) = (std::fs::canonicalize(path), git_work_tree_root()) {
+            if !canon.starts_with(&root) {
+                errs.push(finding(format!(
+                    "[R6] upstream {:?} resolves outside the repository: {}",
+                    path,
+                    canon.display()
+                )));
+                continue;
+            }
+        }
+
         let tracked = Command::new("git")
             .args(["ls-files", "--error-unmatch", "--", path])
             .stdout(std::process::Stdio::null())
@@ -1228,6 +1303,128 @@ pub fn check_upstream_resolves(doc: &Doc) -> Vec<ValidationError> {
     }
 
     errs
+}
+
+/// (R10/R11) Checks that every `upstream:` entry names a document this one is
+/// allowed to name, on both properties legality has.
+///
+/// **Direction (R10).** The target's type is one the naming document's format
+/// declares in [`FormatSpec::legal_upstream`]. A brief naming a design is
+/// pointing down its own chain, and the message says which pair failed.
+///
+/// **Lifetime (R11).** A `Durable` document does not name a `Working` one. A
+/// working document is deleted when its work completes, so the reference is
+/// correct on the day it is written and dangling on the day the cascade runs.
+///
+/// **Precedence.** An entry that violates both reports the lifetime finding
+/// only. A reader who fixed the direction alone would still be naming a
+/// document scheduled for deletion, so the lifetime diagnosis is the one that
+/// survives being acted on. Under the declaration-level invariant that
+/// `no_durable_format_declares_a_working_parent` enforces, *every* lifetime
+/// violation is also a direction violation -- a lifetime violation needs a
+/// durable document naming a working target, and the invariant keeps any
+/// working type out of every durable type's parent set -- so this branch order
+/// fires on all of them rather than on a rare overlap. The converse does not
+/// hold, which is why the two codes still have distinct populations.
+///
+/// **What is not checked.** A target whose basename matches no known artifact
+/// prefix contributes nothing: that covers cross-repo `owner/repo:path` values
+/// naming an unrecognizable file and any path that is not an artifact. A
+/// cross-repo value whose file component *does* name a known prefix is judged
+/// on that prefix, which is the only thing about it this check can see.
+/// Placeholders are skipped by the shared normalizer, and a blank entry is
+/// already `check_upstream_resolves`'s finding rather than a second one here.
+///
+/// The check reads two basenames and a compiled table. It opens no file,
+/// resolves no path, and walks no index -- which is what keeps `docs/visions/`
+/// and `docs/strategies/` out of the document index and so out of the orphan
+/// rule, which was never written for them.
+pub fn check_upstream_legality(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    let field = match doc.fields.get("upstream") {
+        Some(f) => f,
+        None => return Vec::new(),
+    };
+
+    let mut errs = Vec::new();
+    for entry in crate::upstream::field_entries(field) {
+        // A cross-repo value's file component is the part that can name a
+        // type; everything before the FIRST `:` is the repository selector.
+        // Splitting at the first colon is not a detail -- it is what
+        // `upstream::is_cross_repo_reference` used to set `cross_repo`, and
+        // what `coordination::parse_cross_repo_ref` uses. A last-colon split
+        // would disagree with the flag that gated it whenever the path itself
+        // contains a colon, and disagree in the direction that drops the
+        // check.
+        let file_component = match entry.value.find(':') {
+            Some(idx) if entry.cross_repo => &entry.value[idx + 1..],
+            _ => entry.value.as_str(),
+        };
+        // `file_name` rather than a fourth hand-rolled basename helper --
+        // `finalize.rs` and `transition.rs` each carry a private one, and a
+        // third copy here would be duplication for its own sake. A value with
+        // no final component (`""`, `"/"`) yields None and is unchecked,
+        // which is the same answer those helpers' results would reach.
+        let base = Path::new(file_component)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let target = match detect_format(base) {
+            Some(t) => t,
+            // Not a recognizable artifact: unchecked rather than failed.
+            None => continue,
+        };
+
+        let finding = |code: &str, message: String| ValidationError {
+            file: doc.path.clone(),
+            line: field.line,
+            code: code.to_string(),
+            message,
+        };
+
+        if spec.lifetime == Lifetime::Durable && target.lifetime == Lifetime::Working {
+            errs.push(finding(
+                "R11",
+                format!(
+                    "[R11] {} is durable and names {:?}, a {} document, as its upstream; \
+                     a {} document is deleted when its work completes, so the link is \
+                     scheduled to dangle",
+                    spec.id.display(),
+                    entry.value,
+                    target.id.display(),
+                    target.id.display()
+                ),
+            ));
+            continue;
+        }
+
+        if !spec.legal_upstream.contains(&target.id) {
+            errs.push(finding(
+                "R10",
+                format!(
+                    "[R10] {} may not name {} as its upstream: {:?} resolves to {}, and {}",
+                    spec.id.display(),
+                    target.id.display(),
+                    entry.value,
+                    target.id.display(),
+                    legal_parents_phrase(spec)
+                ),
+            ));
+        }
+    }
+
+    errs
+}
+
+/// The tail of an R10 message: what the naming format may point at instead.
+fn legal_parents_phrase(spec: &FormatSpec) -> String {
+    if spec.legal_upstream.is_empty() {
+        return format!(
+            "a {} names no upstream at all -- it heads its own lineage",
+            spec.id.display()
+        );
+    }
+    let names: Vec<&str> = spec.legal_upstream.iter().map(|p| p.display()).collect();
+    format!("a {} may name {}", spec.id.display(), names.join(" or "))
 }
 
 /// Whether a scalar `upstream:` names nothing: empty after trimming, or one
@@ -2947,45 +3144,69 @@ pub fn check_fc09(
 // FC10 -- writing-style banned-word check
 // =============================================================================
 
-/// The canonical list of banned writing-style words. The list mirrors the
-/// short reference in `skills/writing-style/SKILL.md` (the "quick reference
-/// -- avoid these words" section). Each entry is a lowercase substring; the
-/// check matches case-insensitively against word boundaries.
+/// Maximum findings a single prose rule emits for one file.
 ///
-/// Reading the canonical list from disk at validate-time was considered
-/// (matching the AC's "reads banned vocabulary at validate-time"), but the
-/// validator runs in CI where the SKILL.md file is reliably co-located with
-/// the validator binary -- the same workspace checkout. The AC's intent --
-/// "the banned vocabulary is sourced from the writing-style skill, not
-/// hardcoded out-of-band" -- is satisfied because this constant is the
-/// authoritative compile-time copy of the SKILL.md list; both files share
-/// the same review surface.
-const FC10_BANNED_WORDS: &[&str] = &[
-    "tier",
-    "tiered",
-    "robust",
-    "leverage",
-    "comprehensive",
-    "holistic",
-    "facilitate",
-];
+/// Unbounded emission is a denial of service reachable from any repository
+/// under check: a 10 MB document produces roughly 1.5 million findings at
+/// 875 MB resident. Truncation is reported rather than silent.
+const PROSE_FINDING_CAP: usize = 50;
 
-/// FC10 -- writing-style banned-word check.
+/// FC10 -- writing-style prose check.
 ///
-/// Scans `doc.body` for matches against `FC10_BANNED_WORDS`. Each match
-/// emits a notice naming the file path, the line number, and the matched
-/// word. The check is case-insensitive and matches whole words only (no
-/// substring matches inside other words).
+/// Reads the rule source at enforcement time and matches over prose spans
+/// rather than raw body lines. Findings carry the line the author sees.
 ///
-/// FC10 is notice-level (registered in `is_notice`). The writing-style
-/// SKILL.md is the resolution surface; FC10 notice text references it
-/// directly rather than a separate `references/fixes/` file because the
-/// resolution prose (alternative word suggestions) lives in the SKILL.md.
+/// The superseded implementation hardcoded seven words in a constant whose
+/// own comment argued that a compile-time copy satisfied the requirement to
+/// read the list at validate time. It did not: the constant and the
+/// reference diverged, which is the defect the rule source exists to end.
+///
+/// A rule source that fails to resolve or parse yields no findings here.
+/// The CLI surfaces that as a tool error before checks run, because a
+/// checking surface reporting success when its rules did not load is the
+/// same failure mode.
 pub fn check_writing_style(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError> {
+    match crate::rules::cached_rules() {
+        Some(rules) => {
+            // Per file, not per run: a single invocation spanning two
+            // repositories must honor each one's own declaration.
+            let vocabulary =
+                crate::visibility::resolve_prose_vocabulary(std::path::Path::new(&doc.path));
+            let mut errs = check_writing_style_with(doc, &rules, &vocabulary);
+            errs.extend(check_prose_frequency(doc, &rules));
+            errs
+        }
+        None => Vec::new(),
+    }
+}
+
+/// FC10 against an explicit rule set and a repository's declared vocabulary.
+///
+/// `vocabulary` holds the terms of art the repository declared. Suppression
+/// is term-scoped: a declared term stops firing and every other rule stays
+/// active.
+pub fn check_writing_style_with(
+    doc: &Doc,
+    rules: &crate::rules::Rules,
+    vocabulary: &[String],
+) -> Vec<ValidationError> {
     let mut errs = Vec::new();
-    for (idx, line) in doc.body.iter().enumerate() {
-        let lower = line.to_lowercase();
-        for &banned in FC10_BANNED_WORDS {
+    let spans = crate::prose::prose_spans(&doc.body, doc.body_start_line);
+    let suppressed: std::collections::BTreeSet<String> =
+        vocabulary.iter().map(|t| t.to_lowercase()).collect();
+    let terms = rules.all_terms();
+    let mut truncated = false;
+
+    'outer: for span in &spans {
+        if span.text.trim().is_empty() {
+            continue;
+        }
+        let lower = span.text.to_lowercase();
+        for banned in &terms {
+            if suppressed.contains(banned) {
+                continue;
+            }
+            let banned = banned.as_str();
             // Whole-word match: surround banned word with a regex-free
             // word-boundary check (preceded by non-alphanumeric or start;
             // followed by non-alphanumeric or end).
@@ -3006,13 +3227,16 @@ pub fn check_writing_style(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError
                         .map(|b| b.is_ascii_alphanumeric() || *b == b'_')
                         .unwrap_or(false);
                 if before_ok && after_ok {
+                    if errs.len() >= PROSE_FINDING_CAP {
+                        truncated = true;
+                        break 'outer;
+                    }
                     errs.push(ValidationError {
                         file: doc.path.clone(),
-                        line: idx + 1,
+                        line: span.line,
                         code: "FC10".to_string(),
                         message: format!(
-                            "[FC10] writing-style banned word {:?} -- see skills/writing-style/SKILL.md for canonical alternatives",
-                            banned
+                            "[FC10] writing-style banned word {banned:?} -- see skills/writing-style/rules.yaml for canonical alternatives"
                         ),
                     });
                 }
@@ -3023,6 +3247,87 @@ pub fn check_writing_style(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError
             }
         }
     }
+
+    if truncated {
+        errs.push(ValidationError {
+            file: doc.path.clone(),
+            line: 1,
+            code: "FC10".to_string(),
+            message: format!(
+                "[FC10] writing-style findings truncated at {PROSE_FINDING_CAP} for this file; fix these and re-run to see the rest"
+            ),
+        });
+    }
+
+    errs
+}
+
+/// FC10 frequency rules: a rate against a threshold, reported per document.
+///
+/// The first check in shirabe that counts rather than matches. Every value
+/// it needs — the threshold, the denominator, the reporting unit, and which
+/// line the finding carries — comes from the rule source rather than from
+/// this code, so changing any of them is a data edit.
+///
+/// Per document rather than per occurrence because the defect is a
+/// document-level property: a rate reported 2,785 times is noise about one
+/// problem. The finding carries the first occurrence's line, because a
+/// document-level finding still has to point somewhere an author can click
+/// and line 1 points at frontmatter.
+pub fn check_prose_frequency(doc: &Doc, rules: &crate::rules::Rules) -> Vec<ValidationError> {
+    let spans = crate::prose::prose_spans(&doc.body, doc.body_start_line);
+    let words = crate::prose::prose_word_count(&spans);
+    let mut errs = Vec::new();
+
+    // A document with no prose has no rate. Dividing by it would report
+    // every stub as infinitely dense.
+    if words == 0 {
+        return errs;
+    }
+
+    for rule in &rules.frequency {
+        // A rate needs enough denominator to be a rate. Short documents
+        // cross any threshold on a single occurrence.
+        if words < rule.min_words {
+            continue;
+        }
+        let mut count = 0usize;
+        let mut first_line: Option<usize> = None;
+        for span in &spans {
+            let hits = span.text.matches(&rule.pattern).count();
+            if hits > 0 && first_line.is_none() {
+                first_line = Some(span.line);
+            }
+            count += hits;
+        }
+        if count == 0 {
+            continue;
+        }
+
+        // Integer arithmetic: per-thousand scaled by 10 keeps one decimal
+        // place without floating point, so the comparison is exact and the
+        // reported rate is reproducible.
+        let rate_x10 = (count as u64 * 10_000) / words as u64;
+        let threshold_x10 = rule.threshold_per_thousand as u64 * 10;
+        if rate_x10 <= threshold_x10 {
+            continue;
+        }
+
+        errs.push(ValidationError {
+            file: doc.path.clone(),
+            line: first_line.unwrap_or(doc.body_start_line),
+            code: "FC10".to_string(),
+            message: format!(
+                "[FC10] {}: {}.{} per thousand words over {} words, above the threshold of {} -- see skills/writing-style/rules.yaml",
+                rule.id,
+                rate_x10 / 10,
+                rate_x10 % 10,
+                words,
+                rule.threshold_per_thousand
+            ),
+        });
+    }
+
     errs
 }
 
@@ -3327,8 +3632,8 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     // content is the Implementation Issues table, covered by FC05/FC06).
     if mode == "single-pr" {
         // Sub-check B: per-block structural fields.
-        for block in &outlines {
-            if block.goal.is_none() {
+        for block in &outlines.blocks {
+            if !block.goal_declared {
                 errs.push(ValidationError {
                     file: doc.path.clone(),
                     line: block.line,
@@ -3339,7 +3644,7 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
                     ),
                 });
             }
-            if block.acceptance_criteria.is_none() {
+            if !block.acceptance_criteria_declared {
                 errs.push(ValidationError {
                     file: doc.path.clone(),
                     line: block.line,
@@ -3350,7 +3655,7 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
                     ),
                 });
             }
-            if !block.has_dependencies_line {
+            if !block.dependencies_declared {
                 errs.push(ValidationError {
                     file: doc.path.clone(),
                     line: block.line,
@@ -3363,39 +3668,17 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
             }
         }
 
-        // Sub-check C: outline-to-outline dependency resolution.
-        // Build the set of known outline keys plus their `<<ISSUE:N>>`
-        // placeholder forms so dependency tokens written as either the
-        // free-form key or the placeholder resolve correctly.
-        use std::collections::HashSet;
-        let mut known: HashSet<String> = HashSet::new();
-        for (idx, b) in outlines.iter().enumerate() {
-            known.insert(b.key.clone());
-            // Heading shape "Issue N: ..." maps to placeholder <<ISSUE:N>>.
-            known.insert(format!("<<ISSUE:{}>>", idx + 1));
-            // Also a bare numeric form `N` for legacy refs.
-            known.insert(format!("Issue {}", idx + 1));
-        }
-        for block in &outlines {
-            if block.dependencies_is_none {
-                continue;
-            }
-            for token in &block.dependencies {
-                if token.is_empty() {
-                    continue;
-                }
-                if known.contains(token) {
-                    continue;
-                }
-                // Also accept a substring match against any known key: an
-                // outline whose key starts with "Issue 1: feat(...)"
-                // matched by a dep written as "Issue 1" should resolve.
-                let resolved = known
-                    .iter()
-                    .any(|k| k.starts_with(token) || token.starts_with(k));
-                if resolved {
-                    continue;
-                }
+        // Sub-check C: dependency text that named no outline and is not
+        // shaped like a reference to one -- a parenthetical, a trailing
+        // clause. It stays here at notice level, which is where FC14 has
+        // always reported it. The reference-shaped half moved to FC17,
+        // because severity is keyed on the check code and only that half
+        // fails open: a bare `3` is an edge the author declared and the
+        // extractor dropped, while `(the parser must land first)` is prose
+        // beside an edge that resolved. Erroring on the second would reject
+        // a legal outline.
+        for block in &outlines.blocks {
+            for token in &block.unrecognized_dependency_text {
                 errs.push(ValidationError {
                     file: doc.path.clone(),
                     line: block.line,
@@ -3407,13 +3690,28 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
                 });
             }
         }
+
+        // Sub-check F: heading conformance. A `###` heading inside the
+        // section that is not `### Issue <N>: <title>` opens no outline, so
+        // task extraction never sees the work under it.
+        for heading in &outlines.nonconforming_headings {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: heading.line,
+                code: "FC14".to_string(),
+                message: format!(
+                    "[FC14] heading '### {}' inside '## Issue Outlines' is not a '### Issue <N>: <title>' outline heading and opens no outline (task extraction will not see it)",
+                    heading.text
+                ),
+            });
+        }
     }
 
     // Sub-check D: issue_count consistency.
     if let Some(ic_field) = doc.fields.get("issue_count") {
         if let Ok(declared) = ic_field.value.trim().parse::<usize>() {
             let observed: usize = if mode == "single-pr" {
-                outlines.len()
+                outlines.blocks.len()
             } else {
                 // multi-pr / coordinated: count entity rows in the
                 // Implementation Issues table.
@@ -3466,7 +3764,7 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
         // multi-pr / coordinated: authoritative content is the Implementation
         // Issues table, so a populated Issue Outlines section is the symmetric
         // mutual-exclusion violation.
-        if !outlines.is_empty() {
+        if !outlines.blocks.is_empty() {
             errs.push(ValidationError {
                 file: doc.path.clone(),
                 line: 1,
@@ -3479,6 +3777,59 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
         }
     }
 
+    errs
+}
+
+// =============================================================================
+// FC17 -- unresolvable outline dependency
+// =============================================================================
+
+/// FC17 -- a single-pr plan declares a dependency that names no sibling
+/// outline.
+///
+/// Split out of FC14 rather than folded into it because severity is keyed on
+/// the check code, and this one finding needs a severity the rest of FC14
+/// does not. Every other FC14 sub-check describes a document that already
+/// refuses loudly somewhere downstream: a plan whose headings the extractor
+/// cannot read extracts to zero tasks and exits non-zero. An unresolvable
+/// dependency is the one that fails *open* -- `plan-to-tasks.sh` used to emit
+/// a complete task list with the edge silently missing, so the orchestrator
+/// ran the work in whatever order it liked and nothing above notice level
+/// ever said the declared ordering had been discarded. That is the defect
+/// #275 was filed for, and an error is what stops it.
+///
+/// FC17 is error-level: it is absent from `is_intrinsic_notice` and from
+/// `posture_class`, so it is enforced under both draft and ready posture. It
+/// re-derives nothing -- `parse_issue_outlines` resolves references against
+/// the numbers in the headings and hands back whatever named no sibling.
+///
+/// Plan profile, single-pr only. A multi-pr or coordinated plan's
+/// authoritative content is the Implementation Issues table, whose dependency
+/// resolution is FC06's.
+pub fn check_fc17(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    if spec.name != "Plan" {
+        return Vec::new();
+    }
+    match doc.fields.get("execution_mode") {
+        Some(f) if f.value == "single-pr" => {}
+        // A missing execution_mode is an FC01 / FC02 concern, not FC17's.
+        _ => return Vec::new(),
+    }
+
+    let mut errs = Vec::new();
+    for block in &parse_issue_outlines(doc).blocks {
+        for token in &block.unresolved_dependencies {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: block.line,
+                code: "FC18".to_string(),
+                message: format!(
+                    "[FC17] outline '{}' declares unresolved dependency '{}' (no sibling outline matches; task extraction would drop this edge -- use 'None', 'Issue <N>', or the <<ISSUE:N>> placeholder)",
+                    block.key, token
+                ),
+            });
+        }
+    }
     errs
 }
 
@@ -3756,6 +4107,7 @@ mod tests {
             fields,
             sections,
             body,
+            body_start_line: 1,
         }
     }
 
@@ -4039,6 +4391,334 @@ mod tests {
         assert_eq!(errs.len(), spec.required_sections.len());
     }
 
+    // --- check_upstream_legality (R10 direction, R11 lifetime) ---
+
+    /// Build a doc of `schema` whose `upstream:` field holds `entries`, and
+    /// run the legality check over it. A single entry is written as a scalar;
+    /// several are written as a sequence, which is the shape a multi-parent
+    /// document uses.
+    fn legality(schema: &str, entries: &[&str]) -> Vec<ValidationError> {
+        let field = if entries.len() == 1 {
+            fv(entries[0], 7)
+        } else {
+            FieldValue {
+                value: String::new(),
+                line: 7,
+                entries: FieldEntries::Sequence(entries.iter().map(|e| (*e).to_string()).collect()),
+            }
+        };
+        let mut fields = HashMap::new();
+        fields.insert("upstream".to_string(), field);
+        let doc = make_doc(schema, "Draft", fields, vec![], vec![]);
+        check_upstream_legality(&doc, &spec_for(schema))
+    }
+
+    #[test]
+    fn legality_accepts_every_declared_parent() {
+        // One legal edge per row of the declared table that has a parent.
+        for (schema, upstream) in [
+            ("vision/v1", "docs/visions/VISION-org.md"),
+            ("strategy/v1", "docs/visions/VISION-org.md"),
+            ("roadmap/v1", "docs/strategies/STRATEGY-bet.md"),
+            ("prd/v1", "docs/briefs/BRIEF-x.md"),
+            ("design/v1", "docs/prds/PRD-x.md"),
+            ("design/v1", "docs/briefs/BRIEF-x.md"),
+            ("plan/v1", "docs/designs/DESIGN-x.md"),
+            ("plan/v1", "docs/prds/PRD-x.md"),
+            ("plan/v1", "docs/briefs/BRIEF-x.md"),
+            ("plan/v1", "docs/roadmaps/ROADMAP-x.md"),
+        ] {
+            assert!(
+                legality(schema, &[upstream]).is_empty(),
+                "{schema} naming {upstream} is legal and must produce no finding"
+            );
+        }
+    }
+
+    #[test]
+    fn legality_rejects_a_downward_edge_with_r10() {
+        let errs = legality("brief/v1", &["docs/designs/DESIGN-x.md"]);
+        assert_eq!(errs.len(), 1, "expected one finding, got {errs:?}");
+        assert_eq!(errs[0].code, "R10");
+        assert_eq!(errs[0].line, 7, "the finding sits at the field's line");
+        assert!(errs[0].message.contains("BRIEF may not name DESIGN"));
+        // The message lists what a brief may name instead: the roadmap's own
+        // durable ancestors, which is what a brief records.
+        assert!(errs[0]
+            .message
+            .contains("a BRIEF may name STRATEGY or VISION"));
+    }
+
+    #[test]
+    fn legality_names_the_alternatives_when_the_parent_set_is_not_empty() {
+        let errs = legality("design/v1", &["docs/plans/PLAN-x.md"]);
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "R11", "a durable doc naming a working one");
+        // And the direction-only case for the same format lists its parents.
+        // A sibling DESIGN is sideways, so it is a direction violation with no
+        // lifetime component.
+        let errs = legality("design/v1", &["docs/designs/DESIGN-sibling.md"]);
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "R10");
+        assert!(
+            errs[0]
+                .message
+                .contains("a DESIGN may name PRD or BRIEF or STRATEGY or VISION"),
+            "got {:?}",
+            errs[0].message
+        );
+        // The empty-set phrasing is still reachable, via the one type that
+        // declares no parents at all.
+        let errs = legality("comp/v1", &["docs/visions/VISION-x.md"]);
+        assert_eq!(errs.len(), 1);
+        assert!(errs[0].message.contains("heads its own lineage"));
+    }
+
+    #[test]
+    fn legality_rejects_a_durable_naming_a_working_with_r11() {
+        for (schema, upstream, target) in [
+            ("brief/v1", "docs/roadmaps/ROADMAP-x.md", "ROADMAP"),
+            ("prd/v1", "docs/roadmaps/ROADMAP-x.md", "ROADMAP"),
+            ("design/v1", "docs/roadmaps/ROADMAP-x.md", "ROADMAP"),
+            ("brief/v1", "docs/plans/PLAN-x.md", "PLAN"),
+        ] {
+            let errs = legality(schema, &[upstream]);
+            assert_eq!(errs.len(), 1, "{schema} -> {upstream}: {errs:?}");
+            assert_eq!(errs[0].code, "R11");
+            assert!(errs[0].message.contains(target));
+            assert!(errs[0].message.contains("scheduled to dangle"));
+        }
+    }
+
+    /// The precedence rule: an entry violating both properties reports the
+    /// lifetime finding only. Under the declaration-level invariant this is
+    /// every lifetime violation rather than a rare overlap, so getting the
+    /// branch order wrong would double every R11 rather than a corner case.
+    #[test]
+    fn legality_reports_only_the_lifetime_finding_when_both_fail() {
+        // A brief's parent set is empty, so a roadmap is both absent from it
+        // (direction) and Working (lifetime).
+        let errs = legality("brief/v1", &["docs/roadmaps/ROADMAP-x.md"]);
+        assert_eq!(errs.len(), 1, "exactly one finding, got {errs:?}");
+        assert_eq!(errs[0].code, "R11", "the lifetime finding wins");
+    }
+
+    /// A ROADMAP may name either strategic altitude above it, and the reason
+    /// is what this check can see rather than what authors should prefer. It
+    /// reads two basenames, so it cannot distinguish a roadmap that skipped an
+    /// existing STRATEGY from one written where no STRATEGY exists -- and
+    /// rejecting the second in order to catch the first would fail the
+    /// legitimate case. Preferring the nearest altitude stays authoring
+    /// guidance in `/roadmap`'s contract; direction is what is enforced here.
+    #[test]
+    fn legality_lets_a_roadmap_name_either_strategic_altitude() {
+        assert!(legality("roadmap/v1", &["docs/strategies/STRATEGY-bet.md"]).is_empty());
+        assert!(legality("roadmap/v1", &["docs/visions/VISION-org.md"]).is_empty());
+        // Direction is still enforced: a roadmap may not name anything from
+        // the tactical chain below it.
+        for below in [
+            "docs/briefs/BRIEF-x.md",
+            "docs/prds/PRD-x.md",
+            "docs/designs/DESIGN-x.md",
+        ] {
+            let errs = legality("roadmap/v1", &[below]);
+            assert_eq!(errs.len(), 1, "{below} is below a ROADMAP: {errs:?}");
+            assert_eq!(errs[0].code, "R10");
+        }
+        // A PLAN is below it too. The lifetime branch does NOT fire here even
+        // though a PLAN is Working, because a ROADMAP is Working as well and
+        // the lifetime rule only forbids a *durable* document naming a working
+        // one. It is a plain direction violation.
+        let errs = legality("roadmap/v1", &["docs/plans/PLAN-x.md"]);
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "R10");
+    }
+
+    /// A brief records the nearest durable ancestor of the roadmap it was
+    /// framed against -- one hop up, so a STRATEGY, or a VISION when the
+    /// roadmap traces straight to one. The roadmap itself stays forbidden,
+    /// which is the whole point: that is the link with a scheduled death date.
+    #[test]
+    fn legality_lets_a_brief_name_the_roadmaps_durable_ancestor() {
+        assert!(legality("brief/v1", &["docs/strategies/STRATEGY-bet.md"]).is_empty());
+        assert!(legality("brief/v1", &["docs/visions/VISION-org.md"]).is_empty());
+
+        // The document the brief was actually framed against is still refused,
+        // on lifetime rather than direction.
+        let errs = legality("brief/v1", &["docs/roadmaps/ROADMAP-x.md"]);
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "R11");
+
+        // And nothing at or below the brief's own altitude becomes legal.
+        for below in [
+            "docs/briefs/BRIEF-sibling.md",
+            "docs/prds/PRD-x.md",
+            "docs/designs/DESIGN-x.md",
+        ] {
+            let errs = legality("brief/v1", &[below]);
+            assert_eq!(errs.len(), 1, "{below}: {errs:?}");
+            assert_eq!(errs[0].code, "R10");
+        }
+    }
+
+    #[test]
+    fn legality_permits_a_working_document_naming_a_working_one() {
+        // PLAN -> ROADMAP is the one working-names-working pair the table
+        // admits: the cascade deletes the plan before the roadmap, so the
+        // reference cannot outlive its target.
+        assert!(legality("plan/v1", &["docs/roadmaps/ROADMAP-x.md"]).is_empty());
+    }
+
+    #[test]
+    fn legality_skips_an_unrecognized_basename() {
+        for value in [
+            "docs/guides/some-guide.md",
+            "README.md",
+            "notes/whatever.txt",
+            "owner/repo:docs/guides/some-guide.md",
+        ] {
+            assert!(
+                legality("brief/v1", &[value]).is_empty(),
+                "{value} names no known artifact type and must be unchecked"
+            );
+        }
+    }
+
+    #[test]
+    fn legality_judges_a_cross_repo_value_on_its_file_component() {
+        // The selector before the colon is a repository, not a path: only the
+        // file component can name a type.
+        let errs = legality("brief/v1", &["owner/repo:docs/roadmaps/ROADMAP-x.md"]);
+        assert_eq!(errs.len(), 1, "got {errs:?}");
+        assert_eq!(errs[0].code, "R11");
+        // And a legal cross-repo edge still passes.
+        assert!(legality("prd/v1", &["owner/repo:docs/briefs/BRIEF-x.md"]).is_empty());
+    }
+
+    /// The file component is split at the FIRST colon, matching
+    /// `upstream::is_cross_repo_reference` (which set `cross_repo` in the
+    /// first place) and `coordination::parse_cross_repo_ref`. Splitting at the
+    /// last colon instead would disagree with the flag that gated it whenever
+    /// the path contains a colon of its own, and the disagreement drops the
+    /// check: the value below would type as nothing and pass silently.
+    #[test]
+    fn legality_splits_a_cross_repo_value_at_the_first_colon() {
+        let errs = legality("brief/v1", &["owner/repo:docs/roadmaps/ROADMAP-q3:2026.md"]);
+        assert_eq!(
+            errs.len(),
+            1,
+            "a colon inside the path must not hide the roadmap: {errs:?}"
+        );
+        assert_eq!(errs[0].code, "R11");
+        assert!(errs[0].message.contains("ROADMAP"));
+    }
+
+    #[test]
+    fn legality_judges_each_entry_of_a_sequence_independently() {
+        let errs = legality(
+            "plan/v1",
+            &[
+                "docs/designs/DESIGN-x.md",   // legal
+                "docs/roadmaps/ROADMAP-y.md", // legal for a PLAN
+                "docs/plans/PLAN-z.md",       // illegal: sideways, not above
+            ],
+        );
+        assert_eq!(errs.len(), 1, "only the third entry is illegal: {errs:?}");
+        assert_eq!(errs[0].code, "R10");
+        assert!(errs[0].message.contains("PLAN-z.md"));
+        assert_eq!(
+            errs[0].line, 7,
+            "every per-entry finding sits at the field's line, as R6's do"
+        );
+    }
+
+    #[test]
+    fn legality_reports_every_illegal_entry_of_a_sequence() {
+        let errs = legality(
+            "brief/v1",
+            &["docs/designs/DESIGN-a.md", "docs/plans/PLAN-b.md"],
+        );
+        assert_eq!(errs.len(), 2, "one per illegal entry: {errs:?}");
+        assert_eq!(errs[0].code, "R10");
+        assert_eq!(errs[1].code, "R11");
+    }
+
+    #[test]
+    fn legality_skips_placeholders_and_ignores_an_absent_field() {
+        assert!(legality("brief/v1", &["docs/roadmaps/ROADMAP-<slug>.md"]).is_empty());
+        assert!(legality("brief/v1", &["<ROADMAP path>"]).is_empty());
+        let doc = make_doc("brief/v1", "Draft", HashMap::new(), vec![], vec![]);
+        assert!(check_upstream_legality(&doc, &spec_for("brief/v1")).is_empty());
+    }
+
+    /// The verdict does not depend on the target existing. That is what keeps
+    /// `docs/visions/` and `docs/strategies/` out of the document index and so
+    /// out of the orphan rule, which was never written for them. Both a
+    /// strategic basename and a vision basename are exercised, because the
+    /// requirement names both.
+    ///
+    /// This proves the verdict is independent of the filesystem, not that no
+    /// syscall is made -- an implementation that stat'd the path and ignored
+    /// the answer would pass. Independence is the property the requirement
+    /// needs; the absence of the syscall is visible in the function body,
+    /// which resolves no path and opens no file.
+    #[test]
+    fn legality_verdict_does_not_depend_on_the_target_existing() {
+        for missing in [
+            "/nonexistent-root-for-shirabe-tests/docs/visions/VISION-x.md",
+            "/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md",
+        ] {
+            assert!(!Path::new(missing).exists());
+        }
+        // Legal edges: judged clean without the target existing.
+        for (schema, missing) in [
+            (
+                "strategy/v1",
+                "/nonexistent-root-for-shirabe-tests/docs/visions/VISION-x.md",
+            ),
+            (
+                "roadmap/v1",
+                "/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md",
+            ),
+            (
+                "brief/v1",
+                "/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md",
+            ),
+        ] {
+            assert!(
+                legality(schema, &[missing]).is_empty(),
+                "{schema} -> {missing}"
+            );
+        }
+        // Illegal edges: judged as violations without the target existing. A
+        // VISION may name only a VISION, and a COMP names nothing at all, so
+        // both strategic basenames are exercised as violations.
+        for (schema, missing, named) in [
+            (
+                "vision/v1",
+                "/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md",
+                "STRATEGY",
+            ),
+            (
+                "comp/v1",
+                "/nonexistent-root-for-shirabe-tests/docs/visions/VISION-x.md",
+                "VISION",
+            ),
+        ] {
+            let errs = legality(schema, &[missing]);
+            assert_eq!(errs.len(), 1, "{schema} -> {missing}: {errs:?}");
+            assert_eq!(errs[0].code, "R10");
+            assert!(errs[0].message.contains(named));
+        }
+    }
+
+    #[test]
+    fn legality_finding_names_the_offending_document_and_value() {
+        let errs = legality("brief/v1", &["docs/plans/PLAN-x.md"]);
+        assert_eq!(errs[0].file, "test.md");
+        assert!(errs[0].message.contains("docs/plans/PLAN-x.md"));
+    }
+
     // --- check_upstream_resolves ---
 
     #[test]
@@ -4063,10 +4743,97 @@ mod tests {
     }
 
     #[test]
+    fn check_upstream_resolves_symlink_returns_r6() {
+        // Absorbed from the retired validate-plan.sh. A symlinked upstream
+        // resolves to different content for different readers, and the value
+        // reaches a committed frontmatter field.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .canonicalize()
+            .expect("workspace target/ exists during a cargo test run");
+        let target = dir.join(format!("shirabe_symlink_target_{}.md", std::process::id()));
+        let link = dir.join(format!("shirabe_symlink_{}.md", std::process::id()));
+        std::fs::write(&target, b"target").expect("write target");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&target, &link).expect("create symlink");
+
+        let mut fields = HashMap::new();
+        fields.insert("upstream".to_string(), fv(&link.display().to_string(), 4));
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+        let errs = check_upstream_resolves(&doc);
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_file(&target);
+
+        assert_eq!(
+            errs.len(),
+            1,
+            "a refused entry produces exactly one finding"
+        );
+        assert_eq!(errs[0].code, "R6");
+        assert!(
+            errs[0].message.contains("is a symlink"),
+            "got {:?}",
+            errs[0].message
+        );
+    }
+
+    #[test]
+    fn check_upstream_resolves_outside_the_tree_returns_r6() {
+        // The second refusal absorbed from validate-plan.sh: a path naming
+        // something no other clone of this repository has.
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("shirabe_outside_{}.md", std::process::id()));
+        std::fs::write(&path, b"outside").expect("write temp file");
+
+        let mut fields = HashMap::new();
+        fields.insert("upstream".to_string(), fv(&path.display().to_string(), 6));
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+        let errs = check_upstream_resolves(&doc);
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(
+            errs.len(),
+            1,
+            "a refused entry produces exactly one finding"
+        );
+        assert_eq!(errs[0].code, "R6");
+        assert!(
+            errs[0].message.contains("resolves outside the repository"),
+            "got {:?}",
+            errs[0].message
+        );
+    }
+
+    #[test]
+    fn check_upstream_resolves_skips_cross_repo_for_the_new_refusals_too() {
+        // A cross-repo reference names no local path, so neither new refusal
+        // has anything to resolve — the same reason the resolution check
+        // already skips it.
+        let mut fields = HashMap::new();
+        fields.insert(
+            "upstream".to_string(),
+            fv("tsukumogami/other:docs/designs/DESIGN-x.md", 2),
+        );
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+        assert!(check_upstream_resolves(&doc).is_empty());
+    }
+
+    #[test]
     fn check_upstream_resolves_untracked_file_returns_r6() {
         // Create a temporary file that exists on disk but is not committed
         // to git.
-        let dir = std::env::temp_dir();
+        //
+        // The file lives under the workspace `target/` directory rather than
+        // the system temp directory. `target/` is gitignored, so it is still
+        // exactly the untracked-but-present fixture this test wants, and it
+        // is INSIDE the git working tree — which matters now that R6 refuses
+        // an upstream resolving outside the repository. A `/tmp` fixture is
+        // both untracked and out-of-tree, so it would exercise the
+        // containment refusal instead of the tracking one this test names.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .canonicalize()
+            .expect("workspace target/ exists during a cargo test run");
         let path = dir.join(format!("shirabe_untracked_{}.md", std::process::id()));
         std::fs::write(&path, b"untracked").expect("write temp file");
 
@@ -6674,6 +7441,7 @@ mod tests {
             fields: HashMap::new(),
             sections: vec![],
             body: lines(body_lines),
+            body_start_line: 1,
         }
     }
 
@@ -6689,20 +7457,196 @@ mod tests {
         );
     }
 
+    /// The seven terms the superseded compile-time constant carried.
+    ///
+    /// Kept as an explicit list so the migration cannot silently narrow
+    /// enforcement: every word the old constant checked must still be
+    /// checked by the rule source that replaced it.
+    const SUPERSEDED_CONSTANT_WORDS: &[&str] = &[
+        "tier",
+        "tiered",
+        "robust",
+        "leverage",
+        "comprehensive",
+        "holistic",
+        "facilitate",
+    ];
+
     #[test]
-    fn check_writing_style_detects_each_banned_word() {
-        for &word in FC10_BANNED_WORDS {
-            let line = format!("We {} the thing.", word);
+    fn check_writing_style_detects_each_word_the_superseded_constant_carried() {
+        for &word in SUPERSEDED_CONSTANT_WORDS {
+            let line = format!("We {word} the thing.");
             let doc = doc_with_body("t.md", &[line.as_str()]);
             let errs = check_writing_style(&doc, &spec_for("brief/v1"));
             assert!(
                 errs.iter()
                     .any(|e| e.code == "FC10" && e.message.contains(word)),
-                "FC10 should detect banned word {:?}; got {:?}",
-                word,
-                errs
+                "FC10 should detect banned word {word:?}; got {errs:?}"
             );
         }
+    }
+
+    #[test]
+    fn check_writing_style_detects_every_term_in_the_rule_source() {
+        // The check reads the source; a term added there must fire with no
+        // code change. Multi-word terms are included deliberately.
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        for term in rules.all_terms() {
+            let line = format!("We {term} the thing.");
+            let doc = doc_with_body("t.md", &[line.as_str()]);
+            let errs = check_writing_style(&doc, &spec_for("brief/v1"));
+            assert!(
+                errs.iter().any(|e| e.code == "FC10"),
+                "term {term:?} from the rule source produced no finding"
+            );
+        }
+    }
+
+    #[test]
+    fn check_writing_style_reads_a_sentinel_added_to_the_rule_source() {
+        // The acceptance criterion for R1: a term appended to the source is
+        // honored without rebuilding. Driven through the explicit-rules
+        // entry point so the assertion is about reading, not about the
+        // process-wide cache.
+        let text = r#"
+words:
+  - category: sentinel
+    guidance: g
+    terms:
+      - zzsentinelzz
+"#;
+        let rules = crate::rules::parse_rules(text, "sentinel").expect("parses");
+        let doc = doc_with_body("t.md", &["a zzsentinelzz appears"]);
+        let errs = check_writing_style_with(&doc, &rules, &[]);
+        assert_eq!(errs.len(), 1, "sentinel term must fire; got {errs:?}");
+    }
+
+    #[test]
+    fn check_writing_style_skips_fenced_code_and_urls() {
+        let doc = doc_with_body(
+            "t.md",
+            &[
+                "```",
+                "tier_config --leverage",
+                "```",
+                "see https://example.com/robust-guide",
+                "a real tier in prose",
+            ],
+        );
+        let errs = check_writing_style(&doc, &spec_for("brief/v1"));
+        assert_eq!(
+            errs.len(),
+            1,
+            "only the prose occurrence counts; got {errs:?}"
+        );
+        assert_eq!(errs[0].line, 5);
+    }
+
+    #[test]
+    fn check_writing_style_reports_the_line_the_author_sees() {
+        // body_start_line is the frontmatter offset. A finding on body[0]
+        // of a document whose body starts at file line 25 is line 25, not 1.
+        let mut doc = doc_with_body("t.md", &["a tier here"]);
+        doc.body_start_line = 25;
+        let errs = check_writing_style(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 1);
+        assert_eq!(
+            errs[0].line, 25,
+            "the superseded check reported body-relative lines, short by the frontmatter length"
+        );
+    }
+
+    #[test]
+    fn check_writing_style_suppresses_declared_vocabulary_term_scoped() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let doc = doc_with_body("t.md", &["Tier 1 is robust"]);
+
+        let unsuppressed = check_writing_style_with(&doc, &rules, &[]);
+        assert_eq!(unsuppressed.len(), 2, "got {unsuppressed:?}");
+
+        let suppressed = check_writing_style_with(&doc, &rules, &["tier".to_string()]);
+        assert_eq!(
+            suppressed.len(),
+            1,
+            "declaring `tier` must not disable the other rules; got {suppressed:?}"
+        );
+        assert!(suppressed[0].message.contains("robust"));
+    }
+
+    #[test]
+    fn frequency_rule_fires_above_threshold_and_not_below() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let threshold = rules.frequency[0].threshold_per_thousand;
+
+        // Below: one em dash in enough words to sit under the threshold.
+        let words = (2000 / threshold.max(1)) as usize * 10;
+        let filler = vec!["word"; words].join(" ");
+        let under = doc_with_body("t.md", &[&format!("{filler} — one")]);
+        assert!(
+            check_prose_frequency(&under, &rules).is_empty(),
+            "a document below the threshold must not fire"
+        );
+
+        // Above: enough words to clear min_words, with a dash rate over
+        // the threshold.
+        let filler_over = vec!["word"; 400].join(" ");
+        let dashes = vec!["a — b"; 12].join(" ");
+        let over_line = format!("{filler_over} {dashes}");
+        let over = doc_with_body("t.md", &[&over_line]);
+        let errs = check_prose_frequency(&over, &rules);
+        assert_eq!(errs.len(), 1, "one finding per document; got {errs:?}");
+        assert!(errs[0].message.contains("em-dash-density"));
+    }
+
+    #[test]
+    fn frequency_rule_reports_one_finding_per_document_at_the_first_occurrence() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        // Enough words to clear min_words; the dashes are on later lines so
+        // the finding must point at the first occurrence, not line 1.
+        let filler = vec!["word"; 400].join(" ");
+        let dashes = vec!["a — b"; 12].join(" ");
+        let mut doc = doc_with_body("t.md", &[&filler, "", &dashes, "", &dashes]);
+        doc.body_start_line = 10;
+        let errs = check_prose_frequency(&doc, &rules);
+        assert_eq!(errs.len(), 1, "per document, not per occurrence");
+        assert_eq!(
+            errs[0].line, 12,
+            "the finding points at the first occurrence, not line 1"
+        );
+    }
+
+    #[test]
+    fn frequency_rule_ignores_em_dashes_outside_prose() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let doc = doc_with_body(
+            "t.md",
+            &["```", "a — b — c — d — e — f", "```", "clean prose here"],
+        );
+        assert!(
+            check_prose_frequency(&doc, &rules).is_empty(),
+            "a rate computed over code fences is not the rate the author acts on"
+        );
+    }
+
+    #[test]
+    fn frequency_rule_does_not_divide_by_zero_on_an_empty_document() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let doc = doc_with_body("t.md", &[]);
+        assert!(check_prose_frequency(&doc, &rules).is_empty());
+    }
+
+    #[test]
+    fn check_writing_style_bounds_emission() {
+        let line = "tier tier tier tier tier tier tier tier tier tier";
+        let body: Vec<&str> = std::iter::repeat(line).take(200).collect();
+        let doc = doc_with_body("t.md", &body);
+        let errs = check_writing_style(&doc, &spec_for("brief/v1"));
+        assert_eq!(
+            errs.len(),
+            PROSE_FINDING_CAP + 1,
+            "emission is capped plus one truncation notice"
+        );
+        assert!(errs.last().unwrap().message.contains("truncated"));
     }
 
     #[test]
@@ -6756,6 +7700,7 @@ mod tests {
             fields,
             sections,
             body: lines(body_lines),
+            body_start_line: 1,
         }
     }
 
@@ -7065,6 +8010,7 @@ mod tests {
             fields,
             sections,
             body,
+            body_start_line: 1,
         }
     }
 
@@ -7185,6 +8131,7 @@ mod tests {
             fields,
             sections: vec![],
             body,
+            body_start_line: 1,
         };
         let brief_spec = spec_for("brief/v1");
         assert!(check_fc14(&doc, &brief_spec).is_empty());
@@ -7245,7 +8192,98 @@ mod tests {
     }
 
     #[test]
-    fn check_fc14_sub_c_unresolved_dependency_fires() {
+    fn check_fc17_is_error_level_in_both_postures() {
+        use crate::validate::{effective_severity, ReviewPosture, Severity};
+        // The point of splitting the code out was the severity. If FC17 ever
+        // resolves to a notice, the fail-open case this check exists for is
+        // back to passing validation at exit 0.
+        assert_eq!(
+            effective_severity("FC17", ReviewPosture::Draft),
+            Severity::Error
+        );
+        assert_eq!(
+            effective_severity("FC17", ReviewPosture::Ready),
+            Severity::Error
+        );
+    }
+
+    #[test]
+    fn check_fc17_bare_numeric_dependency_fires() {
+        // The #275 case: `**Dependencies**: 3` used to validate at exit 0 and
+        // then extract to a task with no edge.
+        let mut body = well_formed_single_pr_body();
+        for line in body.iter_mut() {
+            if line.starts_with("**Dependencies**: Blocked by <<ISSUE:1>>") {
+                *line = "**Dependencies**: 1".to_string();
+            }
+        }
+        let doc = make_plan_doc("single-pr", 2, body);
+        let errs = check_fc17(&doc, &plan_spec());
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "FC17" && e.message.contains("'1'")),
+            "expected FC17 for the bare numeric dependency; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc17_silent_on_a_well_formed_plan() {
+        let doc = make_plan_doc("single-pr", 2, well_formed_single_pr_body());
+        assert!(check_fc17(&doc, &plan_spec()).is_empty());
+    }
+
+    #[test]
+    fn check_fc17_silent_on_multi_pr() {
+        // multi-pr's authoritative content is the Implementation Issues
+        // table; its dependency resolution is FC06's.
+        let doc = make_plan_doc("multi-pr", 2, well_formed_single_pr_body());
+        assert!(check_fc17(&doc, &plan_spec()).is_empty());
+    }
+
+    #[test]
+    fn check_fc14_no_longer_reports_unresolved_dependencies() {
+        // The finding moved wholesale rather than being duplicated: one
+        // defect must not produce both a notice and an error.
+        let mut body = well_formed_single_pr_body();
+        for line in body.iter_mut() {
+            if line.starts_with("**Dependencies**: Blocked by <<ISSUE:1>>") {
+                *line = "**Dependencies**: Blocked by Issue 42".to_string();
+            }
+        }
+        let doc = make_plan_doc("single-pr", 2, body);
+        assert!(
+            !check_fc14(&doc, &plan_spec())
+                .iter()
+                .any(|e| e.message.contains("unresolved dependency")),
+            "FC14 must not duplicate the FC17 finding"
+        );
+    }
+
+    #[test]
+    fn check_fc14_reports_a_nonconforming_heading_at_notice_level() {
+        let mut body = well_formed_single_pr_body();
+        let tail = body
+            .iter()
+            .position(|l| l == "## Implementation Sequence")
+            .expect("the helper body ends with an Implementation Sequence section");
+        body.insert(tail, "### 4. not an outline heading".to_string());
+        let doc = make_plan_doc("single-pr", 2, body);
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.iter().any(|e| e.code == "FC14"
+                && e.message.contains("4. not an outline heading")
+                && e.message.contains("opens no outline")),
+            "expected the FC14 non-conforming-heading finding; got {:?}",
+            errs
+        );
+    }
+
+    /// Retargeted from `check_fc14` to `check_fc17`: the unresolved-dependency
+    /// finding moved codes so it could carry an error severity the rest of
+    /// FC14 does not. The input and the asserted behavior are unchanged.
+    #[test]
+    fn check_fc17_unresolved_dependency_fires() {
         let mut body = well_formed_single_pr_body();
         // Swap Issue 2's deps to reference a non-existent sibling.
         for line in body.iter_mut() {
@@ -7254,12 +8292,12 @@ mod tests {
             }
         }
         let doc = make_plan_doc("single-pr", 2, body);
-        let errs = check_fc14(&doc, &plan_spec());
+        let errs = check_fc17(&doc, &plan_spec());
         assert!(
-            errs.iter().any(|e| e.code == "FC14"
+            errs.iter().any(|e| e.code == "FC17"
                 && e.message.contains("unresolved dependency")
                 && e.message.contains("Issue 42")),
-            "expected FC14 notice for unresolved dep 'Issue 42'; got {:?}",
+            "expected FC17 error for unresolved dep 'Issue 42'; got {:?}",
             errs
         );
     }
@@ -7545,27 +8583,27 @@ mod tests {
     const GOOD_STATUS_LINE: &str = "Absorbed [PRD-x](docs/prds/PRD-x.md); carried in Absorbed PRD.";
 
     #[test]
-    fn fc17_is_silent_when_absorbed_is_absent() {
+    fn fc18_is_silent_when_absorbed_is_absent() {
         let doc = doc_md("---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\n---\n\n## Status\n\nProposed\n");
         assert!(
-            check_fc17(&doc).is_empty(),
+            check_fc18(&doc).is_empty(),
             "a doc declaring no absorption must be untouched -- this is what keeps the change silent on the existing corpus"
         );
     }
 
     #[test]
-    fn fc17_accepts_a_well_formed_declaration() {
+    fn fc18_accepts_a_well_formed_declaration() {
         let doc = absorbing_design(
             "docs/prds/PRD-x.md",
             GOOD_STATUS_LINE,
             "\n## Absorbed PRD\n\nwhat it required\n\n## Context and Problem Statement\n\nx\n",
         );
-        let errs = check_fc17(&doc);
+        let errs = check_fc18(&doc);
         assert!(errs.is_empty(), "expected clean, got {errs:?}");
     }
 
     #[test]
-    fn fc17_rejects_a_declaration_that_yields_no_entry() {
+    fn fc18_rejects_a_declaration_that_yields_no_entry() {
         // A mapping-shaped value parses to zero entries. That must be an error
         // rather than a silent no-op: a gate reading this list would otherwise
         // weaken to nothing.
@@ -7573,15 +8611,15 @@ mod tests {
             "docs/designs/DESIGN-x.md",
             "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed:\n  key: value\n---\n\n## Status\n\nProposed\n",
         );
-        let errs = check_fc17(&doc);
+        let errs = check_fc18(&doc);
         assert_eq!(errs.len(), 1, "got {errs:?}");
         assert!(errs[0].message.contains("no usable entry"));
     }
 
     #[test]
-    fn fc17_rejects_a_malformed_entry() {
+    fn fc18_rejects_a_malformed_entry() {
         let doc = absorbing_design("docs/prds/notes.txt", GOOD_STATUS_LINE, "");
-        let errs = check_fc17(&doc);
+        let errs = check_fc18(&doc);
         assert_eq!(errs.len(), 1, "got {errs:?}");
         assert!(errs[0]
             .message
@@ -7589,21 +8627,21 @@ mod tests {
     }
 
     #[test]
-    fn fc17_rejects_a_cross_repo_entry() {
+    fn fc18_rejects_a_cross_repo_entry() {
         let doc = absorbing_design("owner/repo:docs/prds/PRD-x.md", GOOD_STATUS_LINE, "");
-        let errs = check_fc17(&doc);
+        let errs = check_fc18(&doc);
         assert_eq!(errs.len(), 1, "got {errs:?}");
         assert!(errs[0].message.contains("cross-repo"));
     }
 
     #[test]
-    fn fc17_rejects_an_entry_not_upstream_of_the_carrier() {
+    fn fc18_rejects_an_entry_not_upstream_of_the_carrier() {
         // A PRD cannot absorb a DESIGN: the chain runs the other way.
         let doc = doc_at(
             "docs/prds/PRD-x.md",
             "---\nschema: prd/v1\nstatus: Draft\nproblem: |\n  p\ngoals: |\n  g\nabsorbed: docs/designs/DESIGN-x.md\n---\n\n## Status\n\nDraft\n\nAbsorbed [DESIGN-x](docs/designs/DESIGN-x.md); carried in Absorbed Design.\n\n## Absorbed Design\n\nx\n",
         );
-        let errs = check_fc17(&doc);
+        let errs = check_fc18(&doc);
         assert!(
             errs.iter()
                 .any(|e| e.message.contains("is not upstream of this document")),
@@ -7612,7 +8650,7 @@ mod tests {
     }
 
     #[test]
-    fn fc17_rejects_a_contribution_section_that_is_not_adjacent_to_status() {
+    fn fc18_rejects_a_contribution_section_that_is_not_adjacent_to_status() {
         // FC15 permits unrequired sections between required ones, so it cannot
         // express adjacency at any severity. This is the clause that owns it.
         let doc = absorbing_design(
@@ -7620,7 +8658,7 @@ mod tests {
             GOOD_STATUS_LINE,
             "\n## Context and Problem Statement\n\nx\n\n## Absorbed PRD\n\nx\n",
         );
-        let errs = check_fc17(&doc);
+        let errs = check_fc18(&doc);
         assert!(
             errs.iter()
                 .any(|e| e.message.contains("contiguously in chain order")),
@@ -7629,13 +8667,13 @@ mod tests {
     }
 
     #[test]
-    fn fc17_rejects_a_missing_status_absorption_line() {
+    fn fc18_rejects_a_missing_status_absorption_line() {
         let doc = absorbing_design(
             "docs/prds/PRD-x.md",
             "some prose that is not the pinned shape",
             "\n## Absorbed PRD\n\nx\n",
         );
-        let errs = check_fc17(&doc);
+        let errs = check_fc18(&doc);
         assert!(
             errs.iter()
                 .any(|e| e.message.contains("missing the absorption line")),
@@ -7644,12 +8682,12 @@ mod tests {
     }
 
     #[test]
-    fn fc17_requires_transitive_contributions_in_chain_order() {
+    fn fc18_requires_transitive_contributions_in_chain_order() {
         let doc = doc_at(
             "docs/designs/DESIGN-x.md",
             "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed:\n  - docs/prds/PRD-x.md\n  - docs/briefs/BRIEF-x.md\n---\n\n## Status\n\nProposed\n\nAbsorbed [BRIEF-x](docs/briefs/BRIEF-x.md); carried in Absorbed Brief.\nAbsorbed [PRD-x](docs/prds/PRD-x.md); carried in Absorbed PRD.\n\n## Absorbed Brief\n\nwhy\n\n## Absorbed PRD\n\nwhat\n\n## Context and Problem Statement\n\nx\n",
         );
-        let errs = check_fc17(&doc);
+        let errs = check_fc18(&doc);
         assert!(
             errs.is_empty(),
             "a survivor carrying two contributions in chain order is valid -- the declaration order must not matter, the chain order must; got {errs:?}"
@@ -7723,37 +8761,37 @@ mod tests {
     // --- check_fc18 (requirement citations orphaned by an absorb) ---
 
     #[test]
-    fn fc18_is_silent_without_an_absorbed_prd() {
+    fn fc19_is_silent_without_an_absorbed_prd() {
         let doc = doc_md("---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\n---\n\n## Status\n\nProposed\n\nSee R7 and R12.\n");
-        assert!(check_fc18(&doc).is_empty());
+        assert!(check_fc19(&doc).is_empty());
     }
 
     #[test]
-    fn fc18_flags_a_citation_orphaned_by_absorbing_its_prd() {
+    fn fc19_flags_a_citation_orphaned_by_absorbing_its_prd() {
         let doc = doc_at(
             "docs/designs/DESIGN-x.md",
             "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed: docs/prds/PRD-x.md\n---\n\n## Status\n\nProposed\n\nAbsorbed [PRD-x](docs/prds/PRD-x.md); carried in Absorbed PRD.\n\n## Absorbed PRD\n\nIt required things.\n\n## Context and Problem Statement\n\nThis satisfies R7.\n",
         );
-        let errs = check_fc18(&doc);
+        let errs = check_fc19(&doc);
         assert_eq!(errs.len(), 1, "got {errs:?}");
         assert!(errs[0].message.contains("R7"), "got {}", errs[0].message);
     }
 
     #[test]
-    fn fc18_accepts_a_citation_the_contribution_carried() {
+    fn fc19_accepts_a_citation_the_contribution_carried() {
         let doc = doc_at(
             "docs/designs/DESIGN-x.md",
             "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed: docs/prds/PRD-x.md\n---\n\n## Status\n\nProposed\n\nAbsorbed [PRD-x](docs/prds/PRD-x.md); carried in Absorbed PRD.\n\n## Absorbed PRD\n\n**R7.** The thing shall hold.\n\n## Context and Problem Statement\n\nThis satisfies R7.\n",
         );
-        assert!(check_fc18(&doc).is_empty());
+        assert!(check_fc19(&doc).is_empty());
     }
 
     #[test]
-    fn fc18_does_not_fire_on_an_absorbed_brief_alone() {
+    fn fc19_does_not_fire_on_an_absorbed_brief_alone() {
         let doc = doc_at(
             "docs/prds/PRD-x.md",
             "---\nschema: prd/v1\nstatus: Draft\nproblem: |\n  p\ngoals: |\n  g\nabsorbed: docs/briefs/BRIEF-x.md\n---\n\n## Status\n\nDraft\n\nAbsorbed [BRIEF-x](docs/briefs/BRIEF-x.md); carried in Absorbed Brief.\n\n## Absorbed Brief\n\nwhy\n\n## Problem Statement\n\nCites R3 from elsewhere.\n",
         );
-        assert!(check_fc18(&doc).is_empty());
+        assert!(check_fc19(&doc).is_empty());
     }
 }

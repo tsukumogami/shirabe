@@ -160,9 +160,20 @@ even though an outbound hand-off does not, and the asymmetry is
 deliberate: outbound, the parent hands over an artifact it just
 watched a child produce and whose type it therefore knows; inbound,
 it is routing on a string the author typed. A wrong type inbound is
-caught nowhere downstream — `/brief` would record a PRD or a DESIGN
-as the feature's upstream, inverting the chain it sits in, and
-nothing would say so.
+caught nowhere downstream. `/brief` records no `upstream:` at all, so
+a wrong-type value never reaches frontmatter for a reviewer or the
+validator to catch — it silently frames the brief's problem and outcome
+against the wrong artifact, and nothing says so. The basename rule is
+the only guard, which is why it is enforced here as well as in the
+child.
+
+**Confine the canonical path.** The path must resolve under
+`<repo-root>/docs/roadmaps/` — not any `docs/roadmaps/` path segment
+beneath the root, since a fixture tree has one of its own. This is the
+constraint `/brief`'s positional roadmap mode already carries, and both
+children enforce it, so a value the parent accepts is never one a child
+then rejects. A cross-repo value skips it along with the other
+filesystem checks.
 
 **Three ordered checks.** Run these in order, exactly as `/prd`'s
 draft phase runs them. They are reused rather than reinvented, so
@@ -188,7 +199,20 @@ it to.
    then runs exactly as it would have with no `--upstream` at all.
 
 The third check is the load-bearing one, because the flag's value
-reaches a committed `upstream:` field in the produced BRIEF.
+reaches a committed `upstream:` field in the produced PLAN. The
+roadmap path itself never reaches the BRIEF's frontmatter: the brief
+grounds on the roadmap and records the roadmap's own durable ancestor,
+resolved at `/brief`'s Phase 0 and run through the same visibility
+check there. The crossing from the strategic chain into the tactical
+one is recorded on the PLAN alone, because the PLAN is deleted by the
+same cascade that deletes the roadmap and goes first — see
+`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`.
+
+A private roadmap dropped here is dropped for both children, so the
+brief loses its grounding as well as the plan losing its link. That is
+the pre-existing shape of this check rather than a consequence of the
+split, and it is the case worth revisiting now that reading and
+recording have different targets.
 Public documents must not reference private ones (see the
 visibility-direction table in
 [`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`](${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md)),

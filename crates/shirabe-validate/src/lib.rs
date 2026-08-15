@@ -21,7 +21,9 @@ pub mod lifecycle;
 pub mod merge_gate;
 pub mod mermaid;
 pub mod pr_body;
+pub mod prose;
 pub mod report;
+pub mod rules;
 pub mod table;
 pub mod transition;
 pub mod upstream;
@@ -33,7 +35,7 @@ pub mod visibility;
 // internal-shaped and unstable; see the crate-level doc comment above.
 pub use advisory::{explain as explain_advisory, AdvisoryNote, AdvisoryReport, PrPosture};
 pub use annotation::{format_error, format_notice};
-pub use checks::{check_slug_prefix, detect_slug_prefix, SlugPrefixCheck};
+pub use checks::{check_slug_prefix, detect_slug_prefix, SlugPrefixCheck, SCHEMA_SKIP_CODE};
 pub use coordination::{
     check_coordination_body, decide_gate, decide_visibility_guard, is_acyclic_order,
     parse_cross_repo_ref, redacted_label, CoordinationBodyFinding, CrossRepoRef, GateDecision,
@@ -47,13 +49,14 @@ pub use finalize::{
     CrossRepoVerification, Mode, NodeAction, NodeEntry, Report, VerifyError, WalkError,
 };
 pub use formats::{detect_format, formats, FormatSpec};
-pub use frontmatter::{parse_doc, ParseError};
+pub use frontmatter::{parse_doc, parse_doc_bytes, ParseError};
 pub use gh::{
     detect_pr_context, detect_pr_draft, ClientError, GhSubprocessClient, IssueState,
     IssueStateClient, PrContext,
 };
 pub use lifecycle::{
-    run_lifecycle_chain_check, run_lifecycle_check, target_state_for, Posture, TargetState,
+    root_has_artifact_dirs, run_lifecycle_chain_check, run_lifecycle_check, target_state_for,
+    Posture, TargetState, ARTIFACT_DIRS,
 };
 pub use merge_gate::{
     check_index_visibility, coordination_pr_visibility, run_merge_gate, split_pr_arg,
@@ -63,7 +66,10 @@ pub use pr_body::{check_pr_body, check_pr_title, PrBodyFinding};
 pub use report::{
     render_human, render_human_with_advisory, render_json, render_json_with_advisory,
 };
-pub use table::{is_stable_table_key, parse_issues_table, Profile, Row, RowKind, Table};
+pub use table::{
+    is_stable_table_key, parse_issue_outlines, parse_issues_table, parse_outline_acs,
+    NonconformingHeading, OutlineAc, OutlineBlock, OutlineSection, Profile, Row, RowKind, Table,
+};
 pub use transition::{
     run_transition, transition_spec, transition_table, BodyTemplate, ExtraInput, Flags, Moves,
     Outcome, Precondition, ResultFields, Rule, TransitionError, TransitionSpec,

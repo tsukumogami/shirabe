@@ -107,16 +107,45 @@ fn no_files_exits_zero_with_no_output() {
 }
 
 #[test]
-fn unrecognized_format_is_skipped() {
-    // A path whose basename matches no format prefix is silently skipped;
-    // with no other files the run exits 0 and emits nothing.
-    shirabe()
+fn unrecognized_format_gets_prose_checks_not_structural_ones() {
+    // A path whose basename matches no artifact prefix used to be silently
+    // skipped: `shirabe validate README.md` printed nothing and exited 0,
+    // and this test asserted that as the contract. It was the defect, not
+    // the design — the instruction files that shape every agent run were
+    // the ones nothing checked.
+    //
+    // The file now gets the prose family. It does not get the structural
+    // checks: a README has no frontmatter, no schema, and no required
+    // sections, so FC01/FC04/FC15 firing on it would be a worse regression
+    // than the gap. That invariant is a signature property now, since the
+    // prose entry point takes no FormatSpec.
+    let dir = std::env::temp_dir().join("shirabe-cli-unrecognized-format");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let readme = dir.join("README.md");
+    std::fs::write(&readme, "A robust and comprehensive introduction.\n").unwrap();
+
+    let out = shirabe()
         .arg("validate")
-        .arg("README.md")
+        .arg(readme.to_str().unwrap())
         .assert()
         .success()
-        .stdout("")
-        .stderr("");
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8_lossy(&out);
+
+    assert!(
+        text.contains("FC10"),
+        "the prose family must reach a non-artifact file; got: {text}"
+    );
+
+    for structural in ["FC01", "FC02", "FC03", "FC04", "FC15", "SCHEMA"] {
+        assert!(
+            !text.contains(structural),
+            "structural check {structural} must not fire on a non-artifact file; got: {text}"
+        );
+    }
 }
 
 #[test]
@@ -298,4 +327,81 @@ fn visibility_explicit_flag_overrides_autodetection() {
         .assert()
         .failure()
         .stdout(contains("[R8]"));
+}
+
+/// A minimal BRIEF whose `upstream:` names a DESIGN -- a direction violation
+/// (a brief heads its own lineage) with no lifetime component, so `--check
+/// R10` observes R10 alone.
+const BRIEF_NAMING_A_DESIGN: &str = "---\nschema: brief/v1\nstatus: Draft\nproblem: A problem.\noutcome: An outcome.\nupstream: docs/designs/DESIGN-x.md\n---\n\n# BRIEF: legality\n\n## Status\n\nDraft\n\n## Problem Statement\n\nA problem.\n\n## User Outcome\n\nAn outcome.\n\n## User Journeys\n\n### One\n\nA journey.\n\n## Scope Boundary\n\nIN: a thing. OUT: another.\n";
+
+/// The same BRIEF naming a ROADMAP -- a working target, so the lifetime
+/// finding fires and the direction finding is suppressed.
+const BRIEF_NAMING_A_ROADMAP: &str = "---\nschema: brief/v1\nstatus: Draft\nproblem: A problem.\noutcome: An outcome.\nupstream: docs/roadmaps/ROADMAP-x.md\n---\n\n# BRIEF: legality\n\n## Status\n\nDraft\n\n## Problem Statement\n\nA problem.\n\n## User Outcome\n\nAn outcome.\n\n## User Journeys\n\n### One\n\nA journey.\n\n## Scope Boundary\n\nIN: a thing. OUT: another.\n";
+
+fn make_brief(tag: &str, body: &str) -> std::path::PathBuf {
+    let repo = std::env::temp_dir().join(format!("shirabe-cli-legality-{tag}"));
+    let _ = std::fs::remove_dir_all(&repo);
+    std::fs::create_dir_all(&repo).unwrap();
+    let doc = repo.join("BRIEF-legality.md");
+    std::fs::write(&doc, body).unwrap();
+    doc
+}
+
+#[test]
+fn check_r10_selects_the_direction_finding() {
+    let doc = make_brief("r10", BRIEF_NAMING_A_DESIGN);
+    shirabe()
+        .arg("validate")
+        .arg("--check")
+        .arg("R10")
+        .arg(&doc)
+        .assert()
+        .failure()
+        .stdout(contains("[R10]"))
+        .stdout(contains("BRIEF may not name DESIGN"));
+}
+
+#[test]
+fn check_r11_selects_the_lifetime_finding() {
+    let doc = make_brief("r11", BRIEF_NAMING_A_ROADMAP);
+    shirabe()
+        .arg("validate")
+        .arg("--check")
+        .arg("R11")
+        .arg(&doc)
+        .assert()
+        .failure()
+        .stdout(contains("[R11]"))
+        .stdout(contains("scheduled to dangle"));
+}
+
+/// The precedence rule at the CLI: a brief naming a roadmap violates both
+/// properties, and `--check R10` observes nothing because the lifetime finding
+/// is the only one emitted.
+#[test]
+fn check_r10_is_silent_when_the_lifetime_finding_suppressed_it() {
+    let doc = make_brief("precedence", BRIEF_NAMING_A_ROADMAP);
+    shirabe()
+        .arg("validate")
+        .arg("--check")
+        .arg("R10")
+        .arg(&doc)
+        .assert()
+        .success()
+        .stdout("");
+}
+
+/// The valid-codes diagnostic names the new codes, so an author who mistypes
+/// one is told the range they fall in.
+#[test]
+fn unknown_check_code_message_names_the_legality_range() {
+    let doc = make_brief("unknown-code", BRIEF_NAMING_A_DESIGN);
+    shirabe()
+        .arg("validate")
+        .arg("--check")
+        .arg("R12")
+        .arg(&doc)
+        .assert()
+        .failure()
+        .stderr(contains("R6-R11"));
 }

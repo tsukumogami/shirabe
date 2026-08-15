@@ -195,6 +195,14 @@ Procedure:
      surface it as a tool failure (do NOT report it as a STRATEGY
      violation); the `exit:` field stays UNSET and the author
      resolves the invocation problem before retrying finalization.
+   - **4 (incomplete)** — the validator accepted the file and then
+     did not check it: the filename prefix routed it to a format
+     but its `schema:` field is missing or out of range. This is
+     not a verdict on the Draft's content either — the content was
+     never read. Halt and surface the envelope's `skipped` entries;
+     the `exit:` field stays UNSET and the author adds the
+     `schema:` field before retrying, after which the real checks
+     run and report normally.
 
 The pass-through is NOT a re-implementation of `shirabe validate`.
 `/charter` does not duplicate the validator's checks, does not

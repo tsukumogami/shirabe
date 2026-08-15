@@ -321,12 +321,41 @@
     },
     {
       "id": 20,
-      "name": "e2e-execute-cascade-design-prd-roadmap",
+      "name": "e2e-execute-cascade-new-shape-plan-carries-roadmap",
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "e2e-cascade-new-shape",
+      "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-new-shape.md",
+      "expected_output": "Agent runs skills/execute/scripts/run-cascade.sh --push on PLAN-cascade-test-new-shape.md. The chain is authored under the upstream-legality rule: PLAN -> DESIGN -> PRD -> BRIEF, with the ROADMAP named by the PLAN's own second upstream entry rather than by the BRIEF. No durable artifact in the chain names the ROADMAP: the BRIEF records the STRATEGY it resolved one hop up from that roadmap, and the walk stops cleanly on that STRATEGY rather than reporting it as an unrecognized node. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-new-shape.md to Current (folder move into docs/designs/current/), transitions PRD-cascade-test-new-shape.md to Done, transitions BRIEF-cascade-test-new-shape.md to Done, updates ROADMAP-cascade-test.md Feature 3 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed. The roadmap is reached through the PLAN, which the same cascade deletes first, so the link that reached it cannot be left dangling.",
+      "files": [
+        "skills/execute/evals/fixtures/plans/PLAN-cascade-test-new-shape.md",
+        "skills/execute/evals/fixtures/designs/DESIGN-cascade-test-new-shape.md",
+        "skills/execute/evals/fixtures/prds/PRD-cascade-test-new-shape.md",
+        "skills/execute/evals/fixtures/briefs/BRIEF-cascade-test-new-shape.md",
+        "skills/execute/evals/fixtures/strategies/STRATEGY-cascade-test.md",
+        "skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md"
+      ],
+      "expectations": [
+        "Agent runs skills/execute/scripts/run-cascade.sh (the relocated /execute copy)",
+        "PLAN-cascade-test-new-shape.md is DELETED by the cascade (git rm; the file no longer exists on disk)",
+        "DESIGN-cascade-test-new-shape.md is MOVED to its Current folder (docs/designs/current/) — a folder move, not only a status-field flip",
+        "PRD-cascade-test-new-shape.md is transitioned to Done",
+        "BRIEF-cascade-test-new-shape.md is transitioned to Done",
+        "The BRIEF records STRATEGY-cascade-test.md rather than the ROADMAP, so the walk reaches the ROADMAP through the PLAN's second upstream entry rather than through the BRIEF",
+        "The walk stops on STRATEGY-cascade-test.md with a stop action, not an error action, and the STRATEGY is not transitioned",
+        "ROADMAP-cascade-test.md Feature 3 Status is updated to Done",
+        "ROADMAP-cascade-test.md Feature 3 Downstream references the DESIGN doc at Current",
+        "cascade_status is completed"
+      ]
+    },
+    {
+      "id": 34,
+      "name": "e2e-execute-cascade-old-shape-still-reaches-the-roadmap",
       "tier": 2,
       "mode": "execute",
       "scenario": "e2e-cascade-full",
       "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
-      "expected_output": "Agent runs skills/execute/scripts/run-cascade.sh --push on PLAN-cascade-test-full.md. The chain is PLAN -> DESIGN -> PRD -> BRIEF -> ROADMAP. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-full.md to Current (folder move into docs/designs/current/), transitions PRD-cascade-test-full.md to Done, transitions BRIEF-cascade-test-full.md to Done, updates ROADMAP-cascade-test.md Feature 2 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed.",
+      "expected_output": "The regression guard for a corpus authored before the upstream-legality rule. This chain is deliberately in the OLD shape: BRIEF-cascade-test-full.md names the ROADMAP in its upstream:, which shirabe validate now reports as an R11 lifetime violation. The chain walkers are unchanged and stay type-agnostic \u2014 the validator gained the opinion, not finalize-chain \u2014 so the cascade must behave exactly as it did before the rule landed. Agent runs skills/execute/scripts/run-cascade.sh --push on PLAN-cascade-test-full.md. The chain is PLAN -> DESIGN -> PRD -> BRIEF -> ROADMAP. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-full.md to Current (folder move into docs/designs/current/), transitions PRD-cascade-test-full.md to Done, transitions BRIEF-cascade-test-full.md to Done, updates ROADMAP-cascade-test.md Feature 2 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed. These fixtures are kept in the old shape on purpose and must not be migrated to the new one.",
       "files": [
         "skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
         "skills/execute/evals/fixtures/designs/DESIGN-cascade-test-full.md",
@@ -335,14 +364,16 @@
         "skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md"
       ],
       "expectations": [
-        "Agent runs skills/execute/scripts/run-cascade.sh (the relocated /execute copy)",
+        "Agent runs skills/execute/scripts/run-cascade.sh against the old-shape chain without migrating any fixture",
+        "The walk reaches the ROADMAP through BRIEF-cascade-test-full.md's upstream: field, the pre-rule route",
         "PLAN-cascade-test-full.md is DELETED by the cascade (git rm; the file no longer exists on disk)",
-        "DESIGN-cascade-test-full.md is MOVED to its Current folder (docs/designs/current/) — a folder move, not only a status-field flip",
+        "DESIGN-cascade-test-full.md is MOVED to its Current folder (docs/designs/current/)",
         "PRD-cascade-test-full.md is transitioned to Done",
         "BRIEF-cascade-test-full.md is transitioned to Done",
         "ROADMAP-cascade-test.md Feature 2 Status is updated to Done",
         "ROADMAP-cascade-test.md Feature 2 Downstream references the DESIGN doc at Current",
-        "cascade_status is completed"
+        "cascade_status is completed",
+        "Plan does NOT propose removing the BRIEF's upstream: field \u2014 the old shape is the evidence this scenario exists to preserve"
       ]
     },
     {

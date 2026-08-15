@@ -144,7 +144,7 @@ Write `wip/brief_<topic>_discover.md` with the following:
 <one-paragraph statement of what a user should experience>
 
 ## Grounding Anchor
-<upstream ROADMAP path, OR "conversation only">
+<grounding ROADMAP path, OR "conversation only">
 
 ## Journey Sketch
 - <who triggers the feature, and what they get>

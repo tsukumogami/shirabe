@@ -457,7 +457,7 @@ pub fn walk_chain(plan_path: &str) -> Result<Report, WalkError> {
 /// - `PRD` -> [`NodeAction::TransitionPrd`] (target `Done`)
 /// - `Brief` -> [`NodeAction::TransitionBrief`] (target `Done`)
 /// - `Roadmap` -> [`NodeAction::RoadmapHandoff`], then stop
-/// - `VISION` -> [`NodeAction::Stop`], then stop
+/// - `Strategy` / `VISION` -> [`NodeAction::Stop`], then stop
 /// - unrecognized prefix -> [`NodeAction::Error`], then stop
 /// - a cross-repo `owner/repo:path` upstream -> [`NodeAction::Stop`] with a
 ///   note (resolution is out of scope), then stop
@@ -690,6 +690,21 @@ fn classify_node(upstream: UpstreamEntry) -> Result<WalkNode, WalkError> {
         Some("PRD") => (NodeAction::TransitionPrd, Some("Done".to_string())),
         Some("Brief") => (NodeAction::TransitionBrief, Some("Done".to_string())),
         Some("Roadmap") => (NodeAction::RoadmapHandoff, None),
+        // A BRIEF records the nearest durable ancestor of the ROADMAP it was
+        // framed against, so a tactical walk now terminates on a STRATEGY as
+        // routinely as it used to on a ROADMAP. Both strategic types stop the
+        // walk cleanly: they are durable, they sit outside the tactical
+        // finalization this cascade performs, and reaching one is the normal
+        // end of the chain rather than a malformed link. Without this arm a
+        // STRATEGY falls to the catch-all below and every cascade on such a
+        // chain reports a failed node.
+        Some("Strategy") => (
+            NodeAction::Stop(format!(
+                "reached STRATEGY node '{}'; handing off to the caller",
+                path
+            )),
+            None,
+        ),
         Some("VISION") => (
             NodeAction::Stop(format!(
                 "reached VISION node '{}'; handing off to the caller",
@@ -1379,6 +1394,24 @@ mod tests {
         assert_eq!(actions, vec!["delete_plan", "stop"]);
         assert_eq!(report.nodes[1].format.as_deref(), Some("VISION"));
         assert!(matches!(report.nodes[1].action, NodeAction::Stop(_)));
+    }
+
+    /// A tactical chain now terminates on a STRATEGY as routinely as it used
+    /// to on a ROADMAP, because a BRIEF records the roadmap's nearest durable
+    /// ancestor. Without a `Strategy` arm the node falls to the catch-all and
+    /// reports an error, which the cascade turns into a failed step on every
+    /// otherwise-clean run.
+    #[test]
+    fn strategy_node_stops_rather_than_erroring() {
+        let dir = fresh_dir();
+        let strategy = write_doc(&dir, "STRATEGY-evolution.md", None);
+        let brief = write_doc(&dir, "BRIEF-feature.md", Some(&strategy));
+        let plan = write_doc(&dir, "PLAN-feature.md", Some(&brief));
+        let report = walk_chain(&plan).expect("walk ok");
+        let actions: Vec<&str> = report.nodes.iter().map(|n| n.action.as_str()).collect();
+        assert_eq!(actions, vec!["delete_plan", "transition_brief", "stop"]);
+        assert_eq!(report.nodes[2].format.as_deref(), Some("Strategy"));
+        assert!(matches!(report.nodes[2].action, NodeAction::Stop(_)));
     }
 
     #[test]

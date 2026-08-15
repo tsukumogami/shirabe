@@ -9,10 +9,10 @@
 use crate::checks::{
     check_claude_md_conventions, check_eval_fixture_frontmatter, check_fc01, check_fc02,
     check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09, check_fc14,
-    check_fc15, check_fc17, check_fc18, check_plan_design_field_consistency,
+    check_fc15, check_fc17, check_fc18, check_fc19, check_plan_design_field_consistency,
     check_plan_section_structure, check_private_only, check_roadmap_reserved_sections,
-    check_schema, check_strategy_public, check_upstream_resolves, check_vision_public,
-    check_writing_style,
+    check_schema, check_strategy_public, check_upstream_legality, check_upstream_resolves,
+    check_vision_public, check_writing_style,
 };
 use crate::doc::{Doc, ValidationError};
 use crate::formats::FormatSpec;
@@ -145,7 +145,7 @@ pub fn is_notice(err: &ValidationError, posture: ReviewPosture) -> bool {
 
 /// Reports whether `code` is a known per-file check code that the `--check`
 /// selector can address. The set is the codes the per-file validation pass
-/// can emit: `SCHEMA`, `FC01`-`FC18`, `FC-CONVENTIONS`, and `R6`-`R9`. The
+/// can emit: `SCHEMA`, `FC01`-`FC19`, `FC-CONVENTIONS`, and `R6`-`R11`. The
 /// lifecycle codes (`L01`-`L05`) are produced by the `--lifecycle` traversal
 /// modes, not the per-file pass, so they are not selectable here.
 pub fn is_known_check_code(code: &str) -> bool {
@@ -170,11 +170,14 @@ pub fn is_known_check_code(code: &str) -> bool {
             | "FC16"
             | "FC17"
             | "FC18"
+            | "FC19"
             | "FC-CONVENTIONS"
             | "R6"
             | "R7"
             | "R8"
             | "R9"
+            | "R10"
+            | "R11"
     )
 }
 
@@ -184,6 +187,32 @@ pub fn is_known_check_code(code: &str) -> bool {
 /// (or the [`is_notice`] wrapper) to distinguish notice-level results from
 /// error-level results.
 pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<ValidationError> {
+    let mut errs = validate_prose(doc, cfg);
+    errs.extend(validate_structural(doc, spec, cfg));
+    errs
+}
+
+/// The schema-independent checks: prose, and the CLAUDE.md conventions.
+///
+/// Runs for every Markdown file the validator is handed, including files
+/// carrying no artifact prefix and files whose `schema` field is missing.
+/// A structural check cannot be reached from here, because none of these
+/// takes a `FormatSpec` — the invariant is a signature property rather than
+/// a convention someone has to remember.
+///
+/// `check_claude_md_conventions` gates on the basename internally. It was
+/// unreachable before this split: it is registered in the dispatch table
+/// and fully unit-tested, but `detect_format` returns `None` for the only
+/// filename it accepts, so `validate_file` was never called for one.
+pub fn validate_prose(doc: &Doc, _cfg: &Config) -> Vec<ValidationError> {
+    let mut errs = Vec::new();
+    errs.extend(check_writing_style(doc, &FormatSpec::prose_only()));
+    errs.extend(check_claude_md_conventions(doc, &FormatSpec::prose_only()));
+    errs
+}
+
+/// The checks that presuppose an artifact schema.
+fn validate_structural(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<ValidationError> {
     // 1. Schema gate: if doc.schema != spec.schema_version, return SCHEMA notice.
     if let Some(schema_err) = check_schema(doc, spec) {
         return vec![schema_err];
@@ -204,18 +233,16 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
     errs.extend(check_fc03(doc, spec));
     errs.extend(check_fc04(doc, spec));
     errs.extend(check_fc15(doc, spec));
-    // FC17 runs after FC04 so a doc missing `## Status` gets FC04's message
-    // first; FC17 then says only what FC04 cannot, which is that the adjacency
+    // FC18 runs after FC04 so a doc missing `## Status` gets FC04's message
+    // first; FC18 then says only what FC04 cannot, which is that the adjacency
     // it requires could not be established.
-    errs.extend(check_fc17(doc));
     errs.extend(check_fc18(doc));
+    errs.extend(check_fc19(doc));
 
-    // 2a. Cross-format notice-level checks (FC10 writing-style, FC13
-    // eval-fixture frontmatter, FC-CONVENTIONS CLAUDE.md headers).
-    // These ride alongside the per-format checks and are notice-level.
-    errs.extend(check_writing_style(doc, spec));
+    // 2a. Cross-format notice-level checks that still need a spec. The
+    // prose family and FC-CONVENTIONS moved to `validate_prose`, which runs
+    // for schema-less files too.
     errs.extend(check_eval_fixture_frontmatter(doc, spec));
-    errs.extend(check_claude_md_conventions(doc, spec));
 
     // 2b. (R6) The `upstream` field resolves for every format that carries
     // it, not just Plan. A dangling link is wrong however it arose, and
@@ -223,6 +250,24 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
     // artifact -- a missed re-point has to fail here rather than survive to
     // the finalize-chain walk at cascade time.
     errs.extend(check_upstream_resolves(doc));
+
+    // 2c. (R10/R11) The `upstream` field names something this doc is allowed
+    // to name, on both properties legality has: the target's type, and whether
+    // it outlives this document. Placement is load-bearing rather than
+    // incidental, and this is a structural check specifically: it presupposes
+    // an artifact schema, so it belongs here and not in `validate_prose`,
+    // which runs for every Markdown file including schema-less ones.
+    //
+    // Within this function it sits after the schema gate, which returns early
+    // for a doc whose `schema:` does not match its profile. The golden-corpus
+    // fixture `real/PRD-roadmap-skill.md` carries a durable-names-working edge
+    // and has no `schema:` field, so its frozen expected output is a prose
+    // notice plus that schema notice and nothing else. A call before the gate,
+    // in `validate_prose`, or in the per-file driver loop in `main.rs` would
+    // add a finding there and change bytes the parity test pins. It also sits
+    // after the R9 private-only gate, which short-circuits for the same
+    // single-authoritative-reason motive.
+    errs.extend(check_upstream_legality(doc, spec));
 
     // 3. Format-specific checks dispatched by spec.name.
     // Casing is intentional per the formats-map entries -- existing names
@@ -248,6 +293,11 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
             // FC14: single-pr plan structural validation (issue outlines +
             // execution_mode-aware mutual-exclusion + issue_count parity).
             errs.extend(check_fc14(doc, spec));
+            // FC17: an outline dependency that names no sibling. Split
+            // from FC14 because it is error-level -- it is the one
+            // failure here that would otherwise pass validation and then
+            // extract to a task graph missing the edge.
+            errs.extend(check_fc17(doc, spec));
         }
         "Roadmap" => {
             errs.extend(check_fc05(doc, spec));
@@ -281,6 +331,35 @@ mod tests {
     use crate::formats::formats;
     use std::collections::HashMap;
 
+    /// Every prose code resolves to a notice under both postures.
+    ///
+    /// A prose code missing from `is_intrinsic_notice` ships at error level
+    /// to every repository pinned at `@main` on its next docs PR. That is
+    /// the breaking arrival the requirements forbid, reached through a
+    /// registration list rather than through a decision, which is why it is
+    /// asserted rather than reviewed.
+    #[test]
+    fn prose_codes_are_notice_level_under_both_postures() {
+        for code in ["FC10", "FC-CONVENTIONS"] {
+            let err = ValidationError {
+                file: "t.md".to_string(),
+                line: 1,
+                code: code.to_string(),
+                message: String::new(),
+            };
+            for posture in [ReviewPosture::Draft, ReviewPosture::Ready] {
+                assert!(
+                    is_notice(&err, posture),
+                    "{code} must be notice-level under {posture:?}"
+                );
+            }
+            assert!(
+                is_known_check_code(code),
+                "{code} must be selectable with --check"
+            );
+        }
+    }
+
     fn spec_for(schema: &str) -> FormatSpec {
         formats()
             .into_iter()
@@ -313,6 +392,7 @@ mod tests {
             fields,
             sections,
             body,
+            body_start_line: 1,
         }
     }
 
@@ -495,6 +575,195 @@ mod tests {
             effective_severity("L01", ReviewPosture::Draft),
             Severity::Error
         );
+    }
+
+    /// The two legality codes are selectable and error-level, and the
+    /// selectable set is exactly the documented one. Membership is asserted
+    /// over the full list AND non-membership over every unused code in the
+    /// two families' plausible ranges, so a third code added without a
+    /// decision fails here rather than passing because nobody enumerated it.
+    #[test]
+    fn the_legality_codes_are_selectable_and_the_set_gained_exactly_two() {
+        for code in ["R10", "R11"] {
+            assert!(is_known_check_code(code), "{code} must be selectable");
+            for posture in [ReviewPosture::Draft, ReviewPosture::Ready] {
+                assert_eq!(
+                    effective_severity(code, posture),
+                    Severity::Error,
+                    "{code} is error-level in every posture"
+                );
+            }
+        }
+
+        let expected = [
+            "SCHEMA",
+            "FC01",
+            "FC02",
+            "FC03",
+            "FC04",
+            "FC05",
+            "FC06",
+            "FC07",
+            "FC08",
+            "FC09",
+            "FC10",
+            "FC11",
+            "FC12",
+            "FC13",
+            "FC14",
+            "FC15",
+            "FC16",
+            "FC17",
+            "FC-CONVENTIONS",
+            "R6",
+            "R7",
+            "R8",
+            "R9",
+            "R10",
+            "R11",
+        ];
+        for code in expected {
+            assert!(is_known_check_code(code), "{code} must be selectable");
+        }
+        // Nothing beyond the listed set is selectable. Sweeping both families
+        // rather than naming a couple of neighbours is what makes this an
+        // "exactly" assertion: any code added to the registry without also
+        // being added to `expected` above fails here.
+        let known: std::collections::HashSet<&str> = expected.iter().copied().collect();
+        for n in 1..=40u32 {
+            for code in [format!("R{n}"), format!("FC{n:02}"), format!("FC{n}")] {
+                if known.contains(code.as_str()) {
+                    continue;
+                }
+                assert!(
+                    !is_known_check_code(&code),
+                    "{code} is selectable but is not in the documented set"
+                );
+            }
+        }
+        for code in ["R5", "FC99", "L01", "IO", "fc01", ""] {
+            assert!(!is_known_check_code(code), "{code} must not be selectable");
+        }
+    }
+
+    /// The legality change adds two codes and touches no format's structural
+    /// section contract. A required-sections edit would surface as an FC04 or
+    /// FC15 change across the corpus, which is not what this work is for.
+    #[test]
+    fn the_legality_change_alters_no_required_section_list() {
+        use crate::formats::formats;
+        // The lists are compared element for element, not by length. The
+        // `required_sections` doc comment makes element order contractual --
+        // FC15 enforces it -- so a rename or a reorder has to fail here, and a
+        // length check would let both through.
+        let expected: &[(&str, &[&str])] = &[
+            (
+                "comp/v1",
+                &[
+                    "Status",
+                    "Market Overview",
+                    "Competitors",
+                    "Comparative Matrix",
+                    "Opportunities",
+                    "Implications",
+                    "References",
+                ],
+            ),
+            (
+                "design/v1",
+                &[
+                    "Status",
+                    "Context and Problem Statement",
+                    "Decision Drivers",
+                    "Considered Options",
+                    "Decision Outcome",
+                    "Solution Architecture",
+                    "Implementation Approach",
+                    "Security Considerations",
+                    "Consequences",
+                ],
+            ),
+            (
+                "prd/v1",
+                &[
+                    "Status",
+                    "Problem Statement",
+                    "Goals",
+                    "User Stories",
+                    "Requirements",
+                    "Acceptance Criteria",
+                    "Out of Scope",
+                ],
+            ),
+            (
+                "vision/v1",
+                &[
+                    "Status",
+                    "Thesis",
+                    "Audience",
+                    "Value Proposition",
+                    "Org Fit",
+                    "Success Criteria",
+                    "Non-Goals",
+                ],
+            ),
+            (
+                "roadmap/v1",
+                &[
+                    "Status",
+                    "Theme",
+                    "Features",
+                    "Sequencing Rationale",
+                    "Progress",
+                    "Implementation Issues",
+                    "Dependency Graph",
+                ],
+            ),
+            (
+                "plan/v1",
+                &[
+                    "Status",
+                    "Scope Summary",
+                    "Decomposition Strategy",
+                    "Implementation Issues",
+                    "Dependency Graph",
+                    "Implementation Sequence",
+                ],
+            ),
+            (
+                "strategy/v1",
+                &[
+                    "Status",
+                    "Strategic Context",
+                    "Defensibility Thesis",
+                    "Building Blocks",
+                    "Coordination Dependencies",
+                    "Bet-Specific Falsifiability",
+                    "Non-Goals",
+                    "Downstream Artifacts",
+                ],
+            ),
+            (
+                "brief/v1",
+                &[
+                    "Status",
+                    "Problem Statement",
+                    "User Outcome",
+                    "User Journeys",
+                    "Scope Boundary",
+                ],
+            ),
+        ];
+        for (schema, sections) in expected {
+            let spec = formats()
+                .into_iter()
+                .find(|f| f.schema_version == *schema)
+                .unwrap_or_else(|| panic!("no format for {schema}"));
+            assert_eq!(
+                spec.required_sections, *sections,
+                "{schema} required sections (order is contractual)"
+            );
+        }
     }
 
     #[test]

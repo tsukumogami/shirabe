@@ -24,6 +24,22 @@ plan-to-tasks.sh <PLAN.md-path>
 
 **Prerequisites:** `jq` must be available in `PATH`. Exit 1 if not found.
 
+The `shirabe` binary is also required, because the `## Issue Outlines` parse
+lives there rather than in this script (see below). It is resolved in the same
+order `skills/execute/scripts/run-cascade.sh` uses:
+
+1. `$SHIRABE_BIN`, if set — the hook a test harness uses to pin a build.
+2. `shirabe` on `PATH` — the plugin-installed binary.
+3. `target/release/shirabe` or `target/debug/shirabe` under the repo root, for
+   a developer working from a `cargo build`.
+
+A missing binary is exit 1 with a message naming all three. There is no
+fallback to a bash parse: a second implementation of this section is the defect
+this arrangement removed, and one reachable only when the primary path is
+unavailable would be the copy nobody tests. The script does not require a git
+repository — the repo-root probe is best-effort and only feeds the third
+option.
+
 ## JSON Output Schema
 
 Each element in the array:
@@ -172,13 +188,56 @@ For each data row where the first cell contains `#N` (plain or as part of a link
 Reads the `## Issue Outlines` section. Each issue is a `### Issue N: <Title>` heading
 with a `**Dependencies**:` line.
 
+**The parse does not live in this script.** It lives in `shirabe-validate`
+(`parse_issue_outlines` in `crates/shirabe-validate/src/table.rs`) and reaches
+this script through `shirabe plan outlines <PLAN.md>`, which writes a
+`shirabe-plan-outlines/v1` JSON envelope to stdout. The same function backs
+`shirabe validate`'s FC14, FC17, and L06 checks, which is the point: a PLAN
+that validates clean is by construction a PLAN this script reads the same way.
+Before the collapse there were three independent readers of this section and
+they disagreed in eight ways — see
+`docs/designs/DESIGN-issue-outlines-one-parser.md`. An envelope whose `schema`
+is not the expected value is refused rather than read field by field, so a
+binary and a script that have skewed across an install fail loudly.
+
+What this script still owns is everything after the parse: slug generation,
+the `o-` prefix, 64-character truncation, collision suffixing, the
+`**Files**:` ownership edges, and the koto task-entry assembly.
+
 Dependencies line formats:
-- `**Dependencies**: None.` — no dependencies
+- `**Dependencies**: None.` — no dependencies (the trailing period is optional
+  and is stripped before the `None` test)
 - `**Dependencies**: Blocked by Issue N.` — single dependency
 - `**Dependencies**: Blocked by Issue N, Issue M.` — multiple dependencies
+- `**Dependencies:**` with the colon inside the bold parses identically
+- a `### Dependencies` sub-heading whose body carries the references is also
+  accepted, and does not open a new outline
 
 Dependency references also support the `<<ISSUE:N>>` placeholder format as an alternative to `Issue N`. Both forms resolve to the `o-<slug>` name of the referenced issue.
-Exit 2 if a referenced issue number has no corresponding outline heading.
+
+References resolve against the issue numbers written in the headings, not
+against an outline's position in the section, so a PLAN numbered
+non-consecutively resolves correctly.
+
+**An unresolvable reference stops the work at both boundaries.** A reference
+that names no sibling outline — whether it names a number no outline declares,
+or is written in a shape that is not a reference at all (a bare number, a `#N`
+GitHub reference) — is an error at validation time (`FC17`, so
+`shirabe validate` exits non-zero) and exit 2 here. Neither is redundant:
+validation is not a precondition of extraction, so an error alone would leave
+the silent path open on invocations that skip the gate; and a refusal alone
+would leave `shirabe validate` reporting exit 0 on a document that cannot be
+built. Before this, the first kind exited 2 and the second was dropped without
+a word, producing a complete task list with the edge missing.
+
+`#N` is deliberately **not** accepted here. It is the multi-pr table's
+dependency form, where it means a GitHub issue number; reading it as an outline
+reference in a single-pr PLAN, which has no GitHub issues, would invent an edge
+rather than find one.
+
+A section with no canonically-shaped heading extracts to zero tasks and exits
+2, naming the headings it found instead. This has always failed closed and
+still does.
 
 ### coordinated Mode
 

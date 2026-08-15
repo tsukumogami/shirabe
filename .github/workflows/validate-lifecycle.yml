@@ -19,6 +19,19 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
 
+# Granted on the caller so the called reusable workflow's `permissions` block
+# (contents: read + pull-requests: read) is a subset of what this caller has.
+# A reusable workflow cannot request a permission the caller lacks, and this
+# repository's default GITHUB_TOKEN scope is `read`, which grants `contents:`
+# and `packages:` but not `pull-requests:`. Without this block the call is
+# rejected before a job is created -- a startup failure, which produces no job,
+# no step logs, and no check run at all, so it never surfaces as a red check.
+# lifecycle.yml's header documents the same contract for downstream callers,
+# and validate-pr-body.yml carries the identical block for the identical reason.
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   lifecycle:
     uses: ./.github/workflows/lifecycle.yml

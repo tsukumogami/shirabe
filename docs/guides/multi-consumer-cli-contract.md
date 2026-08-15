@@ -47,8 +47,27 @@ behaves exactly as it did before the modes existed.
 }
 ```
 
+A run that declined to check something carries one more key, `skipped`,
+between `findings` and any `advisory` block:
+
+```json
+  "skipped": [
+    {
+      "file": "docs/prds/PRD-example.md",
+      "reason": "schema field missing, skipping"
+    }
+  ]
+```
+
 - `schema_version` follows the `<name>/v<major>` convention. Additive
   changes keep the major; a breaking change bumps it. Pin on the major.
+- `skipped` names every input the run accepted and then did not check,
+  with the reason. It is **diagnosis alongside the exit code, not instead
+  of it** — the run already reported itself incomplete through exit `4`,
+  and this says which documents and why. The entries are derived from the
+  same findings the envelope renders, so the two cannot disagree.
+  The key is present only when something was skipped, the same way
+  `advisory` is present only when an advisory was computed.
 - `severity` is `error` or `notice`, derived from the same rule the
   annotation mode uses to split the two — the modes cannot disagree.
 - `line` is the integer line number, or `null` when the finding has no
@@ -61,23 +80,42 @@ behaves exactly as it did before the modes existed.
 
 | Code | Meaning |
 |------|---------|
-| `0` | Clean — no error-level violations. |
-| `1` | Tool error — the run could not complete (bad invocation, an unreadable or unparseable file, an unknown `--check` code). |
-| `2` | Violations — the run completed and found at least one error-level result. |
+| `0` | Clean: no error-level violations, and nothing was declined. |
+| `1` | Tool error: the run could not complete (bad invocation, an unreadable or unparseable file, an unknown `--check` code, a `--lifecycle` root carrying no artifact directory). |
+| `2` | Violations: the run completed and found at least one error-level result. |
 | `3` | I/O error. |
+| `4` | Incomplete: at least one input was accepted and then not checked. |
 
-Two rules matter for consumers:
+Three rules matter for consumers:
 
 - **Notice-level results never make a run non-clean.** A run that emits
-  only notices exits `0`.
+  only notices exits `0`, unless one of those notices is a skip, which
+  is the `4` case below.
 - **Across multiple documents the most severe outcome wins** — a tool
-  error outranks violations, which outranks clean. Note that severity and
-  the exit integer differ on purpose: a tool error is more severe than a
-  violation but maps to the lower code `1`, matching the sibling commands.
+  error outranks violations, which outrank an incomplete run, which
+  outranks clean. Note that severity and the exit integer differ on
+  purpose: a tool error is more severe than a violation but maps to the
+  lower code `1`, matching the sibling commands, and incomplete takes `4`
+  because it is the first value the shared vocabulary had not already
+  allocated.
+- **`4` is not a claim that a document is defective.** It says the run
+  accepted an input and then did not check it: the filename prefix routed
+  the document to a format, but its `schema:` field was missing or out of
+  range, so the structural pass never ran. What is known is that the
+  document was not examined, which is a different fact from its content
+  being wrong. The fix is to give the document its `schema:` field, after
+  which the real checks run and report normally.
 
 A consumer that only distinguishes zero from non-zero (a pass/fail gate)
 keeps working unchanged, because clean is `0` and every other outcome is
-non-zero.
+non-zero. A consumer that switches on specific values needs to learn `4`.
+
+Why `4` exists at all: before it, `shirabe validate` exited `0` both for
+a document it checked and found clean and for one it declined to check,
+and nothing a caller reads told them apart. The exit code is the surface
+CI and every calling skill branch on — this guide's own Path-ownership
+section says CI "reads the exit code as a zero/non-zero pass-fail gate" —
+so a notice on stdout could never reach them.
 
 ## Per-check selection
 
@@ -86,7 +124,7 @@ repeatable and comma-splittable: `--check FC01 --check R7` and
 `--check FC01,R7` are equivalent. With no `--check`, the full applicable
 pass runs.
 
-- The selectable codes are the per-file checks: `SCHEMA`, `FC01`-`FC13`,
+- The selectable codes are the per-file checks: `SCHEMA`, `FC01`-`FC16`,
   `FC-CONVENTIONS`, and `R6`-`R9`.
 - An unknown code is a tool error (exit `1`), naming the offending code.
 - A valid but format-inapplicable code (for example `FC05`, a plan check,
@@ -108,7 +146,7 @@ file set and passes the paths in.
 | Consumer | Output mode | Exit code | How paths are supplied |
 |----------|-------------|-----------|------------------------|
 | **CI** (the reusable `validate-docs.yml` workflow) | `annotation` (default; no `--format`) | Zero vs non-zero as the pass/fail gate | The workflow computes the changed-file set with `git diff --name-only` and passes the paths positionally. |
-| **The workflow skills** | `json` | Branches on the `0/1/2/3` contract — proceed on clean, surface named violations on `2`, escalate differently on `1` | The skill passes the document paths it cares about. |
+| **The workflow skills** | `json` | Branches on the `0/1/2/3/4` contract: proceed on clean, surface named violations on `2`, escalate differently on `1` | The skill passes the document paths it cares about. |
 | **Local pre-commit hooks** | `human` | Fail-closed: any non-zero exit blocks the commit | The hook (scaffolded by `shirabe install-hooks`) computes the staged set with `git diff --cached` and passes the paths after a `--` separator. |
 
 ## Installing the local hook

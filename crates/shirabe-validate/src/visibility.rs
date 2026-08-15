@@ -63,6 +63,42 @@ pub fn infer_visibility_from_path(path: &Path) -> Option<String> {
     None
 }
 
+/// Walk up from `path`'s directory, returning the first CLAUDE.md header
+/// value that `extract` accepts.
+///
+/// `CLAUDE.local.md` is preferred over `CLAUDE.md` at each level, and a file
+/// carrying no matching header does not stop the walk: a nested workspace
+/// keeps per-repo headers below workspace-level files that lack them.
+///
+/// The walk stops at the first directory containing `.git`. Without that
+/// bound a declaration placed *above* a repository root reaches inside it,
+/// which for a vocabulary header means a file outside the repo suppressing
+/// findings within it. `resolve_doc_visibility` predates the bound and
+/// keeps its unbounded behavior, since narrowing it would change how
+/// existing repos resolve visibility; new headers get the bounded walk.
+pub fn resolve_claude_md_header<T>(
+    path: &Path,
+    extract: impl Fn(&str) -> Option<T>,
+    stop_at_repo_root: bool,
+) -> Option<T> {
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut dir = canonical.parent();
+    while let Some(d) = dir {
+        for name in ["CLAUDE.local.md", "CLAUDE.md"] {
+            if let Ok(contents) = std::fs::read_to_string(d.join(name)) {
+                if let Some(v) = extract(&contents) {
+                    return Some(v);
+                }
+            }
+        }
+        if stop_at_repo_root && d.join(".git").exists() {
+            return None;
+        }
+        dir = d.parent();
+    }
+    None
+}
+
 /// Resolve the visibility (`"public"` or `"private"`) for the doc at `path`,
 /// applying the skills' idiom end to end. Filesystem-touching but never
 /// errors: an unresolvable path defaults to `"private"` (fail safe toward
@@ -98,6 +134,55 @@ pub fn resolve_doc_visibility(path: &Path) -> String {
 
     // 3. Default: restricting is easier to undo than oversharing.
     PRIVATE.to_string()
+}
+
+/// Parse a `## Prose Vocabulary: a, b, c` header out of a CLAUDE.md body.
+///
+/// Comma-delimited rather than whitespace-delimited because the rule list
+/// carries multi-word terms (`align with`). Values are trimmed, lowercased,
+/// and empties dropped. An empty declaration and an absent one both mean
+/// "suppress nothing", which is the documented default.
+///
+/// The value is capped, following the precedent set for the other
+/// adopter-supplied list input. Terms are used only as literal match
+/// strings and are never compiled as patterns: compiling adopter input as
+/// a regex would be a denial-of-service surface.
+pub fn parse_prose_vocabulary_header(contents: &str) -> Option<Vec<String>> {
+    const KEY: &str = "## prose vocabulary:";
+    const MAX_VALUE_BYTES: usize = 64 * 1024;
+
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if let Some(rest) = lower.strip_prefix(KEY) {
+            let rest = if rest.len() > MAX_VALUE_BYTES {
+                &rest[..MAX_VALUE_BYTES]
+            } else {
+                rest
+            };
+            let terms: Vec<String> = rest
+                .split(',')
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect();
+            return Some(terms);
+        }
+    }
+    None
+}
+
+/// Resolve a repository's declared prose vocabulary for the doc at `path`.
+///
+/// Returns the empty vector when no header is found: nothing is suppressed
+/// by default, and no allowance is made for a repository that has not
+/// declared itself. Unlike visibility there is nothing to fail safe toward,
+/// so there is no path inference and no non-empty default.
+///
+/// Resolution is per file rather than per run, which is what keeps a term
+/// declared in one repository from suppressing it in another during a
+/// single invocation spanning both.
+pub fn resolve_prose_vocabulary(path: &Path) -> Vec<String> {
+    resolve_claude_md_header(path, |c| parse_prose_vocabulary_header(c), true).unwrap_or_default()
 }
 
 #[cfg(test)]

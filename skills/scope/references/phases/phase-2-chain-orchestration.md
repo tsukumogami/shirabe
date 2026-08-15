@@ -171,7 +171,10 @@ for that child:
   carries `consumed_upstream:` — the author supplied a ROADMAP
   this chain did not produce — the invocation is
   `/brief <topic-slug> --upstream <roadmap-path>` and the brief
-  records that path in its `upstream:` frontmatter.
+  is **grounded** in that roadmap: it reads the feature entry and
+  derives its problem and outcome from it. What it records is the
+  roadmap's nearest durable ancestor, which `/brief` resolves for
+  itself in one hop — the roadmap is never recorded.
 - **Every later child** — invoked with the path of the nearest
   artifact this chain produced above it:
 
@@ -179,7 +182,7 @@ for that child:
   |---|---|
   | `/prd` | `docs/briefs/BRIEF-<topic>.md` |
   | `/design` | `docs/prds/PRD-<topic>.md` |
-  | `/plan` | `docs/designs/DESIGN-<topic>.md` |
+  | `/plan` | `docs/designs/DESIGN-<topic>.md`, plus `--upstream <roadmap-path>` when the state file carries `consumed_upstream:` |
 
   When an artifact above the child was absorbed at an earlier
   hop, the argument is the surviving artifact's path — that is
@@ -189,11 +192,43 @@ for that child:
 These are input modes each child already ships: `/prd`'s Input
 Mode 2 takes a BRIEF path and transitions it Draft to Accepted,
 `/design`'s PRD mode reads the accepted PRD and bumps it to In
-Progress, `/plan` accepts a DESIGN path, and `/brief`'s
-`--upstream <path>` flag is authored in its own SKILL.md input
-modes and Phase 0 contract, equally usable by an author invoking
-`/brief` directly. Passing the path is choosing among a child's
-shipped modes, not extending its input surface.
+Progress, `/plan` accepts a DESIGN path, and the `--upstream <path>`
+flag is authored in `/brief`'s and `/plan`'s own SKILL.md input modes
+and Phase 0 contracts, equally usable by an author invoking either
+directly. Passing the path is choosing among a child's shipped modes,
+not extending its input surface.
+
+**The roadmap travels to two children, for two different reasons.**
+`/scope` validates it once at Phase 0 and hands it to the first child
+and the last one. `/brief` **grounds** on it: the feature entry and the
+sequencing rationale supply the problem and outcome, and what the brief
+records is the roadmap's own durable ancestor, resolved by `/brief` at
+its Phase 0. `/plan` **records the roadmap itself**: the produced PLAN
+names the design first and the roadmap second.
+
+`/scope` hands over the roadmap path in both cases and resolves nothing
+itself. The walk up from an ephemeral document to its nearest durable
+ancestor is `/brief`'s own contract, so a standalone `/brief --upstream
+<roadmap>` behaves identically to one under this parent.
+
+Which child records is decided by the lifetime rule in
+`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`, not by convenience.
+A link runs from the shorter-lived document to the longer-lived one. A
+ROADMAP is a working artifact the cascade deletes once its features
+land, so no durable document may name it — a BRIEF that did would hold a
+reference correct on the day it was written and dangling on the day the
+cascade ran. The PLAN is working too, and the same cascade deletes it
+first, so its link cannot outlive its target. The crossing from the
+strategic chain into the tactical one is therefore recorded on the PLAN
+and nowhere else.
+
+**A chain that ends before `/plan` records the roadmap nowhere, and that
+is the intended shape.** On a `re-evaluation` or `abandonment-forced`
+exit there is no PLAN, so there is no legal node to carry the link — and
+nothing downstream needs it, because the cascade only ever runs from a
+PLAN. What the chain owes the author instead is the record in Phase 3's
+durable artifact list (see `phase-3-exit-finalization.md`), so the
+roadmap the chain consumed is not lost with the state file.
 
 **Why the slug and the upstream travel separately.** `/brief`
 derives its topic slug from the BASENAME of a positional path it
@@ -223,9 +258,8 @@ it.
 Invoking every child in its cold-start mode was the mechanical
 cause of the duplication this skill's consolidation judgment
 now reduces: a child handed a bare slug re-derives the framing
-its upstream already settled, and records no `upstream:` link
-back to it. The paths above are what let each artifact cite the
-one above it instead of repeating it.
+its upstream already settled. The paths above are what let each
+artifact cite the one above it instead of repeating it.
 
 ## R20 Structural File-Existence Check
 
@@ -414,6 +448,16 @@ branches on the multi-level exit code (the contract shared with
   envelope that does not parse). Treat this as a tool failure
   DISTINCT from a content violation — surface it as such and halt;
   do NOT report it as a document violation.
+- **4 (incomplete)** — the validator accepted the intermediate and
+  then did not check it: the filename prefix routed it to a format
+  but its `schema:` field is missing or out of range. Halt the
+  chain and surface the envelope's `skipped` entries, naming the
+  file and the reason. This is NOT a content violation — nothing
+  is known to be wrong with the document, which is the problem: it
+  was never examined. The fix is to add the `schema:` field to the
+  intermediate and re-invoke, after which the real checks run.
+  Advancing on a 4 would carry an unvalidated artifact into the
+  next child.
 
 `/scope` does NOT auto-fix validator failures, and only the
 consumption mechanism changed (JSON parse plus multi-level exit

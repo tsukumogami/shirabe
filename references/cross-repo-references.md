@@ -95,9 +95,18 @@ hard-stop on violations):
 | `skills/prd`    | [Phase 3 step 3.1](../skills/prd/references/phases/phase-3-draft.md) | The `--upstream` value before it is stored for inclusion in PRD frontmatter |
 | `skills/roadmap` | [Phase 3 step 3.1](../skills/roadmap/references/phases/phase-3-draft.md) | The `--upstream` value before it is stored for inclusion in ROADMAP frontmatter |
 | `skills/charter` | [Phase 0 step 0.4](../skills/charter/references/phases/phase-0-setup.md) | The `--upstream` value before it is recorded in `consumed_upstream:` and handed to `/strategy` |
-| `skills/scope`  | [Phase 0 Upstream Validation](../skills/scope/references/phases/phase-0-setup.md) | The `--upstream` value before it is recorded in `consumed_upstream:` and handed to `/brief` |
+| `skills/scope`  | [Phase 0 Upstream Validation](../skills/scope/references/phases/phase-0-setup.md) | The `--upstream` value before it is recorded in `consumed_upstream:` and handed to `/brief` for grounding and to `/plan` for recording |
 | `skills/strategy` | [Phase 2 draft](../skills/strategy/references/phases/phase-2-draft.md) | The recorded upstream before it is written into STRATEGY frontmatter (Phase 0 step 0.3 validates the value's shape; this step decides whether a public STRATEGY may name it) |
-| `skills/brief`  | [Phase 2 draft](../skills/brief/references/phases/phase-2-draft.md) | The recorded upstream before it is written into BRIEF frontmatter (Phase 0 step 0.3 validates the value's shape; this step decides whether a public BRIEF may name it) |
+| `skills/plan`   | [Phase 0 flag contract](../skills/plan/SKILL.md) | The `--upstream` value before it is written into PLAN frontmatter; the sixth ordered check decides whether a public PLAN may name a private ROADMAP |
+
+| `skills/brief`  | [Phase 0 step 0.3a](../skills/brief/references/phases/phase-0-setup.md) | The ancestor resolved one hop up from the grounding ROADMAP, before it is written into BRIEF frontmatter. The roadmap path itself is never recorded, so it is the resolved STRATEGY or VISION this check governs |
+
+`/brief`'s row is about a value the author never typed. Its `--upstream` is a
+grounding path, read and not recorded; what reaches frontmatter is the roadmap's
+own parent, resolved at Phase 0. The visibility check runs on the resolved value
+-- a public brief omits a private strategy. The Phase 2 sanitization warning is
+separate and still fires when a public brief is *framed* from a private roadmap,
+because framing can leak content even when no link is written.
 
 When updating either side, update the other: a new validation point belongs
 in this table; a change to the rule statement belongs in the section above

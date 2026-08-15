@@ -507,387 +507,523 @@ fn rest_empty(tail: &[String]) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Issue Outlines parser (consumed by FC14)
+// Issue Outlines parser -- the single reader of `## Issue Outlines`
 // ---------------------------------------------------------------------------
+//
+// One walk serves every consumer of the section: FC14 and FC17 in
+// `checks.rs`, L06 in `lifecycle.rs`, and the `plan outlines` CLI
+// subcommand that `skills/plan/scripts/plan-to-tasks.sh` reads. Before
+// this module was collapsed there were three implementations with
+// different rules, and a PLAN could validate clean and then extract to a
+// task graph with none of its declared edges -- see
+// `docs/designs/DESIGN-issue-outlines-one-parser.md` for the eight
+// divergences and the decisions that resolved them.
+//
+// Where the old readers disagreed, the rule kept is the one the task
+// extractor used, because that reader decided what actually got built.
+
+/// A `###` heading inside `## Issue Outlines` that is neither a canonical
+/// `### Issue <N>: <title>` outline heading nor the `### Dependencies`
+/// sub-heading.
+///
+/// Recorded rather than silently accepted or silently dropped: it is not a
+/// block boundary (matching the extractor, whose behavior is the target
+/// where the readers disagreed), so a consumer that wants to report the
+/// shape needs it enumerated somewhere. FC14 reports each one at notice
+/// level -- the heading mismatch already fails closed at extraction, so an
+/// error here would stop a run that was about to stop anyway.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NonconformingHeading {
+    /// The heading text with the leading `### ` stripped, verbatim.
+    pub text: String,
+    /// 1-indexed absolute line number of the heading.
+    pub line: usize,
+}
 
 /// A parsed outline block from a single-pr plan's `## Issue Outlines`
 /// section.
 ///
-/// Each block corresponds to a `### Issue N: <title>` heading and carries
-/// the structured fields the format reference requires (goal, acceptance
-/// criteria, dependencies). The parser is total over arbitrary input: any
-/// field that is absent or malformed surfaces as `None` (or `Vec::new()`
-/// for `dependencies`) so the downstream check (`check_fc14`) reports a
-/// per-defect notice without the parser ever panicking.
+/// Each block corresponds to one canonical `### Issue <N>: <title>`
+/// heading. The parser is total over arbitrary input: a missing field
+/// surfaces as `false`, `None`, or an empty `Vec` rather than a parse
+/// failure, so consumers decide what to refuse. Refusing is deliberately
+/// not the parser's job -- it has consumers with different severities for
+/// the same defect.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutlineBlock {
-    /// The outline's heading text, captured verbatim from
-    /// `### Issue N: <title>`. The full heading line (e.g.
-    /// "Issue 1: feat(validate): extend FormatSpec") is the key; FC14's
-    /// dependency-resolution check matches dependency tokens against
-    /// these keys.
+    /// The outline's heading text with `### ` stripped, captured verbatim
+    /// (e.g. `Issue 1: feat(validate): extend FormatSpec`). Findings name
+    /// the outline by this key, and `OutlineAc::outline_key` matches it.
     pub key: String,
+    /// The issue number parsed from the heading.
+    ///
+    /// Dependency resolution keys on this, NOT on the block's position in
+    /// the section. The two agree for a document numbered 1..N in order and
+    /// diverge for anything else, and the heading is what the author wrote.
+    pub number: u32,
+    /// The title parsed from the heading (everything after `Issue <N>: `).
+    pub title: String,
     /// 1-indexed absolute line number of the outline's `###` heading.
     pub line: usize,
-    /// The block's `**Goal**:` paragraph, when present. `None` indicates
-    /// the goal declaration is absent.
-    pub goal: Option<String>,
-    /// The bullet list inside the block's `**Acceptance Criteria**:`
-    /// section, when present. Each entry is one bullet (with the
-    /// leading `- ` or `- [ ]` marker stripped). `None` indicates the
-    /// acceptance-criteria block is absent.
-    pub acceptance_criteria: Option<Vec<String>>,
-    /// The dependency tokens parsed from the block's `**Dependencies**:`
-    /// line. Tokens are extracted from `<<ISSUE:N>>` placeholders (the
-    /// canonical format) AND from comma-separated outline keys (a free-
-    /// form fallback). An empty `Vec` indicates either a missing
-    /// `**Dependencies**:` declaration OR an unparseable declaration;
-    /// FC14 distinguishes the two via `has_dependencies_line`.
-    pub dependencies: Vec<String>,
-    /// Whether the block declared a `**Dependencies**:` line at all.
-    /// Distinguishes "missing dependencies declaration" (false) from
-    /// "dependencies: None" (true, with `dependencies: Vec::new()`).
-    pub has_dependencies_line: bool,
-    /// Whether the `**Dependencies**:` line carries the literal `None`
-    /// value. When true, FC14 treats the empty `dependencies` vector as
-    /// intentional rather than as a missing-tokens defect.
-    pub dependencies_is_none: bool,
+    /// Whether the block declared a `**Goal**:` line.
+    pub goal_declared: bool,
+    /// Whether the block declared an `**Acceptance Criteria**:` label.
+    ///
+    /// Separate from `acceptance_criteria` being non-empty: a block can
+    /// declare the label and carry no canonical checkbox under it. FC14
+    /// asks only about the label.
+    pub acceptance_criteria_declared: bool,
+    /// The canonical `- [ ]` / `- [x]` / `- [X]` checkboxes under the
+    /// block's `**Acceptance Criteria**:` label. Consumed by L06.
+    pub acceptance_criteria: Vec<OutlineAc>,
+    /// Whether the block declared a `**Dependencies**:` line or a
+    /// `### Dependencies` sub-heading. Distinguishes a missing declaration
+    /// from a declared-but-empty one.
+    pub dependencies_declared: bool,
+    /// Whether the dependency declaration carries the literal `None`, with
+    /// or without a trailing period. The contract's own example writes
+    /// `**Dependencies**: None.`, so the period is canonical rather than
+    /// sloppy.
+    pub dependencies_none: bool,
+    /// Sibling outline numbers this block waits on, in written order,
+    /// de-duplicated. Every entry names a block that exists in this
+    /// section.
+    pub waits_on: Vec<u32>,
+    /// Dependency text that named no sibling outline, verbatim, in written
+    /// order. Covers both an `Issue N` reference to a number no outline
+    /// declares and a token in a shape no reader recognizes (a bare
+    /// number, a `#N` GitHub reference). The extractor used to drop the
+    /// second kind silently, which is the defect this field exists to
+    /// surface.
+    pub unresolved_dependencies: Vec<String>,
+    /// Dependency text that named no outline and is not shaped like a
+    /// reference to one -- a parenthetical, a trailing clause. Reported as an
+    /// advisory notice and nothing more: refusing on it would reject
+    /// `Blocked by Issue 1 (the parser must land first).`, which is a legal
+    /// outline whose edge resolved.
+    pub unrecognized_dependency_text: Vec<String>,
+    /// The `**Type**:` annotation, lowercased, when declared.
+    pub issue_type: Option<String>,
+    /// The backtick-quoted tokens on the block's `**Files**:` line, with
+    /// the backticks stripped.
+    pub files: Vec<String>,
 }
 
-/// Locate the `## Issue Outlines` section and parse its contents into a
-/// sequence of `OutlineBlock` entries.
+/// The parsed `## Issue Outlines` section.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct OutlineSection {
+    /// One entry per canonical `### Issue <N>: <title>` heading, in
+    /// document order.
+    pub blocks: Vec<OutlineBlock>,
+    /// `###` headings inside the section that opened no block.
+    pub nonconforming_headings: Vec<NonconformingHeading>,
+}
+
+/// A single acceptance criterion parsed from an outline block.
 ///
-/// Returns `Vec::new()` when the section is absent. The parser is total
-/// over arbitrary input -- malformed headers, missing fields, and
-/// unterminated blocks never panic. Callers (FC14 in `checks.rs`) inspect
-/// the returned `OutlineBlock` fields to emit per-defect notices.
-pub fn parse_issue_outlines(doc: &Doc) -> Vec<OutlineBlock> {
-    // Locate the `## Issue Outlines` section. Returns Vec::new() if absent.
-    let mut start_idx: Option<usize> = None;
-    let mut start_line: usize = 0;
-    for (i, line) in doc.body.iter().enumerate() {
-        let trimmed = line.trim();
-        if trimmed == "## Issue Outlines" {
-            start_idx = Some(i + 1);
-            start_line = i + 1;
-            break;
-        }
-    }
-    let start = match start_idx {
-        Some(s) => s,
-        None => return Vec::new(),
+/// Each `OutlineAc` corresponds to one canonical `- [ ]` / `- [x]` /
+/// `- [X]` checkbox line inside a block's `**Acceptance Criteria**:`
+/// bullet list. Non-canonical bullet shapes (a bare `- `, an indented
+/// sub-bullet, an AC written as a bare sentence) are dropped per the
+/// strict-tolerance contract in DESIGN-cascade-outline-ac-completeness
+/// Decision 3, and dropping one does not end the bullet list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutlineAc {
+    /// The owning block's heading text, matching `OutlineBlock::key`.
+    pub outline_key: String,
+    /// The checkbox line with its `- [ ]` / `- [x]` / `- [X]` marker
+    /// stripped. Trailing whitespace is preserved.
+    pub ac_text: String,
+    /// Whether the box is ticked.
+    pub ticked: bool,
+    /// 1-indexed absolute line number of the checkbox line.
+    pub line: usize,
+}
+
+static OUTLINE_HEADING_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^Issue\s+(\d+):\s*(.+)$").unwrap());
+
+static ISSUE_REF_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Issue\s+(\d+)").unwrap());
+
+static PLACEHOLDER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<<ISSUE:(\d+)>>").unwrap());
+
+/// A dependency leftover that is shaped like a reference to an outline: a
+/// bare number, or a `#N` GitHub-style reference. These are the shapes an
+/// author writes MEANING an edge, which the extractor then dropped without a
+/// word. Anything else in a dependencies line is prose.
+static REFERENCE_SHAPED_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^#?\d+$").unwrap());
+
+static BACKTICKED_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`([^`]*)`").unwrap());
+
+static TYPE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\*\*Type\*\*:\s*([a-zA-Z]+)").unwrap());
+
+/// Which multi-line field, if any, the walk is currently accumulating.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Accumulating {
+    Nothing,
+    /// Inside an `**Acceptance Criteria**:` bullet list.
+    AcceptanceCriteria,
+    /// Inside a `### Dependencies` sub-section.
+    Dependencies,
+}
+
+/// Per-block state during stage one, before dependencies are resolved.
+struct PartialBlock {
+    key: String,
+    number: u32,
+    title: String,
+    line: usize,
+    goal_declared: bool,
+    acceptance_criteria_declared: bool,
+    acceptance_criteria: Vec<OutlineAc>,
+    dependencies_declared: bool,
+    dependencies_raw: String,
+    issue_type: Option<String>,
+    files: Vec<String>,
+}
+
+/// Locate the `## Issue Outlines` section and parse it.
+///
+/// Returns an empty section when the heading is absent. Two stages: the
+/// first collects blocks, fields, and non-conforming headings; the second
+/// resolves dependency references, which cannot happen during the first
+/// because a block may name a sibling that appears later.
+pub fn parse_issue_outlines(doc: &Doc) -> OutlineSection {
+    let (start, end) = match locate_section(doc) {
+        Some(bounds) => bounds,
+        None => return OutlineSection::default(),
     };
 
-    // End of section: next `## ` heading at the same level. `### Issue N`
-    // headings stay inside.
-    let mut end_idx = doc.body.len();
-    for (j, line) in doc.body.iter().enumerate().skip(start) {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("## ") && !trimmed.starts_with("### ") {
-            end_idx = j;
-            break;
-        }
-    }
+    let mut partials: Vec<PartialBlock> = Vec::new();
+    let mut nonconforming: Vec<NonconformingHeading> = Vec::new();
+    let mut accumulating = Accumulating::Nothing;
 
-    let mut blocks: Vec<OutlineBlock> = Vec::new();
-    let mut current: Option<OutlineBlock> = None;
-    let mut current_field: CurrentField = CurrentField::None;
+    for (offset, raw_line) in doc.body[start..end].iter().enumerate() {
+        let absolute_line = start + offset + 1; // 1-indexed
+        let trimmed = raw_line.trim();
 
-    // Place into `let _ = start_line;` to silence the unused-warning when
-    // tests do not consult it; line is set per-block from the `###` heading.
-    let _ = start_line;
-
-    for (j, raw_line) in doc.body[start..end_idx].iter().enumerate() {
-        let absolute_line = start + j + 1; // 1-indexed
-        let line = raw_line;
-        let trimmed = line.trim();
-
-        // Detect `### Issue N: <title>` (or just `### <heading>`) — both
-        // open a new outline block. The parser uses any `###` heading
-        // inside `## Issue Outlines` as a block boundary; FC14's
-        // structural sub-check inspects the `key` text to decide whether
-        // the heading shape itself is canonical.
-        if trimmed.starts_with("### ") {
-            if let Some(prev) = current.take() {
-                blocks.push(prev);
+        if let Some(rest) = trimmed.strip_prefix("### ") {
+            accumulating = Accumulating::Nothing;
+            if let Some(caps) = OUTLINE_HEADING_RE.captures(rest) {
+                // A canonical outline heading. The only thing that opens a
+                // block -- the extractor's rule, kept because it decides
+                // what gets built.
+                let number: u32 = match caps[1].parse() {
+                    Ok(n) => n,
+                    // A number too large for u32 is not an outline the
+                    // extractor could reference either.
+                    Err(_) => {
+                        nonconforming.push(NonconformingHeading {
+                            text: rest.to_string(),
+                            line: absolute_line,
+                        });
+                        continue;
+                    }
+                };
+                partials.push(PartialBlock {
+                    key: rest.to_string(),
+                    number,
+                    title: caps[2].trim().to_string(),
+                    line: absolute_line,
+                    goal_declared: false,
+                    acceptance_criteria_declared: false,
+                    acceptance_criteria: Vec::new(),
+                    dependencies_declared: false,
+                    dependencies_raw: String::new(),
+                    issue_type: None,
+                    files: Vec::new(),
+                });
+            } else if is_dependencies_heading(rest) && !partials.is_empty() {
+                // A dependencies sub-section of the block already open.
+                accumulating = Accumulating::Dependencies;
+                if let Some(block) = partials.last_mut() {
+                    block.dependencies_declared = true;
+                }
+            } else {
+                nonconforming.push(NonconformingHeading {
+                    text: rest.to_string(),
+                    line: absolute_line,
+                });
             }
-            // Strip "### " prefix; the remainder is the outline key.
-            let key = trimmed.trim_start_matches("### ").to_string();
-            current = Some(OutlineBlock {
-                key,
-                line: absolute_line,
-                goal: None,
-                acceptance_criteria: None,
-                dependencies: Vec::new(),
-                has_dependencies_line: false,
-                dependencies_is_none: false,
-            });
-            current_field = CurrentField::None;
             continue;
         }
 
-        let block = match current.as_mut() {
+        // Lines before the first canonical heading belong to no block.
+        let block = match partials.last_mut() {
             Some(b) => b,
-            None => continue, // Lines before the first ### are pre-block
+            None => continue,
         };
 
-        // Detect inline `**Goal**: ...`
-        if let Some(rest) = strip_label(trimmed, "**Goal**:") {
-            block.goal = Some(rest.to_string());
-            current_field = CurrentField::None;
+        if strip_label(trimmed, "**Goal**:").is_some() {
+            block.goal_declared = true;
+            accumulating = Accumulating::Nothing;
             continue;
         }
 
-        // Detect inline `**Acceptance Criteria**:` (the bullets follow on
-        // subsequent lines).
         if strip_label(trimmed, "**Acceptance Criteria**:").is_some() {
-            block.acceptance_criteria = Some(Vec::new());
-            current_field = CurrentField::AcceptanceCriteria;
+            block.acceptance_criteria_declared = true;
+            accumulating = Accumulating::AcceptanceCriteria;
             continue;
         }
 
-        // Detect inline `**Dependencies**: ...`
-        if let Some(rest) = strip_label(trimmed, "**Dependencies**:") {
-            block.has_dependencies_line = true;
-            let value = rest.trim();
-            // Literal `None` means no deps (intentional).
-            if value.eq_ignore_ascii_case("None") {
-                block.dependencies_is_none = true;
-            } else {
-                block.dependencies = parse_dependency_tokens(value);
-            }
-            current_field = CurrentField::None;
+        // Both colon placements parse identically (#156): the canonical
+        // `**Dependencies**:` and the `**Dependencies:**` form that used to
+        // be dropped silently.
+        if let Some(rest) = strip_dependencies_label(trimmed) {
+            block.dependencies_declared = true;
+            let value = rest.trim().trim_end_matches('.');
+            append_dependency_text(&mut block.dependencies_raw, value);
+            accumulating = Accumulating::Nothing;
             continue;
         }
 
-        // Accumulate acceptance-criteria bullets while inside that field.
-        if current_field == CurrentField::AcceptanceCriteria {
-            if let Some(bullet) = strip_ac_bullet(trimmed) {
-                if let Some(ac) = block.acceptance_criteria.as_mut() {
-                    ac.push(bullet.to_string());
+        if let Some(caps) = TYPE_RE.captures(trimmed) {
+            block.issue_type = Some(caps[1].to_lowercase());
+            accumulating = Accumulating::Nothing;
+            continue;
+        }
+
+        if trimmed.contains("**Files**:") {
+            block.files = BACKTICKED_RE
+                .captures_iter(trimmed)
+                .map(|c| c[1].to_string())
+                .filter(|t| !t.is_empty())
+                .collect();
+            accumulating = Accumulating::Nothing;
+            continue;
+        }
+
+        match accumulating {
+            Accumulating::Dependencies => {
+                if trimmed.is_empty() {
+                    continue;
                 }
+                if trimmed == "---" {
+                    accumulating = Accumulating::Nothing;
+                    continue;
+                }
+                append_dependency_text(&mut block.dependencies_raw, trimmed);
+            }
+            Accumulating::AcceptanceCriteria => {
+                // Strict tolerance: only the three canonical checkbox
+                // shapes count, and a non-canonical bullet is dropped
+                // WITHOUT ending the list, so a canonical sibling after it
+                // still counts.
+                if let Some((ticked, text)) = strip_ac_checkbox(trimmed) {
+                    block.acceptance_criteria.push(OutlineAc {
+                        outline_key: block.key.clone(),
+                        ac_text: text.to_string(),
+                        ticked,
+                        line: absolute_line,
+                    });
+                }
+            }
+            Accumulating::Nothing => {}
+        }
+    }
+
+    resolve(partials, nonconforming)
+}
+
+/// Flatten every block's acceptance criteria into one list, in document
+/// order.
+///
+/// A projection over [`parse_issue_outlines`], not a second parse: L06 wants
+/// the section's criteria as a flat sequence and has no use for the blocks
+/// they came from beyond each one's key, which `OutlineAc` already carries.
+pub fn parse_outline_acs(doc: &Doc) -> Vec<OutlineAc> {
+    parse_issue_outlines(doc)
+        .blocks
+        .into_iter()
+        .flat_map(|b| b.acceptance_criteria)
+        .collect()
+}
+
+/// Resolve each block's dependency text into sibling numbers and leftovers.
+fn resolve(
+    partials: Vec<PartialBlock>,
+    nonconforming: Vec<NonconformingHeading>,
+) -> OutlineSection {
+    let known: Vec<u32> = partials.iter().map(|b| b.number).collect();
+
+    let blocks = partials
+        .into_iter()
+        .map(|p| {
+            let (
+                dependencies_none,
+                waits_on,
+                unresolved_dependencies,
+                unrecognized_dependency_text,
+            ) = resolve_dependencies(&p.dependencies_raw, &known);
+            OutlineBlock {
+                key: p.key,
+                number: p.number,
+                title: p.title,
+                line: p.line,
+                goal_declared: p.goal_declared,
+                acceptance_criteria_declared: p.acceptance_criteria_declared,
+                acceptance_criteria: p.acceptance_criteria,
+                dependencies_declared: p.dependencies_declared,
+                dependencies_none,
+                waits_on,
+                unresolved_dependencies,
+                unrecognized_dependency_text,
+                issue_type: p.issue_type,
+                files: p.files,
+            }
+        })
+        .collect();
+
+    OutlineSection {
+        blocks,
+        nonconforming_headings: nonconforming,
+    }
+}
+
+/// Split one block's dependency text into
+/// `(is_none, resolved_numbers, unresolved_references, unrecognized_text)`.
+fn resolve_dependencies(raw: &str, known: &[u32]) -> (bool, Vec<u32>, Vec<String>, Vec<String>) {
+    let value = raw.trim().trim_end_matches('.').trim();
+    if value.is_empty() {
+        return (false, Vec::new(), Vec::new(), Vec::new());
+    }
+    // The trailing period is stripped BEFORE the `None` test, which is what
+    // makes the contract's own `**Dependencies**: None.` example resolve as
+    // an intentional absence instead of an unresolved token named `None`.
+    if value.eq_ignore_ascii_case("None") {
+        return (true, Vec::new(), Vec::new(), Vec::new());
+    }
+
+    // `<<ISSUE:N>>` is an alternative spelling of `Issue N`, so normalize
+    // it away and resolve one shape.
+    let normalized = PLACEHOLDER_RE.replace_all(value, "Issue $1").to_string();
+
+    let mut waits_on: Vec<u32> = Vec::new();
+    let mut unresolved: Vec<String> = Vec::new();
+    let mut unrecognized: Vec<String> = Vec::new();
+
+    for caps in ISSUE_REF_RE.captures_iter(&normalized) {
+        let n: u32 = match caps[1].parse() {
+            Ok(n) => n,
+            Err(_) => {
+                unresolved.push(caps[0].to_string());
                 continue;
             }
-            // Blank line stays inside the AC block; any other non-blank
-            // non-bullet line ends the AC accumulation.
-            if !trimmed.is_empty() {
-                current_field = CurrentField::None;
+        };
+        if known.contains(&n) {
+            if !waits_on.contains(&n) {
+                waits_on.push(n);
+            }
+        } else {
+            let token = caps[0].to_string();
+            if !unresolved.contains(&token) {
+                unresolved.push(token);
             }
         }
     }
 
-    // Save the last in-flight block (eof closure; unterminated is fine).
-    if let Some(prev) = current.take() {
-        blocks.push(prev);
+    // What is left once the recognized references and the connecting words
+    // are removed splits two ways, and the split is the whole point.
+    //
+    // A leftover that is SHAPED like a reference -- a bare `3`, a `#1` -- is
+    // an edge the author declared and the extractor silently dropped. That is
+    // #275, and it becomes an error.
+    //
+    // A leftover that is not is prose: `Blocked by Issue 1 (the parser must
+    // land first).` leaves `(the parser must land first)`. Treating that as a
+    // failed reference would reject a legal outline, so it stays what FC14
+    // always made it -- an advisory notice -- and neither consumer refuses.
+    let residue = ISSUE_REF_RE.replace_all(&normalized, "").to_string();
+    for token in residue
+        .replace("Blocked by", ",")
+        .replace("blocked by", ",")
+        .split(',')
+    {
+        let token = token.trim().trim_end_matches('.').trim();
+        if token.is_empty() || token.eq_ignore_ascii_case("and") {
+            continue;
+        }
+        let owned = token.to_string();
+        if REFERENCE_SHAPED_RE.is_match(token) {
+            if !unresolved.contains(&owned) {
+                unresolved.push(owned);
+            }
+        } else if !unrecognized.contains(&owned) {
+            unrecognized.push(owned);
+        }
     }
 
-    blocks
+    (false, waits_on, unresolved, unrecognized)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CurrentField {
-    None,
-    AcceptanceCriteria,
+/// Append a fragment to a block's accumulating dependency text.
+fn append_dependency_text(target: &mut String, fragment: &str) {
+    if fragment.is_empty() {
+        return;
+    }
+    if !target.is_empty() {
+        target.push_str(", ");
+    }
+    target.push_str(fragment);
 }
 
-/// Strip a `**Label**:` prefix from `line`, returning the trimmed remainder
-/// when the prefix matches. Returns `None` on no match.
+/// Locate `## Issue Outlines` and return its `[start, end)` body bounds.
+///
+/// The section ends at the next `## ` heading at the same level; `###`
+/// headings stay inside.
+fn locate_section(doc: &Doc) -> Option<(usize, usize)> {
+    let start = doc
+        .body
+        .iter()
+        .position(|line| line.trim() == "## Issue Outlines")?
+        + 1;
+
+    let end = doc.body[start..]
+        .iter()
+        .position(|line| {
+            let t = line.trim_start();
+            t.starts_with("## ") && !t.starts_with("### ")
+        })
+        .map(|offset| start + offset)
+        .unwrap_or(doc.body.len());
+
+    Some((start, end))
+}
+
+/// Reports whether a `###` heading's text is the `Dependencies`
+/// sub-heading.
+fn is_dependencies_heading(rest: &str) -> bool {
+    let rest = rest.trim_end();
+    rest == "Dependencies" || rest.starts_with("Dependencies ")
+}
+
+/// Strip a `**Label**:` prefix, returning the trimmed remainder on a match.
 fn strip_label<'a>(line: &'a str, label: &str) -> Option<&'a str> {
-    let rest = line.strip_prefix(label)?;
-    Some(rest.trim_start())
+    Some(line.strip_prefix(label)?.trim_start())
 }
 
-/// Strip a single acceptance-criteria bullet marker (`- [ ]`, `- [x]`,
-/// `- [X]`, or just `- `). Returns the bullet text on match, `None`
-/// otherwise.
-fn strip_ac_bullet(line: &str) -> Option<&str> {
-    for marker in ["- [ ] ", "- [x] ", "- [X] ", "- "] {
-        if let Some(rest) = line.strip_prefix(marker) {
-            return Some(rest);
+/// Strip either dependencies-label spelling: the canonical
+/// `**Dependencies**:` or the `**Dependencies:**` form with the colon
+/// inside the bold.
+fn strip_dependencies_label(line: &str) -> Option<&str> {
+    for label in ["**Dependencies**:", "**Dependencies:**"] {
+        if let Some(rest) = line.strip_prefix(label) {
+            return Some(rest.trim_start());
         }
     }
     None
 }
 
-// ---------------------------------------------------------------------------
-// Outline AC parser (consumed by check_l06)
-// ---------------------------------------------------------------------------
-
-/// A single outline acceptance criterion parsed from a single-pr plan's
-/// `## Issue Outlines` section.
-///
-/// Each `OutlineAc` corresponds to one canonical `- [ ]` / `- [x]` /
-/// `- [X]` checkbox line inside an outline block's
-/// `**Acceptance Criteria**:` bullet list. The `ticked` field carries the
-/// box state. Non-canonical bullet shapes (bare `- `, indented sub-
-/// bullets, ACs written as bare sentences) are ignored by the parser per
-/// the strict-tolerance contract in DESIGN-cascade-outline-ac-completeness
-/// Decision 3 — they do not contribute to the returned vector and
-/// therefore never fire L06.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OutlineAc {
-    /// The outline's heading text, captured verbatim from the
-    /// `### <heading>` line that opens the block. Matches the
-    /// `OutlineBlock::key` shape so callers can correlate AC entries
-    /// with outline blocks.
-    pub outline_key: String,
-    /// The AC's checkbox-line text with the leading `- [ ]` / `- [x]` /
-    /// `- [X]` marker stripped. Trailing whitespace is preserved.
-    pub ac_text: String,
-    /// Whether the box is ticked. `true` for `- [x]` or `- [X]`; `false`
-    /// for `- [ ]`.
-    pub ticked: bool,
-    /// 1-indexed absolute line number of the AC's checkbox line.
-    pub line: usize,
-}
-
-/// Locate the `## Issue Outlines` section and parse every canonical
-/// `- [ ]` / `- [x]` / `- [X]` AC checkbox line into a flat
-/// `Vec<OutlineAc>`.
-///
-/// Returns `Vec::new()` when the section is absent, when no outline
-/// blocks declare a `**Acceptance Criteria**:` bullet list, or when
-/// every AC bullet uses a non-canonical shape. The parser is total over
-/// arbitrary input.
-///
-/// `check_l06` consumes the returned vector: any `OutlineAc` with
-/// `ticked == false` becomes one L06 error naming the outline, the AC
-/// text, and the line number.
-///
-/// Multi-pr plans do not have outline-AC checkboxes (their issues live
-/// in the `## Implementation Issues` table); callers should gate on
-/// the doc's `execution_mode` before invoking this parser. The parser
-/// itself does not inspect frontmatter — it returns `Vec::new()` for
-/// docs whose body lacks `## Issue Outlines`, which is the common
-/// outcome for non-single-pr plans.
-pub fn parse_outline_acs(doc: &Doc) -> Vec<OutlineAc> {
-    // Locate the `## Issue Outlines` section.
-    let mut start_idx: Option<usize> = None;
-    for (i, line) in doc.body.iter().enumerate() {
-        if line.trim() == "## Issue Outlines" {
-            start_idx = Some(i + 1);
-            break;
+/// Strip a canonical acceptance-criteria checkbox marker, returning
+/// `(ticked, text)`.
+fn strip_ac_checkbox(line: &str) -> Option<(bool, &str)> {
+    for (marker, ticked) in [("- [ ] ", false), ("- [x] ", true), ("- [X] ", true)] {
+        if let Some(rest) = line.strip_prefix(marker) {
+            return Some((ticked, rest));
         }
     }
-    let start = match start_idx {
-        Some(s) => s,
-        None => return Vec::new(),
-    };
-
-    // End of section: next `## ` heading at the same level. `### Issue N`
-    // headings stay inside.
-    let mut end_idx = doc.body.len();
-    for (j, line) in doc.body.iter().enumerate().skip(start) {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("## ") && !trimmed.starts_with("### ") {
-            end_idx = j;
-            break;
-        }
-    }
-
-    let mut acs: Vec<OutlineAc> = Vec::new();
-    let mut current_key: Option<String> = None;
-    let mut in_ac_block = false;
-
-    for (j, raw_line) in doc.body[start..end_idx].iter().enumerate() {
-        let absolute_line = start + j + 1; // 1-indexed
-        let trimmed = raw_line.trim();
-
-        // `### Issue N: <title>` opens a new outline block and resets
-        // the AC-bullet-list tracking flag.
-        if trimmed.starts_with("### ") {
-            current_key = Some(trimmed.trim_start_matches("### ").to_string());
-            in_ac_block = false;
-            continue;
-        }
-
-        // `**Acceptance Criteria**:` enters the AC bullet-list state.
-        // Any other `**Label**:` line (e.g. `**Goal**:`,
-        // `**Dependencies**:`) leaves it.
-        if trimmed.starts_with("**Acceptance Criteria**:") {
-            in_ac_block = true;
-            continue;
-        }
-        if trimmed.starts_with("**Goal**:")
-            || trimmed.starts_with("**Dependencies**:")
-            || trimmed.starts_with("**Type**:")
-            || trimmed.starts_with("**Files**:")
-        {
-            in_ac_block = false;
-            continue;
-        }
-
-        if !in_ac_block {
-            continue;
-        }
-
-        // Strict tolerance: only the three canonical checkbox shapes
-        // count. A bare `- ` bullet, an indented sub-bullet, or a
-        // non-canonical bracket spacing is silently dropped without
-        // terminating the AC block — the block stays in flight until a
-        // `**Label**:`, `###`, or `##` line surfaces. This preserves
-        // counting on subsequent canonical lines that follow a non-
-        // canonical sibling, matching what the strict-tolerance
-        // contract in DESIGN-cascade-outline-ac-completeness Decision
-        // 3 promises.
-        let (ticked, ac_text) = if let Some(rest) = trimmed.strip_prefix("- [ ] ") {
-            (false, rest.to_string())
-        } else if let Some(rest) = trimmed.strip_prefix("- [x] ") {
-            (true, rest.to_string())
-        } else if let Some(rest) = trimmed.strip_prefix("- [X] ") {
-            (true, rest.to_string())
-        } else {
-            continue;
-        };
-
-        let key = match &current_key {
-            Some(k) => k.clone(),
-            None => continue, // AC line before the first ### is dropped
-        };
-        acs.push(OutlineAc {
-            outline_key: key,
-            ac_text,
-            ticked,
-            line: absolute_line,
-        });
-    }
-
-    acs
-}
-
-/// Parse the dependency-tokens portion of a `**Dependencies**:` line.
-///
-/// Recognises two shapes:
-/// - `<<ISSUE:N>>` placeholders (the canonical /plan-generated form).
-/// - Free-form outline keys separated by commas, with optional
-///   "Blocked by " prefix words stripped.
-///
-/// Returns the list of tokens in order. Returns `Vec::new()` for an
-/// empty value.
-fn parse_dependency_tokens(value: &str) -> Vec<String> {
-    let cleaned = value
-        .replace("Blocked by", ",")
-        .replace("blocked by", ",")
-        .trim()
-        .trim_start_matches(',')
-        .trim()
-        .to_string();
-
-    let placeholder_re: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<<ISSUE:\d+>>").unwrap());
-
-    let placeholders: Vec<String> = placeholder_re
-        .find_iter(&cleaned)
-        .map(|m| m.as_str().to_string())
-        .collect();
-    if !placeholders.is_empty() {
-        return placeholders;
-    }
-
-    cleaned
-        .split(',')
-        .map(|t| t.trim().trim_end_matches('.').to_string())
-        .filter(|t| !t.is_empty())
-        .collect()
+    None
 }
 
 #[cfg(test)]
@@ -1226,6 +1362,238 @@ mod tests {
         assert_eq!(table.rows[1].kind, RowKind::Description);
         assert!(!table.rows[1].terminal);
         assert_eq!(table.rows[1].status, None);
+    }
+
+    // --- parse_issue_outlines: the single walk ---
+
+    #[test]
+    fn outlines_absent_section_is_empty() {
+        let doc = doc_from_markdown("---\nschema: plan/v1\nstatus: Draft\nexecution_mode: single-pr\nmilestone: \"x\"\nissue_count: 0\n---\n\n## Status\n\nDraft\n");
+        let section = parse_issue_outlines(&doc);
+        assert!(section.blocks.is_empty());
+        assert!(section.nonconforming_headings.is_empty());
+    }
+
+    #[test]
+    fn outlines_heading_supplies_number_and_title() {
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 7: feat(cli): add the thing\n\n**Goal**: g.\n\n**Dependencies**: None\n",
+        );
+        let section = parse_issue_outlines(&doc);
+        assert_eq!(section.blocks.len(), 1);
+        assert_eq!(section.blocks[0].number, 7);
+        assert_eq!(section.blocks[0].title, "feat(cli): add the thing");
+        assert_eq!(section.blocks[0].key, "Issue 7: feat(cli): add the thing");
+    }
+
+    #[test]
+    fn outlines_noncanonical_heading_opens_no_block_and_is_recorded() {
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### 4. do the thing\n\n**Goal**: g.\n\n**Dependencies**: None\n",
+        );
+        let section = parse_issue_outlines(&doc);
+        assert!(
+            section.blocks.is_empty(),
+            "a non-canonical heading must not open a block: {:?}",
+            section.blocks
+        );
+        assert_eq!(section.nonconforming_headings.len(), 1);
+        assert_eq!(section.nonconforming_headings[0].text, "4. do the thing");
+    }
+
+    #[test]
+    fn outlines_none_with_trailing_period_is_an_intentional_absence() {
+        // The contract's own example writes `**Dependencies**: None.`, so the
+        // period must not turn it into an unresolved token.
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Goal**: g.\n\n**Dependencies**: None.\n",
+        );
+        let section = parse_issue_outlines(&doc);
+        assert!(section.blocks[0].dependencies_none);
+        assert!(section.blocks[0].unresolved_dependencies.is_empty());
+        assert!(section.blocks[0].waits_on.is_empty());
+    }
+
+    #[test]
+    fn outlines_placeholder_and_prose_reference_resolve_identically() {
+        let placeholder = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n\n### Issue 2: b\n\n**Dependencies**: Blocked by <<ISSUE:1>>\n",
+        );
+        let prose = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n\n### Issue 2: b\n\n**Dependencies**: Blocked by Issue 1.\n",
+        );
+        let a = parse_issue_outlines(&placeholder);
+        let b = parse_issue_outlines(&prose);
+        assert_eq!(a.blocks[1].waits_on, vec![1]);
+        assert_eq!(b.blocks[1].waits_on, vec![1]);
+        assert!(a.blocks[1].unresolved_dependencies.is_empty());
+        assert!(b.blocks[1].unresolved_dependencies.is_empty());
+    }
+
+    #[test]
+    fn outlines_colon_inside_the_bold_parses_identically() {
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n\n### Issue 2: b\n\n**Dependencies:** Blocked by Issue 1.\n",
+        );
+        let section = parse_issue_outlines(&doc);
+        assert!(section.blocks[1].dependencies_declared);
+        assert_eq!(section.blocks[1].waits_on, vec![1]);
+    }
+
+    #[test]
+    fn outlines_bare_numeric_dependency_is_unresolved_not_dropped() {
+        // The #275 fail-open case: the extractor used to emit a task with no
+        // edge and say nothing.
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n\n### Issue 2: b\n\n**Dependencies**: 1\n",
+        );
+        let section = parse_issue_outlines(&doc);
+        assert!(section.blocks[1].waits_on.is_empty());
+        assert_eq!(
+            section.blocks[1].unresolved_dependencies,
+            vec!["1".to_string()]
+        );
+    }
+
+    #[test]
+    fn outlines_github_style_reference_is_unresolved_in_single_pr() {
+        // `#N` is the multi-pr table's form; reading it as an outline
+        // reference would invent an edge from a GitHub issue number.
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n\n### Issue 2: b\n\n**Dependencies**: Blocked by #1.\n",
+        );
+        let section = parse_issue_outlines(&doc);
+        assert!(section.blocks[1].waits_on.is_empty());
+        assert_eq!(
+            section.blocks[1].unresolved_dependencies,
+            vec!["#1".to_string()]
+        );
+    }
+
+    #[test]
+    fn outlines_prose_beside_a_resolved_reference_is_not_a_failed_reference() {
+        // `Blocked by Issue 1 (the parser must land first).` declares one edge
+        // and one parenthetical. Treating the parenthetical as a failed
+        // reference would make FC17 reject a legal outline.
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n\n### Issue 2: b\n\n**Dependencies**: Blocked by Issue 1 (the parser must land first).\n",
+        );
+        let section = parse_issue_outlines(&doc);
+        assert_eq!(section.blocks[1].waits_on, vec![1]);
+        assert!(
+            section.blocks[1].unresolved_dependencies.is_empty(),
+            "prose must not be reported as a failed reference: {:?}",
+            section.blocks[1].unresolved_dependencies
+        );
+        assert_eq!(
+            section.blocks[1].unrecognized_dependency_text,
+            vec!["(the parser must land first)".to_string()]
+        );
+    }
+
+    #[test]
+    fn outlines_reference_shaped_leftovers_are_the_ones_that_fail() {
+        // A bare number and a `#N` are edges the author declared and the
+        // extractor dropped; both belong in the erroring bucket.
+        for value in ["3", "#3", "Blocked by 3", "Blocked by #3."] {
+            let doc = single_pr_plan(&format!(
+                "## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n\n### Issue 2: b\n\n**Dependencies**: {value}\n"
+            ));
+            let section = parse_issue_outlines(&doc);
+            assert!(
+                !section.blocks[1].unresolved_dependencies.is_empty(),
+                "{value:?} must be reported as a failed reference"
+            );
+            assert!(
+                section.blocks[1].unrecognized_dependency_text.is_empty(),
+                "{value:?} must not land in the advisory bucket"
+            );
+        }
+    }
+
+    #[test]
+    fn outlines_reference_to_a_missing_sibling_is_unresolved() {
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: Blocked by Issue 42\n",
+        );
+        let section = parse_issue_outlines(&doc);
+        assert_eq!(
+            section.blocks[0].unresolved_dependencies,
+            vec!["Issue 42".to_string()]
+        );
+    }
+
+    #[test]
+    fn outlines_resolution_keys_on_heading_numbers_not_position() {
+        // Numbered 2 and 5: a positional reader resolves against 1 and 2 and
+        // gets both edges wrong.
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 2: a\n\n**Dependencies**: None\n\n### Issue 5: b\n\n**Dependencies**: Blocked by Issue 2.\n",
+        );
+        let section = parse_issue_outlines(&doc);
+        assert_eq!(section.blocks[1].waits_on, vec![2]);
+        assert!(section.blocks[1].unresolved_dependencies.is_empty());
+    }
+
+    #[test]
+    fn outlines_dependencies_subheading_carries_edges_and_opens_no_block() {
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Goal**: g.\n\n**Dependencies**: None.\n\n---\n\n### Issue 2: b\n\n**Goal**: g.\n\n### Dependencies\n\nIssue 1\n",
+        );
+        let section = parse_issue_outlines(&doc);
+        assert_eq!(
+            section.blocks.len(),
+            2,
+            "the sub-heading must not open a third block"
+        );
+        assert!(
+            section.nonconforming_headings.is_empty(),
+            "`### Dependencies` is a known sub-heading, not a stray one"
+        );
+        assert!(section.blocks[1].dependencies_declared);
+        assert_eq!(section.blocks[1].waits_on, vec![1]);
+    }
+
+    #[test]
+    fn outlines_type_and_files_are_read() {
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n\n**Type**: Docs\n**Files**: `a/b.rs`, `c/d.md`\n",
+        );
+        let section = parse_issue_outlines(&doc);
+        assert_eq!(section.blocks[0].issue_type.as_deref(), Some("docs"));
+        assert_eq!(
+            section.blocks[0].files,
+            vec!["a/b.rs".to_string(), "c/d.md".to_string()]
+        );
+    }
+
+    #[test]
+    fn outlines_declared_flags_are_independent_of_content() {
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Acceptance Criteria**:\n\n### Issue 2: b\n\n**Goal**: g.\n",
+        );
+        let section = parse_issue_outlines(&doc);
+        assert!(section.blocks[0].acceptance_criteria_declared);
+        assert!(section.blocks[0].acceptance_criteria.is_empty());
+        assert!(!section.blocks[0].goal_declared);
+        assert!(section.blocks[1].goal_declared);
+        assert!(!section.blocks[1].acceptance_criteria_declared);
+        assert!(!section.blocks[1].dependencies_declared);
+    }
+
+    #[test]
+    fn outline_acs_projection_matches_the_blocks_it_flattens() {
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Acceptance Criteria**:\n- [ ] one\n- [x] two\n\n### Issue 2: b\n\n**Acceptance Criteria**:\n- [ ] three\n",
+        );
+        let section = parse_issue_outlines(&doc);
+        let flattened: Vec<_> = section
+            .blocks
+            .iter()
+            .flat_map(|b| b.acceptance_criteria.clone())
+            .collect();
+        assert_eq!(parse_outline_acs(&doc), flattened);
+        assert_eq!(flattened.len(), 3);
     }
 
     // --- parse_outline_acs ---

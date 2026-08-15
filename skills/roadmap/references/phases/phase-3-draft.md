@@ -33,8 +33,18 @@ Read all available context:
 present, store the path for inclusion in frontmatter (step 3.2). The upstream
 path points to the STRATEGY this roadmap sequences -- passed by `/charter` on
 every chain, or by the user in standalone invocation. If `--upstream` is not
-provided, omit the field from frontmatter; do not substitute a VISION path,
-which would skip a level of the chain.
+provided, omit the field from frontmatter rather than substituting a VISION
+path: naming the VISION when a STRATEGY exists puts the strategy's reasoning
+off the path a reader walks.
+
+This is authoring guidance, not a validator rule, and the distinction matters
+when you are deciding what to do about an existing roadmap. `shirabe validate`
+accepts a ROADMAP naming either a STRATEGY or a VISION, because it decides
+legality from two basenames and cannot tell a roadmap that reached past an
+existing strategy from one written where no strategy exists. A roadmap that
+genuinely has no strategy above it and names the VISION is correct and will
+stay correct; one that skipped a strategy that exists is a real defect the
+validator will not catch for you.
 
 **Validate upstream:** If a path was detected, run these checks in order
 before storing it. They are the same three `/prd` runs against the same flag,

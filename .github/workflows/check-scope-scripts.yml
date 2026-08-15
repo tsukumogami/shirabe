@@ -24,7 +24,7 @@ jobs:
 
       # The document-path shape has one owner and three readers: this script
       # (the gate, the only site that can stop a deletion), the validator's
-      # FC17 (the backstop), and the record checker's fold signature (the
+      # FC18 (the backstop), and the record checker's fold signature (the
       # trigger). None substitutes for another, so the string is shared rather
       # than the behaviour -- and a grep keeps the copies honest, which is
       # strictly more than the contribution-heading table can have, since a

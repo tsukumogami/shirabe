@@ -75,6 +75,18 @@ Without it, a reviewer reading the PR cannot tell an artifact that
 was absorbed from one that was never produced. The two look
 identical on disk and mean opposite things.
 
+**`consumed_upstream:` goes into that record too, whenever the run
+had one.** The roadmap a chain consumed is recorded on the PLAN the
+chain produces, and a run that ends before `/plan` has no PLAN and
+therefore no legal node to carry it — no durable artifact may name a
+working one. On a `re-evaluation` or `abandonment-forced` exit the
+roadmap would otherwise be lost with the state file, leaving no trace
+of what the chain was scoping under. Name it in the PR body:
+
+> Consumed upstream: `docs/roadmaps/ROADMAP-<name>.md`. Not recorded in
+> any produced artifact — the chain ended before its PLAN, and a
+> ROADMAP is only ever named by the PLAN.
+
 ### Re-Evaluation Exit
 
 The chain ended at a settled-upstream boundary. Phase 3 writes

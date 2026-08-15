@@ -24,9 +24,8 @@ problem: |
   1 paragraph: who is affected, what's broken or missing, why now.
 goals: |
   1 paragraph: what success looks like at a high level.
-upstream: docs/briefs/BRIEF-<name>.md     # optional; nearest parent
-                                          # produced above this PRD -- a
-                                          # ROADMAP when no BRIEF was written
+upstream: docs/briefs/BRIEF-<name>.md     # optional; the BRIEF this PRD's
+                                          # requirements are written from
 source_issue: 123  # optional, GitHub issue number that triggered this PRD
 motivating_context: |                       # optional
   1 paragraph: why this PRD exists -- the situation or signal
@@ -35,11 +34,14 @@ motivating_context: |                       # optional
 ---
 ```
 
-Required fields: `status`, `problem`, `goals`. Optional: `upstream` (path to
-parent artifact when this PRD is part of a larger effort; for cross-repo
-upstream references and the visibility-direction rules, see
-`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` -- Phase 3
-step 3.1 validates this value),
+Required fields: `status`, `problem`, `goals`. Optional: `upstream` (the
+BRIEF this PRD's requirements are written from -- a PRD's only legal upstream
+type. A PRD written with no brief above it omits the field rather than reaching
+past it to the ROADMAP that sequenced the feature: a ROADMAP is deleted when
+its features land, and a durable document must not name a working one. See
+`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md` for the rule and
+`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` for the cross-repo
+and visibility-direction rules -- Phase 3 step 3.1 validates this value),
 `source_issue` (GitHub issue number that triggered this PRD; for a
 public PRD, only public issue numbers belong here -- private repos'
 issue numbers stay out of public PRD frontmatter),
@@ -251,7 +253,7 @@ A survivor that absorbed a PRD carries it as `## Absorbed PRD`,
 placed immediately after `## Status` and before the survivor's own first
 other required section. Where a survivor carries more than one, they
 appear in chain order. `shirabe validate` requires the sections a
-document's `absorbed:` frontmatter implies (FC17), so this is enforced
+document's `absorbed:` frontmatter implies (FC18), so this is enforced
 rather than conventional.
 
 **The contribution section has a two-sided adequacy test.** It is not

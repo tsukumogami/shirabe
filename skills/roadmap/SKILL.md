@@ -26,7 +26,9 @@ capture the theme (why these features belong together), the features
 themselves, dependency relationships, sequencing rationale, and progress.
 They are the last link in the strategic chain (VISION -> STRATEGY ->
 ROADMAP): a roadmap's upstream is the STRATEGY it sequences -- its
-immediate neighbour, never the VISION two levels up -- and downstream of
+immediate neighbour, and not the VISION two levels up, which this skill
+never writes even though the validator tolerates it in an existing
+corpus (see `references/roadmap-format.md`) -- and downstream of
 it sit the BRIEFs and PRDs that frame and define individual features in
 detail.
 
@@ -40,8 +42,12 @@ much:
   records how far along the work is, and the completion cascade updates it
   as downstream plans land. Without a roadmap, a strategy has no ledger.
 - **It is the only bridge from the strategic chain to the tactical one.**
-  `/brief` takes a ROADMAP as its upstream -- never a STRATEGY, and never
-  a PRD, which sits downstream of a BRIEF rather than above it. A strategy
+  `/brief` is framed against a ROADMAP -- never a STRATEGY, and never a
+  PRD, which sits downstream of a BRIEF rather than above it. The brief
+  reads the roadmap and records the roadmap's own parent, often this
+  roadmap's STRATEGY; the ROADMAP itself is named by the PLAN the chain
+  produces, because a durable document may not name one that the cascade
+  deletes. A strategy
   whose work is a single feature would be stranded if it could not have a
   roadmap: no legal path into `/scope`, and no progress tracking.
 

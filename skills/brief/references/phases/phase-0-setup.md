@@ -41,19 +41,22 @@ If the context file exists but its recorded visibility no longer matches CLAUDE.
 Phase 0 or keep the recorded value. Visibility drift mid-workflow is a red flag
 worth surfacing.
 
-Re-validate a recorded `## Upstream Path` the same way, against the worktree as
-it is now: a file tracked when the brief was started can be deleted or moved
-before it finishes. A recorded upstream that no longer resolves is surfaced
-naming the path and the check it fails, never silently carried into frontmatter
-and never silently dropped. Offer to re-supply it, or to continue without it and
-omit the field — saying which one the run took.
+Re-validate a recorded `## Grounding Path` the same way, against the worktree as
+it is now: a file present when the brief was started can be deleted or moved
+before it finishes. A grounding path that no longer resolves is surfaced naming
+the path and the check it fails, never silently dropped. Offer to re-supply it,
+or to continue without it — saying which one the run took. The grounding path
+itself is never carried into frontmatter; what the brief records is resolved
+from it in step 0.3a, so a grounding path that stopped resolving also costs the
+recorded ancestor.
 
 ## 0.1 Detect Entry Mode
 
 ### Parse `--upstream` First
 
 `--upstream <path>` names the ROADMAP this feature comes from, separately from
-whatever the positional argument says. Consume the flag and the token
+whatever the positional argument says. It supplies grounding, not a recorded
+link: see "Reading a document vs. recording it as `upstream`" below. Consume the flag and the token
 following it BEFORE classifying the remainder: the flag's value is never
 tested as a topic string, never tested as a path argument in the entry-mode
 table below, and never used to derive the topic slug.
@@ -93,12 +96,11 @@ Parse what remains of `$ARGUMENTS` and classify into one of three modes:
 A ROADMAP is the only document the upstream-path entry mode accepts. A
 `docs/prds/PRD-*.md` path is not an upstream mode — it is rejected at step 0.3.
 
-This is a statement about the entry mode, not about every value the
-`upstream:` field may ever hold. A follow-up brief born out of downstream
-work can carry a cross-chain reference (the lifecycle walker treats a
-BRIEF as a chain anchor and does not follow its `upstream:` as a
-chain-membership edge). What is never legal is a PRD: that inverts the
-chain the brief sits in.
+A BRIEF's `upstream:` field holds nothing at all — its legal-parent set is
+empty, and `shirabe validate` rejects any value it carries. A follow-up brief
+born out of downstream work names what prompted it in prose rather than in
+frontmatter; a link there would point down or sideways in the chain, which the
+direction rule (`R10`) forbids.
 
 When `$ARGUMENTS` looks like a path (contains `/` or ends in `.md`) but the file
 does not exist, do not fall through to freeform-topic mode silently. Ask the user
@@ -136,7 +138,7 @@ contains characters outside the allowed set after derivation, or starts/ends wit
 `-`, reject the invocation and ask the user for a clean slug. Do not fall through
 to a "best effort" slug — silent normalization hides input the user did not intend.
 
-## 0.3 Canonicalize Upstream Path
+## 0.3 Canonicalize the Grounding Path
 
 If Phase 0 detected upstream-path mode, or `--upstream` supplied a value,
 canonicalize the path before any read:
@@ -148,9 +150,21 @@ canonicalize the path before any read:
    invocation if it resolves outside (e.g., a symlink pointing to `/etc/passwd` or
    to a sibling repo).
 4. Verify the file exists and is readable.
-5. Verify the basename starts with `ROADMAP-`. Other prefixes indicate the user
+5. Verify the canonicalized path is under `<repo-root>/docs/roadmaps/`. This is
+   the constraint the positional roadmap mode already carries, and applying it
+   to the flag makes the two routes validate identically. A grounding file
+   outside that directory is a scratch draft or a fixture, and grounding a
+   durable brief's framing in one makes its provenance unreproducible.
+6. Verify the basename starts with `ROADMAP-`. Other prefixes indicate the user
    pointed at the wrong artifact type and the problem/outcome derivation will
    misfire.
+
+   **This check carries more weight than it used to.** A BRIEF records no
+   `upstream:` (see "Reading a document vs. recording it as `upstream`" below),
+   so nothing reaches frontmatter for a reviewer or the validator to catch a
+   wrong-type input. The basename rule is now the only guard between pointing
+   `/brief` at the wrong artifact and a brief whose problem and outcome were
+   silently derived from it.
 
 On any rejection, abort with a message that names the offending path and the
 reason. Do not silently fall back to freeform-topic mode — the user provided a
@@ -174,27 +188,88 @@ rejection fires when the `PRD-` basename arrives as the `--upstream` value:
 the flag records, and a recorded PRD inverts the chain whichever route it took
 to get there.
 
-Two further checks apply to a `--upstream` value, in this order, before it is
-recorded:
+One further check applies to a `--upstream` value:
 
 - **Not under `wip/`.** Reject. `wip/` artifacts are non-durable — the
-  wip-hygiene cleanup deletes them before the PR can merge — so the recorded
-  `upstream:` would point at a file that disappears. Name the canonical
-  location in the rejection.
-- **Tracked by git.** Run `git ls-files -- <path>`. An empty result on a path
-  inside the working tree means the file is not committed; reject, naming the
-  untracked path.
+  wip-hygiene cleanup deletes them before the PR can merge — so a brief whose
+  framing was derived from one has a provenance no reader can reproduce. Name
+  the canonical location in the rejection.
+
+**The tracked-by-git check does not apply to the grounding path, and the
+omission is deliberate.** Its reason was durability of a *recorded* link — "an
+untracked upstream is durable to nobody but this working copy" — and the roadmap
+is read rather than recorded. An author walking the chain forward in one sitting
+can ground a brief in a roadmap they have written but not yet committed. The
+`docs/roadmaps/` confinement above is what keeps that relaxation from widening
+the input class to any untracked file in the tree.
+
+The value step 0.3a *resolves* out of that roadmap is a different matter: it is
+recorded, so it takes the full record-time set, tracked-by-git included. A brief
+may be grounded in an uncommitted roadmap; it may not record an uncommitted
+strategy.
 
 A cross-repo value in the `owner/repo:path` form from
 `references/cross-repo-references.md` is not a working-tree path: it skips
-canonicalization and the tracked-by-git check, keeps the `ROADMAP-` basename
-rule on its file component, and is governed by the visibility rule Phase 2
-applies when writing frontmatter (a public BRIEF omits a private upstream
-rather than naming it).
+canonicalization and the directory confinement, keeps the `ROADMAP-` basename
+rule on its file component, and is read for grounding like any other.
 
 Do not silently drop a rejected `--upstream` value and continue: the author
-asked for a link, and a run that quietly produces a BRIEF without one hides
-the failure until someone reads the frontmatter.
+asked for the brief to be grounded in that roadmap, and a run that quietly
+produces an ungrounded BRIEF hides the failure until someone reads the framing
+and wonders where it came from.
+
+## Reading a document vs. recording it as `upstream`
+
+Both roadmap routes — the positional path and the `--upstream` flag — supply the
+ROADMAP the brief is framed against. The brief **reads** that roadmap and
+**records** something else: the roadmap's own nearest durable ancestor. The two
+acts have different targets, and conflating them is the mistake this section
+exists to prevent.
+
+The roadmap is read in Phase 1: the skill finds the feature this brief frames,
+and derives the problem and outcome candidates from that feature's line item and
+the roadmap's sequencing rationale. That is the whole value of supplying one, and
+it is unchanged by anything below.
+
+The roadmap is never recorded. A ROADMAP is deleted when its features land and a
+BRIEF is durable, so the link would be correct on the day it is written and
+dangling on the day the cascade runs — `shirabe validate` rejects it as `R11`.
+The rule is in
+`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`: a link runs from the
+shorter-lived document to the longer-lived one.
+
+### 0.3a Resolve the recordable upstream
+
+What gets recorded is found by walking up from the roadmap, deterministically,
+in one hop.
+
+1. **Read the supplied ROADMAP's own `upstream:` field.** A roadmap names the
+   STRATEGY it sequences, or a VISION when it traces straight to one. Both are
+   durable, so one hop always terminates on something recordable or on nothing —
+   there is no loop to bound and no second step to take.
+2. **If the roadmap has no `upstream:`, record nothing.** The brief is then the
+   head of its own lineage in fact, not by rule.
+3. **Run the resolved path through the visibility check** in step 0.5 exactly as
+   any recorded value: when this repo is Public and the ancestor lives in a
+   private repo, omit the field and say so. When the brief and the ancestor are
+   in the same private repo, record it.
+4. **Record the surviving value** in the produced brief's `upstream:`.
+
+Resolve, do not substitute. The brief is still framed against the roadmap and
+still absorbs its problem and outcome — it covers a slice of the roadmap's scope,
+which is why absorption is owed regardless of what the field ends up holding. All
+that changes is which path the field names.
+
+The reason for walking up rather than recording nothing is that the lineage
+survives the roadmap's deletion. A reader following a brief's upstream reaches
+the strategy that chose this feature, which is durable and stays reachable; a
+brief with no upstream would strand the strategic half of the chain behind a
+document the cascade removes.
+
+**Announce it.** When a roadmap was supplied, say in the run output which
+document was recorded and why it is not the roadmap — or, when nothing survived
+the resolution, that the field was omitted and which step dropped it. An author
+who passed a roadmap should learn from the run what the field ended up holding.
 
 ## 0.4 Detect Repo Visibility
 
@@ -261,7 +336,7 @@ Write `wip/brief_<topic>_context.md` with the following keys:
 ## Entry Mode
 <cold | freeform | upstream-roadmap>
 
-## Upstream Path
+## Grounding Path
 <canonical path, or "none">
 
 ## Topic Slug
@@ -282,9 +357,10 @@ update the `## Phase` line as they begin.
 
 `## Entry Mode` classifies the positional argument, so a `--upstream` run
 records whichever mode the remainder produced — usually `freeform`. The
-flag's validated value is what `## Upstream Path` holds, and Phase 1 grounds
+flag's validated value is what `## Grounding Path` holds, and Phase 1 grounds
 the problem/outcome candidate in it the same way it would for a positional
-ROADMAP.
+ROADMAP. The key is named for what it is: a path the run reads, not a value the
+produced BRIEF records.
 
 Do NOT commit the context file at this stage. The wip-hygiene rule treats `wip/`
 artifacts as non-durable; the final cleanup at Phase 5 removes them before the PR
@@ -296,7 +372,25 @@ Surface the detected context to the user in one short message:
 
 > Setting up `/brief` for topic `<topic>`.
 > Entry mode: <mode>. Visibility: <visibility>.
-> Upstream: <path or "none">.
+> Grounding: <path or "none">.
+
+When a grounding path was supplied, add the resolution result on the next line.
+It is not optional — an author who passed a roadmap learns here what the field
+ended up holding and why it is not the roadmap:
+
+> Recorded upstream: `docs/strategies/STRATEGY-<name>.md`, resolved one hop up
+> from the roadmap. A ROADMAP is deleted when its features land, so a BRIEF
+> records its nearest durable ancestor instead; the roadmap still grounds the
+> problem and outcome, and the link to the roadmap itself is recorded on the
+> PLAN this chain produces.
+
+When the resolution found nothing to record, say which step dropped it:
+
+> Recorded upstream: none — the roadmap names no upstream of its own.
+
+> Recorded upstream: none — the roadmap's upstream
+> `<owner>/<repo>:docs/strategies/STRATEGY-<name>.md` is private and this repo
+> is Public, so the field is omitted rather than naming it.
 
 Do not block on confirmation for routine cases. If any detection produced an
 unexpected value (visibility defaulted to Private because CLAUDE.md was missing),
@@ -308,11 +402,16 @@ direction.
 Before proceeding:
 - [ ] `<topic>` slug matches `^[a-z0-9-]+$` and was derived from the positional
       argument alone, never from a `--upstream` value
-- [ ] Upstream path (if provided) is canonicalized and inside the repo working tree
-- [ ] Upstream file (if provided) exists and has a `ROADMAP-` basename; a `PRD-`
-      basename was rejected with the chain-inversion message
-- [ ] `--upstream` value (if provided) is not under `wip/` and is tracked by
-      git; a bare `--upstream` was rejected
+- [ ] Grounding path (if provided) is canonicalized, inside the repo working
+      tree, and under `docs/roadmaps/`
+- [ ] Grounding file (if provided) exists and has a `ROADMAP-` basename; a
+      `PRD-` basename was rejected with the chain-inversion message
+- [ ] `--upstream` value (if provided) is not under `wip/`; a bare `--upstream`
+      was rejected
+- [ ] Step 0.3a resolved the recordable upstream by reading the grounding
+      roadmap's own `upstream:`, and ran the result through the visibility check
+- [ ] The run announced what `upstream:` will hold, or which step dropped it,
+      whenever a grounding path was supplied
 - [ ] Visibility is recorded (Public or Private, never empty)
 - [ ] The artifact decision is recorded as `produce`
 - [ ] `wip/brief_<topic>_context.md` exists with the keys above

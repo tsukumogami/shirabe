@@ -165,6 +165,19 @@ issue_count: <N>
 ---
 ```
 
+When `--upstream <roadmap-path>` was supplied, `upstream:` is a sequence: the
+source document first, the ROADMAP second. The PLAN is the node that records
+the crossing from the strategic chain into the tactical one, because it is a
+working artifact the cascade deletes -- and deletes before the roadmap -- so
+the link cannot outlive its target. No durable document in the chain may name
+a roadmap.
+
+```yaml
+upstream:
+  - <source-doc-path>
+  - docs/roadmaps/ROADMAP-<name>.md
+```
+
 **Carry the design's decisions into the Decomposition Strategy rather than only
 citing the design.** Where an issue's shape or its position in the sequence
 follows from a decision the design made, say which decision and why it forces
@@ -265,6 +278,19 @@ issue_count: <N>
 ---
 ```
 
+When `--upstream <roadmap-path>` was supplied, `upstream:` is a sequence: the
+source document first, the ROADMAP second. The PLAN is the node that records
+the crossing from the strategic chain into the tactical one, because it is a
+working artifact the cascade deletes -- and deletes before the roadmap -- so
+the link cannot outlive its target. No durable document in the chain may name
+a roadmap.
+
+```yaml
+upstream:
+  - <source-doc-path>
+  - docs/roadmaps/ROADMAP-<name>.md
+```
+
 **Required sections** (in order):
 
 1. **Status** -- `Active`
@@ -299,11 +325,40 @@ visibility-violating references. Run from the repo root:
 # 1. No wip/ paths anywhere in the PLAN body or frontmatter.
 git grep -nE 'wip/' -- 'docs/plans/PLAN-<topic>.md'
 
-# 2. The upstream: frontmatter value resolves to a tracked file in this repo,
-#    OR is a public owner/repo:path cross-repo reference. It must NEVER be a
-#    wip/... path.
-head -20 'docs/plans/PLAN-<topic>.md' | grep -E '^upstream:'
+# 2. Frontmatter, structure, and every upstream: entry. The field may be a
+#    sequence -- a PLAN under a roadmap names its design and that roadmap --
+#    and every entry is read, not just the first.
+shirabe validate 'docs/plans/PLAN-<topic>.md'
+
+# 3. Whether the upstream is at a status a PLAN may be built from.
+shirabe validate --lifecycle-chain 'docs/plans/PLAN-<topic>.md'
 ```
+
+`shirabe validate` is the reader here rather than a hand-written grep, and
+that is deliberate: a scalar-only reader returns nothing for a sequence and
+then reports "no upstream field", which silently skips the check for exactly
+the PLANs that carry two entries. One normalizer in the validator enumerates
+both written shapes and feeds every reader of the field, so the document that
+passes is the document the extractor reads.
+
+What the two invocations check between them: the required frontmatter fields
+(`schema`, `status`, `execution_mode`, `milestone`, `issue_count`), the
+required sections and the single-pr / multi-pr mutual exclusions, the outline
+shapes task extraction depends on, and -- under `R6` -- that each `upstream:`
+entry exists on disk, is tracked by git, is not a symlink, and does not
+resolve outside the repository. The last two matter because the value reaches
+a committed frontmatter field: a symlinked upstream resolves to different
+content for different readers, and one escaping the tree names something no
+other clone has. The git invocation passes every path after `--`, so a value
+beginning with a dash is a pathspec rather than an option. Validation is not
+the guarantee there; the argument boundary is.
+
+A single earlier bash pre-flight used to run here and answered the upstream
+-status question differently from the lifecycle check, accepting an upstream
+at `Accepted` and rejecting one at `Current`. The lifecycle model's rule is
+the surviving one: `/plan` moves the upstream DESIGN from `Accepted` to
+`Planned` while authoring the PLAN, so a PLAN still naming an `Accepted`
+DESIGN is evidence that transition did not run.
 
 **Match handling:**
 
@@ -320,11 +375,19 @@ head -20 'docs/plans/PLAN-<topic>.md' | grep -E '^upstream:'
   on the branch but must be cleaned before the PR opens"), it is allowed.
   Path-shaped references (anything that resolves to a file location) are
   not.
-- **The `upstream:` value must resolve.** If `git ls-files <path>` returns
-  empty for a same-repo value, the upstream is broken -- fix the path. If
-  the upstream is `owner/repo:path`, confirm visibility direction against
+- **Every `upstream:` entry must resolve.** `shirabe validate` reports an
+  `R6` finding naming each entry that does not, and exits 2. For a
+  `owner/repo:path` entry it skips the local checks, because there is no
+  local path to resolve, so confirm visibility direction by hand against
   `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` (public repos
-  must not reference private repos).
+  must not reference private repos). A `ROADMAP-` entry is held to `Active`
+  by the lifecycle chain check: a roadmap is Active for as long as any of
+  its features is still being built, which is the whole window in which a PLAN
+  naming it exists.
+- **An exit 4 means the PLAN was not checked at all.** The filename routed it
+  to the plan format but its `schema:` field is missing or is not `plan/v1`,
+  so nothing above ran. Add the field and re-run; do not read the absence of
+  findings as a pass.
 
 **STOP if any check fails.** Fix the PLAN doc and re-run before proceeding to
 status transition.

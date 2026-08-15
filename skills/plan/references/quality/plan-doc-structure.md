@@ -311,7 +311,7 @@ A survivor that absorbed a PLAN carries it as `## Absorbed Plan`,
 placed immediately after `## Status` and before the survivor's own first
 other required section. Where a survivor carries more than one, they
 appear in chain order. `shirabe validate` requires the sections a
-document's `absorbed:` frontmatter implies (FC17), so this is enforced
+document's `absorbed:` frontmatter implies (FC18), so this is enforced
 rather than conventional.
 
 **The contribution section has a two-sided adequacy test.** It is not

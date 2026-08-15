@@ -1,0 +1,40 @@
+name: Check rustfmt
+
+# Fails any PR whose tree is not `cargo fmt --check` clean.
+#
+# Without this gate, formatting drift accumulates on `main` unnoticed, and the
+# next author who runs the obvious workspace-wide `cargo fmt --all` sweeps
+# every pre-existing deviation into an unrelated PR. That is what happened in
+# #283, which picked up roughly 350 lines of reformatting across eight files it
+# had no business changing. See #287.
+#
+# No `paths:` filter. The gate is cheap — rustfmt reads the sources directly
+# and compiles nothing — so it stays a stable status check on every PR rather
+# than reporting "skipped" on the ones that touch no Rust.
+#
+# The toolchain step mirrors build-and-test.yml: the same SHA-pinned
+# dtolnay/rust-toolchain@stable, which reads rust-toolchain.toml at the repo
+# root. Both workflows therefore install the same pinned channel and cannot
+# disagree about what "formatted" means.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check-rustfmt:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install Rust toolchain
+        # SHA pin for dtolnay/rust-toolchain@stable (resolved from the stable branch HEAD).
+        # The action reads rust-toolchain.toml at the repo root and installs the pinned channel.
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Cargo fmt (check)
+        run: cargo fmt --all --check

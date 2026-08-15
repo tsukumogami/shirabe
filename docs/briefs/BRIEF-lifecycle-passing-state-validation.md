@@ -15,7 +15,6 @@ outcome: |
   error naming any drifted doc, its current state, and the state expected
   for the chain to ship. Drift between a chain's docs becomes a CI signal
   rather than a silent corpus problem found months later.
-upstream: docs/designs/DESIGN-roadmap-plan-standardization.md
 ---
 
 # BRIEF: lifecycle-passing-state-validation
@@ -216,8 +215,8 @@ prongs of one rule.
   frontmatter status field. Active and present means in-flight; Done
   and present means work-completing-but-not-yet-deleted (the check
   fails to force the deletion); absent means at-merge.
-- `docs/designs/DESIGN-roadmap-plan-standardization.md` — the parent
-  design this work amends. Decision 5 of that document codifies the
+- `docs/designs/current/DESIGN-roadmap-plan-standardization.md` — the
+  parent design this work amends. Decision 5 of that document codifies the
   whole-tree `--lifecycle` scan as a separate CI surface; the present
   brief takes Decision 5's stateless-pair framing and reshapes it
   into a chain-aware passing-state model.

@@ -28,7 +28,7 @@ problem: |
 outcome: |
   2-4 line summary of the outcome a user should experience. Same content
   the User Outcome section elaborates in prose.
-upstream: docs/roadmaps/ROADMAP-<parent>.md  # optional
+upstream: docs/strategies/STRATEGY-<parent>.md  # optional
 motivating_context: |                          # optional
   Why this brief exists -- the situation, signal, or
   conversation that triggered the framing. Distinct from `problem`
@@ -38,17 +38,28 @@ motivating_context: |                          # optional
 ---
 ```
 
-Required fields: `status`, `problem`, `outcome`. Optional:
-`upstream`, `motivating_context`.
+Required fields: `status`, `problem`, `outcome`. Optional: `upstream`,
+`motivating_context`.
+
+- **upstream** -- the nearest durable ancestor of the ROADMAP the feature
+  was sequenced in: the STRATEGY that roadmap sequences, or a VISION when
+  it traces straight to one. **Never the ROADMAP itself**, and never a
+  PRD or anything else below the brief. Optional, because a brief may be
+  authored from a freeform topic, or from a roadmap that names no
+  upstream of its own, or where the ancestor is a private artifact a
+  public brief cannot name. Cross-repo values use the `owner/repo:path`
+  convention; see
+  `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` for the
+  visibility-direction rules. See
+  [Why a brief does not name its roadmap](#why-a-brief-does-not-name-its-roadmap)
+  below.
 
 **Two written shapes are supported for `upstream:`.** A scalar -- the
 path on the key's own line -- and a sequence, written either as `- `
 entries on the following lines or inline as `[<path>, <path>]`. Every
-entry of a sequence is read, in written order, and a single-entry
-sequence is still a sequence. Reach for the sequence when the document
-genuinely has more than one parent; the scalar otherwise. Nothing else
-is supported: a scalar is never split, so two paths on one line read as
-one entry that resolves to nothing.
+entry of a sequence is read, in written order. Reach for the sequence
+only when the document genuinely has more than one parent; the scalar
+otherwise.
 
 - **schema** -- `brief/v1`. Pins the artifact-type contract. `schema`
   is the map key the validator routes on, not a checked field.
@@ -58,16 +69,6 @@ one entry that resolves to nothing.
   body.
 - **outcome** -- the outcome a user should experience. A 2-4 line YAML
   literal block scalar (`|`). Matches the User Outcome section body.
-- **upstream** -- path to the ROADMAP the feature was sequenced in.
-  Optional because a brief may be authored from a freeform topic with
-  no single upstream document. Never a PRD: the chain runs ROADMAP ->
-  BRIEF -> PRD, so a PRD is written from the brief's framing and
-  pointing back at it inverts the chain. Omit the field entirely when
-  the upstream is a private artifact a public brief cannot name -- a
-  public brief never points at a private path. Cross-repo upstream
-  references use the `owner/repo:path` convention; see
-  `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` for the
-  visibility-direction rules.
 
 Frontmatter status must match the Status section in the body -- agent
 workflows parse frontmatter to determine lifecycle state, so divergence
@@ -89,6 +90,37 @@ Any explanatory prose goes here, after a blank line. The first
 non-blank line under the heading is the bare status word so the
 validator matches it against the frontmatter status.
 ```
+
+### Why a brief does not name its roadmap
+
+The ROADMAP that sequences a feature is a working artifact: the cascade
+deletes it once every feature on it lands. A BRIEF is durable and stays
+in `docs/briefs/` as the audit trail. A durable document naming a
+working one holds a reference that is correct on the day it is written
+and dangling on the day the cascade runs, so that link is not written --
+`shirabe validate` reports it as `R11`.
+
+What the brief records instead is found by walking up from the roadmap,
+one hop, deterministically: the STRATEGY the roadmap sequences, or the
+VISION when it traces straight to one. Both are durable, so one hop
+always terminates -- a ROADMAP's own parents are the only two strategic
+types, and neither is working. The lineage therefore survives the
+roadmap's deletion: a reader following a brief's upstream reaches the
+strategy that chose this feature, which is still there.
+
+The roadmap is still read, and that does not change. `/brief` loads it,
+finds the feature this brief frames, and derives the problem and outcome
+candidates from that feature's entry and the roadmap's sequencing
+rationale. The brief covers a slice of the roadmap's scope, so it
+absorbs that framing into its own prose whatever the `upstream:` field
+ends up holding -- which is why the Problem Statement is required to
+stand alone.
+
+The roadmap itself is not orphaned either. It is named by the PLAN the
+chain produces -- a working artifact the same cascade deletes, and
+deletes first, so that reference cannot outlive its target. The rule
+behind all of this is in
+`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`.
 
 ## Required Sections
 
@@ -475,7 +507,7 @@ A survivor that absorbed a BRIEF carries it as `## Absorbed Brief`,
 placed immediately after `## Status` and before the survivor's own first
 other required section. Where a survivor carries more than one, they
 appear in chain order. `shirabe validate` requires the sections a
-document's `absorbed:` frontmatter implies (FC17), so this is enforced
+document's `absorbed:` frontmatter implies (FC18), so this is enforced
 rather than conventional.
 
 **The contribution section has a two-sided adequacy test.** It is not

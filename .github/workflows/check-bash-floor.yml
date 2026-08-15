@@ -1,0 +1,50 @@
+name: Check bash floor
+
+# The shell under skills/ and scripts/ targets bash 3.2, because that is what
+# macOS ships as /bin/bash and always will. check-plan-scripts.yml enforces
+# that for the plan suite on a macOS leg, and check-execute-scripts.yml does
+# the same for the execute suite. The template suites are Linux-only and have
+# no macOS leg to hang a floor check on, so they get the floor from a
+# container instead: scripts/check-bash-floor.sh runs them under bash:3.2,
+# which is the same command a developer runs before pushing.
+#
+# A container is not a weaker check than a macOS leg here - it is a stronger
+# one. Inside bash:3.2 every bash is 3.2, so a harness that re-enters through
+# a bare `bash` (all of these do) stays on the floor. On macOS that only holds
+# because the runner puts a 3.2 shim ahead of PATH.
+#
+# The suites this deliberately does not cover, and why, are recorded in the
+# registry comment at the top of scripts/check-bash-floor.sh.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'skills/*/koto-templates/**'
+      - '.github/workflows/check-bash-floor.yml'
+
+jobs:
+  floor:
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [templates, template-consistency]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the ${{ matrix.suite }} suite on the bash 3.2 floor
+        run: scripts/check-bash-floor.sh --backend docker ${{ matrix.suite }}
+
+  # The runner is only worth anything if it is still reaching bash 3.2. Its own
+  # suite puts scripts/bash-floor-canary.sh - the #283 U+0001 defect kept as a
+  # fixture - through the runner and asserts it fails there, while passing
+  # under the bash this job runs. A runner that silently stopped reaching the
+  # floor would report green for every suite above; this is what catches that.
+  runner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test the floor runner
+        run: bash scripts/check-bash-floor_test.sh

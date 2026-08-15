@@ -1,0 +1,20 @@
+name: Check no duplicate rule list
+
+on:
+  pull_request:
+    paths:
+      - 'skills/**'
+      - 'crates/**'
+      - 'scripts/check-no-duplicate-rule-list.sh'
+
+jobs:
+  check-no-duplicate-rule-list:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The writing-style rules have one home. Three copies existed before
+      # they were consolidated, and they drifted; this fails a PR that
+      # reintroduces one.
+      - name: Check the rule list was not copied out of its source
+        run: scripts/check-no-duplicate-rule-list.sh

@@ -16,11 +16,13 @@ use shirabe_validate::{
     check_coordination_body, check_pr_body, check_slug_prefix, detect_format, detect_pr_draft,
     explain_advisory, format_error, format_notice, is_known_check_code, is_notice, parse_doc,
     render_human_with_advisory, render_json_with_advisory, resolve_doc_visibility,
-    run_lifecycle_chain_check, run_lifecycle_check, run_merge_gate, run_transition, validate_file,
-    walk_chain_mode, AdvisoryReport, Config, Flags, GhSubprocessClient, GhVisibilityResolver,
-    MergeGateOutcome, Mode, ParseError, PrPosture, ReviewPosture, SlugPrefixCheck, ValidationError,
+    root_has_artifact_dirs, run_lifecycle_chain_check, run_lifecycle_check, run_merge_gate,
+    run_transition, validate_file, walk_chain_mode, AdvisoryReport, Config, Flags,
+    GhSubprocessClient, GhVisibilityResolver, MergeGateOutcome, Mode, ParseError, PrPosture,
+    ReviewPosture, SlugPrefixCheck, ValidationError, ARTIFACT_DIRS, SCHEMA_SKIP_CODE,
 };
 
+mod plan_outlines;
 mod populate;
 mod pr_body_hook;
 mod work_summary;
@@ -66,6 +68,8 @@ enum Commands {
     Validate(ValidateArgs),
     /// Roadmap-scoped subcommands.
     Roadmap(RoadmapArgs),
+    /// Plan-scoped subcommands.
+    Plan(plan_outlines::PlanArgs),
     /// Transition a shirabe doc to a new status.
     Transition(TransitionArgs),
     /// Walk a finished PLAN's upstream chain and apply each tactical node's
@@ -213,7 +217,7 @@ struct ValidateArgs {
     /// Run only the named check(s) instead of the full applicable pass.
     /// Repeatable and comma-splittable (e.g. `--check FC01 --check R7` or
     /// `--check FC01,R7`). Codes are the per-file checks: `SCHEMA`,
-    /// `FC01`-`FC13`, `FC-CONVENTIONS`, `R6`-`R9`. An unknown code is a tool
+    /// `FC01`-`FC16`, `FC-CONVENTIONS`, `R6`-`R11`. An unknown code is a tool
     /// error. A valid but format-inapplicable code is a clean no-op.
     #[arg(long, value_delimiter = ',')]
     check: Vec<String>,
@@ -368,6 +372,9 @@ fn main() -> ExitCode {
         Some(Commands::Roadmap(args)) => match args.command {
             RoadmapCommands::Populate(p) => populate::run(&p),
         },
+        Some(Commands::Plan(args)) => match args.command {
+            plan_outlines::PlanCommands::Outlines(o) => plan_outlines::run(&o),
+        },
         Some(Commands::Transition(args)) => run_transition_cmd(&args),
         Some(Commands::FinalizeChain(args)) => run_finalize_chain_cmd(&args),
         Some(Commands::SlugPrefixDetect(args)) => run_slug_prefix_detect(&args),
@@ -390,7 +397,7 @@ fn main() -> ExitCode {
 
 /// The outcome of a `validate` run, mapped to the multi-level exit-code
 /// contract shared with `transition` and `finalize-chain`: `0` clean,
-/// `1` tool-error, `2` violations found, `3` I/O error.
+/// `1` tool-error, `2` violations found, `3` I/O error, `4` incomplete.
 ///
 /// Severity ordering (used for most-severe-wins across multiple documents)
 /// is deliberately distinct from the exit integer: a tool-error outranks a
@@ -400,6 +407,24 @@ fn main() -> ExitCode {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ValidateOutcome {
     Clean,
+    /// Exit code `4`. At least one input was accepted and then NOT checked:
+    /// its format was detected from the filename prefix, but the `schema`
+    /// field was missing or out of range, so the structural pass returned the
+    /// SCHEMA notice and ran nothing else.
+    ///
+    /// This is deliberately not a violation. What is known about such a
+    /// document is that it was never examined, which is a different claim from
+    /// "its content is wrong" — 32 documents in this corpus are in that state
+    /// and calling them defective would assert something the tool did not
+    /// establish. It ranks just above `Clean` so a run that found real
+    /// violations still reports them, and just above nothing else, so a run
+    /// that only skipped still stops reporting success.
+    ///
+    /// The SCHEMA finding's own severity is untouched by this: it stays a
+    /// notice (see `validate::is_intrinsic_notice`), so the annotation bytes
+    /// for a schema-skipped document are unchanged. Only the run's roll-up
+    /// moved.
+    Incomplete,
     Violations,
     ToolError,
     /// Exit code `3`. Reserved to complete the shared contract with
@@ -413,23 +438,32 @@ enum ValidateOutcome {
 impl ValidateOutcome {
     /// Higher rank = more severe. Tool-error and I/O (the run could not
     /// complete) outrank a violation (the run completed but the rules said
-    /// no), which outranks clean.
+    /// no), which outranks an incomplete run (the run completed but declined
+    /// to check something), which outranks clean.
+    ///
+    /// An incomplete run sits below violations because a run that found a real
+    /// defect should report the defect: the caller has something to fix, and
+    /// "some other file was skipped" is the less actionable of the two facts.
     fn severity_rank(self) -> u8 {
         match self {
             ValidateOutcome::Clean => 0,
-            ValidateOutcome::Violations => 1,
-            ValidateOutcome::ToolError => 2,
-            ValidateOutcome::Io => 3,
+            ValidateOutcome::Incomplete => 1,
+            ValidateOutcome::Violations => 2,
+            ValidateOutcome::ToolError => 3,
+            ValidateOutcome::Io => 4,
         }
     }
 
     /// The exit integer, mirroring the `transition`/`finalize-chain` scheme.
+    /// `4` is the first value the shared vocabulary had not already allocated,
+    /// which is why incomplete takes it rather than a lower-looking code.
     fn exit_code(self) -> u8 {
         match self {
             ValidateOutcome::Clean => 0,
             ValidateOutcome::ToolError => 1,
             ValidateOutcome::Violations => 2,
             ValidateOutcome::Io => 3,
+            ValidateOutcome::Incomplete => 4,
         }
     }
 
@@ -450,6 +484,7 @@ impl ValidateOutcome {
     fn label(self) -> &'static str {
         match self {
             ValidateOutcome::Clean => "clean",
+            ValidateOutcome::Incomplete => "incomplete",
             ValidateOutcome::Violations => "violations",
             ValidateOutcome::ToolError => "tool-error",
             ValidateOutcome::Io => "io",
@@ -526,7 +561,7 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     for code in &args.check {
         if !is_known_check_code(code) {
             eprintln!(
-                "unknown --check code {:?}; valid codes: SCHEMA, FC01-FC16, FC-CONVENTIONS, R6-R9",
+                "unknown --check code {:?}; valid codes: SCHEMA, FC01-FC16, FC-CONVENTIONS, R6-R11",
                 code
             );
             return ValidateOutcome::ToolError.exit();
@@ -601,13 +636,69 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     let mut worst = ValidateOutcome::Clean;
     let mut findings: Vec<ValidationError> = Vec::new();
     for path in &args.files {
-        let spec = match detect_format(basename(path)) {
-            Some(s) => s,
-            None => continue,
-        };
+        // A directory argument matched no artifact prefix and was silently
+        // skipped, so `shirabe validate -- docs` reported success at exit 0
+        // having read nothing, while the same corpus passed as files
+        // reported 5 errors and 139 notices. Reject it: a checking surface
+        // that reports success without having checked is the failure this
+        // capability exists to end. CI passes changed files individually,
+        // so nothing depends on the old behavior.
+        if std::path::Path::new(path).is_dir() {
+            findings.push(ValidationError {
+                file: path.clone(),
+                line: 1,
+                code: "IO".to_string(),
+                message: format!("{path} is a directory; pass files (for example: {path}/**/*.md)"),
+            });
+            worst = worst.merge(ValidateOutcome::ToolError);
+            continue;
+        }
+
+        let spec = detect_format(basename(path));
+
+        // A file carrying no artifact prefix still gets the prose family.
+        // Only Markdown: the reusable workflow passes the PR's whole
+        // changed-file set, so a non-Markdown path reaching prose checking
+        // would be a new way to produce nonsense findings.
+        let is_markdown = std::path::Path::new(path)
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("md"))
+            .unwrap_or(false);
+        if spec.is_none() && !is_markdown {
+            continue;
+        }
 
         let doc = match parse_doc(path) {
             Ok(d) => d,
+            Err(err) if spec.is_none() => {
+                // Frontmatter that will not parse is not a tool error on a
+                // non-artifact file. Two of shirabe's own skill files fail
+                // here today, and they are exactly the class R3 exists to
+                // cover; treating the failure as fatal would turn CI red on
+                // the change that adds the coverage. Fall back to scanning
+                // the raw file as prose.
+                match std::fs::read_to_string(path) {
+                    Ok(text) => shirabe_validate::Doc {
+                        path: path.clone(),
+                        schema: String::new(),
+                        status: String::new(),
+                        fields: Default::default(),
+                        sections: Vec::new(),
+                        body: text.lines().map(str::to_string).collect(),
+                        body_start_line: 1,
+                    },
+                    Err(_) => {
+                        findings.push(ValidationError {
+                            file: path.clone(),
+                            line: 1,
+                            code: "IO".to_string(),
+                            message: format!("could not read file: {}", io_error_text(&err)),
+                        });
+                        worst = worst.merge(ValidateOutcome::ToolError);
+                        continue;
+                    }
+                }
+            }
             Err(err) => {
                 // An unreadable or unparseable input is a tool error: the
                 // run could not complete for this file. Exit code 1, not a
@@ -633,7 +724,12 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
             allow_untracked_acs: args.allow_untracked_acs,
         };
 
-        for ve in validate_file(&doc, &spec, &cfg) {
+        let file_findings = match &spec {
+            Some(s) => validate_file(&doc, s, &cfg),
+            None => shirabe_validate::validate::validate_prose(&doc, &cfg),
+        };
+
+        for ve in file_findings {
             // When --check selects a subset, skip any finding whose code was
             // not requested: it is neither reported nor counted toward the
             // outcome (so selecting only a check that passes is a clean run,
@@ -644,6 +740,17 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
             }
             if !is_notice(&ve, posture) {
                 worst = worst.merge(ValidateOutcome::Violations);
+            } else if ve.code == SCHEMA_SKIP_CODE {
+                // The schema gate fired, so `validate_structural` returned
+                // this finding and ran nothing else: the document was routed
+                // to a format and then not checked against it. Reporting
+                // clean here is what #276 is about.
+                //
+                // This sits inside the retained-finding branch on purpose, so
+                // `--check` selection drives the outcome exactly as it drives
+                // reporting: a run that deselected SCHEMA has not been told to
+                // care about the skip and stays clean.
+                worst = worst.merge(ValidateOutcome::Incomplete);
             }
             findings.push(ve);
         }
@@ -1020,6 +1127,24 @@ fn run_lifecycle(
     let root_path = std::path::Path::new(root);
     if !root_path.exists() {
         eprintln!("--lifecycle root {} does not exist", root);
+        return ValidateOutcome::ToolError.exit();
+    }
+    // `--lifecycle` takes a REPOSITORY root and joins `docs/briefs` and its
+    // siblings beneath it. Handed a docs directory it looks for
+    // `docs/docs/briefs`, finds nothing, indexes zero documents and reports a
+    // clean tree it never opened — two baseline measurements in an earlier
+    // investigation were false negatives for exactly this. Refuse the root
+    // instead.
+    //
+    // The condition is the absence of every artifact directory, not an empty
+    // index: a root that carries the directories with no documents in them has
+    // an empty corpus, which is a legitimate state and still reports clean.
+    if !root_has_artifact_dirs(root_path) {
+        eprintln!(
+            "--lifecycle root {} carries none of {}; it expects a repository root, not a docs directory",
+            root,
+            ARTIFACT_DIRS.join(", ")
+        );
         return ValidateOutcome::ToolError.exit();
     }
     let findings = run_lifecycle_check(root_path, &cfg, posture);
@@ -1550,6 +1675,50 @@ mod tests {
             ValidateOutcome::Violations.severity_rank() > ValidateOutcome::Clean.severity_rank()
         );
         assert!(ValidateOutcome::Io.severity_rank() > ValidateOutcome::ToolError.severity_rank());
+    }
+
+    #[test]
+    fn validate_outcome_incomplete_sits_between_clean_and_violations() {
+        // The whole point of the rung: a run that declined to check something
+        // stops reporting success, but a run that found a real defect still
+        // reports the defect rather than the skip.
+        assert!(
+            ValidateOutcome::Incomplete.severity_rank() > ValidateOutcome::Clean.severity_rank()
+        );
+        assert!(
+            ValidateOutcome::Violations.severity_rank()
+                > ValidateOutcome::Incomplete.severity_rank()
+        );
+        assert_eq!(ValidateOutcome::Incomplete.exit_code(), 4);
+        assert_eq!(ValidateOutcome::Incomplete.label(), "incomplete");
+    }
+
+    #[test]
+    fn validate_outcome_incomplete_does_not_disturb_the_existing_codes() {
+        // Adding a rung renumbered severity_rank internally. The four codes
+        // that existed before must map exactly as they did.
+        assert_eq!(ValidateOutcome::Clean.exit_code(), 0);
+        assert_eq!(ValidateOutcome::ToolError.exit_code(), 1);
+        assert_eq!(ValidateOutcome::Violations.exit_code(), 2);
+        assert_eq!(ValidateOutcome::Io.exit_code(), 3);
+    }
+
+    #[test]
+    fn validate_outcome_merge_prefers_violations_over_incomplete() {
+        // A run carrying both a skipped input and a real finding reports the
+        // finding: the caller has something to fix.
+        let r = ValidateOutcome::Incomplete.merge(ValidateOutcome::Violations);
+        assert_eq!(r.exit_code(), 2);
+        let r = ValidateOutcome::Violations.merge(ValidateOutcome::Incomplete);
+        assert_eq!(r.exit_code(), 2);
+
+        // A tool error still outranks both.
+        let r = ValidateOutcome::Incomplete.merge(ValidateOutcome::ToolError);
+        assert_eq!(r.exit_code(), 1);
+
+        // And a skip alone is no longer a clean run.
+        let r = ValidateOutcome::Clean.merge(ValidateOutcome::Incomplete);
+        assert_eq!(r.exit_code(), 4);
     }
 
     #[test]

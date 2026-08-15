@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Done
 problem: |
   The artifact pipeline has traceability fields on most types (VISION, PRD,
@@ -18,7 +19,7 @@ goals: |
 
 Done
 
-## Problem statement
+## Problem Statement
 
 The artifact pipeline supports a traceability chain from VISION through
 Roadmap, PRD, Design Doc, Plan, to Issues and PRs. Four of five document
@@ -49,7 +50,7 @@ Two related problems surfaced during research:
 - A shared reference document defines the cross-repo reference convention
 - Skills that produce artifacts link to the shared reference
 
-## User stories
+## User Stories
 
 1. As a maintainer reviewing a roadmap, I want to see which VISION it
    traces to so I can understand the strategic context without searching.
@@ -113,7 +114,7 @@ specs, and shell scripts. No compiled code changes.
 is a compact string, consistent with how the design skill's
 `spawned_from.repo` field already references repos.
 
-## Acceptance criteria
+## Acceptance Criteria
 
 - [ ] Roadmap format spec defines optional `upstream` field with VISION as
       the expected target type
@@ -130,7 +131,7 @@ is a compact string, consistent with how the design skill's
       errors
 - [ ] No `private:` prefix in the convention (dropped per research)
 
-## Out of scope
+## Out of Scope
 
 - Upstream path validation in transition scripts or CI (no precedent
   exists; significant scope increase for low immediate value)

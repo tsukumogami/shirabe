@@ -132,14 +132,25 @@ untouched: a path in the positional slot is still rejected.
 `--upstream` with no value is a Phase 0 rejection naming the
 missing argument, and it stops before any state file is written.
 
-A supplied upstream is validated inbound — canonicalized and
-bounds-checked, its basename required to start with `ROADMAP-`,
-and run through three ordered checks (not under `wip/`, tracked by
-git, and not a private artifact named from a public repo). It is
-then recorded in the state file's conditional `consumed_upstream:`
-field, re-validated on every resume, and handed to `/brief` as
-`/brief <topic-slug> --upstream <path>` — the slug stays the
-parent's, the upstream travels separately.
+A supplied upstream is validated inbound — canonicalized,
+bounds-checked, confined to `<repo-root>/docs/roadmaps/`, its
+basename required to start with `ROADMAP-`, and run through three
+ordered checks (not under `wip/`, tracked by git, and not a private
+artifact named from a public repo). It is then recorded in the state
+file's conditional `consumed_upstream:` field, re-validated on every
+resume, and handed to **two** children: to `/brief` as
+`/brief <topic-slug> --upstream <path>`, which grounds on it and
+records the roadmap's own durable ancestor instead, and to `/plan` as
+`/plan <design-path> --upstream <path>`, which records the roadmap
+itself. In both the slug stays the parent's and the upstream travels
+separately, and `/scope` resolves nothing — the walk up from an
+ephemeral document is the child's own contract.
+
+Which child records is the lifetime rule's answer, not a
+convenience. A ROADMAP is deleted when its features land, so no
+durable document may name one; the PLAN is deleted by the same
+cascade and goes first, so its link cannot outlive its target. See
+[`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`](${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md).
 
 An author who supplies no upstream is told the flag exists before a
 BRIEF is written for them. The chain proposal carries a fixed,
@@ -638,7 +649,11 @@ R8's bail-handling, surfacing each error-severity finding as
 check code, so it is not prepended again) so the author sees which
 check failed in plain terms; **1 (tool-error)** is a validator
 failure DISTINCT from a content violation (the validator could
-not run) and halts without reporting a document violation.
+not run) and halts without reporting a document violation;
+**4 (incomplete)** means the validator accepted the intermediate
+and then did not check it (its `schema:` is missing or out of
+range) and halts, surfacing the envelope's `skipped` entries —
+also not a content violation, because the content was never read.
 `/scope` does NOT auto-fix validator failures and does NOT
 re-implement the validator's checks — only the consumption
 mechanism changed (JSON parse plus multi-level exit code). The
@@ -811,17 +826,22 @@ interpolation site rather than a repeat of the first (see
 
 **The flag's value reaches a committed field.** Nothing about a
 flag suggests its value ends up in a committed file, and this one
-does: `/brief` writes it into the produced BRIEF's `upstream:`
-frontmatter, and that document is committed. Public documents must
-not reference private ones, and no tooling enforces that rule for a
-cross-repo value — `shirabe validate`'s resolution check returns
-nothing for one, so a public BRIEF carrying a private cross-repo
-upstream validates clean and always will. The three ordered checks
-in `skills/scope/references/phases/phase-0-setup.md` are where that
-gap is closed: reject a path into the non-durable `wip/` directory,
+does: `/plan` writes it into the produced PLAN's `upstream:`
+frontmatter, and that document is committed. The path itself does
+**not** reach the BRIEF — the brief grounds on the roadmap and records
+the roadmap's own ancestor, which `/brief` resolves and visibility-
+checks for itself — so the committed surface this check protects is the
+PLAN's. Public documents must not reference private ones, and no
+tooling enforces that rule for a cross-repo value — `shirabe
+validate`'s resolution check returns nothing for one, so a public
+PLAN carrying a private cross-repo upstream validates clean and
+always will. The three ordered checks in
+`skills/scope/references/phases/phase-0-setup.md` are where that gap
+is closed: reject a path into the non-durable `wip/` directory,
 confirm the target is tracked by git, and — when this repo is
 Public and the upstream is private — stop and omit the field rather
-than write it. Cross-repo values are accepted rather than rejected
+than write it. `/plan` states the same rule in its own contract, so a
+standalone invocation runs the check the chain-driven path performs. Cross-repo values are accepted rather than rejected
 outright, which is what makes the third check mandatory rather than
 advisory: rejecting them would be safe and would also make the flag
 unable to express the case that motivates it, a tactical chain run

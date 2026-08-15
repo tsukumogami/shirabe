@@ -150,8 +150,17 @@ Single-PR path below) — it is NOT a separate user flag: interactive mode sets 
 koto init execute-<plan-slug> \
   --template ${CLAUDE_PLUGIN_ROOT}/skills/execute/koto-templates/execute.md \
   --var PLAN_DOC=<path-to-plan> \
+  --var PLAN_SLUG=<plan-slug> \
   --var PAUSE_BEFORE_FINALIZE=<true|false>
 ```
+
+`PLAN_SLUG` is the same slug already derived for the session name, passed
+again as a template variable because the `worktree_discipline_check` gate
+interpolates it into a command koto runs itself. koto resolves only `{{KEY}}`
+references and validates them against the template's `variables:` block at
+compile time, so passing the slug this way makes a future typo in the
+reference a template error rather than an empty expansion that silently tests
+the wrong path.
 
 On a **resume** of a paused run, `PAUSE_BEFORE_FINALIZE` is `false` regardless of
 mode — re-invoking `/execute` on a paused topic is a finalize invocation (the
