@@ -165,6 +165,21 @@ issue_count: <N>
 ---
 ```
 
+**Carry the design's decisions into the Decomposition Strategy rather than only
+citing the design.** Where an issue's shape or its position in the sequence
+follows from a decision the design made, say which decision and why it forces
+that shape — not `per the DESIGN`, but the reasoning that makes this
+decomposition the right one.
+
+A plan whose strategy section only points at its design cannot fold that design,
+because the design genuinely still holds reasoning the plan does not. That is the
+right outcome when the design settled something contested. It is the wrong one
+when the design's whole contribution was deciding what order to do things in and
+the plan now encodes exactly that — which is the common case for a self-contained
+fix, and the case this matters for. `/scope` composes the design's contribution
+section from *this document's* body when it folds, so the material has to be here
+first.
+
 **Required sections** (in order):
 
 1. **Status** -- `Active`
