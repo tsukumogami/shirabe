@@ -214,7 +214,7 @@ static ABSORBED_ENTRY_RE: LazyLock<Regex> =
 /// entry, one bad declaration would produce two diagnostics for one cause, and
 /// the misleading one — a missing required section — is the louder of the two.
 /// On [`AbsorbedDecl::Invalid`] the splice returns the base list untouched and
-/// FC17 owns the report.
+/// FC18 owns the report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AbsorbedDecl {
     /// No `absorbed:` key. Every document on disk before this feature.
@@ -8562,9 +8562,9 @@ words:
         assert!(fc16(&doc).is_empty(), "absent sections must be a no-op");
     }
 
-    // --- check_fc17 (absorbed declaration + contribution sections) ---
+    // --- check_fc18 (absorbed declaration + contribution sections) ---
 
-    /// Build a doc at a chosen path, so FC17's clause-3 comparison against the
+    /// Build a doc at a chosen path, so FC18's clause-3 comparison against the
     /// carrying document's own chain position has something to read.
     fn doc_at(path: &str, md: &str) -> Doc {
         crate::frontmatter::parse_doc_bytes(path, md.as_bytes()).expect("parse")
@@ -8723,7 +8723,7 @@ words:
 
     #[test]
     fn required_sections_splice_falls_back_on_an_invalid_declaration() {
-        // The splice and FC17 share one parse so that an invalid entry produces
+        // The splice and FC18 share one parse so that an invalid entry produces
         // the entry diagnostic alone. If the splice ran anyway, the author would
         // get a louder and misleading missing-section error for the same cause.
         let doc = doc_at(
