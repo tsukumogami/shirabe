@@ -13,7 +13,6 @@ outcome: |
   delete the PLAN until every outline AC box is ticked off. The
   discipline the checkbox encodes — "the thing this AC names has been
   done" — is enforced at the moment of finalization, not silently lost.
-upstream: docs/plans/PLAN-roadmap-plan-standardization.md
 ---
 
 # BRIEF: cascade-outline-ac-completeness

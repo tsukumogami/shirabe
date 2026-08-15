@@ -75,12 +75,15 @@ pub enum PostureClass {
 /// from notice to error in a single-line diff. The match expression is
 /// the one place that drives the intrinsic notice-vs-error split.
 ///
-/// `SCHEMA` is the long-standing notice; `FC07` through `FC15`, `FC18`, and
+/// `SCHEMA` is the long-standing notice; `FC07` through `FC15` and
 /// `FC-CONVENTIONS` are notice-level additions pending their respective
 /// corpus-cleanup PRs. These remain notices in both postures. `FC16`
 /// (roadmap reserved-section shape) is intentionally *absent* here: it
 /// ships error-level, so a malformed roadmap reserved section fails the
-/// build rather than emitting an advisory notice.
+/// build rather than emitting an advisory notice. `FC18` (stale prose
+/// reference) passed through this seam and left it: it shipped notice-level
+/// against a dirty corpus and was promoted once that corpus was clean, which
+/// is the path each remaining arm above is on.
 fn is_intrinsic_notice(code: &str) -> bool {
     matches!(
         code,
@@ -94,7 +97,6 @@ fn is_intrinsic_notice(code: &str) -> bool {
             | "FC13"
             | "FC14"
             | "FC15"
-            | "FC18"
             | "FC-CONVENTIONS"
     )
 }
@@ -577,20 +579,21 @@ mod tests {
         );
     }
 
-    /// FC18 ships notice-level in both postures.
+    /// FC18 is an error in both postures.
     ///
-    /// The staging is deliberate rather than a verdict on the defect: the
-    /// corpus this check inherits is dirty, so error level would turn CI red
-    /// the day it lands. Pinning the severity here makes the promotion a
-    /// deliberate edit -- delete the `FC18` arm from `is_intrinsic_notice`
-    /// and this test -- rather than something a refactor can do by accident.
+    /// It shipped notice-level only because the corpus it inherited was
+    /// dirty. The repo's promotion rule is that a finding earns error level
+    /// when the failure it describes is silent and permissive, and a stale
+    /// prose reference is the textbook case: the document validates clean
+    /// and the reader finds out by clicking. With the corpus clean, nothing
+    /// stands between the check and error level.
     #[test]
-    fn fc18_is_a_notice_in_both_postures() {
+    fn fc18_is_an_error_in_both_postures() {
         for posture in [ReviewPosture::Draft, ReviewPosture::Ready] {
             assert_eq!(
                 effective_severity("FC18", posture),
-                Severity::Notice,
-                "FC18 ships notice-level pending its corpus cleanup"
+                Severity::Error,
+                "FC18 is error-level in every posture"
             );
         }
         assert!(is_known_check_code("FC18"), "--check FC18 must select it");
