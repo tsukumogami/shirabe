@@ -242,6 +242,16 @@ the FC family, not the R family, is the precedent for a schema-independent
 check. `FC18` is the next free code: `is_known_check_code` runs `FC01`-`FC17`
 today.
 
+Two properties the per-file driver already provides, so the check does not
+re-implement them. When `detect_format` returns `None` the driver calls
+`validate_prose` directly, which is what makes an instruction file reachable
+at all. And it skips any non-markdown file whose basename carries no artifact
+prefix, for the stated reason that the reusable workflow passes a PR's whole
+changed-file set -- so the markdown-only boundary the PRD puts out of scope is
+enforced upstream of the check rather than by it. A file whose frontmatter
+will not parse also falls back to a whole-file prose scan, which means a
+malformed skill file still gets read.
+
 **Option 4B: an `R12` alongside R6 and R10/R11.** Rejected. The R6-R11 family
 is thematically right -- these are cross-document resolution rules -- and
 mechanically wrong. All of them run in `validate_structural`, behind the schema
