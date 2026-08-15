@@ -135,6 +135,65 @@ from the first release and ships the predicate as a **detector** instead:
 
 > "If only one thing ships, it is this."
 
+## Finding G: The predicate blocks a sanctioned path, by design
+
+Validator 5 caught a false-positive case that would have shipped. Verified
+directly against `skills/execute/SKILL.md:242-246`:
+
+> "A `coordinated` PLAN spans more than one repository, so there is no single
+> shared branch and **no plan-spanning koto session (koto has no cross-repo
+> session)**. The coordinated path is therefore a **plain durable-state loop**
+> the SKILL drives directly."
+
+So a coordinated multi-repo `/execute` run is a fully sanctioned execution with no
+koto session at all, by design. Every predicate-based check in this decision would
+flag it as an adherence failure and, at the `gate` rung, would block legitimate
+work on the newest execution path in the skill.
+
+The carve-out is mandatory, not optional, and it must key on something the checker
+can see without a koto session -- the plan's own `coordinated` mode, read from the
+PLAN doc or from the coordination PR's fenced state block. This also narrows what
+the detector can claim: for coordinated plans the durable state lives on the
+coordination PR, so that is where the equivalent signal has to be read.
+
+## Finding H: The proposed conflict-record vehicle does not work
+
+Validator 5 tested its own recommended implementation rather than asserting it:
+`koto overrides` requires an existing workflow and exits 1 with "workflow not
+found." Since incident 2's agent never ran `koto init`, there was no session to
+record an override against -- the vehicle is unavailable in exactly the case it
+was proposed for.
+
+Its replacement splits by when the conflict arises. In-loop, `koto overrides
+record --gate <name>` with a mandatory rationale fits exactly and ships today.
+Pre-session, the vehicle must be the `shirabe work-summary` hook path, which is
+already session-keyed, already distributed default-on by niwa to every shirabe
+adopter, and already renders a **user-visible `systemMessage`** alongside
+agent-visible `additionalContext`. That is the surfacing channel, and it needs no
+new distribution.
+
+A related sequencing change follows: move `koto init` ahead of the first decision
+point in the execute template, keeping the expensive side effects in
+`orchestrator_setup`. That makes the in-loop vehicle available earlier and writes
+the artifact the detector reads before the agent reaches the step it might skip.
+
+## Finding I: The ordering statement must narrow interpretation, not claim precedence
+
+The single most important safety constraint to come out of the bakeoff, from
+Validator 5:
+
+> "Write the ordering statement as interpretation-narrowing, never as
+> precedence-claiming. 'Requesting `/execute` requests its children' is
+> defensible. 'Skills outrank session instructions' is not, and shipping it would
+> be a worse outcome than either incident."
+
+This is correct and binding. The fix for incident 2 is to resolve an ambiguity --
+whether asking for a workflow constitutes asking for the subagents that workflow
+is defined in terms of -- not to invert the documented precedence order. A skill
+that instructs agents to disregard session-level instructions is a materially
+worse failure than the one being fixed, and it would generalize to every
+constraint a user or operator sets.
+
 ## What survives
 
 | Component | Status | Why |
@@ -149,3 +208,8 @@ from the first release and ships the predicate as a **detector** instead:
 | `gate` rung (PreToolUse deny) | **Defer** | Needs the strengthened predicate and the escape hatch first |
 | Restricted-tool orchestrator | **Reject as primary** | Misses the human path; deadlocks under Finding D |
 | Outcome gating as primary | **Reject** | Falsified by Finding A |
+| `koto overrides` as the pre-session vehicle | **Reject** | Tested: exits 1, "workflow not found" (Finding H) |
+
+Two constraints bind every surviving component: the coordinated-plan carve-out
+(Finding G) and the interpretation-narrowing rule (Finding I). Neither is
+optional, and both were caught by validators rather than by the framing.
