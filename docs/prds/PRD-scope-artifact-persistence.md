@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   `/scope`'s consolidation judgment gates absorption on a comparison between
   two type schemas, so above the BRIEF-to-PRD hop its verdict is fixed before
@@ -21,7 +21,7 @@ source_issue: 280
 
 ## Status
 
-Draft
+Accepted
 
 Requirements drawn from the accepted BRIEF plus the upstream exploration, whose
 five settled decisions are recorded under Decisions and Trade-offs rather than
@@ -174,7 +174,7 @@ nor within its spliced upstream. The check is tied to the absorb event, not to
 citation resolution generally: 77 documents on disk today cite an `R<n>` they do
 not define, including a PRD whose upstream BRIEF carries no requirement numbers
 at all and a `Done` BRIEF citing another chain's PRD by path. A check on
-citation resolution generally would fail all of them, which R28 forbids.
+citation resolution generally would fail all of them, which R29 forbids.
 
 **R17.** Re-pointing a survivor's `upstream:` SHALL splice the absorbed
 artifact's parents into the survivor's existing list rather than replacing it,
@@ -222,26 +222,33 @@ type-level mapping check, and SHALL gain coverage of a hop above BRIEF-to-PRD
 reaching `absorb` and the same hop reaching `keep`. The consolidation family's
 scenario count SHALL NOT decrease.
 
-**R25.** `docs/guides/doc-validation.md` SHALL document any check family this
+**R25.** The state-file schema SHALL stop documenting absorbability as a
+question about the required-section mapping. Its `consolidation_judgments` entry
+currently annotates `absorbable:` as "is the required-section mapping total?",
+which is the model R1 deletes sitting in the machine-readable contract that the
+carry-check criteria parse. A fixture built against the current schema would
+encode the deleted model.
+
+**R26.** `docs/guides/doc-validation.md` SHALL document any check family this
 work adds.
 
 ### Non-functional
 
-**R26.** The consolidation judgment SHALL remain the only mechanism that reduces
+**R27.** The consolidation judgment SHALL remain the only mechanism that reduces
 the artifact set. Nothing added here SHALL constitute a second reduction
 mechanism; a mechanism whose only possible effect is to force `keep` does not
 count.
 
-**R27.** No judgment SHALL run before the artifact it is about exists. Nothing
+**R28.** No judgment SHALL run before the artifact it is about exists. Nothing
 here SHALL reintroduce a pre-artifact worth decision in any form, including an
 author-chosen entry altitude.
 
-**R28.** Documents already on disk SHALL validate unchanged, and the checks this
+**R29.** Documents already on disk SHALL validate unchanged, and the checks this
 work adds SHALL emit nothing on a document that declares no absorption —
 including against the frozen cross-repo parity baseline, so downstream callers
 pinning a shirabe tag do not break.
 
-**R29.** The absorb procedure SHALL fail toward `keep` at every decision point
+**R30.** The absorb procedure SHALL fail toward `keep` at every decision point
 this work adds: the replaced first stage, the carry check, the citation check,
 post-absorb re-validation, and record production.
 
@@ -281,7 +288,7 @@ See Known Limitations for what the [judg] instrument does and does not buy.
       stage cannot reach a verdict leaves both documents on disk.
 - [ ] **[judg]** Scenario 17 `chain-shape-is-constant` still passes — an author
       declaring the framing settled is not offered a shorter chain. This is the
-      tripwire for R27: implementing R1 is exactly what makes an entry-altitude
+      tripwire for R28: implementing R1 is exactly what makes an entry-altitude
       flag look reasonable to a later maintainer.
 
 ### Contribution sections
@@ -299,7 +306,7 @@ See Known Limitations for what the [judg] instrument does and does not buy.
       an absorption and which lacks the implied contribution section.
 - [ ] **[mech]** `shirabe validate` fails a document whose contribution sections
       are present but out of order.
-- [ ] **[mech]** The contribution-section contract in each of the BRIEF, PRD,
+- [ ] **[insp]** The contribution-section contract in each of the BRIEF, PRD,
       DESIGN and PLAN format references states both the too-long and the
       too-thin failure.
 - [ ] **[mech]** The content-boundary rule in each of the PRD, DESIGN and PLAN
@@ -328,7 +335,7 @@ See Known Limitations for what the [judg] instrument does and does not buy.
       reached only through the consolidation judgment's abort-or-absorb path.
       The set is prose with no machine-readable enumeration to diff, so this is
       a reading rather than a test — the second clause is what would catch a
-      second deletion site appearing in the procedure, which is R26's real risk.
+      second deletion site appearing in the procedure, which is R27's real risk.
 - [ ] **[insp]** The absorb procedure's authoring step precedes its carry-table
       step, so the carry check cannot run against a prediction.
 - [ ] **[mech]** An absorb of an ancestor already carrying two contributions
@@ -354,7 +361,7 @@ See Known Limitations for what the [judg] instrument does and does not buy.
       `CASCADE_DESIGN_PATH` is unset.)
 - [ ] **[judg]** A finalized chain with no surviving durable artifact passes
       `/execute`'s finalization guard, seeded per R22's stated contract.
-- [ ] **[mech]** `/work-on`'s implementation phase file carries the rationale
+- [ ] **[insp]** `/work-on`'s implementation phase file carries the rationale
       instruction, and the maintainer reviewer's brief names it as a blocking
       finding.
 
@@ -506,7 +513,7 @@ branch rather than after merge.
 unguarded. Issue bodies, PR descriptions and commit messages are outside its
 reach entirely, so its coverage is a floor rather than a bound.
 
-**R28's cross-repo half is unverified.** The in-repo corpus walk and the
+**R29's cross-repo half is unverified.** The in-repo corpus walk and the
 byte-exact golden parity suite cover this repository. The frozen cross-repo
 baseline lives in `parity-check.yml`, which shirabe does not self-call, so
 nothing in the criteria set exercises it. The in-repo walk stands as a proxy:
