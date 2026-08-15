@@ -65,10 +65,45 @@ The identical hook, identical script, registered instead as
 invocations.
 
 So loading a plugin with `--plugin-dir` does not activate that plugin's hooks.
-Whether a plugin installed and enabled the normal way behaves differently was
-not tested here, and the difference matters to Decision 3's "ships inside the
-shirabe plugin" option. Treat this as a caution against assuming plugin-supplied
-hooks are live wherever the plugin is present, not as proof they never are.
+
+### Correction: this does NOT generalize to installed plugins
+
+Resolved after the fact, and the resolution reverses the reading above for the
+case that matters.
+
+**Plugin-declared hooks do fire when the plugin is installed normally.** The
+proof is this session. `superpowers` appears in
+`~/.claude/plugins/installed_plugins.json`, its
+`hooks/hooks.json` declares exactly one hook:
+
+```json
+{"hooks": {"SessionStart": [{"matcher": "startup|clear|compact",
+  "hooks": [{"type": "command",
+             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" session-start",
+             "shell": "bash", "async": false}]}]}}
+```
+
+and that hook fired: the session opened with the injected
+`using-superpowers` content it emits.
+
+So the `--plugin-dir` result is a fact about the dev-loading path, not about
+plugin hooks. A plugin-declared `PreToolUse` hook in an installed, enabled
+shirabe is a supported mechanism, and Decision 3's placement is not undermined
+by the probe above.
+
+**I briefed Decision 3 that the plugin route was "directly adverse" on the
+strength of the `--plugin-dir` result.** That briefing was wrong, for the same
+reason the session-identity briefing was wrong: a probe generalized past the
+configuration it measured. Decision 3 chose the plugin route regardless and its
+own open question 2 asks for precisely the startup-ordering probe that would
+have caught my error. Recording it here so the design's evidence trail does not
+carry a refuted claim.
+
+What remains genuinely open from the original probe is narrower: whether plugin
+hook registration completes before the first tool call in a `-p` session whose
+opening move is a write. The superpowers evidence is a `SessionStart` hook,
+which by construction runs at startup and says nothing about `PreToolUse`
+ordering against an immediate first write.
 
 ## Bearing on the decisions
 
