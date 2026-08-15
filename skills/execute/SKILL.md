@@ -8,7 +8,10 @@ description: >-
   projection over the durable home PR (cross-branch resume), the three exit-path
   bindings, parent-skill conformance, the six security surfaces, and an explicit
   autonomy mandate.
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute 2>&1 || true`
 
 # Execute
 

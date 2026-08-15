@@ -14,7 +14,10 @@ description: >-
   multi-phase workflow: conversational scoping, parallel research agents,
   structured drafting, and jury review.
 argument-hint: '<initiative topic>'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh roadmap 2>&1 || true`
 
 @.claude/shirabe-extensions/roadmap.md
 @.claude/shirabe-extensions/roadmap.local.md

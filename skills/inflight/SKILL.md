@@ -11,8 +11,10 @@ description: >-
   session-scoped empty-state when none are tracked, not an arbitrary query.
 argument-hint: ''
 disable-model-invocation: true
-allowed-tools: Bash(shirabe:*), Bash(echo:*)
+allowed-tools: Bash(shirabe:*), Bash(echo:*), Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh inflight 2>&1 || true`
 
 # In Flight
 
@@ -63,11 +65,20 @@ session's ledger that nothing read. Relaying either would make `/inflight` claim
 no PRs are tracked when the truth is that nothing was checked, and an empty
 block is precisely the shape that invites narrating PRs from memory to fill it.
 
-The frontmatter declares `Bash(shirabe:*), Bash(echo:*)` because permission
-patterns do not compose across shell operators: `||` splits the line into two
-subcommands, and each is matched against `allowed-tools` on its own. A single
-`Bash(shirabe:*)` entry would leave the `echo` half undeclared, and an
+The frontmatter declares `Bash(shirabe:*), Bash(echo:*)` for this line because
+permission patterns do not compose across shell operators: `||` splits the line
+into two subcommands, and each is matched against `allowed-tools` on its own. A
+single `Bash(shirabe:*)` entry would leave the `echo` half undeclared, and an
 undeclared subcommand deletes the skill silently rather than degrading it.
+
+`/inflight` is the only skill carrying two injected lines, so its `allowed-tools`
+carries four patterns rather than two: the pair above, plus
+`Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)` for
+the preflight line every skill now has at the top of its body. The list is
+additive for the same reason it is a list: one entry per subcommand across both
+lines, four subcommands, four patterns. Extending it rather than replacing it is
+the whole point -- dropping either pair to make room for the other deletes the
+skill on exactly the host the surviving pair was meant to protect.
 
 ## Session id and the empty-state
 

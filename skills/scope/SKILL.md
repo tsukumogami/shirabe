@@ -11,7 +11,10 @@ description: >-
   knows which artifact altitude they want (reach for `/brief`,
   `/prd`, `/design`, or `/plan` directly).
 argument-hint: '<topic-slug or freeform topic> [--upstream <path>]'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope 2>&1 || true`
 
 # Scope
 

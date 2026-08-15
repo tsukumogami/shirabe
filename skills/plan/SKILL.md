@@ -8,7 +8,10 @@ description: Implementation planning skill. Decomposes a design doc, PRD, roadma
   a source document. Produces either a self-contained PLAN doc (single-pr) or GitHub milestone
   and issues (multi-pr).
 argument-hint: '<doc-path-or-topic> [--upstream <roadmap-path>] [--walking-skeleton|--no-skeleton] [--strategic|--tactical]'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh plan 2>&1 || true`
 
 @.claude/shirabe-extensions/plan.md
 @.claude/shirabe-extensions/plan.local.md

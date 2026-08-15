@@ -15,6 +15,11 @@
 #
 # The `shirabe validate --lifecycle` and `--lifecycle-chain` lines in SKILL.md
 # describe the CI workflow and the /execute cascade. /plan does not run either.
+# Nothing mechanical separates that documentation from a call site, so both are
+# exempted by name for scripts/check-skill-requires.sh; an exemption that stops
+# matching its line fails as stale.
+#not-a-call-site	skills/plan/SKILL.md	shirabe	--lifecycle	Documents the validator's whole-tree mode, which CI runs; /plan does not.
+#not-a-call-site	skills/plan/SKILL.md	shirabe	--lifecycle-chain	Documents the validator's chain-targeted mode, which the /execute cascade runs; /plan does not.
 shirabe	transition	-	always
 gh	-	-	always
 jq	-	-	always

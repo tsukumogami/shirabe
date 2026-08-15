@@ -202,11 +202,22 @@ Claude Code session:
 ## Requirements
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- `bash`. Every skill runs `scripts/skill-preflight.sh` through `bash` when it
+  loads, and the rest of `scripts/` is bash too, so the plugin is not platform
+  neutral. macOS and Linux always have it. Windows does not, unless Git Bash or
+  WSL is on PATH -- without one of those the preflight line cannot run. The
+  exposure is narrow because `install.sh` accepts only `linux` and `darwin`
+  anyway, but it is real and it is stated rather than papered over.
 - The `shirabe` binary -- skills call `shirabe validate` during ordinary runs,
   so install it before you use them (see [Local install](#local-install))
-- [koto](https://github.com/tsukumogami/koto) >= 0.3.3 (for `/work-on` and
-  `/execute`; the skills check `koto version` first and give you an install
-  command when it's missing)
+- [koto](https://github.com/tsukumogami/koto) for `/work-on` and `/execute`
+
+Each skill declares the tools it calls in its own `skills/<name>/requires.tsv`,
+and the preflight line checks that declaration when the skill loads. A satisfied
+host sees nothing. An unmet prerequisite gets one plain-prose block naming the
+tool, what is wrong, and the single command that fixes it on this machine. No
+skill states a version floor: floors go stale silently, and a floor nobody
+rechecks is worse than no floor at all.
 
 ## CLI and doc validation
 

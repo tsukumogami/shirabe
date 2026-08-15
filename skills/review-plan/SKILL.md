@@ -9,7 +9,10 @@ description: >-
   Phase 6, or when the user runs /review-plan directly to review an existing
   plan.
 argument-hint: '<plan-artifact-or-topic> [--adversarial]'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh review-plan 2>&1 || true`
 
 # Review Plan Skill
 

@@ -29,7 +29,10 @@
 # Two flags a line-level extractor will surface here are not koto's and are
 # deliberately absent: `--pr-body` names what CI enforces on the authored PR
 # body (phase-6-pr.md), and `--session` is extract-context.sh's own argument,
-# mentioned on comment lines that also name `koto context add`.
+# mentioned on comment lines that also name `koto context add`. The scan drops
+# `--session` mechanically, because a shell comment is not a command line; the
+# `--pr-body` citation has no mechanical tell and is exempted by name.
+#not-a-call-site	skills/work-on/references/phases/phase-6-pr.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /work-on authors to the rule and never invokes the check.
 koto	init	--template,--var	always
 koto	next	--with-data	always
 koto	workflows	-	always

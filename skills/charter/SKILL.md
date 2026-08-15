@@ -12,7 +12,10 @@ description: >-
   knows which artifact altitude they want (reach for `/vision`,
   `/strategy`, or `/roadmap` directly).
 argument-hint: '<topic-slug or freeform topic> [--upstream <path>]'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh charter 2>&1 || true`
 
 # Charter
 

@@ -9,7 +9,10 @@ description: >-
   (/explore). Drives a multi-phase workflow: conversational scoping, parallel research
   agents, structured drafting, and a 3-agent jury review.
 argument-hint: '<topic or feature name>'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh prd 2>&1 || true`
 
 @.claude/shirabe-extensions/prd.md
 @.claude/shirabe-extensions/prd.local.md
