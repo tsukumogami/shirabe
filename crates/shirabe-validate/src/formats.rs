@@ -41,6 +41,75 @@ fn s(values: &[&str]) -> Vec<String> {
     values.iter().map(|v| (*v).to_string()).collect()
 }
 
+/// The tactical chain in order, with the heading a survivor uses to carry each
+/// type's contribution when it absorbs that type.
+///
+/// Array order is chain order: it gives both the order contribution sections
+/// must appear in on a survivor, and the strict above-ness comparison that
+/// rejects a PRD declaring it absorbed a DESIGN. Keyed by filename prefix so it
+/// composes with [`detect_format`]'s longest-prefix rule and needs no new
+/// `FormatSpec` field.
+///
+/// One table, so the format references and the validator have a single thing to
+/// agree with. Note this is a *mirrored* constant rather than a single source of
+/// truth: the four `*-format.md` references and the `/scope` phase file that
+/// composes the heading at fold time must match it, and nothing enforces that —
+/// the same house pattern the per-format `required_sections` lists already have.
+///
+/// `Absorbed Plan` is structurally unreachable, because the PLAN is terminal and
+/// nothing downstream survives to carry it. The row stays because each format
+/// reference names exactly one contribution for its type, and this table is the
+/// thing they name.
+pub const CONTRIBUTION_SECTIONS: [(&str, &str); 4] = [
+    ("BRIEF-", "Absorbed Brief"),
+    ("PRD-", "Absorbed PRD"),
+    ("DESIGN-", "Absorbed Design"),
+    ("PLAN-", "Absorbed Plan"),
+];
+
+/// The shape every `absorbed:` entry must match.
+///
+/// Declared here, beside [`CONTRIBUTION_SECTIONS`], because three sites read it
+/// and each answers a different question: the absorb procedure (the *gate* — the
+/// only site that can stop a deletion), this crate's absorbed-declaration check
+/// (the *backstop* — it fires on documents nobody is folding), and the record
+/// checker's fold signature (the *trigger*). None substitutes for another, so
+/// the string is shared rather than the behaviour.
+///
+/// Anchored at both ends deliberately: an unanchored match would accept a path
+/// with a prefix or suffix, and this value reaches a `git rm` argument.
+pub const ABSORBED_ENTRY_PATTERN: &str =
+    r"^docs/(briefs|prds|designs)/(BRIEF|PRD|DESIGN)-[a-z0-9-]+\.md$";
+
+/// The contribution heading a survivor uses for an absorbed document at
+/// `path`, or `None` when the basename matches no known prefix.
+///
+/// Returns `None` rather than a default because an unrecognised prefix must
+/// fail closed: it reaches a required-section splice and a durable record
+/// column, and a silent default would put an unvalidated value in both.
+pub fn contribution_heading(path: &str) -> Option<&'static str> {
+    let basename = path.rsplit('/').next().unwrap_or(path);
+    let mut best: Option<(usize, &'static str)> = None;
+    for (prefix, heading) in CONTRIBUTION_SECTIONS {
+        if basename.starts_with(prefix) {
+            match best {
+                Some((len, _)) if prefix.len() <= len => {}
+                _ => best = Some((prefix.len(), heading)),
+            }
+        }
+    }
+    best.map(|(_, heading)| heading)
+}
+
+/// The chain position of the type named by `path`'s basename prefix, or `None`
+/// when it matches no known prefix. Lower is further upstream.
+pub fn chain_position(path: &str) -> Option<usize> {
+    let basename = path.rsplit('/').next().unwrap_or(path);
+    CONTRIBUTION_SECTIONS
+        .iter()
+        .position(|(prefix, _)| basename.starts_with(prefix))
+}
+
 /// Build the Plan profile's per-`execution_mode` required-sections map.
 ///
 /// Returns a map with `"single-pr"`, `"multi-pr"`, and `"coordinated"` keys.

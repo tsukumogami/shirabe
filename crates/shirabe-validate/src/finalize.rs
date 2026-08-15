@@ -2004,17 +2004,23 @@ mod tests {
     fn shared_ancestor_is_not_retired_and_the_block_propagates() {
         let root = fresh_git_repo();
         let brief = write_repo_doc(&root, "docs/briefs/BRIEF-shared.md", "Accepted", None, "");
-        let prd = write_repo_doc(
+        let prd = write_repo_doc(&root, "docs/prds/PRD-shared.md", "Draft", Some(&brief), "");
+        // The walked branch.
+        let design = write_repo_doc(
             &root,
-            "docs/prds/PRD-shared.md",
+            "docs/designs/DESIGN-mine.md",
             "Draft",
-            Some(&brief),
+            Some(&prd),
             "",
         );
-        // The walked branch.
-        let design = write_repo_doc(&root, "docs/designs/DESIGN-mine.md", "Draft", Some(&prd), "");
         // A second consumer of the same PRD, outside this walk and still live.
-        write_repo_doc(&root, "docs/designs/DESIGN-other.md", "Draft", Some(&prd), "");
+        write_repo_doc(
+            &root,
+            "docs/designs/DESIGN-other.md",
+            "Draft",
+            Some(&prd),
+            "",
+        );
         let plan = write_repo_doc(
             &root,
             "docs/plans/PLAN-shared.md",
@@ -2050,7 +2056,9 @@ mod tests {
         assert!(b.blocked, "the block propagates upward");
         assert_eq!(b.blocked_by.len(), 1, "{:?}", b.blocked_by);
         assert!(b.blocked_by[0].path.ends_with("PRD-shared.md"));
-        assert!(fs::read_to_string(&brief).unwrap().contains("status: Accepted"));
+        assert!(fs::read_to_string(&brief)
+            .unwrap()
+            .contains("status: Accepted"));
     }
 
     /// A referrer that has already reached its own terminal status does not
@@ -2059,7 +2067,13 @@ mod tests {
     fn terminal_referrer_does_not_block() {
         let root = fresh_git_repo();
         let prd = write_repo_doc(&root, "docs/prds/PRD-term.md", "Draft", None, "");
-        let design = write_repo_doc(&root, "docs/designs/DESIGN-term.md", "Draft", Some(&prd), "");
+        let design = write_repo_doc(
+            &root,
+            "docs/designs/DESIGN-term.md",
+            "Draft",
+            Some(&prd),
+            "",
+        );
         // A second consumer, already at its terminal status (a DESIGN retires at
         // `Current`, in `docs/designs/current/`).
         write_repo_doc(
@@ -2069,13 +2083,7 @@ mod tests {
             Some(&prd),
             "",
         );
-        let plan = write_repo_doc(
-            &root,
-            "docs/plans/PLAN-term.md",
-            "Draft",
-            Some(&design),
-            "",
-        );
+        let plan = write_repo_doc(&root, "docs/plans/PLAN-term.md", "Draft", Some(&design), "");
 
         let report = walk_chain_mode(&plan, Mode::Apply).expect("apply ok");
         let p = node_for(&report, "PRD-term.md");
@@ -2095,8 +2103,20 @@ mod tests {
         let prd = write_repo_doc(&root, "docs/prds/PRD-diamond.md", "Draft", None, "");
         // Written second alphabetically-first, so written order and path order
         // disagree: the report must follow what the author wrote.
-        let zeta = write_repo_doc(&root, "docs/designs/DESIGN-zeta.md", "Draft", Some(&prd), "");
-        let alpha = write_repo_doc(&root, "docs/designs/DESIGN-alpha.md", "Draft", Some(&prd), "");
+        let zeta = write_repo_doc(
+            &root,
+            "docs/designs/DESIGN-zeta.md",
+            "Draft",
+            Some(&prd),
+            "",
+        );
+        let alpha = write_repo_doc(
+            &root,
+            "docs/designs/DESIGN-alpha.md",
+            "Draft",
+            Some(&prd),
+            "",
+        );
         let plan = write_repo_doc_multi(
             &root,
             "docs/plans/PLAN-diamond.md",
@@ -2114,8 +2134,14 @@ mod tests {
             "{:?}",
             report.nodes.iter().map(|n| &n.path).collect::<Vec<_>>()
         );
-        assert!(report.nodes[1].path.ends_with("DESIGN-zeta.md"), "written order");
-        assert!(report.nodes[2].path.ends_with("DESIGN-alpha.md"), "written order");
+        assert!(
+            report.nodes[1].path.ends_with("DESIGN-zeta.md"),
+            "written order"
+        );
+        assert!(
+            report.nodes[2].path.ends_with("DESIGN-alpha.md"),
+            "written order"
+        );
         let p = node_for(&report, "PRD-diamond.md");
         assert!(!p.blocked, "both referrers are retired by this walk");
         assert_eq!(p.new_status.as_deref(), Some("Done"));
@@ -2163,7 +2189,13 @@ mod tests {
             Some(&prd),
             "",
         );
-        write_repo_doc(&root, "docs/designs/DESIGN-holder.md", "Draft", Some(&prd), "");
+        write_repo_doc(
+            &root,
+            "docs/designs/DESIGN-holder.md",
+            "Draft",
+            Some(&prd),
+            "",
+        );
         let plan = write_repo_doc(
             &root,
             "docs/plans/PLAN-dryblock.md",

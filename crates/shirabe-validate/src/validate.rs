@@ -9,7 +9,7 @@
 use crate::checks::{
     check_claude_md_conventions, check_eval_fixture_frontmatter, check_fc01, check_fc02,
     check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09, check_fc14,
-    check_fc15, check_plan_design_field_consistency, check_plan_section_structure,
+    check_fc15, check_fc17, check_plan_design_field_consistency, check_plan_section_structure,
     check_private_only, check_roadmap_reserved_sections, check_schema, check_strategy_public,
     check_upstream_resolves, check_vision_public, check_writing_style,
 };
@@ -144,7 +144,7 @@ pub fn is_notice(err: &ValidationError, posture: ReviewPosture) -> bool {
 
 /// Reports whether `code` is a known per-file check code that the `--check`
 /// selector can address. The set is the codes the per-file validation pass
-/// can emit: `SCHEMA`, `FC01`-`FC16`, `FC-CONVENTIONS`, and `R6`-`R9`. The
+/// can emit: `SCHEMA`, `FC01`-`FC17`, `FC-CONVENTIONS`, and `R6`-`R9`. The
 /// lifecycle codes (`L01`-`L05`) are produced by the `--lifecycle` traversal
 /// modes, not the per-file pass, so they are not selectable here.
 pub fn is_known_check_code(code: &str) -> bool {
@@ -167,6 +167,7 @@ pub fn is_known_check_code(code: &str) -> bool {
             | "FC14"
             | "FC15"
             | "FC16"
+            | "FC17"
             | "FC-CONVENTIONS"
             | "R6"
             | "R7"
@@ -201,6 +202,10 @@ pub fn validate_file(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Validati
     errs.extend(check_fc03(doc, spec));
     errs.extend(check_fc04(doc, spec));
     errs.extend(check_fc15(doc, spec));
+    // FC17 runs after FC04 so a doc missing `## Status` gets FC04's message
+    // first; FC17 then says only what FC04 cannot, which is that the adjacency
+    // it requires could not be established.
+    errs.extend(check_fc17(doc));
 
     // 2a. Cross-format notice-level checks (FC10 writing-style, FC13
     // eval-fixture frontmatter, FC-CONVENTIONS CLAUDE.md headers).

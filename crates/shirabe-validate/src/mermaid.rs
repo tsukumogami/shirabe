@@ -31,9 +31,8 @@ use crate::doc::Doc;
 /// still split cleanly. Used to canonicalize each edge line into
 /// `--CANONICAL_EDGE_TOKEN--` before splitting, so all three shapes
 /// produce the same edge records.
-static EDGE_ARROW_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\s*(?:-->|-\.->|==>)(?:\|"[^"]*"\||\|[^|]*\|)?\s*"#).unwrap()
-});
+static EDGE_ARROW_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\s*(?:-->|-\.->|==>)(?:\|"[^"]*"\||\|[^|]*\|)?\s*"#).unwrap());
 
 /// Sentinel token used internally to split edge lines after the three
 /// arrow variants have been normalized into the same shape.
@@ -135,9 +134,8 @@ pub struct BlockLocation {
 /// Matches a canonical node declaration: an id followed by `["..."]`.
 /// Ids are alphanumeric-with-underscore starting with a letter or
 /// underscore; labels are the quoted string between `["` and `"]`.
-static NODE_DECL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"^([A-Za-z_][A-Za-z0-9_]*)\["([^"]*)"\]\s*$"#).unwrap()
-});
+static NODE_DECL_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"^([A-Za-z_][A-Za-z0-9_]*)\["([^"]*)"\]\s*$"#).unwrap());
 
 /// Matches a canonical id (used to validate the endpoints of edges and
 /// class statements).
@@ -202,9 +200,7 @@ pub fn find_dependency_graph_block(doc: &Doc) -> Option<BlockLocation> {
             // On an unterminated fence, the body extends to the end of
             // the section range.
             end_idx + 1,
-            vec![Issue::UnterminatedFence {
-                line: open_idx + 1,
-            }],
+            vec![Issue::UnterminatedFence { line: open_idx + 1 }],
         ),
     };
 
@@ -344,7 +340,10 @@ pub fn extract_diagram(lines: &[&str], start_line: usize) -> (Diagram, Vec<Issue
             let canonical = EDGE_ARROW_PATTERN
                 .replace_all(line, CANONICAL_EDGE_TOKEN)
                 .into_owned();
-            let pieces: Vec<&str> = canonical.split(CANONICAL_EDGE_TOKEN).map(|p| p.trim()).collect();
+            let pieces: Vec<&str> = canonical
+                .split(CANONICAL_EDGE_TOKEN)
+                .map(|p| p.trim())
+                .collect();
             if pieces.len() < 2 {
                 continue;
             }
@@ -475,8 +474,7 @@ mod tests {
 
     #[test]
     fn extract_diagram_node_decl_canonical_shape() {
-        let (d, issues) =
-            extract_block(&["graph TD", r##"I111["#111: shared references"]"##]);
+        let (d, issues) = extract_block(&["graph TD", r##"I111["#111: shared references"]"##]);
         assert_eq!(d.nodes.len(), 1);
         assert_eq!(d.nodes[0].id, "I111");
         assert_eq!(d.nodes[0].label, "#111: shared references");
@@ -503,9 +501,18 @@ mod tests {
     fn extract_diagram_chained_edges_expanded_into_pairs() {
         let (d, _) = extract_block(&["graph TD", "O1 --> O2 --> O3 --> O4"]);
         assert_eq!(d.edges.len(), 3);
-        assert_eq!((d.edges[0].src.as_str(), d.edges[0].dst.as_str()), ("O1", "O2"));
-        assert_eq!((d.edges[1].src.as_str(), d.edges[1].dst.as_str()), ("O2", "O3"));
-        assert_eq!((d.edges[2].src.as_str(), d.edges[2].dst.as_str()), ("O3", "O4"));
+        assert_eq!(
+            (d.edges[0].src.as_str(), d.edges[0].dst.as_str()),
+            ("O1", "O2")
+        );
+        assert_eq!(
+            (d.edges[1].src.as_str(), d.edges[1].dst.as_str()),
+            ("O2", "O3")
+        );
+        assert_eq!(
+            (d.edges[2].src.as_str(), d.edges[2].dst.as_str()),
+            ("O3", "O4")
+        );
     }
 
     #[test]
@@ -513,7 +520,10 @@ mod tests {
         // `-.->` soft edge per the canonical edge-variant grammar.
         let (d, _) = extract_block(&["graph TD", "I1 -.-> I2"]);
         assert_eq!(d.edges.len(), 1);
-        assert_eq!((d.edges[0].src.as_str(), d.edges[0].dst.as_str()), ("I1", "I2"));
+        assert_eq!(
+            (d.edges[0].src.as_str(), d.edges[0].dst.as_str()),
+            ("I1", "I2")
+        );
     }
 
     #[test]
@@ -522,7 +532,10 @@ mod tests {
         // presentation only and not captured.
         let (d, _) = extract_block(&["graph TD", "I1 -.->|\"soft\"| I2"]);
         assert_eq!(d.edges.len(), 1);
-        assert_eq!((d.edges[0].src.as_str(), d.edges[0].dst.as_str()), ("I1", "I2"));
+        assert_eq!(
+            (d.edges[0].src.as_str(), d.edges[0].dst.as_str()),
+            ("I1", "I2")
+        );
     }
 
     #[test]
@@ -530,7 +543,10 @@ mod tests {
         // `==>` cross-altitude blocker.
         let (d, _) = extract_block(&["graph TD", "I1 ==> I2"]);
         assert_eq!(d.edges.len(), 1);
-        assert_eq!((d.edges[0].src.as_str(), d.edges[0].dst.as_str()), ("I1", "I2"));
+        assert_eq!(
+            (d.edges[0].src.as_str(), d.edges[0].dst.as_str()),
+            ("I1", "I2")
+        );
     }
 
     #[test]
@@ -549,16 +565,20 @@ mod tests {
     fn extract_diagram_mixed_edge_variants_in_one_diagram() {
         // All three variants in one diagram parse to the same Edge
         // shape (FC07 treats them identically).
-        let (d, _) = extract_block(&[
-            "graph TD",
-            "I1 --> I2",
-            "I2 -.-> I3",
-            "I3 ==>|\"x\"| I4",
-        ]);
+        let (d, _) = extract_block(&["graph TD", "I1 --> I2", "I2 -.-> I3", "I3 ==>|\"x\"| I4"]);
         assert_eq!(d.edges.len(), 3);
-        assert_eq!((d.edges[0].src.as_str(), d.edges[0].dst.as_str()), ("I1", "I2"));
-        assert_eq!((d.edges[1].src.as_str(), d.edges[1].dst.as_str()), ("I2", "I3"));
-        assert_eq!((d.edges[2].src.as_str(), d.edges[2].dst.as_str()), ("I3", "I4"));
+        assert_eq!(
+            (d.edges[0].src.as_str(), d.edges[0].dst.as_str()),
+            ("I1", "I2")
+        );
+        assert_eq!(
+            (d.edges[1].src.as_str(), d.edges[1].dst.as_str()),
+            ("I2", "I3")
+        );
+        assert_eq!(
+            (d.edges[2].src.as_str(), d.edges[2].dst.as_str()),
+            ("I3", "I4")
+        );
     }
 
     #[test]
@@ -622,22 +642,22 @@ mod tests {
     #[test]
     fn extract_diagram_header_flowchart_emits_issue_and_continues() {
         let (d, issues) = extract_block(&["flowchart TD", r#"I1["alpha"]"#]);
-        assert_eq!(d.nodes.len(), 1, "extractor still parses body after flowchart");
-        assert!(
-            issues
-                .iter()
-                .any(|i| matches!(i, Issue::HeaderFlowchart { .. }))
+        assert_eq!(
+            d.nodes.len(),
+            1,
+            "extractor still parses body after flowchart"
         );
+        assert!(issues
+            .iter()
+            .any(|i| matches!(i, Issue::HeaderFlowchart { .. })));
     }
 
     #[test]
     fn extract_diagram_header_unrecognized_emits_issue() {
         let (_, issues) = extract_block(&["something else", r#"I1["alpha"]"#]);
-        assert!(
-            issues
-                .iter()
-                .any(|i| matches!(i, Issue::HeaderUnrecognized { .. }))
-        );
+        assert!(issues
+            .iter()
+            .any(|i| matches!(i, Issue::HeaderUnrecognized { .. })));
     }
 
     #[test]
@@ -652,33 +672,39 @@ mod tests {
 
     #[test]
     fn extract_diagram_inline_class_on_edge_records_assignment_and_issue() {
-        let (d, issues) =
-            extract_block(&["graph TD", "classDef ready fill:#bbdefb", "I1:::ready --> I2"]);
+        let (d, issues) = extract_block(&[
+            "graph TD",
+            "classDef ready fill:#bbdefb",
+            "I1:::ready --> I2",
+        ]);
         assert_eq!(d.edges.len(), 1);
         assert_eq!(d.edges[0].src, "I1");
         assert_eq!(d.edges[0].dst, "I2");
-        assert!(d.class_assignments.iter().any(|a| a.id == "I1"
-            && a.name == "ready"
-            && a.inline));
-        assert!(
-            issues
-                .iter()
-                .any(|i| matches!(i, Issue::InlineClassSyntax { .. }))
-        );
+        assert!(d
+            .class_assignments
+            .iter()
+            .any(|a| a.id == "I1" && a.name == "ready" && a.inline));
+        assert!(issues
+            .iter()
+            .any(|i| matches!(i, Issue::InlineClassSyntax { .. })));
     }
 
     #[test]
     fn extract_diagram_inline_class_on_node_decl_records_assignment_and_issue() {
-        let (d, issues) =
-            extract_block(&["graph TD", "classDef ready fill:#bbdefb", r#"I1:::ready["alpha"]"#]);
+        let (d, issues) = extract_block(&[
+            "graph TD",
+            "classDef ready fill:#bbdefb",
+            r#"I1:::ready["alpha"]"#,
+        ]);
         assert_eq!(d.nodes.len(), 1);
         assert_eq!(d.nodes[0].id, "I1");
-        assert!(d.class_assignments.iter().any(|a| a.inline && a.name == "ready"));
-        assert!(
-            issues
-                .iter()
-                .any(|i| matches!(i, Issue::InlineClassSyntax { .. }))
-        );
+        assert!(d
+            .class_assignments
+            .iter()
+            .any(|a| a.inline && a.name == "ready"));
+        assert!(issues
+            .iter()
+            .any(|i| matches!(i, Issue::InlineClassSyntax { .. })));
     }
 
     #[test]
@@ -701,8 +727,7 @@ mod tests {
 
     #[test]
     fn extract_diagram_class_naming_undefined_class_emits_issue() {
-        let (_, issues) =
-            extract_block(&["graph TD", r#"I1["alpha"]"#, "class I1 nosuchclass"]);
+        let (_, issues) = extract_block(&["graph TD", r#"I1["alpha"]"#, "class I1 nosuchclass"]);
         assert!(
             issues.iter().any(|i| matches!(
                 i,

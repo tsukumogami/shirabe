@@ -174,11 +174,141 @@ pub fn check_fc03(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError> {
     }]
 }
 
+static ABSORBED_ENTRY_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(crate::formats::ABSORBED_ENTRY_PATTERN).unwrap());
+
+/// What a doc's `absorbed:` declaration turned out to be.
+///
+/// One parse, shared by the required-sections splice and by FC17. Sharing is
+/// load-bearing rather than tidy: if the splice ran against an unvalidated
+/// entry, one bad declaration would produce two diagnostics for one cause, and
+/// the misleading one — a missing required section — is the louder of the two.
+/// On [`AbsorbedDecl::Invalid`] the splice returns the base list untouched and
+/// FC17 owns the report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AbsorbedDecl {
+    /// No `absorbed:` key. Every document on disk before this feature.
+    Absent,
+    /// Present, and every entry names a known upstream type.
+    Valid(Vec<AbsorbedEntry>),
+    /// Present and unusable. Carries the offending entry for FC17's message.
+    Invalid(InvalidAbsorbed),
+}
+
+/// One validated `absorbed:` entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AbsorbedEntry {
+    /// The repo-relative path as written.
+    pub path: String,
+    /// The contribution heading the survivor owes for this ancestor.
+    pub heading: &'static str,
+    /// Chain position of the absorbed type. Lower is further upstream.
+    pub position: usize,
+}
+
+/// Why an `absorbed:` declaration could not be used.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InvalidAbsorbed {
+    /// A mapping, alias, or an all-blank sequence: the key is present and
+    /// yields nothing a reader could use. Not a silent no-op — a declaration
+    /// that parses to zero entries is an error, because the gate that reads
+    /// this list would otherwise weaken to nothing.
+    NoUsableEntry,
+    /// An entry that does not match the declared path shape.
+    Malformed(String),
+    /// A cross-repo `owner/repo:path` reference. A document in another
+    /// repository cannot be absorbed by this run.
+    CrossRepo(String),
+}
+
+/// Parse a doc's `absorbed:` declaration.
+///
+/// Fails closed on every ambiguity. An unrecognised basename prefix is
+/// [`InvalidAbsorbed::Malformed`] rather than a skipped entry, because a
+/// skipped entry silently shortens the list — and a shorter list makes every
+/// consumer of it *weaker*, which is the wrong failure direction for a
+/// declaration that gates a deletion.
+pub fn parse_absorbed(doc: &Doc) -> AbsorbedDecl {
+    let Some(field) = doc.fields.get("absorbed") else {
+        return AbsorbedDecl::Absent;
+    };
+    let entries = crate::upstream::field_entries(field);
+    if entries.is_empty() {
+        return AbsorbedDecl::Invalid(InvalidAbsorbed::NoUsableEntry);
+    }
+    let mut out = Vec::with_capacity(entries.len());
+    for entry in entries {
+        if entry.cross_repo {
+            return AbsorbedDecl::Invalid(InvalidAbsorbed::CrossRepo(entry.value));
+        }
+        if !ABSORBED_ENTRY_RE.is_match(&entry.value) {
+            return AbsorbedDecl::Invalid(InvalidAbsorbed::Malformed(entry.value));
+        }
+        let (Some(heading), Some(position)) = (
+            crate::formats::contribution_heading(&entry.value),
+            crate::formats::chain_position(&entry.value),
+        ) else {
+            return AbsorbedDecl::Invalid(InvalidAbsorbed::Malformed(entry.value));
+        };
+        out.push(AbsorbedEntry {
+            path: entry.value,
+            heading,
+            position,
+        });
+    }
+    AbsorbedDecl::Valid(out)
+}
+
 /// The required-sections list that applies to `doc` under `spec`, in canonical
 /// order. When the format declares a per-`execution_mode` override and the doc
 /// carries a mapped `execution_mode`, the per-mode list is used; otherwise the
-/// flat `spec.required_sections`. Shared by FC04 (presence) and FC15 (order).
+/// flat `spec.required_sections`. A valid `absorbed:` declaration then splices
+/// the contribution headings it implies in immediately after `Status`.
+///
+/// The splice point is well-defined without a per-format special case because
+/// every format's required-sections list begins with `Status`, as do all three
+/// Plan execution-mode lists. A doc with no `absorbed:` key — every document on
+/// disk before this feature — gets the base list unchanged, which is what keeps
+/// this change silent on the existing corpus.
+///
+/// Shared by FC04 (presence) and FC15 (order).
 fn required_sections_for(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
+    let base = base_required_sections(doc, spec);
+    let AbsorbedDecl::Valid(entries) = parse_absorbed(doc) else {
+        return base;
+    };
+    if entries.is_empty() {
+        return base;
+    }
+    let mut headings: Vec<&AbsorbedEntry> = entries.iter().collect();
+    headings.sort_by_key(|e| e.position);
+    let mut spliced = Vec::with_capacity(base.len() + headings.len());
+    let mut inserted = false;
+    for name in base {
+        let is_status = name == "Status";
+        spliced.push(name);
+        if is_status && !inserted {
+            for entry in &headings {
+                spliced.push(entry.heading.to_string());
+            }
+            inserted = true;
+        }
+    }
+    // A format whose list somehow does not begin with `Status` would otherwise
+    // silently drop the contributions. Prepend rather than lose them.
+    if !inserted {
+        let mut front: Vec<String> = headings
+            .iter()
+            .map(|entry| entry.heading.to_string())
+            .collect();
+        front.extend(spliced);
+        return front;
+    }
+    spliced
+}
+
+/// The list before any contribution splice.
+fn base_required_sections(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
     if let Some(map) = &spec.execution_mode_required_sections {
         if let Some(mode_field) = doc.fields.get("execution_mode") {
             if let Some(per_mode) = map.get(&mode_field.value) {
@@ -187,6 +317,171 @@ fn required_sections_for(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
         }
     }
     spec.required_sections.clone()
+}
+
+/// The pinned shape of a `## Status` absorption line, one per declared entry.
+///
+/// Modelled on `shirabe transition`'s supersession splice, which writes
+/// `Superseded by [name](path)` into the same section. Only the *shape* is
+/// borrowed: that line is written in Rust behind a subcommand, this one is
+/// written by the absorb procedure, which is exactly why it needs a check of
+/// its own rather than inheriting a guarantee it does not have.
+static STATUS_ABSORBED_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^Absorbed \[[^\]]+\]\((?<path>[^)]+)\); carried in (?<heading>.+)\.$").unwrap()
+});
+
+/// FC17 -- the `absorbed:` declaration and the contribution sections it implies.
+///
+/// Gated entirely on `absorbed:` being present, so it is silent on every
+/// document that declares no absorption. Six clauses:
+///
+/// 1. The field yields at least one usable entry. A mapping-shaped value or an
+///    all-blank sequence is an error, not a silent no-op.
+/// 2. Every entry matches the declared path shape and is not cross-repo.
+/// 3. Every entry's type sits strictly above the carrying document's own type.
+/// 4. The implied contribution sections appear contiguously and immediately
+///    after `## Status`, in chain order.
+/// 5. A `## Status` absorption line is present and well-formed for each entry.
+/// 6. An unparseable or unknown-prefix entry fails closed (clauses 1 and 2).
+///
+/// Clause 4 is why FC17 is not a severity workaround for FC15. FC15 compares
+/// only the *relative* order of the required sections that are present and
+/// explicitly permits unrequired sections between them, so a contribution
+/// section three headings below `## Status` satisfies it at any severity. FC15
+/// is also notice-level behind a documented promotion seam waiting on a corpus
+/// cleanup, so it cannot fail. Neither property is a defect in FC15; they are
+/// simply not what this contract needs.
+pub fn check_fc17(doc: &Doc) -> Vec<ValidationError> {
+    let line = doc.fields.get("absorbed").map(|f| f.line).unwrap_or(1);
+    let entries = match parse_absorbed(doc) {
+        AbsorbedDecl::Absent => return Vec::new(),
+        AbsorbedDecl::Invalid(reason) => {
+            let message = match reason {
+                InvalidAbsorbed::NoUsableEntry => {
+                    "[FC17] 'absorbed:' is present but yields no usable entry".to_string()
+                }
+                InvalidAbsorbed::Malformed(value) => format!(
+                    "[FC17] 'absorbed:' entry '{value}' does not name an absorbable document (expected {})",
+                    crate::formats::ABSORBED_ENTRY_PATTERN
+                ),
+                InvalidAbsorbed::CrossRepo(value) => format!(
+                    "[FC17] 'absorbed:' entry '{value}' is a cross-repo reference; a document in another repository cannot be absorbed"
+                ),
+            };
+            return vec![ValidationError {
+                file: doc.path.clone(),
+                line,
+                code: "FC17".to_string(),
+                message,
+            }];
+        }
+        AbsorbedDecl::Valid(entries) => entries,
+    };
+
+    let mut errs = Vec::new();
+    let basename = doc.path.rsplit('/').next().unwrap_or(&doc.path);
+
+    // Clause 3 -- strictly above in the chain.
+    if let Some(own) = crate::formats::chain_position(basename) {
+        for entry in &entries {
+            if entry.position >= own {
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line,
+                    code: "FC17".to_string(),
+                    message: format!(
+                        "[FC17] 'absorbed:' entry '{}' is not upstream of this document; a document may only absorb a type above its own",
+                        entry.path
+                    ),
+                });
+            }
+        }
+    }
+
+    let mut ordered: Vec<&AbsorbedEntry> = entries.iter().collect();
+    ordered.sort_by_key(|e| e.position);
+
+    // Clause 4 -- contiguous, immediately after Status, in chain order.
+    let status_at = doc.sections.iter().position(|s| s.name == "Status");
+    match status_at {
+        None => {
+            // FC04 owns the missing Status section; FC17 says only that the
+            // adjacency it requires cannot be established.
+        }
+        Some(idx) => {
+            let expected: Vec<&str> = ordered.iter().map(|e| e.heading).collect();
+            let actual: Vec<&str> = doc
+                .sections
+                .iter()
+                .skip(idx + 1)
+                .take(expected.len())
+                .map(|s| s.name.as_str())
+                .collect();
+            if actual != expected {
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line,
+                    code: "FC17".to_string(),
+                    message: format!(
+                        "[FC17] contribution sections must follow '## Status' contiguously in chain order; expected {} but found {}",
+                        expected.join(", "),
+                        if actual.is_empty() {
+                            "none".to_string()
+                        } else {
+                            actual.join(", ")
+                        }
+                    ),
+                });
+            }
+        }
+    }
+
+    // Clause 5 -- one well-formed Status absorption line per entry.
+    let status_lines = status_section_lines(doc);
+    for entry in &ordered {
+        let found = status_lines.iter().any(|raw| {
+            STATUS_ABSORBED_LINE_RE
+                .captures(raw.trim())
+                .is_some_and(|caps| {
+                    &caps["path"] == entry.path && caps["heading"].trim() == entry.heading
+                })
+        });
+        if !found {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line,
+                code: "FC17".to_string(),
+                message: format!(
+                    "[FC17] '## Status' is missing the absorption line for '{}' (expected: Absorbed [<name>]({}); carried in {}.)",
+                    entry.path, entry.path, entry.heading
+                ),
+            });
+        }
+    }
+
+    errs
+}
+
+/// The raw body lines under `## Status`, up to the next `## ` heading.
+fn status_section_lines(doc: &Doc) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut inside = false;
+    for raw in &doc.body {
+        let trimmed = raw.trim_start();
+        if let Some(name) = trimmed.strip_prefix("## ") {
+            if inside {
+                break;
+            }
+            if name.trim() == "Status" {
+                inside = true;
+            }
+            continue;
+        }
+        if inside {
+            out.push(raw.clone());
+        }
+    }
+    out
 }
 
 /// Returns a `ValidationError` for each required section missing from
@@ -968,14 +1263,12 @@ fn columns_eq(columns: &[String], want: &[&str]) -> bool {
 /// (outline ids `O<n>`, custom-mnemonic external references like
 /// `KT5V2` or `NW6`, or any other shape) are excluded from FC07's
 /// reconciliation and are tolerated in the diagram.
-static ISSUE_KEYED_NODE_ID: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^I[0-9]+$").unwrap());
+static ISSUE_KEYED_NODE_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^I[0-9]+$").unwrap());
 
 /// Matches a `#N` issue token inside Markdown link text. Used to parse
 /// the roadmap-profile Issues column into the set of issue numbers a
 /// feature row fans out into.
-static ISSUE_REF_IN_CELL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"#([0-9]+)").unwrap());
+static ISSUE_REF_IN_CELL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"#([0-9]+)").unwrap());
 
 /// The three Status-bearing class names FC07 reconciles against table row
 /// state. A node carrying any other class (a non-Status class such as a
@@ -1097,10 +1390,7 @@ pub fn check_fc07(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     // BlockLocation carries 1-indexed absolute lines; doc.body is
     // 0-indexed. body_end is one-past-last (the closing-fence line).
     let body_start_idx = location.body_start.saturating_sub(1);
-    let body_end_idx = location
-        .body_end
-        .saturating_sub(1)
-        .min(doc.body.len());
+    let body_end_idx = location.body_end.saturating_sub(1).min(doc.body.len());
     let body_slice: Vec<&str> = doc
         .body
         .get(body_start_idx..body_end_idx)
@@ -1254,10 +1544,7 @@ fn node_set_pass_roadmap(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<Val
     // roadmap profile (index 1) -- the parser does not split the raw
     // row into per-column cells beyond what RowKind classification
     // needed, so we extract the issue tokens from `row.raw` directly.
-    let issues_col_idx = table
-        .columns
-        .iter()
-        .position(|c| c == "Issues");
+    let issues_col_idx = table.columns.iter().position(|c| c == "Issues");
     let mut expected_nodes: Vec<(String, usize, String)> = Vec::new(); // (expected_id, row_line, row_key)
     for row in &table.rows {
         if row.kind != RowKind::Entity {
@@ -1433,10 +1720,7 @@ fn edge_pass_plan(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<Validation
 fn edge_pass_roadmap(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationError> {
     let mut errs = Vec::new();
 
-    let issues_col_idx = table
-        .columns
-        .iter()
-        .position(|c| c == "Issues");
+    let issues_col_idx = table.columns.iter().position(|c| c == "Issues");
 
     // Build the feature-label -> Vec<I<n>> map. A row whose Issues cell
     // is `None` maps to an empty vec.
@@ -1488,11 +1772,8 @@ fn edge_pass_roadmap(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<Validat
             };
             for blocker_id in blocker_ids {
                 for dependent_id in dependent_ids {
-                    table_edges
-                        .insert((blocker_id.clone(), dependent_id.clone()));
-                    if !diagram_edges
-                        .contains(&(blocker_id.clone(), dependent_id.clone()))
-                    {
+                    table_edges.insert((blocker_id.clone(), dependent_id.clone()));
+                    if !diagram_edges.contains(&(blocker_id.clone(), dependent_id.clone())) {
                         errs.push(ValidationError {
                             file: doc.path.clone(),
                             line: row.line,
@@ -1560,8 +1841,7 @@ fn class_vs_status_pass(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<Vali
             .collect(),
         Profile::Roadmap => {
             let issues_col_idx = table.columns.iter().position(|c| c == "Issues");
-            let mut map: std::collections::HashMap<String, &Row> =
-                std::collections::HashMap::new();
+            let mut map: std::collections::HashMap<String, &Row> = std::collections::HashMap::new();
             for row in &table.rows {
                 if row.kind != RowKind::Entity {
                     continue;
@@ -1813,8 +2093,13 @@ fn extract_closes_refs(body: &str, default_owner: &str, default_repo: &str) -> V
                     // Drop attacker-influenced cross-repo references.
                     continue;
                 }
-                let literal = format!("{} {}/{}#{}", &cap[0][..cap[0].find(char::is_whitespace).unwrap_or(0)],
-                    owner, repo, number);
+                let literal = format!(
+                    "{} {}/{}#{}",
+                    &cap[0][..cap[0].find(char::is_whitespace).unwrap_or(0)],
+                    owner,
+                    repo,
+                    number
+                );
                 out.push(ClosesRef {
                     owner: owner.to_string(),
                     repo: repo.to_string(),
@@ -1824,8 +2109,11 @@ fn extract_closes_refs(body: &str, default_owner: &str, default_repo: &str) -> V
                 });
             }
             _ => {
-                let literal = format!("{} #{}", &cap[0][..cap[0].find(char::is_whitespace).unwrap_or(0)],
-                    number);
+                let literal = format!(
+                    "{} #{}",
+                    &cap[0][..cap[0].find(char::is_whitespace).unwrap_or(0)],
+                    number
+                );
                 out.push(ClosesRef {
                     owner: default_owner.to_string(),
                     repo: default_repo.to_string(),
@@ -2022,10 +2310,7 @@ pub fn check_fc08(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     }
     // Extract the diagram (FC07 infrastructure; reuses `class_defs`).
     let body_start_idx = location.body_start.saturating_sub(1);
-    let body_end_idx = location
-        .body_end
-        .saturating_sub(1)
-        .min(doc.body.len());
+    let body_end_idx = location.body_end.saturating_sub(1).min(doc.body.len());
     if body_start_idx > body_end_idx {
         return Vec::new();
     }
@@ -2091,10 +2376,8 @@ fn check_fc08_sub_b(
     if legend.is_empty() {
         return Vec::new();
     }
-    let legend_normalized: HashSet<String> = legend
-        .iter()
-        .map(|n| normalize_kebab_to_camel(n))
-        .collect();
+    let legend_normalized: HashSet<String> =
+        legend.iter().map(|n| normalize_kebab_to_camel(n)).collect();
     let mut class_def_names: Vec<&String> = class_defs.iter().collect();
     class_def_names.sort();
     let mut errs = Vec::new();
@@ -2236,10 +2519,7 @@ pub fn check_fc09(
 
     // Extract the body lines for the located block.
     let body_start_idx = location.body_start.saturating_sub(1);
-    let body_end_idx = location
-        .body_end
-        .saturating_sub(1)
-        .min(doc.body.len());
+    let body_end_idx = location.body_end.saturating_sub(1).min(doc.body.len());
     let body_slice: Vec<&str> = doc
         .body
         .get(body_start_idx..body_end_idx)
@@ -2258,8 +2538,7 @@ pub fn check_fc09(
             .collect(),
         Profile::Roadmap => {
             let issues_col_idx = table.columns.iter().position(|c| c == "Issues");
-            let mut map: std::collections::HashMap<String, &Row> =
-                std::collections::HashMap::new();
+            let mut map: std::collections::HashMap<String, &Row> = std::collections::HashMap::new();
             for row in &table.rows {
                 if row.kind != RowKind::Entity {
                     continue;
@@ -2349,16 +2628,20 @@ pub fn check_fc09(
         // use the row's Dependencies-cell reference; same-repo uses
         // pr_ctx. If pr_ctx is None and the row has no cross-repo dep,
         // skip the row (no (owner, repo) to query).
-        let (q_owner, q_repo, q_number, is_cross_repo) =
-            match cross_repo_by_row_key.get(&row.key) {
-                Some((o, r, n)) => (o.clone(), r.clone(), *n, true),
-                None => {
-                    if pr_ctx.is_none() {
-                        continue;
-                    }
-                    (default_owner.to_string(), default_repo.to_string(), issue_n, false)
+        let (q_owner, q_repo, q_number, is_cross_repo) = match cross_repo_by_row_key.get(&row.key) {
+            Some((o, r, n)) => (o.clone(), r.clone(), *n, true),
+            None => {
+                if pr_ctx.is_none() {
+                    continue;
                 }
-            };
+                (
+                    default_owner.to_string(),
+                    default_repo.to_string(),
+                    issue_n,
+                    false,
+                )
+            }
+        };
 
         // Track for Sub C reconciliation.
         let doc_claims_done = assign.name == "done";
@@ -2492,7 +2775,8 @@ pub fn check_fc09(
                             // Cross-repo case is sparse; we match by
                             // (owner, repo, number) via cross_repo_by_row_key.
                             if let Some(triple) = cross_repo_by_row_key.get(row_key) {
-                                if triple.0 == r.owner && triple.1 == r.repo && triple.2 == r.number {
+                                if triple.0 == r.owner && triple.1 == r.repo && triple.2 == r.number
+                                {
                                     errs.push(ValidationError {
                                         file: doc.path.clone(),
                                         line: *line,
@@ -2508,7 +2792,9 @@ pub fn check_fc09(
                             }
                         }
                         let _ = hit;
-                    } else if let Some((row_key, class_name, line)) = non_done_same_repo.get(&r.number) {
+                    } else if let Some((row_key, class_name, line)) =
+                        non_done_same_repo.get(&r.number)
+                    {
                         errs.push(ValidationError {
                             file: doc.path.clone(),
                             line: *line,
@@ -2755,10 +3041,7 @@ pub fn check_plan_section_structure(doc: &Doc, spec: &FormatSpec) -> Vec<Validat
 ///
 /// FC12 is notice-level. Graceful skip when no upstream DESIGN is named in
 /// the frontmatter (the field-consistency check has no anchor without one).
-pub fn check_plan_design_field_consistency(
-    doc: &Doc,
-    spec: &FormatSpec,
-) -> Vec<ValidationError> {
+pub fn check_plan_design_field_consistency(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     if spec.schema_version != "plan/v1" {
         return Vec::new();
     }
@@ -4538,7 +4821,12 @@ mod tests {
     fn check_private_only_private_visibility_returns_empty() {
         let doc = make_doc("comp/v1", "Draft", HashMap::new(), vec![], vec![]);
         let errs = check_private_only(&doc, &spec_for("comp/v1"), &cfg_vis("private"));
-        assert_eq!(errs.len(), 0, "expected no errors under private, got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "expected no errors under private, got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -4643,7 +4931,10 @@ mod tests {
         let m = &class_notices[0].message;
         assert!(m.contains("\"I111\""), "notice names the node id");
         assert!(m.contains("\"blocked\""), "notice names the declared class");
-        assert!(m.contains("\"terminal\""), "notice names the observed state");
+        assert!(
+            m.contains("\"terminal\""),
+            "notice names the observed state"
+        );
         assert!(m.contains("\"done\""), "notice names the expected class");
         assert_eq!(class_notices[0].code, "FC07");
     }
@@ -4657,7 +4948,9 @@ mod tests {
 
     #[test]
     fn check_fc07_no_op_on_well_formed_plan() {
-        let doc = doc_md(&well_formed_plan("    class I1 ready\n    class I2 blocked\n"));
+        let doc = doc_md(&well_formed_plan(
+            "    class I1 ready\n    class I2 blocked\n",
+        ));
         let errs = check_fc07(&doc, &spec_for("plan/v1"));
         assert_eq!(errs.len(), 0, "expected no FC07 notices, got {:?}", errs);
     }
@@ -4686,7 +4979,11 @@ mod tests {
             .iter()
             .filter(|e| e.message.contains("no matching table row"))
             .count();
-        assert_eq!(orphans, 1, "expected one orphan-node notice, got {:?}", errs);
+        assert_eq!(
+            orphans, 1,
+            "expected one orphan-node notice, got {:?}",
+            errs
+        );
         assert!(errs.iter().any(|e| e.message.contains("\"I2\"")));
     }
 
@@ -4728,8 +5025,9 @@ mod tests {
         let doc = doc_md(md);
         let errs = check_fc07(&doc, &spec_for("plan/v1"));
         assert!(
-            errs.iter().any(|e| e.message.contains("no matching dependency")
-                && e.message.contains("I1 --> I2")),
+            errs.iter()
+                .any(|e| e.message.contains("no matching dependency")
+                    && e.message.contains("I1 --> I2")),
             "expected orphan-edge notice; got {:?}",
             errs
         );
@@ -4867,7 +5165,10 @@ mod tests {
             .iter()
             .filter(|e| e.message.contains("no mermaid block under"))
             .count();
-        assert_eq!(missing_block, 1, "expected exactly one missing-block notice");
+        assert_eq!(
+            missing_block, 1,
+            "expected exactly one missing-block notice"
+        );
         let per_row = errs
             .iter()
             .filter(|e| e.message.contains("no matching diagram node"))
@@ -4917,7 +5218,9 @@ mod tests {
         // Smoke check that FC07 consumes the four extractor views: a
         // well-formed plan that exercises nodes, edges, class
         // assignments, and classDefs returns no notices.
-        let doc = doc_md(&well_formed_plan("    class I1 ready\n    class I2 blocked\n"));
+        let doc = doc_md(&well_formed_plan(
+            "    class I1 ready\n    class I2 blocked\n",
+        ));
         let errs = check_fc07(&doc, &spec_for("plan/v1"));
         assert_eq!(errs.len(), 0, "expected no FC07 notices; got {:?}", errs);
     }
@@ -5071,7 +5374,8 @@ mod tests {
         let missing: Vec<&ValidationError> = errs
             .iter()
             .filter(|e| {
-                e.message.contains("Issues column with no matching diagram node")
+                e.message
+                    .contains("Issues column with no matching diagram node")
                     && e.message.contains("\"I11\"")
             })
             .collect();
@@ -5093,8 +5397,7 @@ mod tests {
         let orphan: Vec<&ValidationError> = errs
             .iter()
             .filter(|e| {
-                e.message.contains("no matching table row")
-                    && e.message.contains("\"I99\"")
+                e.message.contains("no matching table row") && e.message.contains("\"I99\"")
             })
             .collect();
         assert_eq!(
@@ -5437,7 +5740,12 @@ mod tests {
                 line
             );
             // No pre-announcement leakage.
-            for word in ["upcoming", "unreleased", "internal beta", "pre-announcement"] {
+            for word in [
+                "upcoming",
+                "unreleased",
+                "internal beta",
+                "pre-announcement",
+            ] {
                 assert!(
                     !lower.contains(word),
                     "pre-announcement language {:?} in FC07 doc-comment: {:?}",
@@ -5509,7 +5817,8 @@ mod tests {
         let doc = doc_md(&md);
         let errs = check_fc08(&doc, &spec_for("plan/v1"));
         assert!(
-            errs.iter().any(|e| e.message.contains("Legend names class `mystery`")),
+            errs.iter()
+                .any(|e| e.message.contains("Legend names class `mystery`")),
             "expected Sub A notice naming mystery; got {:?}",
             errs
         );
@@ -5526,7 +5835,9 @@ mod tests {
         let doc = doc_md(&md);
         let errs = check_fc08(&doc, &spec_for("plan/v1"));
         assert!(
-            !errs.iter().any(|e| e.message.contains("Legend names class `done`")),
+            !errs
+                .iter()
+                .any(|e| e.message.contains("Legend names class `done`")),
             "Sub A should tolerate canonical palette names; got {:?}",
             errs
         );
@@ -5543,8 +5854,9 @@ mod tests {
         let doc = doc_md(&md);
         let errs = check_fc08(&doc, &spec_for("plan/v1"));
         assert!(
-            errs.iter().any(|e| e.message.contains("classDef needsExplore") &&
-                                e.message.contains("Legend does not name it")),
+            errs.iter()
+                .any(|e| e.message.contains("classDef needsExplore")
+                    && e.message.contains("Legend does not name it")),
             "expected Sub B notice naming needsExplore; got {:?}",
             errs
         );
@@ -5579,9 +5891,9 @@ mod tests {
         let doc = doc_md(&md);
         let errs = check_fc08(&doc, &spec_for("plan/v1"));
         assert!(
-            errs.iter().any(|e| e.message.contains("`needs-design`") &&
-                                e.message.contains("`needsDesign`") &&
-                                e.message.contains("camelCase")),
+            errs.iter().any(|e| e.message.contains("`needs-design`")
+                && e.message.contains("`needsDesign`")
+                && e.message.contains("camelCase")),
             "expected Sub C notice naming both forms; got {:?}",
             errs
         );
@@ -5591,7 +5903,11 @@ mod tests {
             .iter()
             .filter(|e| e.message.contains("Legend does not name it"))
             .count();
-        assert_eq!(sub_b_count, 0, "Sub B should not double-fire under normalization; got {:?}", errs);
+        assert_eq!(
+            sub_b_count, 0,
+            "Sub B should not double-fire under normalization; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -5738,7 +6054,10 @@ mod tests {
         // Roadmap profile spec also engages (issues_table_columns non-
         // empty). The check function's gate is identical for both.
         let errs_roadmap = check_fc08(&doc, &spec_for("roadmap/v1"));
-        assert!(!errs_roadmap.is_empty(), "roadmap profile should engage FC08");
+        assert!(
+            !errs_roadmap.is_empty(),
+            "roadmap profile should engage FC08"
+        );
     }
 
     #[test]
@@ -5751,7 +6070,12 @@ mod tests {
         );
         let doc = doc_md(&md);
         let errs = check_fc08(&doc, &spec_for("brief/v1"));
-        assert_eq!(errs.len(), 0, "non-issues-table format should no-op; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "non-issues-table format should no-op; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -5764,7 +6088,11 @@ mod tests {
         );
         let doc = doc_md(&md);
         let errs = check_fc08(&doc, &spec_for("plan/v1"));
-        assert!(errs.len() >= 3, "expected at least one notice from each sub-check; got {:?}", errs);
+        assert!(
+            errs.len() >= 3,
+            "expected at least one notice from each sub-check; got {:?}",
+            errs
+        );
         for e in &errs {
             assert_eq!(e.code, "FC08", "all FC08 notices must have code=FC08");
             assert!(
@@ -5862,12 +6190,12 @@ mod tests {
             "Legend: =, =, =",
             "Legend: a =, = b",
             "Legend: ////",
-            "Legend: \u{0080}\u{ff}",  // multi-byte UTF-8 entry contents
-            "**Legend**: \u{1F600} = emoji-class",  // emoji color
+            "Legend: \u{0080}\u{ff}", // multi-byte UTF-8 entry contents
+            "**Legend**: \u{1F600} = emoji-class", // emoji color
         ];
         for input in cases {
             let body = vec![input.to_string()];
-            let _ = extract_legend(&body, 0);  // must not panic
+            let _ = extract_legend(&body, 0); // must not panic
         }
     }
 
@@ -6123,8 +6451,12 @@ mod tests {
         let fixture = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | other/private#42 | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    classDef ready fill:#bbdefb\n    class I1 ready\n```\n";
         let doc = doc_md(fixture);
         let ctx = pr_ctx();
-        let mock = MockIssueStateClient::new()
-            .with_issue("other", "private", 42, Err(ClientError::Forbidden));
+        let mock = MockIssueStateClient::new().with_issue(
+            "other",
+            "private",
+            42,
+            Err(ClientError::Forbidden),
+        );
         let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, Some(&ctx));
         let cross_skips: Vec<_> = errs
             .iter()
@@ -6196,7 +6528,12 @@ mod tests {
         );
         let mock = MockIssueStateClient::new();
         let errs = check_fc09(&doc, &spec_for("design/v1"), &mock, None);
-        assert_eq!(errs.len(), 0, "no-op on non-issues-table format; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "no-op on non-issues-table format; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -6272,7 +6609,12 @@ mod tests {
     fn check_writing_style_clean_body_no_notices() {
         let doc = doc_with_body("test.md", &["This is clean prose.", "Nothing banned here."]);
         let errs = check_writing_style(&doc, &spec_for("brief/v1"));
-        assert_eq!(errs.len(), 0, "clean body must produce no FC10 notices; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "clean body must produce no FC10 notices; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -6282,7 +6624,8 @@ mod tests {
             let doc = doc_with_body("t.md", &[line.as_str()]);
             let errs = check_writing_style(&doc, &spec_for("brief/v1"));
             assert!(
-                errs.iter().any(|e| e.code == "FC10" && e.message.contains(word)),
+                errs.iter()
+                    .any(|e| e.code == "FC10" && e.message.contains(word)),
                 "FC10 should detect banned word {:?}; got {:?}",
                 word,
                 errs
@@ -6294,7 +6637,11 @@ mod tests {
     fn check_writing_style_case_insensitive() {
         let doc = doc_with_body("t.md", &["TIER one is required.", "Robust design."]);
         let errs = check_writing_style(&doc, &spec_for("brief/v1"));
-        assert!(errs.len() >= 2, "case-insensitive matches expected; got {:?}", errs);
+        assert!(
+            errs.len() >= 2,
+            "case-insensitive matches expected; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -6378,7 +6725,12 @@ mod tests {
     fn check_plan_design_field_consistency_skip_no_upstream() {
         let doc = plan_doc_with_sections(vec![], &["- [ ] **foo**: bar"]);
         let errs = check_plan_design_field_consistency(&doc, &spec_for("plan/v1"));
-        assert_eq!(errs.len(), 0, "graceful skip when no upstream; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "graceful skip when no upstream; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -6390,7 +6742,12 @@ mod tests {
         doc.fields
             .insert("upstream".to_string(), fv("docs/designs/DESIGN-x.md", 6));
         let errs = check_plan_design_field_consistency(&doc, &spec_for("plan/v1"));
-        assert_eq!(errs.len(), 0, "identical shapes are compatible; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "identical shapes are compatible; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -6420,7 +6777,12 @@ mod tests {
     fn check_eval_fixture_frontmatter_skips_non_fixture_paths() {
         let doc = doc_with_body("docs/briefs/BRIEF-foo.md", &["<!-- comment -->", "---"]);
         let errs = check_eval_fixture_frontmatter(&doc, &spec_for("brief/v1"));
-        assert_eq!(errs.len(), 0, "non-fixture path should be skipped; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "non-fixture path should be skipped; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -6442,10 +6804,20 @@ mod tests {
     fn check_eval_fixture_frontmatter_clean_baseline() {
         let doc = doc_with_body(
             "skills/foo/evals/fixture.md",
-            &["---", "schema: brief/v1", "---", "<!-- after frontmatter is OK -->"],
+            &[
+                "---",
+                "schema: brief/v1",
+                "---",
+                "<!-- after frontmatter is OK -->",
+            ],
         );
         let errs = check_eval_fixture_frontmatter(&doc, &spec_for("brief/v1"));
-        assert_eq!(errs.len(), 0, "frontmatter-first should pass; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "frontmatter-first should pass; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -6480,7 +6852,12 @@ mod tests {
             ],
         );
         let errs = check_claude_md_conventions(&doc, &spec_for("brief/v1"));
-        assert_eq!(errs.len(), 0, "well-formed header should pass; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "well-formed header should pass; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -6763,9 +7140,9 @@ mod tests {
         // Remove the **Acceptance Criteria**: line + bullet for Issue 1.
         body.remove(10); // bullet
         body.remove(9); // header (now line 9 after first removal)
-        // Wait, ordering: original body[9]="**Goal**: ..."; body[10]="**AC**:";
-        // body[11]="- [ ] first AC". So we need to remove the AC header and bullet.
-        // Let me redo carefully — instead remove by content.
+                        // Wait, ordering: original body[9]="**Goal**: ..."; body[10]="**AC**:";
+                        // body[11]="- [ ] first AC". So we need to remove the AC header and bullet.
+                        // Let me redo carefully — instead remove by content.
         let mut body = well_formed_single_pr_body();
         body.retain(|l| !l.starts_with("**Acceptance Criteria**:"));
         body.retain(|l| !l.starts_with("- [ ] first AC"));
@@ -6954,7 +7331,8 @@ mod tests {
 
     // Canonical empty-skeleton fragments (marker + empty header / empty
     // mermaid block), per skills/roadmap/references/roadmap-format.md.
-    const II_MARKER: &str = "<!-- Populated by /plan during decomposition. Do not fill manually. -->";
+    const II_MARKER: &str =
+        "<!-- Populated by /plan during decomposition. Do not fill manually. -->";
     const II_EMPTY_HEADER: &str = "<!-- Populated by /plan during decomposition. Do not fill manually. -->\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|";
     const DG_EMPTY_MERMAID: &str = "<!-- Populated by /plan during decomposition. Do not fill manually. -->\n\n```mermaid\ngraph TD\n```";
 
@@ -7072,5 +7450,201 @@ mod tests {
         let md = "---\nschema: roadmap/v1\nstatus: Draft\ntheme: t\nscope: s\n---\n\n## Status\n\nDraft\n";
         let doc = doc_md(md);
         assert!(fc16(&doc).is_empty(), "absent sections must be a no-op");
+    }
+
+    // --- check_fc17 (absorbed declaration + contribution sections) ---
+
+    /// Build a doc at a chosen path, so FC17's clause-3 comparison against the
+    /// carrying document's own chain position has something to read.
+    fn doc_at(path: &str, md: &str) -> Doc {
+        crate::frontmatter::parse_doc_bytes(path, md.as_bytes()).expect("parse")
+    }
+
+    /// A DESIGN that absorbed a PRD, correct on every clause.
+    fn absorbing_design(absorbed: &str, status_body: &str, sections: &str) -> Doc {
+        doc_at(
+            "docs/designs/DESIGN-x.md",
+            &format!(
+                "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed: {absorbed}\n---\n\n## Status\n\nProposed\n\n{status_body}\n{sections}"
+            ),
+        )
+    }
+
+    const GOOD_STATUS_LINE: &str = "Absorbed [PRD-x](docs/prds/PRD-x.md); carried in Absorbed PRD.";
+
+    #[test]
+    fn fc17_is_silent_when_absorbed_is_absent() {
+        let doc = doc_md("---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\n---\n\n## Status\n\nProposed\n");
+        assert!(
+            check_fc17(&doc).is_empty(),
+            "a doc declaring no absorption must be untouched -- this is what keeps the change silent on the existing corpus"
+        );
+    }
+
+    #[test]
+    fn fc17_accepts_a_well_formed_declaration() {
+        let doc = absorbing_design(
+            "docs/prds/PRD-x.md",
+            GOOD_STATUS_LINE,
+            "\n## Absorbed PRD\n\nwhat it required\n\n## Context and Problem Statement\n\nx\n",
+        );
+        let errs = check_fc17(&doc);
+        assert!(errs.is_empty(), "expected clean, got {errs:?}");
+    }
+
+    #[test]
+    fn fc17_rejects_a_declaration_that_yields_no_entry() {
+        // A mapping-shaped value parses to zero entries. That must be an error
+        // rather than a silent no-op: a gate reading this list would otherwise
+        // weaken to nothing.
+        let doc = doc_at(
+            "docs/designs/DESIGN-x.md",
+            "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed:\n  key: value\n---\n\n## Status\n\nProposed\n",
+        );
+        let errs = check_fc17(&doc);
+        assert_eq!(errs.len(), 1, "got {errs:?}");
+        assert!(errs[0].message.contains("no usable entry"));
+    }
+
+    #[test]
+    fn fc17_rejects_a_malformed_entry() {
+        let doc = absorbing_design("docs/prds/notes.txt", GOOD_STATUS_LINE, "");
+        let errs = check_fc17(&doc);
+        assert_eq!(errs.len(), 1, "got {errs:?}");
+        assert!(errs[0]
+            .message
+            .contains("does not name an absorbable document"));
+    }
+
+    #[test]
+    fn fc17_rejects_a_cross_repo_entry() {
+        let doc = absorbing_design("owner/repo:docs/prds/PRD-x.md", GOOD_STATUS_LINE, "");
+        let errs = check_fc17(&doc);
+        assert_eq!(errs.len(), 1, "got {errs:?}");
+        assert!(errs[0].message.contains("cross-repo"));
+    }
+
+    #[test]
+    fn fc17_rejects_an_entry_not_upstream_of_the_carrier() {
+        // A PRD cannot absorb a DESIGN: the chain runs the other way.
+        let doc = doc_at(
+            "docs/prds/PRD-x.md",
+            "---\nschema: prd/v1\nstatus: Draft\nproblem: |\n  p\ngoals: |\n  g\nabsorbed: docs/designs/DESIGN-x.md\n---\n\n## Status\n\nDraft\n\nAbsorbed [DESIGN-x](docs/designs/DESIGN-x.md); carried in Absorbed Design.\n\n## Absorbed Design\n\nx\n",
+        );
+        let errs = check_fc17(&doc);
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("is not upstream of this document")),
+            "got {errs:?}"
+        );
+    }
+
+    #[test]
+    fn fc17_rejects_a_contribution_section_that_is_not_adjacent_to_status() {
+        // FC15 permits unrequired sections between required ones, so it cannot
+        // express adjacency at any severity. This is the clause that owns it.
+        let doc = absorbing_design(
+            "docs/prds/PRD-x.md",
+            GOOD_STATUS_LINE,
+            "\n## Context and Problem Statement\n\nx\n\n## Absorbed PRD\n\nx\n",
+        );
+        let errs = check_fc17(&doc);
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("contiguously in chain order")),
+            "got {errs:?}"
+        );
+    }
+
+    #[test]
+    fn fc17_rejects_a_missing_status_absorption_line() {
+        let doc = absorbing_design(
+            "docs/prds/PRD-x.md",
+            "some prose that is not the pinned shape",
+            "\n## Absorbed PRD\n\nx\n",
+        );
+        let errs = check_fc17(&doc);
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("missing the absorption line")),
+            "got {errs:?}"
+        );
+    }
+
+    #[test]
+    fn fc17_requires_transitive_contributions_in_chain_order() {
+        let doc = doc_at(
+            "docs/designs/DESIGN-x.md",
+            "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed:\n  - docs/prds/PRD-x.md\n  - docs/briefs/BRIEF-x.md\n---\n\n## Status\n\nProposed\n\nAbsorbed [BRIEF-x](docs/briefs/BRIEF-x.md); carried in Absorbed Brief.\nAbsorbed [PRD-x](docs/prds/PRD-x.md); carried in Absorbed PRD.\n\n## Absorbed Brief\n\nwhy\n\n## Absorbed PRD\n\nwhat\n\n## Context and Problem Statement\n\nx\n",
+        );
+        let errs = check_fc17(&doc);
+        assert!(
+            errs.is_empty(),
+            "a survivor carrying two contributions in chain order is valid -- the declaration order must not matter, the chain order must; got {errs:?}"
+        );
+    }
+
+    #[test]
+    fn required_sections_splice_is_inert_without_a_declaration() {
+        let doc = doc_md("---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\n---\n\n## Status\n\nProposed\n");
+        let spec = design_spec();
+        assert_eq!(
+            required_sections_for(&doc, &spec),
+            spec.required_sections,
+            "the base list must be returned unchanged for every document on disk today"
+        );
+    }
+
+    #[test]
+    fn required_sections_splice_inserts_after_status_in_chain_order() {
+        let doc = doc_at(
+            "docs/designs/DESIGN-x.md",
+            "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed:\n  - docs/prds/PRD-x.md\n  - docs/briefs/BRIEF-x.md\n---\n\n## Status\n\nProposed\n",
+        );
+        let got = required_sections_for(&doc, &design_spec());
+        assert_eq!(got[0], "Status");
+        assert_eq!(
+            got[1], "Absorbed Brief",
+            "chain order, not declaration order"
+        );
+        assert_eq!(got[2], "Absorbed PRD");
+        assert_eq!(got[3], "Context and Problem Statement");
+    }
+
+    #[test]
+    fn required_sections_splice_falls_back_on_an_invalid_declaration() {
+        // The splice and FC17 share one parse so that an invalid entry produces
+        // the entry diagnostic alone. If the splice ran anyway, the author would
+        // get a louder and misleading missing-section error for the same cause.
+        let doc = doc_at(
+            "docs/designs/DESIGN-x.md",
+            "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed: docs/prds/notes.txt\n---\n\n## Status\n\nProposed\n",
+        );
+        let spec = design_spec();
+        assert_eq!(
+            required_sections_for(&doc, &spec),
+            spec.required_sections,
+            "an invalid declaration must not add required sections"
+        );
+    }
+
+    #[test]
+    fn contribution_headings_collide_with_no_existing_required_section() {
+        use crate::formats::{formats, CONTRIBUTION_SECTIONS};
+        let mut existing: Vec<String> = Vec::new();
+        for spec in formats() {
+            existing.extend(spec.required_sections.clone());
+            if let Some(map) = &spec.execution_mode_required_sections {
+                for list in map.values() {
+                    existing.extend(list.clone());
+                }
+            }
+        }
+        for (_, heading) in CONTRIBUTION_SECTIONS {
+            assert!(
+                !existing.iter().any(|name| name == heading),
+                "contribution heading {heading} collides with an existing required section"
+            );
+        }
     }
 }
