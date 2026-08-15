@@ -1,5 +1,6 @@
 ---
-status: Draft
+schema: prd/v1
+status: Accepted
 problem: |
   A PLAN's execution_mode is read as the answer to three separate questions:
   whether the work can land in one pull request, whether it should, and what
@@ -13,7 +14,8 @@ goals: |
   A plan whose shape is not the one its repository's preference would produce
   carries, in the merged artifact, the reason for the shape it has, and a check
   confirms the record is there before the work merges.
-upstream: docs/briefs/BRIEF-multi-pr-plan-decoupling.md
+absorbed:
+  - docs/briefs/BRIEF-multi-pr-plan-decoupling.md
 motivating_context: |
   Raised by shirabe's maintainer, who wants every plan that can be one PR to be
   one PR and wants multi-PR to be trustworthy evidence that no other option
@@ -27,7 +29,41 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
+
+Absorbed [BRIEF-multi-pr-plan-decoupling](docs/briefs/BRIEF-multi-pr-plan-decoupling.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature frames a maintainer's and a team's competing, both-legitimate
+preferences about how planned work arrives, and asks that neither have to
+re-argue its case per plan.
+
+The problem it named is the one this document's Problem Statement states in
+full: one field answering three questions, so a repository can express no
+preference about delivery shape or about tracking, and a plan that is not
+single-PR leaves no reason a later reader can check.
+
+The outcome it asked for is that an author plans a change and its shape follows
+what the repository already said it prefers; that tracking follows a separate
+stated preference; and that a plan whose shape is not the obvious one says why,
+in the merged artifact. Those are this document's Goals.
+
+Four situations grounded it, and they survive as user stories here: a sole
+maintainer who wants the fewest possible pull requests and reads the reason off
+the document months later; a team that splits for reviewability and wants to say
+so in those terms rather than as an incremental-value claim; a team that wants
+staged delivery without duplicating work items into the issue tracker; and a
+reviewer auditing a merged plan who needs to tell a forced split from a preferred
+one. The framing's insistence that *both* answers are useful and are different
+answers is what R13's branch-naming requirement exists to preserve.
+
+Its scope boundary held in the mode decision, the two preferences, the durable
+record, and the consequences of separating tracking from delivery. It pushed out
+coordinated multi-repository mode, roadmap-level issue filing, issue body format,
+the single-issue implementation path, automatic constraint detection, and
+defining a review-size threshold. This document's Out of Scope carries all six
+and adds one the framing did not anticipate.
 
 ## Problem Statement
 

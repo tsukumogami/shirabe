@@ -61,3 +61,4 @@ merge driver. There is no precedent to inherit.
 
 | Date | Absorbed | Into | Verdict | Carried | Blob |
 |---|---|---|---|---|---|
+| 2026-08-15 | docs/briefs/BRIEF-multi-pr-plan-decoupling.md | docs/prds/PRD-multi-pr-plan-decoupling.md | absorb | problem-statement=true user-outcome=true user-journeys=true scope-boundary=true absorbed-brief=true | 08da355bf2f2a02e1db3b08d10e263ee2c43a9bb |
