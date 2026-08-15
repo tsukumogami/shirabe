@@ -262,3 +262,9 @@ do without the tool, since the agent's decision is whether to proceed degraded.
 7. **Degrade as a check outcome.** `extract-context.sh:407-409` is the only
    graceful degradation in the repo -- warns and falls back to `wip/` when koto
    is absent. Worth preserving as an outcome type, not just pass/fail.
+
+## Decision: Crystallize
+
+Round 1 findings judged sufficient. Remaining tensions (presence vs. skew,
+mode-conditional dependencies, the two prior decisions to argue past) are
+trade-offs for structured analysis, not research gaps.
