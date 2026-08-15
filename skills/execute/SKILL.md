@@ -1,13 +1,15 @@
 ---
 name: execute
 description: >-
-  Implementation-altitude parent skill that owns plan-level execution. Takes a
-  finished PLAN doc and drives it to merged code, delegating each single issue to
-  /work-on. Use to run a plan end-to-end: `/execute docs/plans/PLAN-<topic>.md`.
-  Owns single-pr and coordinated multi-repo plans, with a wip-yaml-md state
-  projection over the durable home PR (cross-branch resume), the three exit-path
-  bindings, parent-skill conformance, the six security surfaces, and an explicit
-  autonomy mandate.
+  Runs a finished PLAN document end to end: drives every issue in the plan to
+  merged code, delegating each single issue to /work-on. Use when a plan is
+  ready and the whole plan should run, when a stopped plan run has to resume, or
+  when a coordinated multi-repo plan needs its per-repo work merged in the right
+  order. Use for "run this plan end to end", "execute
+  docs/plans/PLAN-<topic>.md", "implement all the issues in the plan", "take the
+  finished plan to merged code", or "resume the plan run". Do NOT use for a
+  single issue, a milestone, or a task with no plan, which /work-on owns, or for
+  a multi-pr plan, which runs one issue at a time through /work-on.
 allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 

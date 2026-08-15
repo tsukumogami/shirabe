@@ -53,6 +53,27 @@ impl Fx {
         })
         .to_string()
     }
+
+    /// The same call, given a transcript whose single instruction names a real
+    /// single-pr plan in this repository. This is the shape that arms.
+    fn armed_hook_json(&self, session: &str) -> String {
+        fs::write(
+            self.repo().join("docs/plans/PLAN-topic.md"),
+            "---\nschema: plan/v1\nstatus: Active\nexecution_mode: single-pr\n---\n\n# PLAN\n",
+        )
+        .unwrap();
+        let record = serde_json::json!({
+            "type": "user",
+            "userType": "external",
+            "message": { "role": "user", "content": "/execute docs/plans/PLAN-topic.md" },
+        });
+        let transcript = self.dir.join("transcript.jsonl");
+        fs::write(&transcript, format!("{record}\n")).unwrap();
+
+        let mut v: serde_json::Value = serde_json::from_str(&self.hook_json(session)).unwrap();
+        v["transcript_path"] = serde_json::json!(transcript.to_string_lossy());
+        v.to_string()
+    }
 }
 
 impl Drop for Fx {
@@ -238,6 +259,106 @@ fn a_repo_without_a_plans_directory_leaves_no_witness() {
         .assert()
         .success();
     assert_eq!(fs::read_dir(fx.store()).unwrap().count(), 0);
+}
+
+#[test]
+fn an_armed_session_still_allows_and_emits_no_decision() {
+    // Arming is a decision, not yet a refusal. The refusal ships behind an
+    // operator switch in a later increment, so that the false-positive rate of
+    // the arming predicate can be measured from real sessions first. Until then
+    // an armed call must be indistinguishable, at the process boundary, from an
+    // unarmed one: exit 0, empty stdout.
+    let fx = Fx::new();
+    let assert = Command::cargo_bin("shirabe")
+        .unwrap()
+        .arg("adherence-hook")
+        .arg("--contract")
+        .arg(plugin_root())
+        .env("SHIRABE_ADHERENCE_STORE_DIR", fx.store())
+        .env("SHIRABE_ADHERENCE_TRACE", "1")
+        .write_stdin(fx.armed_hook_json("cli-armed"))
+        .assert()
+        .success();
+    let out = assert.get_output();
+    assert!(
+        out.stdout.is_empty(),
+        "an armed call must emit no decision, got {:?}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    // The decision is recorded, on stderr, so the observe-only stage can read
+    // the rate back. Stderr on a zero exit does not block the tool call.
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("armed plan=") && stderr.contains("PLAN-topic.md"),
+        "the arming decision must be recorded: {stderr}"
+    );
+}
+
+#[test]
+fn a_session_that_only_read_a_plan_file_is_not_armed() {
+    // The denial-of-service regression, at the process boundary: the plan is
+    // real and resolvable, and the only reason this session does not arm is
+    // that the filename reached it as tool output rather than as an
+    // instruction. Were it otherwise, opening a pull request that adds a valid
+    // plan plus any readable file naming it would write-deny the first agent to
+    // read the second file, for the rest of its session, with no human present.
+    let fx = Fx::new();
+    fs::write(
+        fx.repo().join("docs/plans/PLAN-topic.md"),
+        "---\nschema: plan/v1\nstatus: Active\nexecution_mode: single-pr\n---\n\n# PLAN\n",
+    )
+    .unwrap();
+    let read_result = serde_json::json!({
+        "type": "user",
+        "userType": "external",
+        "sourceToolAssistantUUID": "0d1e-abc",
+        "toolUseResult": { "type": "text", "file": { "content": "docs/plans/PLAN-topic.md" } },
+        "message": { "role": "user", "content": [
+            { "type": "tool_result", "tool_use_id": "toolu_1", "content": "docs/plans/PLAN-topic.md" },
+        ] },
+    });
+    let transcript = fx.dir.join("read-only.jsonl");
+    fs::write(&transcript, format!("{read_result}\n")).unwrap();
+
+    let mut v: serde_json::Value = serde_json::from_str(&fx.hook_json("cli-readonly")).unwrap();
+    v["transcript_path"] = serde_json::json!(transcript.to_string_lossy());
+
+    let assert = Command::cargo_bin("shirabe")
+        .unwrap()
+        .arg("adherence-hook")
+        .env("SHIRABE_ADHERENCE_STORE_DIR", fx.store())
+        .env("SHIRABE_ADHERENCE_TRACE", "1")
+        .write_stdin(v.to_string())
+        .assert()
+        .success();
+    let out = assert.get_output();
+    assert!(out.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("not armed reason=no-plan-reference"),
+        "reading a plan must not arm: {stderr}"
+    );
+}
+
+#[test]
+fn the_trace_is_off_by_default() {
+    // It runs on every edit-shaped call, so it stays quiet unless asked.
+    let fx = Fx::new();
+    let assert = Command::cargo_bin("shirabe")
+        .unwrap()
+        .arg("adherence-hook")
+        .env("SHIRABE_ADHERENCE_STORE_DIR", fx.store())
+        .env_remove("SHIRABE_ADHERENCE_TRACE")
+        .write_stdin(fx.armed_hook_json("cli-quiet"))
+        .assert()
+        .success();
+    let out = assert.get_output();
+    assert!(out.stdout.is_empty());
+    assert!(
+        out.stderr.is_empty(),
+        "unexpected stderr: {:?}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 #[test]

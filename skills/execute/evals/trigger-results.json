@@ -5,24 +5,27 @@
   "metric": "quantized per-query pass rate: a query passes when its trigger rate over runs_per_query runs falls on the expected side of a 0.5 majority threshold",
   "tolerance_band": "+/- 1 query on a 20-query set (+/- 5 percentage points); two runs over an unchanged set agree when their pass counts differ by at most 1",
   "reproducibility": "not exact. run_eval.py shells out to `claude -p`, which exposes no seed and no temperature control. The tolerance band is a declared agreement window, not a claim of bit-equal reruns.",
+  "harness": "each run builds a throwaway project root holding only a .claude/ and the plan paths the prompt set names. Measured in this checkout instead, the real shirabe plugin competes with the copy under test and every positive query fails regardless of the description.",
+  "concurrency": "one query at a time. run_eval.py checks that the selected command carries the name it generated for that run, so parallel workers put several identically-described commands in the harness at once and the check fails whenever a neighbour is chosen. Runs recorded with workers > 1 understate the positive rate by roughly that factor.",
   "runs": [
     {
       "label": "baseline",
-      "recorded_at": "2026-08-15T21:57:54Z",
+      "recorded_at": "2026-08-15T22:26:58Z",
       "runs_per_query": 5,
+      "workers": 1,
       "model": "default",
       "cli_version": "2.1.233 (Claude Code)",
       "description_measured": "Implementation-altitude parent skill that owns plan-level execution. Takes a finished PLAN doc and drives it to merged code, delegating each single issue to /work-on. Use to run a plan end-to-end: `/execute docs/plans/PLAN-<topic>.md`. Owns single-pr and coordinated multi-repo plans, with a wip-yaml-md state projection over the durable home PR (cross-branch resume), the three exit-path bindings, parent-skill conformance, the six security surfaces, and an explicit autonomy mandate.",
       "queries": 20,
-      "queries_passed": 8,
-      "quantized_pass_rate": 0.4,
+      "queries_passed": 13,
+      "quantized_pass_rate": 0.65,
       "per_query": [
         {
           "query": "Drive every issue in this PLAN to a merged pull request",
           "should_trigger": true,
-          "triggers": 0,
+          "triggers": 4,
           "runs": 5,
-          "pass": false
+          "pass": true
         },
         {
           "query": "Execute the plan at docs/plans/PLAN-skill-adherence-enforcement.md",
@@ -34,14 +37,14 @@
         {
           "query": "I have a finished PLAN doc. Start implementing it, all the issues, don't stop between them.",
           "should_trigger": true,
-          "triggers": 0,
+          "triggers": 4,
           "runs": 5,
-          "pass": false
+          "pass": true
         },
         {
           "query": "Kick off implementation of the plan we just wrote, issue by issue",
           "should_trigger": true,
-          "triggers": 0,
+          "triggers": 1,
           "runs": 5,
           "pass": false
         },
@@ -62,16 +65,16 @@
         {
           "query": "Run this coordinated multi-repo plan across all three repositories",
           "should_trigger": true,
-          "triggers": 0,
+          "triggers": 3,
           "runs": 5,
-          "pass": false
+          "pass": true
         },
         {
           "query": "Ship the whole plan: every issue, one pull request",
           "should_trigger": true,
-          "triggers": 0,
+          "triggers": 5,
           "runs": 5,
-          "pass": false
+          "pass": true
         },
         {
           "query": "Start the implementation run for docs/plans/PLAN-work-on-friction-fixes.md and do not stop for checkpoints",
@@ -90,9 +93,9 @@
         {
           "query": "The plan is finished. Take it all the way to merged code.",
           "should_trigger": true,
-          "triggers": 0,
+          "triggers": 5,
           "runs": 5,
-          "pass": false
+          "pass": true
         },
         {
           "query": "Work through the whole plan autonomously until it is mergeable",
@@ -158,7 +161,7 @@
           "pass": true
         }
       ],
-      "note": "current description, before any rewrite"
+      "note": "the description as it stood in SKILL.md before any rewrite"
     }
   ]
 }

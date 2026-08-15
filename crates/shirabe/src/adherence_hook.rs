@@ -586,6 +586,21 @@ fn scan_instructions(transcript: &Path) -> Result<Scan, NotArmed> {
         if !complete {
             continue;
         }
+        // Cheap gate before the expensive one. The scan's only outputs are plan
+        // references and the delegation marker, so a record whose raw bytes
+        // contain neither cannot contribute to either, whatever its shape, and
+        // is not worth deserializing. On a real 13MB transcript this is the
+        // difference between scanning the whole file and parsing 862 tool-result
+        // payloads to discard every one of them.
+        //
+        // Sound in the fail-open direction, which is the direction that
+        // matters: the pattern is built from the same constants the
+        // authoritative match below uses, and a reference obfuscated past it —
+        // JSON lets any letter be written as a unicode escape — simply does not
+        // arm.
+        if !relevance_prefilter().is_match(&buf) {
+            continue;
+        }
         let Ok(record) = serde_json::from_slice::<serde_json::Value>(&buf) else {
             // One malformed line does not condemn the transcript. The parse is
             // total by construction: `serde_json` returns an error, it does not
@@ -651,9 +666,30 @@ fn read_capped_line<R: BufRead>(reader: &mut R, buf: &mut Vec<u8>) -> Option<boo
     }
 }
 
+/// Whether a raw JSONL line could possibly contribute to the scan: it names
+/// something plan-shaped, or carries a delegation marker.
+///
+/// Built from the same constants the authoritative matches use, so the two
+/// cannot drift apart. It runs over raw bytes, before deserialization and
+/// before the prompt-shaped test — it is a cost filter, never a decision. A
+/// record it admits is still subject to [`is_prompt_shaped`], which is where
+/// tool output is excluded.
+fn relevance_prefilter() -> &'static regex::bytes::Regex {
+    static PATTERN: OnceLock<regex::bytes::Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| {
+        let markers = SINGLE_ISSUE_MARKERS
+            .iter()
+            .map(|m| regex::escape(m))
+            .collect::<Vec<_>>()
+            .join("|");
+        regex::bytes::Regex::new(&format!("PLAN-|(?i:{markers})"))
+            .expect("the prefilter is built from escaped literals and compiles")
+    })
+}
+
 /// A plan-shaped reference: an optional relative directory prefix followed by a
-/// `PLAN-`-prefixed Markdown filename. Deliberately narrow — it is a lexical
-/// pre-filter, and everything it admits is still resolved, confined, and
+/// `PLAN-`-prefixed Markdown filename. Deliberately narrow — it only proposes
+/// candidates, and everything it admits is still resolved, confined, and
 /// schema-checked before it can arm anything.
 fn plan_reference_pattern() -> &'static Regex {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
@@ -718,27 +754,39 @@ fn read_plan(root: &Path, reference: &str) -> Result<PlanDoc, NotArmed> {
 }
 
 /// Validate a reference as a working-tree-relative path before any filesystem
-/// access: no absolute path, no root or parent component, no empty result. A
-/// bare filename is taken to mean the conventional plans directory, which is
-/// where `/execute` is invoked with one.
+/// access, and normalize it. A bare filename is taken to mean the conventional
+/// plans directory, which is how `/execute` is invoked with one.
+///
+/// Runs before any filesystem access, so a hostile reference costs a string
+/// walk rather than a `stat`. It is not the confinement check on its own — the
+/// canonical-parent prefix test in [`read_plan`] is, since a symlinked
+/// directory component is invisible to a lexical walk.
 fn confine(reference: &str) -> Option<PathBuf> {
     let raw = Path::new(reference);
     if raw.is_absolute() {
         return None;
     }
+    let mut normalized = PathBuf::new();
     for component in raw.components() {
         match component {
-            Component::Normal(_) => {}
-            // `.` is harmless but `..` and a root prefix are not, and refusing
-            // all three keeps the admitted set to plain relative paths.
+            Component::Normal(c) => normalized.push(c),
+            // A `.` cannot escape anything, so it is dropped rather than
+            // refused: `/execute ./docs/plans/PLAN-x.md` is an ordinary way to
+            // name a plan.
+            Component::CurDir => {}
+            // `..` and a root or prefix component are refused outright rather
+            // than resolved, since resolving them lexically is where traversal
+            // checks usually go wrong.
             _ => return None,
         }
     }
-    raw.components().next()?;
-    if raw.parent() == Some(Path::new("")) {
-        return Some(Path::new(PLANS_DIR).join(raw));
+    if normalized.as_os_str().is_empty() {
+        return None;
     }
-    Some(raw.to_path_buf())
+    if normalized.parent() == Some(Path::new("")) {
+        return Some(Path::new(PLANS_DIR).join(normalized));
+    }
+    Some(normalized)
 }
 
 /// The two frontmatter fields the arming predicate needs.
@@ -1628,7 +1676,32 @@ mod tests {
     fn a_bare_plan_filename_resolves_under_the_plans_directory() {
         let fx = Fx::new();
         fx.with_plan("PLAN-topic.md", SINGLE_PR_PLAN);
-        assert_eq!(fx.arm(&[prompt("/execute PLAN-topic.md")]).reason(), "armed");
+        assert_eq!(
+            fx.arm(&[prompt("/execute PLAN-topic.md")]).reason(),
+            "armed"
+        );
+    }
+
+    #[test]
+    fn a_leading_dot_is_dropped_rather_than_refused() {
+        let fx = Fx::new();
+        fx.with_plan("PLAN-topic.md", SINGLE_PR_PLAN);
+        assert_eq!(
+            fx.arm(&[prompt("/execute ./docs/plans/PLAN-topic.md")])
+                .reason(),
+            "armed"
+        );
+        assert_eq!(
+            confine("./docs/plans/PLAN-x.md").unwrap(),
+            Path::new("docs/plans/PLAN-x.md")
+        );
+        assert_eq!(
+            confine("PLAN-x.md").unwrap(),
+            Path::new("docs/plans/PLAN-x.md")
+        );
+        assert!(confine("../PLAN-x.md").is_none());
+        assert!(confine("/abs/PLAN-x.md").is_none());
+        assert!(confine(".").is_none());
     }
 
     // --- arming: routing and bounded reads ---------------------------------
@@ -1701,8 +1774,9 @@ mod tests {
         assert_eq!(f.execution_mode.as_deref(), Some("single-pr"));
 
         // Quoted scalars, and a closing `...` rather than `---`.
-        let f = parse_front_matter("---\nschema: \"plan/v1\"\nexecution_mode: 'coordinated'\n...\n")
-            .unwrap();
+        let f =
+            parse_front_matter("---\nschema: \"plan/v1\"\nexecution_mode: 'coordinated'\n...\n")
+                .unwrap();
         assert_eq!(f.schema.as_deref(), Some("plan/v1"));
         assert_eq!(f.execution_mode.as_deref(), Some("coordinated"));
 
@@ -1747,6 +1821,24 @@ mod tests {
     }
 
     #[test]
+    fn the_prefilter_admits_everything_the_matchers_need() {
+        // It runs before deserialization, so a marker or reference it drops is
+        // a decision the scan never gets to make. Both matchers' inputs must
+        // survive it.
+        let re = relevance_prefilter();
+        assert!(re.is_match(b"docs/plans/PLAN-topic.md"));
+        for marker in SINGLE_ISSUE_MARKERS {
+            assert!(re.is_match(marker.as_bytes()), "drops marker {marker:?}");
+            assert!(
+                re.is_match(marker.to_uppercase().as_bytes()),
+                "marker matching is case-insensitive: {marker:?}"
+            );
+        }
+        // And it drops the bulk of a transcript, which is why it exists.
+        assert!(!re.is_match(b"{\"type\":\"assistant\",\"message\":{\"content\":\"ok\"}}"));
+    }
+
+    #[test]
     fn an_over_long_reference_is_skipped() {
         let fx = Fx::new();
         fx.with_plans();
@@ -1781,7 +1873,10 @@ mod tests {
     fn a_repository_without_plans_does_not_reach_the_scan() {
         let fx = Fx::new();
         // No plans directory: the cheap check stops before any transcript read.
-        assert_eq!(fx.arm(&[prompt("/execute docs/plans/PLAN-x.md")]).reason(), "no-plans-directory");
+        assert_eq!(
+            fx.arm(&[prompt("/execute docs/plans/PLAN-x.md")]).reason(),
+            "no-plans-directory"
+        );
     }
 
     #[test]
