@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Proposed
 problem: |
   Agents that have shirabe's skills available fail to run plan-scale work under

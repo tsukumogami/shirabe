@@ -20,6 +20,28 @@ child_snapshots:
     status: Proposed
     content_hash: 2ce6abdd1cf9c4096855159c63eeab687c7b386c
     captured_at: 2026-08-15T20:02:00Z
+worktree_rebases:
+  - phase: brief
+    upstream_commits:
+      - 7eb98ec
+      - fc9133e
+      - 778913e
+      - 83d29e1
+      - b8b20eb
+      - e227d7a
+    impact: intent-changing-resolved-in-place
+    rebased_at: 2026-08-15T20:06:00Z
+    notes: >-
+      fc9133e made a missing schema field an incomplete validator outcome
+      rather than a pass; the DESIGN skeleton this chain inherited from the
+      /explore handoff carried none, so shirabe validate returned
+      outcome=incomplete and would have halted the Phase 2 validator
+      pass-through. Resolved in place by adding schema: design/v1. The
+      document now reports violations for six missing sections and two
+      missing frontmatter fields, which are precisely the sections /design
+      authors later in this chain. Kept rather than reverted because an
+      absent schema field is the worse failure mode: the structural pass
+      never runs at all and the document reports clean.
 ```
 
 ## Phase 1 Notes
