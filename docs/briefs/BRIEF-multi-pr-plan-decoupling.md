@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   A PLAN's execution_mode answers three questions with one value: whether the
   work can land in a single PR, whether it should, and whether GitHub issues and
@@ -23,7 +23,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 Framed from the exploration recorded on this branch. The downstream PRD owns the
 requirements; the decisions the exploration already settled are carried in the
@@ -170,19 +170,6 @@ would have said so, so silence is not something a reader has to interpret.
 - **Defining a review-size threshold.** The repository's existing reviewability
   setting points at a value that is defined nowhere. Giving it a concrete
   meaning is named here as a known gap, not resolved as part of this feature.
-
-## Open Questions
-
-- Whether the record of why a plan is not single-PR should also be required of
-  cross-repository efforts, which have the same unenforced obligation one
-  altitude up. The downstream PRD decides whether that is in this feature's
-  contract or a follow-on.
-- Whether the two preferences share one setting or take two. They are
-  independent wishes, which argues for two; they are set together in practice,
-  which argues for one. The PRD records the choice and its reason.
-- Whether a plan that fits one pull request may still be asked to record its
-  shape. The framing above says no, on the ground that nobody asks about one pull
-  request, but a reviewer wanting uniform records may disagree.
 
 ## References
 
