@@ -75,6 +75,20 @@
         "Agent states the guardrail: no PR reference outside the block unless the block lists it",
         "Agent notes the same rule governs the dispatch final-message text"
       ]
+    },
+    {
+      "id": 7,
+      "name": "missing-binary-fallback",
+      "prompt": "/inflight -- what happens on a host where the shirabe binary is not installed?",
+      "expected_output": "The injected line carries a `|| echo` fallback, so the shell's exit 127 never reaches the harness and the skill body is still delivered. The fallback text says the binary is not on PATH and that the block is unavailable on this host. The agent reports that, and does not print an empty block, substitute the session-scoped empty-state line, or list PRs from memory. `render` itself always exits 0 by construction, so the only failure the fallback catches is the binary being absent or unresolvable.",
+      "files": [],
+      "expectations": [
+        "Agent identifies the `|| echo` fallback branch as what keeps the injected line exiting 0",
+        "Agent states the skill body is still delivered rather than the invocation aborting on 127",
+        "Agent does NOT treat the fallback as an empty-state or fabricate a work-in-flight block",
+        "Agent notes `shirabe work-summary render` always exits 0 when the binary exists, so the fallback only covers an absent binary",
+        "Agent notes `allowed-tools` declares both halves (`Bash(shirabe:*)` and `Bash(echo:*)`) because patterns do not compose across `||`"
+      ]
     }
   ]
 }

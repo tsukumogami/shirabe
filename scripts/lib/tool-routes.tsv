@@ -1,0 +1,37 @@
+#schema	tool-routes/v1
+#
+# Install routes per tool, and the routes that are deliberately excluded.
+#
+# Six tab-separated fields, one route per record, several records per tool, in
+# preference order. The reader takes the first record for a tool whose OS
+# matches uname -s and whose probe succeeds, which is what makes "exactly one
+# command in a report" fall out of the data rather than out of reporter logic.
+#
+#   1 tool      [A-Za-z0-9._-]+. The union of this column is the closed set of
+#               tool names a skills/<name>/requires.tsv record may name in its
+#               first field, so a declaration cannot introduce a new executable
+#               name without a reviewed edit to this file.
+#   2 route     Route identifier, printed in the no-route enumeration.
+#               [a-z0-9-]+.
+#   3 os        any, darwin, or linux, matched against uname -s.
+#   4 probe     Availability test, as <driver> or <driver> <verb>. `tsuku
+#               tsuku-info` means tsuku resolves and `tsuku info <tool>`
+#               succeeds; `brew -` means brew resolves. `never` marks an
+#               excluded route. The verb vocabulary is closed and lives in the
+#               reader, so adding a driver is a code change, not a data change.
+#   5 command   Emitted verbatim if this record wins. `-` when excluded.
+#   6 citation  Issue reference, or `-`. Mandatory and non-dash on any record
+#               whose probe is `never`, enforced by the reader.
+#
+# Ownership rule: a route is added or excluded together with the incident that
+# justifies it, cited by issue number in field six. An excluded route is a
+# record rather than an absence on purpose -- it has to appear in the no-route
+# enumeration a report prints, with its reason, or a reader concludes the
+# maintainers forgot about it.
+#
+koto	tsuku	any	tsuku tsuku-info	tsuku install koto@latest && . ~/.tsuku/env	-
+shirabe	tsuku	any	tsuku tsuku-info	tsuku install shirabe@latest && . ~/.tsuku/env	-
+gh	tsuku	linux	never	-	tsukumogami/tsuku#2245
+gh	tsuku	darwin	tsuku tsuku-info	tsuku install gh@latest && . ~/.tsuku/env	-
+gh	homebrew	darwin	brew -	brew install gh	-
+gh	apt-get	linux	apt-get -	sudo apt-get install -y gh	-
