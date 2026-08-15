@@ -325,10 +325,29 @@ On the `override` path, the branch you stay on (the author's or `/scope` branch 
 ```bash
 SETTLED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 case "$SETTLED_BRANCH" in
-  *[!A-Za-z0-9._/-]*|"") echo "refusing unsafe settled branch: $SETTLED_BRANCH" >&2; exit 1 ;;
+  *[!A-Za-z0-9._/-]*|"") echo "refusing unsafe settled branch: $SETTLED_BRANCH"; exit 1 ;;
 esac
-koto context set {{SESSION_NAME}} settled_branch "$SETTLED_BRANCH"
+printf '%s' "$SETTLED_BRANCH" | koto context add {{SESSION_NAME}} settled_branch 2>/dev/null
+RECORDED=$(koto context get {{SESSION_NAME}} settled_branch 2>/dev/null)
+if [ "$RECORDED" != "$SETTLED_BRANCH" ]; then
+  echo "settled_branch NOT recorded: read back [$RECORDED], expected [$SETTLED_BRANCH]"
+  echo "submit status: blocked -- do NOT submit completed or override"
+  exit 1
+fi
+echo "settled_branch recorded and verified: $SETTLED_BRANCH"
 ```
+
+Four details in that block are load-bearing, and each one is a way the previous version of this step failed silently.
+
+**`koto context add`, not `koto context set`.** There is no `context set`; koto's context group is `add`, `get`, `exists`, `list`. The old line failed on every run since it was written.
+
+**`printf '%s'`, not `echo`, and a pipe rather than a positional argument.** `add` takes its value from stdin (or `--from-file`), and it stores what it receives verbatim. `echo` would append a newline that becomes part of the branch name.
+
+**The read-back is a comparison, not an emptiness test.** `koto context get` on a missing key writes its error as JSON to **stdout** and exits 3, so `RECORDED` on failure holds an error payload rather than nothing. Comparing against `$SETTLED_BRANCH` catches that case and every other; testing `-z "$RECORDED"` would not.
+
+**Both diagnostics go to stdout, not stderr.** koto emits a large volume of `migration skipped` lines on stderr in any workspace with accumulated sessions, so appending `2>/dev/null` to a koto call is the routine operator response — and it is what hid the original `unrecognized subcommand` error. A failure message this step writes to stderr would be swallowed by exactly the reflex that made the original defect invisible. The `2>/dev/null` on the two koto calls above is safe only because the comparison, and not the absence of an error message, is what decides whether the record took.
+
+If the verification fails, submit `status: blocked` with the diagnostic as `detail`. Do not submit `completed` or `override`: the `settled_branch_recorded` gate on this state (see the template's frontmatter) references the recorded value from both success transitions, so neither will resolve and the run will sit in `orchestrator_setup` without advancing. koto reports a failed gate as an exit code with no message, so if this state will not advance, check `koto context get {{SESSION_NAME}} settled_branch` first — the gate has no other way to tell you what it wanted.
 
 On the create path this records `impl/$PLAN_SLUG` (the branch just checked out), preserving today's value byte-for-byte; on the override path it records the settled branch.
 
