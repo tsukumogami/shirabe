@@ -639,8 +639,7 @@ static OUTLINE_HEADING_RE: LazyLock<Regex> =
 
 static ISSUE_REF_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Issue\s+(\d+)").unwrap());
 
-static PLACEHOLDER_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"<<ISSUE:(\d+)>>").unwrap());
+static PLACEHOLDER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<<ISSUE:(\d+)>>").unwrap());
 
 static BACKTICKED_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`([^`]*)`").unwrap());
 
@@ -830,7 +829,10 @@ pub fn parse_outline_acs(doc: &Doc) -> Vec<OutlineAc> {
 }
 
 /// Resolve each block's dependency text into sibling numbers and leftovers.
-fn resolve(partials: Vec<PartialBlock>, nonconforming: Vec<NonconformingHeading>) -> OutlineSection {
+fn resolve(
+    partials: Vec<PartialBlock>,
+    nonconforming: Vec<NonconformingHeading>,
+) -> OutlineSection {
     let known: Vec<u32> = partials.iter().map(|b| b.number).collect();
 
     let blocks = partials
@@ -1332,7 +1334,6 @@ mod tests {
         assert_eq!(table.rows[1].status, None);
     }
 
-
     // --- parse_issue_outlines: the single walk ---
 
     #[test]
@@ -1418,7 +1419,10 @@ mod tests {
         );
         let section = parse_issue_outlines(&doc);
         assert!(section.blocks[1].waits_on.is_empty());
-        assert_eq!(section.blocks[1].unresolved_dependencies, vec!["1".to_string()]);
+        assert_eq!(
+            section.blocks[1].unresolved_dependencies,
+            vec!["1".to_string()]
+        );
     }
 
     #[test]
@@ -1466,7 +1470,11 @@ mod tests {
             "## Issue Outlines\n\n### Issue 1: a\n\n**Goal**: g.\n\n**Dependencies**: None.\n\n---\n\n### Issue 2: b\n\n**Goal**: g.\n\n### Dependencies\n\nIssue 1\n",
         );
         let section = parse_issue_outlines(&doc);
-        assert_eq!(section.blocks.len(), 2, "the sub-heading must not open a third block");
+        assert_eq!(
+            section.blocks.len(),
+            2,
+            "the sub-heading must not open a third block"
+        );
         assert!(
             section.nonconforming_headings.is_empty(),
             "`### Dependencies` is a known sub-heading, not a stray one"
