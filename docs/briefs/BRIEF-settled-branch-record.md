@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   /execute's orchestrator_setup records the settled branch with a koto
   subcommand that does not exist, and the failure reads as success. On the
@@ -18,7 +18,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 The framing stops at the boundary: which record `/execute` keeps of the branch
 it settled on, and what happens when that record is missing. The downstream PRD

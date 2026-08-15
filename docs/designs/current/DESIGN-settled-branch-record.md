@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-settled-branch-record.md
 problem: |
   /execute's orchestrator_setup records the settled branch with `koto context
@@ -25,7 +25,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
