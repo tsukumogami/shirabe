@@ -91,7 +91,8 @@ removes."
 `DECISION-multi-pr-posture-detection-2026-06-06.md` explains the asymmetric
 Draft→Active gate by multi-pr being the moment remote artifacts are created.
 Nothing in `transition.rs` or `lifecycle.rs` implements that gate; it lives in
-skill prose in five places. That changes what re-keying it means.
+prose in seven places, two of them Rust doc comments. That changes what
+re-keying it means.
 
 ## Decision Drivers
 
@@ -307,19 +308,37 @@ The definitions and worked examples live only in the shared reference.
 
 ### Decision E: The approval-gate re-key
 
-**Chosen: a prose-only re-key across five sites, and an amendment to the existing
-decision record rather than a supersession.**
+**Chosen: a prose-only re-key across every site that carries the old framing, and
+an amendment to the existing decision record rather than a supersession.**
 
 No code implements the gate. Nothing in `transition.rs` or `lifecycle.rs` reads
-`execution_mode` to decide whether Draft→Active is automatic or human-approved;
-the asymmetry lives in `skills/plan/SKILL.md`, in the status-transition table in
-`plan-doc-structure.md`, and in `phase-7-creation.md`'s mode-branch headers. The
-re-key is therefore textual: every site that says "multi-pr requires human
-approval" becomes "an activation that will create GitHub issues requires human
-approval."
+`execution_mode` to decide whether Draft→Active is automatic or human-approved.
+But "no code implements it" is not the same as "no code mentions it," and an
+earlier draft of this section conflated the two, enumerating four skill-prose
+sites plus the decision record and calling that the whole surface. It is not. The
+framing is also restated in Rust doc comments that no longer describe reality once
+the gate is re-keyed:
 
-This refutes the reading that the re-key is the same Phase 7 branch the tracking
-work already touches. Phase 7 is one of the five sites, not all of them.
+| Site | Kind |
+|---|---|
+| `skills/plan/SKILL.md` | skill prose |
+| `skills/plan/references/plan-format.md` (`### Transitions`) | format contract |
+| `skills/plan/references/quality/plan-doc-structure.md` | format contract |
+| `skills/plan/references/phases/phase-7-creation.md` | phase prose |
+| `crates/shirabe-validate/src/lifecycle.rs` (module doc) | Rust comment |
+| `crates/shirabe-validate/src/transition.rs` (two comment sites) | Rust comment |
+| `DECISION-multi-pr-posture-detection-2026-06-06.md` | decision record |
+
+The re-key is textual at every one of them: each place that says "multi-pr
+requires human approval" becomes "an activation that will create GitHub issues
+requires human approval." The two Rust files are comment-only edits — no
+behaviour changes there, which is exactly why they are easy to miss and why
+naming them here is load-bearing. A downstream issue whose acceptance criterion
+is "a grep for the old framing returns nothing" cannot pass unless its file list
+includes them.
+
+This also refutes the reading that the re-key is the same Phase 7 branch the
+tracking work already touches. Phase 7 is one site of seven.
 
 Two combinations become reachable that the current transition tables have no row
 for, and both need one:
@@ -396,8 +415,9 @@ the parser and the local-id algorithm the single-pr path already runs.
 | `skills/plan/references/quality/plan-doc-structure.md` | Status-transition table re-keyed the same way; one of Decision E's five prose sites |
 | `skills/plan/scripts/plan-to-tasks.sh` | `process_multi_pr` branches on the PLAN's `tracking_level` field; the `none` path reuses the outline parse and emits `plan_item` |
 | `skills/plan/references/plan-to-tasks-contract.md` | Third source-var scheme documented |
-| `crates/shirabe-validate/src/lifecycle.rs` | `L09` implemented alongside `L06`, whose single-document draft-tolerable shape it follows |
+| `crates/shirabe-validate/src/lifecycle.rs` | `L09` implemented alongside `L06`, whose single-document draft-tolerable shape it follows; module-doc comment restating the gate as mode-keyed re-keyed |
 | `crates/shirabe-validate/src/validate.rs` | `L09` added to `posture_class`'s `DraftTolerable` arm; the two doc comments enumerating that set updated to name it; `posture_class_classifies_lifecycle_codes` extended |
+| `crates/shirabe-validate/src/transition.rs` | Comment-only: two sites restating the gate as mode-keyed |
 | `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md` | Amended: predicate re-keyed, decision preserved |
 | `docs/designs/current/DESIGN-roadmap-plan-standardization.md` | Decision 6 amended: the default is now preference-conditional |
 
@@ -574,10 +594,19 @@ an authorization one, and no security property depends on the field's accuracy.
   table migration, and the more correct fix — a stable internal id in the first
   cell in all modes, with the GitHub number in its own column — is recorded here
   so a later change has a starting point rather than rediscovering it.
-- **`/work-on M<N>` is unavailable for issueless multi-PR plans.** There is no
-  milestone to resolve against. *Mitigation:* the author drives the plan by path,
-  which is the entry point `/execute` already uses for the other two modes; the
-  loss is one ergonomic, not a capability.
+- **No entry point can drive an issueless multi-PR plan.** `/work-on M<N>` has no
+  milestone to resolve against, and `/execute` declines `multi-pr` outright
+  (`skills/execute/SKILL.md`, Input Modes), so there is no path-driven fallback
+  either. This is a capability gap, not a lost ergonomic, and an earlier draft of
+  this section understated it by claiming the author could drive the plan by path
+  "the way `/execute` already drives single-pr and coordinated plans" — `/execute`
+  does not drive multi-pr at all. *Mitigation:* none within this design's scope.
+  The extraction change is still worth landing, because its acceptance surface is
+  the emitted task graph rather than an orchestrator run, and because the graph is
+  the input any future entry point would consume. Building that entry point — a
+  `/work-on` dispatcher branch that reads the graph plus some non-GitHub
+  completion signal — is separate, currently unowned work, and this design does
+  not claim it.
 - **`L09`'s departure branch reads live repository configuration.** A repository
   that changes its delivery preference after a plan is authored can see the
   finding appear or disappear without the plan changing. *Mitigation:* the

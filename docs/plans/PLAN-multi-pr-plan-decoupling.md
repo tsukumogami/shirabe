@@ -216,8 +216,10 @@ contract.
   value in an already-authored plan.
 
 **Dependencies**:
-Issue 1 only, for vocabulary consistency. Independent of Issues 2 through 4 —
-it touches a different phase and a different header.
+None. Issue 5 touches a different header, a different phase, and a different
+frontmatter field from the record spine, and nothing in its acceptance criteria
+references Issue 1's branch vocabulary. It can start immediately, in parallel
+with Issue 1.
 
 **Type**:
 feat
@@ -231,7 +233,11 @@ feat
 **Goal**:
 Change every statement that the Draft-to-Active gate is human-approved for
 `multi-pr` into one keyed on whether the activation will create GitHub issues,
-across the five prose sites that carry it. Amend
+across all seven sites that carry it — five in skill and format prose, and two
+in Rust doc comments (`lifecycle.rs`'s module doc and two comment sites in
+`transition.rs`). The Rust edits are comment-only; no behaviour changes there,
+which is why they are easy to miss and why the grep criterion below fails
+without them. Amend
 `DECISION-multi-pr-posture-detection-2026-06-06.md` to record that its predicate
 changed while its decision stands.
 
@@ -242,8 +248,10 @@ changed while its decision stands.
   human-approved.
 - The decision record carries an amendment naming the new predicate and stating
   that the asymmetry itself is unchanged; it is not superseded.
-- A grep for the old framing returns nothing outside the amendment's own
-  quotation of it.
+- `grep -rn "human approval\|human-approval" skills/ crates/ docs/` returns only
+  the amendment's own quotation of the old framing. Run against the whole tree,
+  not only the prose sites, because `lifecycle.rs` and `transition.rs` carry it
+  in comments.
 
 **Dependencies**:
 Issue 5 — the tracking level must be resolvable before a gate can key on it.
@@ -255,6 +263,8 @@ docs
 `skills/plan/SKILL.md`, `skills/plan/references/plan-format.md`,
 `skills/plan/references/quality/plan-doc-structure.md`,
 `skills/plan/references/phases/phase-7-creation.md`,
+`crates/shirabe-validate/src/lifecycle.rs`,
+`crates/shirabe-validate/src/transition.rs`,
 `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`
 
 ### Issue 7: Emit issueless multi-pr work items from the plan's outlines
@@ -322,10 +332,10 @@ docs
 record-and-preference spine. Issue 4 is the widest single issue on it, touching
 the registry, the skill surface, a phase file, and the check's departure branch.
 
-**Parallel opportunity:** Issue 5 depends only on Issue 1, so the tracking half
-can run alongside the whole of 2 → 3 → 4. Issues 6 and 7 both hang off 5 and are
-independent of each other, so once 5 lands they can proceed in parallel with the
-tail of the delivery-preference chain. Under one pull request this parallelism is
+**Parallel opportunity:** Issue 5 has no dependencies at all, so the tracking
+half can start immediately, alongside Issue 1 rather than behind it. Issues 6 and
+7 both hang off 5 and are independent of each other, so once 5 lands they can
+proceed in parallel with the whole delivery-preference chain. Under one pull request this parallelism is
 about ordering work within a session rather than about concurrent branches, but
 it does mean a blocked spine never idles the tracking work.
 
