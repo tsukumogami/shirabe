@@ -14,6 +14,17 @@ chain_skipped: []
 chain_ran: []
 child_snapshots: {}
 visibility: Public
+pre_invocation_sha: 6872e04fea7c67de2f19c443ac43f85a85877786
+worktree_rebases:
+  - phase: brief
+    upstream_commits: []
+    impact: none
+    rebased_at: 2026-08-15T01:58:00Z
+    notes: origin/main fetched; branch 0 behind, 4 ahead. No rebase required.
+parent_orchestration:
+  invoking_child: brief
+  suppress_status_aware_prompt: true
+  rationale: fresh-chain
 execution_mode: auto
 max_rounds: 5
 coordinated: false
