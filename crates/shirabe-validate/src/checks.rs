@@ -473,7 +473,7 @@ pub fn check_fc18(doc: &Doc) -> Vec<ValidationError> {
             STATUS_ABSORBED_LINE_RE
                 .captures(raw.trim())
                 .is_some_and(|caps| {
-                    &caps["path"] == entry.path && caps["heading"].trim() == entry.heading
+                    caps["path"] == *entry.path && caps["heading"].trim() == entry.heading
                 })
         });
         if !found {
@@ -3822,7 +3822,7 @@ pub fn check_fc17(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
             errs.push(ValidationError {
                 file: doc.path.clone(),
                 line: block.line,
-                code: "FC18".to_string(),
+                code: "FC17".to_string(),
                 message: format!(
                     "[FC17] outline '{}' declares unresolved dependency '{}' (no sibling outline matches; task extraction would drop this edge -- use 'None', 'Issue <N>', or the <<ISSUE:N>> placeholder)",
                     block.key, token

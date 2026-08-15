@@ -614,6 +614,8 @@ mod tests {
             "FC15",
             "FC16",
             "FC17",
+            "FC18",
+            "FC19",
             "FC-CONVENTIONS",
             "R6",
             "R7",
