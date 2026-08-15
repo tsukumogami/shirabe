@@ -159,8 +159,8 @@ carry SHALL abort the absorb, downgrade the verdict to `keep`, and delete
 nothing.
 
 **R15.** Before deleting an artifact, the procedure SHALL search the repository's
-git-tracked files for citations of it, excluding `wip/` and excluding the
-survivor of this fold. A citation containing the artifact's repo-relative path
+git-tracked files for citations of it, excluding `wip/`, excluding the survivor
+of this fold, and excluding any bookkeeping surface the procedure itself writes. A citation containing the artifact's repo-relative path
 SHALL downgrade the verdict to `keep` through the existing abort path. A
 citation naming the artifact without its path SHALL be surfaced to the judging
 agent as a finding and SHALL NOT by itself change the verdict. The check SHALL
@@ -168,6 +168,12 @@ have no override and SHALL NOT be capable of any outcome stronger than `keep`.
 It is justified entirely by the hops this work opens forward; it carries no
 retroactive commitment and produces no verdict about any document already on
 disk.
+
+The bookkeeping exclusion covers the same failure one step removed: a record of
+an earlier fold names a still-live survivor by path, so without the exclusion the
+first fold in a chain refuses the second. Re-pointing those earlier records
+instead is barred by this requirement's own ordering — the search runs before any
+mutation.
 
 The survivor exclusion is a precondition of the mechanism working at all, not a
 convenience. The survivor always cites the absorbed artifact by repo-relative
@@ -219,6 +225,12 @@ mutation, R18 reverts after several plus a deletion.
 
 **R19.** `/scope`'s closed write-target set SHALL name every path an absorb at
 any hop writes or deletes.
+
+**R19a.** The absorb SHALL stage and commit its own output. Today `/scope` has
+no `git add` anywhere and its only `git commit` is on the decision-record path,
+so a completed absorb leaves a staged deletion, an unstaged working-tree edit for
+the `upstream:` re-point, and nothing that commits either. R20's record cannot
+reach the default branch until this is settled, and neither can the fold itself.
 
 **R20.** A fold SHALL NOT land unless a record was written to the default branch
 naming what folded into what, on what verdict, with the per-contribution carry
@@ -398,6 +410,11 @@ See Known Limitations for what the [judg] instrument does and does not buy.
       second deletion site appearing in the procedure, which is R27's real risk.
 - [ ] **[insp]** The absorb procedure's authoring step precedes its carry-table
       step, so the carry check cannot run against a prediction.
+- [ ] **[mech]** After a completed absorb the working tree is clean: the
+      deletion, the `upstream:` re-point, the survivor's edits and the fold
+      record are all committed, with nothing left staged or unstaged.
+- [ ] **[mech]** A chain whose first hop folds is not refused at its second hop
+      by the record its first hop wrote.
 - [ ] **[mech]** An absorb of an ancestor already carrying two contributions
       itemizes all three carries — the ancestor's own and both inherited — and
       aborts if any one fails.
