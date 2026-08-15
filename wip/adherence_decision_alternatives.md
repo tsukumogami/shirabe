@@ -1,5 +1,45 @@
 # Alternatives: Which mechanism should make shirabe's sanctioned workflow the path an agent actually takes?
 
+## Late correction that reshapes the field
+
+The koto lead returned deeper findings after this file was first drafted. Four
+facts change how the alternatives should be scored, and validators must reason
+from these rather than from the earlier framing:
+
+1. **Koto's guarantees are bookkeeping, not enforcement.** The substrate-spawn
+   primitive is a logging stub (`src/engine/respawn.rs:165-180`); koto records a
+   child session and the *agent* must go run it. Review gates, CI monitoring, and
+   PR finalization are directive **text** in the template -- koto never verifies
+   the work happened. What koto guarantees is that evidence was submitted in the
+   right order, not that the evidence is true. This means no alternative here can
+   deliver "the adversarial reviews definitely ran." The achievable goal is that
+   the run is *recorded and visible*.
+2. **The best signal is not `~/.koto/sessions/`.** On every state commit koto
+   self-discovers `CLAUDE_CODE_SESSION_ID` and writes
+   `~/.claude/projects/<encoded-cwd>/<session-id>/workflows/koto-<uuid>.json`
+   carrying template name, workflow name, and current state. It is session-bound,
+   repo-scoped (the only koto state that is), and **survives the cleanup that
+   deletes `~/.koto/sessions/<id>/` on success**. The naive check
+   `test -d ~/.koto/sessions/<slug>` is therefore false for every *successful*
+   run -- it inverts the signal.
+3. **The check is session-exact and needs no plan path.** "Does a koto workflow
+   record exist for MY Claude Code session over the `execute` or `work-on`
+   template?" is ~25 lines of bash, no koto dependency, no network, verified
+   working against three real sessions. **This dissolves the "how does a hook
+   learn which plan is in play" gap** that was Alternative 3's main
+   implementation risk. Forensically confirmed: the incident workspace's project
+   directory contains no `workflows/` directory at all.
+4. **A post-hoc CI gate is impossible today.** The PR body carries no koto
+   marker, and the `wip/` state projection is `git rm`ed before the PR flips
+   ready. A CI check cannot distinguish a koto-driven PR from a hand-rolled one.
+   Making it possible requires *adding* a `Koto-Session:` trailer, which widens
+   `/execute`'s closed write-target set and needs an explicit R9 amendment.
+
+Net effect: Alternative 2 is substantially weaker than drafted, Alternative 3 is
+stronger and cheaper, and Alternative 5's atomicity fix is a real design problem
+rather than a one-liner (`plan-to-tasks.sh` takes no session argument, is shared
+with `/plan`, and is called twice per run with different evidence).
+
 The six raw options from research are not mutually exclusive. They are clustered
 here into five coherent strategies that differ in **what they treat as the root
 cause** and therefore in what they would ship first. Each is stated at its
