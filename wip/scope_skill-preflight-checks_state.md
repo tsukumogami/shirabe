@@ -11,8 +11,16 @@ planned_chain:
   - design
   - plan
 chain_skipped: []
-chain_ran: []
-child_snapshots: {}
+chain_ran:
+  - brief
+child_snapshots:
+  brief:
+    status: Accepted
+    content_hash: 64b5336a84f221d5ba2a52a835e46d604ee22eb8
+    captured_at: 2026-08-15T02:20:00Z
+    artifact: docs/briefs/BRIEF-skill-preflight-checks.md
+    validator: clean
+    jury: all-PASS on second pass; first pass FAIL on content quality, 7 required changes applied
 visibility: Public
 pre_invocation_sha: 6872e04fea7c67de2f19c443ac43f85a85877786
 worktree_rebases:
@@ -22,7 +30,7 @@ worktree_rebases:
     rebased_at: 2026-08-15T01:58:00Z
     notes: origin/main fetched; branch 0 behind, 4 ahead. No rebase required.
 parent_orchestration:
-  invoking_child: brief
+  invoking_child: prd
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 execution_mode: auto
