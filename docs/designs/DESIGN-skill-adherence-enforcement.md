@@ -197,12 +197,30 @@ inverts the signal.
 
 ### Decision 2: what arms the refusal
 
-**Chosen: a plan reference in the session's own inbound records.** Select the
-transcript holding this agent's received instructions, scan only records the
-agent received rather than the whole transcript, and require a reference
-matching a PLAN filename whose target exists and carries the plan schema. Stand
-down on a single-issue delegation marker, on the coordinated execution mode, and
-on any parse or resolution failure.
+**Chosen: a plan reference in the instructions the session was given.** Select
+the transcript holding this agent's received records, scan only those that are
+genuine instructions to the agent, and require a reference matching a PLAN
+filename whose target exists and carries the plan schema. Stand down on a
+single-issue delegation marker, on the coordinated execution mode, and on any
+parse or resolution failure.
+
+**"Instructions to the agent" is narrower than "records the agent received," and
+the difference is the whole safety of this clause.** Measured against a real
+13MB transcript, the records nominally received break down as roughly 862
+tool-result payloads, 256 actual prompts, 8 text records, and 307 attachments.
+Three quarters of them are output the agent *pulled in* rather than instructions
+anyone sent it: file contents from a read, command output, fetched pages. The
+scan must therefore admit only the prompt-shaped records and must exclude
+tool-result payloads and attachments.
+
+Without that exclusion the clause is unusable in two ways, one of which needs no
+attacker. Any agent that reads, greps, or reviews an existing plan file pulls
+that filename into a tool result and arms the refusal against itself. And an
+outside contributor can open a pull request adding a valid plan file plus any
+file a maintainer's agent will plausibly read that mentions the plan by name;
+the moment the agent reads the second file, the session is write-denied outside
+a narrow set for the rest of its life, with no human present to intervene. One
+pull request, no merge required.
 
 *Rejected: absence of the subagent identity fields as the orchestrator test.*
 This was the framing supplied to the researcher and it was declined, correctly:
@@ -328,13 +346,37 @@ is what the determination later uses as its liveness witness.
 The determination resolves the session's project directory from the working
 tree, takes the freshest workflows record for that session scoped to this
 repository, and establishes registration. It counts delegated children from the
-terminal index by parent-name prefix, and takes the expected count from the
-PLAN. It reads the conflict store for the session and for its children, since a
-child records under its own session identity. It then reports: coordinated when
-the plan's execution mode says so; indeterminate when the liveness witness is
-absent or evidence is unreadable; conforming when registration holds and
-delegation is complete or its shortfall is covered by a recorded conflict; and
-non-conforming otherwise.
+terminal index and takes the expected count from the PLAN. It reads the conflict
+store for the session and for its children, since a child records under its own
+session identity.
+
+It then reports `coordinated` when the plan's execution mode says so;
+`indeterminate` when the liveness witness is absent or evidence is unreadable;
+`conforming` when registration holds and delegation is complete; `departed` when
+delegation is incomplete and every missing delegation is covered by a conflict
+record naming that step; and `non-conforming` otherwise.
+
+**A covered shortfall is not `conforming`.** The requirements reserve that value
+for a run that was registered and fully delegated, and an earlier draft of this
+design reported a covered shortfall as conforming, which was wrong twice over.
+It contradicted the requirement directly, and it made the verified reading
+purchasable: a session that wanted to implement inline could run the conflict
+recorder once, state a plausible conflict, do the work itself, and read back
+`conforming`. The record's content is free text that nothing validates. That is
+precisely the failure the decision drivers name as worse than the failure being
+fixed, so the covered case gets its own value instead.
+
+**Counting delegated children needs the same scoping registration gets.** The
+terminal index is a single machine-global file shared by every session on the
+host, and its records carry a session id, a timestamp, and a terminal state, but
+no repository and no project path. Counting by bare string prefix over that file
+reintroduces exactly the cross-session contamination this design rejected when
+choosing its corroborator: real session ids on a working machine include names
+like `task_i1_...` and `task_i2_...`, so a parent named `task` would match
+unrelated children from unrelated repositories and months. The count is
+therefore scoped by the same encoded project directory used for registration,
+and session ids are matched on a delimited boundary rather than as a bare
+prefix.
 
 ### The description, and why it is architecture rather than copyediting
 
@@ -525,14 +567,32 @@ determination address a session that never selects it at all.
 
 ## Security Considerations
 
-**Untrusted input reaches the arming predicate.** The hook reads the session's
-inbound records, which include text written by another agent and, transitively,
-by whoever prompted it. Three consequences. The plan reference must be validated
-as a path before any filesystem access, since a crafted reference is a traversal
-attempt. The reference must be resolved and confined to the working tree rather
-than followed as given. And the parse must be total: any malformed record fails
-open rather than throwing, because a hook that crashes on hostile input is a
-denial of service against every session.
+**Untrusted input reaches the arming predicate, and the dangerous property is
+not the path.** The hook reads records the session received, which include text
+written by another agent and, transitively, by whoever prompted it. The obvious
+risks are real and cheap to close: the plan reference is validated as a path
+before any filesystem access, resolved and confined to the working tree rather
+than followed as given, and the parse is total so that a malformed record fails
+open rather than throwing, because a hook that crashes on hostile input denies
+service to every session.
+
+The non-obvious risk is the one that breaks the design if missed. The threat is
+not a crafted path; it is that the mere **presence** of a well-formed and
+entirely legitimate reference is the arming signal. Because roughly three
+quarters of a session's received records are tool output the agent pulled in
+rather than instructions sent to it, an unscoped scan arms on any plan filename
+the agent happens to read. That turns a public repository into a denial-of-
+service surface: a contributor adds a valid plan file and any readable file
+mentioning it by name, and the first agent to read the second file is
+write-denied outside a narrow set for the remainder of its session, under
+permission-bypassing mode with nobody to appeal to. The same failure fires
+without any attacker whenever an agent reviews or validates an existing plan.
+
+The control is the scan boundary, specified in the arming decision: admit only
+prompt-shaped records, exclude tool results and attachments. It is worth stating
+as a security property and not only as a functional one, because the functional
+description of the boundary ("records the agent received") reads as though it
+already excludes tool output, and it does not.
 
 **The refusal reason is fed back to the model.** It carries the refused target,
 which is attacker-influenceable in the same sense any path is. The reason must be
@@ -569,6 +629,37 @@ misses the act, which is the reason both components exist.
 **The determination reads user-scoped state.** It reads under the user's home
 directory and must not follow symlinks out of it, must not execute anything it
 finds, and must treat every field as data.
+
+**It reads those files directly and never shells out to read them.** The
+orchestration engine's records are its own internal surfaces, so the natural
+reading path would be that engine's command-line interface. That path is
+unavailable here: the binary lives in a writable directory with writable
+permissions, so an agent can replace it and the determination would then execute
+agent-chosen code and print whatever verdict that code emits. The determination
+parses the files itself.
+
+**The provenance distinction the evidence rests on, stated rather than assumed.**
+The requirements say the determination derives only from state no tool call the
+evaluated session issued produced, and reject a file the session produced by
+running a script. Read at its most literal that admits nothing here: the
+registration record exists because the session ran an initialization command, and
+the child entries exist because the session drove its children. The distinction
+actually being relied on is narrower and worth naming: the bytes are authored by
+a separate component according to its own schema, not composed by the agent, and
+the agent's influence is limited to causing the component to run. That is a real
+difference from the failure case the rule was written against, where the agent
+ran a script and then presented the script's stdout as its own evidence.
+
+It is also a weaker guarantee than "unforgeable," and this design does not claim
+otherwise. The record files sit in user-writable locations, so an agent with
+file-write capability can author them directly rather than by running the
+component. Nothing in this design prevents that, and the honest statement of
+what the determination establishes is: this run left the traces a conforming run
+leaves, absent an agent that deliberately fabricated them. That is enough for
+the failure modes this feature exists for, both of which were agents doing
+ordinary work in a way they were willing to describe accurately when asked. It
+is not enough against an adversary, and the feature should not be described as
+if it were.
 
 ## Consequences
 
