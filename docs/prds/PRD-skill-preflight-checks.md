@@ -207,17 +207,23 @@ land in.
 
 ### Signal integrity
 
-- **R21.** No verification performed by the check, and no skill call
-  site, SHALL discard a tool's diagnostic output. Discarding covers
-  redirection to `/dev/null`, capture into a variable that is never
-  read, and any other route by which the text reaches nobody.
-  `shirabe#279` was silent because the call site redirected stderr to
-  `/dev/null`, and a preflight added while that redirect remains would
-  not have prevented it.
-- **R21a.** No verification and no skill call site SHALL ignore a
-  tool's exit status. `shirabe#279` needed both halves to stay silent:
-  the discarded stderr and the unchecked exit code. Fixing one leaves
-  the incident reproducible.
+- **R21.** No verification performed by the check, and no call site for
+  a tool named in any declaration, SHALL discard that tool's diagnostic
+  output or ignore its exit status, except under R21b. Discarding
+  covers redirection to `/dev/null` in any spelling, capture into a
+  variable that is never read, and any other route by which the text
+  reaches nobody. `shirabe#279` was silent because the call site
+  redirected stderr to `/dev/null` and did not check the exit status;
+  both halves were needed, so forbidding one alone leaves the incident
+  reproducible.
+- **R21b.** A call site MAY discard a tool's diagnostics where failure
+  is an expected outcome it handles, and SHALL then be recorded in a
+  committed enumeration naming the site and the exit status the
+  fallback is entered on. `git checkout <branch> 2>/dev/null || git
+  checkout -b <branch>` is the shape this permits. An in-scope site
+  absent from the enumeration fails, and adding one is a reviewed edit
+  rather than a judgment made silently at the call site -- which is the
+  judgment whoever wrote the `#279` site made and got wrong.
 - **R22.** A tool's CLI-surface failure SHALL be distinguishable from
   that tool's own application-level outcomes, for every consumer that
   branches on those outcomes. `shirabe validate` currently returns exit
@@ -233,31 +239,12 @@ land in.
   unchanged, which no surface probe at any depth can detect. Passing
   the flag is the mitigation available; the check is not.
 
-### Verifiability
-
-- **R25a.** The check SHALL be reachable as a single invocable entry
-  point whose combined stdout and stderr can be captured by a test.
-  This PRD does not say what that entry point is; it requires that one
-  exist, because R12's zero-output rule is otherwise unfalsifiable.
-- **R25b.** The filesystem root the check consults when distinguishing
-  "absent" from "present but off PATH" SHALL be overridable for
-  verification. Without an override, the `~/.tsuku/tools/current/` case
-  can only be tested by writing into a developer's real home directory
-  and cannot be tested on a host without tsuku at all.
-- **R25c.** The existing discards of tool diagnostics in shipped skills
-  SHALL be remediated as part of this work, not merely forbidden going
-  forward. `skills/execute/koto-templates/execute.md` lines 390 and 409
-  carry `koto context get ... 2>/dev/null || echo ...`, which is the
-  `shirabe#279` shape still live in the tree. R21 and R21a bind new
-  code; this requirement binds the existing instances.
-
 ### Coverage and retirement
 
-- **R23.** All twenty skills SHALL carry a declaration, including the
-  five whose declaration is empty. Nine skills need nothing beyond a
-  checkout, but four of those nine call `shirabe transition` at a
-  single finalize step and therefore declare it; five declare nothing
-  at all.
+- **R23.** Every skill SHALL carry a declaration, and a skill requiring
+  no host tool SHALL carry an explicitly empty one. Nine skills need
+  nothing beyond a checkout, but four of those call `shirabe
+  transition` at a single finalize step and declare it.
 - **R24.** Prose that the declaration and check supersede SHALL be
   removed in the same change that adds them, so that no skill carries
   both. This covers `skills/work-on/SKILL.md`'s Prerequisites section
@@ -266,6 +253,26 @@ land in.
   "confirm[s] `gh` auth is live" SHALL either become true or be
   removed. `skills/execute/scripts/preflight.sh` checks a file path and
   nothing else.
+- **R26.** The existing discards of tool diagnostics in shipped skills
+  SHALL be remediated as part of this work, not merely forbidden going
+  forward. `skills/execute/koto-templates/execute.md` carries two
+  occurrences of `koto context get ... 2>/dev/null || echo ...`, which
+  is the `shirabe#279` shape still live in the tree: diagnostics
+  discarded and the failure masked by substituting a fabricated value
+  that flows onward as though the call had succeeded. R21 binds new
+  code; this binds what is already there.
+
+### Verifiability
+
+- **R27.** The check SHALL be reachable as a single invocable entry
+  point whose combined stdout and stderr can be captured by a test.
+  This PRD does not say what that entry point is; it requires that one
+  exist, because R12's zero-output rule is otherwise unfalsifiable.
+- **R28.** The filesystem root the check consults when distinguishing
+  "absent" from "present but off PATH" SHALL be overridable for
+  verification. Without an override, the `~/.tsuku/tools/current/` case
+  can only be tested by writing into a developer's real home directory
+  and cannot be tested on a host without tsuku at all.
 
 ## Acceptance Criteria
 
@@ -295,13 +302,15 @@ last pattern.
 - [ ] A declaration distinguishes an always-required entry from a
       mode-scoped one by inspection, without running the check.
 - [ ] The policy behind the first-party/independent-cadence split, with
-      its rationale, appears in a durable document under `docs/`.
+      its rationale, appears in a committed reference under `references/`,
+      cited by name from the requirement it governs.
 
 ### What the check verifies
 
 - [ ] With a declared tool removed from PATH, the report names the
-      tool and the affected capability; the skill still loads and
-      remains usable.
+      tool and the affected capability, and the skill's first phase
+      still executes afterwards. Observed by running the skill and
+      asserting the phase ran, not by judging usability.
 - [ ] With a declared tool present but a declared subcommand absent
       from its advertised surface, the report names the subcommand and
       states the tool resolved. It does not report the tool as missing.
@@ -309,7 +318,7 @@ last pattern.
       names both the flag and the subcommand.
 - [ ] With a tool present under an injected tool-location root and
       absent from PATH, the report says to source the environment file
-      and offers no install command. Verified against R25b's override,
+      and offers no install command. Verified against R28's override,
       not against a real `$HOME`.
 - [ ] Nothing the check executes and nothing it emits performs a
       version comparison or gates on a version. A `--version` call used
@@ -332,28 +341,36 @@ last pattern.
 - [ ] An unsatisfied report contains no affordance directing the reader
       to re-run with a flag, an environment variable, or a verbosity
       setting to obtain more detail.
-- [ ] On a host with a package manager present, the emitted command
-      delegates to that manager.
+- [ ] On a host where at least one install route is available, the
+      emitted command is one that runs successfully on that host.
+      Verified by executing the emitted command in the test
+      environment.
 - [ ] On Linux, the instruction for a missing `gh` does not route
       through tsuku, and the exclusion driving that is read from a
       machine-readable source rather than a comment in `.tsuku.toml`.
-- [ ] On a host with no network and no package manager, the report
-      states that no install route is available and names the tool. No
-      command is emitted.
+- [ ] On a host where no install route is available, the report states
+      that and names the tool, and emits no command. The condition is
+      constructed by making every route the resolver would consider
+      unavailable; the test states which routes those are rather than
+      assuming network absence, which no fixture in this repo can
+      currently create.
 
 ### Signal integrity
 
-- [ ] No verification performed by the check, and no non-test call site
-      for a tool named in any declaration, discards that tool's
-      diagnostic output or ignores its exit status. The scan covers
-      `2>/dev/null`, `&>/dev/null`, `2>&1 >/dev/null`, and capture into
-      a variable that is never read; it covers `koto-templates/` as
-      well as `skills/`. Probes where a non-zero exit is the expected,
-      handled outcome and the fallback is not a masked failure are
-      exempt and enumerated.
-- [ ] `skills/execute/koto-templates/execute.md` lines 390 and 409 no
-      longer discard `koto context get`'s diagnostics behind a
-      defaulting fallback.
+- [ ] Every non-test call site for a tool named in any declaration
+      either does not discard that tool's diagnostics and does not
+      ignore its exit status, or appears in the committed enumeration
+      required by R21b. The scan covers `2>/dev/null`, `&>/dev/null`,
+      `2>&1 >/dev/null`, and capture into a variable that is never
+      read, across `skills/` including `koto-templates/`. A site that
+      discards and is absent from the enumeration fails; no judgment
+      about whether the discard was reasonable is made at scan time.
+- [ ] Each entry in that enumeration names its call site and the exit
+      status its fallback is entered on.
+- [ ] `skills/execute/koto-templates/execute.md` contains no occurrence
+      of `koto context get` whose diagnostics are discarded and whose
+      failure is masked by substituting a fabricated value. Two such
+      occurrences exist at the time of writing.
 - [ ] `shirabe validate` invoked with an unrecognized flag and `shirabe
       validate` invoked on a violating document are distinguishable by
       a named discriminator, and both `skills/scope/SKILL.md`'s
