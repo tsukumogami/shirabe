@@ -1,789 +1,297 @@
 # Lead: Which hook and configuration surfaces can carry a skill-adherence policy, and what can each one actually do?
 
-Round 1 research lead for the skill-adherence-enforcement exploration.
+Sources of record:
 
-**Version pinned to evidence.** All implementation claims are checked against the
-Claude Code build actually installed on this machine:
-`/home/dgazineu/.local/share/claude/versions/2.1.233` (also 2.1.232, 2.1.231
-present). Documentation claims come from `https://code.claude.com/docs/en/hooks`
-(the reference; `docs.claude.com/en/docs/claude-code/hooks` 301-redirects there)
-and `https://code.claude.com/docs/en/hooks-guide` and
-`https://code.claude.com/docs/en/permissions`.
+- <https://code.claude.com/docs/en/hooks> (hooks reference; `docs.claude.com/en/docs/claude-code/hooks` 301-redirects here)
+- <https://code.claude.com/docs/en/hooks-guide> (hooks guide)
+- Direct schema inspection of the installed CLI binary,
+  `/home/dgazineu/.local/share/claude/versions/2.1.233`. Where the rendered docs
+  and the binary disagree, the binary wins and I say so.
+- Local working examples:
+  `/home/dgazineu/dev/niwaw/tsuku/tsuku+execute_and_work_on_trigger-d36b0bbf/.claude/settings.json`,
+  `.claude/hooks/pre_tool_use/gate-online.sh`,
+  `.claude/hooks/stop/workflow-continue.sh`,
+  `/home/dgazineu/.claude/settings.json`,
+  `/home/dgazineu/.claude/plugins/cache/claude-plugins-official/superpowers/6.2.0/hooks/hooks.json`
+  and `.../hooks/session-start`,
+  `/home/dgazineu/dev/niwaw/tsuku/tsuku+execute_and_work_on_trigger-d36b0bbf/public/niwa/internal/workspace/materialize.go`.
 
-**Method note / accuracy caveat.** The hooks reference page is long enough that
-`WebFetch` truncates it, and the summarizing model returned *different* field
-names on different passes. One pass claimed `UserPromptSubmit` honors
-`hookSpecificOutput.updatedPrompt` and `UserPromptExpansion` honors
-`expandedPrompt`. **Neither string exists anywhere in the installed 2.1.233
-binary** (`grep -ac updatedPrompt` → 0; `grep -ac expandedPrompt` → 0), while
-`updatedInput` appears 82 times and `additionalContext` 44 times. I have treated
-the binary as the authority wherever the two disagree, and flagged every
-remaining doc-only claim as such. Do not build a design on `updatedPrompt`.
-
----
+A framing correction before the table: the nine events in the brief are a subset.
+The current reference documents roughly thirty-five events, and three that were
+not on the list — `SubagentStart`, `PostToolBatch`, and `TaskCompleted` — are
+directly relevant to a skill-adherence gate. They are included below.
 
 ## Findings
 
-### A. The capability table
+### 1. Capability table
 
-Columns: **Inject** = can add text the model reads. **Block** = can stop the
-action. **Rewrite** = can alter the payload in flight. **Observe** = fires but
-cannot change anything. **Subagent** = does this fire for / apply to a spawned
-subagent.
+Columns: **(a)** can it inject context the model reads; **(b)** can it block or
+deny; **(c)** can it rewrite the prompt or the tool input; **(d)** does it fire
+for subagents; **(e)** does it fire in background / headless sessions.
 
-| Event | Inject context | Block | Rewrite | Observe only | Fires for subagents? |
+| Event | (a) inject context | (b) block/deny | (c) rewrite | (d) subagents | (e) background/headless |
 |---|---|---|---|---|---|
-| `SessionStart` | **Yes** — `hookSpecificOutput.additionalContext`; also plain stdout on exit 0 | No (exit 2 shows stderr to user, session continues) | No | — | **No.** A subagent is not a session. Its analog is `SubagentStart`. |
-| `SubagentStart` | **Yes** — `additionalContext`, "text to inject into the subagent's context at startup" (doc-only; see caveat) | No | No | — | **Yes, by definition.** Matcher = agent type. Input carries `agent_id`, `agent_type`, `subagent_config`, `parent_agent_id`, `parent_agent_type`. |
-| `UserPromptSubmit` | **Yes** — `additionalContext`; also plain stdout on exit 0 | **Yes** — exit 2 blocks *and erases* the prompt | **Yes** — `hookSpecificOutput.updatedInput` replaces the prompt text sent to Claude | — | No. Subagents receive a task, not a user prompt. |
-| `UserPromptExpansion` | Yes (`additionalContext`) | Yes | Doc says an expansion-replacement field exists; **the name is unconfirmed** — `expandedPrompt` is not in the binary. Possibly `updatedInput`. | — | No. |
-| `PreToolUse` | **Yes** — `additionalContext` alongside a decision | **Yes** — `permissionDecision: "deny"` (exit 0 + JSON), or exit 2 | **Yes** — `updatedInput` rewrites the tool's arguments | — | **Yes.** Explicitly documented; input carries `agent_id` / `agent_type`. |
-| `PostToolUse` | **Yes** — `additionalContext` | No (tool already ran) | No | — | **Yes.** |
-| `PostToolUseFailure` | Presumed yes | No | No | — | Yes (inference). |
-| `PostToolBatch` | — | **Yes** — exit 2 stops the loop before the next model call | No | — | Inference: yes. |
-| `PermissionRequest` | No | No — exit 2 ignored; can express `permissionDecision` | No | Mostly | Yes, but see the non-interactive trap in §G. |
-| `PermissionDenied` | No | No | No | Observe + `retry: true` | Yes (inference). |
-| `Stop` | **Yes** — `additionalContext` is "non-error feedback delivered to the model; the conversation continues so the model can act on it" (verbatim from binary) | **Yes** — exit 2, or `decision:"block"` + `reason`, or `continue:false` | No | — | Not for subagents — a subagent's `Stop` becomes `SubagentStop`. |
-| `SubagentStop` | **Yes** — `additionalContext` is "non-error feedback delivered to the subagent; the subagent continues so it can act on it" (verbatim from binary) | **Yes** — exit 2 prevents the subagent from stopping | No | — | **Yes, that is its whole job.** Matcher = agent type. Input carries `last_assistant_message`. |
-| `TeammateIdle` | Presumed (`reason` fed back) | **Yes** — `continue:false` | No | — | Agent-team teammates. |
-| `TaskCreated` | — | **Yes** — exit 2 rolls back creation | No | — | Fires on `TaskCreate`. |
-| `TaskCompleted` | — | **Yes** — exit 2 prevents marking complete | No | — | Fires on `TaskUpdate` completion. |
-| `PreCompact` | — | **Yes** — exit 2 blocks compaction | No | — | Unverified for subagents. |
-| `PostCompact` | — | No | No | Yes | Unverified. |
-| `Notification` | — | No | No | Yes | n/a |
-| `MessageDisplay` | — | No | No | Yes (10s timeout) | Unverified. |
-| `SessionEnd` | — | No | No | Yes (1.5s shared budget) | No. |
-| `StopFailure` | — | No | No | Yes | — |
-| `InstructionsLoaded` | — | No | No | Yes — **fires when a CLAUDE.md or `.claude/rules/*.md` is loaded** | Unverified. |
-| `ConfigChange` | — | **Yes** — exit 2 blocks the change (except `policy_settings`) | No | — | n/a |
-| `CwdChanged`, `DirectoryAdded`, `FileChanged` | — | No | No | Yes | — |
-| `WorktreeCreate` | — | **Yes** — any non-zero exit fails creation | No | — | Fires on subagent worktree isolation. |
-| `WorktreeRemove` | — | No | No | Yes | Fires when a subagent finishes, per the guide's event table. |
-| `Setup` | — | No | No | Yes | n/a |
-| `Elicitation` / `ElicitationResult` | — | Yes | No | — | MCP only. |
-
-Docs enumerate **28 events** (`https://code.claude.com/docs/en/hooks`).
-
-**Three shapes of hook handler**, all usable at any event:
-
-- `type: "command"` — shell, stdin JSON, stdout JSON. Default timeout 600s
-  (`UserPromptSubmit` 30s, `MessageDisplay` 10s).
-- `type: "prompt"` — a single-turn LLM call (Haiku by default, `model`
-  overridable) that returns `{"ok": bool, "reason": str}`. Default timeout 30s.
-- `type: "agent"` — **experimental**; spawns a subagent with tool access, up to
-  50 tool-use turns, 60s default. Returns the same `ok`/`reason` shape.
-- Also `type: "http"` (POST to an endpoint; response body carries the same JSON)
-  and `type: "mcp_tool"`.
-
-The `prompt` and `agent` types matter enormously for this exploration: they let
-a hook make a *judgment* call ("did this agent actually delegate, or did it
-implement inline?") rather than a string match. Verbatim from the guide:
-
-> When verification requires inspecting files or running commands, use
-> `type: "agent"` hooks. Unlike prompt hooks, which make a single LLM call,
-> agent hooks spawn a subagent that can read files, search code, and use other
-> tools to verify conditions before returning a decision.
-
-The worked example in the official guide is *exactly* our shape:
-
-> ```json
-> { "hooks": { "Stop": [ { "hooks": [ { "type": "prompt",
->   "prompt": "Check if all tasks are complete. If not, respond with
->   {\"ok\": false, \"reason\": \"what remains to be done\"}." } ] } ] } }
-> ```
-
----
-
-### B. Which hooks can DENY, and what the agent actually sees
-
-**Two independent block mechanisms**, and the difference matters:
-
-1. **Exit code 2.** Blocks on blockable events; stderr is the reason. Where the
-   reason lands is per-event: some events feed it to Claude as steerable
-   feedback, some show it only to the user, a few surface nothing. Exit 2
-   *overrides* any JSON on stdout — a hook that exits 2 while printing
-   `permissionDecision: "allow"` still blocks.
-2. **Exit 0 + JSON decision.** The intended pattern. For `PreToolUse`:
-   `hookSpecificOutput.permissionDecision` ∈ `allow | deny | ask | defer`
-   (`defer` is in the binary's enum alongside the other three), with
-   `permissionDecisionReason` carrying the text.
-
-**Is the denial reason steerable feedback the model can act on?** For
-`PreToolUse` with `permissionDecision: "deny"`, **yes** — verbatim from the
-guide:
-
-> With `"deny"`, Claude Code cancels the tool call and feeds
-> `permissionDecisionReason` back to Claude.
-
-This is the load-bearing property for a corrective gate. Our own
-`shirabe pr-body-hook` relies on it exactly this way
-(`public/shirabe/crates/shirabe/src/pr_body_hook.rs:20-22`): "it **denies** the
-tool call and returns the findings as the decision reason, so the agent sees
-what to fix and re-issues a corrected command."
-
-**But there is a version-sensitive trap for `prompt`/`agent` hooks.** Verbatim
-from the guide, on `"ok": false`:
-
-> `PreToolUse`: the tool call is denied; by default the turn ends and the deny
-> `reason` appears in the chat as a warning line. Set `continueOnBlock: true`
-> on the hook to instead return the `reason` to Claude as the tool error, so it
-> can adjust and continue. **Before v2.1.210, the deny `reason` was returned to
-> Claude as the tool error and the turn continued.**
-
-So a `type: "prompt"` `PreToolUse` gate written today **kills the turn by
-default** and the agent never sees the reason. `continueOnBlock: true` is
-mandatory for any corrective (as opposed to terminal) prompt-hook gate. Agent
-hooks have no `continueOnBlock` field and behave as if it were always true.
-
-**Where the reason is NOT steerable:**
-
-- `UserPromptSubmit` exit 2 — "blocks prompt processing and erases the prompt."
-  The model sees nothing. This is a hard stop, not a correction.
-- `SessionStart`, `SubagentStart` exit 2 — stderr to user only; execution
-  continues regardless. **These events cannot block.**
-- `PostToolBatch`, `UserPromptSubmit`, `UserPromptExpansion` prompt-hook
-  `ok:false` — "the turn ends and the `reason` appears in the chat as a warning
-  line."
-
-**Where it IS steerable, and this is the important one for us:**
-
-- `Stop` / `SubagentStop`. From the binary's own schema descriptions:
-  > "Hook-specific output for the Stop event. `additionalContext` is non-error
-  > feedback delivered to the model; the conversation continues so the model can
-  > act on it."
-  > "Hook-specific output for the SubagentStop event. `additionalContext` is
-  > non-error feedback delivered to the subagent; the subagent continues so it
-  > can act on it."
-- `Stop` / `SubagentStop` prompt hooks: "the `reason` is fed back to Claude so
-  it keeps working, unless the response also sets `"impossible": true`", in
-  which case the stop is allowed and the turn ends. The `impossible` escape
-  hatch is the anti-infinite-loop valve.
-
-Local precedent for the softer version:
-`/home/dgazineu/dev/niwaw/tsuku/tsuku+execute_and_work_on_trigger-d36b0bbf/.claude/hooks/stop/workflow-continue.sh`
-emits `{"decision":"block","reason":"..."}` on `Stop` when a `wip/*-state.json`
-still has incomplete issues, and the reason text deliberately grants the agent
-an out ("If you're intentionally stopping ... go ahead") to avoid a loop.
-
----
-
-### C. Injecting content the model treats with high authority
-
-**The mechanism is `hookSpecificOutput.additionalContext`.** Confirmed in the
-binary: the string `additionalContext` is validated as a `hookSpecificOutput`
-key, and the binary carries a literal user-facing error string
-`"Did you mean hookSpecificOutput.additionalContext (with a hookEventName)?"` —
-i.e. a top-level `additionalContext` is a known and warned-about mistake on some
-events. The binary also groups `SessionStart`, `UserPromptSubmit`, and
-`UserPromptExpansion` together next to `additionalContext`, matching the docs'
-statement that those three (plus `UserPromptExpansion`) are the events where
-**plain-text stdout on exit 0** is also injected:
-
-> For most events, stdout is written to the debug log but not shown in the
-> transcript. The exceptions are `UserPromptSubmit`, `UserPromptExpansion`, and
-> `SessionStart`, where Claude Code adds plain-text stdout as context that
-> Claude can see and act on.
-
-**The `<EXTREMELY_IMPORTANT>` wrapper is not a harness feature.** It is plain
-text a plugin chooses to put inside `additionalContext`. The workspace
-injection referenced in the brief is superpowers' `SessionStart` hook, at
-`/home/dgazineu/.claude/plugins/cache/claude-plugins-official/superpowers/6.2.0/hooks/session-start`:
-
-```bash
-session_context="<EXTREMELY_IMPORTANT>\nYou have superpowers.\n\n**Below is the
-full content of your 'superpowers:using-superpowers' skill - your introduction
-to using skills. For all other skills, use the 'Skill' tool:**\n\n${...}\n</EXTREMELY_IMPORTANT>"
-...
-printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n
-  "additionalContext": "%s"\n  }\n}\n' "$session_context"
-```
-
-Registered at `hooks/hooks.json` with `"matcher": "startup|clear|compact"` and
-`"async": false`.
-
-**The hard limit on authority.** Verbatim from the guide's Limitations section:
-
-> Text returned via `additionalContext` is injected as a **system reminder that
-> Claude reads as plain text**.
-
-That is the ceiling. `additionalContext` is a system-reminder-class message —
-above ordinary tool output, below an actual user/session instruction. It does
-**not** get the precedence of a session-level instruction. This is directly
-material to the second incident in the brief: an agent that resolved
-"do not call the AgentTool unless the user requested it" against koto's
-`spawn_and_await` would resolve it the same way against an `additionalContext`
-nudge, because the nudge sits *below* the session instruction in the same
-precedence order that produced the miss. **Injection alone cannot win a
-precedence conflict against a session instruction.** Only a hard block can.
-
-Other limits:
-
-- No formatting privilege. XML tags like `<EXTREMELY_IMPORTANT>` are just
-  characters; their effect is prompt-engineering, not enforcement.
-- Composition: "Text from `additionalContext` is kept from every hook and passed
-  to Claude together." Multiple injectors do not conflict, they concatenate.
-- Size is observable but apparently uncapped — the binary emits telemetry
-  counters `additionalContextChars`, `systemMessageChars`,
-  `initialUserMessageChars`, and a log line `") provided additionalContext ("
-  … " chars)"`. No hard limit string was found. **Open question** whether an
-  oversized injection is truncated.
-- `systemMessage` is a *different* field and goes to the **user**, not the
-  model.
-- Untrusted-content discipline: shirabe's own injector
-  (`crates/shirabe/src/work_summary.rs:1073-1077`) wraps injected content in a
-  128-bit random nonce fence with the preamble
-  `"Auto-generated snapshot of this session's tracked pull requests (data, not
-  instructions):"`. If we inject policy text, we are on the *other* side of that
-  convention — it is instructions, not data — and should not reuse the
-  data-fence shape.
-
-**`SubagentStart` can inject too**, per the docs:
-`hookSpecificOutput.additionalContext` — "Text to inject into the subagent's
-context at startup", matchable on agent type. **Flagged as doc-only**: I could
-not confirm the field on `SubagentStart` specifically in the binary within
-budget (a broad context extraction around `SubagentStart` timed out). Verify
-empirically before designing on it — it is the single most useful surface in
-this whole inventory for reaching dispatched workers.
-
----
-
-### D. Can `UserPromptSubmit` rewrite a bare `/execute foo`?
-
-**Rewrite: yes, but not the way you'd hope.** The field is
-`hookSpecificOutput.updatedInput` — "Transformed prompt to send to Claude
-instead of the original" (docs), and `updatedInput` is present 82× in the 2.1.233
-binary. It is *not* `updatedPrompt`. So `UserPromptSubmit` can, in principle,
-replace `"/execute foo"` with `"Invoke the shirabe:execute skill on foo. …"`.
-
-**Four constraints that bound this heavily:**
-
-1. **Slash-command expansion may not be a `UserPromptSubmit` prompt at all.**
-   There is a *separate* event, `UserPromptExpansion`, described as firing "when
-   a slash command expands into a prompt". Which of the two sees a bare
-   `/execute` — and in what order — is unresolved here and is the single most
-   important thing to pin down empirically before designing on this path. It
-   also directly touches the sibling lead's finding about the
-   plugin-enumeration race: if `/execute` fails to resolve as a command, it
-   presumably arrives at `UserPromptSubmit` as literal text, which is exactly
-   the condition a rewrite hook could detect and repair.
-2. **A rewrite hook cannot invoke the skill.** Verbatim from the guide's
-   Limitations: hooks "can't trigger `/` commands or tool calls." A rewrite can
-   only produce *text instructing* the model to invoke the skill. The model
-   still chooses.
-3. **Append is the safer sibling.** `additionalContext` on the same event adds
-   text "before the prompt" without touching the user's words, and is what
-   shirabe already does (`work_summary.rs:1204`, `cmd_absence` emits
-   `UserPromptSubmit` `additionalContext`).
-4. **30-second timeout** on `UserPromptSubmit` (lowered from the 600s default),
-   and it fires on **every** prompt with **no matcher support**. Any work done
-   here is on the critical path of every single turn.
-
-**It does not reach dispatched agents.** `niwa dispatch` composes a worker
-prompt programmatically; a worker's initial task is not a user prompt typed into
-a session, so `UserPromptSubmit` is the wrong surface for the dispatch half of
-the requirement. `SessionStart` and `SubagentStart` are the surfaces that reach
-workers.
-
----
-
-### E. What `settings.json` expresses beyond hooks
-
-**`permissions.deny` as a blocking gate — real, but blunt and mute.**
-
-- Rules evaluate **deny → ask → allow**; first match wins; specificity does not
-  reorder. A broad deny cannot carry allowlist exceptions.
-- A **bare tool name** deny (`"Bash"`, or a glob like `"mcp__*"`) **removes the
-  tool from Claude's context entirely — Claude never sees it.** A **scoped**
-  rule (`"Bash(rm *)"`) leaves the tool visible and blocks matching calls.
-- **`Agent(...)` rules exist**: `"deny": ["Agent(Explore)"]` disables a specific
-  subagent type. So the Agent tool is deny-rule-addressable by agent type.
-- File rules are checked against `Edit(path)` and `Read(path)` **only**. A
-  `Write(...)` / `NotebookEdit(...)` / `Glob(...)` path rule is accepted, never
-  consulted, and warned about at startup. A `Read` deny also blocks Edit/Write
-  on that path (v2.1.208+/v2.1.228+). **A blocking gate on file writes must be
-  written as `Edit(<glob>)`, not `Write(<glob>)`.**
-- **What the agent experiences: no steerable reason.** Nothing in the
-  permissions doc describes feeding a rule's rationale back to the model — a
-  deny rule is a static config line with no message field. Contrast with a
-  `PreToolUse` hook deny, which explicitly feeds `permissionDecisionReason`
-  back. **For a corrective gate, hooks beat permission rules outright.** For an
-  unbypassable prohibition, permission rules (especially managed ones) beat
-  hooks.
-- **Hooks and rules compose, restrictively.** Verbatim: "Hook decisions don't
-  bypass permission rules… a matching deny rule blocks the call, and a matching
-  ask rule still prompts even when the hook returned `"allow"`." And in the
-  other direction: "A hook that exits with code 2 stops the tool call before
-  permission rules are evaluated." Also: "Hooks can tighten restrictions but not
-  loosen them past what permission rules allow."
-
-**`PreToolUse` beats every permission mode.** This is the strongest enforcement
-statement in the docs and it is worth quoting in full:
-
-> `PreToolUse` hooks fire before any permission-mode check, in every permission
-> mode, including `dontAsk`. A hook that returns `permissionDecision: "deny"`
-> blocks the tool even in `bypassPermissions` mode or with
-> `--dangerously-skip-permissions`. This lets you enforce policy that users
-> can't bypass by changing their permission mode.
-
-This directly matters here: the live workspace runs
-`"permissions": {"defaultMode": "bypassPermissions"}`
-(`.../tsuku+execute_and_work_on_trigger-d36b0bbf/.claude/settings.json`), and
-niwa's `gate-online.sh` hook comment already records the reasoning — "Works in
-bypassPermissions mode because hooks are external to the permission system."
-
-**Other settings-level levers:**
-
-- `env` — arbitrary env vars injected into the session and into hook
-  subprocesses. shirabe already uses this pattern for kill switches
-  (`PR_BODY_HOOK_DISABLE=1`, the `WS_*` seams). *(Note: the live workspace
-  `settings.json` currently carries a plaintext GitHub PAT in `env`. Out of
-  scope for this lead, but worth someone's attention.)*
-- `outputStyle` — not researched in depth; it changes the system prompt's
-  presentation layer, not tool authorization. Unlikely to be an enforcement
-  surface.
-- `disableAllHooks: true` — see §F.
-- `includeGitInstructions`, `defaultMode`, `enabledPlugins`,
-  `extraKnownMarketplaces` — all present in the live workspace file.
-- **Managed policy settings** are the org-owner surface: `allowManagedHooksOnly`
-  (only managed + force-enabled plugin hooks run) and
-  `allowManagedPermissionRulesOnly` (user/project settings cannot define
-  allow/ask/deny at all). "No other level, including command line arguments, can
-  override a managed permission rule."
-
----
-
-### F. Composition across the settings hierarchy — who wins?
-
-**Hooks merge; they do not replace.** Verbatim:
-
-> Hook entries merge across settings levels rather than replacing each other:
-> user, project, and local settings add their own hooks without removing managed
-> ones.
-
-Duplicate identical handlers are deduplicated to a single run; plugin, skill,
-and subagent copies stay separate. Sources: `~/.claude/settings.json`,
-`<project>/.claude/settings.json`, `.claude/settings.local.json`, managed policy
-settings, plugin `hooks/hooks.json`, **skill frontmatter**, **subagent
-frontmatter**.
-
-**So a repo-level settings file cannot remove a niwa-written instance hook by
-declaring its own hooks.** The two both run. niwa's own materializer is written
-to the same contract and merges rather than overwrites — see
-`public/niwa/internal/workspace/materialize.go:872-883`, whose comment spells out
-why: "Merge, do not overwrite: an installed hook registered on the session_start
-event … already built a SessionStart block above … A plain assignment here would
-silently drop that installed hook."
-
-**But a repo CAN disable everything.** Verbatim:
-
-> To disable hooks, set `"disableAllHooks": true` in your settings file. Claude
-> Code reads the value left after settings precedence applies, **so a project's
-> settings file can override yours.** Hooks configured in managed settings still
-> run unless `disableAllHooks` is also set there.
-
-So the answer to "who wins" is layered:
-
-| Layer | Can add hooks | Can remove another layer's hooks |
-|---|---|---|
-| Managed policy | Yes | Yes — `disableAllHooks` there kills managed hooks too; `allowManagedHooksOnly` kills everyone else's |
-| Project `.claude/settings.json` | Yes | Yes, via `disableAllHooks` — beats user settings |
-| User `~/.claude/settings.json` | Yes | Only its own layer and below |
-| Local `.claude/settings.local.json` | Yes | Presumably highest non-managed precedence (inference) |
-| Plugin `hooks/hooks.json` | Yes, while enabled | No |
-| Skill frontmatter | Yes, **for the rest of the session** once invoked (`once: true` for single-shot) | No |
-| Subagent frontmatter | Yes, while that subagent runs; a `Stop` here becomes `SubagentStop` | No |
-
-**Skill frontmatter hooks are a sleeper finding for this exploration.** A skill
-can register hooks *that persist for the rest of the session after it is
-invoked* — "on turns after the skill's own turn as well." That means
-`shirabe:execute` could register its own `PreToolUse` / `Stop` conformance gate
-at the moment it fires, with zero workspace configuration and zero niwa
-involvement. It is the only surface in this inventory that is (a) enforcement-
-grade, (b) scoped precisely to the workflow it governs, and (c) shippable inside
-the shirabe plugin itself.
-
-**Cloud sessions** (`claude-code-on-the-web`) do not read
-`~/.claude/settings.json` — only repo and managed settings apply.
-
----
-
-### G. Subagents and background sessions — the critical question
-
-**Tool events fire for subagents. This is explicit and unambiguous:**
-
-> Hooks from settings files, managed policy settings, and plugins also run
+| `SessionStart` | **Yes.** `hookSpecificOutput.additionalContext`, or plain stdout on exit 0, prepended to the session context | **No.** Exit 2 shows stderr to the user only; the session proceeds | n/a | Fires once per *session*, not per subagent. `SubagentStart` is the subagent analog | **Yes** — a background/dispatched session is a session. niwa's ephemeral-session integration already hangs off it (`materialize.go:478`) |
+| `UserPromptSubmit` | **Yes.** `hookSpecificOutput.additionalContext` — must be nested; a top-level `additionalContext` is *silently ignored* | **Yes.** `decision: "block"` or exit 2. The prompt is erased; `reason` goes to the **user**, not to Claude | **Yes.** `updatedInput` replaces the prompt text | No — subagents do not submit user prompts | Yes, for the session's initial `-p`/task prompt. niwa already registers one here (`work-summary absence`) |
+| `PreToolUse` | **Yes.** `hookSpecificOutput.additionalContext` | **Yes.** `permissionDecision: "deny"` or exit 2. Fires *before* any permission-mode check and denies even under `bypassPermissions` / `--dangerously-skip-permissions` | **Yes.** `updatedInput` replaces the tool arguments | **Yes**, with `agent_id` and `agent_type` on the input | **Yes** |
+| `PostToolUse` | **Yes.** `additionalContext`, plus `updatedToolOutput` / `updatedMCPToolOutput` (binary-verified) | **No** — the tool already ran. Exit 2 shows stderr *to Claude* | Output only, not input | **Yes** | **Yes** |
+| `Stop` | **Yes.** `hookSpecificOutput.additionalContext`, described in the binary as "non-error feedback delivered to the model; the conversation continues so the model can act on it" | **Yes.** Top-level `{"decision":"block","reason":...}` or exit 2. `reason` is fed to Claude as context to keep working | n/a | No — `SubagentStop` is the analog | **Yes** |
+| `SubagentStop` | **Yes.** `hookSpecificOutput.additionalContext` | **Yes.** Same `decision: "block"` + `reason`; the reason goes to the *subagent* | n/a | This *is* the subagent event; matchable by agent type | **Yes** |
+| `PreCompact` | No `additionalContext` in the schema | **Yes**, blocks compaction (rarely what you want) | n/a | n/a | Yes |
+| `Notification` | Schema accepts `additionalContext` (binary-verified) but the docs say output is ignored — **treat as unusable** | **No** | n/a | n/a | The `agent_needs_input` / `agent_completed` matchers "fire only while agent view is open" |
+| `SessionEnd` | **No** | **No** | n/a | n/a | Yes, but all `SessionEnd` hooks share a 1.5 s budget (raisable to 60 s via `timeout`) |
+| `SubagentStart` *(not in brief)* | **Yes — `additionalContext`, binary-verified** (see Surprises); injected into the subagent's own context | No | n/a | This is the subagent-spawn event; matcher is the agent type | Yes |
+| `PostToolBatch` *(not in brief)* | **Yes.** `additionalContext` | **Yes.** Exit 2 stops the agentic loop before the next model call | n/a | Yes | Yes |
+| `TaskCompleted` *(not in brief)* | No | **Yes.** Prevents a task being marked complete | Yes | Yes |
+
+Two cross-cutting rules from the guide:
+
+> "Hooks from settings files, managed policy settings, and plugins also run
 > inside subagents. When a subagent calls a tool, tool events such as
 > `PreToolUse` and `PostToolUse` fire the same configured hooks as in the main
 > conversation, and the input carries the `agent_id` and `agent_type` common
-> input fields that identify the subagent.
+> input fields."
 
-So **yes**: a `PreToolUse` hook sees `Edit`/`Write` from a spawned subagent, and
-can tell it is a subagent (and which one) from `agent_id` / `agent_type`.
+> "`PreToolUse` hooks fire before any permission-mode check, in every permission
+> mode, including `dontAsk`. A hook that returns `permissionDecision: "deny"`
+> blocks the tool even in `bypassPermissions` mode or with
+> `--dangerously-skip-permissions`. This lets you enforce policy that users can't
+> bypass by changing their permission mode."
 
-**`SessionStart` `additionalContext` does NOT reach subagents.** A subagent is
-not a session; `SessionStart` fires once per session with matchers
-`startup|resume|clear|compact|fork`. The per-subagent analog is `SubagentStart`,
-which per the docs supports `additionalContext` "to inject into the subagent's
-context at startup" and matches on agent type. **This is the surface for
-reaching subagents with policy text.** (Doc-only; verify.)
+That second quote is the single most load-bearing fact for this design. Given
+`ask` is unusable in a dispatched session, `deny` is the only enforcement verb
+available, and it works.
 
-Practical consequence: the superpowers `<EXTREMELY_IMPORTANT>` skill injection
-reaches the *main* session only. Any subagent it spawns starts without it.
+### 2. Denial semantics — what does the model actually see?
 
-**Background / non-interactive sessions.** Hooks fire, but there is a sharp edge
-that will bite `niwa dispatch` workers:
+**PreToolUse deny.** The guide is explicit: *"With `"deny"`, Claude Code cancels
+the tool call and feeds `permissionDecisionReason` back to Claude."* The reason
+arrives as the tool's error result, in the model's normal read path, so it is
+text the model can act on and self-correct from. The exit-2 form behaves the
+same way with stderr as the reason. This is exactly the shape needed: "you tried
+to Edit a source file but no koto session exists for PLAN-x; run `<command>`
+first."
 
-> Background subagents can't show a prompt in non-interactive mode. Claude Code
-> still runs the hooks for their tool calls, and **if no hook returns a
-> decision, it denies the call.** In an interactive session, background subagent
-> prompts surface in your main session and the hooks fire as usual.
+One version-sensitive caveat, and it applies only to `type: "prompt"` and
+`type: "agent"` hooks, not to command hooks:
 
-And:
+> "`PreToolUse`: the tool call is denied; by default the turn ends and the deny
+> `reason` appears in the chat as a warning line. Set `continueOnBlock: true` on
+> the hook to instead return the `reason` to Claude as the tool error, so it can
+> adjust and continue. Before v2.1.210, the deny `reason` was returned to Claude
+> as the tool error and the turn continued."
 
-> `PermissionRequest` hooks fire when Claude Code is about to ask you for
-> permission. In non-interactive mode with the `-p` flag, that prompt only
-> exists when the Agent SDK's `canUseTool` callback supplies it. In plain `-p`
-> runs or with `--permission-prompt-tool`, use `PreToolUse` hooks for automated
-> permission decisions instead.
+A `type: "command"` hook returning `permissionDecision: "deny"` keeps the
+feed-back-and-continue behavior. If this gate ever gets built as a prompt or
+agent hook, it must set `continueOnBlock: true` or a denial silently kills the
+turn instead of correcting it.
 
-**Read: `permissionDecision: "ask"` is not a usable outcome in a background
-worker.** It becomes an effective deny. Any gate we ship must decide
-allow-or-deny outright in non-interactive contexts. niwa's existing
-`gate-online.sh` uses `"ask"` for `gh release create` etc., which in a
-background dispatched worker would silently harden into a deny.
+**Stop block.** `{"decision":"block","reason":"..."}` at the *top level* (not
+inside `hookSpecificOutput`) prevents the turn ending; the `reason` is shown to
+Claude as context for why it should keep working. Corroborated by the working
+local hook at `.claude/hooks/stop/workflow-continue.sh:56`, which emits exactly
+that shape. Confirmed against the binary: the `hookSpecificOutput` variant for
+`Stop` accepts **only** `additionalContext`, so a `decision` nested there is
+dropped.
 
----
+Loop protection is a real input field, `stop_hook_active` (binary-verified,
+boolean), true when the current turn exists because a Stop hook blocked the
+previous one. Stop also carries `last_assistant_message` and `background_tasks`
+("lets hooks distinguish 'session is done' from 'session is paused waiting for
+[background work]'").
 
-### H. Can a hook detect a PRECEDENCE CONFLICT, or the ABSENCE of expected activity?
+**UserPromptSubmit block.** Asymmetric with the other two and easy to get wrong:
+the prompt is *erased* and the `reason` is shown to the **user**, explicitly
+**not** to Claude. A blocked prompt teaches the model nothing. For a background
+dispatched session with no human reading the transcript, blocking here is a
+silent dead end. Use `additionalContext` there, never `decision: "block"`.
 
-This is the question the second incident forces, and the honest answer splits.
+### 3. UserPromptSubmit specifics
 
-**Absence detection: yes, and we already ship one.**
-`shirabe work-summary absence` is literally an absence detector: a
-`UserPromptSubmit` hook that fires on every prompt, compares elapsed time against
-a threshold, and injects a summary when the session has been idle with a
-non-empty ledger (`crates/shirabe/src/work_summary.rs:1022-1032`, `1186-1207`).
-niwa installs it by default for shirabe adopters
-(`materialize.go:504-508`, `workSummaryHookDefaults`).
+- Input field is **`prompt`** (binary-verified: `hook_event_name:"UserPromptSubmit",prompt:e,...,session_title:...`). The rendered reference's `user_input` is wrong.
+- **Append:** `hookSpecificOutput.additionalContext`, prepended to the prompt before Claude sees it. The guide warns: *"Nest `additionalContext` inside `hookSpecificOutput`; if you place it at the top level of the JSON, Claude Code silently ignores it."* Plain stdout on exit 0 also becomes context.
+- **Replace:** `updatedInput` replaces the prompt entirely. (The reference page renders this as `updatedPrompt`; that identifier does **not exist** anywhere in the 2.1.233 binary, while `updatedInput` appears 269 times. `updatedPrompt` is a doc error.)
+- **Block:** `decision: "block"` + `reason`, or exit 2. Reason to the user only.
+- Exact contract:
 
-The general pattern generalizes to our problem. Absence is observable at:
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "UserPromptSubmit",
+    "additionalContext": "Current branch: release-42. Deploy freeze until Friday."
+  }
+}
+```
 
-- **`Stop`** — the natural checkpoint. The agent is *trying to finish*. A `Stop`
-  hook can read the transcript (`transcript_path` is a common input field), or
-  read on-disk state, and ask: did a koto session get created? Was any
-  `spawn_and_await` issued? Was `plan-to-tasks.sh` output ever submitted? If
-  not, block the stop and feed the reason back as steerable
-  `additionalContext`. This is exactly the shape of the existing
-  `workflow-continue.sh` and of the official docs' own `Stop`-prompt-hook
-  example.
-- **`SubagentStop`** — same, one level down, with `last_assistant_message`
-  supplied as input.
-- **`TeammateIdle`** — same, for agent-team teammates, and blockable.
-- **`TaskCompleted`** — blockable; a task cannot be marked complete if the
-  expected artifact does not exist.
-- **`PostToolBatch`** — blockable mid-loop, before the next model call: catches
-  a drift-into-inline-implementation *during* the run rather than at the end.
-- **Positive-signal absence via `PreToolUse`**: a gate that sees the Nth `Edit`
-  to `src/**` in a session where no koto session was ever created can deny with
-  a reason. This is inverted absence — detect the *substitute* activity rather
-  than the missing activity.
-- **`type: "agent"` hooks** make all of the above judgment-capable rather than
-  string-matching: an agent hook on `Stop` can read files, grep the repo, and
-  check koto state before answering.
+- Timeout is lowered to **30 s** here (from the 10 min default) for `command`, `http`, and `mcp_tool` hooks.
+- No matcher support; it always fires.
+- Injected text arrives "as a system reminder that Claude reads as plain text."
 
-**Precedence-conflict surfacing: no direct surface, but a strong indirect one.**
-No hook event fires on "the model resolved an instruction conflict." Nothing
-observes reasoning. But the *consequence* is observable, and observing the
-consequence is enough:
+### 4. SessionStart specifics
 
-- The conflict in the incident resolved as "spawn no subagents." That is an
-  absence of `SubagentStart` / `Agent` tool calls — detectable at `Stop` by
-  reading the transcript, or continuously by a counter.
-- More precisely: `SubagentStart` fires per subagent with
-  `parent_agent_id` / `parent_agent_type`. A gate can assert "a session in which
-  `/execute` fired must have spawned ≥1 `work-on` child before it may stop."
-- **The cleanest structural fix is not detection at all.** The conflict existed
-  because a session-level instruction and a skill both spoke, and the skill
-  lost. A `PreToolUse` deny outranks *both* — it fires before permission-mode
-  checks, cannot be talked out of, and feeds a reason the model must act on. A
-  policy expressed as a hook is not in the precedence order the model
-  arbitrates; it is outside it. Conversely, a policy expressed as injected
-  `additionalContext` **is** in that order, and sits below the session
-  instruction that already won once.
+- Matchers: **`startup`, `resume`, `clear`, `compact`, `fork`**. Five, not four — `fork` is the one usually missed.
+- Input field is **`source`** (binary-verified: `hook_event_name:"SessionStart",source:t,agent_type:o,model:i,session_title:...`). The reference page's `how` and `start_method` renderings are both wrong.
+- Output: `hookSpecificOutput.additionalContext`, or plain stdout on exit 0. Cannot block.
+- Working plugin example: superpowers declares this in `hooks/hooks.json` with `"matcher": "startup|clear|compact"` and a script that inlines an entire SKILL.md into `additionalContext` wrapped in `<EXTREMELY_IMPORTANT>` tags. That is a live proof that a plugin can push a multi-kilobyte policy into every session it is enabled for.
+- **Does SessionStart `additionalContext` reach subagents spawned later? Not confirmed, and I believe not.** Nothing in either doc page says it does; a subagent is constructed with its own context window from its own system prompt and task prompt, and the reference introduces `SubagentStart` as the separate subagent-entry event. Treat "SessionStart context is inherited by subagents" as false until tested. The empirical test is one command: a SessionStart hook injecting a unique token, then `Task`-spawn an agent and ask it whether it can see the token.
+- The correct subagent-side mechanism is **`SubagentStart` with `additionalContext`**, matchable by agent type — see Surprises.
 
----
+### 5. Composition and precedence
 
-### I. Local precedent: what niwa and shirabe already ship
+Locations, verbatim from the guide's table:
 
-The brief is right that this is the working precedent, and it is closer to a
-template than an analogy.
+| Location | Scope |
+|---|---|
+| `~/.claude/settings.json` | All your projects |
+| `.claude/settings.json` | Single project |
+| `.claude/settings.local.json` | Single project |
+| Managed policy settings | Organization-wide |
+| Plugin `hooks/hooks.json` | When plugin is enabled |
+| Skill frontmatter | The rest of the session once the skill is invoked |
+| Subagent frontmatter | While that subagent is running |
 
-**niwa injects four hooks by default into any instance whose effective config
-installs the shirabe plugin** (`public/niwa/internal/workspace/materialize.go`):
+**Precedence: User → Project → Local → Managed Policy — but hooks *merge*, they
+do not replace.** There is no mechanism for one settings level to remove or
+override a specific hook declared at another level. Every matching hook at every
+level runs.
 
-| Hook | Event | Matcher | Command |
-|---|---|---|---|
-| pr-body gate | `PreToolUse` | `Bash` | `command -v shirabe >/dev/null 2>&1 \|\| exit 0; shirabe pr-body-hook 2>/dev/null \|\| exit 0` |
-| work summary capture | `PostToolUse` | `Bash` | `… exec shirabe work-summary capture` |
-| work summary absence | `UserPromptSubmit` | — | `… exec shirabe work-summary absence` |
-| work summary compact | `SessionStart` | `compact` | `… exec shirabe work-summary compact` |
+The only off switch is the blunt one:
 
-Structural properties worth copying wholesale:
+> "To disable hooks, set `"disableAllHooks": true` in your settings file. Claude
+> Code reads the value left after settings precedence applies, so a project's
+> settings file can override yours. Hooks configured in managed settings still
+> run unless `disableAllHooks` is also set there."
 
-- **Gate on plugin adoption, not on provisioning.** `installsShirabePlugin()`
-  matches the plugin name before `@marketplace`, so both `shirabe@shirabe` and a
-  bare `shirabe` qualify (`materialize.go:521-536`). "The ambient summary travels
-  with shirabe adoption rather than with every provisioned instance."
-- **Default-on with a `[claude]`-table off switch.** `pr_body_hook = false` /
-  `work_summary_hooks = false`; a nil pointer means on
-  (`materialize.go:538-546`, `608-616`; `internal/config/config.go:54`).
-- **Dedup against a workspace's own declaration** by grepping the materialized
-  hook scripts for a marker string (`workSummaryModeInstalled`,
-  `prBodyHookInstalled`) so the default never double-registers.
-- **Inline commands, no script files.** Every injected hook is a one-liner with a
-  `command -v shirabe` guard, making it a fail-safe no-op wherever the binary is
-  absent.
-- **Append, never assign.** Every injection appends to the existing event block
-  (`materialize.go:818-822`, `843-847`, `879-883`).
-- **A `PreToolUse` hook must not exec and must swallow non-zero.** The comment at
-  `materialize.go:592-606` is the sharpest operational lesson in the codebase:
-  > "Unlike the work-summary PostToolUse pass-through it must NOT `exec` and must
-  > swallow a non-zero exit: a PreToolUse hook that exits non-zero BLOCKS the
-  > tool call, and this hook matches every Bash command. An outdated shirabe that
-  > predates the `pr-body-hook` subcommand exits non-zero on the unknown
-  > subcommand."
+So the answer to "can a project settings file disable a hook installed at another
+level" is: **only by disabling every non-managed hook in the session.** There is
+no surgical disable. `--settings '{"disableAllHooks": true}'` on the CLI takes
+precedence over all of it.
 
-**The shirabe side** (`crates/shirabe/src/pr_body_hook.rs`) is the reference
-adapter shape: reads hook JSON on stdin, **always exits 0**, expresses a block as
-`hookSpecificOutput.permissionDecision: "deny"` with the findings as
-`permissionDecisionReason`, fails **open** on every ambiguity (unparseable stdin,
-unreadable `--body-file`, `--fill`/`--web`, command substitution), never
-shell-evaluates the command, assembles the reason with `serde_json` so
-attacker-controlled text cannot escape into a terminal control sequence, and
-carries an env kill switch (`PR_BODY_HOOK_DISABLE=1`).
+**Merging within an event.** Every matching hook runs to completion in parallel
+before results are combined; one hook's `deny` does not prevent a sibling from
+executing. For `PreToolUse` the most restrictive answer wins in the order
+`deny` → `defer` → `ask` → `allow`, and `additionalContext` from *every* hook is
+kept and passed to Claude together. When two hooks both return `updatedInput`,
+the last to finish wins and ordering is non-deterministic — so at most one hook
+per tool should rewrite input.
 
-Its design rationale is verbatim the argument this exploration needs
-(`references/pr-body-conformance.md:13-20`):
+**Skill and subagent frontmatter hooks** are a third channel worth knowing about:
 
-> "PR-template conformance used to be stated inline in `/execute`'s
-> `pr_finalization` state and `/work-on`'s PR phase … Two statements of one rule
-> drift, **and a PR opened off the skill path (a manual `gh pr create`, a
-> dispatched worker) saw neither.** Moving the mechanical rule into the validator
-> and pointing every consumer here makes conformance **a property of the repo —
-> a path-independent CI gate enforces it — rather than a property of whichever
-> code path opened the PR.**"
+> "Subagent hooks: Claude Code runs them only while that subagent is running and
+> removes them when it finishes. Claude Code converts a `Stop` hook here to
+> `SubagentStop`. Skill hooks: Claude Code registers them when you or Claude
+> invoke the skill and keeps running them for the rest of the session, on turns
+> after the skill's own turn as well. To have Claude Code run a hook a single
+> time instead, set `once: true` on it."
 
-That is precisely the reframing skill-adherence needs: make workflow conformance
-a property of the repo, not of whether the agent chose the skill.
+Note the asymmetry that matters here: a skill-frontmatter hook only exists *after
+the skill is invoked*. It cannot enforce that the skill gets invoked. The
+first incident — the agent never calling `shirabe:execute` at all — is
+structurally out of reach for any skill-frontmatter hook.
 
----
+Project-skill and project-subagent frontmatter hooks also require workspace trust
+acceptance for the folder they came from, and a `-p` session does not count as
+acceptance (changed in v2.1.218). A dispatched headless session cannot rely on
+frontmatter hooks from project files.
 
-### J. Practical failure modes
+**Existing niwa-injected hooks**, confirmed in `materialize.go`, so the wiring
+precedent exists at every level this design might use:
 
-**Latency.** `command`/`http`/`mcp_tool` default to 600s; `UserPromptSubmit`
-drops to 30s and `MessageDisplay` to 10s; `prompt` hooks 30s; `agent` hooks 60s;
-`SessionEnd` hooks share a **1.5-second** budget (raised to a per-hook `timeout`
-up to 60s max). A `UserPromptSubmit` hook is on the critical path of every turn
-and has no matcher to narrow it. A `PreToolUse` `Bash` hook is on the critical
-path of every shell command — niwa already stacks two there (`gate-online.sh` +
-`pr-body-hook`). An `agent`-type hook on `Stop` is the most expensive option in
-this inventory (a full subagent, up to 50 tool turns) and should be gated hard
-on cheap preconditions before it runs.
+- `pre_tool_use` / matcher `Bash` → `shirabe pr-body-hook` (`materialize.go:605`)
+- `post_tool_use` / matcher `Bash` → `shirabe work-summary capture`
+- `user_prompt_submit` / no matcher → `shirabe work-summary absence`
+- `session_start` / matcher `compact` → `shirabe work-summary compact`
+  (`materialize.go:504-508`)
 
-**Silent failure.** This is the dominant risk and the codebase already knows it:
-
-- Exit 0 with **invalid JSON** = non-blocking error, action proceeds. A hook with
-  a typo'd field name fails open and silently.
-- Top-level `additionalContext` on an event expecting the nested form is
-  **silently ignored** — verbatim: "Nest `additionalContext` inside
-  `hookSpecificOutput`; if you place it at the top level of the JSON, Claude Code
-  silently ignores it." The superpowers hook emits three different shapes
-  depending on host precisely because of this.
-- Non-zero exit on a **non-blockable** event just logs.
-- `shirabe pr-body-hook` fails open on *every* ambiguity by design, accepting CI
-  as the backstop. Any adherence gate needs an equivalent named backstop, or it
-  must fail closed.
-- `Write(...)`/`Glob(...)` path permission rules are accepted and never
-  consulted (startup warning only). Easy to write a gate that does nothing.
-- The `if:` pre-filter on tool hooks is **best-effort** and explicitly fails
-  open: "The filter also fails open, running your hook regardless of pattern,
-  when the Bash command can't be parsed. Because the filter is best-effort, use
-  the permission system rather than a hook to enforce a hard allow or deny."
-
-**Bypass routes an agent could take.**
-
-- **Route around the matcher.** A `PreToolUse` matcher on `Edit|Write` does not
-  see `python -c "open(...).write(...)"`. Verbatim from the permissions doc:
-  Read/Edit deny rules "don't apply to arbitrary subprocesses that read or write
-  files indirectly, like a Python or Node script that opens files itself." OS-level
-  enforcement requires `sandbox` settings.
-- **`disableAllHooks` in a project settings file** beats user settings. Only
-  managed settings are immune.
-- **Kill switches we ship ourselves**: `PR_BODY_HOOK_DISABLE=1`,
-  `[claude] pr_body_hook = false`, `work_summary_hooks = false`. An agent with
-  Edit access to `.niwa/workspace.toml` or the ability to set an env var can
-  disable the gate. (Whether that is a bug or a feature is a design call, but it
-  should be a deliberate one.)
-- **Stale binary → fail open.** `command -v shirabe || exit 0` plus
-  `|| exit 0` means an instance without shirabe on PATH, or with a version
-  predating the subcommand, silently has no gate.
-- **`impossible: true`** on a `Stop` prompt hook lets the model assert the
-  condition can never be satisfied and stop anyway. That is the intended
-  anti-loop valve and also the intended-by-design escape hatch.
-- **Non-deterministic `updatedInput` collisions**: "When multiple `PreToolUse`
-  hooks return `updatedInput` … the last one to finish takes effect. Since hooks
-  run in parallel, the order is non-deterministic."
-- **`PreToolUse` composition is restrictive-wins**, which is on our side: "For
-  `PreToolUse` permission decisions, the most restrictive answer applies, in the
-  order `deny`, `defer`, `ask`, `allow`."
-
----
+niwa's own `hookEventMapping` (`materialize.go:304`) currently translates only
+`pre_tool_use`, `post_tool_use`, `stop`, and `notification`; `session_start`,
+`session_end`, and `user_prompt_submit` are handled on separate code paths. Any
+new event would need adding there.
 
 ## Implications
 
-**1. Injection cannot solve the second incident; only blocking can.** The
-precedence order that produced the miss — session instruction outranks skill —
-also outranks `additionalContext`, which the harness delivers as a system
-reminder "Claude reads as plain text." A `SessionStart` injection wrapped in
-`<EXTREMELY_IMPORTANT>` raises the odds and changes nothing structural. A
-`PreToolUse` deny is not in that order at all: it fires before permission-mode
-checks, survives `bypassPermissions`, and returns a reason the agent must act on.
-Any design whose enforcement leg is "inject stronger words" will reproduce the
-failure.
+**The gate belongs on `PreToolUse`, denying the first implementation-shaped tool
+call.** It is the only surface that is simultaneously (i) unbypassable — deny
+beats `bypassPermissions`, which is exactly the mode dispatched sessions run in;
+(ii) self-correcting — the reason is fed back as tool-error text the model reads
+and acts on, so a deny that says "no koto session exists for PLAN-x; run
+`<exact command>`" produces the corrective action rather than a stall; (iii)
+subagent-transparent — it fires inside `/work-on` subagents too, carrying
+`agent_id`, so the second incident's failure mode (skill invoked, payload built,
+then six issues implemented inline) is caught at the first `Edit`. The gate
+condition is already established as externally computable, which means the hook
+is a `grep` and a `jq`, well inside the 10-minute command budget.
 
-**2. `Stop` is the natural place to enforce a workflow, and `PreToolUse` is the
-natural place to enforce an action.** `Stop`/`SubagentStop` are the only events
-that both (a) block and (b) deliver the reason as steerable non-error feedback
-that continues the conversation. That is exactly the semantics of "you ran
-`plan-to-tasks.sh` but never submitted it to koto — do that before you finish."
-`PreToolUse` is where "you are about to hand-edit issue 4's files without a koto
-session" gets caught.
+**`SubagentStart` `additionalContext` is the right answer to the second
+incident specifically.** That incident was a conflict between two instructions
+delivered through different channels, resolved against the skill. Injecting the
+policy at `SubagentStart` puts it in the same channel as the session-level
+instruction that beat it, at the same altitude, at spawn time, matchable by agent
+type. It does not enforce anything on its own, but it removes the asymmetry that
+caused the loss.
 
-**3. Skill frontmatter hooks may collapse the distribution problem entirely.** A
-skill can register hooks that persist for the rest of the session once invoked.
-If `shirabe:execute` carries its own `Stop` conformance gate in frontmatter, the
-policy ships with the plugin, needs no niwa change, no workspace settings, no
-org-owner action, and is scoped to sessions where `/execute` actually fired. This
-should be evaluated head-to-head against the niwa-injection path before either
-is chosen. Its weakness is the obvious one: it only fires *after* the skill is
-invoked, so it does nothing about an agent that never reached for the skill.
+**A `Stop` block is a backstop, not the gate.** By the time `Stop` fires, 22
+issues are already hand-implemented; blocking the stop only makes the agent keep
+going down the wrong path. Its legitimate use is the narrow one: plan in play,
+turn ending, no koto session, nothing implemented yet — nudge. Use
+`stop_hook_active` to bound the loop, and `background_tasks` to avoid firing on a
+session that is merely paused.
 
-**4. Reaching dispatched workers is a different surface from reaching a human's
-session.** `UserPromptSubmit` covers the human typing `/execute` and does not
-exist for a worker. `SessionStart` covers a worker's own session but not the
-subagents it spawns. `SubagentStart` covers those. A design that must work for
-both needs at least two injection points, or it needs to move enforcement to
-tool events, which fire uniformly everywhere.
+**Ship it as a plugin hook in shirabe, not as a niwa injection into project
+settings.** Because hooks merge with no surgical disable, a hook injected into
+project settings can only be escaped with `disableAllHooks`, which would also
+kill the four hooks niwa already relies on. A plugin-declared hook is scoped to
+plugin-enabled, which is the escape hatch adopters expect and the mechanism
+superpowers already uses. niwa injecting `shirabe pr-body-hook` into project
+settings is the counter-precedent, so this is a judgment call rather than a
+constraint — but the disable story favors the plugin.
 
-**5. `ask` is a deny in background workers.** Any decision surface must resolve
-to allow-or-deny in non-interactive mode. This retroactively affects the existing
-`gate-online.sh` `ask` branch inside dispatched instances.
-
-**6. The niwa injection contract is a solved distribution problem we should
-reuse verbatim.** Plugin-adoption gate, default-on with a `[claude]` off switch,
-marker-based dedup, inline `command -v`-guarded one-liners, append-never-assign,
-always-exit-0 adapters that express blocks as JSON. Every one of those decisions
-has a comment in `materialize.go` explaining the failure it prevents.
-
-**7. Judgment-shaped conformance is now expressible without writing a
-classifier.** `type: "prompt"` and `type: "agent"` hooks mean the gate can ask a
-model "did this session actually delegate the plan, or did it implement inline?"
-The docs' own flagship `Stop` example is that question. Cost and the
-`continueOnBlock`/`impossible` semantics are the design constraints, not
-feasibility.
-
----
+**Do not block at `UserPromptSubmit`.** The reason is shown to the user and not
+to Claude, so in an unattended dispatched session a block is a silent stall with
+no corrective signal. `additionalContext` there is fine and cheap, and niwa
+already owns a hook on that event.
 
 ## Surprises
 
-- **`updatedPrompt` and `expandedPrompt` do not exist.** A documentation
-  summarization pass asserted both confidently; neither string appears anywhere
-  in the installed 2.1.233 binary, while `updatedInput` appears 82 times. Anyone
-  designing from a doc summary rather than the binary would have built on a
-  field that does not exist.
-- **`Stop` and `SubagentStop` support `additionalContext`, and the binary's own
-  schema strings say it is delivered as non-error feedback with the conversation
-  continuing.** This is a much better surface than the `decision:"block"` shape
-  our existing `workflow-continue.sh` uses, and it was not obvious from the docs
-  index.
-- **Skill frontmatter can register hooks that outlive the skill's turn.** Not
-  mentioned anywhere in the brief, and potentially the whole answer.
-- **`SubagentStart` exists and takes `additionalContext`.** A per-subagent
-  injection point aimed by agent type, which is precisely the missing piece for
-  reaching `spawn_and_await` children.
-- **`PreToolUse` deny survives `bypassPermissions` and
-  `--dangerously-skip-permissions`, by explicit design** — "This lets you enforce
-  policy that users can't bypass by changing their permission mode." In a
-  workspace that runs `defaultMode: bypassPermissions`, this is the *only*
-  enforcement surface that still holds.
-- **In non-interactive background subagents, a tool call with no hook decision is
-  denied**, not allowed. The default flips.
-- **`"deny": ["Agent(Explore)"]`** — subagent types are permission-rule
-  addressable. A negative lever exists on delegation; no positive "must delegate"
-  lever does.
-- **28 hook events.** The brief listed nine; the surface is three times larger,
-  and several of the useful ones (`SubagentStart`, `TaskCompleted`,
-  `PostToolBatch`, `InstructionsLoaded`, `TeammateIdle`) were not on the list.
-- **`InstructionsLoaded` fires when a CLAUDE.md or `.claude/rules/*.md` loads.**
-  Observe-only, but it means the harness knows which instruction files entered a
-  session — potentially useful for detecting *which* session constraint is in
-  play during a precedence conflict.
-
----
+1. **`SubagentStart` accepts `additionalContext`.** The rendered docs do not show
+   it and the summarizer reading them concluded it accepts only `systemMessage`.
+   The 2.1.233 binary schema is unambiguous:
+   `be({hookEventName:Tt("SubagentStart"),additionalContext:B().optional()})`,
+   and the consuming path pushes it into the subagent's context. This is the
+   cleanest available mechanism for injecting policy into subagents at spawn, and
+   it is effectively undocumented.
+2. **`PreToolUse` deny beats `bypassPermissions` and `--dangerously-skip-permissions`.** Explicitly documented as a feature: policy users cannot escape by changing permission mode.
+3. **The docs have three field-name errors** that would each cost a debugging cycle: `updatedPrompt` (does not exist; it is `updatedInput`), `user_input` on `UserPromptSubmit` (it is `prompt`), and `how`/`start_method` on `SessionStart` (it is `source`). All three verified directly against the binary.
+4. **Prompt-type `PreToolUse` hooks changed default behavior at v2.1.210**: a deny now *ends the turn* with a chat warning unless `continueOnBlock: true` is set. Command hooks kept the old feed-back-and-continue behavior. Same verb, opposite outcome, depending on hook type.
+5. **`PostToolUse` can rewrite tool output** via `updatedToolOutput` / `updatedMCPToolOutput` — the model can be shown something other than what the tool returned.
+6. **The local `workflow-continue.sh` Stop hook has its loop guard inverted.** `.claude/hooks/stop/workflow-continue.sh:24` reads `if [[ "$STOP_ACTIVE" != "true" ]] ... then exit 0`, so it exits early *unless* the turn was already produced by a Stop-hook block. The standard idiom is the reverse. As written it can only fire on a turn that some hook already continued, which in practice means never. Worth a look independent of this design.
+7. **In non-interactive mode, a background subagent's tool call with no hook decision is denied**: *"Background subagents can't show a prompt in non-interactive mode. Claude Code still runs the hooks for their tool calls, and if no hook returns a decision, it denies the call."* A permissive hook that returns nothing is not neutral in that context.
+8. **`TaskCompleted` can block a task being marked complete**, and `PostToolBatch` can stop the agentic loop between model calls. Neither was on the radar; both are plausible secondary gates.
 
 ## Open Questions
 
-1. **Does `SubagentStart.additionalContext` actually work?** Doc-only in my
-   evidence; the binary confirmation timed out. This is the highest-value
-   unverified claim in the report. Test: a `SubagentStart` hook emitting a
-   distinctive token, then a subagent asked to echo it.
-2. **Which event sees a slash command — `UserPromptSubmit`, `UserPromptExpansion`,
-   or both, and in what order?** Determines whether the bare-`/execute` repair
-   path is viable at all, and interacts with the sibling lead's
-   plugin-enumeration-race finding.
-3. **Does `UserPromptExpansion` honor `updatedInput`?** `expandedPrompt` is not a
-   real field; the replacement field's name on that event is unconfirmed.
-4. **Is `additionalContext` size-capped or truncated?** The binary counts
-   `additionalContextChars` but no limit string surfaced.
-5. **Do `PreCompact` / `PostCompact` fire inside a subagent that compacts?**
-   Matters for whether a policy injection survives a long worker run.
-6. **Exactly how much of the transcript can a `Stop` hook cheaply inspect?**
-   `transcript_path` is supplied, but reading and analyzing a long JSONL on every
-   `Stop` has a real cost. Is a `type: "agent"` hook cheaper in practice than a
-   command hook that parses the transcript itself?
-7. **Cost and latency of `prompt` / `agent` hooks in practice.** No measurements
-   taken. An `agent` hook on `Stop` firing on every turn-end could be
-   prohibitive.
-8. **Can a hook read koto session state cheaply enough to assert "a koto session
-   exists for this plan"?** This is the concrete absence predicate the second
-   incident needs, and it depends on the koto-observability lead's findings.
-9. **Should the org-owner policy live in managed policy settings?** That is the
-   only layer a project `disableAllHooks` cannot defeat, and the brief's
-   "declarable as workspace policy by an org owner" requirement points at it —
-   but it also removes the escape hatch entirely. Not researched: how managed
-   settings are distributed in this workspace, if at all.
-10. **Does the existing `gate-online.sh` `ask` branch silently deny inside
-    dispatched workers today?** Follows directly from §G and is testable now.
-
----
+- **Does `SessionStart` `additionalContext` reach subagents spawned later?** Unconfirmed; I believe not. One-command empirical test described in Finding 4. This decides whether `SubagentStart` injection is necessary or merely redundant.
+- **Does `UserPromptSubmit` fire when a teammate delivers a message via `SendMessage`, or only for real user prompts?** Not documented. Matters because dispatched work arrives as a task message, not a typed prompt.
+- **Does a `claude --bg` dispatched session fire `SessionStart` with `source: "startup"`?** Strongly implied — niwa's ephemeral-session integration depends on it and `WorktreeCreate` explicitly fires "for a background session" — but I did not find a sentence stating it for `SessionStart` specifically.
+- **What is `managedHooksOnly`?** The binary passes it through several hook-dispatch paths, including one permission-gate path pinned to `managedHooksOnly: true`. If some subagent or observer path runs *only* managed hooks, a plugin-declared hook would be invisible there. Undocumented; worth resolving before committing to a plugin-hook delivery.
+- **`permissionDecision: "defer"`** is referenced in the guide as an SDK-oriented fourth value under `-p`, and the binary carries `hasHandledDeferredToolResume`, but the reference section describing it did not render in any fetch. Probably irrelevant here, but unread.
 
 ## Summary
 
-Claude Code exposes 28 hook events; the ones that matter here split cleanly into
-**inject-only** (`SessionStart`, `SubagentStart`, `UserPromptSubmit` — all
-delivering text as a system reminder the model reads as *plain text*, which sits
-*below* a session instruction in the precedence order that caused the second
-incident) and **blocking with steerable feedback** (`PreToolUse` deny, which
-fires before every permission-mode check and survives `bypassPermissions`, and
-`Stop`/`SubagentStop`, whose `additionalContext` the binary describes as
-"non-error feedback delivered to the model; the conversation continues so the
-model can act on it"). The main implication is that no amount of stronger
-injection can fix an agent that resolved a precedence conflict against a skill —
-a hook block is outside that order and is the only mechanism that wins — while
-absence of expected activity (no koto session, no subagent spawned) is cleanly
-detectable at `Stop`/`SubagentStop`/`TaskCompleted`, and tool hooks fire
-uniformly inside subagents and background sessions with `agent_id`/`agent_type`
-supplied. The biggest open question is whether `SubagentStart.additionalContext`
-actually delivers into a spawned subagent's context — it is documented but
-unverified, and it is the only surface that reaches `spawn_and_await` children,
-so the design's ability to govern dispatched multi-agent work hinges on it.
+`PreToolUse` is the only surface that meets all three requirements at once — it
+denies unbypassably under `bypassPermissions` (documented as a deliberate
+feature), it feeds `permissionDecisionReason` back to the model as tool-error
+text the model can self-correct from, and it fires inside subagents with
+`agent_id`, so a `/work-on` subagent hand-implementing gets caught at its first
+`Edit` exactly as the main session would; `Stop` is a backstop that fires too
+late to prevent the damage, and `UserPromptSubmit` blocking is unusable because
+its reason goes to the user rather than to Claude. The undocumented find is that
+`SubagentStart` accepts `additionalContext` (verified in the 2.1.233 binary
+schema, absent from the rendered docs), which is the natural fix for the second
+incident's channel asymmetry: it delivers the skill policy to a subagent at spawn
+through the same channel as the session instruction that overrode it. On
+composition, hooks from user, project, local, managed, and plugin sources all
+merge with no surgical disable — the only off switch is the all-or-nothing
+`disableAllHooks` — which argues for shipping the gate as a shirabe plugin hook
+rather than a niwa injection into project settings, since plugin-enablement is
+then the adopter's escape hatch.
