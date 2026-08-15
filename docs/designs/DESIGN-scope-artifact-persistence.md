@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   `/scope`'s consolidation judgment decides absorbability by comparing two type
   schemas, so above the first hop its verdict is fixed before either document is
@@ -34,7 +34,7 @@ user_visible_surface: true
 
 ## Status
 
-Proposed
+Accepted
 
 Six decision questions were evaluated before this document was written; two ran
 the full adversarial path with five persistent validators each. All six reports
