@@ -40,14 +40,24 @@ If the decisions file doesn't exist, omit this section.>
 After writing, hand off to /roadmap:
 
 1. Commit: `docs(explore): hand off <topic> to /roadmap`
-2. **Detect upstream VISION.** Check the crystallize artifact
-   (`wip/explore_<topic>_crystallize.md`) and findings for a VISION
-   document path. If the exploration identified a specific VISION (e.g.,
-   `docs/visions/VISION-<name>.md`), pass it as `--upstream` in the
-   invocation. If no VISION was identified, omit the flag.
+2. **Detect an upstream STRATEGY.** Check the crystallize artifact
+   (`wip/explore_<topic>_crystallize.md`) and findings for a STRATEGY
+   document path. If the exploration identified a specific STRATEGY
+   (e.g., `docs/strategies/STRATEGY-<name>.md`), pass it as `--upstream`
+   in the invocation. If none was identified, omit the flag.
+
+   **Do not pass a VISION.** A ROADMAP's only legal upstream is the
+   STRATEGY it sequences, and `/roadmap`'s own contract already says a
+   VISION must not be substituted for one — it would skip an altitude and
+   leave the strategic reasoning at that altitude unreachable from the
+   path a reader walks. `/roadmap` enforces no basename on the flag, so
+   nothing downstream catches the substitution; `shirabe validate` reports
+   it as an `R10` direction violation once the roadmap is written. When
+   the exploration found a VISION but no STRATEGY, omit the flag and name
+   the VISION in the handoff artifact's prose instead.
 3. Invoke the roadmap skill:
-   - With VISION: `/shirabe:roadmap <topic> --upstream <vision-path>`
-   - Without VISION: `/shirabe:roadmap <topic>`
+   - With STRATEGY: `/shirabe:roadmap <topic> --upstream <strategy-path>`
+   - Without: `/shirabe:roadmap <topic>`
 4. The roadmap skill detects the handoff artifact and resumes at Phase 2
    (Discover). Phase 1 (Scope) is already done -- the handoff artifact
    fills that role.

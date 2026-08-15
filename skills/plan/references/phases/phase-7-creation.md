@@ -165,6 +165,19 @@ issue_count: <N>
 ---
 ```
 
+When `--upstream <roadmap-path>` was supplied, `upstream:` is a sequence: the
+source document first, the ROADMAP second. The PLAN is the node that records
+the crossing from the strategic chain into the tactical one, because it is a
+working artifact the cascade deletes -- and deletes before the roadmap -- so
+the link cannot outlive its target. No durable document in the chain may name
+a roadmap.
+
+```yaml
+upstream:
+  - <source-doc-path>
+  - docs/roadmaps/ROADMAP-<name>.md
+```
+
 **Required sections** (in order):
 
 1. **Status** -- `Active`
@@ -250,6 +263,19 @@ issue_count: <N>
 ---
 ```
 
+When `--upstream <roadmap-path>` was supplied, `upstream:` is a sequence: the
+source document first, the ROADMAP second. The PLAN is the node that records
+the crossing from the strategic chain into the tactical one, because it is a
+working artifact the cascade deletes -- and deletes before the roadmap -- so
+the link cannot outlive its target. No durable document in the chain may name
+a roadmap.
+
+```yaml
+upstream:
+  - <source-doc-path>
+  - docs/roadmaps/ROADMAP-<name>.md
+```
+
 **Required sections** (in order):
 
 1. **Status** -- `Active`
@@ -284,11 +310,22 @@ visibility-violating references. Run from the repo root:
 # 1. No wip/ paths anywhere in the PLAN body or frontmatter.
 git grep -nE 'wip/' -- 'docs/plans/PLAN-<topic>.md'
 
-# 2. The upstream: frontmatter value resolves to a tracked file in this repo,
-#    OR is a public owner/repo:path cross-repo reference. It must NEVER be a
-#    wip/... path.
-head -20 'docs/plans/PLAN-<topic>.md' | grep -E '^upstream:'
+# 2. Every upstream: entry resolves to a tracked file in this repo, OR is a
+#    public owner/repo:path cross-repo reference. None may be a wip/... path.
+#    The field may be a sequence -- a PLAN under a roadmap names its design
+#    and that roadmap -- so read every entry, not just the first line.
+bash "${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/validate-plan.sh" \
+  'docs/plans/PLAN-<topic>.md'
 ```
+
+The pre-flight script is the reader here rather than a hand-written grep, and
+that is deliberate: a scalar-only reader returns nothing for a sequence and
+then reports "no upstream field", which silently skips the check for exactly
+the PLANs that carry two entries. The script enumerates both written shapes,
+resolves each entry, rejects a symlinked or out-of-tree target, and passes
+every path after `--` so a value beginning with a dash is a pathspec rather
+than an option. Validation is not the guarantee there; the argument boundary
+is.
 
 **Match handling:**
 
@@ -305,11 +342,14 @@ head -20 'docs/plans/PLAN-<topic>.md' | grep -E '^upstream:'
   on the branch but must be cleaned before the PR opens"), it is allowed.
   Path-shaped references (anything that resolves to a file location) are
   not.
-- **The `upstream:` value must resolve.** If `git ls-files <path>` returns
-  empty for a same-repo value, the upstream is broken -- fix the path. If
-  the upstream is `owner/repo:path`, confirm visibility direction against
+- **Every `upstream:` entry must resolve.** The pre-flight script exits 3 on
+  the first entry that does not, naming it. For a `owner/repo:path` entry it
+  skips the local checks, so confirm visibility direction by hand against
   `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` (public repos
-  must not reference private repos).
+  must not reference private repos). A `ROADMAP-` entry is held to `Active`
+  rather than `Accepted`/`Planned`: a roadmap is Active for as long as any of
+  its features is still being built, which is the whole window in which a PLAN
+  naming it exists.
 
 **STOP if any check fails.** Fix the PLAN doc and re-run before proceeding to
 status transition.

@@ -7,7 +7,7 @@ description: Implementation planning skill. Decomposes a design doc, PRD, roadma
   "what tasks do we need", or "make a plan for X". Also use for direct topic planning without
   a source document. Produces either a self-contained PLAN doc (single-pr) or GitHub milestone
   and issues (multi-pr).
-argument-hint: '<doc-path-or-topic> [--walking-skeleton|--no-skeleton] [--strategic|--tactical]'
+argument-hint: '<doc-path-or-topic> [--upstream <roadmap-path>] [--walking-skeleton|--no-skeleton] [--strategic|--tactical]'
 ---
 
 @.claude/shirabe-extensions/plan.md
@@ -265,9 +265,69 @@ If no mode flag, read CLAUDE.md `## Execution Mode:` header.
 - `--walking-skeleton` -- force walking skeleton decomposition
 - `--no-skeleton` -- force horizontal decomposition
 
+**Upstream flag:**
+- `--upstream <path>` -- the ROADMAP whose feature this plan implements. It is
+  recorded in the produced PLAN's `upstream:` alongside the source document, and
+  it is the reason the PLAN carries it rather than any durable artifact: a
+  roadmap is deleted when its features land, and the PLAN is deleted by the same
+  cascade and goes first, so the link cannot outlive its target. No durable
+  document in the chain may name a roadmap.
+
 If conflicting flags are present (e.g., both `--strategic` and `--tactical`), error
 and ask user to pick one. Remove flags from arguments before using the remainder as
 the document path.
+
+##### The `--upstream` contract
+
+Same flag, same meaning, same discipline `/brief`, `/prd`, `/roadmap`,
+`/strategy` and `/comp` already carry.
+
+**Parse it, and the token after it, before the positional argument is
+classified.** The value is never tested as a document path in the input-detection
+table, never treated as a topic, and never used to derive the topic slug. That
+last part is what keeps the produced PLAN at `PLAN-<topic>.md` rather than
+`PLAN-<roadmap-slug>.md`, and it is why the roadmap cannot simply be handed over
+positionally: the positional slot is the input classifier and the slug source at
+once, so a roadmap there changes what `/plan` is planning.
+
+**A bare `--upstream` is a rejection**, naming the missing argument, before any
+phase runs. A second occurrence is rejected the same way: the field records one
+roadmap, and silently keeping the last would hide which one the plan named.
+
+**Validate the value in this order.** The order is not cosmetic -- running the
+filesystem checks first would reject every cross-repo roadmap and make the
+visibility check, the only one that can say anything about such a value,
+unreachable.
+
+1. **Cross-repo discrimination.** An `owner/repo:path` value names a file in
+   another repository. It is not a working-tree path: skip canonicalization, the
+   directory confinement, and the tracked-by-git check, keep the basename rule on
+   its file component, and go straight to check 6.
+2. **Canonicalize and bounds-check.** Resolve against the repo root, resolve
+   symlinks fully, and reject a canonical path outside the working tree. Unlike
+   most path arguments this one ends up in a committed field, so a symlink out of
+   the tree or a `../`-shaped value is a rejection rather than a curiosity.
+3. **Confine to `<repo-root>/docs/roadmaps/`.** Not any `docs/roadmaps/` path
+   segment beneath the root -- a fixture tree has one of its own, and a roadmap
+   path laundered out of one is exactly what this refuses.
+4. **Enforce the `ROADMAP-` basename**, on the file component for a cross-repo
+   value.
+5. **Reject a path under `wip/`, and reject an untracked path.** Both are
+   record-time checks and both apply here, because `/plan` records. (`/brief`
+   drops the tracked-by-git half precisely because it does not.)
+6. **Omit rather than record** when this repo is Public and the roadmap lives in
+   a private repo. Do not write the entry, do not fail, and tell the author the
+   link is being dropped and why. Public documents must not reference private
+   ones, and no tooling enforces that for a cross-repo value -- `shirabe
+   validate` resolves nothing for one, so a public PLAN naming a private roadmap
+   validates clean and always will. This check lives here rather than only in a
+   parent skill so a standalone `/plan` runs it too.
+
+**Quote it and pass it after `--` in every command it reaches.** The value flows
+into `git ls-files` in the Phase 7 hygiene step and in `validate-plan.sh`; both
+pass it after `--` so neither a leading dash nor a shell metacharacter in a
+filename can change what runs. Validation is not the guarantee -- the argument
+boundary is.
 
 #### 2. Detect Visibility
 

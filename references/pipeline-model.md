@@ -110,33 +110,91 @@ a chain from strategic intent to implementation.
 VISION
   └── Strategy (upstream: VISION)
         └── Roadmap (upstream: Strategy)
-              └── Brief (upstream: Roadmap, per feature)
+              └── Brief (upstream: the Roadmap's own parent --
+                          Strategy, or Vision; never the Roadmap)
                     └── PRD (upstream: Brief)
                           └── Design Doc (upstream: PRD)
-                                └── Plan (upstream: Design Doc)
+                                └── Plan (upstream: Design Doc, and the
+                                          Roadmap when there is one)
                                       └── GitHub Issues (upstream: Plan)
 ```
 
 The diagram above is the full chain, not a mandatory one. Each artifact's
-`upstream` field points to the nearest artifact actually produced above it,
-and the field is omitted when nothing was.
+`upstream` field points to the nearest artifact actually produced above it
+that it is *allowed* to name, and the field is omitted when there is none.
 
-The strategic chain (VISION -> Strategy -> Roadmap) is strict in both
-directions: a VISION's downstream artifacts are STRATEGYs, a STRATEGY's are
-Roadmaps, and a Roadmap's upstream is the STRATEGY it sequences. Skipping an
-altitude there would leave the reasoning at the skipped altitude unreachable
-from the path a reader walks.
+## What makes a link legal
 
-The tactical chain is not strict, because its steps are not all mandatory. A
-feature framed directly in its PRD has no BRIEF, so that PRD's upstream is the
-Roadmap; a feature that needs no architectural decision has no DESIGN, so the
-PLAN's upstream is whatever preceded it. The field records the chain that was
-actually walked. What no artifact does is point downward or sideways -- a
-BRIEF never points at a PRD, which is written from the brief's framing.
+Two properties, both declared per artifact type in the validator's format
+table and both enforced by `shirabe validate`.
 
-The Roadmap is where the strategic chain hands off to the tactical one;
-`/brief` crosses that boundary by taking a Roadmap as its upstream, and no
-strategic document reaches past the Roadmap.
+**Direction.** The target's type is one the naming type may point at, and the
+rule is the same on both chains: an artifact names the nearest artifact actually
+produced above it, and any strictly-higher altitude is legal because not every
+altitude is written on every run. A DESIGN with no BRIEF above it names the PRD;
+a ROADMAP written where no STRATEGY exists names the VISION. What no artifact
+does is point downward or sideways -- a BRIEF never names a PRD, which is
+written from the brief's framing.
+
+Reaching past an altitude that *does* exist is a different matter, and this
+check does not adjudicate it. Legality is decided from two basenames, so the
+check cannot tell a roadmap that skipped an existing strategy from one written
+where no strategy exists; rejecting the second in order to catch the first would
+fail the legitimate case. Preferring the nearest altitude is therefore authoring
+guidance -- `/roadmap` states it in its own contract, and `/explore` hands it a
+STRATEGY or nothing -- rather than a rule the validator enforces. An earlier
+version of this file called the strategic chain strict and the tactical chain
+loose; both halves were wrong. `/scope` walks all four tactical altitudes on
+every run, and the strategic chain is the one where an altitude is routinely
+absent.
+
+**Lifetime.** A link runs from the shorter-lived document to the longer-lived
+one. Roadmaps and Plans are working artifacts: they are deleted when their work
+completes. Every other type is durable. So a durable document never names a
+working one -- the link would be correct on the day it is written and dangling
+on the day the cascade runs.
+
+A working document may name another working one, and the guarantee there rests
+on cascade ordering rather than on the lifetime classes alone. The classes say
+nothing about which of two working documents dies first. The pair the table
+actually admits is a PLAN naming a ROADMAP, and it is safe because a roadmap is
+deleted only once all its features are Done, which means every plan beneath it
+has already finalized. That ordering is the invariant; a change to deletion
+order would break this link with nothing else pointing at why.
+
+The two properties are enforced as `R10` (direction) and `R11` (lifetime). An
+entry violating both reports the lifetime finding, which is the diagnosis that
+survives being acted on.
+
+## Where the chains meet
+
+The Roadmap is where the strategic chain hands off to the tactical one, and the
+lifetime rule decides which document records the crossing. A Roadmap is a
+working artifact, so no durable tactical document may name it: **the crossing is
+recorded on the PLAN alone.** The PLAN is deleted by the same cascade that
+deletes the Roadmap, and it goes first, so that link cannot dangle.
+
+A BRIEF therefore never names the Roadmap it was framed against. It names the
+Roadmap's own nearest durable ancestor instead, found by walking up exactly one
+hop: the Strategy the roadmap sequences, or the Vision when it traces straight
+to one. Both are durable, so one hop always terminates -- a Roadmap's parents
+are the only two strategic types and neither is working. The lineage survives
+the roadmap's deletion, which is the point: a reader following a brief's
+upstream reaches the strategy that chose this feature, and it is still there.
+
+The brief still reads the roadmap -- the framing, the sequencing rationale, the
+neighbouring features -- and absorbs that context into its own prose. It covers
+a slice of the roadmap's scope, so absorbing that slice is owed whatever the
+`upstream:` field ends up holding, and the Problem Statement's standing
+obligation to make sense cold is what carries it.
+
+The field is omitted when the walk finds nothing to record: a roadmap that names
+no upstream of its own, or an ancestor that is private where the brief is
+public. That second case is the older rule for an upstream a document cannot
+reach -- omit the field, absorb the context, stand as the head of the chain.
+The two rules meet here: an upstream that will not *last* is resolved past, and
+an upstream that cannot be *reached* is omitted. Only the first can be checked
+by tooling, because a cross-repo value resolves to nothing.
 
 The chain enables:
 - Finding all downstream work from a VISION

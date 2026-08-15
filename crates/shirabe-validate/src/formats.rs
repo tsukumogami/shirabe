@@ -2,10 +2,85 @@
 
 use std::collections::HashMap;
 
+/// The identity of a shirabe artifact type.
+///
+/// Deliberately separate from [`FormatSpec::name`], whose casing is
+/// inconsistent on purpose (`VISION` and `PRD` are upper-case, the rest are
+/// not) because `validate_file`'s format dispatch matches those exact strings.
+/// Naming a type by an enum rather than by that string keeps
+/// [`FormatSpec::legal_upstream`] total: an entry cannot be a typo that
+/// compiles, reads correctly to a human, and silently never matches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FormatId {
+    Vision,
+    Strategy,
+    Roadmap,
+    Brief,
+    Prd,
+    Design,
+    Plan,
+    Comp,
+    /// The synthetic identity of the prose family: a Markdown file the
+    /// validator was handed that carries no artifact prefix. `detect_format`
+    /// never returns it and `formats()` never contains it -- it exists so
+    /// [`FormatSpec::prose_only`] can name what it is rather than borrow an
+    /// artifact type's identity.
+    Prose,
+}
+
+impl FormatId {
+    /// The type's name as a finding message spells it. Upper-case throughout,
+    /// independent of the dispatch strings in [`FormatSpec::name`].
+    pub fn display(self) -> &'static str {
+        match self {
+            FormatId::Vision => "VISION",
+            FormatId::Strategy => "STRATEGY",
+            FormatId::Roadmap => "ROADMAP",
+            FormatId::Brief => "BRIEF",
+            FormatId::Prd => "PRD",
+            FormatId::Design => "DESIGN",
+            FormatId::Plan => "PLAN",
+            FormatId::Comp => "COMP",
+            FormatId::Prose => "PROSE",
+        }
+    }
+}
+
+/// Whether a type's documents survive the completion of their own work.
+///
+/// `Working` documents are deleted by the finalization cascade when their work
+/// completes; `Durable` documents stay in `docs/` as the audit trail. The
+/// classes are the ones each skill's `## Artifact Lifecycle` section declares,
+/// and this field is the authority the legality check reads.
+///
+/// [`crate::lifecycle::target_state_for`] is a second, partial spelling of the
+/// same fact for five of the eight types. The two are not derived from each
+/// other, because that map also encodes *which* status is terminal; a test in
+/// this module asserts they agree on the five they share.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lifetime {
+    Durable,
+    Working,
+}
+
 /// Structural contract for a single shirabe doc format.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatSpec {
     pub name: String,
+    /// The type's identity, used by the upstream-legality check and by any
+    /// finding message that has to name a type.
+    pub id: FormatId,
+    /// Whether the type's documents survive the completion of their own work.
+    pub lifetime: Lifetime,
+    /// The types that may be named as this type's `upstream:`. An empty list
+    /// states that the type is always the head of its own lineage.
+    ///
+    /// **Invariant:** no `Durable` format may list a `Working` format here. A
+    /// durable document naming a working one holds a reference with a
+    /// scheduled death date, and the invariant is what keeps that shape from
+    /// being reintroduced by editing this table. It is enforced by
+    /// `no_durable_format_declares_a_working_parent` below.
+    pub legal_upstream: Vec<FormatId>,
     pub prefix: String,
     pub schema_version: String,
     pub required_fields: Vec<String>,
@@ -48,6 +123,13 @@ impl FormatSpec {
     pub fn prose_only() -> Self {
         FormatSpec {
             name: "Prose".to_string(),
+            id: FormatId::Prose,
+            // Inert. A prose spec never reaches `validate_structural`, so the
+            // upstream-legality check never reads either field; they are set
+            // to the most restrictive honest values rather than left to
+            // resemble an artifact type.
+            lifetime: Lifetime::Durable,
+            legal_upstream: vec![],
             prefix: String::new(),
             schema_version: String::new(),
             required_fields: Vec::new(),
@@ -111,6 +193,9 @@ pub fn formats() -> Vec<FormatSpec> {
     vec![
         FormatSpec {
             name: "Comp".to_string(),
+            id: FormatId::Comp,
+            lifetime: Lifetime::Durable,
+            legal_upstream: vec![],
             prefix: "COMP-".to_string(),
             schema_version: "comp/v1".to_string(),
             required_fields: s(&["status", "problem", "scope"]),
@@ -130,6 +215,18 @@ pub fn formats() -> Vec<FormatSpec> {
         },
         FormatSpec {
             name: "Design".to_string(),
+            id: FormatId::Design,
+            lifetime: Lifetime::Durable,
+            // The tactical parents, plus the durable strategic altitudes a
+            // tactical document reaches when the altitudes between were never
+            // written -- and which the /scope absorb re-points a survivor to
+            // when it removes an artifact that named one.
+            legal_upstream: vec![
+                FormatId::Prd,
+                FormatId::Brief,
+                FormatId::Strategy,
+                FormatId::Vision,
+            ],
             prefix: "DESIGN-".to_string(),
             schema_version: "design/v1".to_string(),
             required_fields: s(&["status", "problem", "decision", "rationale"]),
@@ -151,6 +248,9 @@ pub fn formats() -> Vec<FormatSpec> {
         },
         FormatSpec {
             name: "PRD".to_string(),
+            id: FormatId::Prd,
+            lifetime: Lifetime::Durable,
+            legal_upstream: vec![FormatId::Brief, FormatId::Strategy, FormatId::Vision],
             prefix: "PRD-".to_string(),
             schema_version: "prd/v1".to_string(),
             required_fields: s(&["status", "problem", "goals"]),
@@ -170,6 +270,9 @@ pub fn formats() -> Vec<FormatSpec> {
         },
         FormatSpec {
             name: "VISION".to_string(),
+            id: FormatId::Vision,
+            lifetime: Lifetime::Durable,
+            legal_upstream: vec![FormatId::Vision],
             prefix: "VISION-".to_string(),
             schema_version: "vision/v1".to_string(),
             required_fields: s(&["status", "thesis", "scope"]),
@@ -189,6 +292,16 @@ pub fn formats() -> Vec<FormatSpec> {
         },
         FormatSpec {
             name: "Roadmap".to_string(),
+            id: FormatId::Roadmap,
+            lifetime: Lifetime::Working,
+            // A STRATEGY when one was written, a VISION when none was. This
+            // check reads two basenames and nothing else, so it cannot tell a
+            // roadmap that skipped an existing strategy from one written where
+            // no strategy exists -- and rejecting the second to catch the first
+            // would fail the legitimate case. Preferring the nearest altitude
+            // is authoring guidance, stated in `/roadmap`'s own contract; what
+            // is enforced here is direction.
+            legal_upstream: vec![FormatId::Strategy, FormatId::Vision],
             prefix: "ROADMAP-".to_string(),
             schema_version: "roadmap/v1".to_string(),
             required_fields: s(&["status", "theme", "scope"]),
@@ -208,6 +321,16 @@ pub fn formats() -> Vec<FormatSpec> {
         },
         FormatSpec {
             name: "Plan".to_string(),
+            id: FormatId::Plan,
+            lifetime: Lifetime::Working,
+            legal_upstream: vec![
+                FormatId::Design,
+                FormatId::Prd,
+                FormatId::Brief,
+                FormatId::Roadmap,
+                FormatId::Strategy,
+                FormatId::Vision,
+            ],
             prefix: "PLAN-".to_string(),
             schema_version: "plan/v1".to_string(),
             required_fields: s(&["status", "execution_mode", "milestone", "issue_count"]),
@@ -226,6 +349,9 @@ pub fn formats() -> Vec<FormatSpec> {
         },
         FormatSpec {
             name: "Strategy".to_string(),
+            id: FormatId::Strategy,
+            lifetime: Lifetime::Durable,
+            legal_upstream: vec![FormatId::Vision],
             prefix: "STRATEGY-".to_string(),
             schema_version: "strategy/v1".to_string(),
             required_fields: s(&["status", "bet", "scope"]),
@@ -246,6 +372,15 @@ pub fn formats() -> Vec<FormatSpec> {
         },
         FormatSpec {
             name: "Brief".to_string(),
+            id: FormatId::Brief,
+            lifetime: Lifetime::Durable,
+            // A brief is framed against a ROADMAP, which it may not record --
+            // a roadmap is deleted when its features land. What it records is
+            // the roadmap's own nearest durable ancestor, reached by one hop
+            // up: the STRATEGY the roadmap sequences, or the VISION when the
+            // roadmap traces straight to one. The walk is bounded at that one
+            // hop, because a ROADMAP's own parents are both durable.
+            legal_upstream: vec![FormatId::Strategy, FormatId::Vision],
             prefix: "BRIEF-".to_string(),
             schema_version: "brief/v1".to_string(),
             required_fields: s(&["status", "problem", "outcome"]),
@@ -338,6 +473,164 @@ mod tests {
             map.get("multi-pr"),
             "coordinated section shape must mirror multi-pr"
         );
+    }
+
+    /// The invariant behind the whole upstream-legality rule: a durable
+    /// document may not name a working one, so no durable format may declare a
+    /// working format among its legal parents. Enforcing it here rather than
+    /// only against documents means a maintainer who adds such a type finds out
+    /// from this test rather than from a dangling link months later.
+    #[test]
+    fn no_durable_format_declares_a_working_parent() {
+        let by_id: HashMap<FormatId, Lifetime> =
+            formats().into_iter().map(|f| (f.id, f.lifetime)).collect();
+        for spec in formats() {
+            if spec.lifetime != Lifetime::Durable {
+                continue;
+            }
+            for parent in &spec.legal_upstream {
+                let parent_lifetime = by_id
+                    .get(parent)
+                    .copied()
+                    .unwrap_or_else(|| panic!("{} names an unknown parent", spec.id.display()));
+                assert_ne!(
+                    parent_lifetime,
+                    Lifetime::Working,
+                    "{} is Durable and declares {} (Working) as a legal upstream; \
+                     a durable document must not name one whose deletion is scheduled",
+                    spec.id.display(),
+                    parent.display()
+                );
+            }
+        }
+    }
+
+    /// The declared table, asserted verbatim. A single changed entry in any row
+    /// fails here rather than silently widening or narrowing what the legality
+    /// check accepts.
+    #[test]
+    fn declared_lifetimes_and_parent_sets_match_the_contract() {
+        let expected: Vec<(FormatId, Lifetime, Vec<FormatId>)> = vec![
+            (FormatId::Vision, Lifetime::Durable, vec![FormatId::Vision]),
+            (FormatId::Strategy, Lifetime::Durable, vec![FormatId::Vision]),
+            (
+                FormatId::Roadmap,
+                Lifetime::Working,
+                vec![FormatId::Strategy, FormatId::Vision],
+            ),
+            (
+                FormatId::Brief,
+                Lifetime::Durable,
+                vec![FormatId::Strategy, FormatId::Vision],
+            ),
+            (
+                FormatId::Prd,
+                Lifetime::Durable,
+                vec![FormatId::Brief, FormatId::Strategy, FormatId::Vision],
+            ),
+            (
+                FormatId::Design,
+                Lifetime::Durable,
+                vec![
+                    FormatId::Prd,
+                    FormatId::Brief,
+                    FormatId::Strategy,
+                    FormatId::Vision,
+                ],
+            ),
+            (
+                FormatId::Plan,
+                Lifetime::Working,
+                vec![
+                    FormatId::Design,
+                    FormatId::Prd,
+                    FormatId::Brief,
+                    FormatId::Roadmap,
+                    FormatId::Strategy,
+                    FormatId::Vision,
+                ],
+            ),
+            (FormatId::Comp, Lifetime::Durable, vec![]),
+        ];
+
+        let specs = formats();
+        assert_eq!(
+            specs.len(),
+            expected.len(),
+            "every format must appear in the contract table"
+        );
+
+        for (id, lifetime, parents) in expected {
+            let spec = specs
+                .iter()
+                .find(|f| f.id == id)
+                .unwrap_or_else(|| panic!("no format declares id {}", id.display()));
+            assert_eq!(
+                spec.lifetime,
+                lifetime,
+                "{} lifetime",
+                id.display()
+            );
+            assert_eq!(
+                spec.legal_upstream,
+                parents,
+                "{} legal_upstream (order is significant)",
+                id.display()
+            );
+        }
+    }
+
+    /// `lifetime` and `lifecycle::target_state_for` are two spellings of the
+    /// same fact for the five types the latter covers. They are deliberately
+    /// not derived from each other -- that map also encodes *which* status is
+    /// terminal -- so this test is what keeps them from drifting. `lifetime` is
+    /// the authority for legality; the map is the authority for finalization.
+    #[test]
+    fn lifetime_agrees_with_the_finalization_terminal_map() {
+        use crate::lifecycle::{target_state_for, TargetState};
+        for spec in formats() {
+            match target_state_for(&spec.name) {
+                TargetState::Deleted => assert_eq!(
+                    spec.lifetime,
+                    Lifetime::Working,
+                    "{} is deleted at finalization, so it is Working",
+                    spec.id.display()
+                ),
+                TargetState::Status(_) => assert_eq!(
+                    spec.lifetime,
+                    Lifetime::Durable,
+                    "{} transitions to a terminal status rather than being deleted, \
+                     so it is Durable",
+                    spec.id.display()
+                ),
+                // VISION, STRATEGY and COMP are outside the finalization walk;
+                // the map has nothing to say about them.
+                TargetState::Unknown => {}
+            }
+        }
+    }
+
+    /// Every spec's `id` is the id of the format it sits on, and every id is
+    /// used once. This is the mistake `FormatId` exists to make impossible: a
+    /// newly added `FormatSpec` literal with a copy-pasted `id:` would mistype
+    /// every finding message and every parent lookup for that format, and
+    /// nothing else in the file would notice. Tying the id to the prefix
+    /// catches it, because the prefix is what `detect_format` routes on.
+    #[test]
+    fn each_spec_id_matches_its_prefix_and_is_unique() {
+        let mut seen: HashMap<FormatId, String> = HashMap::new();
+        for spec in formats() {
+            assert_eq!(
+                spec.prefix,
+                format!("{}-", spec.id.display()),
+                "{}'s id and prefix disagree",
+                spec.name
+            );
+            if let Some(other) = seen.insert(spec.id, spec.name.clone()) {
+                panic!("{} and {} both declare id {}", other, spec.name, spec.id.display());
+            }
+        }
+        assert_eq!(seen.len(), formats().len(), "every format declares its own id");
     }
 
     #[test]

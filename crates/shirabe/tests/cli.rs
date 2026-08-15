@@ -328,3 +328,80 @@ fn visibility_explicit_flag_overrides_autodetection() {
         .failure()
         .stdout(contains("[R8]"));
 }
+
+/// A minimal BRIEF whose `upstream:` names a DESIGN -- a direction violation
+/// (a brief heads its own lineage) with no lifetime component, so `--check
+/// R10` observes R10 alone.
+const BRIEF_NAMING_A_DESIGN: &str = "---\nschema: brief/v1\nstatus: Draft\nproblem: A problem.\noutcome: An outcome.\nupstream: docs/designs/DESIGN-x.md\n---\n\n# BRIEF: legality\n\n## Status\n\nDraft\n\n## Problem Statement\n\nA problem.\n\n## User Outcome\n\nAn outcome.\n\n## User Journeys\n\n### One\n\nA journey.\n\n## Scope Boundary\n\nIN: a thing. OUT: another.\n";
+
+/// The same BRIEF naming a ROADMAP -- a working target, so the lifetime
+/// finding fires and the direction finding is suppressed.
+const BRIEF_NAMING_A_ROADMAP: &str = "---\nschema: brief/v1\nstatus: Draft\nproblem: A problem.\noutcome: An outcome.\nupstream: docs/roadmaps/ROADMAP-x.md\n---\n\n# BRIEF: legality\n\n## Status\n\nDraft\n\n## Problem Statement\n\nA problem.\n\n## User Outcome\n\nAn outcome.\n\n## User Journeys\n\n### One\n\nA journey.\n\n## Scope Boundary\n\nIN: a thing. OUT: another.\n";
+
+fn make_brief(tag: &str, body: &str) -> std::path::PathBuf {
+    let repo = std::env::temp_dir().join(format!("shirabe-cli-legality-{tag}"));
+    let _ = std::fs::remove_dir_all(&repo);
+    std::fs::create_dir_all(&repo).unwrap();
+    let doc = repo.join("BRIEF-legality.md");
+    std::fs::write(&doc, body).unwrap();
+    doc
+}
+
+#[test]
+fn check_r10_selects_the_direction_finding() {
+    let doc = make_brief("r10", BRIEF_NAMING_A_DESIGN);
+    shirabe()
+        .arg("validate")
+        .arg("--check")
+        .arg("R10")
+        .arg(&doc)
+        .assert()
+        .failure()
+        .stdout(contains("[R10]"))
+        .stdout(contains("BRIEF may not name DESIGN"));
+}
+
+#[test]
+fn check_r11_selects_the_lifetime_finding() {
+    let doc = make_brief("r11", BRIEF_NAMING_A_ROADMAP);
+    shirabe()
+        .arg("validate")
+        .arg("--check")
+        .arg("R11")
+        .arg(&doc)
+        .assert()
+        .failure()
+        .stdout(contains("[R11]"))
+        .stdout(contains("scheduled to dangle"));
+}
+
+/// The precedence rule at the CLI: a brief naming a roadmap violates both
+/// properties, and `--check R10` observes nothing because the lifetime finding
+/// is the only one emitted.
+#[test]
+fn check_r10_is_silent_when_the_lifetime_finding_suppressed_it() {
+    let doc = make_brief("precedence", BRIEF_NAMING_A_ROADMAP);
+    shirabe()
+        .arg("validate")
+        .arg("--check")
+        .arg("R10")
+        .arg(&doc)
+        .assert()
+        .success()
+        .stdout("");
+}
+
+/// The valid-codes diagnostic names the new codes, so an author who mistypes
+/// one is told the range they fall in.
+#[test]
+fn unknown_check_code_message_names_the_legality_range() {
+    let doc = make_brief("unknown-code", BRIEF_NAMING_A_DESIGN);
+    shirabe()
+        .arg("validate")
+        .arg("--check")
+        .arg("R12")
+        .arg(&doc)
+        .assert()
+        .failure()
+        .stderr(contains("R6-R11"));
+}

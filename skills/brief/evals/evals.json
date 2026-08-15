@@ -25,16 +25,17 @@
       "id": 2,
       "name": "upstream-roadmap-grounding",
       "prompt": "/brief docs/roadmaps/ROADMAP-checkout.md",
-      "expected_output": "Detects the ROADMAP path as upstream input. Canonicalizes the path at Phase 0 and confirms it resolves inside the repo working tree. Reads the ROADMAP content to derive the feature's problem/outcome candidate during Phase 1. Carries forward the upstream framing into the BRIEF's Problem Statement. Declares the ROADMAP path as the BRIEF's frontmatter `upstream`.",
+      "expected_output": "Detects the ROADMAP path as grounding input. Canonicalizes the path at Phase 0, confirms it resolves inside the repo working tree and under docs/roadmaps/, and confirms the ROADMAP- basename. Reads the ROADMAP content to derive the feature's problem/outcome candidate during Phase 1. Carries that framing forward into the BRIEF's Problem Statement, which has to stand alone because no link back to the roadmap is written. Resolves the recordable upstream at step 0.3a by reading the ROADMAP's own upstream: field, one hop up, and writes THAT into the BRIEF -- the STRATEGY the roadmap sequences, or a VISION when it traces straight to one. The ROADMAP path itself is never written: it is a working artifact the cascade deletes, so the link would dangle, and the roadmap is named by the PLAN instead. The resolved value goes through the visibility check, and the field is omitted when the roadmap names no upstream or the ancestor is private in a public repo. Says in the run output what was recorded and why it is not the roadmap.",
       "files": [
         "docs/roadmaps/ROADMAP-checkout.md"
       ],
       "expectations": [
-        "Plan detects the ROADMAP path argument as upstream input",
-        "Plan canonicalizes the upstream path at Phase 0 and bounds-checks it against the repo working tree",
+        "Plan detects the ROADMAP path argument as grounding input",
+        "Plan canonicalizes the grounding path at Phase 0, bounds-checks it against the repo working tree, and confines it to docs/roadmaps/",
         "Plan reads the ROADMAP document content during Phase 1 (discover) to derive the feature's problem and outcome",
-        "Plan carries forward upstream ROADMAP framing into the Problem Statement section",
-        "Plan declares the ROADMAP path as the BRIEF frontmatter upstream field"
+        "Plan carries forward the ROADMAP framing into the Problem Statement section",
+        "Plan reads the ROADMAP's own upstream: field and writes the resolved STRATEGY or VISION into the BRIEF frontmatter, never the ROADMAP path",
+        "Plan announces which document was recorded and why it is not the roadmap"
       ]
     },
     {
@@ -177,13 +178,16 @@
       "id": 12,
       "name": "upstream-flag",
       "prompt": "/brief inline-diff --upstream docs/roadmaps/ROADMAP-editor.md",
-      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before classifying the remainder, so the entry mode is freeform and the topic slug is 'inline-diff' derived from the positional argument alone -- never from the ROADMAP's filename. The value is canonicalized, bounds-checked, confirmed to have a ROADMAP- basename (a PRD- basename gets the chain-inversion rejection on the flag exactly as it does positionally), confirmed not to be under wip/, and confirmed tracked by git. The path is stored as the context file's ## Upstream Path, Phase 1 grounds the problem/outcome candidate in it, and Phase 2 writes upstream: docs/roadmaps/ROADMAP-editor.md into docs/briefs/BRIEF-inline-diff.md. A bare --upstream with no value would be rejected at Phase 0 naming the missing argument.",
-      "files": ["docs/roadmaps/ROADMAP-editor.md"],
+      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before classifying the remainder, so the entry mode is freeform and the topic slug is 'inline-diff' derived from the positional argument alone -- never from the ROADMAP's filename. The value is canonicalized, bounds-checked, confined to docs/roadmaps/, confirmed to have a ROADMAP- basename (a PRD- basename gets the chain-inversion rejection on the flag exactly as it does positionally), and confirmed not to be under wip/. The tracked-by-git check does NOT run on the grounding path: it is a record-time check and the roadmap is only read. The path is stored as the context file's ## Grounding Path, Phase 1 grounds the problem/outcome candidate in it, and step 0.3a resolves the recordable upstream by reading that roadmap's own upstream: -- one hop, terminating on a STRATEGY or a VISION. The resolved value DOES take the full record-time set, tracked-by-git included, and the visibility check. Phase 2 writes it into docs/briefs/BRIEF-inline-diff.md, or omits the field when the resolution found nothing. The run says what was recorded and why it is not the roadmap. A bare --upstream with no value would be rejected at Phase 0 naming the missing argument.",
+      "files": [
+        "docs/roadmaps/ROADMAP-editor.md"
+      ],
       "expectations": [
         "Plan detects and parses the --upstream flag from $ARGUMENTS",
         "Plan derives the topic slug 'inline-diff' from the positional argument, NOT from the ROADMAP basename",
-        "Plan validates the --upstream value: canonicalized, inside the working tree, ROADMAP- basename, not under wip/, tracked by git",
-        "Plan records the path as ## Upstream Path and writes it into the BRIEF frontmatter's upstream: field",
+        "Plan validates the --upstream value: canonicalized, inside the working tree, under docs/roadmaps/, ROADMAP- basename, not under wip/",
+        "Plan records the roadmap as ## Grounding Path and writes the resolved STRATEGY or VISION into the BRIEF frontmatter, never the roadmap path",
+        "Plan announces which document was recorded and why it is not the roadmap",
         "Plan produces docs/briefs/BRIEF-inline-diff.md rather than BRIEF-editor.md"
       ]
     }

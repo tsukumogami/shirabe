@@ -15,7 +15,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::doc::{Config, Doc, FieldEntries, ValidationError};
-use crate::formats::FormatSpec;
+use crate::formats::{detect_format, FormatSpec, Lifetime};
 use crate::gh::{is_valid_owner_or_repo, ClientError, IssueState, IssueStateClient, PrContext};
 use crate::mermaid::{extract_diagram, find_dependency_graph_block, Diagram, Issue};
 use crate::table::{parse_issue_outlines, parse_issues_table, Profile, Row, RowKind, Table};
@@ -861,6 +861,128 @@ pub fn check_upstream_resolves(doc: &Doc) -> Vec<ValidationError> {
     }
 
     errs
+}
+
+/// (R10/R11) Checks that every `upstream:` entry names a document this one is
+/// allowed to name, on both properties legality has.
+///
+/// **Direction (R10).** The target's type is one the naming document's format
+/// declares in [`FormatSpec::legal_upstream`]. A brief naming a design is
+/// pointing down its own chain, and the message says which pair failed.
+///
+/// **Lifetime (R11).** A `Durable` document does not name a `Working` one. A
+/// working document is deleted when its work completes, so the reference is
+/// correct on the day it is written and dangling on the day the cascade runs.
+///
+/// **Precedence.** An entry that violates both reports the lifetime finding
+/// only. A reader who fixed the direction alone would still be naming a
+/// document scheduled for deletion, so the lifetime diagnosis is the one that
+/// survives being acted on. Under the declaration-level invariant that
+/// `no_durable_format_declares_a_working_parent` enforces, *every* lifetime
+/// violation is also a direction violation -- a lifetime violation needs a
+/// durable document naming a working target, and the invariant keeps any
+/// working type out of every durable type's parent set -- so this branch order
+/// fires on all of them rather than on a rare overlap. The converse does not
+/// hold, which is why the two codes still have distinct populations.
+///
+/// **What is not checked.** A target whose basename matches no known artifact
+/// prefix contributes nothing: that covers cross-repo `owner/repo:path` values
+/// naming an unrecognizable file and any path that is not an artifact. A
+/// cross-repo value whose file component *does* name a known prefix is judged
+/// on that prefix, which is the only thing about it this check can see.
+/// Placeholders are skipped by the shared normalizer, and a blank entry is
+/// already `check_upstream_resolves`'s finding rather than a second one here.
+///
+/// The check reads two basenames and a compiled table. It opens no file,
+/// resolves no path, and walks no index -- which is what keeps `docs/visions/`
+/// and `docs/strategies/` out of the document index and so out of the orphan
+/// rule, which was never written for them.
+pub fn check_upstream_legality(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    let field = match doc.fields.get("upstream") {
+        Some(f) => f,
+        None => return Vec::new(),
+    };
+
+    let mut errs = Vec::new();
+    for entry in crate::upstream::field_entries(field) {
+        // A cross-repo value's file component is the part that can name a
+        // type; everything before the FIRST `:` is the repository selector.
+        // Splitting at the first colon is not a detail -- it is what
+        // `upstream::is_cross_repo_reference` used to set `cross_repo`, and
+        // what `coordination::parse_cross_repo_ref` uses. A last-colon split
+        // would disagree with the flag that gated it whenever the path itself
+        // contains a colon, and disagree in the direction that drops the
+        // check.
+        let file_component = match entry.value.find(':') {
+            Some(idx) if entry.cross_repo => &entry.value[idx + 1..],
+            _ => entry.value.as_str(),
+        };
+        // `file_name` rather than a fourth hand-rolled basename helper --
+        // `finalize.rs` and `transition.rs` each carry a private one, and a
+        // third copy here would be duplication for its own sake. A value with
+        // no final component (`""`, `"/"`) yields None and is unchecked,
+        // which is the same answer those helpers' results would reach.
+        let base = Path::new(file_component)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let target = match detect_format(base) {
+            Some(t) => t,
+            // Not a recognizable artifact: unchecked rather than failed.
+            None => continue,
+        };
+
+        let finding = |code: &str, message: String| ValidationError {
+            file: doc.path.clone(),
+            line: field.line,
+            code: code.to_string(),
+            message,
+        };
+
+        if spec.lifetime == Lifetime::Durable && target.lifetime == Lifetime::Working {
+            errs.push(finding(
+                "R11",
+                format!(
+                    "[R11] {} is durable and names {:?}, a {} document, as its upstream; \
+                     a {} document is deleted when its work completes, so the link is \
+                     scheduled to dangle",
+                    spec.id.display(),
+                    entry.value,
+                    target.id.display(),
+                    target.id.display()
+                ),
+            ));
+            continue;
+        }
+
+        if !spec.legal_upstream.contains(&target.id) {
+            errs.push(finding(
+                "R10",
+                format!(
+                    "[R10] {} may not name {} as its upstream: {:?} resolves to {}, and {}",
+                    spec.id.display(),
+                    target.id.display(),
+                    entry.value,
+                    target.id.display(),
+                    legal_parents_phrase(spec)
+                ),
+            ));
+        }
+    }
+
+    errs
+}
+
+/// The tail of an R10 message: what the naming format may point at instead.
+fn legal_parents_phrase(spec: &FormatSpec) -> String {
+    if spec.legal_upstream.is_empty() {
+        return format!(
+            "a {} names no upstream at all -- it heads its own lineage",
+            spec.id.display()
+        );
+    }
+    let names: Vec<&str> = spec.legal_upstream.iter().map(|p| p.display()).collect();
+    format!("a {} may name {}", spec.id.display(), names.join(" or "))
 }
 
 /// Whether a scalar `upstream:` names nothing: empty after trimming, or one
@@ -3792,6 +3914,331 @@ mod tests {
         let doc = make_doc("design/v1", "Proposed", HashMap::new(), vec![], vec![]);
         let errs = check_fc04(&doc, &spec);
         assert_eq!(errs.len(), spec.required_sections.len());
+    }
+
+    // --- check_upstream_legality (R10 direction, R11 lifetime) ---
+
+    /// Build a doc of `schema` whose `upstream:` field holds `entries`, and
+    /// run the legality check over it. A single entry is written as a scalar;
+    /// several are written as a sequence, which is the shape a multi-parent
+    /// document uses.
+    fn legality(schema: &str, entries: &[&str]) -> Vec<ValidationError> {
+        let field = if entries.len() == 1 {
+            fv(entries[0], 7)
+        } else {
+            FieldValue {
+                value: String::new(),
+                line: 7,
+                entries: FieldEntries::Sequence(
+                    entries.iter().map(|e| (*e).to_string()).collect(),
+                ),
+            }
+        };
+        let mut fields = HashMap::new();
+        fields.insert("upstream".to_string(), field);
+        let doc = make_doc(schema, "Draft", fields, vec![], vec![]);
+        check_upstream_legality(&doc, &spec_for(schema))
+    }
+
+    #[test]
+    fn legality_accepts_every_declared_parent() {
+        // One legal edge per row of the declared table that has a parent.
+        for (schema, upstream) in [
+            ("vision/v1", "docs/visions/VISION-org.md"),
+            ("strategy/v1", "docs/visions/VISION-org.md"),
+            ("roadmap/v1", "docs/strategies/STRATEGY-bet.md"),
+            ("prd/v1", "docs/briefs/BRIEF-x.md"),
+            ("design/v1", "docs/prds/PRD-x.md"),
+            ("design/v1", "docs/briefs/BRIEF-x.md"),
+            ("plan/v1", "docs/designs/DESIGN-x.md"),
+            ("plan/v1", "docs/prds/PRD-x.md"),
+            ("plan/v1", "docs/briefs/BRIEF-x.md"),
+            ("plan/v1", "docs/roadmaps/ROADMAP-x.md"),
+        ] {
+            assert!(
+                legality(schema, &[upstream]).is_empty(),
+                "{schema} naming {upstream} is legal and must produce no finding"
+            );
+        }
+    }
+
+    #[test]
+    fn legality_rejects_a_downward_edge_with_r10() {
+        let errs = legality("brief/v1", &["docs/designs/DESIGN-x.md"]);
+        assert_eq!(errs.len(), 1, "expected one finding, got {errs:?}");
+        assert_eq!(errs[0].code, "R10");
+        assert_eq!(errs[0].line, 7, "the finding sits at the field's line");
+        assert!(errs[0].message.contains("BRIEF may not name DESIGN"));
+        // The message lists what a brief may name instead: the roadmap's own
+        // durable ancestors, which is what a brief records.
+        assert!(errs[0].message.contains("a BRIEF may name STRATEGY or VISION"));
+    }
+
+    #[test]
+    fn legality_names_the_alternatives_when_the_parent_set_is_not_empty() {
+        let errs = legality("design/v1", &["docs/plans/PLAN-x.md"]);
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "R11", "a durable doc naming a working one");
+        // And the direction-only case for the same format lists its parents.
+        // A sibling DESIGN is sideways, so it is a direction violation with no
+        // lifetime component.
+        let errs = legality("design/v1", &["docs/designs/DESIGN-sibling.md"]);
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "R10");
+        assert!(
+            errs[0]
+                .message
+                .contains("a DESIGN may name PRD or BRIEF or STRATEGY or VISION"),
+            "got {:?}",
+            errs[0].message
+        );
+        // The empty-set phrasing is still reachable, via the one type that
+        // declares no parents at all.
+        let errs = legality("comp/v1", &["docs/visions/VISION-x.md"]);
+        assert_eq!(errs.len(), 1);
+        assert!(errs[0].message.contains("heads its own lineage"));
+    }
+
+    #[test]
+    fn legality_rejects_a_durable_naming_a_working_with_r11() {
+        for (schema, upstream, target) in [
+            ("brief/v1", "docs/roadmaps/ROADMAP-x.md", "ROADMAP"),
+            ("prd/v1", "docs/roadmaps/ROADMAP-x.md", "ROADMAP"),
+            ("design/v1", "docs/roadmaps/ROADMAP-x.md", "ROADMAP"),
+            ("brief/v1", "docs/plans/PLAN-x.md", "PLAN"),
+        ] {
+            let errs = legality(schema, &[upstream]);
+            assert_eq!(errs.len(), 1, "{schema} -> {upstream}: {errs:?}");
+            assert_eq!(errs[0].code, "R11");
+            assert!(errs[0].message.contains(target));
+            assert!(errs[0].message.contains("scheduled to dangle"));
+        }
+    }
+
+    /// The precedence rule: an entry violating both properties reports the
+    /// lifetime finding only. Under the declaration-level invariant this is
+    /// every lifetime violation rather than a rare overlap, so getting the
+    /// branch order wrong would double every R11 rather than a corner case.
+    #[test]
+    fn legality_reports_only_the_lifetime_finding_when_both_fail() {
+        // A brief's parent set is empty, so a roadmap is both absent from it
+        // (direction) and Working (lifetime).
+        let errs = legality("brief/v1", &["docs/roadmaps/ROADMAP-x.md"]);
+        assert_eq!(errs.len(), 1, "exactly one finding, got {errs:?}");
+        assert_eq!(errs[0].code, "R11", "the lifetime finding wins");
+    }
+
+    /// A ROADMAP may name either strategic altitude above it, and the reason
+    /// is what this check can see rather than what authors should prefer. It
+    /// reads two basenames, so it cannot distinguish a roadmap that skipped an
+    /// existing STRATEGY from one written where no STRATEGY exists -- and
+    /// rejecting the second in order to catch the first would fail the
+    /// legitimate case. Preferring the nearest altitude stays authoring
+    /// guidance in `/roadmap`'s contract; direction is what is enforced here.
+    #[test]
+    fn legality_lets_a_roadmap_name_either_strategic_altitude() {
+        assert!(legality("roadmap/v1", &["docs/strategies/STRATEGY-bet.md"]).is_empty());
+        assert!(legality("roadmap/v1", &["docs/visions/VISION-org.md"]).is_empty());
+        // Direction is still enforced: a roadmap may not name anything from
+        // the tactical chain below it.
+        for below in [
+            "docs/briefs/BRIEF-x.md",
+            "docs/prds/PRD-x.md",
+            "docs/designs/DESIGN-x.md",
+        ] {
+            let errs = legality("roadmap/v1", &[below]);
+            assert_eq!(errs.len(), 1, "{below} is below a ROADMAP: {errs:?}");
+            assert_eq!(errs[0].code, "R10");
+        }
+        // A PLAN is below it too. The lifetime branch does NOT fire here even
+        // though a PLAN is Working, because a ROADMAP is Working as well and
+        // the lifetime rule only forbids a *durable* document naming a working
+        // one. It is a plain direction violation.
+        let errs = legality("roadmap/v1", &["docs/plans/PLAN-x.md"]);
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "R10");
+    }
+
+    /// A brief records the nearest durable ancestor of the roadmap it was
+    /// framed against -- one hop up, so a STRATEGY, or a VISION when the
+    /// roadmap traces straight to one. The roadmap itself stays forbidden,
+    /// which is the whole point: that is the link with a scheduled death date.
+    #[test]
+    fn legality_lets_a_brief_name_the_roadmaps_durable_ancestor() {
+        assert!(legality("brief/v1", &["docs/strategies/STRATEGY-bet.md"]).is_empty());
+        assert!(legality("brief/v1", &["docs/visions/VISION-org.md"]).is_empty());
+
+        // The document the brief was actually framed against is still refused,
+        // on lifetime rather than direction.
+        let errs = legality("brief/v1", &["docs/roadmaps/ROADMAP-x.md"]);
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, "R11");
+
+        // And nothing at or below the brief's own altitude becomes legal.
+        for below in [
+            "docs/briefs/BRIEF-sibling.md",
+            "docs/prds/PRD-x.md",
+            "docs/designs/DESIGN-x.md",
+        ] {
+            let errs = legality("brief/v1", &[below]);
+            assert_eq!(errs.len(), 1, "{below}: {errs:?}");
+            assert_eq!(errs[0].code, "R10");
+        }
+    }
+
+    #[test]
+    fn legality_permits_a_working_document_naming_a_working_one() {
+        // PLAN -> ROADMAP is the one working-names-working pair the table
+        // admits: the cascade deletes the plan before the roadmap, so the
+        // reference cannot outlive its target.
+        assert!(legality("plan/v1", &["docs/roadmaps/ROADMAP-x.md"]).is_empty());
+    }
+
+    #[test]
+    fn legality_skips_an_unrecognized_basename() {
+        for value in [
+            "docs/guides/some-guide.md",
+            "README.md",
+            "notes/whatever.txt",
+            "owner/repo:docs/guides/some-guide.md",
+        ] {
+            assert!(
+                legality("brief/v1", &[value]).is_empty(),
+                "{value} names no known artifact type and must be unchecked"
+            );
+        }
+    }
+
+    #[test]
+    fn legality_judges_a_cross_repo_value_on_its_file_component() {
+        // The selector before the colon is a repository, not a path: only the
+        // file component can name a type.
+        let errs = legality("brief/v1", &["owner/repo:docs/roadmaps/ROADMAP-x.md"]);
+        assert_eq!(errs.len(), 1, "got {errs:?}");
+        assert_eq!(errs[0].code, "R11");
+        // And a legal cross-repo edge still passes.
+        assert!(legality("prd/v1", &["owner/repo:docs/briefs/BRIEF-x.md"]).is_empty());
+    }
+
+    /// The file component is split at the FIRST colon, matching
+    /// `upstream::is_cross_repo_reference` (which set `cross_repo` in the
+    /// first place) and `coordination::parse_cross_repo_ref`. Splitting at the
+    /// last colon instead would disagree with the flag that gated it whenever
+    /// the path contains a colon of its own, and the disagreement drops the
+    /// check: the value below would type as nothing and pass silently.
+    #[test]
+    fn legality_splits_a_cross_repo_value_at_the_first_colon() {
+        let errs = legality("brief/v1", &["owner/repo:docs/roadmaps/ROADMAP-q3:2026.md"]);
+        assert_eq!(
+            errs.len(),
+            1,
+            "a colon inside the path must not hide the roadmap: {errs:?}"
+        );
+        assert_eq!(errs[0].code, "R11");
+        assert!(errs[0].message.contains("ROADMAP"));
+    }
+
+    #[test]
+    fn legality_judges_each_entry_of_a_sequence_independently() {
+        let errs = legality(
+            "plan/v1",
+            &[
+                "docs/designs/DESIGN-x.md",   // legal
+                "docs/roadmaps/ROADMAP-y.md", // legal for a PLAN
+                "docs/plans/PLAN-z.md",       // illegal: sideways, not above
+            ],
+        );
+        assert_eq!(errs.len(), 1, "only the third entry is illegal: {errs:?}");
+        assert_eq!(errs[0].code, "R10");
+        assert!(errs[0].message.contains("PLAN-z.md"));
+        assert_eq!(
+            errs[0].line, 7,
+            "every per-entry finding sits at the field's line, as R6's do"
+        );
+    }
+
+    #[test]
+    fn legality_reports_every_illegal_entry_of_a_sequence() {
+        let errs = legality(
+            "brief/v1",
+            &["docs/designs/DESIGN-a.md", "docs/plans/PLAN-b.md"],
+        );
+        assert_eq!(errs.len(), 2, "one per illegal entry: {errs:?}");
+        assert_eq!(errs[0].code, "R10");
+        assert_eq!(errs[1].code, "R11");
+    }
+
+    #[test]
+    fn legality_skips_placeholders_and_ignores_an_absent_field() {
+        assert!(legality("brief/v1", &["docs/roadmaps/ROADMAP-<slug>.md"]).is_empty());
+        assert!(legality("brief/v1", &["<ROADMAP path>"]).is_empty());
+        let doc = make_doc("brief/v1", "Draft", HashMap::new(), vec![], vec![]);
+        assert!(check_upstream_legality(&doc, &spec_for("brief/v1")).is_empty());
+    }
+
+    /// The verdict does not depend on the target existing. That is what keeps
+    /// `docs/visions/` and `docs/strategies/` out of the document index and so
+    /// out of the orphan rule, which was never written for them. Both a
+    /// strategic basename and a vision basename are exercised, because the
+    /// requirement names both.
+    ///
+    /// This proves the verdict is independent of the filesystem, not that no
+    /// syscall is made -- an implementation that stat'd the path and ignored
+    /// the answer would pass. Independence is the property the requirement
+    /// needs; the absence of the syscall is visible in the function body,
+    /// which resolves no path and opens no file.
+    #[test]
+    fn legality_verdict_does_not_depend_on_the_target_existing() {
+        for missing in [
+            "/nonexistent-root-for-shirabe-tests/docs/visions/VISION-x.md",
+            "/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md",
+        ] {
+            assert!(!Path::new(missing).exists());
+        }
+        // Legal edges: judged clean without the target existing.
+        for (schema, missing) in [
+            (
+                "strategy/v1",
+                "/nonexistent-root-for-shirabe-tests/docs/visions/VISION-x.md",
+            ),
+            (
+                "roadmap/v1",
+                "/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md",
+            ),
+            (
+                "brief/v1",
+                "/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md",
+            ),
+        ] {
+            assert!(legality(schema, &[missing]).is_empty(), "{schema} -> {missing}");
+        }
+        // Illegal edges: judged as violations without the target existing. A
+        // VISION may name only a VISION, and a COMP names nothing at all, so
+        // both strategic basenames are exercised as violations.
+        for (schema, missing, named) in [
+            (
+                "vision/v1",
+                "/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md",
+                "STRATEGY",
+            ),
+            (
+                "comp/v1",
+                "/nonexistent-root-for-shirabe-tests/docs/visions/VISION-x.md",
+                "VISION",
+            ),
+        ] {
+            let errs = legality(schema, &[missing]);
+            assert_eq!(errs.len(), 1, "{schema} -> {missing}: {errs:?}");
+            assert_eq!(errs[0].code, "R10");
+            assert!(errs[0].message.contains(named));
+        }
+    }
+
+    #[test]
+    fn legality_finding_names_the_offending_document_and_value() {
+        let errs = legality("brief/v1", &["docs/plans/PLAN-x.md"]);
+        assert_eq!(errs[0].file, "test.md");
+        assert!(errs[0].message.contains("docs/plans/PLAN-x.md"));
     }
 
     // --- check_upstream_resolves ---
