@@ -9,8 +9,8 @@ stateDiagram-v2
     escalate --> done_blocked
     escalate_dirty_merge_state --> done_blocked
     escalate_upstream_drift --> done_blocked
-    orchestrator_setup --> worktree_discipline_check : status: completed
-    orchestrator_setup --> worktree_discipline_check : status: override
+    orchestrator_setup --> worktree_discipline_check : gates.settled_branch_recorded.matches: true, status: completed
+    orchestrator_setup --> worktree_discipline_check : gates.settled_branch_recorded.matches: true, status: override
     orchestrator_setup --> done_blocked : status: blocked
     plan_completion --> ci_monitor : cascade_status: completed
     plan_completion --> ci_monitor : cascade_status: partial
@@ -31,6 +31,9 @@ stateDiagram-v2
     end note
     note left of ci_monitor
         gate: merge_state_clean
+    end note
+    note left of orchestrator_setup
+        gate: settled_branch_recorded
     end note
     note left of spawn_and_await
         gate: batch_done
