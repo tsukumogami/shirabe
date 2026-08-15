@@ -208,6 +208,16 @@ naming what folded into what, on what verdict, with the per-contribution carry
 result and a content hash of the pre-fold original. The record SHALL be produced
 mechanically and SHALL NOT carry the absorbed document's contributions.
 
+"Written to the default branch" means the record **remains** on the default
+branch — present in a checkout, greppable — not merely that it was written to
+some commit later removed. The terminal fold decides this: a record carried in
+the PLAN reaches `main` and is then deleted by the implementation cascade, so
+under the weaker reading the one fold that leaves nothing else behind also
+leaves no record of itself. That is the case the record exists for. It also
+follows from the beneficiary R21 names: a reader holding a dead path who greps
+for it needs the record in the working tree, not in history they have no reason
+to search.
+
 **R21.** A surviving document SHALL record what it absorbed in both a
 machine-readable frontmatter field and one line in its `## Status` section
 naming the absorbed artifact and which contribution section now carries it. The
