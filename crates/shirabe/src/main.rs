@@ -22,6 +22,7 @@ use shirabe_validate::{
     ReviewPosture, SlugPrefixCheck, ValidationError, ARTIFACT_DIRS, SCHEMA_SKIP_CODE,
 };
 
+mod adherence_check;
 mod adherence_hook;
 mod conflict_record;
 mod plan_outlines;
@@ -112,6 +113,13 @@ enum Commands {
     /// reads, and allows the write. Fail-open in every path and always exits 0:
     /// a non-zero exit from a `PreToolUse` handler blocks the tool call.
     AdherenceHook(adherence_hook::AdherenceHookArgs),
+    /// Read-only adherence determination, evidence half: report whether a
+    /// session registered a koto orchestration session for this repository and
+    /// how many issues it delegated, against the count the PLAN declares.
+    /// Reads koto's workflow records and terminal index directly and writes
+    /// nothing. Absence of a workflow record is reported as absence, never as
+    /// non-registration.
+    AdherenceCheck(adherence_check::AdherenceCheckArgs),
     /// Record a departure from the workflow before taking it. `record` is the
     /// one recorder: it requires the conflicting instruction, the workflow step
     /// it conflicts with, and the intended course, and writes a durable
@@ -436,6 +444,7 @@ fn main() -> ExitCode {
         Some(Commands::WorkSummary(args)) => work_summary::run(&args.command),
         Some(Commands::PrBodyHook) => pr_body_hook::run(),
         Some(Commands::AdherenceHook(args)) => adherence_hook::run(&args),
+        Some(Commands::AdherenceCheck(args)) => adherence_check::run(&args),
         Some(Commands::Conflict(args)) => conflict_record::run(&args.command),
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would

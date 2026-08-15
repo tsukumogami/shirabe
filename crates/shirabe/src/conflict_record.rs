@@ -1169,14 +1169,19 @@ mod tests {
 
         // An absent `koto` is the worst mirror failure there is.
         let absent = base.join("no-such-koto");
-        assert!(!mirror_to_session(&absent.display().to_string(), "wf-1", &r));
+        assert!(!mirror_to_session(
+            &absent.display().to_string(),
+            "wf-1",
+            &r
+        ));
 
         // A `koto` that exits non-zero — the "workflow not found" shape — is
-        // the failure the recorder must also survive.
-        let failing = base.join("failing-koto");
-        fs::write(&failing, "#!/usr/bin/env bash\nexit 1\n").unwrap();
-        fs::set_permissions(&failing, fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(!mirror_to_session(&failing.display().to_string(), "wf-1", &r));
+        // the failure the recorder must also survive. `/bin/false` rather than
+        // a script written here on the spot: writing an executable and exec'ing
+        // it from a test thread can lose an ETXTBSY race against another
+        // thread's fork, and this case needs no argv capture to be worth
+        // anything.
+        assert!(!mirror_to_session("/bin/false", "wf-1", &r));
 
         // Both failures left the durable record exactly as written.
         let back = read_records(&dir, "sess-1");
@@ -1202,11 +1207,21 @@ mod tests {
         fs::set_permissions(&capture, fs::Permissions::from_mode(0o755)).unwrap();
 
         let r = rec("delegate every issue", "implement inline");
-        assert!(mirror_to_session(
-            &capture.display().to_string(),
-            "wf-1",
-            &r
-        ));
+        // This is the one test that must exec a script it just wrote, because
+        // capturing argv is the whole point. Exec'ing a freshly written file
+        // can lose an ETXTBSY race against another test thread's fork, so
+        // retry a bounded number of times; a genuine false still fails the
+        // assertion after the retries are spent.
+        let bin = capture.display().to_string();
+        let mut mirrored = false;
+        for _ in 0..10 {
+            if mirror_to_session(&bin, "wf-1", &r) {
+                mirrored = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(mirrored, "the mirror never reached the capture stub");
 
         let argv: Vec<String> = fs::read_to_string(&out)
             .unwrap()

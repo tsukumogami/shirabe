@@ -11,6 +11,17 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "command -v shirabe >/dev/null 2>&1 || exit 0; shirabe conflict notify 2>/dev/null || exit 0"
+          }
+        ]
+      }
     ]
   }
 }

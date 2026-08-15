@@ -16,7 +16,8 @@
 #   --label <name>          required; names the run in the results file
 #                           (e.g. baseline, baseline-repeat, rewritten)
 #   --runs-per-query <n>    runs per query, default 5
-#   --workers <n>           parallel workers, default 10
+#   --workers <n>           parallel workers, default 1. Raising this makes the
+#                           measurement wrong, see below.
 #   --timeout <s>           per-query timeout in seconds, default 60
 #   --description <text>    measure this description instead of the one
 #                           currently in skills/execute/SKILL.md
@@ -27,6 +28,7 @@
 #   --note <text>           free-text note recorded with the run
 #   --model <name>          model for the selector, default the user's
 #   --results <path>        results file, default skills/execute/evals/trigger-results.json
+#   --keep-harness          leave the throwaway harness directory in place
 #   -h, --help              this message
 #
 # What gets reported
@@ -49,6 +51,39 @@
 #   declared band, not a reproducibility claim: exact reproducibility is not
 #   achievable against a stochastic selector and is not claimed anywhere here.
 #
+# Why the measurement does not run in this checkout
+#
+#   run_eval.py measures a description by writing it into a throwaway command
+#   file under the project root and asking `claude -p` whether the first tool
+#   call selects that command. Run from this repository, two things break it,
+#   and both were observed rather than guessed:
+#
+#   1. The real shirabe plugin is loaded here, so the selector finds
+#      `shirabe:execute` alongside the throwaway copy and picks the real one.
+#      The runner scores that as a non-trigger, and every positive query fails
+#      no matter what the description says -- a floor that hides any change.
+#   2. When a query names a plan path that does not exist, the selector goes
+#      looking for the file first. That first tool call is a Read or a Bash,
+#      which the runner also scores as a non-trigger.
+#
+#   So each run builds a throwaway harness directory: an empty project root
+#   with a .claude/ of its own, plus a docs/plans/ holding every plan path the
+#   prompt set names. The description under test is then the only route to the
+#   behavior, which is the variable the measurement is trying to isolate.
+#
+# Why the measurement runs one query at a time
+#
+#   run_eval.py names each throwaway command file after the run that created it
+#   and then checks that the selected command carries that exact name. With N
+#   workers, N command files with identical descriptions and different names sit
+#   in the harness at once, the selector picks whichever of the identical
+#   commands it likes, and the name check fails for every run whose neighbour
+#   was chosen. At the runner's default of 10 workers the positive queries
+#   collapse to roughly a tenth of their real rate, which reads as a floor and
+#   hides any change to the description. Serially, one query that scored 0/5
+#   under 10 workers scores 3/5. That is the whole reason the default here is 1.
+#   The prompt set takes a few minutes to run this way. Leave it alone.
+#
 # Prerequisites: claude CLI, python3, and the skill-creator plugin. Set
 # SKILL_CREATOR_DIR to point at a skill-creator checkout elsewhere.
 #
@@ -70,15 +105,16 @@ TOLERANCE_QUERIES=1
 
 LABEL=""
 RUNS_PER_QUERY=5
-WORKERS=10
+WORKERS=1
 TIMEOUT=60
 DESCRIPTION=""
 DESCRIPTION_FILE=""
 NOTE=""
 MODEL=""
+KEEP_HARNESS=0
 
 usage() {
-    sed -n '3,55p' "$0" | sed 's/^# \{0,1\}//'
+    awk 'NR < 3 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"
 }
 
 while [ $# -gt 0 ]; do
@@ -92,6 +128,7 @@ while [ $# -gt 0 ]; do
         --note) NOTE="${2:-}"; shift 2 ;;
         --model) MODEL="${2:-}"; shift 2 ;;
         --results) RESULTS="${2:-}"; shift 2 ;;
+        --keep-harness) KEEP_HARNESS=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -154,10 +191,76 @@ fi
 # description under test would rewrite the thing being measured.
 
 RAW="$(mktemp -t trigger-rate.XXXXXX)"
-trap 'rm -f "$RAW"' EXIT
+HARNESS="$(mktemp -d -t trigger-harness.XXXXXX)"
+
+cleanup() {
+    rm -f "$RAW"
+    if [ "$KEEP_HARNESS" -eq 0 ]; then
+        rm -rf "$HARNESS"
+    fi
+}
+trap cleanup EXIT
+
+mkdir -p "$HARNESS/.claude/commands" "$HARNESS/docs/plans"
+
+# Every plan path the prompt set names gets a file in the harness. The repo's
+# own copy when it still has one, a stub otherwise -- PLAN docs are working
+# artifacts that retire on completion, and a prompt set that stops working when
+# a plan retires is not a re-runnable procedure.
+EVAL_SET="$EVAL_SET" HARNESS="$HARNESS" REPO_ROOT="$REPO_ROOT" python3 <<'PY'
+import json
+import os
+import re
+import shutil
+from pathlib import Path
+
+eval_set = json.load(open(os.environ["EVAL_SET"]))
+harness_plans = Path(os.environ["HARNESS"]) / "docs" / "plans"
+repo_plans = Path(os.environ["REPO_ROOT"]) / "docs" / "plans"
+
+names = set()
+for item in eval_set:
+    for match in re.findall(r"PLAN-[A-Za-z0-9._-]+\.md", item["query"]):
+        names.add(match)
+
+stub = """---
+schema: plan/v1
+execution_mode: single-pr
+status: ready
+---
+
+# Plan: %s
+
+## Issue Outlines
+
+### Issue 1: first issue
+
+**Acceptance Criteria**:
+- [ ] The first issue is done.
+
+**Dependencies**: None
+
+### Issue 2: second issue
+
+**Acceptance Criteria**:
+- [ ] The second issue is done.
+
+**Dependencies**: Issue 1
+"""
+
+for name in sorted(names):
+    source = repo_plans / name
+    target = harness_plans / name
+    if source.is_file():
+        shutil.copyfile(source, target)
+    else:
+        target.write_text(stub % name)
+print("harness plans: %s" % ", ".join(sorted(names)))
+PY
 
 echo "prompt set:      $EVAL_SET"
 echo "skill:           $SKILL_DIR"
+echo "harness root:    $HARNESS"
 echo "runs per query:  $RUNS_PER_QUERY"
 echo "label:           $LABEL"
 echo ""
@@ -175,9 +278,11 @@ if [ -n "$MODEL" ]; then
     set -- "$@" --model "$MODEL"
 fi
 
+cd "$HARNESS" || exit 3
 PYTHONPATH="$SC_DIR${PYTHONPATH:+:$PYTHONPATH}" \
     python3 "$SC_DIR/scripts/run_eval.py" "$@" >"$RAW"
 status=$?
+cd "$REPO_ROOT" || exit 3
 
 if [ $status -ne 0 ]; then
     echo "error: run_eval.py exited $status; nothing recorded" >&2
@@ -185,7 +290,7 @@ if [ $status -ne 0 ]; then
 fi
 
 RAW="$RAW" RESULTS="$RESULTS" LABEL="$LABEL" NOTE="$NOTE" \
-RUNS_PER_QUERY="$RUNS_PER_QUERY" MODEL="$MODEL" \
+RUNS_PER_QUERY="$RUNS_PER_QUERY" MODEL="$MODEL" WORKERS="$WORKERS" \
 TOLERANCE_QUERIES="$TOLERANCE_QUERIES" python3 <<'PY'
 import json
 import os
@@ -210,6 +315,7 @@ run = {
     "label": label,
     "recorded_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "runs_per_query": int(os.environ["RUNS_PER_QUERY"]),
+    "workers": int(os.environ["WORKERS"]),
     "model": os.environ.get("MODEL") or "default",
     "cli_version": cli,
     "description_measured": raw["description"],
@@ -240,6 +346,8 @@ else:
         "metric": "quantized per-query pass rate: a query passes when its trigger rate over runs_per_query runs falls on the expected side of a 0.5 majority threshold",
         "tolerance_band": "+/- 1 query on a 20-query set (+/- 5 percentage points); two runs over an unchanged set agree when their pass counts differ by at most 1",
         "reproducibility": "not exact. run_eval.py shells out to `claude -p`, which exposes no seed and no temperature control. The tolerance band is a declared agreement window, not a claim of bit-equal reruns.",
+        "harness": "each run builds a throwaway project root holding only a .claude/ and the plan paths the prompt set names. Measured in this checkout instead, the real shirabe plugin competes with the copy under test and every positive query fails regardless of the description.",
+        "concurrency": "one query at a time. run_eval.py checks that the selected command carries the name it generated for that run, so parallel workers put several identically-described commands in the harness at once and the check fails whenever a neighbour is chosen. Runs recorded with workers > 1 understate the positive rate by roughly that factor.",
         "runs": [],
     }
 
