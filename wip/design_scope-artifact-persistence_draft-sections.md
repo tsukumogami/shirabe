@@ -37,6 +37,18 @@ The absorb writes into documents the enumerated write-target set does not name.
 The existing `upstream:` re-point already writes the survivor and is not listed,
 so the set understates the parent's reach today, before this change adds to it.
 
+A field this work depends on is specified, consumed, and never written.
+`chain_ran:` is defined in `state-schema.md` and read in three places by Phase 3
+— R9's chain-membership-gated extension gates on it, the PR-body record copies
+"every artifact in `chain_ran:`", and `plan_execution_mode:` is required present
+if and only if `/plan` appears in it. Phase 2 records `child_snapshots:` and
+clears its sentinel, but no instruction anywhere appends to `chain_ran:`. So the
+hard-finalization check gates on a field nobody populates. That matters here
+because the scoping this work needs — the judgment fires only at a hop where
+*this run* produced both documents — is exactly what `chain_ran:` is for, and
+because telling an absorbed artifact from one that was never produced is the
+thing the fold record exists to make possible.
+
 And the failure mode the absorb can cause is invisible to CI by construction.
 `validate-docs.yml` computes its file set with `git diff`, so a document
 stranded by a deletion is not a changed file — its bytes are untouched, only its
