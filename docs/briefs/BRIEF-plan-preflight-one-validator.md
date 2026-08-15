@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   Two implementations decide whether a PLAN may be built from, and they give
   opposite answers on two of the four statuses a DESIGN can hold. Both run on
@@ -23,7 +23,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Framing for issues #276 and #285. The downstream PRD owns the requirements;
 this brief stops at the problem, the outcome, the journeys that exercise it,

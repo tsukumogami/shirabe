@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-plan-preflight-one-validator.md
 problem: |
   Two implementations answer "may a PLAN be built from this" and contradict
@@ -35,7 +35,7 @@ motivating_context: |
 
 ## Status
 
-Planned
+Current
 
 Technical approach for issues #276 and #285, written from
 `docs/prds/PRD-plan-preflight-one-validator.md`.

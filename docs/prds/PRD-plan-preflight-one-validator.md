@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 upstream: docs/briefs/BRIEF-plan-preflight-one-validator.md
 source_issue: 276
 problem: |
@@ -28,7 +28,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Requirements for issues #276 and #285, written from
 `docs/briefs/BRIEF-plan-preflight-one-validator.md`. The two framing questions
