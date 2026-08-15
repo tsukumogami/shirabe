@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   Operators running /execute on a branch that already carries an open PR get
   their per-issue children dispatched against a branch that was never created.
@@ -19,7 +19,7 @@ source_issue: 279
 
 ## Status
 
-Accepted
+In Progress
 
 Requirements are written from the accepted BRIEF. The choice of mechanism for
 the read-back's failure behaviour is a DESIGN-altitude decision; this PRD states
