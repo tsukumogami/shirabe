@@ -462,6 +462,78 @@ pub fn check_fc17(doc: &Doc) -> Vec<ValidationError> {
     errs
 }
 
+/// A requirement definition: `**R7.**` or `**R7:**` at the start of a line.
+static REQUIREMENT_DEF_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^\s*(?:[-*]\s+)?\*\*R(\d+)[.:]?\*\*").unwrap());
+
+/// A requirement citation: a bare `R7` token anywhere in prose.
+static REQUIREMENT_CITE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bR(\d+)\b").unwrap());
+
+/// FC18 -- a requirement citation orphaned by this run's own absorb.
+///
+/// Scoped to the absorb event, not to citation resolution generally. That
+/// scoping is the whole point: roughly 77 documents in this repository cite an
+/// `R<n>` that resolves nowhere today — a PRD citing numbers its upstream BRIEF
+/// cannot define, a `Done` BRIEF citing another chain's PRD by path — and a
+/// general rule would fail all of them. Those are a defect of the process this
+/// work fixes, and their cleanup is sequenced follow-on work rather than a
+/// condition on shipping.
+///
+/// What this check owns is narrower and is the failure nothing else can see:
+/// absorbing a PRD deletes the document its `R<n>` numbering resolved against,
+/// so a survivor that folded a PRD without carrying the numbering orphans every
+/// citation below it, silently. Fold time is the only point at which that is
+/// catchable, and this is the validator's half of it.
+///
+/// Fires only when `absorbed:` names a PRD, because a PRD is the only type that
+/// defines requirement numbers.
+pub fn check_fc18(doc: &Doc) -> Vec<ValidationError> {
+    let AbsorbedDecl::Valid(entries) = parse_absorbed(doc) else {
+        return Vec::new();
+    };
+    if !entries.iter().any(|e| e.heading == "Absorbed PRD") {
+        return Vec::new();
+    }
+
+    let body = doc.body.join("\n");
+    let defined: HashSet<String> = REQUIREMENT_DEF_RE
+        .captures_iter(&body)
+        .map(|c| c[1].to_string())
+        .collect();
+
+    let mut missing: Vec<String> = Vec::new();
+    for line in &doc.body {
+        // A definition line is not a citation of itself.
+        if REQUIREMENT_DEF_RE.is_match(line) {
+            continue;
+        }
+        for caps in REQUIREMENT_CITE_RE.captures_iter(line) {
+            let n = caps[1].to_string();
+            if !defined.contains(&n) && !missing.contains(&n) {
+                missing.push(n);
+            }
+        }
+    }
+    if missing.is_empty() {
+        return Vec::new();
+    }
+    missing.sort_by_key(|n| n.parse::<u32>().unwrap_or(u32::MAX));
+    let line = doc.fields.get("absorbed").map(|f| f.line).unwrap_or(1);
+    vec![ValidationError {
+        file: doc.path.clone(),
+        line,
+        code: "FC18".to_string(),
+        message: format!(
+            "[FC18] this document absorbed a PRD but cites {} which it does not define; carry the requirement numbering into the contribution section or the citations are orphaned",
+            missing
+                .iter()
+                .map(|n| format!("R{n}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }]
+}
+
 /// The raw body lines under `## Status`, up to the next `## ` heading.
 fn status_section_lines(doc: &Doc) -> Vec<String> {
     let mut out = Vec::new();
@@ -7646,5 +7718,42 @@ mod tests {
                 "contribution heading {heading} collides with an existing required section"
             );
         }
+    }
+
+    // --- check_fc18 (requirement citations orphaned by an absorb) ---
+
+    #[test]
+    fn fc18_is_silent_without_an_absorbed_prd() {
+        let doc = doc_md("---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\n---\n\n## Status\n\nProposed\n\nSee R7 and R12.\n");
+        assert!(check_fc18(&doc).is_empty());
+    }
+
+    #[test]
+    fn fc18_flags_a_citation_orphaned_by_absorbing_its_prd() {
+        let doc = doc_at(
+            "docs/designs/DESIGN-x.md",
+            "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed: docs/prds/PRD-x.md\n---\n\n## Status\n\nProposed\n\nAbsorbed [PRD-x](docs/prds/PRD-x.md); carried in Absorbed PRD.\n\n## Absorbed PRD\n\nIt required things.\n\n## Context and Problem Statement\n\nThis satisfies R7.\n",
+        );
+        let errs = check_fc18(&doc);
+        assert_eq!(errs.len(), 1, "got {errs:?}");
+        assert!(errs[0].message.contains("R7"), "got {}", errs[0].message);
+    }
+
+    #[test]
+    fn fc18_accepts_a_citation_the_contribution_carried() {
+        let doc = doc_at(
+            "docs/designs/DESIGN-x.md",
+            "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed: docs/prds/PRD-x.md\n---\n\n## Status\n\nProposed\n\nAbsorbed [PRD-x](docs/prds/PRD-x.md); carried in Absorbed PRD.\n\n## Absorbed PRD\n\n**R7.** The thing shall hold.\n\n## Context and Problem Statement\n\nThis satisfies R7.\n",
+        );
+        assert!(check_fc18(&doc).is_empty());
+    }
+
+    #[test]
+    fn fc18_does_not_fire_on_an_absorbed_brief_alone() {
+        let doc = doc_at(
+            "docs/prds/PRD-x.md",
+            "---\nschema: prd/v1\nstatus: Draft\nproblem: |\n  p\ngoals: |\n  g\nabsorbed: docs/briefs/BRIEF-x.md\n---\n\n## Status\n\nDraft\n\nAbsorbed [BRIEF-x](docs/briefs/BRIEF-x.md); carried in Absorbed Brief.\n\n## Absorbed Brief\n\nwhy\n\n## Problem Statement\n\nCites R3 from elsewhere.\n",
+        );
+        assert!(check_fc18(&doc).is_empty());
     }
 }
