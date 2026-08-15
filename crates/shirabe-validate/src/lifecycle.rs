@@ -307,6 +307,46 @@ type DocIndex = BTreeMap<PathBuf, IndexedDoc>;
 /// Inverse-upstream graph: parent path -> list of child paths.
 type InverseGraph = BTreeMap<PathBuf, Vec<PathBuf>>;
 
+/// The artifact directories a lifecycle root is expected to carry, relative
+/// to that root.
+///
+/// One source, two readers: [`build_doc_index`] walks them, and
+/// [`root_has_artifact_dirs`] answers whether the root looks like a
+/// repository root at all. Keeping the list here means a directory added to
+/// the walk cannot be forgotten by the check that decides the root was
+/// pointed at the right place.
+pub const ARTIFACT_DIRS: &[&str] = &[
+    "docs/briefs",
+    "docs/prds",
+    "docs/designs",
+    "docs/designs/current",
+    "docs/plans",
+    "docs/roadmaps",
+];
+
+/// Whether `root` carries at least one of the artifact directories the
+/// lifecycle walk reads.
+///
+/// This distinguishes the two ways a root can produce an empty index. A root
+/// with the directories present but no documents in them has an empty corpus,
+/// which is a legitimate state and reports clean. A root with none of them is
+/// a root pointed at the wrong place — `--lifecycle docs` looks for
+/// `docs/docs/briefs` — and the caller turns that into a tool error rather
+/// than reporting a clean tree it never opened.
+///
+/// The distinction is why this tests for directories rather than for an empty
+/// index: keying on "indexed zero documents" would fail a genuinely empty
+/// corpus, which is not a mistake anyone made.
+pub fn root_has_artifact_dirs(root: &Path) -> bool {
+    let canon_root = match fs::canonicalize(root) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    ARTIFACT_DIRS
+        .iter()
+        .any(|sub| canon_root.join(sub).is_dir())
+}
+
 /// Walk the doc directories under `root` and build the doc index.
 ///
 /// Path-traversal containment: every discovered path is canonicalized
@@ -325,14 +365,7 @@ fn build_doc_index(root: &Path) -> (DocIndex, Vec<ValidationError>) {
         }
     };
 
-    let dirs: &[&str] = &[
-        "docs/briefs",
-        "docs/prds",
-        "docs/designs",
-        "docs/designs/current",
-        "docs/plans",
-        "docs/roadmaps",
-    ];
+    let dirs: &[&str] = ARTIFACT_DIRS;
 
     for sub in dirs {
         let dir = canon_root.join(sub);
@@ -1782,6 +1815,36 @@ mod tests {
             fs::write(&path, content).unwrap();
         }
         fs::canonicalize(&root).unwrap()
+    }
+
+    #[test]
+    fn root_has_artifact_dirs_accepts_a_repo_root_and_rejects_its_docs_dir() {
+        // The mistyped-argument case from #276: `--lifecycle docs` joins
+        // `docs/briefs` beneath the docs directory, looks for
+        // `docs/docs/briefs`, and finds nothing.
+        let root = build_tree(&[]);
+        assert!(root_has_artifact_dirs(&root));
+        assert!(
+            !root_has_artifact_dirs(&root.join("docs")),
+            "a docs directory is not a repository root"
+        );
+    }
+
+    #[test]
+    fn root_has_artifact_dirs_accepts_an_empty_corpus() {
+        // Directories present, no documents in them. Legitimate, so it must
+        // not be refused — this is why the predicate tests for directories
+        // rather than for an indexed-document count.
+        let root = build_tree(&[]);
+        let (idx, _) = build_doc_index(&root);
+        assert!(idx.is_empty(), "the fixture has no documents");
+        assert!(root_has_artifact_dirs(&root));
+    }
+
+    #[test]
+    fn root_has_artifact_dirs_rejects_a_path_that_does_not_resolve() {
+        let root = build_tree(&[]);
+        assert!(!root_has_artifact_dirs(&root.join("no-such-directory")));
     }
 
     fn make_brief(status: &str, upstream: &str) -> String {

@@ -99,9 +99,6 @@ mktempdir() {
 #       only. None of them belongs to a skill, so none reaches a macOS
 #       /bin/bash. Two also shell out to python3, so a floor run would mostly
 #       exercise that rather than bash.
-#
-# skills/plan/scripts/validate-plan.sh is floor-checked as part of the `plan`
-# suite for as long as check-plan-scripts.yml runs it.
 
 SUITES="plan execute templates template-consistency"
 
@@ -109,11 +106,14 @@ suite_scripts() {
     case "$1" in
         plan)
             echo "skills/plan/scripts/plan-to-tasks_test.sh"
-            echo "skills/plan/scripts/validate-plan_test.sh"
             ;;
         execute)
             echo "skills/execute/scripts/run-cascade_test.sh"
             echo "skills/execute/scripts/preflight_test.sh"
+            # Skips cleanly when koto is absent, which it is on the macOS
+            # runner. It is here for the floor's own sake: a developer running
+            # this suite on macOS has koto, so the cases execute on 3.2 there.
+            echo "skills/execute/scripts/settled-branch-record_test.sh"
             ;;
         templates)
             echo "scripts/check-template-interpolation_test.sh"

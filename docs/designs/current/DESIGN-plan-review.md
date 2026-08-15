@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Current
 problem: |
   The /plan skill's Phase 6 review is passive — it checks coverage and dependency
@@ -704,44 +705,6 @@ Deliverables:
 - Updated SKILL.md with adversarial mode detection and agent spawning
 - Documentation for standalone invocation
 
-## Consequences
-
-### Positive
-
-- Closes all three issue #19 failure modes: design contradiction detection (B),
-  fixture-anchored AC detection (C), QA deferral detection (D).
-- Loop-back is self-consistent with existing `/plan` resume logic — no new
-  infrastructure required.
-- The two-tier model means fast-path adds latency comparable to the current Phase 6
-  (one agent per category), not a multi-minute overhead.
-- Correction hints persist in `_review_loopback.md` and are readable directly by Phase 4
-  regeneration agents — no extract-and-re-inject step required.
-- The skill is standalone-callable, enabling adversarial review of plans produced
-  before the skill existed.
-
-### Negative
-
-- Fast-path requires reading the upstream design doc (for Category B), which adds
-  one file read per `/plan` run that wasn't previously required.
-- AC discriminability (Category C) is a best-effort check: taxonomy-anchored
-  adversarial reasoning reduces false positives but doesn't eliminate them. Some
-  false positives are expected.
-- A second review round may still find issues after Phase 4 regeneration with hints,
-  because hints are best-effort and the original design contradiction may persist.
-- Full adversarial mode is significantly slower than fast-path; not suitable for
-  inline use in `/plan`.
-
-### Mitigations
-
-- Design doc read (Category B) is a single file read — the analysis artifact already
-  records the upstream path. Overhead is negligible.
-- False positives in Category C are annotated by pattern type; users can evaluate
-  whether the flagged pattern is actually a problem for their specific AC.
-- The round counter (passed by `/plan`) limits loop iterations; a configurable
-  max-rounds guard prevents infinite loops on difficult plans.
-- Full adversarial mode is opt-in (`--adversarial` flag); standalone invocation
-  without the flag runs fast-path depth.
-
 ## Security Considerations
 
 The skill operates entirely within the local filesystem — it reads wip/ artifacts and
@@ -793,3 +756,42 @@ that clearly separates data from instructions:
 
 All mitigations are implementation-time conventions in the phase files, not
 architectural changes.
+
+
+## Consequences
+
+### Positive
+
+- Closes all three issue #19 failure modes: design contradiction detection (B),
+  fixture-anchored AC detection (C), QA deferral detection (D).
+- Loop-back is self-consistent with existing `/plan` resume logic — no new
+  infrastructure required.
+- The two-tier model means fast-path adds latency comparable to the current Phase 6
+  (one agent per category), not a multi-minute overhead.
+- Correction hints persist in `_review_loopback.md` and are readable directly by Phase 4
+  regeneration agents — no extract-and-re-inject step required.
+- The skill is standalone-callable, enabling adversarial review of plans produced
+  before the skill existed.
+
+### Negative
+
+- Fast-path requires reading the upstream design doc (for Category B), which adds
+  one file read per `/plan` run that wasn't previously required.
+- AC discriminability (Category C) is a best-effort check: taxonomy-anchored
+  adversarial reasoning reduces false positives but doesn't eliminate them. Some
+  false positives are expected.
+- A second review round may still find issues after Phase 4 regeneration with hints,
+  because hints are best-effort and the original design contradiction may persist.
+- Full adversarial mode is significantly slower than fast-path; not suitable for
+  inline use in `/plan`.
+
+### Mitigations
+
+- Design doc read (Category B) is a single file read — the analysis artifact already
+  records the upstream path. Overhead is negligible.
+- False positives in Category C are annotated by pattern type; users can evaluate
+  whether the flagged pattern is actually a problem for their specific AC.
+- The round counter (passed by `/plan`) limits loop iterations; a configurable
+  max-rounds guard prevents infinite loops on difficult plans.
+- Full adversarial mode is opt-in (`--adversarial` flag); standalone invocation
+  without the flag runs fast-path depth.

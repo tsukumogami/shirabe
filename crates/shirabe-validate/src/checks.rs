@@ -41,6 +41,36 @@ const PROHIBITED_PUBLIC_STRATEGY_SECTIONS: &[&str] = &["Competitive Consideratio
 /// three-column shape.
 const LEGACY_PLAN_TABLE_COLUMNS: &[&str] = &["Issue", "Title", "Dependencies", "Complexity"];
 
+/// The canonical root of the git working tree the process is running in, or
+/// `None` when git cannot answer (not a repository, or git is unavailable).
+///
+/// Used as the containment base for an `upstream:` entry. Returning `None`
+/// rather than falling back to the working directory is deliberate: with no
+/// repository there is no "inside the repository" to assert, and inventing a
+/// base would refuse paths on a property nobody established.
+fn git_work_tree_root() -> Option<std::path::PathBuf> {
+    let out = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(out.stdout).ok()?;
+    std::fs::canonicalize(text.trim()).ok()
+}
+
+/// The finding code the schema gate reports under.
+///
+/// Named rather than spelled `"SCHEMA"` at each site because three consumers
+/// now key on it and they must agree: `check_schema` produces it,
+/// `main.rs` rolls a run carrying one up to the incomplete outcome, and
+/// `report::skipped_inputs` derives the envelope's `skipped` array from it.
+/// A finding under this code means the document was routed to a format and
+/// then not checked against it.
+pub const SCHEMA_SKIP_CODE: &str = "SCHEMA";
+
 /// Returns a SCHEMA `ValidationError` (to be emitted as `::notice`) if
 /// `doc.schema` is not `spec.schema_version`. Returns `None` if the schema
 /// matches.
@@ -174,11 +204,141 @@ pub fn check_fc03(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError> {
     }]
 }
 
+static ABSORBED_ENTRY_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(crate::formats::ABSORBED_ENTRY_PATTERN).unwrap());
+
+/// What a doc's `absorbed:` declaration turned out to be.
+///
+/// One parse, shared by the required-sections splice and by FC18. Sharing is
+/// load-bearing rather than tidy: if the splice ran against an unvalidated
+/// entry, one bad declaration would produce two diagnostics for one cause, and
+/// the misleading one — a missing required section — is the louder of the two.
+/// On [`AbsorbedDecl::Invalid`] the splice returns the base list untouched and
+/// FC18 owns the report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AbsorbedDecl {
+    /// No `absorbed:` key. Every document on disk before this feature.
+    Absent,
+    /// Present, and every entry names a known upstream type.
+    Valid(Vec<AbsorbedEntry>),
+    /// Present and unusable. Carries the offending entry for FC18's message.
+    Invalid(InvalidAbsorbed),
+}
+
+/// One validated `absorbed:` entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AbsorbedEntry {
+    /// The repo-relative path as written.
+    pub path: String,
+    /// The contribution heading the survivor owes for this ancestor.
+    pub heading: &'static str,
+    /// Chain position of the absorbed type. Lower is further upstream.
+    pub position: usize,
+}
+
+/// Why an `absorbed:` declaration could not be used.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InvalidAbsorbed {
+    /// A mapping, alias, or an all-blank sequence: the key is present and
+    /// yields nothing a reader could use. Not a silent no-op — a declaration
+    /// that parses to zero entries is an error, because the gate that reads
+    /// this list would otherwise weaken to nothing.
+    NoUsableEntry,
+    /// An entry that does not match the declared path shape.
+    Malformed(String),
+    /// A cross-repo `owner/repo:path` reference. A document in another
+    /// repository cannot be absorbed by this run.
+    CrossRepo(String),
+}
+
+/// Parse a doc's `absorbed:` declaration.
+///
+/// Fails closed on every ambiguity. An unrecognised basename prefix is
+/// [`InvalidAbsorbed::Malformed`] rather than a skipped entry, because a
+/// skipped entry silently shortens the list — and a shorter list makes every
+/// consumer of it *weaker*, which is the wrong failure direction for a
+/// declaration that gates a deletion.
+pub fn parse_absorbed(doc: &Doc) -> AbsorbedDecl {
+    let Some(field) = doc.fields.get("absorbed") else {
+        return AbsorbedDecl::Absent;
+    };
+    let entries = crate::upstream::field_entries(field);
+    if entries.is_empty() {
+        return AbsorbedDecl::Invalid(InvalidAbsorbed::NoUsableEntry);
+    }
+    let mut out = Vec::with_capacity(entries.len());
+    for entry in entries {
+        if entry.cross_repo {
+            return AbsorbedDecl::Invalid(InvalidAbsorbed::CrossRepo(entry.value));
+        }
+        if !ABSORBED_ENTRY_RE.is_match(&entry.value) {
+            return AbsorbedDecl::Invalid(InvalidAbsorbed::Malformed(entry.value));
+        }
+        let (Some(heading), Some(position)) = (
+            crate::formats::contribution_heading(&entry.value),
+            crate::formats::chain_position(&entry.value),
+        ) else {
+            return AbsorbedDecl::Invalid(InvalidAbsorbed::Malformed(entry.value));
+        };
+        out.push(AbsorbedEntry {
+            path: entry.value,
+            heading,
+            position,
+        });
+    }
+    AbsorbedDecl::Valid(out)
+}
+
 /// The required-sections list that applies to `doc` under `spec`, in canonical
 /// order. When the format declares a per-`execution_mode` override and the doc
 /// carries a mapped `execution_mode`, the per-mode list is used; otherwise the
-/// flat `spec.required_sections`. Shared by FC04 (presence) and FC15 (order).
+/// flat `spec.required_sections`. A valid `absorbed:` declaration then splices
+/// the contribution headings it implies in immediately after `Status`.
+///
+/// The splice point is well-defined without a per-format special case because
+/// every format's required-sections list begins with `Status`, as do all three
+/// Plan execution-mode lists. A doc with no `absorbed:` key — every document on
+/// disk before this feature — gets the base list unchanged, which is what keeps
+/// this change silent on the existing corpus.
+///
+/// Shared by FC04 (presence) and FC15 (order).
 fn required_sections_for(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
+    let base = base_required_sections(doc, spec);
+    let AbsorbedDecl::Valid(entries) = parse_absorbed(doc) else {
+        return base;
+    };
+    if entries.is_empty() {
+        return base;
+    }
+    let mut headings: Vec<&AbsorbedEntry> = entries.iter().collect();
+    headings.sort_by_key(|e| e.position);
+    let mut spliced = Vec::with_capacity(base.len() + headings.len());
+    let mut inserted = false;
+    for name in base {
+        let is_status = name == "Status";
+        spliced.push(name);
+        if is_status && !inserted {
+            for entry in &headings {
+                spliced.push(entry.heading.to_string());
+            }
+            inserted = true;
+        }
+    }
+    // A format whose list somehow does not begin with `Status` would otherwise
+    // silently drop the contributions. Prepend rather than lose them.
+    if !inserted {
+        let mut front: Vec<String> = headings
+            .iter()
+            .map(|entry| entry.heading.to_string())
+            .collect();
+        front.extend(spliced);
+        return front;
+    }
+    spliced
+}
+
+/// The list before any contribution splice.
+fn base_required_sections(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
     if let Some(map) = &spec.execution_mode_required_sections {
         if let Some(mode_field) = doc.fields.get("execution_mode") {
             if let Some(per_mode) = map.get(&mode_field.value) {
@@ -187,6 +347,243 @@ fn required_sections_for(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
         }
     }
     spec.required_sections.clone()
+}
+
+/// The pinned shape of a `## Status` absorption line, one per declared entry.
+///
+/// Modelled on `shirabe transition`'s supersession splice, which writes
+/// `Superseded by [name](path)` into the same section. Only the *shape* is
+/// borrowed: that line is written in Rust behind a subcommand, this one is
+/// written by the absorb procedure, which is exactly why it needs a check of
+/// its own rather than inheriting a guarantee it does not have.
+static STATUS_ABSORBED_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^Absorbed \[[^\]]+\]\((?<path>[^)]+)\); carried in (?<heading>.+)\.$").unwrap()
+});
+
+/// FC18 -- the `absorbed:` declaration and the contribution sections it implies.
+///
+/// Gated entirely on `absorbed:` being present, so it is silent on every
+/// document that declares no absorption. Six clauses:
+///
+/// 1. The field yields at least one usable entry. A mapping-shaped value or an
+///    all-blank sequence is an error, not a silent no-op.
+/// 2. Every entry matches the declared path shape and is not cross-repo.
+/// 3. Every entry's type sits strictly above the carrying document's own type.
+/// 4. The implied contribution sections appear contiguously and immediately
+///    after `## Status`, in chain order.
+/// 5. A `## Status` absorption line is present and well-formed for each entry.
+/// 6. An unparseable or unknown-prefix entry fails closed (clauses 1 and 2).
+///
+/// Clause 4 is why FC18 is not a severity workaround for FC15. FC15 compares
+/// only the *relative* order of the required sections that are present and
+/// explicitly permits unrequired sections between them, so a contribution
+/// section three headings below `## Status` satisfies it at any severity. FC15
+/// is also notice-level behind a documented promotion seam waiting on a corpus
+/// cleanup, so it cannot fail. Neither property is a defect in FC15; they are
+/// simply not what this contract needs.
+pub fn check_fc18(doc: &Doc) -> Vec<ValidationError> {
+    let line = doc.fields.get("absorbed").map(|f| f.line).unwrap_or(1);
+    let entries = match parse_absorbed(doc) {
+        AbsorbedDecl::Absent => return Vec::new(),
+        AbsorbedDecl::Invalid(reason) => {
+            let message = match reason {
+                InvalidAbsorbed::NoUsableEntry => {
+                    "[FC18] 'absorbed:' is present but yields no usable entry".to_string()
+                }
+                InvalidAbsorbed::Malformed(value) => format!(
+                    "[FC18] 'absorbed:' entry '{value}' does not name an absorbable document (expected {})",
+                    crate::formats::ABSORBED_ENTRY_PATTERN
+                ),
+                InvalidAbsorbed::CrossRepo(value) => format!(
+                    "[FC18] 'absorbed:' entry '{value}' is a cross-repo reference; a document in another repository cannot be absorbed"
+                ),
+            };
+            return vec![ValidationError {
+                file: doc.path.clone(),
+                line,
+                code: "FC18".to_string(),
+                message,
+            }];
+        }
+        AbsorbedDecl::Valid(entries) => entries,
+    };
+
+    let mut errs = Vec::new();
+    let basename = doc.path.rsplit('/').next().unwrap_or(&doc.path);
+
+    // Clause 3 -- strictly above in the chain.
+    if let Some(own) = crate::formats::chain_position(basename) {
+        for entry in &entries {
+            if entry.position >= own {
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line,
+                    code: "FC18".to_string(),
+                    message: format!(
+                        "[FC18] 'absorbed:' entry '{}' is not upstream of this document; a document may only absorb a type above its own",
+                        entry.path
+                    ),
+                });
+            }
+        }
+    }
+
+    let mut ordered: Vec<&AbsorbedEntry> = entries.iter().collect();
+    ordered.sort_by_key(|e| e.position);
+
+    // Clause 4 -- contiguous, immediately after Status, in chain order.
+    let status_at = doc.sections.iter().position(|s| s.name == "Status");
+    match status_at {
+        None => {
+            // FC04 owns the missing Status section; FC18 says only that the
+            // adjacency it requires cannot be established.
+        }
+        Some(idx) => {
+            let expected: Vec<&str> = ordered.iter().map(|e| e.heading).collect();
+            let actual: Vec<&str> = doc
+                .sections
+                .iter()
+                .skip(idx + 1)
+                .take(expected.len())
+                .map(|s| s.name.as_str())
+                .collect();
+            if actual != expected {
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line,
+                    code: "FC18".to_string(),
+                    message: format!(
+                        "[FC18] contribution sections must follow '## Status' contiguously in chain order; expected {} but found {}",
+                        expected.join(", "),
+                        if actual.is_empty() {
+                            "none".to_string()
+                        } else {
+                            actual.join(", ")
+                        }
+                    ),
+                });
+            }
+        }
+    }
+
+    // Clause 5 -- one well-formed Status absorption line per entry.
+    let status_lines = status_section_lines(doc);
+    for entry in &ordered {
+        let found = status_lines.iter().any(|raw| {
+            STATUS_ABSORBED_LINE_RE
+                .captures(raw.trim())
+                .is_some_and(|caps| {
+                    caps["path"] == *entry.path && caps["heading"].trim() == entry.heading
+                })
+        });
+        if !found {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line,
+                code: "FC18".to_string(),
+                message: format!(
+                    "[FC18] '## Status' is missing the absorption line for '{}' (expected: Absorbed [<name>]({}); carried in {}.)",
+                    entry.path, entry.path, entry.heading
+                ),
+            });
+        }
+    }
+
+    errs
+}
+
+/// A requirement definition: `**R7.**` or `**R7:**` at the start of a line.
+static REQUIREMENT_DEF_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^\s*(?:[-*]\s+)?\*\*R(\d+)[.:]?\*\*").unwrap());
+
+/// A requirement citation: a bare `R7` token anywhere in prose.
+static REQUIREMENT_CITE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bR(\d+)\b").unwrap());
+
+/// FC19 -- a requirement citation orphaned by this run's own absorb.
+///
+/// Scoped to the absorb event, not to citation resolution generally. That
+/// scoping is the whole point: roughly 77 documents in this repository cite an
+/// `R<n>` that resolves nowhere today — a PRD citing numbers its upstream BRIEF
+/// cannot define, a `Done` BRIEF citing another chain's PRD by path — and a
+/// general rule would fail all of them. Those are a defect of the process this
+/// work fixes, and their cleanup is sequenced follow-on work rather than a
+/// condition on shipping.
+///
+/// What this check owns is narrower and is the failure nothing else can see:
+/// absorbing a PRD deletes the document its `R<n>` numbering resolved against,
+/// so a survivor that folded a PRD without carrying the numbering orphans every
+/// citation below it, silently. Fold time is the only point at which that is
+/// catchable, and this is the validator's half of it.
+///
+/// Fires only when `absorbed:` names a PRD, because a PRD is the only type that
+/// defines requirement numbers.
+pub fn check_fc19(doc: &Doc) -> Vec<ValidationError> {
+    let AbsorbedDecl::Valid(entries) = parse_absorbed(doc) else {
+        return Vec::new();
+    };
+    if !entries.iter().any(|e| e.heading == "Absorbed PRD") {
+        return Vec::new();
+    }
+
+    let body = doc.body.join("\n");
+    let defined: HashSet<String> = REQUIREMENT_DEF_RE
+        .captures_iter(&body)
+        .map(|c| c[1].to_string())
+        .collect();
+
+    let mut missing: Vec<String> = Vec::new();
+    for line in &doc.body {
+        // A definition line is not a citation of itself.
+        if REQUIREMENT_DEF_RE.is_match(line) {
+            continue;
+        }
+        for caps in REQUIREMENT_CITE_RE.captures_iter(line) {
+            let n = caps[1].to_string();
+            if !defined.contains(&n) && !missing.contains(&n) {
+                missing.push(n);
+            }
+        }
+    }
+    if missing.is_empty() {
+        return Vec::new();
+    }
+    missing.sort_by_key(|n| n.parse::<u32>().unwrap_or(u32::MAX));
+    let line = doc.fields.get("absorbed").map(|f| f.line).unwrap_or(1);
+    vec![ValidationError {
+        file: doc.path.clone(),
+        line,
+        code: "FC19".to_string(),
+        message: format!(
+            "[FC19] this document absorbed a PRD but cites {} which it does not define; carry the requirement numbering into the contribution section or the citations are orphaned",
+            missing
+                .iter()
+                .map(|n| format!("R{n}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }]
+}
+
+/// The raw body lines under `## Status`, up to the next `## ` heading.
+fn status_section_lines(doc: &Doc) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut inside = false;
+    for raw in &doc.body {
+        let trimmed = raw.trim_start();
+        if let Some(name) = trimmed.strip_prefix("## ") {
+            if inside {
+                break;
+            }
+            if name.trim() == "Status" {
+                inside = true;
+            }
+            continue;
+        }
+        if inside {
+            out.push(raw.clone());
+        }
+    }
+    out
 }
 
 /// Returns a `ValidationError` for each required section missing from
@@ -842,6 +1239,51 @@ pub fn check_upstream_resolves(doc: &Doc) -> Vec<ValidationError> {
                 path
             )));
             continue;
+        }
+
+        // The two refusals absorbed from the retired `validate-plan.sh`. They
+        // are here rather than in a check of their own because this function
+        // already resolves the entry and already reports under R6; a second
+        // check would give one entry two places to be refused from.
+        //
+        // Both matter because the value reaches a committed frontmatter
+        // field. A symlinked upstream resolves to different content for
+        // different readers, so the value a reviewer approves is not
+        // necessarily the value a consumer resolves. One escaping the working
+        // tree names something no other clone has.
+        //
+        // Each refusal `continue`s, so a refused entry produces one finding
+        // rather than also collecting the git-tracking one below.
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                errs.push(finding(format!(
+                    "[R6] upstream {:?} is a symlink; name the target directly, because a symlinked upstream resolves differently for different readers",
+                    path
+                )));
+                continue;
+            }
+            _ => {}
+        }
+
+        // Containment is decided on canonical paths, so a `../`-shaped path
+        // and a symlink hop are both resolved before the comparison rather
+        // than pattern-matched in their written form.
+        //
+        // The base is the git working tree, not the process working
+        // directory. An `upstream:` value is repo-relative, so "inside the
+        // repository" is the property being asserted; comparing against the
+        // CWD would call a perfectly contained path an escape whenever the
+        // validator runs from a subdirectory. This is the base the retired
+        // `validate-plan.sh` used, via `git rev-parse --show-toplevel`.
+        if let (Ok(canon), Some(root)) = (std::fs::canonicalize(path), git_work_tree_root()) {
+            if !canon.starts_with(&root) {
+                errs.push(finding(format!(
+                    "[R6] upstream {:?} resolves outside the repository: {}",
+                    path,
+                    canon.display()
+                )));
+                continue;
+            }
         }
 
         let tracked = Command::new("git")
@@ -4398,10 +4840,97 @@ mod tests {
     }
 
     #[test]
+    fn check_upstream_resolves_symlink_returns_r6() {
+        // Absorbed from the retired validate-plan.sh. A symlinked upstream
+        // resolves to different content for different readers, and the value
+        // reaches a committed frontmatter field.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .canonicalize()
+            .expect("workspace target/ exists during a cargo test run");
+        let target = dir.join(format!("shirabe_symlink_target_{}.md", std::process::id()));
+        let link = dir.join(format!("shirabe_symlink_{}.md", std::process::id()));
+        std::fs::write(&target, b"target").expect("write target");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&target, &link).expect("create symlink");
+
+        let mut fields = HashMap::new();
+        fields.insert("upstream".to_string(), fv(&link.display().to_string(), 4));
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+        let errs = check_upstream_resolves(&doc);
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_file(&target);
+
+        assert_eq!(
+            errs.len(),
+            1,
+            "a refused entry produces exactly one finding"
+        );
+        assert_eq!(errs[0].code, "R6");
+        assert!(
+            errs[0].message.contains("is a symlink"),
+            "got {:?}",
+            errs[0].message
+        );
+    }
+
+    #[test]
+    fn check_upstream_resolves_outside_the_tree_returns_r6() {
+        // The second refusal absorbed from validate-plan.sh: a path naming
+        // something no other clone of this repository has.
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("shirabe_outside_{}.md", std::process::id()));
+        std::fs::write(&path, b"outside").expect("write temp file");
+
+        let mut fields = HashMap::new();
+        fields.insert("upstream".to_string(), fv(&path.display().to_string(), 6));
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+        let errs = check_upstream_resolves(&doc);
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(
+            errs.len(),
+            1,
+            "a refused entry produces exactly one finding"
+        );
+        assert_eq!(errs[0].code, "R6");
+        assert!(
+            errs[0].message.contains("resolves outside the repository"),
+            "got {:?}",
+            errs[0].message
+        );
+    }
+
+    #[test]
+    fn check_upstream_resolves_skips_cross_repo_for_the_new_refusals_too() {
+        // A cross-repo reference names no local path, so neither new refusal
+        // has anything to resolve — the same reason the resolution check
+        // already skips it.
+        let mut fields = HashMap::new();
+        fields.insert(
+            "upstream".to_string(),
+            fv("tsukumogami/other:docs/designs/DESIGN-x.md", 2),
+        );
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+        assert!(check_upstream_resolves(&doc).is_empty());
+    }
+
+    #[test]
     fn check_upstream_resolves_untracked_file_returns_r6() {
         // Create a temporary file that exists on disk but is not committed
         // to git.
-        let dir = std::env::temp_dir();
+        //
+        // The file lives under the workspace `target/` directory rather than
+        // the system temp directory. `target/` is gitignored, so it is still
+        // exactly the untracked-but-present fixture this test wants, and it
+        // is INSIDE the git working tree — which matters now that R6 refuses
+        // an upstream resolving outside the repository. A `/tmp` fixture is
+        // both untracked and out-of-tree, so it would exercise the
+        // containment refusal instead of the tracking one this test names.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .canonicalize()
+            .expect("workspace target/ exists during a cargo test run");
         let path = dir.join(format!("shirabe_untracked_{}.md", std::process::id()));
         std::fs::write(&path, b"untracked").expect("write temp file");
 
@@ -8130,276 +8659,509 @@ words:
         assert!(fc16(&doc).is_empty(), "absent sections must be a no-op");
     }
 
-    // --- FC20 (prose reference invalidated by a relocation) ---
+    // --- check_fc18 (absorbed declaration + contribution sections) ---
 
-    /// A scratch work tree: a `.git` marker, an artifact directory layout,
-    /// and whatever files the case needs.
-    ///
-    /// Each call gets its own directory, which matters because the target
-    /// index is memoized per root: two cases sharing a root would share a
-    /// scan taken before the second one wrote its files.
-    struct Scratch {
-        root: std::path::PathBuf,
+    /// Build a doc at a chosen path, so FC18's clause-3 comparison against the
+    /// carrying document's own chain position has something to read.
+    fn doc_at(path: &str, md: &str) -> Doc {
+        crate::frontmatter::parse_doc_bytes(path, md.as_bytes()).expect("parse")
     }
 
-    impl Scratch {
-        fn new(label: &str) -> Self {
-            use std::sync::atomic::{AtomicU64, Ordering};
-            static COUNTER: AtomicU64 = AtomicU64::new(0);
-            let root = std::env::temp_dir().join(format!(
-                "shirabe-fc20-{}-{}-{}",
-                std::process::id(),
-                COUNTER.fetch_add(1, Ordering::Relaxed),
-                label
-            ));
-            std::fs::create_dir_all(root.join(".git")).expect("create scratch root");
-            Scratch { root }
-        }
-
-        fn write(&self, rel: &str, contents: &str) -> std::path::PathBuf {
-            let path = self.root.join(rel);
-            std::fs::create_dir_all(path.parent().expect("parent")).expect("create dirs");
-            std::fs::write(&path, contents).expect("write scratch file");
-            path
-        }
+    /// A DESIGN that absorbed a PRD, correct on every clause.
+    fn absorbing_design(absorbed: &str, status_body: &str, sections: &str) -> Doc {
+        doc_at(
+            "docs/designs/DESIGN-x.md",
+            &format!(
+                "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed: {absorbed}\n---\n\n## Status\n\nProposed\n\n{status_body}\n{sections}"
+            ),
+        )
     }
 
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.root);
-        }
-    }
+    const GOOD_STATUS_LINE: &str = "Absorbed [PRD-x](docs/prds/PRD-x.md); carried in Absorbed PRD.";
 
-    /// Parse a scratch file into a `Doc` carrying its on-disk path, so the
-    /// check resolves against the scratch tree rather than this repository.
-    fn scratch_doc(path: &std::path::Path) -> Doc {
-        let bytes = std::fs::read(path).expect("read scratch doc");
-        crate::frontmatter::parse_doc_bytes(&path.display().to_string(), &bytes).expect("parse")
-    }
-
-    fn fc20(doc: &Doc) -> Vec<ValidationError> {
-        check_stale_references(doc, &FormatSpec::prose_only())
+    #[test]
+    fn fc18_is_silent_when_absorbed_is_absent() {
+        let doc = doc_md("---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\n---\n\n## Status\n\nProposed\n");
+        assert!(
+            check_fc18(&doc).is_empty(),
+            "a doc declaring no absorption must be untouched -- this is what keeps the change silent on the existing corpus"
+        );
     }
 
     #[test]
-    fn fc20_reports_a_design_that_moved_to_current() {
-        let s = Scratch::new("moved");
-        s.write(
-            "docs/designs/current/DESIGN-shirabe-scope-skill.md",
-            "moved",
+    fn fc18_accepts_a_well_formed_declaration() {
+        let doc = absorbing_design(
+            "docs/prds/PRD-x.md",
+            GOOD_STATUS_LINE,
+            "\n## Absorbed PRD\n\nwhat it required\n\n## Context and Problem Statement\n\nx\n",
         );
-        let referrer = s.write(
+        let errs = check_fc18(&doc);
+        assert!(errs.is_empty(), "expected clean, got {errs:?}");
+    }
+
+    #[test]
+    fn fc18_rejects_a_declaration_that_yields_no_entry() {
+        // A mapping-shaped value parses to zero entries. That must be an error
+        // rather than a silent no-op: a gate reading this list would otherwise
+        // weaken to nothing.
+        let doc = doc_at(
+            "docs/designs/DESIGN-x.md",
+            "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed:\n  key: value\n---\n\n## Status\n\nProposed\n",
+        );
+        let errs = check_fc18(&doc);
+        assert_eq!(errs.len(), 1, "got {errs:?}");
+        assert!(errs[0].message.contains("no usable entry"));
+    }
+
+    #[test]
+    fn fc18_rejects_a_malformed_entry() {
+        let doc = absorbing_design("docs/prds/notes.txt", GOOD_STATUS_LINE, "");
+        let errs = check_fc18(&doc);
+        assert_eq!(errs.len(), 1, "got {errs:?}");
+        assert!(errs[0]
+            .message
+            .contains("does not name an absorbable document"));
+    }
+
+    #[test]
+    fn fc18_rejects_a_cross_repo_entry() {
+        let doc = absorbing_design("owner/repo:docs/prds/PRD-x.md", GOOD_STATUS_LINE, "");
+        let errs = check_fc18(&doc);
+        assert_eq!(errs.len(), 1, "got {errs:?}");
+        assert!(errs[0].message.contains("cross-repo"));
+    }
+
+    #[test]
+    fn fc18_rejects_an_entry_not_upstream_of_the_carrier() {
+        // A PRD cannot absorb a DESIGN: the chain runs the other way.
+        let doc = doc_at(
+            "docs/prds/PRD-x.md",
+            "---\nschema: prd/v1\nstatus: Draft\nproblem: |\n  p\ngoals: |\n  g\nabsorbed: docs/designs/DESIGN-x.md\n---\n\n## Status\n\nDraft\n\nAbsorbed [DESIGN-x](docs/designs/DESIGN-x.md); carried in Absorbed Design.\n\n## Absorbed Design\n\nx\n",
+        );
+        let errs = check_fc18(&doc);
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("is not upstream of this document")),
+            "got {errs:?}"
+        );
+    }
+
+    #[test]
+    fn fc18_rejects_a_contribution_section_that_is_not_adjacent_to_status() {
+        // FC15 permits unrequired sections between required ones, so it cannot
+        // express adjacency at any severity. This is the clause that owns it.
+        let doc = absorbing_design(
+            "docs/prds/PRD-x.md",
+            GOOD_STATUS_LINE,
+            "\n## Context and Problem Statement\n\nx\n\n## Absorbed PRD\n\nx\n",
+        );
+        let errs = check_fc18(&doc);
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("contiguously in chain order")),
+            "got {errs:?}"
+        );
+    }
+
+    #[test]
+    fn fc18_rejects_a_missing_status_absorption_line() {
+        let doc = absorbing_design(
+            "docs/prds/PRD-x.md",
+            "some prose that is not the pinned shape",
+            "\n## Absorbed PRD\n\nx\n",
+        );
+        let errs = check_fc18(&doc);
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("missing the absorption line")),
+            "got {errs:?}"
+        );
+    }
+
+    #[test]
+    fn fc18_requires_transitive_contributions_in_chain_order() {
+        let doc = doc_at(
+            "docs/designs/DESIGN-x.md",
+            "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed:\n  - docs/prds/PRD-x.md\n  - docs/briefs/BRIEF-x.md\n---\n\n## Status\n\nProposed\n\nAbsorbed [BRIEF-x](docs/briefs/BRIEF-x.md); carried in Absorbed Brief.\nAbsorbed [PRD-x](docs/prds/PRD-x.md); carried in Absorbed PRD.\n\n## Absorbed Brief\n\nwhy\n\n## Absorbed PRD\n\nwhat\n\n## Context and Problem Statement\n\nx\n",
+        );
+        let errs = check_fc18(&doc);
+        assert!(
+            errs.is_empty(),
+            "a survivor carrying two contributions in chain order is valid -- the declaration order must not matter, the chain order must; got {errs:?}"
+        );
+    }
+
+    #[test]
+    fn required_sections_splice_is_inert_without_a_declaration() {
+        let doc = doc_md("---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\n---\n\n## Status\n\nProposed\n");
+        let spec = design_spec();
+        assert_eq!(
+            required_sections_for(&doc, &spec),
+            spec.required_sections,
+            "the base list must be returned unchanged for every document on disk today"
+        );
+    }
+
+    #[test]
+    fn required_sections_splice_inserts_after_status_in_chain_order() {
+        let doc = doc_at(
+            "docs/designs/DESIGN-x.md",
+            "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed:\n  - docs/prds/PRD-x.md\n  - docs/briefs/BRIEF-x.md\n---\n\n## Status\n\nProposed\n",
+        );
+        let got = required_sections_for(&doc, &design_spec());
+        assert_eq!(got[0], "Status");
+        assert_eq!(
+            got[1], "Absorbed Brief",
+            "chain order, not declaration order"
+        );
+        assert_eq!(got[2], "Absorbed PRD");
+        assert_eq!(got[3], "Context and Problem Statement");
+    }
+
+    #[test]
+    fn required_sections_splice_falls_back_on_an_invalid_declaration() {
+        // The splice and FC18 share one parse so that an invalid entry produces
+        // the entry diagnostic alone. If the splice ran anyway, the author would
+        // get a louder and misleading missing-section error for the same cause.
+        let doc = doc_at(
+            "docs/designs/DESIGN-x.md",
+            "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed: docs/prds/notes.txt\n---\n\n## Status\n\nProposed\n",
+        );
+        let spec = design_spec();
+        assert_eq!(
+            required_sections_for(&doc, &spec),
+            spec.required_sections,
+            "an invalid declaration must not add required sections"
+        );
+    }
+
+    #[test]
+    fn contribution_headings_collide_with_no_existing_required_section() {
+        use crate::formats::{formats, CONTRIBUTION_SECTIONS};
+        let mut existing: Vec<String> = Vec::new();
+        for spec in formats() {
+            existing.extend(spec.required_sections.clone());
+            if let Some(map) = &spec.execution_mode_required_sections {
+                for list in map.values() {
+                    existing.extend(list.clone());
+                }
+            }
+        }
+        for (_, heading) in CONTRIBUTION_SECTIONS {
+            assert!(
+                !existing.iter().any(|name| name == heading),
+                "contribution heading {heading} collides with an existing required section"
+            );
+        }
+    }
+
+    // --- check_fc18 (requirement citations orphaned by an absorb) ---
+
+    #[test]
+    fn fc19_is_silent_without_an_absorbed_prd() {
+        let doc = doc_md("---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\n---\n\n## Status\n\nProposed\n\nSee R7 and R12.\n");
+        assert!(check_fc19(&doc).is_empty());
+    }
+
+    #[test]
+    fn fc19_flags_a_citation_orphaned_by_absorbing_its_prd() {
+        let doc = doc_at(
+            "docs/designs/DESIGN-x.md",
+            "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed: docs/prds/PRD-x.md\n---\n\n## Status\n\nProposed\n\nAbsorbed [PRD-x](docs/prds/PRD-x.md); carried in Absorbed PRD.\n\n## Absorbed PRD\n\nIt required things.\n\n## Context and Problem Statement\n\nThis satisfies R7.\n",
+        );
+        let errs = check_fc19(&doc);
+        assert_eq!(errs.len(), 1, "got {errs:?}");
+        assert!(errs[0].message.contains("R7"), "got {}", errs[0].message);
+    }
+
+    #[test]
+    fn fc19_accepts_a_citation_the_contribution_carried() {
+        let doc = doc_at(
+            "docs/designs/DESIGN-x.md",
+            "---\nschema: design/v1\nstatus: Proposed\nproblem: |\n  p\ndecision: |\n  d\nrationale: |\n  r\nabsorbed: docs/prds/PRD-x.md\n---\n\n## Status\n\nProposed\n\nAbsorbed [PRD-x](docs/prds/PRD-x.md); carried in Absorbed PRD.\n\n## Absorbed PRD\n\n**R7.** The thing shall hold.\n\n## Context and Problem Statement\n\nThis satisfies R7.\n",
+        );
+        assert!(check_fc19(&doc).is_empty());
+    }
+
+    #[test]
+    fn fc19_does_not_fire_on_an_absorbed_brief_alone() {
+        let doc = doc_at(
+            "docs/prds/PRD-x.md",
+            "---\nschema: prd/v1\nstatus: Draft\nproblem: |\n  p\ngoals: |\n  g\nabsorbed: docs/briefs/BRIEF-x.md\n---\n\n## Status\n\nDraft\n\nAbsorbed [BRIEF-x](docs/briefs/BRIEF-x.md); carried in Absorbed Brief.\n\n## Absorbed Brief\n\nwhy\n\n## Problem Statement\n\nCites R3 from elsewhere.\n",
+        );
+        assert!(check_fc19(&doc).is_empty());
+    }
+}
+
+// --- FC20 (prose reference invalidated by a relocation) ---
+
+/// A scratch work tree: a `.git` marker, an artifact directory layout,
+/// and whatever files the case needs.
+///
+/// Each call gets its own directory, which matters because the target
+/// index is memoized per root: two cases sharing a root would share a
+/// scan taken before the second one wrote its files.
+struct Scratch {
+    root: std::path::PathBuf,
+}
+
+impl Scratch {
+    fn new(label: &str) -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "shirabe-fc20-{}-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed),
+            label
+        ));
+        std::fs::create_dir_all(root.join(".git")).expect("create scratch root");
+        Scratch { root }
+    }
+
+    fn write(&self, rel: &str, contents: &str) -> std::path::PathBuf {
+        let path = self.root.join(rel);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("create dirs");
+        std::fs::write(&path, contents).expect("write scratch file");
+        path
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+/// Parse a scratch file into a `Doc` carrying its on-disk path, so the
+/// check resolves against the scratch tree rather than this repository.
+fn scratch_doc(path: &std::path::Path) -> Doc {
+    let bytes = std::fs::read(path).expect("read scratch doc");
+    crate::frontmatter::parse_doc_bytes(&path.display().to_string(), &bytes).expect("parse")
+}
+
+fn fc20(doc: &Doc) -> Vec<ValidationError> {
+    check_stale_references(doc, &FormatSpec::prose_only())
+}
+
+#[test]
+fn fc20_reports_a_design_that_moved_to_current() {
+    let s = Scratch::new("moved");
+    s.write(
+        "docs/designs/current/DESIGN-shirabe-scope-skill.md",
+        "moved",
+    );
+    let referrer = s.write(
             "docs/prds/PRD-a.md",
             "---\nschema: prd/v1\n---\n\n## Related\n\nSee `docs/designs/DESIGN-shirabe-scope-skill.md`.\n",
         );
 
-        let errs = fc20(&scratch_doc(&referrer));
-        assert_eq!(errs.len(), 1, "got {errs:?}");
-        assert_eq!(errs[0].code, "FC20");
-        // The four facts: referring file, 1-indexed line, path as written,
-        // and the path that exists.
-        assert_eq!(errs[0].file, referrer.display().to_string());
-        // The file line, not the body-relative one: three lines of
-        // frontmatter, a blank, the heading, a blank, then the reference.
-        assert_eq!(errs[0].line, 7);
-        assert!(
-            errs[0]
-                .message
-                .contains("\"docs/designs/DESIGN-shirabe-scope-skill.md\""),
-            "message must carry the path as written: {}",
-            errs[0].message
-        );
-        assert!(
-            errs[0]
-                .message
-                .contains("\"docs/designs/current/DESIGN-shirabe-scope-skill.md\""),
-            "message must name the path that exists: {}",
-            errs[0].message
-        );
-    }
-
-    #[test]
-    fn fc20_is_silent_on_a_name_that_never_existed() {
-        // The template-placeholder case: nothing of that basename survives,
-        // so nothing moved.
-        let s = Scratch::new("placeholder");
-        let referrer = s.write(
-            "docs/prds/PRD-a.md",
-            "Template example: `docs/designs/DESIGN-foo.md`.\n",
-        );
-        assert!(fc20(&scratch_doc(&referrer)).is_empty());
-    }
-
-    #[test]
-    fn fc20_is_silent_on_a_deliberately_deleted_working_artifact() {
-        // A PLAN the finalization cascade deleted leaves no surviving
-        // basename either, which is what keeps the larger deleted-working-
-        // artifact population out of the findings.
-        let s = Scratch::new("deleted");
-        s.write("docs/designs/current/DESIGN-a.md", "survivor");
-        let referrer = s.write(
-            "docs/prds/PRD-a.md",
-            "Planned in `docs/plans/PLAN-roadmap-plan-standardization.md`.\n",
-        );
-        assert!(fc20(&scratch_doc(&referrer)).is_empty());
-    }
-
-    #[test]
-    fn fc20_is_silent_on_a_path_that_resolves() {
-        let s = Scratch::new("resolves");
-        s.write("docs/prds/PRD-b.md", "target");
-        s.write("docs/designs/current/DESIGN-c.md", "target");
-        let referrer = s.write(
-            "docs/designs/DESIGN-a.md",
-            "Rooted `docs/prds/PRD-b.md` and relative `./current/DESIGN-c.md`.\n",
-        );
-        assert!(fc20(&scratch_doc(&referrer)).is_empty());
-    }
-
-    #[test]
-    fn fc20_resolves_a_relative_form_against_the_referring_file() {
-        // Written from `docs/designs/`, `../prds/PRD-b.md` is `docs/prds/`
-        // and resolves. The same text written from `docs/designs/current/`
-        // is `docs/designs/prds/` and does not -- which is the defect a
-        // design picks up when it moves a directory deeper.
-        let s = Scratch::new("relative");
-        s.write("docs/prds/PRD-b.md", "target");
-        let ok = s.write("docs/designs/DESIGN-a.md", "See `../prds/PRD-b.md`.\n");
-        assert!(fc20(&scratch_doc(&ok)).is_empty(), "must resolve");
-
-        let broken = s.write(
-            "docs/designs/current/DESIGN-b.md",
-            "See `../prds/PRD-b.md`.\n",
-        );
-        let errs = fc20(&scratch_doc(&broken));
-        assert_eq!(errs.len(), 1, "got {errs:?}");
-        assert!(errs[0].message.contains("\"docs/prds/PRD-b.md\" exists"));
-    }
-
-    #[test]
-    fn fc20_is_silent_on_a_cross_repo_reference() {
-        let s = Scratch::new("cross-repo");
-        s.write("docs/designs/current/DESIGN-a.md", "survivor");
-        let referrer = s.write(
-            "docs/prds/PRD-a.md",
-            "See `owner/repo:docs/designs/DESIGN-a.md`.\n",
-        );
-        assert!(fc20(&scratch_doc(&referrer)).is_empty());
-    }
-
-    #[test]
-    fn fc20_reads_the_body_and_not_the_frontmatter() {
-        // R6 owns the frontmatter half. A frontmatter-reading check would
-        // add a finding to a pinned golden fixture whose `upstream:` names a
-        // pre-move path, which is what keeps the parity suite green.
-        let s = Scratch::new("frontmatter");
-        s.write("docs/designs/current/DESIGN-a.md", "survivor");
-        let referrer = s.write(
-            "docs/plans/PLAN-a.md",
-            "---\nschema: plan/v1\nupstream: docs/designs/DESIGN-a.md\n---\n\n## Status\n\nActive\n",
-        );
-        assert!(fc20(&scratch_doc(&referrer)).is_empty());
-    }
-
-    #[test]
-    fn fc20_reaches_a_file_with_no_frontmatter() {
-        // The two genuine defects in `skills/` live in instruction files
-        // with no frontmatter and no artifact prefix. `validate_prose` is
-        // the only arm that reaches them.
-        let s = Scratch::new("schemaless");
-        s.write("docs/designs/current/DESIGN-a.md", "survivor");
-        let referrer = s.write(
-            "skills/scope/references/phases/phase-3.md",
-            "Read `docs/designs/DESIGN-a.md` before finalizing.\n",
-        );
-        let errs = fc20(&scratch_doc(&referrer));
-        assert_eq!(errs.len(), 1, "got {errs:?}");
-        assert_eq!(errs[0].line, 1);
-    }
-
-    #[test]
-    fn fc20_says_nothing_without_a_git_ancestor() {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let root = std::env::temp_dir().join(format!(
-            "shirabe-fc20-nogit-{}-{}",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(root.join("docs/prds")).expect("create dirs");
-        let path = root.join("docs/prds/PRD-a.md");
-        std::fs::write(&path, "See `docs/designs/DESIGN-a.md`.\n").expect("write");
-
-        let errs = fc20(&scratch_doc(&path));
-        let _ = std::fs::remove_dir_all(&root);
-        assert!(errs.is_empty(), "a loose file yields no findings: {errs:?}");
-    }
-
-    #[test]
-    fn fc20_names_every_match_of_a_colliding_basename_in_path_order() {
-        let s = Scratch::new("collision");
-        s.write("docs/designs/current/DESIGN-x.md", "one");
-        s.write("docs/designs/archive/DESIGN-x.md", "two");
-        let referrer = s.write("docs/prds/PRD-a.md", "See `docs/designs/DESIGN-x.md`.\n");
-
-        let errs = fc20(&scratch_doc(&referrer));
-        assert_eq!(errs.len(), 1, "one finding, not one per match: {errs:?}");
-        let archive = errs[0]
+    let errs = fc20(&scratch_doc(&referrer));
+    assert_eq!(errs.len(), 1, "got {errs:?}");
+    assert_eq!(errs[0].code, "FC20");
+    // The four facts: referring file, 1-indexed line, path as written,
+    // and the path that exists.
+    assert_eq!(errs[0].file, referrer.display().to_string());
+    // The file line, not the body-relative one: three lines of
+    // frontmatter, a blank, the heading, a blank, then the reference.
+    assert_eq!(errs[0].line, 7);
+    assert!(
+        errs[0]
             .message
-            .find("docs/designs/archive/DESIGN-x.md")
-            .expect("archive match named");
-        let current = errs[0]
+            .contains("\"docs/designs/DESIGN-shirabe-scope-skill.md\""),
+        "message must carry the path as written: {}",
+        errs[0].message
+    );
+    assert!(
+        errs[0]
             .message
-            .find("docs/designs/current/DESIGN-x.md")
-            .expect("current match named");
-        assert!(archive < current, "matches are in path order");
+            .contains("\"docs/designs/current/DESIGN-shirabe-scope-skill.md\""),
+        "message must name the path that exists: {}",
+        errs[0].message
+    );
+}
+
+#[test]
+fn fc20_is_silent_on_a_name_that_never_existed() {
+    // The template-placeholder case: nothing of that basename survives,
+    // so nothing moved.
+    let s = Scratch::new("placeholder");
+    let referrer = s.write(
+        "docs/prds/PRD-a.md",
+        "Template example: `docs/designs/DESIGN-foo.md`.\n",
+    );
+    assert!(fc20(&scratch_doc(&referrer)).is_empty());
+}
+
+#[test]
+fn fc20_is_silent_on_a_deliberately_deleted_working_artifact() {
+    // A PLAN the finalization cascade deleted leaves no surviving
+    // basename either, which is what keeps the larger deleted-working-
+    // artifact population out of the findings.
+    let s = Scratch::new("deleted");
+    s.write("docs/designs/current/DESIGN-a.md", "survivor");
+    let referrer = s.write(
+        "docs/prds/PRD-a.md",
+        "Planned in `docs/plans/PLAN-roadmap-plan-standardization.md`.\n",
+    );
+    assert!(fc20(&scratch_doc(&referrer)).is_empty());
+}
+
+#[test]
+fn fc20_is_silent_on_a_path_that_resolves() {
+    let s = Scratch::new("resolves");
+    s.write("docs/prds/PRD-b.md", "target");
+    s.write("docs/designs/current/DESIGN-c.md", "target");
+    let referrer = s.write(
+        "docs/designs/DESIGN-a.md",
+        "Rooted `docs/prds/PRD-b.md` and relative `./current/DESIGN-c.md`.\n",
+    );
+    assert!(fc20(&scratch_doc(&referrer)).is_empty());
+}
+
+#[test]
+fn fc20_resolves_a_relative_form_against_the_referring_file() {
+    // Written from `docs/designs/`, `../prds/PRD-b.md` is `docs/prds/`
+    // and resolves. The same text written from `docs/designs/current/`
+    // is `docs/designs/prds/` and does not -- which is the defect a
+    // design picks up when it moves a directory deeper.
+    let s = Scratch::new("relative");
+    s.write("docs/prds/PRD-b.md", "target");
+    let ok = s.write("docs/designs/DESIGN-a.md", "See `../prds/PRD-b.md`.\n");
+    assert!(fc20(&scratch_doc(&ok)).is_empty(), "must resolve");
+
+    let broken = s.write(
+        "docs/designs/current/DESIGN-b.md",
+        "See `../prds/PRD-b.md`.\n",
+    );
+    let errs = fc20(&scratch_doc(&broken));
+    assert_eq!(errs.len(), 1, "got {errs:?}");
+    assert!(errs[0].message.contains("\"docs/prds/PRD-b.md\" exists"));
+}
+
+#[test]
+fn fc20_is_silent_on_a_cross_repo_reference() {
+    let s = Scratch::new("cross-repo");
+    s.write("docs/designs/current/DESIGN-a.md", "survivor");
+    let referrer = s.write(
+        "docs/prds/PRD-a.md",
+        "See `owner/repo:docs/designs/DESIGN-a.md`.\n",
+    );
+    assert!(fc20(&scratch_doc(&referrer)).is_empty());
+}
+
+#[test]
+fn fc20_reads_the_body_and_not_the_frontmatter() {
+    // R6 owns the frontmatter half. A frontmatter-reading check would
+    // add a finding to a pinned golden fixture whose `upstream:` names a
+    // pre-move path, which is what keeps the parity suite green.
+    let s = Scratch::new("frontmatter");
+    s.write("docs/designs/current/DESIGN-a.md", "survivor");
+    let referrer = s.write(
+        "docs/plans/PLAN-a.md",
+        "---\nschema: plan/v1\nupstream: docs/designs/DESIGN-a.md\n---\n\n## Status\n\nActive\n",
+    );
+    assert!(fc20(&scratch_doc(&referrer)).is_empty());
+}
+
+#[test]
+fn fc20_reaches_a_file_with_no_frontmatter() {
+    // The two genuine defects in `skills/` live in instruction files
+    // with no frontmatter and no artifact prefix. `validate_prose` is
+    // the only arm that reaches them.
+    let s = Scratch::new("schemaless");
+    s.write("docs/designs/current/DESIGN-a.md", "survivor");
+    let referrer = s.write(
+        "skills/scope/references/phases/phase-3.md",
+        "Read `docs/designs/DESIGN-a.md` before finalizing.\n",
+    );
+    let errs = fc20(&scratch_doc(&referrer));
+    assert_eq!(errs.len(), 1, "got {errs:?}");
+    assert_eq!(errs[0].line, 1);
+}
+
+#[test]
+fn fc20_says_nothing_without_a_git_ancestor() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "shirabe-fc20-nogit-{}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(root.join("docs/prds")).expect("create dirs");
+    let path = root.join("docs/prds/PRD-a.md");
+    std::fs::write(&path, "See `docs/designs/DESIGN-a.md`.\n").expect("write");
+
+    let errs = fc20(&scratch_doc(&path));
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(errs.is_empty(), "a loose file yields no findings: {errs:?}");
+}
+
+#[test]
+fn fc20_names_every_match_of_a_colliding_basename_in_path_order() {
+    let s = Scratch::new("collision");
+    s.write("docs/designs/current/DESIGN-x.md", "one");
+    s.write("docs/designs/archive/DESIGN-x.md", "two");
+    let referrer = s.write("docs/prds/PRD-a.md", "See `docs/designs/DESIGN-x.md`.\n");
+
+    let errs = fc20(&scratch_doc(&referrer));
+    assert_eq!(errs.len(), 1, "one finding, not one per match: {errs:?}");
+    let archive = errs[0]
+        .message
+        .find("docs/designs/archive/DESIGN-x.md")
+        .expect("archive match named");
+    let current = errs[0]
+        .message
+        .find("docs/designs/current/DESIGN-x.md")
+        .expect("current match named");
+    assert!(archive < current, "matches are in path order");
+}
+
+#[test]
+fn fc20_output_is_stable_across_runs() {
+    let s = Scratch::new("stable");
+    s.write("docs/designs/current/DESIGN-a.md", "survivor");
+    s.write("docs/designs/current/DESIGN-b.md", "survivor");
+    let referrer = s.write(
+        "docs/prds/PRD-a.md",
+        "See `docs/designs/DESIGN-b.md` and `docs/designs/DESIGN-a.md`.\n",
+    );
+    let doc = scratch_doc(&referrer);
+    assert_eq!(fc20(&doc), fc20(&doc));
+}
+
+#[test]
+fn fc20_truncates_rather_than_emitting_without_bound() {
+    let s = Scratch::new("cap");
+    s.write("docs/designs/current/DESIGN-a.md", "survivor");
+    let body = "See `docs/designs/DESIGN-a.md`.\n".repeat(PROSE_FINDING_CAP + 10);
+    let referrer = s.write("docs/prds/PRD-a.md", &body);
+
+    let errs = fc20(&scratch_doc(&referrer));
+    assert_eq!(errs.len(), PROSE_FINDING_CAP + 1);
+    assert!(errs[PROSE_FINDING_CAP].message.contains("truncated at"));
+}
+
+#[test]
+fn fc20_scans_one_file_well_under_the_budget() {
+    let s = Scratch::new("budget");
+    s.write("docs/designs/current/DESIGN-a.md", "survivor");
+    // A document larger than anything in the corpus, half of whose
+    // references resolve and half of which do not.
+    let mut body = String::new();
+    for _ in 0..2_000 {
+        body.push_str("Prose naming `docs/designs/DESIGN-a.md` and `docs/prds/PRD-z.md`.\n\n");
     }
+    let referrer = s.write("docs/prds/PRD-a.md", &body);
+    let doc = scratch_doc(&referrer);
 
-    #[test]
-    fn fc20_output_is_stable_across_runs() {
-        let s = Scratch::new("stable");
-        s.write("docs/designs/current/DESIGN-a.md", "survivor");
-        s.write("docs/designs/current/DESIGN-b.md", "survivor");
-        let referrer = s.write(
-            "docs/prds/PRD-a.md",
-            "See `docs/designs/DESIGN-b.md` and `docs/designs/DESIGN-a.md`.\n",
-        );
-        let doc = scratch_doc(&referrer);
-        assert_eq!(fc20(&doc), fc20(&doc));
-    }
-
-    #[test]
-    fn fc20_truncates_rather_than_emitting_without_bound() {
-        let s = Scratch::new("cap");
-        s.write("docs/designs/current/DESIGN-a.md", "survivor");
-        let body = "See `docs/designs/DESIGN-a.md`.\n".repeat(PROSE_FINDING_CAP + 10);
-        let referrer = s.write("docs/prds/PRD-a.md", &body);
-
-        let errs = fc20(&scratch_doc(&referrer));
-        assert_eq!(errs.len(), PROSE_FINDING_CAP + 1);
-        assert!(errs[PROSE_FINDING_CAP].message.contains("truncated at"));
-    }
-
-    #[test]
-    fn fc20_scans_one_file_well_under_the_budget() {
-        let s = Scratch::new("budget");
-        s.write("docs/designs/current/DESIGN-a.md", "survivor");
-        // A document larger than anything in the corpus, half of whose
-        // references resolve and half of which do not.
-        let mut body = String::new();
-        for _ in 0..2_000 {
-            body.push_str("Prose naming `docs/designs/DESIGN-a.md` and `docs/prds/PRD-z.md`.\n\n");
-        }
-        let referrer = s.write("docs/prds/PRD-a.md", &body);
-        let doc = scratch_doc(&referrer);
-
-        let started = std::time::Instant::now();
-        let errs = fc20(&doc);
-        let elapsed = started.elapsed();
-        assert!(!errs.is_empty());
-        assert!(
-            elapsed < std::time::Duration::from_millis(250),
-            "single-file check took {elapsed:?}"
-        );
-    }
+    let started = std::time::Instant::now();
+    let errs = fc20(&doc);
+    let elapsed = started.elapsed();
+    assert!(!errs.is_empty());
+    assert!(
+        elapsed < std::time::Duration::from_millis(250),
+        "single-file check took {elapsed:?}"
+    );
 }

@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Current
 problem: |
   The work-on skill and the private /implement workflow serve overlapping

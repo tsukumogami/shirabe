@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Done
 problem: |
   The roadmap artifact type has a format-reference skill but no creation
@@ -15,7 +16,7 @@ goals: |
 
 ## Status
 
-Draft
+Done
 
 ## Problem Statement
 

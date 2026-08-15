@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Current
 problem: |
   shirabe's `/scope` and `/work-on` are single-repo. An effort spanning repositories

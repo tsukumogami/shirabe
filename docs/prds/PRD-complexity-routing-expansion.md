@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Done
 problem: |
   The /explore skill routes work through a 3-level complexity table
@@ -18,7 +19,7 @@ goals: |
 
 Done
 
-## Problem statement
+## Problem Statement
 
 The /explore skill has three routing-related sections in its SKILL.md:
 an Artifact Type Routing Guide (situation-based), a Quick Decision Table
@@ -45,7 +46,7 @@ the two numbers.
   the 5-level model
 - Phase 4's stale type count is corrected
 
-## User stories
+## User Stories
 
 1. As an agent receiving a trivial request ("fix this typo"), I want the
    routing table to tell me to skip /explore entirely so I don't waste
@@ -112,7 +113,7 @@ related phase files. No compiled code, no other skills modified.
 keep their current semantics. Trivial and Strategic are additive, not
 replacements.
 
-## Acceptance criteria
+## Acceptance Criteria
 
 - [ ] Complexity-Based Routing table has 5 rows: Trivial, Simple, Medium,
       Complex, Strategic
@@ -126,7 +127,7 @@ replacements.
 - [ ] Existing Simple/Medium/Complex semantics unchanged
 - [ ] No changes to skills outside /explore
 
-## Out of scope
+## Out of Scope
 
 - Changes to the crystallize framework scoring or signal tables (separate
   feature — see F7 in roadmap)

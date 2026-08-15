@@ -32,7 +32,7 @@ before any of them do.
 - [Validator Pass-Through](#validator-pass-through)
 - [Consolidation Judgment](#consolidation-judgment)
 - [Per-Child Gates from `planned_chain:`, Not Re-Walked](#per-child-gates-from-planned_chain-not-re-walked)
-- [State-File Enum Re-Validation Before Path Interpolation](#state-file-enum-re-validation-before-path-interpolation)
+- [State-File Enum Re-Validation](#state-file-enum-re-validation)
 - [References](#references)
 
 ## Per-Child Invocation Loop Ordering
@@ -54,16 +54,19 @@ eight steps in sequence:
 5. **`parent_orchestration:` cleanup.** Remove the sentinel
    block from the state file (regardless of child outcome).
 6. **Child-snapshot capture.** Record the child's status +
-   content-hash dual-check pair in `child_snapshots:`.
+   content-hash dual-check pair in `child_snapshots:`, and append
+   the child to `chain_ran:` with a started-at timestamp.
 7. **Validator pass-through.** Run `shirabe validate --format
    json` against the new intermediate, parse the envelope, and
    branch on the multi-level exit code; a `violations` or
    tool-error result halts the chain.
 8. **Consolidation judgment.** Compare the artifact that just
-   landed against the nearest surviving durable artifact this
-   chain produced above it, and reach a `keep` or `absorb`
-   verdict. Skipped when this chain produced no artifact above
-   the current one.
+   landed against the artifact this run handed it as its
+   invocation argument, and reach a `keep` or `absorb` verdict.
+   Does not fire unless both endpoints of that edge appear in
+   `chain_ran:` — see the firing condition below, which is
+   stricter than "this chain produced something above the current
+   artifact" and deliberately so.
 
 The eight-step ordering is the contract. Steps that depend on
 the state file (write/clear of `parent_orchestration:`, child-
@@ -322,6 +325,28 @@ snapshot stays frozen on a re-evaluation Decision Record write
 — the existing upstream is the comparison point, not the
 Decision Record's own path.
 
+In the same step, append the child to `chain_ran:`:
+
+```yaml
+chain_ran:
+  - name: <child>
+    started_at: <ISO-8601 timestamp>
+```
+
+**This is the field's only write site.** Phase 3 reads
+`chain_ran:` in four places — R9 Part 3's chain-membership gate,
+the PR-body record that copies every artifact in it, the R8
+tie-break that resolves the most-recently-running child from its
+per-entry timestamps, and the `plan_execution_mode:` presence
+check — and nothing wrote it. The timestamp is not decoration:
+Phase 3's tie-break already claims to read it, and without it that
+claim is contradicted by the schema.
+
+The consolidation judgment's firing condition also reads this
+field, which promotes it from bookkeeping to a gate on a
+destructive operation. That is why entry names are re-validated
+before use (see State-File Enum Re-Validation below).
+
 ## Phase-N Reject Handling
 
 When `/prd` Phase 4 Reject or `/design` Phase 6 Reject fires
@@ -423,6 +448,16 @@ branches on the multi-level exit code (the contract shared with
   envelope that does not parse). Treat this as a tool failure
   DISTINCT from a content violation — surface it as such and halt;
   do NOT report it as a document violation.
+- **4 (incomplete)** — the validator accepted the intermediate and
+  then did not check it: the filename prefix routed it to a format
+  but its `schema:` field is missing or out of range. Halt the
+  chain and surface the envelope's `skipped` entries, naming the
+  file and the reason. This is NOT a content violation — nothing
+  is known to be wrong with the document, which is the problem: it
+  was never examined. The fix is to add the `schema:` field to the
+  intermediate and re-invoke, after which the real checks run.
+  Advancing on a 4 would carry an unvalidated artifact into the
+  next child.
 
 `/scope` does NOT auto-fix validator failures, and only the
 consumption mechanism changed (JSON parse plus multi-level exit
@@ -434,9 +469,7 @@ by re-running the child with corrections, or by re-invoking
 
 ## Consolidation Judgment
 
-Step 8 is where the artifact set shrinks. It runs after the
-validator pass-through clears, and only when this chain produced
-a durable artifact above the one that just landed.
+Step 8 is where the artifact set shrinks.
 
 **Why it exists.** Three documents restating one problem at three
 altitudes cost a reader three reads for one idea, and an obvious
@@ -448,59 +481,217 @@ same question asked at Phase 1, before either document is
 written, has no answer, and answering it anyway is how content
 gets lost.
 
-### Stage 1 — Absorbability
+### Firing condition
 
-Look the hop up in the mapping table. Absorption is available
-only where the downstream type's required sections provide a home
-for **every** required section of the upstream type, so an absorb
-never has to discard content or invent somewhere to put it.
+The judgment fires only when **both endpoints of the edge this run
+drew were produced by this run**. Concretely: the upstream is the
+artifact path this run handed the child as its invocation argument,
+and the judgment fires only if that artifact appears in
+`chain_ran:`.
 
-| Hop | Mapping | Absorbable |
+When it does not hold there is no hop, no `consolidation_judgments:`
+entry, and no verdict. A held-back artifact was never a party to a
+judgment, and `chain_skipped:` already records why it was held back.
+
+This is **stricter than "this run produced both documents"**, and
+the difference is deliberate rather than a restatement. Re-entry
+protection can hold a middle child back, which makes
+`brief->design`, `prd->plan` and `brief->plan` reachable; the
+first of those is produced by a shipped eval. Under the looser
+reading those hops compose and reach the content question. Under
+this one they never compose at all.
+
+The justification is not caution about content loss but that the
+alternative question is **ill-posed**. Stage 2 asks whether the
+upstream does work the downstream does not, which presupposes the
+downstream could have incorporated it. Where the downstream never
+read the upstream, absence is evidence of nothing and `absorb`
+would be reached on a false inference. Non-adjacent hops therefore
+never compose, rather than composing and being refused — which is
+what keeps this rule clear of the requirement that no hop be
+unabsorbable because of the types involved.
+
+### Two clauses bound the whole judgment
+
+**The ceiling.** The preflight below cannot reach any outcome
+stronger than `keep`. It refuses or it defers; it never decides to
+absorb.
+
+**The input restriction.** *No check in this judgment may read
+either type's required-section list, or compare the two types'
+section sets.* Chain position and provenance are admissible inputs;
+a type's content contract is not.
+
+The test for a violation: **a condition that refuses one pair while
+permitting its structural twin under identical repository state is
+a type rule.** If two hops differ only in which types they join and
+the check answers differently, the check is reading the types.
+
+The restriction is repeated at the head of Stage 2 rather than
+stated once here, because Stage 2 is the stage that can return
+`absorb` and no ceiling applies there. A type-shaped shortcut is
+worse at that position, not better — which is the reason this
+position survives at all rather than the stage being deleted.
+
+### Stage 1 — Citation preflight
+
+Run the guard before anything is composed, written, or deleted,
+passing the artifact this hop would delete and the artifact
+absorbing it:
+
+    skills/scope/scripts/check-citations.sh --target <deleted> --survivor <survivor>
+
+Route on its exit status:
+
+| Status | Meaning | Action |
 |---|---|---|
-| BRIEF to PRD | Problem Statement to Problem Statement; User Outcome to Goals; User Journeys to User Stories; Scope Boundary to Requirements (the in-list) and Out of Scope (the out-list) | Yes |
-| PRD to DESIGN | Problem Statement to Context and Problem Statement; Goals, User Stories, Requirements, Acceptance Criteria and Out of Scope have no home | No |
-| DESIGN to PLAN | Decision Drivers, Considered Options, Decision Outcome, Solution Architecture, Security Considerations and Consequences have no home | No |
+| 0 | clean | proceed to Stage 2 |
+| 2 | bare-name mentions only | proceed to Stage 2, carrying the output as a finding |
+| anything else | path citations, or the search did not complete | verdict `keep`, record the finding, stop |
 
-The verdicts are derived from the per-type required-section
-contracts in `crates/shirabe-validate/src/formats.rs`, not
-enumerated by hand. If a format ever grows a section, re-derive
-the table rather than trusting this snapshot.
+**The routing default is deny.** Any status other than 0 or 2 routes
+to `keep`, including statuses the script does not define. Do not
+enumerate the failure codes and assume the rest are success — the
+script's own contract inverts `git grep`'s convention precisely
+because the naive reading of a search's exit status gets this
+backwards.
 
-When the mapping is not total, the only available verdict is
-`keep`. Record it with the reason naming the unmapped sections
-and stop.
+A refusal here is a pure abort: nothing has been mutated, so there
+is nothing to undo. That is why the guard runs first rather than
+beside the deletion.
+
+**What this buys, stated because the guard's reach is narrower than
+its description suggests.** It protects citers that *pre-existed*
+the run, and structurally cannot protect a deletion target the run
+*created* — a document written before the run cannot cite one
+created during it. Under the firing condition every hop the
+judgment reaches has a run-produced upstream, so the live coverage
+is same-run citers: `/scope`'s own Decision Record templates, which
+write durable files citing artifact paths, and anything a child
+skill wrote naming the artifact. The check is required regardless;
+this states what it actually catches.
 
 ### Stage 2 — Judgment
 
-Read both bodies. The question is whether the upstream artifact
-does work the downstream does not: does any required section of
-the upstream carry content, detail, or framing the downstream
-does not also carry?
+*The input restriction above applies here in full. This is the
+stage that can return `absorb`, and no ceiling protects it.*
 
-- **No** — verdict `absorb`. Continue to stage 3.
+Read both bodies. The question is whether the upstream artifact
+does work the downstream does not: does the upstream hold anything
+beyond its contribution that compression into a contribution
+section would lose?
+
+- **No** — verdict `absorb`. Continue to Stage 3.
 - **Yes** — verdict `keep`, with a finding naming what the
   upstream holds that the survivor does not.
 
-At the BRIEF-to-PRD hop the prior leans toward `absorb`: four of
-the BRIEF's five required sections are renamed PRD sections with
-equivalent content rules, so a BRIEF that fed one PRD and did no
-independent framing work is a redundant document rather than a
-redundant paragraph. A BRIEF whose journeys drove the requirement
-set, or whose framing settled something contested, has earned its
-own document and keeps it.
+Weigh any bare-name finding from Stage 1 here. It does not decide
+anything by itself; it is context for a judgment made against the
+two documents.
 
-### Stage 3 — Carry check and absorb
+The verdict is yours. There is no reviewer, no confirmation prompt,
+and no mode-conditional gate on it at any hop, including the
+terminal one.
 
-On `absorb`, walk the upstream's required sections one at a time
-and record where each landed. This is the receiving mechanism: an
-absorb that is not itemized is a recommendation, and a
-recommendation with nothing confirming the transfer is how
-content goes missing.
+### Stage 3 — Compose, verify, move, re-validate
+
+Nine steps. Steps 1 and 2 are Stages 1 and 2 above; the rest run
+only on `absorb`.
+
+3. **Compose the contribution, in memory.** Write the ancestor's
+   contribution section from the **survivor's own body**, not from
+   the document about to be deleted. Nothing is written to disk at
+   this step.
+
+   Sourcing from the survivor is what makes a single unreviewed
+   authoring site tolerable: that material was already reviewed
+   when it landed in the survivor's ordinary sections, and an
+   under-distillation leaves the omitted content still visible in
+   the survivor rather than gone at the delete.
+
+4. **Carry check.** Itemize the ancestor's required sections *and*
+   every contribution the ancestor itself carries — its own and any
+   it inherited, read from the ancestor's `absorbed:` list and its
+   contribution sections. A survivor absorbing a document that
+   already carried two contributions must confirm three things
+   carried.
+
+   Any `carried: false` **aborts the absorb**: the verdict is
+   downgraded to `keep`, the finding names what did not arrive, and
+   both artifacts stay on disk. Nothing has been written yet, so
+   this is still a clean abort.
+
+5. **Snapshot, then write the survivor.** Capture the survivor's
+   pre-fold bytes first — nothing has committed them, and
+   `git checkout HEAD --` is not guaranteed to resolve to them.
+   Then, in one pass:
+
+   - splice `upstream:`, **preserving sibling and cross-repo
+     parents** rather than replacing the list;
+   - write the `absorbed:` declaration;
+   - write the `## Status` absorption line, one per absorbed entry,
+     in the pinned shape
+     `Absorbed [<name>](<path>); carried in <Heading>.`;
+   - write the contribution section immediately after `## Status`,
+     in chain order;
+   - rewrite the survivor's own prose citations of the absorbed
+     path. The preflight deliberately excludes the survivor, so
+     nothing else protects these and they dangle the moment the
+     fold lands.
+
+   **Visibility:** when this repository is Public and a spliced
+   parent resolves to a private artifact, drop the entry and report
+   the omission rather than writing it. This is the `--upstream`
+   check's third ordered condition applied at a second site; a
+   public document naming a private one is the same violation
+   whichever field carries it.
+
+6. **Append the record and stage it.** Append one row to
+   `docs/folds.md` and `git add` it — before anything is deleted,
+   so a failed append aborts with nothing lost.
+
+7. **Delete the absorbed artifact** with `git rm`.
+
+8. **Re-validate the survivor.** Run `shirabe validate` against it.
+   A non-zero exit triggers the rollback below.
+
+9. **Commit** the deletion, the re-point, the survivor's edits and
+   the record together.
+
+### Rollback
+
+Steps 1 through 4 mutate nothing; a failure there is already a
+clean abort. Every step from 5 onward writes, so a failure at any
+of them reverts everything written since, in reverse:
+
+| Failing step | Undo |
+|---|---|
+| 5 write | restore the survivor from the step-5 snapshot |
+| 6 append | un-stage and remove the appended row; restore the survivor |
+| 7 delete | restore the deleted artifact; un-append; restore the survivor |
+| 8 re-validate | restore the deleted artifact; un-append; restore the survivor |
+| 9 commit | as step 8 |
+
+Then downgrade the verdict to `keep`, record the revert in the
+judgment entry, and route to R8 bail-handling.
+
+The un-append is explicit because the row is forced to exist before
+the deletion. A revert that does not un-append strands a durable
+row on the default branch asserting a fold that was undone.
+
+**A partial absorb is never resumed across sessions.** If a resume
+finds a chain interrupted between steps 5 and 9, un-append the row,
+restore the survivor, delete nothing, and leave the hop at `keep`.
+**No path is ever read back from `consolidation_judgments:` for
+interpolation** — state-file strings reaching a deletion is exactly
+the surface the enum re-validation contract exists to close.
+
+### The judgment entry
 
 ```yaml
 consolidation_judgments:
   - hop: brief->prd
-    absorbable: true
+    stage: carry
     carry_check:
       Problem Statement: {target: Problem Statement, carried: true}
       User Outcome:      {target: Goals, carried: true}
@@ -511,36 +702,41 @@ consolidation_judgments:
     into: docs/prds/PRD-<topic>.md
 ```
 
-Any `carried: false` **aborts the absorb**: the verdict is
-downgraded to `keep`, the finding names the section that did not
-arrive, and both artifacts stay on disk. Nothing is deleted on a
-failed carry check.
+`stage:` names where the verdict settled — `preflight`, `judgment`
+or `carry`. It replaces the retired `absorbable:` boolean, which
+asked whether the required-section mapping was total: the question
+this judgment no longer asks.
 
-When every section is carried, complete the absorb:
+### There is no durable-artifact floor
 
-1. Read the absorbed artifact's own `upstream:` value.
-2. Set the survivor's `upstream:` to that value, or remove the
-   field when the absorbed artifact had none. This is the settled
-   nearest-produced rule from
-   `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`, not a
-   new convention.
-3. `git rm` the absorbed artifact.
-4. Re-run `shirabe validate` on the survivor. A non-zero exit
-   reverts the absorb (restore the artifact, restore the
-   `upstream:` value) and routes to R8 bail-handling.
+A run can absorb its way down to a single surviving artifact, or to
+none once the PLAN is implemented, and that is a reachable outcome
+rather than a defect.
 
-Step 4 is load-bearing: the validator's `R6` check requires an
-`upstream:` value to resolve to a tracked file, so a survivor
-whose re-point was missed fails validation and the absorb does
-not land.
+**Do not add a guard that forces `keep` on the ground that the
+survivor would be the last artifact.** The single-mechanism rule
+will not catch such a guard — a mechanism whose only possible
+effect is to force `keep` does not count as a second reduction
+mechanism — so this prohibition has to be written down rather than
+derived.
+
+It is wrong for two reasons. It would decide a fold from the
+artifact *set* rather than from the two documents at the hop, which
+is what this judgment moved the verdict away from. And it would
+fire at exactly the DESIGN-to-PLAN hop that must be absorbable,
+closing by a second route the floor this work opened.
+
+A chain that folds everything away is handled downstream by
+`/execute`'s finalization guard, not prevented here.
 
 ### Cascade across hops
 
 There is no cascade to reason about. `absorb` means the upstream's
 content is *in* the survivor, not annotated as living elsewhere,
 so a later hop judging that survivor is judging a body that
-already includes everything absorbed into it. Nothing rides along
-separately and there is no chain of pointers to follow.
+already includes everything absorbed into it. What does ride
+along is the `absorbed:` declaration, which accumulates: a
+survivor's list is its ancestor's list plus the ancestor.
 
 ### Manual-fallback boundary
 
@@ -573,13 +769,25 @@ cache:
 Phase 2's job is iterative invocation against the cached
 chain shape, not re-evaluation of Phase 1's decisions.
 
-## State-File Enum Re-Validation Before Path Interpolation
+## State-File Enum Re-Validation
 
-Before constructing any write path that interpolates a state-
-file field (Decision Record path on Reject; force-
-materialization path on STALE; `wip/` removal paths on chain
-finalization), Phase 2 re-validates the field's value against
-its declared enum:
+Every enum-typed or closed-domain field is re-validated against
+its domain at **the read that precedes its use**, where a *use* is
+any of:
+
+- interpolation into an emitted command,
+- construction of a write or delete path,
+- a decision that gates a destructive operation,
+- serialization into a durable artifact.
+
+The scope sentence is stated this way deliberately. An earlier
+version reached only path interpolation, which meant each new
+consumer needed its own argument for why it counted — and the
+first field to gate a deletion rather than name a path slipped
+through on a paragraph that had been written about something else.
+One rule covers the category instead of six.
+
+The fields:
 
 - `boundary:` against `{prd, design}`.
 - `decision_record_sub_shape:` against
@@ -591,17 +799,35 @@ its declared enum:
   records it, and omitting it from the enum would fail the
   re-validation on exactly the runs `/scope`'s coordination
   intent produces.
+- `chain_ran:` entry names against `{brief, prd, design, plan}`.
+- `verdict:` against `{absorb, keep}` and `stage:` against
+  `{preflight, judgment, carry}` — both serialized into the
+  durable fold record.
+- `visibility:` against `{Public, Private}`. It is read back from
+  the state file and interpolated into
+  `shirabe validate --format json --visibility=<value>`, so a
+  tampered value crosses the interpolation surface and the
+  visibility surface at once.
 
-The chain shape itself needs no re-validation entry. `planned_chain:`
-is a constant, the child names are fixed, and each child's argument
-path is composed from the validated topic slug rather than from
-state — so a tampered state file cannot redirect an invocation to
-an unexpected child or an unexpected path.
+**`chain_ran:` is the reason the previous paragraph here had to
+go.** It used to read that the chain shape needs no entry, because
+`planned_chain:` is a constant and each child's argument path is
+composed from the validated slug rather than from state — so a
+tampered file could not redirect an invocation. Every word of that
+is about *invocation redirection*, and it is still true about
+invocation redirection. It does not extend to this field's new job.
+The consolidation judgment's firing condition reads `chain_ran:`
+membership, and it is the only thing standing between the judgment
+and a document this run did not produce; a tampered entry puts a
+pre-existing document on the deletion path, where the citation
+preflight cannot help either, because that guard protects citers of
+targets that pre-existed the run. Leaving the old paragraph would
+have been worse than saying nothing: it read as a considered
+exemption for exactly the field that had stopped qualifying.
 
-Out-of-enum values fail the operation and route to R8 bail-
-handling. The re-validation closes the state-file-tampering
-surface where an attacker would otherwise inject a shell
-metacharacter into a field that later becomes a path component.
+Out-of-enum or unparseable values fail the operation closed — for
+the firing condition that means no hop, no verdict, and `keep` —
+and route to R8 bail-handling.
 
 ## References
 

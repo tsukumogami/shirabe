@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Done
 problem: |
   Repos in the tsukumogami ecosystem maintain independent release workflows that
