@@ -93,140 +93,249 @@ silently break a reference that CI structurally cannot see.
 
 ## Requirements
 
-### Functional
+### Terms
+
+A **contribution** is what an artifact type adds to the chain, declared once per
+type. A **contribution section** is the section in a surviving document that
+carries an absorbed ancestor's contribution. R3 declares the first; R4 through
+R9 govern the second.
+
+### The judgment
 
 **R1.** The absorbability decision SHALL be made against the two documents
 present at the hop, not against their types. No hop SHALL be unabsorbable purely
 because of the types involved.
 
-**R2.** Each artifact type SHALL declare one contribution it makes to the chain.
-A document that absorbs an ancestor SHALL carry that ancestor's contribution as
-a single section, placed ahead of its own content in chain order.
+**R2.** The judgment SHALL fire only at a hop where this run produced both
+documents. An artifact held back by re-entry protection SHALL NOT be judged.
 
-**R3.** Contributions SHALL accumulate transitively: a document that absorbs an
-ancestor which had itself absorbed another owes both. The number of contribution
-sections a document carries SHALL be bounded by the number of ancestor types.
+**R3.** Each artifact type SHALL declare exactly one contribution it makes to
+the chain.
 
-**R4.** A contribution section SHALL carry an adequacy expectation with both a
-too-long and a too-thin failure, judged against whether the survivor's own
-argument stands without the absorbed document. Presence alone SHALL NOT satisfy
-it.
+**R4.** A document that absorbs an ancestor SHALL carry that ancestor's
+contribution as a single section, placed after its `## Status` section and
+before its own first other required section.
 
-**R5.** `shirabe validate` SHALL require the contribution sections a document's
-declared absorptions imply, and SHALL leave documents declaring no absorption
-unaffected.
+**R5.** Each type's contribution section SHALL have a fixed heading derived from
+the absorbed type, so the section is machine-recognisable without reading its
+body.
 
-**R6.** The DESIGN-to-PLAN hop SHALL be absorbable when the judgment finds the
+**R6.** Contributions SHALL accumulate transitively: a document that absorbs an
+ancestor which had itself absorbed another owes both. Where a document carries
+more than one contribution section, they SHALL appear in chain order.
+
+**R7.** The contribution section's format contract SHALL state a two-sided
+adequacy criterion: a section that reads as a rewrite of the absorbed document
+is too long, and a section without which the survivor's own argument does not
+stand is too thin. Presence alone SHALL NOT satisfy it.
+
+**R8.** A document SHALL declare its absorptions in frontmatter. `shirabe
+validate` SHALL require the contribution sections those declarations imply, and
+SHALL leave documents declaring no absorption unaffected.
+
+**R9.** The existing canonical-section-order check SHALL enforce the placement
+R4 and R6 require.
+
+**R10.** Each format reference's citation-not-duplication rule SHALL carve out
+the absorbed case, so a contribution section carried under R4 does not violate
+the content-boundary contract of the document carrying it.
+
+**R11.** The DESIGN-to-PLAN hop SHALL be absorbable when the judgment finds the
 DESIGN holds nothing beyond its contribution that compression would lose.
 
-**R7.** The fold verdict SHALL be the judging agent's call at every hop,
+**R12.** The fold verdict SHALL be the judging agent's call at every hop,
 including the terminal one. No independent reviewer, human confirmation, or
 mode-conditional gate SHALL be added to it.
 
-**R8.** The absorb procedure SHALL author the contribution section before
-building the carry table, so the recorded verdict is a consequence of authored
-text rather than a prediction.
+### The absorb procedure
 
-**R9.** The carry check SHALL run per contribution at every hop. A contribution
-that does not carry SHALL abort the absorb, downgrade the verdict to `keep`, and
-delete nothing.
+**R13.** The carry check SHALL be evaluated against contribution text that
+already exists, never against a prediction that it will be written.
 
-**R10.** Before deleting an artifact, the procedure SHALL determine whether any
-other file in the repository cites it. A citation by path SHALL downgrade the
-verdict to `keep` through the existing abort path. A weaker citation match SHALL
-be surfaced to the judging agent rather than acted on mechanically. The check
-SHALL have no override and SHALL NOT be capable of any outcome stronger than
-`keep`.
+**R14.** The carry check SHALL itemize the ancestor's required sections as it
+does today, and SHALL additionally itemize each contribution the ancestor
+carries — its own and any it inherited. A contribution or section that does not
+carry SHALL abort the absorb, downgrade the verdict to `keep`, and delete
+nothing.
 
-**R11.** Re-pointing a survivor's `upstream:` SHALL splice the absorbed
+**R15.** Before deleting an artifact, the procedure SHALL search the repository's
+git-tracked files, excluding `wip/`, for citations of it. A citation containing
+the artifact's repo-relative path SHALL downgrade the verdict to `keep` through
+the existing abort path. A citation naming the artifact without its path SHALL
+be surfaced to the judging agent as a finding and SHALL NOT by itself change the
+verdict. The check SHALL have no override and SHALL NOT be capable of any
+outcome stronger than `keep`. It is justified entirely by the hops this work
+opens forward; it carries no retroactive commitment and produces no verdict
+about any document already on disk.
+
+**R16.** `shirabe validate` SHALL fail when an `R<n>` requirement citation in a
+document resolves neither within that document nor within its surviving
+upstream.
+
+**R17.** Re-pointing a survivor's `upstream:` SHALL splice the absorbed
 artifact's parents into the survivor's existing list rather than replacing it,
 preserving sibling parents and cross-repo entries verbatim.
 
-**R12.** Post-absorb re-validation SHALL cover the survivor and every document
-that referenced the absorbed artifact, so a failure reverts the absorb.
+**R18.** Post-absorb re-validation SHALL cover the survivor and every document
+that referenced the absorbed artifact. A failure SHALL revert the absorb in
+full: the absorbed document restored, the survivor's `upstream:` splice undone,
+its absorption declaration and `## Status` line removed, and its contribution
+section removed. The revert SHALL be recorded.
 
-**R13.** `/scope`'s closed write-target set SHALL name every path an absorb at
+**R19.** `/scope`'s closed write-target set SHALL name every path an absorb at
 any hop writes or deletes.
 
-**R14.** A completed fold SHALL leave a record on the default branch naming what
-folded into what, on what verdict, with the per-contribution carry result and a
-content-addressed pointer to the pre-fold original. The record SHALL be produced
-mechanically, SHALL NOT carry the absorbed document's contributions, and its
-absence SHALL prevent the fold.
+**R20.** A fold SHALL NOT land unless a record was written to the default branch
+naming what folded into what, on what verdict, with the per-contribution carry
+result and a content hash of the pre-fold original. The record SHALL be produced
+mechanically and SHALL NOT carry the absorbed document's contributions.
 
-**R15.** A surviving document SHALL record what it absorbed in both a
-machine-readable frontmatter field and one human-readable line in its `## Status`
-section naming which contribution section now carries the folded content. The
+**R21.** A surviving document SHALL record what it absorbed in both a
+machine-readable frontmatter field and one line in its `## Status` section
+naming the absorbed artifact and which contribution section now carries it. The
+`## Status` line SHALL follow a pinned shape rather than free prose. The
 frontmatter field SHALL be excluded from path resolution, since its target is
 deleted by construction.
 
-**R16.** `/execute` SHALL NOT assume a surviving DESIGN. Its finalization guard
-and the cascade's roadmap downstream-reference rewrite SHALL both behave
-correctly when the chain folded the DESIGN away.
+### Downstream skills
 
-**R17.** Implementation SHALL carry a standing instruction to record in code
-comments why the code is shaped as it is, kept current as the code changes,
-unconditional and independent of what the chain decided. The instruction SHALL
-be enforced through an existing blocking review path rather than a new gate.
+**R22.** `/execute` SHALL NOT assume any surviving durable artifact. Its
+finalization guard and the cascade's roadmap downstream-reference rewrite SHALL
+both behave correctly for a chain that folded every artifact away. The PRD-level
+contract for what `exit_artifacts:` holds under a fully folded chain SHALL be
+stated so the guard has a defined seed.
 
-**R18.** The skill's eval suite SHALL be updated so that no eval asserts the
-type-level absorbability rule or the durable-artifact floor as invariants.
+**R23.** `/work-on`'s implementation phase SHALL carry a standing instruction to
+record in code comments why the code is shaped as it is, kept current as the
+code changes, unconditional and independent of what the chain decided. The
+instruction SHALL be enforced by naming it in the maintainer reviewer's existing
+blocking brief rather than by a new gate.
+
+### Verification surface
+
+**R24.** `/scope`'s eval suite SHALL be updated so that no scenario references a
+type-level mapping check, and SHALL gain coverage of a hop above BRIEF-to-PRD
+reaching `absorb` and the same hop reaching `keep`. The consolidation family's
+scenario count SHALL NOT decrease.
+
+**R25.** `docs/guides/doc-validation.md` SHALL document any check family this
+work adds.
 
 ### Non-functional
 
-**R19.** The consolidation judgment SHALL remain the only mechanism that reduces
+**R26.** The consolidation judgment SHALL remain the only mechanism that reduces
 the artifact set. Nothing added here SHALL constitute a second reduction
 mechanism; a mechanism whose only possible effect is to force `keep` does not
 count.
 
-**R20.** No judgment SHALL run before the artifact it is about exists. Nothing
+**R27.** No judgment SHALL run before the artifact it is about exists. Nothing
 here SHALL reintroduce a pre-artifact worth decision in any form, including an
 author-chosen entry altitude.
 
-**R21.** Documents already on disk SHALL validate unchanged. The
-contribution-section requirement SHALL apply only to documents that declare an
-absorption.
+**R28.** Documents already on disk SHALL validate unchanged, and the checks this
+work adds SHALL emit nothing on a document that declares no absorption —
+including against the frozen cross-repo parity baseline, so downstream callers
+pinning a shirabe tag do not break.
 
-**R22.** The absorb procedure SHALL fail toward `keep` at every added decision
-point.
+**R29.** The absorb procedure SHALL fail toward `keep` at every decision point
+this work adds: the replaced first stage, the carry check, the citation check,
+post-absorb re-validation, and record production.
 
 ## Acceptance Criteria
 
-- [ ] A chain whose DESIGN holds only sequencing value folds that DESIGN into
-      the PLAN, and the run ends with no durable artifact in `docs/`.
-- [ ] A chain whose DESIGN records live rejected alternatives returns `keep` at
-      the DESIGN-to-PLAN hop, and the DESIGN survives.
-- [ ] The same two chains differ only in document content, not in flags, mode,
-      or invocation.
-- [ ] A survivor that absorbed a BRIEF carries one contribution section for it,
-      ahead of the survivor's own content.
-- [ ] A survivor that absorbed a PRD which had absorbed a BRIEF carries two
-      contribution sections, in chain order.
-- [ ] `shirabe validate` fails a document that declares an absorption and lacks
-      the implied contribution section.
-- [ ] `shirabe validate` passes every document in `docs/` that declares no
-      absorption, with no change to those documents.
-- [ ] An absorb whose contribution does not carry leaves both documents on disk
-      and records the failure.
-- [ ] An absorb of an artifact cited by path from any other file in the
-      repository is refused, both documents stay, and the citing file is named.
-- [ ] A survivor whose absorbed ancestor had two parents carries both parents in
-      its `upstream:` field after the re-point.
-- [ ] A completed fold leaves a record on the default branch identifying the
-      absorbed document, the survivor, the verdict, and a pointer that resolves
-      to the pre-fold content.
-- [ ] A survivor's `## Status` section names what it absorbed and which section
-      carries it.
-- [ ] `shirabe validate` reports no finding against a survivor's
-      absorbed-artifact frontmatter field, whose target no longer exists.
-- [ ] A finalized chain with no surviving DESIGN passes `/execute`'s
-      finalization guard.
-- [ ] A finalized chain with no surviving DESIGN leaves no dangling downstream
-      reference in an upstream roadmap.
-- [ ] No eval in the suite asserts that hops above BRIEF-to-PRD are
-      unabsorbable, or that a run always leaves a durable artifact.
-- [ ] `cargo test` passes and the existing golden fixtures are updated in the
-      same change as any format-contract edit.
+Each criterion names its verification instrument. **[mech]** marks a criterion a
+machine decides; **[judg]** marks one an agent decides, which in this repository
+means a `/scope` eval — LLM-graded, plan-graded, and run on a weekly cron rather
+than as a merge gate (see Known Limitations).
+
+### The judgment
+
+- [ ] **[judg]** A paired `/scope` eval entered at the DESIGN-to-PLAN hop
+      returns `absorb` against a sequencing-only DESIGN fixture and `keep`
+      against a live-alternatives DESIGN fixture.
+- [ ] **[mech]** The two fixtures behind that pair are committed, hold their
+      line count within a stated band of each other, and share section set,
+      Decision count, `status`, `upstream` and topic slug — differing only in
+      whether a recorded alternative remains live.
+- [ ] **[judg]** On the `absorb` verdict, the DESIGN is removed from disk and
+      the PLAN carries a contribution section for it.
+- [ ] **[judg]** An artifact held back by re-entry protection is not judged.
+
+### Contribution sections
+
+- [ ] **[mech]** A survivor that absorbed one ancestor carries one contribution
+      section, immediately after `## Status`.
+- [ ] **[mech]** A survivor that absorbed an ancestor which had itself absorbed
+      another carries two contribution sections, in chain order.
+- [ ] **[mech]** `shirabe validate` fails a document whose frontmatter declares
+      an absorption and which lacks the implied contribution section.
+- [ ] **[mech]** `shirabe validate` fails a document whose contribution sections
+      are present but out of order.
+- [ ] **[mech]** The contribution-section contract in each affected format
+      reference states both the too-long and the too-thin failure.
+- [ ] **[mech]** Each affected format reference's content-boundary rule names
+      the absorbed case as an exception.
+
+### The absorb procedure
+
+- [ ] **[judg]** An absorb whose contribution does not carry leaves both
+      documents on disk and records the failure.
+- [ ] **[judg]** An absorb of an artifact cited by repo-relative path from any
+      tracked file outside `wip/` is refused, both documents stay, and the
+      citing file is named.
+- [ ] **[judg]** A citation naming an artifact without its path is surfaced as a
+      finding and does not by itself change the verdict.
+- [ ] **[mech]** A DESIGN citing `R7` whose PRD was absorbed without carrying
+      the requirement numbering fails `shirabe validate`.
+- [ ] **[mech]** A survivor whose absorbed ancestor had two parents carries both
+      in its `upstream:` field after the re-point.
+- [ ] **[judg]** An absorb whose post-absorb re-validation fails restores the
+      absorbed document, undoes the `upstream:` splice, removes the absorption
+      declaration, the `## Status` line and the contribution section, and
+      records the revert.
+- [ ] **[mech]** Every path the absorb procedure writes or deletes appears in
+      `/scope`'s enumerated write-target set. Verified by inspection.
+- [ ] **[mech]** A completed fold leaves a record identifying the absorbed
+      document, the survivor, the verdict, and a content hash matching the
+      pre-fold document's bytes. Evaluated on the branch, before merge.
+- [ ] **[judg]** A fold whose record cannot be written does not land.
+- [ ] **[mech]** A survivor's absorption declaration is present and holds the
+      absorbed path.
+- [ ] **[mech]** A survivor's `## Status` absorption line matches its pinned
+      shape.
+- [ ] **[mech]** `shirabe validate` reports no finding against a survivor's
+      absorption declaration, whose target no longer exists.
+
+### Downstream skills
+
+- [ ] **[mech]** `run-cascade_test.sh` gains a scenario building a PLAN-to-
+      ROADMAP chain with no DESIGN, asserting the roadmap's `**Downstream:**`
+      line carries no dangling reference. (This fails against current code:
+      `run-cascade.sh` leaves the pre-existing line untouched when
+      `CASCADE_DESIGN_PATH` is unset.)
+- [ ] **[judg]** A finalized chain with no surviving durable artifact passes
+      `/execute`'s finalization guard, seeded per R22's stated contract.
+- [ ] **[mech]** `/work-on`'s implementation phase file carries the rationale
+      instruction, and the maintainer reviewer's brief names it as a blocking
+      finding.
+
+### Verification surface
+
+- [ ] **[mech]** Scenarios 18, 19 and 20 in `skills/scope/evals/evals.json` are
+      rewritten so that none references a type-level mapping check, and the
+      consolidation family's scenario count does not decrease.
+- [ ] **[mech]** `docs/guides/doc-validation.md` names every check family this
+      work adds.
+
+### Regression
+
+- [ ] **[mech]** A corpus-wide test walks every document under `docs/`, runs
+      `shirabe validate`, and asserts exit 0 with no new check code emitted.
+- [ ] **[mech]** `git diff --exit-code docs/` is clean in the same job, proving
+      no existing document was edited to make the corpus pass.
+- [ ] **[mech]** `cargo test --workspace` passes, including the byte-exact
+      golden parity tests across all corpus files and the absorption rule-set
+      parity suite.
 
 ## Out of Scope
 
@@ -234,27 +343,37 @@ point.
   against two bodies that exist at the moment a child lands. For most DESIGNs in
   the corpus the downstream PLAN was deleted at finalization by design, so there
   is one body and no landing event; `keep` there is the absence of a runnable
-  judgment rather than a verdict. Whether a settled document is live guidance or
-  the historical record of shipped work is a lifecycle question with its own
-  criterion and its own disposal, deferred as named follow-on work.
+  judgment rather than a verdict. Two follow-ons are named rather than left
+  implicit. First, a BRIEF-to-PRD retroactive fold — the one coherent
+  retroactive operation, with a measured population of roughly 55 candidates
+  after exclusions, gated on this work's guard and repairs landing and being
+  exercised forward at least once. Second, a lifecycle criterion for settled
+  documents, with archive rather than deletion as its disposal.
 - **The strategic chain under `/charter`.** No consolidation judgment exists
   there to change, and the judgment's logic lives entirely inside `/scope`'s own
   phase files, so extending it is new machinery rather than a follow-on edit.
 - **Manual invocation of child skills outside `/scope`**, the only route to a
   chain with a genuinely missing ancestor.
-- **A repository-wide citation index, and a validator rule for unresolvable
-  citations generally.** Both are repair campaigns against references already
-  broken, not guards on the operation this work adds.
+- **A repository-wide citation index, and a notice-severity rule for
+  unresolvable document names.** Both are repair campaigns against references
+  already broken — roughly 374 pre-existing unresolvable names — not guards on
+  the operation this work adds. R16 is narrower and distinct: it fires on
+  requirement numbers orphaned by this work's own absorbs.
 - **The CI deletion blindness.** `validate-docs.yml` computes its file set with
   `git diff` and cannot see a document stranded by a deletion. Widening the diff
   filter is not a fix, because it feeds deleted paths to a validator that cannot
-  open them. R10's guard makes fold time the catchable point instead.
+  open them. R15's guard makes fold time the catchable point instead.
+- **Bringing the isolated-clone eval mechanism to `/scope`.** It exists and
+  `/execute` uses it. It would let the fold/keep pair grade an executed fold
+  rather than a described one, which is the honest upgrade for Known Limitation 2
+  — and it is its own change.
 
 ## Decisions and Trade-offs
 
-Each ran through the `/decision` framework during exploration; the two marked
-critical ran the full adversarial path with persistent validators. These are
-inputs to the DESIGN, not questions for it.
+Each ran through the `/decision` framework during exploration. Two are marked
+**[critical]**: they ran the full adversarial path with persistent validators
+through bakeoff, peer revision and cross-examination. These are inputs to the
+DESIGN, not questions for it.
 
 **Contribution sections carry a two-sided adequacy test** rather than a presence
 check. The criterion is lifted from `strategy-format.md`'s Strategic Context
@@ -266,49 +385,73 @@ contradicting the principle that absorption is only legitimate when something
 confirms the content arrived. A scored rubric was rejected because this repo has
 no scored rubric anywhere and its functional tests demonstrably work. No word
 count or length floor: under a model whose point is compression, a floor inverts
-the incentive and padding satisfies it free.
+the incentive and padding satisfies it free. The same decision adopted R16's
+citation-resolution rule as the one mechanical backstop available anywhere in
+this problem — it is the only depth expectation here a machine can check.
 
-**The verdict gets no gate; the operation gets the backstop.** Both rival
-advocates withdrew their own alternatives. Human confirmation is self-refuting
-against the decision that agents make this call, and fails differently in all
-three of its sub-variants. An independent reviewer is structurally unavailable:
-`/scope` owns no team at its own layer, has no sub-agent spawn site in any of its
-seven phase files, and no row in the dispatch binding table. The reviewer's one
-real contribution — judging an artifact rather than a prediction — is bought for
-free by R8's reorder.
+**[critical] The verdict gets no gate; the operation gets the backstop.** Both
+rival advocates withdrew their own alternatives. Human confirmation is
+self-refuting against the decision that agents make this call, and fails
+differently in all three of its sub-variants. An independent reviewer is
+structurally unavailable: `/scope` owns no team at its own layer, has no
+sub-agent spawn site in any of its seven phase files, and no row in the dispatch
+binding table. The reviewer's one real contribution — judging an artifact rather
+than a prediction — is bought for free by R13, which requires the carry check to
+run against text that exists.
+
+**[critical] The corpus stays out of scope, and the boundary carries its
+reason.** A sweep would invent a discard verdict the mechanism refuses, against
+201 surviving files holding broken references behind CI that structurally cannot
+see deletions. The advocate assigned to argue for the sweep voted against it
+after reading the trigger condition. The redundancy argument that motivated the
+question did not survive measurement either: among DESIGNs actually in a PRD
+chain the ratio is 1.03, not the 3.5 the raw count suggests.
 
 **A durable record of the operation, not of the distillate.** Any destination
 preserving the absorbed content must assert, every time it fires, that the
 verdict was partly wrong, since the fold's meaning is that the content did not
-warrant a durable artifact. A record that a judgment happened, about what, with
-what carried, asserts nothing the fold denies. It is written mechanically because
-an agent-authored record inserts another unverifiable content judgment at the
-moment of maximum consequence.
+warrant a durable artifact. That argument closes the whole class, including an
+archive directory and a per-run decision record. A record that a judgment
+happened, about what, with what carried, asserts nothing the fold denies. It is
+written mechanically because an agent-authored record inserts another
+unverifiable content judgment at the moment of maximum consequence.
 
 **A survivor records what it absorbed in frontmatter plus one `## Status` line.**
 This is house pattern rather than invention: `shirabe transition` already writes
 a `superseded_by:` key and splices a line into `## Status` for supersession, the
-nearest existing analogue. The beneficiary is the reader of a third document
-citing the dead path, who is not holding the survivor and does not know it
-exists. A tombstone stub was stronger on the merits and was rejected because it
-leaves one durable file per fold in the corpus that motivated this work.
+nearest existing analogue — and R21 adopts its format discipline, not just its
+shape. The beneficiary is the reader of a third document citing the dead path,
+who is not holding the survivor and does not know it exists. A tombstone stub was
+stronger on the merits and was rejected because it leaves one durable file per
+fold in the corpus that motivated this work.
 
 **Everything ships in one change with no ordering constraint.** The repo's own
 plan rule makes one PR the default and permits a split only on a named hard
-constraint; this work has none. The rationale-in-code instruction is bounded to
-two diff-checkable edits so it cannot expand into an open-ended quality effort
-and become a de facto blocker.
+constraint, and this work has none. The rationale-in-code instruction is bounded
+to instruction text in files that already exist, with no new gate, so it cannot
+expand into an open-ended quality effort and become a de facto blocker. That work
+belongs to `/work-on` rather than `/execute`: R14/R15 of the execute contract bar
+`/execute` from reading diffs, so the only agent in the chain holding the diff is
+`/work-on`'s implementation phase.
 
 ## Known Limitations
 
 **Static validation buys presence, not fidelity.** An empty or gutted
-contribution section satisfies R5. R4's adequacy test is prose an agent applies,
+contribution section satisfies R8. R7's adequacy test is prose an agent applies,
 as every content criterion in this repository is. The residual gaming vector is
 omission: an agent that writes one fluent paragraph and silently drops the one
 contested thing the ancestor settled is not caught, because the folding agent
 cannot see the absence it created.
 
-**The worth judgment ships ungraded and ungradeable.** A fixture eval can grade
+**The feature's central behaviour is graded, not gated.** The fold-versus-keep
+discrimination is verified by a `/scope` eval, which is LLM-graded, grades the
+agent's stated plan rather than an executed fold, and runs on a weekly cron
+rather than on pull requests. Every criterion marked **[judg]** inherits that.
+This is weaker than it reads, and the honest upgrade — the isolated-clone eval
+mechanism that already exists for `/execute`, which grades an executed run — is
+deliberately out of scope here.
+
+**The worth judgment is ungradeable in principle.** A fixture eval can grade
 whether content was lost, because the fixture retains both bodies. It cannot
 grade whether reasoning deserved to persist, and after the fold the comparison
 object is gone. A green eval is not a check on the whole judgment.
@@ -316,17 +459,19 @@ object is gone. A green eval is not a check on the whole judgment.
 **Forward absorption has no recovery path from a clone.** Squash-merge with
 branch deletion means an absorbed document never existed on the default branch.
 `refs/pull/<N>/head` retains the content, but that is best-effort platform
-behaviour rather than a git guarantee, which is why R14's pointer is
-content-addressed rather than a path.
+behaviour rather than a git guarantee — which is why R20's record carries a
+content hash rather than a path, and why its criterion is evaluated on the
+branch rather than after merge.
 
-**R10's guard is same-repo only.** Cross-repo citations exist and stay
+**R15's guard is same-repo only.** Cross-repo citations exist and stay
 unguarded. Issue bodies, PR descriptions and commit messages are outside its
 reach entirely, so its coverage is a floor rather than a bound.
 
 **The rationale-in-code instruction is unmeasurable.** No check distinguishes a
-run that wrote useful why-comments from one that did not. R17 accepts an
+run that wrote useful why-comments from one that did not. R23 accepts an
 instruction plus an existing blocking reviewer as the honest ceiling for a
-qualitative property.
+qualitative property; its criterion checks that the instruction landed, not that
+it worked.
 
 **This chain cannot dogfood the change.** The run producing this PRD uses the
 current `/scope`, so it will leave a permanent PRD and DESIGN regardless of what
@@ -334,27 +479,30 @@ the new judgment would have decided about them.
 
 ## Open Questions
 
-- What surface carries R14's record? A single shared append-only index is the
+- What surface carries R20's record? A single shared append-only index is the
   leading candidate because it is not a per-run artifact and so cannot read as a
   floor, but a survivor's frontmatter serves the one hop that has a survivor, and
-  there are three deletion sites rather than one.
+  there are three deletion sites rather than one. The criteria for R20, and the
+  surface named in the failure findings of R14 and R15, all inherit this answer.
 - Is the contribution section authored by the child at drafting time or by the
-  parent at fold time? R8 fixes the ordering within the absorb, but not which
-  actor writes the prose, and the answer decides whether R4's criterion rides an
-  existing jury or needs its own reviewer.
-- Does `DESIGN-scope-consolidation-over-skipping.md`'s Decision 9 get amended?
-  Its stated rationale — that zero strategic hops are absorbable, so porting the
-  judgment would install a rule that can only return `keep` — is falsified by R1,
-  and it sits durably on `main` reachable from this chain's own references.
+  parent at fold time? R13 fixes the property the carry check needs without
+  naming the actor. The answer decides whether R7's criterion rides an existing
+  jury and whether each child needs a consumption block of its own, which changes
+  the PLAN's decomposition materially.
+- Do the two contradicted claims in the shipped consolidation chain get amended?
+  `DESIGN-scope-consolidation-over-skipping.md`'s Decision 9 justifies leaving
+  `/charter` alone on reasoning R1 falsifies, and that PRD's R14 requires the
+  floor R1 removes. Both sit durably on `main`, reachable from this chain's own
+  references.
 
 ## References
 
 - `docs/briefs/BRIEF-scope-artifact-persistence.md` — the framing these
   requirements are written from.
 - `docs/designs/current/DESIGN-scope-consolidation-over-skipping.md` — Decision 8
-  rejected DESIGN-to-PLAN absorption; R6 reverses it. Decision 9's rationale is
+  rejected DESIGN-to-PLAN absorption; R11 reverses it. Decision 9's rationale is
   the subject of an open question above.
-- `docs/prds/PRD-scope-consolidation-over-skipping.md` — R14 there requires the
+- `docs/prds/PRD-scope-consolidation-over-skipping.md` — its R14 requires the
   floor R1 removes.
 - `skills/scope/references/phases/phase-2-chain-orchestration.md` — the three
   stages and the mapping table.
