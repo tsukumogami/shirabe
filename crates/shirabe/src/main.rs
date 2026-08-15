@@ -1224,6 +1224,22 @@ fn run_transition_cmd(args: &TransitionArgs) -> ExitCode {
     };
     match run_transition(&args.file, &args.status, &flags) {
         Ok(outcome) => {
+            // The repoint report goes to stderr, not into the result JSON:
+            // that envelope is pinned against the scripts this subcommand
+            // replaced, and its consumers parse `success` / `code` /
+            // `new_path`. An operator still needs to see what else the move
+            // touched, since every named file is now staged.
+            if !outcome.repointed.is_empty() {
+                let total: usize = outcome.repointed.iter().map(|r| r.occurrences).sum();
+                eprintln!(
+                    "repointed {} reference(s) across {} file(s):",
+                    total,
+                    outcome.repointed.len()
+                );
+                for rewrite in &outcome.repointed {
+                    eprintln!("  {} ({})", rewrite.path, rewrite.occurrences);
+                }
+            }
             print!("{}", outcome.to_json());
             ExitCode::SUCCESS
         }

@@ -23,6 +23,7 @@ pub mod mermaid;
 pub mod pr_body;
 pub mod prose;
 pub mod references;
+pub mod repoint;
 pub mod report;
 pub mod rules;
 pub mod table;
@@ -63,6 +64,7 @@ pub use merge_gate::{
     GhVisibilityResolver, MergeGateOutcome,
 };
 pub use pr_body::{check_pr_body, check_pr_title, PrBodyFinding};
+pub use repoint::{repoint_references, FileRewrite, RepointError};
 pub use report::{
     render_human, render_human_with_advisory, render_json, render_json_with_advisory,
 };
