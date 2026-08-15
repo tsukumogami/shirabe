@@ -218,9 +218,11 @@ subcommand is `validate`, which understands all eight document formats above
 checks that go with each. A handful of other subcommands support the skills
 directly: `roadmap populate` fills in a roadmap's issues table and dependency
 graph, `transition` moves a doc to a new status, `finalize-chain` walks a
-finished plan's upstream chain the way `/execute` does, `slug-prefix-detect`
-checks a candidate slug against your workspace's naming convention, and
-`install-hooks` wires up a local pre-commit validation hook.
+finished plan's upstream chain the way `/execute` does, `plan outlines` reads a
+single-PR plan's issue outlines out as JSON so the task extractor and the
+validator share one parse of them, `slug-prefix-detect` checks a candidate slug
+against your workspace's naming convention, and `install-hooks` wires up a
+local pre-commit validation hook.
 
 ### Reusable workflow
 

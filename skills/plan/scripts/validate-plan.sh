@@ -186,7 +186,17 @@ fi
 # lives on the PLAN because the PLAN is deleted by the same cascade and goes
 # first, so the link cannot dangle.
 
-mapfile -t upstream_entries < <(echo "$frontmatter" | get_upstream_entries)
+# Read the entries with a loop rather than `mapfile`: mapfile is a bash 4
+# builtin and this script runs under the bash each platform ships, which on
+# macOS is 3.2 (see check-plan-scripts.yml, whose macOS leg invokes /bin/bash
+# explicitly). `upstream_entries=()` is declared before the loop because bash
+# 3.2 leaves an array assigned empty in that form *unset*, which `set -u` then
+# trips on at the length test below.
+upstream_entries=()
+while IFS= read -r upstream_entry; do
+    [[ -n "$upstream_entry" ]] || continue
+    upstream_entries+=("$upstream_entry")
+done < <(echo "$frontmatter" | get_upstream_entries)
 
 if [[ ${#upstream_entries[@]} -eq 0 ]]; then
     log_ok "no upstream field — skipping upstream validation"

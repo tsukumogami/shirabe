@@ -9,7 +9,7 @@
 use crate::checks::{
     check_claude_md_conventions, check_eval_fixture_frontmatter, check_fc01, check_fc02,
     check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09, check_fc14,
-    check_fc15, check_plan_design_field_consistency, check_plan_section_structure,
+    check_fc15, check_fc17, check_plan_design_field_consistency, check_plan_section_structure,
     check_private_only, check_roadmap_reserved_sections, check_schema, check_strategy_public,
     check_upstream_legality, check_upstream_resolves, check_vision_public, check_writing_style,
 };
@@ -167,6 +167,7 @@ pub fn is_known_check_code(code: &str) -> bool {
             | "FC14"
             | "FC15"
             | "FC16"
+            | "FC17"
             | "FC-CONVENTIONS"
             | "R6"
             | "R7"
@@ -284,6 +285,11 @@ fn validate_structural(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Valida
             // FC14: single-pr plan structural validation (issue outlines +
             // execution_mode-aware mutual-exclusion + issue_count parity).
             errs.extend(check_fc14(doc, spec));
+            // FC17: an outline dependency that names no sibling. Split
+            // from FC14 because it is error-level -- it is the one
+            // failure here that would otherwise pass validation and then
+            // extract to a task graph missing the edge.
+            errs.extend(check_fc17(doc, spec));
         }
         "Roadmap" => {
             errs.extend(check_fc05(doc, spec));
@@ -599,6 +605,7 @@ mod tests {
             "FC14",
             "FC15",
             "FC16",
+            "FC17",
             "FC-CONVENTIONS",
             "R6",
             "R7",

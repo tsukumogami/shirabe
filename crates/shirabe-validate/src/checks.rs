@@ -1090,14 +1090,12 @@ fn columns_eq(columns: &[String], want: &[&str]) -> bool {
 /// (outline ids `O<n>`, custom-mnemonic external references like
 /// `KT5V2` or `NW6`, or any other shape) are excluded from FC07's
 /// reconciliation and are tolerated in the diagram.
-static ISSUE_KEYED_NODE_ID: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^I[0-9]+$").unwrap());
+static ISSUE_KEYED_NODE_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^I[0-9]+$").unwrap());
 
 /// Matches a `#N` issue token inside Markdown link text. Used to parse
 /// the roadmap-profile Issues column into the set of issue numbers a
 /// feature row fans out into.
-static ISSUE_REF_IN_CELL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"#([0-9]+)").unwrap());
+static ISSUE_REF_IN_CELL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"#([0-9]+)").unwrap());
 
 /// The three Status-bearing class names FC07 reconciles against table row
 /// state. A node carrying any other class (a non-Status class such as a
@@ -1219,10 +1217,7 @@ pub fn check_fc07(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     // BlockLocation carries 1-indexed absolute lines; doc.body is
     // 0-indexed. body_end is one-past-last (the closing-fence line).
     let body_start_idx = location.body_start.saturating_sub(1);
-    let body_end_idx = location
-        .body_end
-        .saturating_sub(1)
-        .min(doc.body.len());
+    let body_end_idx = location.body_end.saturating_sub(1).min(doc.body.len());
     let body_slice: Vec<&str> = doc
         .body
         .get(body_start_idx..body_end_idx)
@@ -1376,10 +1371,7 @@ fn node_set_pass_roadmap(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<Val
     // roadmap profile (index 1) -- the parser does not split the raw
     // row into per-column cells beyond what RowKind classification
     // needed, so we extract the issue tokens from `row.raw` directly.
-    let issues_col_idx = table
-        .columns
-        .iter()
-        .position(|c| c == "Issues");
+    let issues_col_idx = table.columns.iter().position(|c| c == "Issues");
     let mut expected_nodes: Vec<(String, usize, String)> = Vec::new(); // (expected_id, row_line, row_key)
     for row in &table.rows {
         if row.kind != RowKind::Entity {
@@ -1555,10 +1547,7 @@ fn edge_pass_plan(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<Validation
 fn edge_pass_roadmap(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<ValidationError> {
     let mut errs = Vec::new();
 
-    let issues_col_idx = table
-        .columns
-        .iter()
-        .position(|c| c == "Issues");
+    let issues_col_idx = table.columns.iter().position(|c| c == "Issues");
 
     // Build the feature-label -> Vec<I<n>> map. A row whose Issues cell
     // is `None` maps to an empty vec.
@@ -1610,11 +1599,8 @@ fn edge_pass_roadmap(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<Validat
             };
             for blocker_id in blocker_ids {
                 for dependent_id in dependent_ids {
-                    table_edges
-                        .insert((blocker_id.clone(), dependent_id.clone()));
-                    if !diagram_edges
-                        .contains(&(blocker_id.clone(), dependent_id.clone()))
-                    {
+                    table_edges.insert((blocker_id.clone(), dependent_id.clone()));
+                    if !diagram_edges.contains(&(blocker_id.clone(), dependent_id.clone())) {
                         errs.push(ValidationError {
                             file: doc.path.clone(),
                             line: row.line,
@@ -1682,8 +1668,7 @@ fn class_vs_status_pass(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<Vali
             .collect(),
         Profile::Roadmap => {
             let issues_col_idx = table.columns.iter().position(|c| c == "Issues");
-            let mut map: std::collections::HashMap<String, &Row> =
-                std::collections::HashMap::new();
+            let mut map: std::collections::HashMap<String, &Row> = std::collections::HashMap::new();
             for row in &table.rows {
                 if row.kind != RowKind::Entity {
                     continue;
@@ -1935,8 +1920,13 @@ fn extract_closes_refs(body: &str, default_owner: &str, default_repo: &str) -> V
                     // Drop attacker-influenced cross-repo references.
                     continue;
                 }
-                let literal = format!("{} {}/{}#{}", &cap[0][..cap[0].find(char::is_whitespace).unwrap_or(0)],
-                    owner, repo, number);
+                let literal = format!(
+                    "{} {}/{}#{}",
+                    &cap[0][..cap[0].find(char::is_whitespace).unwrap_or(0)],
+                    owner,
+                    repo,
+                    number
+                );
                 out.push(ClosesRef {
                     owner: owner.to_string(),
                     repo: repo.to_string(),
@@ -1946,8 +1936,11 @@ fn extract_closes_refs(body: &str, default_owner: &str, default_repo: &str) -> V
                 });
             }
             _ => {
-                let literal = format!("{} #{}", &cap[0][..cap[0].find(char::is_whitespace).unwrap_or(0)],
-                    number);
+                let literal = format!(
+                    "{} #{}",
+                    &cap[0][..cap[0].find(char::is_whitespace).unwrap_or(0)],
+                    number
+                );
                 out.push(ClosesRef {
                     owner: default_owner.to_string(),
                     repo: default_repo.to_string(),
@@ -2144,10 +2137,7 @@ pub fn check_fc08(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     }
     // Extract the diagram (FC07 infrastructure; reuses `class_defs`).
     let body_start_idx = location.body_start.saturating_sub(1);
-    let body_end_idx = location
-        .body_end
-        .saturating_sub(1)
-        .min(doc.body.len());
+    let body_end_idx = location.body_end.saturating_sub(1).min(doc.body.len());
     if body_start_idx > body_end_idx {
         return Vec::new();
     }
@@ -2213,10 +2203,8 @@ fn check_fc08_sub_b(
     if legend.is_empty() {
         return Vec::new();
     }
-    let legend_normalized: HashSet<String> = legend
-        .iter()
-        .map(|n| normalize_kebab_to_camel(n))
-        .collect();
+    let legend_normalized: HashSet<String> =
+        legend.iter().map(|n| normalize_kebab_to_camel(n)).collect();
     let mut class_def_names: Vec<&String> = class_defs.iter().collect();
     class_def_names.sort();
     let mut errs = Vec::new();
@@ -2358,10 +2346,7 @@ pub fn check_fc09(
 
     // Extract the body lines for the located block.
     let body_start_idx = location.body_start.saturating_sub(1);
-    let body_end_idx = location
-        .body_end
-        .saturating_sub(1)
-        .min(doc.body.len());
+    let body_end_idx = location.body_end.saturating_sub(1).min(doc.body.len());
     let body_slice: Vec<&str> = doc
         .body
         .get(body_start_idx..body_end_idx)
@@ -2380,8 +2365,7 @@ pub fn check_fc09(
             .collect(),
         Profile::Roadmap => {
             let issues_col_idx = table.columns.iter().position(|c| c == "Issues");
-            let mut map: std::collections::HashMap<String, &Row> =
-                std::collections::HashMap::new();
+            let mut map: std::collections::HashMap<String, &Row> = std::collections::HashMap::new();
             for row in &table.rows {
                 if row.kind != RowKind::Entity {
                     continue;
@@ -2471,16 +2455,20 @@ pub fn check_fc09(
         // use the row's Dependencies-cell reference; same-repo uses
         // pr_ctx. If pr_ctx is None and the row has no cross-repo dep,
         // skip the row (no (owner, repo) to query).
-        let (q_owner, q_repo, q_number, is_cross_repo) =
-            match cross_repo_by_row_key.get(&row.key) {
-                Some((o, r, n)) => (o.clone(), r.clone(), *n, true),
-                None => {
-                    if pr_ctx.is_none() {
-                        continue;
-                    }
-                    (default_owner.to_string(), default_repo.to_string(), issue_n, false)
+        let (q_owner, q_repo, q_number, is_cross_repo) = match cross_repo_by_row_key.get(&row.key) {
+            Some((o, r, n)) => (o.clone(), r.clone(), *n, true),
+            None => {
+                if pr_ctx.is_none() {
+                    continue;
                 }
-            };
+                (
+                    default_owner.to_string(),
+                    default_repo.to_string(),
+                    issue_n,
+                    false,
+                )
+            }
+        };
 
         // Track for Sub C reconciliation.
         let doc_claims_done = assign.name == "done";
@@ -2614,7 +2602,8 @@ pub fn check_fc09(
                             // Cross-repo case is sparse; we match by
                             // (owner, repo, number) via cross_repo_by_row_key.
                             if let Some(triple) = cross_repo_by_row_key.get(row_key) {
-                                if triple.0 == r.owner && triple.1 == r.repo && triple.2 == r.number {
+                                if triple.0 == r.owner && triple.1 == r.repo && triple.2 == r.number
+                                {
                                     errs.push(ValidationError {
                                         file: doc.path.clone(),
                                         line: *line,
@@ -2630,7 +2619,9 @@ pub fn check_fc09(
                             }
                         }
                         let _ = hit;
-                    } else if let Some((row_key, class_name, line)) = non_done_same_repo.get(&r.number) {
+                    } else if let Some((row_key, class_name, line)) =
+                        non_done_same_repo.get(&r.number)
+                    {
                         errs.push(ValidationError {
                             file: doc.path.clone(),
                             line: *line,
@@ -2737,9 +2728,8 @@ pub fn check_writing_style(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError
         Some(rules) => {
             // Per file, not per run: a single invocation spanning two
             // repositories must honor each one's own declaration.
-            let vocabulary = crate::visibility::resolve_prose_vocabulary(std::path::Path::new(
-                &doc.path,
-            ));
+            let vocabulary =
+                crate::visibility::resolve_prose_vocabulary(std::path::Path::new(&doc.path));
             let mut errs = check_writing_style_with(doc, &rules, &vocabulary);
             errs.extend(check_prose_frequency(doc, &rules));
             errs
@@ -2986,10 +2976,7 @@ pub fn check_plan_section_structure(doc: &Doc, spec: &FormatSpec) -> Vec<Validat
 ///
 /// FC12 is notice-level. Graceful skip when no upstream DESIGN is named in
 /// the frontmatter (the field-consistency check has no anchor without one).
-pub fn check_plan_design_field_consistency(
-    doc: &Doc,
-    spec: &FormatSpec,
-) -> Vec<ValidationError> {
+pub fn check_plan_design_field_consistency(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     if spec.schema_version != "plan/v1" {
         return Vec::new();
     }
@@ -3203,8 +3190,8 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     // content is the Implementation Issues table, covered by FC05/FC06).
     if mode == "single-pr" {
         // Sub-check B: per-block structural fields.
-        for block in &outlines {
-            if block.goal.is_none() {
+        for block in &outlines.blocks {
+            if !block.goal_declared {
                 errs.push(ValidationError {
                     file: doc.path.clone(),
                     line: block.line,
@@ -3215,7 +3202,7 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
                     ),
                 });
             }
-            if block.acceptance_criteria.is_none() {
+            if !block.acceptance_criteria_declared {
                 errs.push(ValidationError {
                     file: doc.path.clone(),
                     line: block.line,
@@ -3226,7 +3213,7 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
                     ),
                 });
             }
-            if !block.has_dependencies_line {
+            if !block.dependencies_declared {
                 errs.push(ValidationError {
                     file: doc.path.clone(),
                     line: block.line,
@@ -3239,39 +3226,17 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
             }
         }
 
-        // Sub-check C: outline-to-outline dependency resolution.
-        // Build the set of known outline keys plus their `<<ISSUE:N>>`
-        // placeholder forms so dependency tokens written as either the
-        // free-form key or the placeholder resolve correctly.
-        use std::collections::HashSet;
-        let mut known: HashSet<String> = HashSet::new();
-        for (idx, b) in outlines.iter().enumerate() {
-            known.insert(b.key.clone());
-            // Heading shape "Issue N: ..." maps to placeholder <<ISSUE:N>>.
-            known.insert(format!("<<ISSUE:{}>>", idx + 1));
-            // Also a bare numeric form `N` for legacy refs.
-            known.insert(format!("Issue {}", idx + 1));
-        }
-        for block in &outlines {
-            if block.dependencies_is_none {
-                continue;
-            }
-            for token in &block.dependencies {
-                if token.is_empty() {
-                    continue;
-                }
-                if known.contains(token) {
-                    continue;
-                }
-                // Also accept a substring match against any known key: an
-                // outline whose key starts with "Issue 1: feat(...)"
-                // matched by a dep written as "Issue 1" should resolve.
-                let resolved = known
-                    .iter()
-                    .any(|k| k.starts_with(token) || token.starts_with(k));
-                if resolved {
-                    continue;
-                }
+        // Sub-check C: dependency text that named no outline and is not
+        // shaped like a reference to one -- a parenthetical, a trailing
+        // clause. It stays here at notice level, which is where FC14 has
+        // always reported it. The reference-shaped half moved to FC17,
+        // because severity is keyed on the check code and only that half
+        // fails open: a bare `3` is an edge the author declared and the
+        // extractor dropped, while `(the parser must land first)` is prose
+        // beside an edge that resolved. Erroring on the second would reject
+        // a legal outline.
+        for block in &outlines.blocks {
+            for token in &block.unrecognized_dependency_text {
                 errs.push(ValidationError {
                     file: doc.path.clone(),
                     line: block.line,
@@ -3283,13 +3248,28 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
                 });
             }
         }
+
+        // Sub-check F: heading conformance. A `###` heading inside the
+        // section that is not `### Issue <N>: <title>` opens no outline, so
+        // task extraction never sees the work under it.
+        for heading in &outlines.nonconforming_headings {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: heading.line,
+                code: "FC14".to_string(),
+                message: format!(
+                    "[FC14] heading '### {}' inside '## Issue Outlines' is not a '### Issue <N>: <title>' outline heading and opens no outline (task extraction will not see it)",
+                    heading.text
+                ),
+            });
+        }
     }
 
     // Sub-check D: issue_count consistency.
     if let Some(ic_field) = doc.fields.get("issue_count") {
         if let Ok(declared) = ic_field.value.trim().parse::<usize>() {
             let observed: usize = if mode == "single-pr" {
-                outlines.len()
+                outlines.blocks.len()
             } else {
                 // multi-pr / coordinated: count entity rows in the
                 // Implementation Issues table.
@@ -3342,7 +3322,7 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
         // multi-pr / coordinated: authoritative content is the Implementation
         // Issues table, so a populated Issue Outlines section is the symmetric
         // mutual-exclusion violation.
-        if !outlines.is_empty() {
+        if !outlines.blocks.is_empty() {
             errs.push(ValidationError {
                 file: doc.path.clone(),
                 line: 1,
@@ -3355,6 +3335,59 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
         }
     }
 
+    errs
+}
+
+// =============================================================================
+// FC17 -- unresolvable outline dependency
+// =============================================================================
+
+/// FC17 -- a single-pr plan declares a dependency that names no sibling
+/// outline.
+///
+/// Split out of FC14 rather than folded into it because severity is keyed on
+/// the check code, and this one finding needs a severity the rest of FC14
+/// does not. Every other FC14 sub-check describes a document that already
+/// refuses loudly somewhere downstream: a plan whose headings the extractor
+/// cannot read extracts to zero tasks and exits non-zero. An unresolvable
+/// dependency is the one that fails *open* -- `plan-to-tasks.sh` used to emit
+/// a complete task list with the edge silently missing, so the orchestrator
+/// ran the work in whatever order it liked and nothing above notice level
+/// ever said the declared ordering had been discarded. That is the defect
+/// #275 was filed for, and an error is what stops it.
+///
+/// FC17 is error-level: it is absent from `is_intrinsic_notice` and from
+/// `posture_class`, so it is enforced under both draft and ready posture. It
+/// re-derives nothing -- `parse_issue_outlines` resolves references against
+/// the numbers in the headings and hands back whatever named no sibling.
+///
+/// Plan profile, single-pr only. A multi-pr or coordinated plan's
+/// authoritative content is the Implementation Issues table, whose dependency
+/// resolution is FC06's.
+pub fn check_fc17(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    if spec.name != "Plan" {
+        return Vec::new();
+    }
+    match doc.fields.get("execution_mode") {
+        Some(f) if f.value == "single-pr" => {}
+        // A missing execution_mode is an FC01 / FC02 concern, not FC17's.
+        _ => return Vec::new(),
+    }
+
+    let mut errs = Vec::new();
+    for block in &parse_issue_outlines(doc).blocks {
+        for token in &block.unresolved_dependencies {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: block.line,
+                code: "FC17".to_string(),
+                message: format!(
+                    "[FC17] outline '{}' declares unresolved dependency '{}' (no sibling outline matches; task extraction would drop this edge -- use 'None', 'Issue <N>', or the <<ISSUE:N>> placeholder)",
+                    block.key, token
+                ),
+            });
+        }
+    }
     errs
 }
 
@@ -3929,9 +3962,7 @@ mod tests {
             FieldValue {
                 value: String::new(),
                 line: 7,
-                entries: FieldEntries::Sequence(
-                    entries.iter().map(|e| (*e).to_string()).collect(),
-                ),
+                entries: FieldEntries::Sequence(entries.iter().map(|e| (*e).to_string()).collect()),
             }
         };
         let mut fields = HashMap::new();
@@ -3971,7 +4002,9 @@ mod tests {
         assert!(errs[0].message.contains("BRIEF may not name DESIGN"));
         // The message lists what a brief may name instead: the roadmap's own
         // durable ancestors, which is what a brief records.
-        assert!(errs[0].message.contains("a BRIEF may name STRATEGY or VISION"));
+        assert!(errs[0]
+            .message
+            .contains("a BRIEF may name STRATEGY or VISION"));
     }
 
     #[test]
@@ -4210,7 +4243,10 @@ mod tests {
                 "/nonexistent-root-for-shirabe-tests/docs/strategies/STRATEGY-x.md",
             ),
         ] {
-            assert!(legality(schema, &[missing]).is_empty(), "{schema} -> {missing}");
+            assert!(
+                legality(schema, &[missing]).is_empty(),
+                "{schema} -> {missing}"
+            );
         }
         // Illegal edges: judged as violations without the target existing. A
         // VISION may name only a VISION, and a COMP names nothing at all, so
@@ -5095,7 +5131,12 @@ mod tests {
     fn check_private_only_private_visibility_returns_empty() {
         let doc = make_doc("comp/v1", "Draft", HashMap::new(), vec![], vec![]);
         let errs = check_private_only(&doc, &spec_for("comp/v1"), &cfg_vis("private"));
-        assert_eq!(errs.len(), 0, "expected no errors under private, got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "expected no errors under private, got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -5200,7 +5241,10 @@ mod tests {
         let m = &class_notices[0].message;
         assert!(m.contains("\"I111\""), "notice names the node id");
         assert!(m.contains("\"blocked\""), "notice names the declared class");
-        assert!(m.contains("\"terminal\""), "notice names the observed state");
+        assert!(
+            m.contains("\"terminal\""),
+            "notice names the observed state"
+        );
         assert!(m.contains("\"done\""), "notice names the expected class");
         assert_eq!(class_notices[0].code, "FC07");
     }
@@ -5214,7 +5258,9 @@ mod tests {
 
     #[test]
     fn check_fc07_no_op_on_well_formed_plan() {
-        let doc = doc_md(&well_formed_plan("    class I1 ready\n    class I2 blocked\n"));
+        let doc = doc_md(&well_formed_plan(
+            "    class I1 ready\n    class I2 blocked\n",
+        ));
         let errs = check_fc07(&doc, &spec_for("plan/v1"));
         assert_eq!(errs.len(), 0, "expected no FC07 notices, got {:?}", errs);
     }
@@ -5243,7 +5289,11 @@ mod tests {
             .iter()
             .filter(|e| e.message.contains("no matching table row"))
             .count();
-        assert_eq!(orphans, 1, "expected one orphan-node notice, got {:?}", errs);
+        assert_eq!(
+            orphans, 1,
+            "expected one orphan-node notice, got {:?}",
+            errs
+        );
         assert!(errs.iter().any(|e| e.message.contains("\"I2\"")));
     }
 
@@ -5285,8 +5335,9 @@ mod tests {
         let doc = doc_md(md);
         let errs = check_fc07(&doc, &spec_for("plan/v1"));
         assert!(
-            errs.iter().any(|e| e.message.contains("no matching dependency")
-                && e.message.contains("I1 --> I2")),
+            errs.iter()
+                .any(|e| e.message.contains("no matching dependency")
+                    && e.message.contains("I1 --> I2")),
             "expected orphan-edge notice; got {:?}",
             errs
         );
@@ -5424,7 +5475,10 @@ mod tests {
             .iter()
             .filter(|e| e.message.contains("no mermaid block under"))
             .count();
-        assert_eq!(missing_block, 1, "expected exactly one missing-block notice");
+        assert_eq!(
+            missing_block, 1,
+            "expected exactly one missing-block notice"
+        );
         let per_row = errs
             .iter()
             .filter(|e| e.message.contains("no matching diagram node"))
@@ -5474,7 +5528,9 @@ mod tests {
         // Smoke check that FC07 consumes the four extractor views: a
         // well-formed plan that exercises nodes, edges, class
         // assignments, and classDefs returns no notices.
-        let doc = doc_md(&well_formed_plan("    class I1 ready\n    class I2 blocked\n"));
+        let doc = doc_md(&well_formed_plan(
+            "    class I1 ready\n    class I2 blocked\n",
+        ));
         let errs = check_fc07(&doc, &spec_for("plan/v1"));
         assert_eq!(errs.len(), 0, "expected no FC07 notices; got {:?}", errs);
     }
@@ -5628,7 +5684,8 @@ mod tests {
         let missing: Vec<&ValidationError> = errs
             .iter()
             .filter(|e| {
-                e.message.contains("Issues column with no matching diagram node")
+                e.message
+                    .contains("Issues column with no matching diagram node")
                     && e.message.contains("\"I11\"")
             })
             .collect();
@@ -5650,8 +5707,7 @@ mod tests {
         let orphan: Vec<&ValidationError> = errs
             .iter()
             .filter(|e| {
-                e.message.contains("no matching table row")
-                    && e.message.contains("\"I99\"")
+                e.message.contains("no matching table row") && e.message.contains("\"I99\"")
             })
             .collect();
         assert_eq!(
@@ -5994,7 +6050,12 @@ mod tests {
                 line
             );
             // No pre-announcement leakage.
-            for word in ["upcoming", "unreleased", "internal beta", "pre-announcement"] {
+            for word in [
+                "upcoming",
+                "unreleased",
+                "internal beta",
+                "pre-announcement",
+            ] {
                 assert!(
                     !lower.contains(word),
                     "pre-announcement language {:?} in FC07 doc-comment: {:?}",
@@ -6066,7 +6127,8 @@ mod tests {
         let doc = doc_md(&md);
         let errs = check_fc08(&doc, &spec_for("plan/v1"));
         assert!(
-            errs.iter().any(|e| e.message.contains("Legend names class `mystery`")),
+            errs.iter()
+                .any(|e| e.message.contains("Legend names class `mystery`")),
             "expected Sub A notice naming mystery; got {:?}",
             errs
         );
@@ -6083,7 +6145,9 @@ mod tests {
         let doc = doc_md(&md);
         let errs = check_fc08(&doc, &spec_for("plan/v1"));
         assert!(
-            !errs.iter().any(|e| e.message.contains("Legend names class `done`")),
+            !errs
+                .iter()
+                .any(|e| e.message.contains("Legend names class `done`")),
             "Sub A should tolerate canonical palette names; got {:?}",
             errs
         );
@@ -6100,8 +6164,9 @@ mod tests {
         let doc = doc_md(&md);
         let errs = check_fc08(&doc, &spec_for("plan/v1"));
         assert!(
-            errs.iter().any(|e| e.message.contains("classDef needsExplore") &&
-                                e.message.contains("Legend does not name it")),
+            errs.iter()
+                .any(|e| e.message.contains("classDef needsExplore")
+                    && e.message.contains("Legend does not name it")),
             "expected Sub B notice naming needsExplore; got {:?}",
             errs
         );
@@ -6136,9 +6201,9 @@ mod tests {
         let doc = doc_md(&md);
         let errs = check_fc08(&doc, &spec_for("plan/v1"));
         assert!(
-            errs.iter().any(|e| e.message.contains("`needs-design`") &&
-                                e.message.contains("`needsDesign`") &&
-                                e.message.contains("camelCase")),
+            errs.iter().any(|e| e.message.contains("`needs-design`")
+                && e.message.contains("`needsDesign`")
+                && e.message.contains("camelCase")),
             "expected Sub C notice naming both forms; got {:?}",
             errs
         );
@@ -6148,7 +6213,11 @@ mod tests {
             .iter()
             .filter(|e| e.message.contains("Legend does not name it"))
             .count();
-        assert_eq!(sub_b_count, 0, "Sub B should not double-fire under normalization; got {:?}", errs);
+        assert_eq!(
+            sub_b_count, 0,
+            "Sub B should not double-fire under normalization; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -6295,7 +6364,10 @@ mod tests {
         // Roadmap profile spec also engages (issues_table_columns non-
         // empty). The check function's gate is identical for both.
         let errs_roadmap = check_fc08(&doc, &spec_for("roadmap/v1"));
-        assert!(!errs_roadmap.is_empty(), "roadmap profile should engage FC08");
+        assert!(
+            !errs_roadmap.is_empty(),
+            "roadmap profile should engage FC08"
+        );
     }
 
     #[test]
@@ -6308,7 +6380,12 @@ mod tests {
         );
         let doc = doc_md(&md);
         let errs = check_fc08(&doc, &spec_for("brief/v1"));
-        assert_eq!(errs.len(), 0, "non-issues-table format should no-op; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "non-issues-table format should no-op; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -6321,7 +6398,11 @@ mod tests {
         );
         let doc = doc_md(&md);
         let errs = check_fc08(&doc, &spec_for("plan/v1"));
-        assert!(errs.len() >= 3, "expected at least one notice from each sub-check; got {:?}", errs);
+        assert!(
+            errs.len() >= 3,
+            "expected at least one notice from each sub-check; got {:?}",
+            errs
+        );
         for e in &errs {
             assert_eq!(e.code, "FC08", "all FC08 notices must have code=FC08");
             assert!(
@@ -6419,12 +6500,12 @@ mod tests {
             "Legend: =, =, =",
             "Legend: a =, = b",
             "Legend: ////",
-            "Legend: \u{0080}\u{ff}",  // multi-byte UTF-8 entry contents
-            "**Legend**: \u{1F600} = emoji-class",  // emoji color
+            "Legend: \u{0080}\u{ff}", // multi-byte UTF-8 entry contents
+            "**Legend**: \u{1F600} = emoji-class", // emoji color
         ];
         for input in cases {
             let body = vec![input.to_string()];
-            let _ = extract_legend(&body, 0);  // must not panic
+            let _ = extract_legend(&body, 0); // must not panic
         }
     }
 
@@ -6680,8 +6761,12 @@ mod tests {
         let fixture = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | other/private#42 | simple |\n| _Alpha._ | | |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1[\"#1: alpha\"]\n    classDef ready fill:#bbdefb\n    class I1 ready\n```\n";
         let doc = doc_md(fixture);
         let ctx = pr_ctx();
-        let mock = MockIssueStateClient::new()
-            .with_issue("other", "private", 42, Err(ClientError::Forbidden));
+        let mock = MockIssueStateClient::new().with_issue(
+            "other",
+            "private",
+            42,
+            Err(ClientError::Forbidden),
+        );
         let errs = check_fc09(&doc, &spec_for("plan/v1"), &mock, Some(&ctx));
         let cross_skips: Vec<_> = errs
             .iter()
@@ -6753,7 +6838,12 @@ mod tests {
         );
         let mock = MockIssueStateClient::new();
         let errs = check_fc09(&doc, &spec_for("design/v1"), &mock, None);
-        assert_eq!(errs.len(), 0, "no-op on non-issues-table format; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "no-op on non-issues-table format; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -6830,7 +6920,12 @@ mod tests {
     fn check_writing_style_clean_body_no_notices() {
         let doc = doc_with_body("test.md", &["This is clean prose.", "Nothing banned here."]);
         let errs = check_writing_style(&doc, &spec_for("brief/v1"));
-        assert_eq!(errs.len(), 0, "clean body must produce no FC10 notices; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "clean body must produce no FC10 notices; got {:?}",
+            errs
+        );
     }
 
     /// The seven terms the superseded compile-time constant carried.
@@ -6855,7 +6950,8 @@ mod tests {
             let doc = doc_with_body("t.md", &[line.as_str()]);
             let errs = check_writing_style(&doc, &spec_for("brief/v1"));
             assert!(
-                errs.iter().any(|e| e.code == "FC10" && e.message.contains(word)),
+                errs.iter()
+                    .any(|e| e.code == "FC10" && e.message.contains(word)),
                 "FC10 should detect banned word {word:?}; got {errs:?}"
             );
         }
@@ -6980,10 +7076,7 @@ words:
         // the finding must point at the first occurrence, not line 1.
         let filler = vec!["word"; 400].join(" ");
         let dashes = vec!["a — b"; 12].join(" ");
-        let mut doc = doc_with_body(
-            "t.md",
-            &[&filler, "", &dashes, "", &dashes],
-        );
+        let mut doc = doc_with_body("t.md", &[&filler, "", &dashes, "", &dashes]);
         doc.body_start_line = 10;
         let errs = check_prose_frequency(&doc, &rules);
         assert_eq!(errs.len(), 1, "per document, not per occurrence");
@@ -7031,7 +7124,11 @@ words:
     fn check_writing_style_case_insensitive() {
         let doc = doc_with_body("t.md", &["TIER one is required.", "Robust design."]);
         let errs = check_writing_style(&doc, &spec_for("brief/v1"));
-        assert!(errs.len() >= 2, "case-insensitive matches expected; got {:?}", errs);
+        assert!(
+            errs.len() >= 2,
+            "case-insensitive matches expected; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -7116,7 +7213,12 @@ words:
     fn check_plan_design_field_consistency_skip_no_upstream() {
         let doc = plan_doc_with_sections(vec![], &["- [ ] **foo**: bar"]);
         let errs = check_plan_design_field_consistency(&doc, &spec_for("plan/v1"));
-        assert_eq!(errs.len(), 0, "graceful skip when no upstream; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "graceful skip when no upstream; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -7128,7 +7230,12 @@ words:
         doc.fields
             .insert("upstream".to_string(), fv("docs/designs/DESIGN-x.md", 6));
         let errs = check_plan_design_field_consistency(&doc, &spec_for("plan/v1"));
-        assert_eq!(errs.len(), 0, "identical shapes are compatible; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "identical shapes are compatible; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -7158,7 +7265,12 @@ words:
     fn check_eval_fixture_frontmatter_skips_non_fixture_paths() {
         let doc = doc_with_body("docs/briefs/BRIEF-foo.md", &["<!-- comment -->", "---"]);
         let errs = check_eval_fixture_frontmatter(&doc, &spec_for("brief/v1"));
-        assert_eq!(errs.len(), 0, "non-fixture path should be skipped; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "non-fixture path should be skipped; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -7180,10 +7292,20 @@ words:
     fn check_eval_fixture_frontmatter_clean_baseline() {
         let doc = doc_with_body(
             "skills/foo/evals/fixture.md",
-            &["---", "schema: brief/v1", "---", "<!-- after frontmatter is OK -->"],
+            &[
+                "---",
+                "schema: brief/v1",
+                "---",
+                "<!-- after frontmatter is OK -->",
+            ],
         );
         let errs = check_eval_fixture_frontmatter(&doc, &spec_for("brief/v1"));
-        assert_eq!(errs.len(), 0, "frontmatter-first should pass; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "frontmatter-first should pass; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -7218,7 +7340,12 @@ words:
             ],
         );
         let errs = check_claude_md_conventions(&doc, &spec_for("brief/v1"));
-        assert_eq!(errs.len(), 0, "well-formed header should pass; got {:?}", errs);
+        assert_eq!(
+            errs.len(),
+            0,
+            "well-formed header should pass; got {:?}",
+            errs
+        );
     }
 
     #[test]
@@ -7503,9 +7630,9 @@ words:
         // Remove the **Acceptance Criteria**: line + bullet for Issue 1.
         body.remove(10); // bullet
         body.remove(9); // header (now line 9 after first removal)
-        // Wait, ordering: original body[9]="**Goal**: ..."; body[10]="**AC**:";
-        // body[11]="- [ ] first AC". So we need to remove the AC header and bullet.
-        // Let me redo carefully — instead remove by content.
+                        // Wait, ordering: original body[9]="**Goal**: ..."; body[10]="**AC**:";
+                        // body[11]="- [ ] first AC". So we need to remove the AC header and bullet.
+                        // Let me redo carefully — instead remove by content.
         let mut body = well_formed_single_pr_body();
         body.retain(|l| !l.starts_with("**Acceptance Criteria**:"));
         body.retain(|l| !l.starts_with("- [ ] first AC"));
@@ -7536,7 +7663,98 @@ words:
     }
 
     #[test]
-    fn check_fc14_sub_c_unresolved_dependency_fires() {
+    fn check_fc17_is_error_level_in_both_postures() {
+        use crate::validate::{effective_severity, ReviewPosture, Severity};
+        // The point of splitting the code out was the severity. If FC17 ever
+        // resolves to a notice, the fail-open case this check exists for is
+        // back to passing validation at exit 0.
+        assert_eq!(
+            effective_severity("FC17", ReviewPosture::Draft),
+            Severity::Error
+        );
+        assert_eq!(
+            effective_severity("FC17", ReviewPosture::Ready),
+            Severity::Error
+        );
+    }
+
+    #[test]
+    fn check_fc17_bare_numeric_dependency_fires() {
+        // The #275 case: `**Dependencies**: 3` used to validate at exit 0 and
+        // then extract to a task with no edge.
+        let mut body = well_formed_single_pr_body();
+        for line in body.iter_mut() {
+            if line.starts_with("**Dependencies**: Blocked by <<ISSUE:1>>") {
+                *line = "**Dependencies**: 1".to_string();
+            }
+        }
+        let doc = make_plan_doc("single-pr", 2, body);
+        let errs = check_fc17(&doc, &plan_spec());
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "FC17" && e.message.contains("'1'")),
+            "expected FC17 for the bare numeric dependency; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn check_fc17_silent_on_a_well_formed_plan() {
+        let doc = make_plan_doc("single-pr", 2, well_formed_single_pr_body());
+        assert!(check_fc17(&doc, &plan_spec()).is_empty());
+    }
+
+    #[test]
+    fn check_fc17_silent_on_multi_pr() {
+        // multi-pr's authoritative content is the Implementation Issues
+        // table; its dependency resolution is FC06's.
+        let doc = make_plan_doc("multi-pr", 2, well_formed_single_pr_body());
+        assert!(check_fc17(&doc, &plan_spec()).is_empty());
+    }
+
+    #[test]
+    fn check_fc14_no_longer_reports_unresolved_dependencies() {
+        // The finding moved wholesale rather than being duplicated: one
+        // defect must not produce both a notice and an error.
+        let mut body = well_formed_single_pr_body();
+        for line in body.iter_mut() {
+            if line.starts_with("**Dependencies**: Blocked by <<ISSUE:1>>") {
+                *line = "**Dependencies**: Blocked by Issue 42".to_string();
+            }
+        }
+        let doc = make_plan_doc("single-pr", 2, body);
+        assert!(
+            !check_fc14(&doc, &plan_spec())
+                .iter()
+                .any(|e| e.message.contains("unresolved dependency")),
+            "FC14 must not duplicate the FC17 finding"
+        );
+    }
+
+    #[test]
+    fn check_fc14_reports_a_nonconforming_heading_at_notice_level() {
+        let mut body = well_formed_single_pr_body();
+        let tail = body
+            .iter()
+            .position(|l| l == "## Implementation Sequence")
+            .expect("the helper body ends with an Implementation Sequence section");
+        body.insert(tail, "### 4. not an outline heading".to_string());
+        let doc = make_plan_doc("single-pr", 2, body);
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.iter().any(|e| e.code == "FC14"
+                && e.message.contains("4. not an outline heading")
+                && e.message.contains("opens no outline")),
+            "expected the FC14 non-conforming-heading finding; got {:?}",
+            errs
+        );
+    }
+
+    /// Retargeted from `check_fc14` to `check_fc17`: the unresolved-dependency
+    /// finding moved codes so it could carry an error severity the rest of
+    /// FC14 does not. The input and the asserted behavior are unchanged.
+    #[test]
+    fn check_fc17_unresolved_dependency_fires() {
         let mut body = well_formed_single_pr_body();
         // Swap Issue 2's deps to reference a non-existent sibling.
         for line in body.iter_mut() {
@@ -7545,12 +7763,12 @@ words:
             }
         }
         let doc = make_plan_doc("single-pr", 2, body);
-        let errs = check_fc14(&doc, &plan_spec());
+        let errs = check_fc17(&doc, &plan_spec());
         assert!(
-            errs.iter().any(|e| e.code == "FC14"
+            errs.iter().any(|e| e.code == "FC17"
                 && e.message.contains("unresolved dependency")
                 && e.message.contains("Issue 42")),
-            "expected FC14 notice for unresolved dep 'Issue 42'; got {:?}",
+            "expected FC17 error for unresolved dep 'Issue 42'; got {:?}",
             errs
         );
     }
@@ -7694,7 +7912,8 @@ words:
 
     // Canonical empty-skeleton fragments (marker + empty header / empty
     // mermaid block), per skills/roadmap/references/roadmap-format.md.
-    const II_MARKER: &str = "<!-- Populated by /plan during decomposition. Do not fill manually. -->";
+    const II_MARKER: &str =
+        "<!-- Populated by /plan during decomposition. Do not fill manually. -->";
     const II_EMPTY_HEADER: &str = "<!-- Populated by /plan during decomposition. Do not fill manually. -->\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|";
     const DG_EMPTY_MERMAID: &str = "<!-- Populated by /plan during decomposition. Do not fill manually. -->\n\n```mermaid\ngraph TD\n```";
 

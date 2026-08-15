@@ -554,9 +554,6 @@ mod tests {
         let doc = make_doc(body, vec![("Features", 1)]);
         let features = parse_features(&doc);
         assert_eq!(features.len(), 1);
-        assert_eq!(
-            features[0].label,
-            "Safe; rm -rf /tmp/foo && echo HIJACKED"
-        );
+        assert_eq!(features[0].label, "Safe; rm -rf /tmp/foo && echo HIJACKED");
     }
 }
