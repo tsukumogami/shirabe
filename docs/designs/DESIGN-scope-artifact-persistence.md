@@ -308,8 +308,17 @@ survivor or `none` at the terminal fold, the verdict, a serialization of the
 carry check's section names and outcomes — never section text — and the blob hash
 of the pre-fold original, recomputed at fold time rather than promoted from the
 existing snapshot, which is captured post-invocation and can differ from the
-bytes actually deleted. Field values SHALL be rejected if they contain the field
-separator or a newline, so a crafted path cannot forge a row boundary.
+bytes actually deleted. The serializer SHALL **reject** rather than escape any
+value containing the field separator or a newline, routing to `keep`, so a
+crafted path cannot forge a row boundary. Nothing can break a row today, because
+every value is drawn from a closed vocabulary or a slug-composed path — but that
+safety is inherited from the enum validations rather than stated, and closing the
+`absorbed:` prefix gap is what makes it load-bearing.
+
+The checker SHALL also assert that the record's hunk in a pull-request diff is
+**additions only**. Union merge resolves silently with no conflict marker, so a
+semantically odd file merges clean and rows are mutable in practice; the
+pre-deletion append ordering is what makes an additions-only assertion sound.
 
 The record is of the operation, never the distillate. Any destination preserving
 absorbed content must assert, every time it fires, that the verdict was partly
@@ -502,6 +511,25 @@ target's path and the survivor's path, both composed from the validated topic sl
 rather than from author input, and both passed after `--`. The script cannot
 write. Its fail-safe is the default-deny routing above.
 
+**Enum re-validation covers four fields, not two.** `hop:` and `verdict:` join the
+list as the decision reports asked, and two more that this work promotes or
+inherits. `stage:` is a new enum replacing `absorbable:`, and introducing one
+enum while retiring another without listing it repeats the omission `verdict:`
+already has. The **`absorbed:` basename prefix** is a discriminator that lives
+outside the state file entirely — in a tracked, hand-editable, default-branch
+document — and it selects a contribution heading, feeds `required_sections_for`,
+and is serialized into the record. An unrecognised prefix fails the new
+error-level check closed and the fold does not proceed.
+
+**One claim in an earlier draft of this section was false, and the field it was
+false about is fixed here.** `visibility:` is read back from the state file and
+interpolated into an emitted command — `shirabe validate --format json
+--visibility=<value>` — so "no untrusted input reaches an emitted command" was not
+true of `/scope` before this change. A tampered value both routes the validator's
+governance rules and lands on a command line. It joins the re-validation list,
+validated against `Public | Private`. This is a pre-existing defect; the list
+amendment is the natural place to close it.
+
 **The visibility boundary is crossed at the splice, not at the record.** The
 record holds paths, section names and outcomes — never section text — so it cannot
 become a content channel. But the `upstream:` splice inherits the absorbed
@@ -517,8 +545,16 @@ would pass. That is acceptable because the record is an audit aid rather than an
 authorization, and nothing reads it to decide anything — but it should not be
 described as proof that a fold was legitimate.
 
-No new runtime dependency, no external URL, no credential, and no untrusted input
-reaches an emitted command.
+**A partial absorb is never resumed.** The absorb now has a durable staged write
+before the deletion, so a chain interrupted between them is a reachable state.
+The natural implementation would read the absorbed and survivor paths back out of
+the state file into a `git rm` — precisely the surface the enum re-validation
+contract exists to close. Instead: the row is un-appended, nothing is deleted,
+and the hop is re-derived from scratch or left at `keep`. This is also the guard
+against a double append through the resume ladder's re-run path.
+
+No new runtime dependency, no external URL, and no credential. With the
+`visibility:` fix above, no untrusted input reaches an emitted command.
 
 ## Consequences
 
