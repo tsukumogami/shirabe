@@ -1,57 +1,45 @@
 # Verdict: PASS
 
-Reviewer: structural-format (Phase 4 two-reviewer jury)
-Target: `docs/briefs/BRIEF-skill-preflight-checks.md` (247 lines)
-Format reference: `/Users/danielgazineu/.claude/plugins/cache/shirabe/shirabe/0.16.1-dev/skills/brief/references/brief-format.md`
+Reviewer: structural-format (Phase 4 two-reviewer jury, re-check after content revision)
+Target: `docs/briefs/BRIEF-skill-preflight-checks.md` (275 lines, up from 247)
+Prior verdict: PASS. Re-run is a full structural check, not a diff-only pass.
 
 ## Checks
 
-1. **Frontmatter — PASS.** `schema: brief/v1` present on line 2. All three required fields present: `status` (line 3), `problem` (lines 4-8), `outcome` (lines 9-13). Both `problem` and `outcome` are YAML literal block scalars (`|`) at 4 content lines each, inside the 2-4 line window. Optional `motivating_context` (lines 14-18) is a well-formed `|` block scalar, 4 content lines, and carries situational trigger content distinct from `problem` and `outcome` as the format reference requires. `upstream:` is absent, which is correct here rather than an omission: no ROADMAP grounded this brief (the Status section records that the work started from an exploration, not from a sequenced roadmap feature), and the format reference lists `upstream` as optional precisely for briefs authored from a freeform topic. Byte inspection of lines 1-19 via `od -c` confirms clean `---` delimiters and no trailing-whitespace or CRLF damage.
+1. **Frontmatter — PASS, and the `problem:` field is not stale.** `schema: brief/v1` on line 2. Required fields all present: `status` (L3), `problem` (L4-8), `outcome` (L9-13). Both are YAML literal block scalars (`|`) at 4 content lines, inside the 2-4 line window. Optional `motivating_context` (L14-18) is a well-formed `|` block scalar, 4 content lines, carrying situational-trigger content distinct from `problem` and `outcome`.
 
-2. **FC02 — PASS.** Frontmatter `status: Draft`. `Draft` is one of the three valid statuses (Draft, Accepted, Done).
+   Substance match against the revised body, checked field by field:
+   - `problem:` asserts three things — skills call six named host tools; almost none of those calls declares what it needs or checks it is there; a missing or *surface-drifted* tool does not stop the run, it takes a wrong branch and continues. The rewritten first paragraph (L40-52) now says guards *do* exist for `shirabe`, `git`, and `jq` but live inside scripts several layers below the skill, and that a skill body never says what it needs. That is a sharpening of "almost none of those calls says what it needs or checks that it is there," not a contradiction of it: the field's claim is about the call site and the skill body, which is exactly what the new paragraph narrows to. The new final paragraph (L104-117) answers two recorded counter-positions and introduces no claim the frontmatter contradicts. The "surface has drifted" clause is if anything better supported after the revision than before, since L73-85 now states outright that not one of the five incidents is a plain missing tool.
+   - `outcome:` — one declaration site, verified when the skill loads, host-resolved instruction, silence on a satisfied machine. All four map onto `## User Outcome` (L119-141) unchanged.
+   - `motivating_context:` — five filed incidents, the silent koto-subcommand success, twelve children dispatched at a branch nobody created. Matches L80-85 and the rewritten Journey 2 (L156-167).
 
-3. **FC03 — PASS (verified byte-exactly).** `od -c` of lines 23-26 returns:
-   `#   #       S   t   a   t   u   s  \n  \n   D   r   a   f   t  \n  \n`
-   The entire first non-blank line under `## Status` is the bare word `Draft` — no trailing prose, no period, no trailing whitespace. It matches frontmatter `status: Draft` exactly (and therefore case-insensitively). The explanatory prose (the exploration-provenance paragraph and the downstream-PRD-ownership paragraph) begins on line 27, after a blank line, which is the shape the format reference prescribes. This is the check that most commonly fails; it does not fail here.
+   `upstream:` remains correctly absent (no ROADMAP grounded this brief; the Status section records exploration provenance). `od -c` over L1-19 confirms clean `---` delimiters, no CRLF, no trailing whitespace.
 
-4. **FC04 / FC15 — PASS.** Heading scan returns, in file order:
-   - L23 `## Status`
-   - L38 `## Problem Statement`
-   - L94 `## User Outcome`
-   - L118 `## User Journeys`
-   - L168 `## Scope Boundary`
-   - L213 `## Open Questions`
-   - L235 `## References`
+2. **FC02 — PASS.** Frontmatter `status: Draft`, one of the three valid statuses.
 
-   All five required sections are present and in canonical order. The two optional sections both sit after `Scope Boundary` and appear in the Section Matrix's own order (Open Questions, then — with Downstream Artifacts absent — References), so no optional section interrupts the required ordering. `Open Questions` is permitted because status is `Draft`. Sub-headings (`###`) appear only under `User Journeys` (five journeys) and `Scope Boundary` (`### In`, `### Out`), which is legal sub-structure and does not affect FC04/FC15 `##`-level matching.
+3. **FC03 — PASS (verified byte-exactly).** `od -c` of L23-27 returns `#   #       S   t   a   t   u   s  \n  \n   D   r   a   f   t  \n  \n   T   h   e ...`. The first non-blank line under `## Status` is the bare word `Draft` alone — no trailing prose, no period, no trailing space. Matches frontmatter `status: Draft`. Explanatory prose resumes on L27 after a blank line.
 
-5. **Public-visibility cleanliness — PASS.** Repo is public (`CLAUDE.md` line 6: `## Repo Visibility: Public`). Grep for `private/`, `vision`, `coding-tools`, and `overlay` returns no matches. Every issue reference in the brief is a public `shirabe` issue: `shirabe#80` (L60), `shirabe#270` (L68 and L230), `shirabe#279` (L70), plus `/work-on 214` (L122) as an illustrative public issue number in a journey. No `tsukumogami/vision#NNN`, no `tsukumogami/coding-tools#NNN`, no private filenames or internal codenames. The host paths that do appear (`~/.tsuku/tools/current/`, `~/.tsuku/env`) are user-machine paths for a publicly documented tool, not private-repo references.
+4. **FC04 / FC15 — PASS.** Heading scan, in file order: L23 `## Status`, L38 `## Problem Statement`, L119 `## User Outcome`, L143 `## User Journeys`, L196 `## Scope Boundary`, L242 `## Open Questions`, L262 `## References`. Five required sections present in canonical order. Both optional sections trail `Scope Boundary` in Section Matrix order (Open Questions, then References; Downstream Artifacts absent). `Open Questions` is legal because status is `Draft`. `###` sub-headings appear only under `User Journeys` (five journeys, Journey 2 rewritten in place with its heading intact) and `Scope Boundary` (`### In`, `### Out`), which does not affect `##`-level matching.
 
-6. **wip/ hygiene — PASS.** `grep -n 'wip/'` over the brief returns no matches (exit 1). No `wip/...` path appears in frontmatter, prose, the Open Questions section, or References. All four References entries are durable repo-relative paths, and there is no Downstream Artifacts section to check.
+5. **Public-visibility cleanliness — PASS.** Repo is public. Case-insensitive grep for `private/`, `vision`, `coding-tools`, `overlay`, `dot-niwa` returns zero matches across the whole file, including the six edited regions. Every issue reference is a public shirabe issue: `shirabe#80` (L69), `shirabe#270` (L78, L112), `shirabe#279` (L80, L167), plus `/work-on 214` (L148) as an illustrative public issue number. The revision added `shirabe#270` at L112 and `shirabe#279` at L167 — both public, both fine. Host paths (`~/.tsuku/tools/current/`, `~/.tsuku/env`) are user-machine paths for a publicly documented tool.
 
-7. **Writing style — PASS.** Rulebook read from `skills/writing-style/rules.yaml` (schema `writing-style-rules/v1`) and `skills/writing-style/SKILL.md`. A word-boundary, case-insensitive grep over the full banned-terms list — organizing, verbs, descriptors, abstract-nouns, and adverb-openers categories, with the repo's declared vocabulary (`tier`, `journey`, `underscore`) excluded per `CLAUDE.md` line 11 — returns zero matches. `journey` does appear (section heading and journey prose) and is correctly not flagged, since it is declared vocabulary; note the declaration is term-scoped, and no variant such as `journeys` used outside the section sense creates a separate problem here. Frequency rule `em-dash-density`: the document contains zero U+2014 em dash characters (`grep -c '—'` returns 0); the author consistently uses the double-hyphen `--` form, which the pattern does not match, so the rule cannot fire. Judgment-only rule spot check: `landscape` does not appear; no forced rule-of-three or empty-conclusion pattern observed at the structural level.
+6. **wip/ hygiene — PASS.** `grep -n 'wip/'` over the brief returns no matches. No `wip/...` path in frontmatter, prose, Open Questions, or References. All four References entries are durable repo-relative paths; no Downstream Artifacts section.
 
-8. **Referenced-path existence — PASS.** Every repo-relative path cited, in References and in prose, resolves on disk:
+7. **Writing style — PASS, checked fresh over the full revised text.** Rulebook read from `skills/writing-style/rules.yaml` (schema `writing-style-rules/v1`). Word-boundary, case-insensitive grep over every banned term in all five categories — with `tier`, `journey`, and `underscore` excluded as shirabe's declared vocabulary per CLAUDE.md — returns zero matches. Adverb-opener grep at sentence-start and after a period returns zero. Frequency rule `em-dash-density`: `grep -c '—'` returns 0; the author uses `--` throughout, which the pattern does not match, so the rule cannot fire. Judgment-only spot checks on the new prose: `landscape` absent; no forced rule-of-three; the two added paragraphs (L104-117 and the Journey 2 rewrite) both end on a load-bearing claim rather than a restatement, so the empty-conclusion rule does not bite. The longest new sentence chains at L112-117 are varied in length and every `that`/`which` in them has a local antecedent.
 
-   References section:
-   - `references/fixes/cli-version-preflight.md` — exists (4003 bytes). The brief's claim that it is "a hundred and eight lines" is accurate: `wc -l` returns 108.
-   - `skills/inflight/SKILL.md` — exists (5633 bytes).
-   - `skills/execute/scripts/preflight.sh` — exists (1542 bytes, mode 755).
-   - `docs/briefs/BRIEF-shirabe-check-absorption.md` — exists (8029 bytes).
+8. **Referenced-path existence — PASS.** Every repo-relative path in prose and References resolves on disk:
 
-   Prose:
-   - `skills/work-on/SKILL.md` (L42) — exists (17724 bytes).
-   - `.tsuku.toml` (L80) — exists (190 bytes).
-   - `.tsuku-recipes/shirabe.toml` (L220) — exists (684 bytes).
-   - `run-cascade.sh` (L46, L207) — cited by bare filename rather than path; resolves to `skills/execute/scripts/run-cascade.sh`.
-   - `DESIGN-shirabe-pattern-v1-ergonomics` (L229) — cited by document name rather than path; resolves to `docs/designs/current/DESIGN-shirabe-pattern-v1-ergonomics.md`.
-   - `skills/inflight/SKILL.md` (L184, Scope Boundary) — same file as above, exists.
+   References: `references/fixes/cli-version-preflight.md` (4003 bytes, 108 lines — the brief's "a hundred and eight lines" at L94-95 is still accurate), `skills/inflight/SKILL.md` (5633), `skills/execute/scripts/preflight.sh` (1542, mode 755), `docs/briefs/BRIEF-shirabe-check-absorption.md` (8029).
 
-   Two corpus counts the brief asserts also check out: "shirabe's twenty skills" (L39, L165, L172) matches the 20 directories under `skills/`, and "Nine of shirabe's twenty skills" is consistent with that denominator. The two bare-name citations (`run-cascade.sh`, `DESIGN-shirabe-pattern-v1-ergonomics`) are unambiguous — each resolves to exactly one file in the repo — so neither is a dangling reference, though a downstream PRD may prefer full paths.
+   Prose: `skills/work-on/SKILL.md` (L43, 17724), `.tsuku.toml` (L90, 190), `.tsuku-recipes/shirabe.toml` (L249, 684), `run-cascade.sh` (L50, L235 — bare filename, resolves uniquely to `skills/execute/scripts/run-cascade.sh`, 39988), `references/fixes/cli-version-preflight.md` again at L94 and L247.
+
+   The path the revision turns on, checked exactly as specified: **`docs/designs/current/DESIGN-shirabe-pattern-v1-ergonomics.md` exists** (86976 bytes). The revised text cites it at L105 as the bare document name `DESIGN-shirabe-pattern-v1-ergonomics` in backticks, which resolves to that one file and nothing else in the repo — not a dangling reference.
+
+   Corpus counts still check out: `ls skills | wc -l` returns 20, matching "shirabe's twenty skills" (L40, L193, L200) and the "nine of shirabe's twenty" denominator (L193).
 
 ## Validator output
 
-Binary used: `shirabe` on PATH, resolving to `/Users/danielgazineu/.tsuku/tools/current/shirabe` -> `/Users/danielgazineu/.tsuku/tools/shirabe-0.16.0/bin/shirabe`, reporting `shirabe v0.16.0`. The fallback path was not needed; PATH and the `~/.tsuku/tools/current/shirabe` fallback are the same binary.
+Binary: `shirabe` on PATH -> `/Users/danielgazineu/.tsuku/tools/current/shirabe`, `shirabe v0.16.0`.
 
 Command:
 
@@ -79,9 +67,10 @@ Output (verbatim), exit code 0:
 
 ## Required changes (if FAIL)
 
-None. All eight checks pass and the validator reports `clean` with zero errors and zero notices under `--visibility=public`.
+None. All eight checks pass on the revised file and the validator reports `clean` with zero errors and zero notices under `--visibility=public`. The six content edits introduced no structural, visibility, hygiene, style, or path regression, and the frontmatter `problem` block did not go stale against the rewritten Problem Statement.
 
-Two optional, non-blocking observations for the author, neither of which affects the verdict:
+Three optional, non-blocking observations, none affecting the verdict:
 
-1. `run-cascade.sh` (L46, L207) and `DESIGN-shirabe-pattern-v1-ergonomics` (L229) are cited by bare name rather than repo-relative path. Both resolve unambiguously today, so this is not a dangling-reference violation, but full paths (`skills/execute/scripts/run-cascade.sh`, `docs/designs/current/DESIGN-shirabe-pattern-v1-ergonomics.md`) would survive a file move and match how the References section already cites its entries.
-2. `Open Questions` is populated, which is correct and expected for `Draft`. It must be empty or removed before the Draft -> Accepted transition; flagging here only so the finalization step does not encounter it as a surprise.
+1. `run-cascade.sh` (L50, L235) and `DESIGN-shirabe-pattern-v1-ergonomics` (L105) are cited by bare name rather than repo-relative path. Both resolve unambiguously today; full paths (`skills/execute/scripts/run-cascade.sh`, `docs/designs/current/DESIGN-shirabe-pattern-v1-ergonomics.md`) would survive a file move and match how References already cites. The design doc is now load-bearing in the argument, so it is the stronger candidate for promotion into the References section.
+2. Journey 5 (L189-194) says the check is silent for the nine skills that need nothing but a checkout, while the revised Scope Boundary bullet (L200-203) says four of those nine declare `shirabe transition`. The arithmetic is consistent (five truly empty declarations), but a reader meeting the journey first may take "silent for nine" literally. Content-reviewer territory, not structural.
+3. `Open Questions` is populated, correct for `Draft`; it must be emptied or removed before the Draft -> Accepted transition.
