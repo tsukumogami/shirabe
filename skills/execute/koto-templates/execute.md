@@ -327,7 +327,7 @@ SETTLED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 case "$SETTLED_BRANCH" in
   *[!A-Za-z0-9._/-]*|"") echo "refusing unsafe settled branch: $SETTLED_BRANCH" >&2; exit 1 ;;
 esac
-koto context set {{SESSION_NAME}} settled_branch "$SETTLED_BRANCH"
+printf '%s' "$SETTLED_BRANCH" | koto context add {{SESSION_NAME}} settled_branch
 ```
 
 On the create path this records `impl/$PLAN_SLUG` (the branch just checked out), preserving today's value byte-for-byte; on the override path it records the settled branch.

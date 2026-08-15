@@ -4,7 +4,7 @@ status: Active
 execution_mode: single-pr
 upstream: docs/designs/DESIGN-skill-preflight-checks.md
 milestone: "Skill Preflight Checks"
-issue_count: 19
+issue_count: 20
 ---
 
 # PLAN: Skill preflight checks
@@ -80,6 +80,34 @@ outline below is a building block whose value waits on a second PR,
 because there is no second PR.
 
 ## Issue Outlines
+
+### Issue 0: fix(execute): replace the nonexistent `koto context set` call
+
+**Goal**: Unblock `/execute` itself. `skills/execute/koto-templates/execute.md:330`
+calls `koto context set`, a subcommand koto has never had (`koto context`
+advertises `add`, `get`, `exists`, `list`). This is `shirabe#279`, and it sits in
+`orchestrator_setup`, so the step reports success and children dispatch against a
+branch that was never created.
+
+**Acceptance Criteria**:
+- [ ] No `koto context set` invocation remains anywhere under `skills/`.
+- [ ] The settled-branch value is stored through a verb koto advertises, reading
+      the value from stdin rather than an argument.
+- [ ] A roundtrip storing and retrieving the value returns it byte-for-byte.
+- [ ] The branch-name character-class guard immediately above the call is
+      preserved.
+
+**Dependencies**: None
+
+**Complexity**: simple
+**Type**: code
+**Files**: `skills/execute/koto-templates/execute.md`
+
+**Note**: This issue was added after the plan was authored. `#279` was cited
+throughout the upstream chain as the motivating incident, but the call site was
+not in the defect list the plan was built from — the list named lines 390 and 409
+and missed line 330. It surfaced when `/execute` was about to run against this
+plan and would have hit the defect the plan exists to prevent.
 
 ### Issue 1: fix(inflight): drop the injection marker from the documented track example
 
