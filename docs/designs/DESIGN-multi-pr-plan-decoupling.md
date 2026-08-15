@@ -91,8 +91,9 @@ removes."
 `DECISION-multi-pr-posture-detection-2026-06-06.md` explains the asymmetric
 Draft→Active gate by multi-pr being the moment remote artifacts are created.
 Nothing in `transition.rs` or `lifecycle.rs` implements that gate; it lives in
-prose in eleven places, seven of them Rust doc comments, and the phrasing
-varies across them. That changes what re-keying it means.
+prose at eleven sites across the tree — two of them Rust source files carrying
+seven comment occurrences between them — and the phrasing varies across them.
+That changes what re-keying it means.
 
 ## Decision Drivers
 
@@ -351,10 +352,15 @@ naming them here is load-bearing. A downstream issue whose acceptance criterion
 is "a grep for the old framing returns nothing" cannot pass unless its file list
 includes them.
 
-The phrasing is not uniform across the eleven sites — "human approval",
+Two properties of these sites defeat a single verification grep, and both were
+found the hard way during review. The phrasing is not uniform — "human approval",
 "human-approval", "human-approved", and at `phase-7-creation.md` "multi-pr-style
-approval gate" with no "human" in it. Any verification grep must cover all four
-forms or it passes while sites survive.
+approval gate" with no "human" in it — so a pattern must cover all four forms.
+And the mode is often named on a neighbouring line rather than the same one, so
+filtering to lines containing `multi-pr` silently drops `transition.rs:1960` and
+`:2011` and `lifecycle.rs:61` and `:764`. A file-scoped completeness grep over
+the six `re-key` files and a tree-wide discovery grep answer different questions
+and are both required; either alone passes while real sites survive.
 
 This also refutes the reading that the re-key is the same Phase 7 branch the
 tracking work already touches. Phase 7 is one site of eleven.

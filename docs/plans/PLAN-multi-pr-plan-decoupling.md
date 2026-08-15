@@ -280,13 +280,21 @@ changed while its decision stands.
   human-approved.
 - The decision record carries an amendment naming the new predicate and stating
   that the asymmetry itself is unchanged; it is not superseded.
-- `grep -rniE "multi-pr" skills/ crates/ docs/ | grep -iE "(human[ -]approv|approval gate)"`
-  returns hits only at the four sites the design marks `leave` and at the
-  amendment's own quotation. Every site marked `re-key` is absent from the output.
-  The two-stage pattern is load-bearing: an approval-term grep alone returns 157
-  corpus-wide hits from unrelated approval prose, and a narrower pattern misses
-  `lifecycle.rs:764` ("human-approved") and `phase-7-creation.md:263` ("approval
-  gate" with no "human"). Both failure modes were checked against the current tree.
+- **Completeness check, file-scoped.** `grep -cniE "(human[ -]approv|approval gate)"`
+  over the six `re-key` files returns zero for each. Before the change those
+  counts are `SKILL.md` 1, `plan-doc-structure.md` 3, `phase-7-creation.md` 1,
+  `plan-format.md` 0, `lifecycle.rs` 3, `transition.rs` 4 — twelve occurrences to
+  clear. Scoping to the named files rather than the tree is deliberate: the
+  pattern alone returns 157 corpus-wide hits from unrelated approval prose in
+  `/roadmap`, `/comp`, `/strategy` and `/brief`.
+- **Discovery check, tree-wide.** `grep -rniE "multi-pr" skills/ crates/ docs/ |
+  grep -iE "(human[ -]approv|approval gate)"` returns hits only at the four
+  `leave` sites and the amendment's quotation, catching any site the design's
+  table failed to enumerate. This check is deliberately paired with the one above
+  rather than used alone: it requires `multi-pr` on the *same line*, so it misses
+  `transition.rs:1960` and `:2011` and `lifecycle.rs:61` and `:764`, where the
+  mode is named on a neighbouring line. Either check alone passes while real
+  sites survive.
 - The gate-framing text at each of the four `leave` sites is unchanged, confirmed
   by `git diff` on the specific lines the design's table names. Re-keying a
   historical record is a defect, not thoroughness. Note this is a line-level

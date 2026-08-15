@@ -1,6 +1,6 @@
-# Category D: PASS
+# Category D: FAIL
 
-## Dependency graph re-derived from the outlines' current `**Dependencies**:` lines
+## Dependency graph (unchanged by this round's edits)
 
 ```
 1 -> 2 -> 3 -> 4 -> 8
@@ -8,57 +8,64 @@
 5 -> 7
 ```
 
-Two roots now (1 and 5), acyclic, all 8 issues accounted for. This matches
-the design's Batch 3 claim that the tracking-level batch "depends on Batch 1
-for nothing" — the earlier false 1→5 edge is gone and the plan's prose
-("Issue 5 has no dependencies at all... can start immediately, alongside
-Issue 1") is now accurate, including the corrected Parallel Opportunity
-paragraph.
+Still acyclic, still complete. The new finding below is a missing edge the
+graph should have, exposed only now that Issue 6's ACs got concrete.
 
-## Item 1: lifecycle.rs overlap between Issue 3, Issue 4, and Issue 6
+## New finding: Issue 6 and Issue 8 contend over the same file with no ordering edge between them (affected_issue_ids: [6, 8])
 
-Real file overlap, not a real ordering constraint. Issue 3 adds the `L09`
-check itself (new code) to `lifecycle.rs`; Issue 4 extends that same check's
-departure branch (also functional, and already correctly ordered after 3 via
-the declared 3→4 edge); Issue 6 only touches `lifecycle.rs`'s module doc
-comment, and its own goal text is explicit that this edit is "comment-only;
-no behaviour changes there." Issue 6's ACs never reference `L09`,
-`split_rationale`, or anything Issue 3/4 produce — they're entirely about the
-tracking-level-keyed approval gate. The two edits land in disjoint regions of
-the same file (a new/extended check function vs. a module-level doc comment)
-with no content dependency either direction, so this is a same-file
-coincidence to sequence consciously while implementing on one shared branch
-(to avoid a diff conflict), not a blocker the graph is missing. No edge
-needed between 3/4 and 6.
+Real contradiction, not a false alarm. Issue 6's new AC requires: "The four
+`leave` sites are byte-identical to their pre-change state, confirmed by
+`git diff`." One of those four sites is
+`docs/designs/current/DESIGN-roadmap-plan-standardization.md` — and Issue 8's
+entire job is to append an amendment to that exact file. Issue 8 depends only
+on Issue 4, Issue 6 depends only on Issue 5; nothing in the graph forces
+Issue 6 to run (and have its git-diff check pass) before Issue 8 touches the
+file. Nothing prevents it either — the two branches (1→2→3→4→8 and 5→6→…) are
+declared independent, and the plan's own Implementation Sequence highlights
+the critical path 1→2→3→4→8 as the spine to follow, which is precisely the
+order that reaches Issue 8 without Issue 6 having run first.
 
-## Item 2: Issue 3's new fixture AC (constructs `## Delivery Preference: atomic`)
+If Issue 8 lands before Issue 6, Issue 6's git-diff check on this file fails
+literally as written — the file will no longer be byte-identical to the
+pre-plan baseline, even though Issue 6 itself never touches it and Issue 8's
+addition is legitimate (an appended, clearly-separated section, per Issue 8's
+own AC, that doesn't disturb the historical framing at line 577 the `leave`
+designation is protecting). The design doc's own Decision E table already
+anticipates the tension and resolves it in prose — the row for this file
+reads "leave; amended separately by Decision 6's own amendment" — but that
+resolution never made it into a graph edge or into a scoped AC.
 
-Confirmed: not a real edge to Issue 4. The fixture calls
-`resolve_claude_md_header`, which the design states is pre-existing, shipped
-infrastructure ("Six `## <Noun Phrase>: <value>` headers already carry
-repository-scoped scalar preferences, with a documented registry and a
-tested Rust parser" — D1; "`resolve_claude_md_header`... the same walker
-`resolve_doc_visibility`... already share[s]"). It is a generic literal-text
-matcher, indifferent to whether a given header is registered in
-`claude-md-conventions.md`. Issue 4's job is to *document* the header in the
-registry and *wire step 3.6* to consult it for mode recommendations — neither
-of which `L09`'s own check depends on, since `L09` calls the resolver
-directly. Issue 3's fixture can author a throwaway CLAUDE.md with the literal
-string and exercise both branches before Issue 4 exists, exactly as the AC's
-own justification states. No missing 4→3 (or 3-before-4-blocked-by-4) edge.
+Two independent corrections would each close this; either is sufficient:
+- Add a declared dependency so Issue 8 also depends on Issue 6 (in addition
+  to Issue 4), guaranteeing Issue 6's whole-file diff check runs against a
+  still-pristine file.
+- Rescope Issue 6's AC from whole-file byte-identity to the specific
+  old-framing passage (line 577 and its immediate vicinity), so the check is
+  robust regardless of which order 6 and 8 run in. This is the more durable
+  fix since it makes the AC match what "leave" is actually protecting
+  (the historical framing text, not the file's total byte content) — the
+  other three `leave` sites (two untouched historical designs and the golden
+  fixture) have no other issue in this plan touching them, so only this one
+  site needs it.
 
-## Everything else re-confirmed on the current text
+Loop target 5 (Dependencies) — a missing edge / an AC whose truth depends on
+an unenforced order, exactly the shape phase-4's ordering-error criteria
+describe ("the dependency graph would allow parallel execution of issues
+that share a critical state dependency").
 
-- All declared edges (1→2, 2→3, 3→4, 4→8, 5→6, 5→7) check out against each
-  downstream issue's ACs, including the two new ones inspected above.
-- Issue 7 correctly depends only on Issue 5 (not Issue 6) at the issue level
-  even though the design describes Batch 4 as depending on "Batch 3" (5+6)
-  as a whole — extraction only needs the `tracking_level` field Issue 5
-  writes, not Issue 6's approval-gate prose re-key, so the plan's finer
-  granularity is a legitimate refinement of the design's coarser batch
-  dependency, not a contradiction.
-- Natural stopping point after Issue 3, and riskiest-issue-last (Issue 7)
-  placement, are unchanged from the prior pass and still hold: nothing in
-  1-3 depends on 4-8, no issue depends on 7, and the critical path 1→2→3→4→8
-  completes without it — a stall in 7 cannot strand the rest, and since the
-  plan lands as one PR no broken intermediate state is ever published.
+## Confirmed unaffected: the `lifecycle.rs` overlap between Issues 3 and 6
+
+Issue 6's Files list is unchanged (still `lifecycle.rs` and `transition.rs`
+among the seven, comment-only per its own goal text) and the new Goal text
+gives exact line numbers for its Rust edits — 52, 61, 764 in `lifecycle.rs`;
+263, 469, 1960, 2011 in `transition.rs` — all pre-existing comment lines,
+none of which is where Issue 3 appends the new `L09` check. The two issues
+still land in disjoint regions of the same file with no AC cross-reference
+either direction. Prior conclusion stands: same-file coincidence worth
+sequencing consciously on one shared branch, not a missing graph edge.
+
+## Everything else from prior passes still holds
+
+Natural stopping point after Issue 3, and Issue 7 (riskiest) placed last
+with nothing depending on it, are unaffected by this round's changes to
+Issue 6.
