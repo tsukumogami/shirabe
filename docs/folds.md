@@ -61,3 +61,4 @@ merge driver. There is no precedent to inherit.
 
 | Date | Absorbed | Into | Verdict | Carried | Blob |
 |---|---|---|---|---|---|
+| 2026-08-15 | docs/briefs/BRIEF-work-on-retry-clearing.md | docs/prds/PRD-work-on-retry-clearing.md | absorb | Absorbed-Brief=true Problem-Statement=true User-Outcome=true User-Journeys=true Scope-Boundary=true | 14b9f0d0f374b31744fe8f0ceba64a78fba4b4b2 |

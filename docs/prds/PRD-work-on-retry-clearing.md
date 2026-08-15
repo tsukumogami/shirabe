@@ -16,7 +16,7 @@ goals: |
   gate the workflow evaluates rather than prose an agent may skip. All three
   retry-bearing phases behave the same way, and the phase files describe the
   mechanics they actually have.
-upstream: docs/briefs/BRIEF-work-on-retry-clearing.md
+absorbed: docs/briefs/BRIEF-work-on-retry-clearing.md
 source_issue: 304
 ---
 
@@ -24,9 +24,47 @@ source_issue: 304
 
 Accepted
 
+Absorbed [BRIEF-work-on-retry-clearing](docs/briefs/BRIEF-work-on-retry-clearing.md); carried in Absorbed Brief.
+
 Requirements only. The mechanism that satisfies R2 and R3 is left open for the
 DESIGN, which settles it through a recorded decision -- one live option changes
 another repository, so it is not a choice to make in passing.
+
+## Absorbed Brief
+
+The feature is the contract a blocking retry owes the next round of review.
+
+**The problem it solves.** `/work-on` sends work back when a review panel finds
+something blocking, and then lets the same panel's previous verdict satisfy the
+gate that was supposed to demand a new one. The verdict that sent the work back
+is the verdict that waves it through on the way past. Nothing in the workflow
+distinguishes a review that ran this round from one that ran before the fix,
+because the only thing guarding each phase asks whether a results artifact
+exists and never asks which round produced it.
+
+**The outcome a user should experience.** An agent whose implementation is sent
+back gets a genuinely fresh verdict on the next pass: the phases the retry
+re-enters refuse a `passed` outcome until this round's reviewers have written
+their results, and they refuse it structurally rather than by asking the agent
+nicely. An operator whose invalidation step fails learns so from a sentence on
+a stream they have not redirected away, instead of from a merged pull request
+whose review panel never ran. And a maintainer editing the retry directive
+later finds a test failing rather than a workflow quietly degrading.
+
+**Where the boundary sits, and why it is drawn there.** The feature holds in the
+retry contract for all three retry-bearing review phases -- `scrutiny`,
+`review`, and `qa_validation` -- rather than the one the filed issue names. The
+three are not similar bugs; they are one traversal. Every `blocking_retry`
+routes to `implementation`, and `implementation` routes forward into `scrutiny`,
+so a retry re-enters every review phase at or above the one that raised it. A
+fix confined to `scrutiny` would make the first gate of every retry honest and
+leave the next two satisfied by the previous round's artifacts -- not a smaller
+fix, but the same hole two states further along the same path.
+
+What it holds out is the mechanism. Which command or state-machine shape forces
+the fresh verdict is a technical choice with more than one defensible answer and
+one option that reaches a second repository, so it belongs to the DESIGN and to
+a recorded decision rather than to the framing.
 
 ## Problem Statement
 
