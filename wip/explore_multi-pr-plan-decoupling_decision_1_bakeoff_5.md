@@ -230,6 +230,63 @@ Concretely:
 
 ## 5. Recommendation
 
+## Final Position
+
+**Cross-examination questions, answered directly.**
+
+**Q1/Q2 -- does the recording slot serve both halves, and is that an argument
+for one design or two?** It serves only the cardinality half, and that is an
+argument for two designs, agreeing with Validator 4. `split_rationale`
+records why `execution_mode` left `single-pr` -- a P1 question about whether
+a hard constraint or genuine value forced a split. The tracking half (does a
+`multi-pr` plan materialize GitHub issues) is a different kind of decision:
+it is an org's configured preference, not a claim that something was forced.
+The shipped precedent for that preference, `## Roadmap Issues:
+optional|required` (`skills/roadmap/SKILL.md:123,153,169`,
+`references/fixes/claude-md-conventions.md:64`), needs no rationale field --
+nobody has to prove the choice was forced, because there's no forced/
+preferred ambiguity to resolve on that axis the way there is on cardinality.
+`wip/explore_multi-pr-plan-decoupling_findings.md:116-123` (T2) independently
+confirms this: a tracking field is "genuinely" a different kind of value than
+`execution_mode`, not a second slot of the same shape. So one field with two
+facets is the wrong shape -- the facets don't share a validation contract.
+The honest reading is two independent records (one rationale field for
+cardinality, one preference header for tracking), which is itself evidence
+the two halves are separable by principle and belong in two designs, not
+one. My earlier bakeoff scoped `split_rationale` to the cardinality half only
+for exactly this reason, though I hadn't yet connected it explicitly to the
+one-design/two-design question -- doing so now, the answer is two.
+
+**Q3 -- `split_rationale` (free text) vs. `split_trigger` (enum), defended.**
+An enum requires the trigger taxonomy to already be settled, and Research
+Finding 3 shows it isn't: the coordination-altitude triggers can't be lifted
+verbatim ("independently mergeable"/"rollback-able" over-fire at plan
+altitude; the DAG-cycle trigger doesn't apply without a DAG), so a legal
+plan-altitude enum has to be authored fresh -- which means deciding Option
+2's substance now, defeating Alternative 5's own premise of deferring the
+posture question. Locking an enum into `required_fields` also makes the
+value set part of the schema's durable contract; widening or correcting it
+later is a migration across every existing PLAN doc, where free text is not.
+The objection is fair that unconstrained free text degrades to "did the
+author type something" -- the fix isn't an enum, it's a structural check
+short of one: the L09-class lifecycle check validates that the text names
+one of SKILL.md's two authorized categories (`skills/plan/SKILL.md:150-158`:
+"hard constraint" or "independently useful" value), by requiring the field
+to state which branch it's invoking and a one-line justification, not by
+accepting arbitrary prose. That's stronger than non-emptiness without
+pre-committing to a taxonomy the decision hasn't settled, and it matches the
+existing precedent: Design's `rationale` field (`formats.rs:232`) is free
+text too, not an enum, for the same class of "justify a choice" slot.
+
+**Net.** Consensus holds on the sequencing point: ship the recording
+mechanism regardless of which posture option wins. New from this
+cross-examination: the mechanism itself is evidence for two designs, not
+one, because it doesn't actually unify the two halves -- and `split_trigger`
+should not become an enum in this pass, both because the taxonomy isn't
+ready and because free text with a structural (not merely non-empty) check
+avoids pre-deciding Option 2 while still being meaningfully more than "some
+text exists."
+
 Alternative 5 is honestly better understood as a **sequencing answer that
 composes with Option 1 or Option 2, not a competitor to either.** It answers
 a different question than the one posed. The decision question asks which
