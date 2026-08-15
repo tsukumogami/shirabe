@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-issue-outlines-one-parser.md
 problem: |
   Three independent parsers read a single-pr PLAN's `## Issue Outlines`
@@ -28,7 +28,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
