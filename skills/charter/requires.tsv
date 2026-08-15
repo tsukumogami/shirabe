@@ -1,0 +1,15 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# The finalization pass-through invokes `shirabe validate --format json
+# --visibility=<repo-visibility>` against the Draft STRATEGY and parses the
+# versioned validator envelope. Both flags are load-bearing: `--format json`
+# is what makes the output parseable, and `--visibility` overrides per-file
+# detection with the repo posture the parent already resolved.
+#
+# git backs the child-doc drift check (`git hash-object -w`), the dispatch
+# liveness check (`git log`), and the rejection path's `git rm`.
+#
+# /charter opens no PR itself -- its children do -- so no gh record appears.
+shirabe	validate	--format,--visibility	always
+git	-	-	always

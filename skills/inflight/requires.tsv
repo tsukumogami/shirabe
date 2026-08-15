@@ -1,0 +1,11 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# `render` is the skill: /inflight injects it and relays its output verbatim.
+# `track` is the sanctioned recovery for a PR the capture hook missed, and it
+# is the only other verb the skill body tells anyone to run.
+#
+# The `gh pr view` and `gh pr list` mentions describe what `work-summary` does
+# inside itself; /inflight never calls gh.
+shirabe	work-summary render	-	always
+shirabe	work-summary track	-	always

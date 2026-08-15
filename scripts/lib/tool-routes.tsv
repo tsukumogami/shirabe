@@ -35,3 +35,27 @@ gh	tsuku	linux	never	-	tsukumogami/tsuku#2245
 gh	tsuku	darwin	tsuku tsuku-info	tsuku install gh@latest && . ~/.tsuku/env	-
 gh	homebrew	darwin	brew -	brew install gh	-
 gh	apt-get	linux	apt-get -	sudo apt-get install -y gh	-
+#
+# jq, git, and python3 are the independent-cadence tools of
+# references/tool-declaration-policy.md. They are routed here because the
+# declaration reader rejects any field-one value absent from this column, and
+# the skills call all three. The commands below are the ones this repo already
+# proves: check-plan-scripts.yml, check-execute-scripts.yml, and run-evals.yml
+# install jq with exactly these two lines, so the route table repeats what CI
+# does rather than inventing a third way. No tsuku route is claimed for any of
+# the three -- none is known to resolve under `tsuku info`, and a route that
+# guesses is worse than one that is absent.
+#
+# git and python3 are effectively always present on a developer host: git
+# because a shirabe skill only ever runs inside a checkout, python3 because
+# both macOS and every CI image ship it and two scripts use it as the portable
+# realpath. Their routes are therefore near-unreachable in practice, and that
+# is the point -- an absent-tool block still names one real command instead of
+# saying it does not know.
+#
+jq	homebrew	darwin	brew -	brew install jq	-
+jq	apt-get	linux	apt-get -	sudo apt-get install -y jq	-
+git	homebrew	darwin	brew -	brew install git	-
+git	apt-get	linux	apt-get -	sudo apt-get install -y git	-
+python3	homebrew	darwin	brew -	brew install python3	-
+python3	apt-get	linux	apt-get -	sudo apt-get install -y python3	-

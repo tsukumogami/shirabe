@@ -1,0 +1,22 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# Phase 1 and Phase 7 move the upstream design to Planned; no flag is on either
+# call line.
+#
+# gh is always rather than mode:multi-pr because Resume Logic checks for
+# existing issues with `gh issue list --search` on every run, before the
+# execution mode is known. Issue creation, labelling, and milestone work in
+# Phase 7 multi-pr add more gh subcommands but no new tool.
+#
+# jq backs build-dependency-graph.sh (Phase 5) and create-issues-batch.sh;
+# python3 is the portable realpath in validate-plan.sh; git backs the same
+# script's tracked-file test and the Phase 7 wip-hygiene scan.
+#
+# The `shirabe validate --lifecycle` and `--lifecycle-chain` lines in SKILL.md
+# describe the CI workflow and the /execute cascade. /plan does not run either.
+shirabe	transition	-	always
+gh	-	-	always
+jq	-	-	always
+git	-	-	always
+python3	-	-	always

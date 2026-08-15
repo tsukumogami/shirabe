@@ -1,0 +1,42 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# The heaviest declaration in the corpus, and every record is `always`. There
+# is no mode declaration here because /work-on has no named execution mode that
+# gates a call: issue-backed, free-form, and plan-backed all run the same koto
+# loop over the same template, differing only in the entry evidence they submit
+# to `koto next`. A reader looking for a mode: record should stop looking.
+#
+# `koto context remove` is deliberately absent: the corrected call site keeps
+# the extracted context under its own key rather than removing one.
+#
+# Subcommands and their depended-on flags:
+#   init            --template picks the work-on template, --var carries
+#                   ISSUE_NUMBER / ARTIFACT_PREFIX
+#   next            --with-data submits phase evidence; the whole loop turns
+#                   on it
+#   workflows       resume lookup, no flag
+#   rewind          step back after a failed gate, no flag
+#   context add     --from-file for the file-backed keys (context.md,
+#                   introspection.md, plan.md); the stdin heredoc form of the
+#                   same subcommand takes no flag
+#   context get     reads plan.md and context.md in Phase 4, no flag
+#   decisions record  --with-data carries the decision object
+#
+# gh reads the issue and drives the PR; git rebases, pushes, and inspects the
+# worktree; jq builds the JSON in references/scripts/extract-context.sh.
+#
+# Two flags a line-level extractor will surface here are not koto's and are
+# deliberately absent: `--pr-body` names what CI enforces on the authored PR
+# body (phase-6-pr.md), and `--session` is extract-context.sh's own argument,
+# mentioned on comment lines that also name `koto context add`.
+koto	init	--template,--var	always
+koto	next	--with-data	always
+koto	workflows	-	always
+koto	rewind	-	always
+koto	context add	--from-file	always
+koto	context get	-	always
+koto	decisions record	--with-data	always
+gh	-	-	always
+git	-	-	always
+jq	-	-	always

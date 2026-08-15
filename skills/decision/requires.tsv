@@ -1,0 +1,7 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# Explicitly empty. /decision's SKILL.md and its seven phase files contain no
+# shirabe, koto, gh, jq, git, or python3 call line -- the skill is agent work
+# end to end. This file exists so the state is declared rather than missing:
+# an absent sidecar is undeclared and fails the conformance scan.

@@ -1,0 +1,18 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# The issueless population is unconditional -- Phase 4 runs it after the jury
+# resolves, and the activate path re-runs it before the transition -- so
+# `roadmap populate --no-issues` is always-required. The flag is named because
+# the subcommand's default flipped once while its surface stayed identical; no
+# path in this skill may depend on that default.
+#
+# Issue-creating mode is reached only by an explicit post-approval invocation.
+# It is where the milestone and mapping flags appear, and it is the only path
+# that reaches GitHub: `--no-issues` makes no gh call of any kind, so gh is
+# declared for that mode and not always.
+shirabe	roadmap populate	--no-issues	always
+shirabe	transition	-	always
+git	-	-	always
+shirabe	roadmap populate	--issues,--milestone,--milestone-description,--output-map	mode:issues
+gh	-	-	mode:issues

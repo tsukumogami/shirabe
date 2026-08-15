@@ -1,0 +1,6 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# Explicitly empty. /writing-style revises prose against rules.yaml. Its two
+# `shirabe` mentions are the repository name in the vocabulary-declaration
+# prose, not a command line.

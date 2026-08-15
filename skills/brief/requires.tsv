@@ -1,0 +1,12 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# Phase 5 transitions the BRIEF to Accepted, removes a rejected draft with
+# `git rm`, and opens the PR with `gh pr create`. No flag appears on any of
+# those command lines.
+#
+# The `shirabe validate` mentions in this skill describe what CI runs against
+# the finished BRIEF, not a call /brief makes.
+shirabe	transition	-	always
+git	-	-	always
+gh	-	-	always

@@ -1,0 +1,11 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# Phase 5 transitions the COMP to Accepted with no flag.
+# references/comp-format.md runs validation as `shirabe validate --visibility
+# private <file>`: COMP is private-only, so the visibility value is the whole
+# point of the call rather than an optional refinement.
+#
+# /comp deliberately opens no PR, which is why no `gh` record appears here.
+shirabe	transition	-	always
+shirabe	validate	--visibility	always

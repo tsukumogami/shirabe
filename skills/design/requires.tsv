@@ -1,0 +1,17 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# Phase 0 moves the upstream PRD to In Progress and references/lifecycle.md
+# carries the Superseded form, whose `--superseded-by` names the superseding
+# doc.
+#
+# Phase 0 also names `shirabe validate --lifecycle-chain <prd-path>` as the
+# single authority on whether the upstream chain is at a consumable posture,
+# instead of restating a status comparison. The flag is what scopes the check
+# to the one chain, so it is named.
+#
+# Phase 6 runs the wip-hygiene scan with `git grep`, removes a rejected draft
+# with `git rm`, and commits the rationale with `git commit -F`.
+shirabe	transition	--superseded-by	always
+shirabe	validate	--lifecycle-chain	always
+git	-	-	always
