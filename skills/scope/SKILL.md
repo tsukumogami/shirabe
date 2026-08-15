@@ -631,7 +631,11 @@ R8's bail-handling, surfacing each error-severity finding as
 check code, so it is not prepended again) so the author sees which
 check failed in plain terms; **1 (tool-error)** is a validator
 failure DISTINCT from a content violation (the validator could
-not run) and halts without reporting a document violation.
+not run) and halts without reporting a document violation;
+**4 (incomplete)** means the validator accepted the intermediate
+and then did not check it (its `schema:` is missing or out of
+range) and halts, surfacing the envelope's `skipped` entries —
+also not a content violation, because the content was never read.
 `/scope` does NOT auto-fix validator failures and does NOT
 re-implement the validator's checks — only the consumption
 mechanism changed (JSON parse plus multi-level exit code). The

@@ -133,15 +133,15 @@ about the fourth value, so a consumer reading the contract learns it rather than
 discovering it.
 
 **Acceptance Criteria**:
-- [ ] The exit-code table in the multi-consumer CLI contract guide carries the
+- [x] The exit-code table in the multi-consumer CLI contract guide carries the
       new row and states its position in the severity ordering.
-- [ ] The guide states that a consumer distinguishing only zero from non-zero is
+- [x] The guide states that a consumer distinguishing only zero from non-zero is
       unaffected, and that the incomplete outcome means an input was accepted and
       then not checked rather than that a document is defective.
-- [ ] Every skill reference that enumerates the validator's exit codes names the
+- [x] Every skill reference that enumerates the validator's exit codes names the
       new value, and none is left stating a three-value or four-value ladder that
       omits it.
-- [ ] The JSON envelope's `skipped` array is documented alongside the findings
+- [x] The JSON envelope's `skipped` array is documented alongside the findings
       list, named as diagnosis that accompanies the exit code rather than
       replacing it.
 
