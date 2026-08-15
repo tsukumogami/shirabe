@@ -15,12 +15,25 @@ chain_skipped: []
 chain_ran:
   - name: brief
     started_at: 2026-08-15T19:58:00Z
+  - name: prd
+    started_at: 2026-08-15T20:12:00Z
+consolidation_judgments:
+  - hop: brief->prd
+    stage: judgment
+    carry_check:
+      Problem Statement: {target: Problem Statement, carried: true}
+      User Outcome:      {target: Goals, carried: true}
+      User Journeys:     {target: User Stories, carried: true}
+      Scope Boundary:    {target: Out of Scope + Requirements, carried: true}
+    verdict: absorb
+    absorbed: docs/briefs/BRIEF-multi-pr-plan-decoupling.md
+    into: docs/prds/PRD-multi-pr-plan-decoupling.md
 worktree_rebases:
   - phase: brief
     upstream_commits: [83d29e1, 778913e, b8b20eb, e227d7a]
     impact: informational
 parent_orchestration:
-  invoking_child: prd
+  invoking_child: design
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 child_snapshots:
