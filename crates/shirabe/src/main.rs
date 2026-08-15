@@ -16,10 +16,10 @@ use shirabe_validate::{
     check_coordination_body, check_pr_body, check_slug_prefix, detect_format, detect_pr_draft,
     explain_advisory, format_error, format_notice, is_known_check_code, is_notice, parse_doc,
     render_human_with_advisory, render_json_with_advisory, resolve_doc_visibility,
-    run_lifecycle_chain_check, run_lifecycle_check, run_merge_gate, run_transition, validate_file,
-    walk_chain_mode, AdvisoryReport, Config, Flags, GhSubprocessClient, GhVisibilityResolver,
-    MergeGateOutcome, Mode, ParseError, PrPosture, ReviewPosture, SlugPrefixCheck, ValidationError,
-    SCHEMA_SKIP_CODE,
+    root_has_artifact_dirs, run_lifecycle_chain_check, run_lifecycle_check, run_merge_gate,
+    run_transition, validate_file, walk_chain_mode, AdvisoryReport, Config, Flags,
+    GhSubprocessClient, GhVisibilityResolver, MergeGateOutcome, Mode, ParseError, PrPosture,
+    ReviewPosture, SlugPrefixCheck, ValidationError, ARTIFACT_DIRS, SCHEMA_SKIP_CODE,
 };
 
 mod plan_outlines;
@@ -1127,6 +1127,24 @@ fn run_lifecycle(
     let root_path = std::path::Path::new(root);
     if !root_path.exists() {
         eprintln!("--lifecycle root {} does not exist", root);
+        return ValidateOutcome::ToolError.exit();
+    }
+    // `--lifecycle` takes a REPOSITORY root and joins `docs/briefs` and its
+    // siblings beneath it. Handed a docs directory it looks for
+    // `docs/docs/briefs`, finds nothing, indexes zero documents and reports a
+    // clean tree it never opened — two baseline measurements in an earlier
+    // investigation were false negatives for exactly this. Refuse the root
+    // instead.
+    //
+    // The condition is the absence of every artifact directory, not an empty
+    // index: a root that carries the directories with no documents in them has
+    // an empty corpus, which is a legitimate state and still reports clean.
+    if !root_has_artifact_dirs(root_path) {
+        eprintln!(
+            "--lifecycle root {} carries none of {}; it expects a repository root, not a docs directory",
+            root,
+            ARTIFACT_DIRS.join(", ")
+        );
         return ValidateOutcome::ToolError.exit();
     }
     let findings = run_lifecycle_check(root_path, &cfg, posture);

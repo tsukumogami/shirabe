@@ -82,17 +82,17 @@ none of the artifact directories it walks exists beneath the root, instead of
 indexing zero documents and reporting a clean tree.
 
 **Acceptance Criteria**:
-- [ ] The six-entry artifact-directory list inside the doc-index walk is a
+- [x] The six-entry artifact-directory list inside the doc-index walk is a
       module-level constant, and a public predicate answers whether any of them
       exists beneath a given root, so the list has one source.
-- [ ] `shirabe validate --lifecycle docs` run from the repository root exits 1
+- [x] `shirabe validate --lifecycle docs` run from the repository root exits 1
       and prints a message naming the root and what was expected beneath it.
-- [ ] `shirabe validate --lifecycle .` run from the repository root indexes the
+- [x] `shirabe validate --lifecycle .` run from the repository root indexes the
       corpus and exits 0 under `--mode=draft`.
-- [ ] A root that carries the artifact directories but no documents in them
+- [x] A root that carries the artifact directories but no documents in them
       still reports clean, because an empty corpus is a legitimate state and a
       mistyped root is not.
-- [ ] `cargo test --workspace` passes, and no existing test file has been
+- [x] `cargo test --workspace` passes, and no existing test file has been
       edited.
 
 **Dependencies**: Blocked by <<ISSUE:1>>
