@@ -461,20 +461,48 @@ process_single_pr() {
     # 64 chars: koto rejects names with length_out_of_range above this limit (empirically verified)
     local KOTO_NAME_MAX=64
 
-    # Collect the parsed outlines. Fields are joined with U+0001 and the
-    # unresolved list with U+0002: the envelope's writer escapes control
-    # characters, so neither can appear inside a value.
+    # Collect the parsed outlines: one field per line, seven lines per outline.
+    #
+    # The obvious shape -- one line per outline with the fields joined by a
+    # control character -- does not work on the bash floor this script targets.
+    # bash 3.2's `read` cannot split on a control character below tab: given
+    # IFS=$'\001' and "1\001foo\001bar" it strips the separators and assigns
+    # "1foobar" to the first variable, with no error. Tab does split, but a tab
+    # can legitimately appear inside an outline title. A newline cannot -- every
+    # value here comes from a single source line -- so the line break is the one
+    # separator no value can contain.
+    #
+    # The list fields are pre-joined by jq rather than split here: waits_on is
+    # numbers (space-safe), files keeps the space-joined shape the ownership
+    # loop below already assumes, and the unresolved list is joined straight
+    # into its display form because nothing reads its elements individually.
+    #
+    # The stream is fed by process substitution, not `<<< "$(...)"`. Command
+    # substitution strips every trailing newline, so an outline whose last
+    # fields are empty -- the common case: no unresolved deps, no Type, no
+    # Files -- loses them, and the record's reads then hit EOF mid-way. The
+    # loop still runs in this shell, so the arrays it fills survive it.
     local -a issue_numbers=()
     local -a issue_titles=()
     local -a issue_declared=()    # true|false -- a **Dependencies**: line or ### Dependencies section
     local -a issue_waits=()       # space-separated sibling numbers
-    local -a issue_unresolved=()  # U+0002-separated tokens naming no sibling
+    local -a issue_unresolved=()  # display string; empty means everything resolved
     local -a issue_types=()       # empty string = not specified
     local -a issue_files=()       # space-separated paths (backticks already stripped)
 
-    local o_number o_title o_declared o_none o_waits o_unresolved o_type o_files
-    while IFS=$'\001' read -r o_number o_title o_declared o_none o_waits o_unresolved o_type o_files; do
+    local o_number o_title o_none o_waits o_unresolved o_type o_files
+    while IFS= read -r o_number; do
+        # A trailing blank line from the here-string is not a record. Guard
+        # before the reads below, which at EOF would fail and, under `set -e`,
+        # abort the script.
         [[ -n "$o_number" ]] || continue
+        IFS= read -r o_title
+        IFS= read -r o_none
+        IFS= read -r o_waits
+        IFS= read -r o_unresolved
+        IFS= read -r o_type
+        IFS= read -r o_files
+
         issue_numbers+=("$o_number")
         issue_titles+=("$o_title")
         # "Declares dependencies" means the author wrote something other than
@@ -489,17 +517,15 @@ process_single_pr() {
         issue_unresolved+=("$o_unresolved")
         issue_types+=("$o_type")
         issue_files+=("$o_files")
-    done <<< "$(printf '%s' "$envelope" | jq -r '
+    done < <(printf '%s' "$envelope" | jq -r '
         .outlines[]
-        | [ (.number|tostring),
-            .title,
-            (.dependencies_declared|tostring),
-            (.dependencies_none|tostring),
-            (.waits_on | map(tostring) | join(" ")),
-            (.unresolved_dependencies | join("\u0002")),
-            (.type // ""),
-            (.files | join(" ")) ]
-        | join("\u0001")')"
+        | (.number|tostring),
+          .title,
+          (.dependencies_none|tostring),
+          (.waits_on | map(tostring) | join(" ")),
+          (.unresolved_dependencies | join(", ")),
+          (.type // ""),
+          (.files | join(" "))')
 
     local count="${#issue_numbers[@]}"
     if [[ $count -eq 0 ]]; then
@@ -523,8 +549,7 @@ process_single_pr() {
     local i
     for i in "${!issue_numbers[@]}"; do
         if [[ -n "${issue_unresolved[$i]}" ]]; then
-            local pretty="${issue_unresolved[$i]//$'\002'/, }"
-            die_schema "issue ${issue_numbers[$i]} declares dependencies that name no sibling outline: ${pretty}. Task extraction would drop these edges, so the declared ordering would be lost. Use 'None', 'Issue <N>', or the <<ISSUE:N>> placeholder."
+            die_schema "issue ${issue_numbers[$i]} declares dependencies that name no sibling outline: ${issue_unresolved[$i]}. Task extraction would drop these edges, so the declared ordering would be lost. Use 'None', 'Issue <N>', or the <<ISSUE:N>> placeholder."
         fi
     done
 

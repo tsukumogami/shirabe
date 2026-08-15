@@ -2299,6 +2299,89 @@ FIXTURE
 # ── Fixture: an unresolvable dependency refuses rather than dropping the edge ──
 # The #275 fail-open case. A reference in a shape the parser does not
 # recognize used to be dropped silently and the orchestrator ran the work
+# ── Fixture: outlines whose trailing envelope fields are all empty ──
+# Regression guard for the record-framing bug the macOS leg caught. The
+# envelope is read as a fixed number of lines per outline, and the common
+# outline -- no unresolved deps, no **Type**, no **Files** -- ends in three
+# empty fields. Reading the stream through `<<< "$(...)"` dropped them,
+# because command substitution strips every trailing newline, and the last
+# outline's reads then hit EOF mid-record. Two outlines, so the bug shows up
+# as a truncated record rather than an empty result.
+test_single_pr_trailing_empty_fields_survive() {
+    local name="single-pr outlines with no Type/Files still parse (trailing-empty-field framing)"
+    setup
+
+    cat > "$TEST_DIR/plan-trailing.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Draft
+execution_mode: single-pr
+milestone: "Trailing"
+issue_count: 2
+---
+
+# PLAN: trailing
+
+## Status
+
+Draft
+
+## Scope Summary
+
+Outlines carrying none of the optional annotations.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: first
+
+**Goal**: First.
+
+**Dependencies**: None
+
+### Issue 2: feat: second
+
+**Goal**: Second.
+
+**Dependencies**: Blocked by Issue 1
+
+## Implementation Sequence
+
+Issue 1 then Issue 2.
+FIXTURE
+
+    local output rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-trailing.md" 2>/dev/null) || rc=$?
+
+    if [[ $rc -ne 0 ]]; then
+        fail "$name" "expected exit 0, got $rc"
+        teardown
+        return
+    fi
+
+    local count
+    count=$(echo "$output" | jq 'length' 2>/dev/null) || true
+    if [[ "$count" != "2" ]]; then
+        fail "$name" "expected 2 entries, got: $count (output: $output)"
+        teardown
+        return
+    fi
+    pass "$name (both outlines survive)"
+
+    local second_waits
+    second_waits=$(echo "$output" | jq -r '.[1].waits_on[0] // ""' 2>/dev/null) || true
+    if [[ "$second_waits" == "o-feat-first" ]]; then
+        pass "$name (the last outline's edge survives)"
+    else
+        fail "$name" "expected the second outline to wait on o-feat-first, got: '$second_waits'"
+    fi
+
+    teardown
+}
+
 # unordered; extraction now refuses.
 test_single_pr_unresolvable_dependency_refuses() {
     local name="single-pr unresolvable dependency refuses instead of emitting an edgeless task set (#275)"
@@ -2681,6 +2764,7 @@ test_single_pr_deps_colon_outside_bold
 test_single_pr_deps_colon_inside_bold
 test_single_pr_deps_colon_both_forms_identical_structure
 test_parser_colon_placements_are_equivalent
+test_single_pr_trailing_empty_fields_survive
 test_single_pr_unresolvable_dependency_refuses
 test_single_pr_missing_sibling_refuses
 test_single_pr_noncanonical_headings_fail_closed
