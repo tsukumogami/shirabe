@@ -2,9 +2,14 @@
 topic: skill-adherence-enforcement
 chain_started: 2026-08-15T19:59:34Z
 last_updated: 2026-08-15T20:02:00Z
-phase_pointer: phase-2
-exit: UNSET
-exit_artifacts: []
+phase_pointer: phase-3
+exit: full-run
+exit_artifacts:
+  - docs/briefs/BRIEF-skill-adherence-enforcement.md
+  - docs/prds/PRD-skill-adherence-enforcement.md
+  - docs/designs/DESIGN-skill-adherence-enforcement.md
+  - docs/plans/PLAN-skill-adherence-enforcement.md
+plan_execution_mode: single-pr
 planned_chain:
   - brief
   - prd
@@ -22,6 +27,36 @@ chain_ran:
     completed_at: 2026-08-15T20:41:00Z
     artifact: docs/prds/PRD-skill-adherence-enforcement.md
     validator: clean
+  - name: design
+    started_at: 2026-08-15T20:42:00Z
+    completed_at: 2026-08-15T21:02:00Z
+    artifact: docs/designs/DESIGN-skill-adherence-enforcement.md
+    validator: clean
+  - name: plan
+    started_at: 2026-08-15T21:03:00Z
+    completed_at: 2026-08-15T21:12:00Z
+    artifact: docs/plans/PLAN-skill-adherence-enforcement.md
+    validator: clean
+consolidation_judgments:
+  - edge: brief-to-prd
+    verdict: keep
+    reason: >-
+      The BRIEF carries four user journeys and a scope boundary whose OUT items
+      the PRD cites rather than restates. Folding would lose the journeys, which
+      the acceptance criteria trace back to.
+  - edge: prd-to-design
+    verdict: keep
+    reason: >-
+      The PRD holds 19 requirements and 28 acceptance criteria that the DESIGN
+      cites by number throughout. Folding would move the contract into the
+      document that is supposed to satisfy it.
+  - edge: design-to-plan
+    verdict: keep
+    reason: >-
+      The DESIGN records five decisions with their rejected alternatives and the
+      evidence that rejected them, plus a security analysis. The PLAN cites the
+      decisions and does not reproduce them; folding would put an audit trail
+      into a document the cascade deletes on completion.
 visibility: Public
 execution_mode: auto
 max_rounds: 5
@@ -38,10 +73,6 @@ child_snapshots:
     status: Accepted
     content_hash: 0c272547257036315de8999c2d85189acac5b1a9
     captured_at: 2026-08-15T20:41:00Z
-parent_orchestration:
-  invoking_child: design
-  suppress_status_aware_prompt: true
-  rationale: fresh-chain
 worktree_rebases:
   - phase: brief
     upstream_commits:
