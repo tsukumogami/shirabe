@@ -227,3 +227,50 @@ itself says which of the two regimes produced it. Alternative 1 without
 Alternative 5 is a real, shippable improvement that concedes the trust goal
 in half the config space; Alternative 1 with Alternative 5 is the version I'd
 actually recommend building.
+
+## Final Position
+
+**1. Posture and tracking are genuinely orthogonal, and this decision doesn't
+touch tracking at all.** Confirmed against
+`wip/explore_multi-pr-plan-decoupling_findings.md` and `_decisions.md`:
+tracking is already scoped as its own axis (T2, accepted), bound to P2 ("a
+self-contained PLAN doc over GitHub issues when the work is single-pr"), with
+its own precedent-shaped header (`## Roadmap Issues:`-style, likely `## Plan
+Issues:`) on the same `flag > header > default` stack. `atomic` does not imply
+"and also file GitHub issues" — an `atomic` repo wanting small PRs but no
+issue-tracking overhead, or a `consolidated` repo that still wants issues
+filed for its rare multi-pr plans, are both valid cells. Validator 4 is
+right: tracking can ship independently on the proven precedent, and this
+decision should scope to posture/cardinality only. That argues for **two
+designs, not one** — or one design with two cleanly separable decision
+records, which is the same thing that matters for sequencing.
+
+**2. The tautology objection lands in the modal case, not in general — I
+qualify rather than concede.** When the header says `atomic` and the plan's
+default fires with no override, recording "posture: atomic default" adds
+little beyond what the header already says, agreed. But the slot has to
+carry two other states too: a hard-constraint/value justification that would
+have applied under *either* posture (fully informative, not tautological),
+and an explicit override in the other direction (an `atomic` repo choosing to
+consolidate anyway, or a `consolidated` repo choosing to split without a
+named constraint). Those override states are exactly where a reader's
+trust question is sharpest, and the slot is non-tautological there. There's
+a second, independent reason the "tautological" framing undersells the slot
+even in the modal case: the header is live and mutable, the PLAN doc is a
+point-in-time artifact. Pinning "posture: atomic default, as of authoring"
+into the doc protects against exactly the stale-posture drift risk I flagged
+under Risks — a reader six months later, after the repo's header has changed,
+can't reconstruct which posture was active at authoring time from the header
+alone. So: qualify, don't fully concede. The slot is thin evidence in the
+unexceptional case and load-bearing evidence in the two cases that matter.
+
+**3. Concrete abandonment condition.** I'd drop Option 1 for Option 2 if
+real usage shows `atomic` mode's redefined default unit ("smallest
+independently reviewable increment") can't actually be hit without
+routinely failing 3.5a's standalone-value bar — i.e., if shrinking the
+default unit to satisfy reviewability turns out to *require* the same
+value-guard carve-out Option 2 was criticized for, just relocated inside
+"the default" instead of named as an explicit trigger. That would erase
+Option 1's one clean technical differentiator (3.5a unchanged, applied to a
+rescaled unit) and leave Option 2's honest, named, recorded trigger as the
+more truthful description of what's actually happening to the value guard.
