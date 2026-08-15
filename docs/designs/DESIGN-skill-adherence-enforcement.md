@@ -86,13 +86,15 @@ arms the refusal without depending on skill invocation; where the enforcement
 registers and how an operator disables it; what carries a conflict record when
 no orchestration session exists; and how selection is measured reproducibly.
 
-**What is still open** is narrower and named in Consequences and in the staging:
-whether plugin hook registration completes before the first tool call in a
-session whose opening move is a write, which gates the refusal stage and has a
-one-command probe; how the conflict join walks delegated children, which record
-under their own session identity; and how the hook composes with the workspace
-manager's existing injected hook set, whose deduplication greps installed hook
-scripts and does not inspect a plugin's declaration.
+**What is still open** is narrower. The mechanism questions are closed: a
+plugin-declared hook on the edit tools was probed through the supported load
+path and observed to fire on a session's first tool call, to fire inside a
+subagent, and to deny under permission-bypassing mode with its reason returned
+to the model as tool-error text. What remains is how the conflict join walks
+delegated children, which record under their own session identity; and how the
+hook composes with the workspace manager's existing injected hook set, whose
+deduplication greps installed hook scripts and does not inspect a plugin's
+declaration.
 
 ## Decision Drivers
 
@@ -121,8 +123,9 @@ scripts and does not inspect a plugin's declaration.
 - **Prefer guidance, staged toward enforcement.** `P5: Strictness tracks blast
   radius` licenses shipping as a notice and promoting once the corpus conforms.
 - **Respect the established division of labor.** niwa declares and distributes;
-  shirabe decides. Skill-frontmatter delivery avoids a new policy surface
-  entirely and reaches adopters who do not use niwa.
+  shirabe decides. Delivery should avoid inventing a new policy surface and
+  should reach adopters who do not use niwa, which plugin-declared registration
+  achieves without making skill invocation the arming trigger.
 
 ## Decisions Already Made
 
@@ -367,11 +370,14 @@ the evaluation log, and never deny. This closes the determination's liveness
 gap, and it produces a measured false-positive rate for the arming predicate
 before any session is blocked by it.
 
-**Stage 4: the startup-ordering probe, then the refusal.** The probe is one
-command and it gates this stage: a plugin-declared hook that appends to a log,
-against a session whose opening move is a write, checking whether the log entry
-precedes it. If ordering does not hold, the fallback is settings injection.
-Enable denial only after stage 3's measured false-positive rate is acceptable.
+**Stage 4: enable the refusal.** The startup-ordering question that would have
+gated this stage has been settled by probe: a plugin-declared hook fires on a
+session's first tool call, fires inside a subagent, and denies under
+permission-bypassing mode with its reason returned to the model as tool-error
+text. Settings injection remains the named fallback if plugin distribution turns
+out to be unavailable in some adopter configuration. Enable denial only after
+stage 3's measured false-positive rate is acceptable, which is now the sole gate
+on this stage.
 
 **Stage 5: the conflict recorder and the selection measurement.** Independent of
 the others and of each other. The measurement is worth running before the

@@ -414,6 +414,34 @@ Residual mitigations, in order:
    session, emit the reason as `additionalContext` and allow. A gate that can brick
    a headless run is worse than a gate that gives up.
 
+**The second-strongest case is blast radius, and it is mine rather than decision
+2's.** Decision 2's sharpest false positive is a session told "revise
+`docs/plans/PLAN-foo.md`, and also fix the off-by-one in `table.rs`" — armed and
+refused on legitimate work. Under a skill-scoped placement that stays a
+shirabe-repo problem. Under unconditional registration the hook is live wherever
+the plugin is enabled, which is every repo on the machine when shirabe is
+installed at user scope (`installed_plugins.json` carries both `"scope": "user"`
+and `"scope": "project"` entries today).
+
+Two things bound it, and one does not.
+
+- **Non-adopter repos do not arm.** Decision 2's ladder requires the referenced
+  PLAN to exist *and* carry `schema: plan/v1`. A repo with an unrelated
+  `docs/plans/PLAN-*.md` fails at that step, and the far more common repo with no
+  `docs/plans/` at all fails at the first `stat`. The population that can be
+  falsely refused is shirabe adopters, not the machine.
+- **The recorded-conflict route is the session-local escape, and it already
+  exists.** R10 obliges a session that departs from the workflow to record the
+  conflict first, and decision 4 owns the vehicle. That is a per-session, in-band,
+  no-configuration escape available to an agent with no human present — which is
+  exactly what the mixed-work case needs. The DESIGN should make the refusal
+  reason name it, so the escape is discoverable at the moment it is needed rather
+  than documented elsewhere.
+- **What does not bound it is R15's switch**, which is global by construction.
+  Decision 2 is right that "what session-local escape exists short of the global
+  switch" must be decided rather than deferred; the answer is the conflict route
+  plus the degrade-to-warn counter, and neither is new mechanism.
+
 Three lesser attacks:
 
 - **Plugin not enabled.** No plugin, no hook. Covered by R17 and the scope
@@ -509,6 +537,20 @@ surfaces, which is decision 4's territory.
    session's own transcript. R16's headroom is 94ms and a long `/execute` run's
    transcript is not small. The not-armed early-out must precede the transcript
    read, and AC28 should measure late in a long run rather than at session start.
+
+*Decided here, not left open:* **do not fold the adherence predicate into the
+existing `pr-body-hook` adapter process.** Decision 2 proposed it on the grounds
+that process startup (~4-6ms) dominates the predicate (~1-10ms), so a second hook
+process doubles the fixed cost to buy nothing. The premise does not hold: the two
+hooks have **disjoint matchers** — `pr-body-hook` is registered `"matcher":
+"Bash"` and nothing else (`materialize.go:838`), while this one matches
+`Edit|Write|MultiEdit|NotebookEdit`. No tool call triggers both, so the
+per-tool-call cost R16 measures is one process either way, and there is nothing to
+halve. Merging them would instead put the adherence gate on the `Bash` matcher —
+the footgun niwa's own source documents at `materialize.go:592-603`, where a
+PreToolUse hook matching every Bash command bricks the session if the binary is
+stale. They already share the `shirabe` binary, so there is no duplicated code to
+recover either. Keep them as two subcommands on two matchers.
 
 *Closed by probing during this decision:* whether plugin-registered `PreToolUse`
 hooks fire (P1), whether registration completes before the first tool call (P2),
