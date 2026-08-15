@@ -196,7 +196,11 @@ skill's own user-facing documentation.
 prompts and a procedure that reports the rate at which the plan-execution skill
 is selected across that set. The same set SHALL be used before and after any
 change made under R13, and the set SHALL be committed so a later reader can
-re-run it.
+re-run it. The reported rate SHALL be a quantized per-query pass rate rather
+than a continuous per-run rate, and the procedure SHALL declare a tolerance band
+within which two runs over an unchanged set are considered to agree. Selection
+against a stochastic selector cannot be exactly reproducible, and the procedure
+SHALL NOT claim otherwise.
 
 **R15.** The system SHALL provide an operator-reachable means of disabling the
 in-band refusal under R3, without editing skill or workflow content. The
@@ -303,7 +307,9 @@ names an outcome names one of these.
       with a set-membership test)
 - [ ] AC26. The plan-shaped prompt set is committed to the repository, and
       re-running the measurement procedure against it twice without intervening
-      changes produces the same rate. (R14)
+      changes produces two suite pass rates differing by no more than the
+      declared tolerance band, with both rates and the per-query counts
+      recorded. (R14)
 - [ ] AC27. The measurement is run against the committed set before and after the
       R13 change, and both rates are recorded. (R14)
 - [ ] AC28. Measured over a run of tool calls the refusal observes, the added
