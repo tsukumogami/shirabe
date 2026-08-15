@@ -8,10 +8,11 @@ problem: |
   moment, and nothing checks. Frontmatter has R6, R10, and R11; prose has no
   equivalent, and prose is the only place some edges can be recorded at all.
 outcome: |
-  An author who relocates a durable artifact learns which documents still name
-  its old path, and where the file went, before the change merges. A reader
-  following a References section reaches a document that exists rather than a
-  path that used to work.
+  A transition that moves a durable artifact repoints every document that named
+  its old path, in the same command, so the references never break in the first
+  place. For the ones already broken, validation names each occurrence and where
+  the file went. A reader following a References section reaches a document that
+  exists rather than a path that used to work.
 ---
 
 # BRIEF: prose-reference-staleness
@@ -73,14 +74,22 @@ on all of them gets turned off.
 
 ## User Outcome
 
-A shirabe author moves a design to its terminal state and finds out, before the
-change merges, that five other documents still name the path it left. The
-finding names each one and where the file went, so the fix is a search and
-replace rather than an investigation.
+A shirabe author moves a design to its terminal state and the documents that
+named its old path move with it. The transition that does the `git mv` also
+repoints the references, in the same command, and stages them alongside the
+moved file. The author reads about it in the command's output rather than doing
+it. Nothing about that edit needed a person: the tool knows the old path and the
+new one exactly, and substituting one for the other is not a judgment call.
 
 A reviewer opening a PRD's References section clicks through to the design it
 cites and lands on the design. The audit trail holds across the transition that
 would otherwise have broken it, which is the whole reason the section exists.
+
+For the references that are already broken, the author gets the next best thing:
+validation names every occurrence and the path the document now occupies, so
+fixing them is a list to work through rather than an investigation. Those
+predate any transition this feature can hook, which is why detection and repair
+are separate halves rather than one.
 
 An author writing an example path into a skill file gets nothing. Writing
 `docs/designs/DESIGN-foo.md` in a template, a fixture name in an eval, or a
@@ -97,13 +106,29 @@ the corpus figure behind the severity is a measurement rather than a guess.
 
 ### Transitioning a design to Current
 
-An author finishes a design, runs `shirabe transition
-docs/designs/DESIGN-thing.md Current`, and the file moves into
-`docs/designs/current/`. Validation on the branch reports that three documents
-still name the pre-move path, naming each file, the line, and the path the
-document now lives at. The author updates the three references in the same
-change. Before this, the transition succeeded quietly and the three references
-rotted until a reader tripped over one.
+An author finishes a design and runs `shirabe transition
+docs/designs/DESIGN-thing.md Current`. The file moves into
+`docs/designs/current/`, and the same command rewrites the three documents that
+named the old path, stages them next to the moved file, and says which three it
+touched. The author reviews the diff and commits. Before this, the transition
+succeeded quietly and the three references rotted until a reader tripped over
+one.
+
+### Superseding a design
+
+An author supersedes a design, which moves it into `docs/designs/archive/`. The
+same repoint runs, for the same reason. This journey is listed separately
+because the lifecycle reference currently claims supersession leaves the file
+where it is, so an author has no reason to expect a supersession to strand
+anything -- which makes it the transition most likely to do damage quietly.
+
+### Sunsetting a vision or a strategy
+
+The same command moves a sunset VISION into `docs/visions/sunset/` and a sunset
+STRATEGY into `docs/strategies/sunset/`, and repoints their referrers too. This
+repository has neither document type on disk today, so the journey buys nothing
+here and everything in a repository that has them. It costs nothing extra: the
+four moving transitions share one mechanism.
 
 ### Following a reference as a reviewer
 
@@ -133,9 +158,15 @@ is what let 19 stale references accumulate unnoticed in the first place.
 
 **In scope.**
 
+- Repointing inbound references when a transition moves a document, in the same
+  command, for all four moving transitions. This is the half that stops the
+  problem recurring, and it is deterministic: the transition holds the old path
+  and the new one, so there is nothing for a person to decide.
 - Detecting prose references — `## References` entries and body text — that name
   the pre-move path of a durable artifact which still exists somewhere else in
-  the tree.
+  the tree. Detection is not made redundant by the repoint: it is the only thing
+  that finds references broken by moves that already happened, or by a rename
+  that went around `shirabe transition`.
 - Telling a real reference apart from an illustrative one, reliably enough that
   the check can run against instruction files as well as corpus documents. Both
   populations contain both kinds, so this is the load-bearing part of the work
@@ -150,11 +181,13 @@ is what let 19 stale references accumulate unnoticed in the first place.
 
 **Out of scope.**
 
-- **Rewriting inbound references at move time.** `shirabe transition` knows both
-  paths and could repoint every referrer as it moves the file. That's the
-  prevention half, it's the more invasive of the two, and detection is worth
-  having on its own — it surfaces the references that are already stale, which
-  prevention never will. Detection first is a sequencing call, not a rejection.
+- **A writing mode on `shirabe validate`.** The repoint could also be offered as
+  a `--fix` that repairs whatever the check reports, which would clear the
+  existing backlog in one command. It isn't, and the reason is a contract worth
+  keeping: validate reads and reports, and never writes. Mutation lives in
+  `shirabe transition`. The cost is real and accepted — the references that are
+  already stale get fixed by hand, because no future transition will run over
+  them.
 - **References to documents that never existed or were deleted.** A prose path
   naming a deleted PLAN or a roadmap the cascade removed is a different fault
   with a different cause, tracked separately as durable documents naming

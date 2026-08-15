@@ -9,11 +9,12 @@ problem: |
   corpus today, in documents that validate clean, and the population grows by
   roughly one document's worth on every terminal transition.
 goals: |
-  `shirabe validate` reports a prose reference whose path a relocation has
-  invalidated, names where the document went, and says nothing about the
-  illustrative paths that outnumber the real ones six to one. The check ships
-  at notice level against the dirty corpus it inherits, with a measured count
-  behind that choice and a one-line promotion once the count reaches zero.
+  A transition that moves a document repoints its inbound references in the same
+  command, so the problem stops recurring. `shirabe validate` reports the
+  references that are already broken, names where the document went, and says
+  nothing about the illustrative paths that outnumber the real ones six to one.
+  The check ships at notice level against the dirty corpus it inherits, with a
+  measured count behind that choice and a one-line promotion once it is clean.
 upstream: docs/briefs/BRIEF-prose-reference-staleness.md
 source_issue: 289
 ---
@@ -30,11 +31,17 @@ runs inside the validator.
 
 ## Problem Statement
 
-Durable artifacts change path when they reach a terminal state. `shirabe
-transition <design> Current` git-mv's a DESIGN from `docs/designs/` into
-`docs/designs/current/`; supersession moves it again. The transition rewrites
-the moving document's own frontmatter and status and touches nothing else, so
-every document that named the old path is wrong the moment the move lands.
+Durable artifacts change path when they reach a terminal state. Four
+transitions move a file: a DESIGN to `Current` and to `Superseded`, and a VISION
+or STRATEGY to `Sunset`. Each runs a real `git mv`. The transition rewrites the
+moving document's own frontmatter and status and touches nothing else, so every
+document that named the old path is wrong the moment the move lands.
+
+The command that breaks those references is holding both halves of the fix while
+it does so. It has the old path, it has the new one, it has the repository root,
+and it is already staging a rename. Substituting one path for the other in the
+documents that name it is not a judgment call, and leaving it undone means every
+future move creates work that only a person can be trusted to notice.
 
 Frontmatter survives this. R6 reports a dangling `upstream:` the next time the
 referring file is validated, and R10 and R11 refuse the illegal edges at
@@ -78,10 +85,15 @@ broken.
 
 ## Goals
 
-**A relocation is caught before it merges.** An author who transitions a design
-to `Current` sees, in the same validation run, which documents still name the
-path it left. Nothing about that is available today at any cost short of a
-manual repo-wide search that nobody performs.
+**A move repairs what it breaks.** The transition that relocates a document
+repoints the documents that named it, in the same command, and stages them with
+the moved file. The author reviews a diff instead of performing an edit that had
+one correct answer.
+
+**A relocation is caught before it merges.** For a move that already happened,
+or a rename that went around `shirabe transition`, validation reports which
+documents still name the vacated path. Nothing about that is available today at
+any cost short of a manual repo-wide search that nobody performs.
 
 **The finding is a fix, not a lead.** It names the referring file, the line, the
 path as written, and where the document lives now. A finding that only says
@@ -103,9 +115,17 @@ change at the promotion seam the staged checks already use, not a rewrite.
 
 ## User Stories
 
-**As an author transitioning a design to its terminal state**, I want validation
-to tell me which documents still name the old path, so that the audit trail
-survives a move I made correctly.
+**As an author transitioning a design to its terminal state**, I want the
+command that moves the file to repoint the documents that named it, so that a
+correct move does not leave me a deterministic edit to perform by hand.
+
+**As a reviewer of that transition's commit**, I want the repointed files staged
+alongside the moved one and named in the command's output, so that I can see
+what was rewritten without diffing the whole tree.
+
+**As an author whose design moved before this feature existed**, I want
+validation to tell me which documents still name the old path, so that the audit
+trail survives a move no repoint ran over.
 
 **As a reviewer following a References entry**, I want the path to resolve, so
 that reading the trail costs me a click instead of a repo-wide search for a
@@ -130,10 +150,11 @@ retroactively made into a defect.
 markdown file contains a path-shaped reference to a shirabe artifact document,
 that path names no file, and a file with the same basename exists at another
 artifact location in the same repository. The artifact locations are the
-directories the doc tree already recognizes, plus `docs/designs/archive/` —
-without the archive directory a superseded design is indistinguishable from a
-deleted one, and supersession is one of the two transitions this check exists
-for.
+directories the doc tree already recognizes plus every destination of a moving
+transition — `docs/designs/archive/`, `docs/visions/sunset/`, and
+`docs/strategies/sunset/`. Omitting any of the three makes the corresponding
+move undetectable: a superseded design, a sunset vision, and a sunset strategy
+would each be indistinguishable from a deleted document.
 
 **R2: The finding carries the resolved path.** Each finding names the referring
 file, the 1-indexed line the reference sits on, the path as written, and the
@@ -195,6 +216,50 @@ for a per-reference subprocess.
 **R12: No network access.** The check reads the working tree and nothing else.
 It runs in the same offline contexts every other per-file check does.
 
+### Repoint Requirements
+
+Functional requirements for the transition-time half. They are numbered after
+the non-functional block rather than interleaved with R1-R9 so that nothing
+already cited downstream has to be renumbered.
+
+**R13: A moving transition repoints its inbound references.** When `shirabe
+transition` moves a document, it rewrites every reference to the old path in the
+repository's tracked markdown to name the new path, before it reports success.
+This applies to all four moving transitions -- DESIGN to `Current`, DESIGN to
+`Superseded`, VISION to `Sunset`, STRATEGY to `Sunset` -- because they share one
+mechanism and there is no reason for them to differ.
+
+**R14: Only the path changes.** A repointed file differs from its previous
+contents by the substituted path substrings and nothing else: no reflowed
+paragraphs, no reformatting, no trailing-whitespace normalization, no line-ending
+change. This is the requirement that makes the rewrite reviewable as a diff.
+
+**R15: The repoint respects the same contexts the check does.** A path inside a
+fenced or indented code block is not rewritten, for the same reason it is not
+reported: it is an example, and an example of a pre-move path stops being the
+example it was chosen to be if a tool silently updates it.
+
+**R16: Frontmatter `upstream:` is repointed too.** A moving transition rewrites
+an inbound `upstream:` value naming the old path as well as the prose
+occurrences. The determinism argument does not change at the frontmatter
+boundary, and leaving it out would mean a transition that fixes prose and leaves
+an error-level R6 dangle in the same file.
+
+**R17: The repointed files are staged.** Rewritten files are `git add`-ed
+alongside the moved file, so the transition's result is one reviewable staged
+change rather than a rename plus unstaged edits an author might commit
+separately or lose.
+
+**R18: The repoint reports what it touched.** The command's output names every
+rewritten file and the number of occurrences in each. A silent rewrite of files
+the author did not name is the failure mode this requirement exists to prevent.
+
+**R19: A failed repoint does not leave a half-done move.** If the rewrite cannot
+complete -- an unreadable file, a write failure -- the transition fails with a
+non-zero exit and a message naming the file, and the move is not reported as
+successful. The DESIGN owns whether the recovery is a rollback or a refusal to
+start, and it must say which.
+
 ## Acceptance Criteria
 
 - [ ] `shirabe validate <file>` reports a finding for a reference naming
@@ -228,15 +293,32 @@ It runs in the same offline contexts every other per-file check does.
 - [ ] `cargo test --workspace`, `cargo fmt --check`, and `cargo clippy` are
       clean.
 - [ ] Two runs of the check over unchanged input produce byte-identical output.
+- [ ] `shirabe transition <design> Current` on a design named by three other
+      documents leaves all three naming the new path, with the three files
+      staged and named in the command's output.
+- [ ] The same holds for `Superseded`, and for a VISION and a STRATEGY moved to
+      `Sunset`.
+- [ ] A repointed file's diff against its previous contents contains only the
+      substituted path substrings.
+- [ ] A pre-move path written inside a fenced code block is not rewritten.
+- [ ] An inbound `upstream:` naming the old path is rewritten, and `shirabe
+      validate` reports no R6 dangle afterward.
+- [ ] Running the transition twice is safe: the second run finds nothing to
+      repoint and reports zero rewritten files rather than failing.
+- [ ] A transition whose repoint cannot complete exits non-zero, names the
+      offending file, and does not report the move as successful.
+- [ ] Running the check immediately after a moving transition reports zero
+      findings for the moved document.
 
 ## Out of Scope
 
-**Rewriting inbound references at move time.** `shirabe transition` knows both
-the old and the new path and could repoint every referrer as it moves the file.
-That's the prevention half of the problem. It's deliberately deferred: it's the
-more invasive change, and it does nothing about the 21 references that are
-already stale. Detection first is sequencing, not rejection — if the check
-proves out, prevention is the natural follow-on.
+**A writing mode on `shirabe validate`.** The repoint mechanism could also be
+offered as a `--fix` that repairs whatever the check reports, and it would clear
+the existing 21 in one command instead of by hand. It isn't, and the reason is a
+contract: validate reads and reports; it never writes. Mutation lives in
+`shirabe transition`, which is where it already lives. The accepted cost is that
+the inherited backlog is repaired by hand, because those documents moved before
+any repoint existed and no future transition will run over them.
 
 **References to documents that never existed or were deleted.** A prose path
 naming a cascade-deleted PLAN or ROADMAP is the separately-tracked fault of
@@ -263,13 +345,29 @@ shape this repo has reverted before.
 
 ## Decisions and Trade-offs
 
-**Detection before prevention.** The upstream brief left this as a lean rather
-than a conclusion, and the corpus settles it: 21 references are already stale,
-and prevention at move time fixes none of them. Detection also produces the
-measurement prevention would need to prove itself. The trade-off accepted is
-that until prevention lands, every future transition creates new stale
-references that an author has to fix by hand — the check just makes sure they
-find out.
+**Both halves, not detection alone.** An earlier draft of this PRD scoped
+detection only and left the repair to whoever read the findings. That was wrong,
+and the reason is worth recording so it is not re-argued: the check computes the
+referring file, the line, the path as written, and the path that exists, and in
+the single-match case that tuple fully determines a byte substitution. Handing a
+determined edit to a person, or to an agent, is how the surrounding prose gets
+reflowed and one of the twenty-one gets missed. The tell was in the draft's own
+acceptance criterion for the cleanup, which had to say "only the paths change" —
+a guard against an actor doing a job a program should do.
+
+**Repointing lives in `transition`, not in `validate`.** The two candidate homes
+do different things. In `transition` the repoint is prevention: it runs at the
+moment of the move, it knows the old and new path exactly rather than inferring
+by basename, and no reference ever becomes stale. In `validate` it would be
+repair, and it would also make the correctness engine a writer. The first is
+worth more, because the recurrence is unbounded while the backlog is 21 and
+fixed. The accepted consequence is that nothing automatic repairs those 21.
+
+**The repoint covers frontmatter as well as prose.** This is wider than the
+feature's name. It is included because the argument for it is identical — the
+transition knows both paths, so the edit is determined — and because excluding
+it would produce the odd result of a command that repairs a document's prose and
+leaves an error-level R6 dangle three lines above it in the same file.
 
 **Notice at ship, error after cleanup.** An error-level check turns CI red on
 arrival against 21 inherited findings. The alternatives were to clean the corpus

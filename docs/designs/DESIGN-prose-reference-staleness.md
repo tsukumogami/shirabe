@@ -9,25 +9,30 @@ problem: |
   broken references from the 119 that are template placeholders, eval fixture
   names, and paths to working artifacts the cascade deleted on purpose.
 decision: |
-  A new notice-level `FC18` in the schema-independent prose arm reports a
-  body-prose reference whose path names no file when a file of the same
-  basename exists in another artifact directory of the same repository. The
-  surviving basename is the discriminator: it is a property of the target
-  rather than of the referring file, so it separates the two populations
-  without scoping by directory or by section, and it hands the finding the new
-  path. Extraction is a second selection over the CommonMark parse `prose.rs`
-  already runs, taking the inline code spans and link destinations that module
-  excludes and excluding the fenced blocks it also excludes.
+  Two halves over one extractor. `shirabe transition` repoints inbound
+  references as part of each of the four moving transitions, which is
+  deterministic because the command holds both paths. A new notice-level `FC18`
+  in the schema-independent prose arm reports references broken by moves that
+  already happened, using a surviving basename of the same name as its
+  discriminator -- a property of the target rather than of the referring file,
+  so it separates real references from illustrative ones without scoping by
+  directory or by section. Both read the same extractor: a second selection
+  over the CommonMark parse `prose.rs` already runs, taking the inline code
+  spans and link destinations that module excludes and excluding the fenced
+  blocks it also excludes.
 rationale: |
-  Every alternative discriminator fails on measured corpus data: directory
-  scoping misses two genuine defects in `skills/` and admits ~60 placeholders
-  in `docs/`; `## References`-section scoping misses 12 of the 21; a
-  placeholder-name denylist is a second corpus to maintain. Surviving-basename
-  resolution scores 21 true positives and 0 false positives on the whole tree,
-  costs one directory scan, and produces an actionable finding. Notice
-  severity is staging, not a verdict -- the defect earns error level by the
-  repo's own promotion rule and gets there in a one-line diff once the 21
-  inherited findings are cleaned.
+  Detection alone would leave a determined edit to a person: the check computes
+  the old path and the new one, and substituting them is not a judgment call.
+  The repoint therefore belongs in `transition`, where the paths are known
+  exactly rather than inferred, and not behind a `validate --fix`, which would
+  make the correctness engine a writer. Every alternative discriminator for the
+  detection half fails on measured corpus data: directory scoping misses two
+  genuine defects in `skills/` and admits ~60 placeholders in `docs/`;
+  `## References`-section scoping misses 12 of the 21; a placeholder-name
+  denylist is a second corpus to maintain. Surviving-basename resolution scores
+  21 true positives and 0 false positives on the whole tree. Notice severity is
+  staging, not a verdict -- the defect earns error level by the repo's own
+  promotion rule once the inherited findings are cleaned.
 upstream: docs/prds/PRD-prose-reference-staleness.md
 user_visible_surface: false
 ---
@@ -40,11 +45,26 @@ Planned
 
 ## Context and Problem Statement
 
-`shirabe transition <design> Current` git-mv's a DESIGN from `docs/designs/`
-into `docs/designs/current/`, and supersession moves it again into
-`docs/designs/archive/`. The transition rewrites the moving document's own
-frontmatter and status; it touches no other file. Every document that named
-the old path in prose is wrong from that moment.
+Four transitions move a file. The authoritative list is the `moves` table in
+`crates/shirabe-validate/src/transition.rs`, not any prose description of the
+lifecycle:
+
+| Format | Target status | Destination |
+|---|---|---|
+| DESIGN | `Current` | `docs/designs/current` |
+| DESIGN | `Superseded` | `docs/designs/archive` |
+| VISION | `Sunset` | `docs/visions/sunset` |
+| STRATEGY | `Sunset` | `docs/strategies/sunset` |
+
+Each runs a real `git mv` anchored to the doc's own work tree. The transition
+rewrites the moving document's frontmatter and status; it touches no other
+file. Every document that named the old path is wrong from that moment.
+
+The lifecycle table in `skills/design/references/design-format.md` says
+supersession leaves the file where it is, which is not what the code does. That
+is filed separately, and it matters here for one reason: an author reading the
+reference has no reason to expect a supersession to strand anything, which
+makes it the moving transition most likely to do quiet damage.
 
 The frontmatter half is closed. `check_upstream_resolves` (R6) reports a
 dangling `upstream:`, and `check_upstream_legality` (R10/R11) refuses the
@@ -145,6 +165,19 @@ breaks it.
 **D7 -- One parse, not two.** `prose.rs` already runs a CommonMark parse to
 scope the writing-style rules, and the module's own header records what
 hand-rolled fence detection cost the last time someone tried it.
+
+**D8 -- A determined edit should not be handed to a person.** Where the old and
+new paths are both known, the rewrite has exactly one correct result. An actor
+performing it by hand can reflow the surrounding paragraph, normalize
+whitespace, or miss an occurrence; a program cannot. This driver is what makes
+the repoint part of the feature rather than a follow-on, and it is why R14
+constrains the diff rather than merely the outcome.
+
+**D9 -- `transition` already holds everything the repoint needs.** It resolves
+the doc's work-tree root (`repo_root_for`), it has the source and destination
+paths, and it shells to `git` with an argument vector rather than an
+interpolated string. The repoint is an addition to a function that already has
+every input and every safety property it requires.
 
 ## Considered Options
 
@@ -299,6 +332,56 @@ document validates clean and the reader finds out by clicking. By that rule
 `FC18` should be an error, and the only thing standing between it and error
 level is 21 inherited findings.
 
+### Decision 6 -- Where the repoint lives
+
+**Option 6A: inside `shirabe transition`, on each of the four moving
+transitions.** **Chosen.** It is prevention rather than repair: no reference
+ever becomes stale, so nothing accumulates for the check to find. It is also
+the more precise of the two possible homes, because the transition knows the
+old and new paths exactly, where the check infers the destination from a
+surviving basename and has to say so when a basename is ambiguous. D9 is the
+practical argument: every input is already in hand.
+
+**Option 6B: a `--fix` mode on `shirabe validate`.** Rejected, and it is the
+option that would have cleared the inherited 21 in one command, so the rejection
+costs something real. `validate` is the correctness engine: it reads and
+reports, and everything that mutates a document today lives in `transition` or
+`finalize-chain`. Making the reporter a writer trades a durable contract for a
+one-time convenience. The cost is recorded rather than hidden -- the 21 are
+repaired by hand, because no future transition will run over documents that
+moved before the repoint existed.
+
+**Option 6C: both.** Rejected as a consequence of 6B rather than on its own
+merits. If a writing mode on `validate` is wrong, it is wrong whether or not
+`transition` also repoints.
+
+**Option 6D: a new `shirabe fix-references` subcommand.** Rejected. The named
+anti-pattern is a subcommand that renders or creates an artifact body, which
+this is not, so the rejection is not automatic -- but a subcommand whose whole
+job is a step of an existing command's lifecycle move belongs inside that
+command. It would also be reachable when no move is happening, which is the
+`--fix` shape wearing a different name.
+
+### Decision 7 -- What the repoint rewrites, and what it leaves alone
+
+**Option 7A: prose occurrences and frontmatter `upstream:` values, excluding
+fenced and indented code.** **Chosen.** The prose half is the feature's subject.
+The frontmatter half is included because the determinism argument does not
+change at the frontmatter boundary, and excluding it produces an odd result: a
+command that repairs a document's References section and leaves an error-level
+R6 dangle three lines above it in the same file. Code blocks are excluded for
+the same reason the check ignores them -- a worked example naming a pre-move
+path stops being the example it was chosen to be if a tool quietly updates it.
+
+**Option 7B: prose only, leaving frontmatter to R6.** Rejected. R6 catches the
+dangle loudly, which is the argument for this option, and then a person performs
+a determined edit, which is the argument against it. It is D8 applied
+inconsistently within one file.
+
+**Option 7C: rewrite everything textual, code blocks included.** Rejected. It
+silently edits documentation examples, and the corpus has 54 artifact-shaped
+paths inside fenced blocks for the check to have measured.
+
 ## Decision Outcome
 
 `FC18` lands in `validate_prose` as a notice. For each markdown file the
@@ -321,13 +404,23 @@ the golden parity corpus untouched: all three artifact-shaped paths in it are
 under the pre-move `docs/designs/`, which a frontmatter-reading check would
 turn into a new finding on a pinned fixture.
 
-The pieces fit because each half of the decision answers a different question
-and neither leaks into the other. The extractor decides *where in a file* a
-path counts, and it is a selection over a parse that already exists. The
-resolver decides *which paths are defects*, and it does so entirely from the
-state of the target. Adding a new artifact directory means one entry in one
-list; adding a new place references are written means one arm in the
-extractor's match.
+The repoint is the other half, and it reads the same extractor. When a moving
+transition runs, it collects the tracked markdown of the doc's work tree,
+extracts the same candidate spans, and substitutes the old path for the new one
+wherever a span's text names it -- plus the frontmatter `upstream:` values,
+which the extractor does not cover and which are matched directly. Rewritten
+files are staged with the moved file, and the command names each one. Because
+the transition supplies both paths, the repoint needs neither the target index
+nor the basename inference the check depends on.
+
+The pieces fit because each part answers a different question and none leaks
+into the others. The extractor decides *where in a file* a path counts, and it
+is a selection over a parse that already exists. The resolver decides *which
+paths are defects*, and it does so entirely from the state of the target. The
+repoint decides *nothing* -- it is handed both paths and performs a
+substitution. Adding a new artifact directory means one entry in one list;
+adding a new place references are written means one arm in the extractor's
+match, and both halves pick it up.
 
 ## Solution Architecture
 
@@ -337,9 +430,12 @@ A new function alongside `prose::prose_spans`, taking the same inputs and
 returning a different projection:
 
 ```rust
-/// A path-shaped candidate and the file line it sits on.
+/// A path-shaped candidate, the file line it sits on, and its byte range
+/// within that line.
 pub struct RefSpan {
     pub line: usize,
+    /// Byte offsets of the span within its line, as a half-open range.
+    pub range: std::ops::Range<usize>,
     pub text: String,
 }
 
@@ -348,6 +444,16 @@ pub struct RefSpan {
 /// excluded.
 pub fn reference_spans(body: &[String], body_start_line: usize) -> Vec<RefSpan>
 ```
+
+The byte range is there for the repoint, and it is the one place the two halves
+constrain each other. A check only needs to report a line, so an extractor
+built for the check alone would return `(line, text)` and the repoint would then
+have to re-find the occurrence by searching the line -- which is a second,
+weaker matcher that can disagree with the first about which occurrence it found
+when a line names two paths. Carrying the range from the parse means the
+substitution edits exactly what the extractor matched. Get this wrong in the
+first batch and the third one either duplicates the matching logic or changes
+the signature under its own tests.
 
 The relationship to `prose_spans` is deliberate and should be stated in the
 module header: the two functions partition the same parse by opposite
@@ -397,14 +503,21 @@ docs/designs/archive  docs/plans  docs/roadmaps  docs/strategies
 docs/visions  docs/competitive
 ```
 
-The list is `build_doc_index`'s six directories plus four the format set
-defines and this repository does not currently have on disk:
-`docs/designs/archive/`, `docs/strategies/`, `docs/visions/`, and
-`docs/competitive/`. A directory that does not exist contributes nothing and
-costs nothing, so listing it now is cheaper than discovering its absence later.
-The archive entry in particular is load-bearing rather than defensive:
-supersession is one of the two transitions this check exists for, and without
-it a superseded design is indistinguishable from a deleted one.
+The list is `build_doc_index`'s six directories plus six the format set defines
+and this repository does not currently have on disk: `docs/designs/archive/`,
+`docs/strategies/`, `docs/strategies/sunset/`, `docs/visions/`,
+`docs/visions/sunset/`, and `docs/competitive/`. A directory that does not exist
+contributes nothing and costs nothing, so listing it now is cheaper than
+discovering its absence later.
+
+Three of those are destinations of moving transitions, and omitting any one
+makes the corresponding move undetectable: a superseded design, a sunset vision,
+and a sunset strategy would each be indistinguishable from a deleted document.
+The two `sunset/` entries are the reason this list is not simply
+`build_doc_index`'s plus one -- an earlier revision of this design listed
+`docs/visions/` and `docs/strategies/` without their `sunset/` subdirectories,
+which would have covered the documents that never move and missed the ones that
+do.
 
 The index maps basename to the sorted list of paths carrying it. When a
 basename has more than one entry, the finding names all of them in path order,
@@ -425,6 +538,53 @@ line the reference sits on, and a message carrying the four facts from R2.
 absent from `posture_class`'s draft-tolerable arm, which is correct: it is not
 a legitimate intermediate state while a chain is being drafted, it is just not
 yet promoted.
+
+### The repoint pass
+
+It runs inside `transition`, between the `git mv` and the success report, and
+only when the resolved `Moves` entry actually relocated the file:
+
+```
+repoint(root, old_rel, new_rel):
+    for file in git ls-files -- '*.md' (run with -C root):
+        text = read(file)
+        spans = reference_spans(body_of(text))          # shared with FC18
+        edits = [s.range for s in spans if s.text == old_rel
+                                        or resolves_to(s.text, file) == old_rel]
+        edits += frontmatter_upstream_ranges(text, old_rel)
+        if edits is empty: continue
+        write(file, substitute(text, edits, new_rel))   # right-to-left
+        git -C root add -- file
+        report(file, len(edits))
+```
+
+Four properties are worth stating because each is a way to get it wrong.
+
+**Substitution runs right to left.** Applying edits in ascending offset order
+invalidates every later range as soon as the replacement differs in length from
+the original, and it always does here.
+
+**Relative forms are matched by resolution, not by string.** A referrer that
+wrote `../designs/DESIGN-thing.md` names the same document as one that wrote
+`docs/designs/DESIGN-thing.md`. Comparing raw strings would repoint the second
+and silently leave the first, which is worse than leaving both -- the corpus
+would end up with two conventions for the same edge and no signal that one is
+stale. The rewritten value stays in the form the author used: a relative
+reference is re-relativized against the referring file rather than replaced with
+a repo-rooted path.
+
+**`git ls-files` is the file set, not a directory walk.** It excludes untracked
+scratch and honors the repository's ignore rules, and the transition is already
+staging into that same index.
+
+**Failure is a refusal, not a rollback.** The repoint reads and validates every
+file it intends to write *before* writing any of them, so the common failure --
+an unreadable file, a permission error -- is caught while nothing has changed.
+A write that fails midway is reported with the file that failed and the files
+already rewritten, and the transition exits non-zero. This is a deliberate
+choice against attempting an automatic rollback of a partially applied
+multi-file edit: everything is staged in git, so `git checkout` is a better
+recovery than a bespoke undo path that only runs on the day it is needed.
 
 ### Test-harness shape
 
@@ -463,18 +623,24 @@ and the piece whose contexts have to be right before any count means anything.
 target index, `FC18` registered in `validate_prose`, `is_known_check_code`, and
 `is_intrinsic_notice`. The corpus-count test lands here, pinning 21.
 
-**Batch 3 -- the cleanup.** Fix the 21 references the check reports. It is
+**Batch 3 -- the repoint.** The pass above, wired into `transition` for all
+four moving transitions, with the frontmatter arm and the staging. It depends on
+batch 1 and not on batch 2: it needs the extractor and nothing the check
+computes. That makes it the one place this plan can run two things at once.
+
+**Batch 4 -- the cleanup.** Fix the 21 references the check reports. It is
 mechanical, it is reviewable as a diff of paths, and it is separate because it
-touches 15 documents and the check touches none.
+touches 17 files and the check touches none. It stays a hand edit: those
+documents moved before the repoint existed, so no transition will run over them.
 
-**Batch 4 -- the promotion.** Delete the `FC18` arm from
-`is_intrinsic_notice` and flip the severity test. One line plus its test,
-gated on batch 3 landing.
+**Batch 5 -- the promotion.** Delete the `FC18` arm from `is_intrinsic_notice`
+and flip the severity test. One line plus its test, gated on batch 4 landing.
 
-The batches are sequential and each is independently reviewable. Batches 3 and
-4 are the ones a maintainer may reasonably defer; the check is useful at notice
-level from batch 2 onward, and the corpus-count test keeps the number honest
-in the meantime.
+Batches 2 and 3 can proceed in parallel once batch 1 lands; everything else is
+sequential. Batches 4 and 5 are the ones a maintainer may reasonably defer. The
+check is useful at notice level from batch 2 onward, the repoint is useful from
+batch 3 onward whether or not the backlog is ever cleaned, and the corpus-count
+test keeps the number honest in the meantime.
 
 ## Security Considerations
 
@@ -506,14 +672,49 @@ every other finding rather than formatting bytes of its own.
 of path-shaped strings. The per-file work is one directory index (shared) plus
 one hash lookup per candidate, so the cost is linear in document size with a
 small constant. The writing-style check already truncates at a finding cap;
-`FC18` should adopt the same cap rather than inventing a second policy.
+`FC18` should adopt the same cap rather than inventing a second policy. The
+repoint must **not** adopt the cap: truncating a rewrite would leave a file
+half-repointed, which is worse than not repointing it. The cap is a reporting
+policy, not an editing one.
+
+### The repoint writes, and that is a wider surface
+
+The check only reads. The repoint modifies files and stages them, so three
+properties apply to it and not to the detection half.
+
+**The write set is bounded by `git ls-files`, run against the doc's own work
+tree.** It cannot reach outside the repository, and it cannot touch untracked
+files. The old and new paths both come from `transition`'s own resolved `Moves`
+entry rather than from document text, so nothing an author writes in a document
+can redirect a write.
+
+**Nothing reaches a shell.** The existing `git_mv` builds an argument vector
+precisely to avoid interpolation, and the repoint's `git add` follows it,
+including the `--` separator before the path so a filename beginning with a dash
+cannot become a flag.
+
+**A rewrite is a substitution, never a re-render.** The pass replaces byte
+ranges in the original text and writes the result. It does not parse the
+document and print it back, which is the mechanism by which a formatter-shaped
+tool silently reflows content it was not asked to touch. R14 is testable
+precisely because of this: the diff can be asserted to contain only the
+substituted substrings.
 
 ## Consequences
 
 ### Positive
 
+The problem stops recurring. A moving transition repairs what it breaks, so the
+21 is a closed set rather than a running total. That is the consequence worth
+the most here: detection alone would have made the growth visible without
+slowing it.
+
 The 21 stale references become visible, with their fixes attached, in a
 validation run an author already performs.
+
+Three artifact types get the repoint for the price of one. The four moving
+transitions share a mechanism, so sunset VISIONs and STRATEGYs are covered in a
+repository that has them, even though this one does not.
 
 The discriminator is measured rather than argued. Anyone can rerun the
 procedure and get 21, and the corpus-count test fails when the number moves for
@@ -526,6 +727,20 @@ The promotion is one line at a seam that already exists and already carries
 five other checks through the same staging.
 
 ### Negative
+
+**Nothing automatically repairs the inherited 21.** The repoint runs at move
+time and those moves are done. Decision 6 buys the `validate`-never-writes
+contract at exactly this price, and the price is a one-time hand edit rather
+than a recurring one.
+
+**`transition` becomes a multi-file write.** It moves one document today and
+will touch an unbounded set tomorrow, which is a real increase in what a single
+command can get wrong. Three things bound it: the write set comes from `git
+ls-files` in the doc's own work tree, every rewrite is a byte substitution
+rather than a re-render, and everything lands staged so `git checkout` recovers
+it. An author who wants the old behavior does not have a flag for it, and the
+design does not offer one -- an opt-out for a repair that is always correct is a
+setting whose only use is to reintroduce the defect.
 
 **A deliberately deleted document is indistinguishable from one that never
 existed.** Both leave no surviving basename, and both stay silent. This is the
@@ -599,6 +814,10 @@ halves of the document.
   per-file repo-root walk Decision 3 reuses.
 - `crates/shirabe-validate/src/lifecycle.rs` — `build_doc_index`, whose
   directory list and containment handling the target index extends.
+- `crates/shirabe-validate/src/transition.rs` — the `moves` table that is the
+  authoritative list of the four moving transitions, and `git_mv` /
+  `repo_root_for`, whose argument-vector discipline and work-tree resolution
+  the repoint reuses.
 - `docs/designs/current/DESIGN-issue-outlines-one-parser.md` — the promotion
   rule Decision 5 measures this check against, and the `FC17` precedent for
   splitting a code out by severity.
