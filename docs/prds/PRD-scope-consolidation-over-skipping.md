@@ -389,3 +389,28 @@ validator, matching the repository's rule that correctness checks live in
   this same pipeline produced against these same format references. The
   overlap may be a property of the generator rather than of the feature
   space.
+
+
+## Amendment — 2026-08-15
+
+Superseded in part by `PRD-scope-artifact-persistence.md`. The original
+text above is left unedited; this section records what no longer holds.
+
+**R14 (the durable-artifact floor) is superseded.** It required that a
+`/scope` run always leave at least one durable artifact. The successor
+PRD's R1 makes absorbability a per-hop question about two documents, and
+its R11 makes the DESIGN-to-PLAN hop absorbable, so a run can now end
+with no durable artifact — deliberately, and as the outcome the feature
+exists to make reachable for work that did not earn three documents.
+
+**"The commit history is the recovery path" is false as written.** Out of
+Scope stated that an absorbed document remains recoverable from history.
+That holds only while the feature branch lives. This repository
+squash-merges and deletes branches, so a document created and folded away
+inside one chain never existed on the default branch at all — and when
+`/execute` adopts the scoping PR, the same is true of the PLAN.
+
+The successor's R20 replaces the assumption with a mechanism:
+`docs/folds.md` records each fold on the default branch with a
+content-addressed hash of the pre-fold document, written before anything
+is deleted.

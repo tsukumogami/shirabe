@@ -89,6 +89,25 @@ Don't copy the PRD verbatim. A design doc reader needs a different framing: the 
 explains what to build and why; the design doc explains what technical problem needs
 solving.
 
+**Carry the PRD's requirements into this design's own body rather than only
+citing them by number.** Where a requirement constrains a decision here, state
+what it requires in the section that answers it — not `satisfies R7`, but what
+R7 asks for and how this design meets it. Requirement numbers stay as
+cross-references; what changes is that the design also stands on its own.
+
+Two reasons, and the second is the one that bites. A reader of this design
+should not have to open the PRD to know what the design is answering. And
+`/scope` decides whether to fold the PRD by reading whether this design already
+holds what the PRD was for — so a design that only cites numbers cannot fold its
+PRD, because the PRD genuinely still holds requirements this document does not.
+When the fold does happen, `/scope` composes the PRD's contribution section from
+*this document's* body, and the validator will fail a survivor that folded a PRD
+while citing requirement numbers it does not define.
+
+Putting the material here rather than at fold time is also what gets it reviewed:
+this skill's own jury reads it, and nothing downstream reviews a contribution
+section.
+
 ### 0.4 Derive Decision Drivers
 
 Extract decision drivers from the PRD's requirements and constraints. Add

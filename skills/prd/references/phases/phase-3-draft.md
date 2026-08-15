@@ -80,9 +80,19 @@ own: the numbered requirements, the acceptance criteria, and the non-functional
 constraints.
 
 Carrying the framing forward properly is also what makes the downstream
-consolidation judgment usable. `/scope` checks section by section whether this PRD
-carries the brief's four concerns before it removes a redundant brief; a PRD
-written without reading its brief fails that check, and both documents stay.
+consolidation judgment usable, and this is the more important half of the
+reason. `/scope` decides whether to fold the brief by reading whether this PRD
+already holds what the brief was for. A PRD written without reading its brief
+cannot fold it — not because a rule forbids it, but because the brief genuinely
+still holds framing the PRD does not, so both documents stay and the reader pays
+for two.
+
+When the fold does happen, `/scope` composes the brief's contribution section
+**from this PRD's body**, not from the brief. That is why this instruction is
+here rather than in the parent: the material has to be in the survivor before
+anything can distil it, and putting it there at drafting time is also what gets
+it reviewed by this skill's own jury. Nothing downstream reviews the
+contribution section itself.
 
 **Drafting guidelines:**
 - **Problem Statement**: Draw from the upstream BRIEF when one exists, otherwise

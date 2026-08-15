@@ -8,7 +8,7 @@ Spawn all three simultaneously using the Task tool:
 
 - **Pragmatic reviewer**: Is the implementation simple? Does it avoid over-engineering, dead code, and scope creep?
 - **Architect reviewer**: Does the implementation fit the design structure? Are interface contracts and dependency directions correct?
-- **Maintainer reviewer**: Can the next developer understand and modify this code? Are naming, implicit contracts, and context clear?
+- **Maintainer reviewer**: Can the next developer understand and modify this code? Are naming, implicit contracts, and context clear? Where a non-obvious decision was made — an approach rejected, a constraint forcing a shape, a load-bearing ordering — does a comment record *why*, and is it still true of the code beside it? A stale why-comment is worse than none.
 
 ## Evidence Format
 
