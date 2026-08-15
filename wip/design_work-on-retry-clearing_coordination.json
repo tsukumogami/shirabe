@@ -1,0 +1,19 @@
+{
+  "topic": "work-on-retry-clearing",
+  "decisions": [
+    {
+      "id": 1,
+      "question": "How does a blocking retry force a fresh verdict from the review phases it re-enters -- which command invalidates the results artifacts, which gate type rejects the invalidated value, and at which edge does the invalidation run?",
+      "status": "pending",
+      "complexity": "critical"
+    },
+    {
+      "id": 2,
+      "question": "Where does the round-trip test live, what does it drive, and how does CI run it?",
+      "status": "pending",
+      "complexity": "micro-protocol"
+    }
+  ],
+  "cross_validation": "pending",
+  "round": 0
+}

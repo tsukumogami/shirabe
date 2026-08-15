@@ -14,13 +14,33 @@ chain_skipped: []
 chain_ran:
   - name: brief
     started_at: 2026-08-15T00:05:00Z
+  - name: prd
+    started_at: 2026-08-15T00:15:00Z
 child_snapshots:
   brief:
     status: Accepted
     content_hash: 14b9f0d0f374b31744fe8f0ceba64a78fba4b4b2
     captured_at: 2026-08-15T00:10:00Z
-consolidation_judgments: []
-pre_invocation_sha: 8872b36
+  prd:
+    status: Accepted
+    content_hash: 7c06bfd2c34f3ac988d000a94b4093f43fea1249
+    captured_at: 2026-08-15T00:30:00Z
+consolidation_judgments:
+  - hop: brief->prd
+    stage: carry
+    carry_check:
+      Problem Statement: {target: Problem Statement, carried: true}
+      User Outcome:      {target: Goals, carried: true}
+      User Journeys:     {target: User Stories, carried: true}
+      Scope Boundary:    {target: Requirements + Out of Scope, carried: true}
+    verdict: absorb
+    absorbed: docs/briefs/BRIEF-work-on-retry-clearing.md
+    into: docs/prds/PRD-work-on-retry-clearing.md
+pre_invocation_sha: fae9ade
+parent_orchestration:
+  invoking_child: design
+  suppress_status_aware_prompt: true
+  rationale: fresh-chain
 worktree_rebases:
   - phase: brief
     upstream_commits: []

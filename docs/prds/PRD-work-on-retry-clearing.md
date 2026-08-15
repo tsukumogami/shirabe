@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A blocking finding in any of /work-on's three review phases routes the run
   back to implementation without invalidating the results artifact that phase
@@ -22,7 +22,7 @@ source_issue: 304
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-work-on-retry-clearing](docs/briefs/BRIEF-work-on-retry-clearing.md); carried in Absorbed Brief.
 
@@ -347,20 +347,36 @@ run that needed it.
 
 ## Known Limitations
 
-- **The invalidation is agent-performed, and koto cannot make it otherwise.**
-  koto's engine has no way to modify a context key on a transition: gates read
-  the store, and nothing in the template surface writes to it. So something an
-  agent runs has to perform the invalidation, and an agent that skips that step
-  entirely leaves the stale artifacts in place. R3 bounds the damage rather than
-  eliminating it -- once the invalidation has run, no amount of prose-skipping
-  advances a phase without a fresh artifact -- and R5 makes a *failed*
-  invalidation loud. A *skipped* one remains possible. R2 mitigates by placing
-  the invalidation on the same path as the `blocking_retry` submission,
-  whichever phase raises it, so skipping the invalidation means skipping part of
-  a command the agent is already running rather than forgetting a separate step
-  later. That placement is about *when* the invalidation runs; R2's requirement
-  that it cover all three artifacts is about *what* it covers, and the two are
-  independent.
+- **The invalidation is agent-performed under the chosen mechanism.** koto's
+  engine never writes to the context store: `context_assignments:` on a
+  transition is silently dropped, and a gate's `key:` is a static literal the
+  compiler copies verbatim. So an invalidation-based mechanism has to put the
+  step in something an agent runs, and an agent that skips it leaves the stale
+  artifacts in place. R3 bounds the damage rather than eliminating it -- once
+  the invalidation has run, no amount of prose-skipping advances a phase without
+  a fresh artifact -- and R5 makes a *failed* invalidation loud. A *skipped* one
+  remains possible. R2 mitigates by placing the step on the same path as the
+  `blocking_retry` submission, whichever phase raises it, so skipping it means
+  skipping part of a command the agent is already running rather than forgetting
+  a separate step later.
+
+  **An earlier draft of this bullet said koto "cannot make it otherwise." That
+  was false and is corrected here.** koto can: `koto context add` appends a
+  first-class `ContextAdded` event carrying the key and an envelope `timestamp`
+  into `koto-<session-id>.state.jsonl`, a file koto's own `docs/workspace-layout.md`
+  lists under AUTHORITATIVE state and whose envelope keys `docs/STABILITY.md`
+  freezes behind a schema bump. A `command` gate reading that log can compute
+  genuine freshness -- was this artifact written after the most recent re-entry?
+  -- and needs no invalidation step at all. That mechanism was evaluated, is
+  reachable, and was verified end to end; the DESIGN records why it was not
+  chosen. The limitation above is a property of the mechanism this chain picked,
+  not of koto.
+
+- **R3's guarantee is structural modulo a recorded override.** `koto overrides
+  record` works whether or not a gate declares `override_default`, so an
+  operator or agent can advance past a failing gate deliberately. That is the
+  correct behaviour -- an override is auditable through `koto overrides list` --
+  but R3's wording implies the gate is absolute, and it is not.
 
 - **`context_assignments:` is a no-op throughout `work-on.md`.** Found while
   establishing the option space. Every `context_assignments: failure_reason:`
