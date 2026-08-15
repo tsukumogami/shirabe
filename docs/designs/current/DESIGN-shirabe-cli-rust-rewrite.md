@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Current
 problem: |
   shirabe's deterministic surface (`shirabe validate` CLI, the line-number-aware

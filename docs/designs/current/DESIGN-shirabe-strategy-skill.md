@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Current
 problem: |
   shirabe's PRD-shirabe-strategy-skill commits to introducing

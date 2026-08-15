@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Current
 upstream: docs/prds/PRD-roadmap-skill.md
 problem: |
@@ -21,7 +22,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Current
 
 ## Context and Problem Statement
 

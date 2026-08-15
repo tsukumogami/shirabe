@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Current
 upstream: docs/prds/PRD-complexity-routing-expansion.md
 problem: |

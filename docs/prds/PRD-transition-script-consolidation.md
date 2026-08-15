@@ -1,4 +1,5 @@
 ---
+schema: prd/v1
 status: Done
 problem: |
   The seven artifact-lifecycle skills (vision, strategy, roadmap, brief, prd,
@@ -21,7 +22,7 @@ upstream: docs/briefs/BRIEF-transition-script-consolidation.md
 
 Done
 
-## Problem statement
+## Problem Statement
 
 Each artifact-lifecycle skill ships its own
 `skills/<skill>/scripts/transition-status.sh`. The seven scripts advance a
@@ -58,7 +59,7 @@ consolidation.
 - Every caller is migrated to the subcommand and the seven scripts are deleted,
   so the duplication is actually removed.
 
-## User stories
+## User Stories
 
 - As a skill author, I accept a draft document by running the transition
   command, and the document's status advances with the same validation and
@@ -151,7 +152,7 @@ lifecycle verb or a capitalized status, how the per-type extra input is passed),
 whether the per-skill rules are a hardcoded table or a declarative
 configuration, and the `git mv` mechanics.
 
-## Acceptance criteria
+## Acceptance Criteria
 
 - [ ] For each of the seven types, the subcommand produces the same frontmatter and
   body edits, the same file move (or none), the same per-type JSON result
@@ -179,7 +180,7 @@ configuration, and the `git mv` mechanics.
   cascade test passes against the subcommand.
 - [ ] `cargo test` and the repo's doc-validation CI pass.
 
-## Out of scope
+## Out of Scope
 
 - The `validate` subcommand and other shirabe behavior — unchanged.
 - Any lifecycle redesign: no new statuses, no changed transition legality, no

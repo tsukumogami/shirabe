@@ -1,4 +1,5 @@
 ---
+schema: design/v1
 status: Current
 problem: |
   `/work-on`'s single-issue completion is the agent's discretionary judgment, which accepts
