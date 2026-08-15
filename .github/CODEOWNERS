@@ -1,0 +1,19 @@
+# Code owners for shirabe.
+#
+# An entry here means a PR touching the matched paths cannot merge without the
+# named owner's review. Owners must be a GitHub user or a team with write
+# access on this repository; an owner GitHub cannot resolve is silently
+# ignored, which turns the control off without saying so.
+
+# The tool-diagnostic discard enumeration gates CI. Anything listed in it is a
+# call site allowed to throw away a tool's diagnostic output, and the claim
+# that adding one "costs a reviewed edit" is a claim about a process -- a
+# process with no owner is not a control. `shirabe#279` was silent because
+# whoever wrote that call site decided on their own that the fallback was not a
+# masked failure. This line is what makes that decision somebody else's to
+# approve.
+# @dangazineu is used rather than a team handle because an owner GitHub
+# cannot resolve is silently ignored, which turns this control off without
+# reporting anything. This handle was verified to resolve as a collaborator.
+# Replace it with a team once that team is confirmed to exist.
+/references/tool-diagnostic-discards.md @dangazineu
