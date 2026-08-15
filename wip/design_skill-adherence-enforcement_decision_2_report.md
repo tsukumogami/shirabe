@@ -44,10 +44,21 @@ reports `null` and the lead's reports "absent", these are the same observation �
 my probe applied a `jq` default to a missing key.
 
 That probe also found that a hook registered in a plugin's `hooks/hooks.json`
-loaded via `--plugin-dir` did **not** fire at all. That bears on delivery
-(Decision 3) rather than on the signal, but it constrains my assumption 5: the
-arming logic must be reachable through a hook registration path with evidence
-behind it, and today that is settings injection, not `--plugin-dir`.
+loaded via `--plugin-dir` did **not** fire — but the lead has since corrected
+that result: plugin-declared hooks *do* fire when the plugin is installed
+normally (`superpowers` is the live proof), so the `--plugin-dir` finding is a
+fact about the dev-loading path, not about plugin hooks. Decision 3's
+plugin-declared placement stands. What remains open is narrower and does touch
+me: whether plugin hook registration completes before the first tool call in a
+`-p` session whose opening move is a write. If it does not, an AC11 session's
+*first* out-of-set write escapes — which is the one write AC11 names.
+
+Decision 3 also confirmed from the binary that **skill-frontmatter hooks do not
+fire inside subagents** (`Aat` resolves the lookup key to `agentId`, with a
+parent-key fallback for one built-in subagent type), whereas settings and plugin
+hooks are pushed without reference to that key. That closes off the one placement
+where a structural child exemption would have come for free — and R4 disqualifies
+it anyway, since a skill-frontmatter hook exists only after the skill is invoked.
 
 Three consequences, all load-bearing:
 
@@ -168,6 +179,34 @@ and is not the referenced PLAN document or another artifact of its own chain.
 The property the signal actually measures is: **the unit of work named in this
 agent's own inbound instructions is a whole PLAN rather than one of its issues.**
 Thread position selects which brief to read; it is not itself the role test.
+
+#### Evaluation order, and why it matters
+
+Decision 3 chose a plugin-declared hook, so registration is **unconditional**:
+the not-armed answer runs on every `Write`/`Edit` in every session on the
+machine, not only in shirabe repos. The predicate must therefore be ordered
+cheapest-first and bail at the first clause that fails.
+
+| Step | Cost | Bails when |
+|---|---|---|
+| 0. Tool matcher `Write\|Edit\|NotebookEdit` | zero (harness-side) | any other tool |
+| 1. `docs/plans/` exists under the repo containing `cwd`, and holds a `PLAN-*.md` | one `stat` + one `readdir`, sub-ms | **the overwhelmingly common case** — no plans directory |
+| 2. `tool_input.file_path` is outside the declared closed set | string only, no I/O | write is in-set (AC9) |
+| 3. Select and scan the agent's own transcript | ~2 ms (E4) | no inbound PLAN reference |
+| 4. Read the referenced PLAN's frontmatter | one small file read | not `schema: plan/v1`, or `coordinated`/`multi-pr` |
+
+Step 1 is the load-bearing early-out and it is deliberately placed before the
+transcript read: a machine-wide hook spends its time overwhelmingly in repos that
+have no plans at all, and one `stat` disposes of those. Worst case — a real
+plan-scale repo — is ~10 ms of predicate work against Decision 3's measured
+~94 ms of remaining R16 headroom.
+
+**The predicate should ship inside the existing hook adapter process, not as a
+second hook.** The dominant cost here is process startup (~4-6 ms), not the
+predicate (~1-10 ms). Decision 3's 6 ms p95 figure is for the shipped
+`shirabe pr-body-hook` adapter; adding a separate hook process would roughly
+double the fixed cost to buy nothing, while folding the predicate into that
+adapter makes the marginal cost the table above.
 
 ### Option B — `agent_id` / `agent_type` absence alone as the orchestrator test
 
@@ -291,6 +330,15 @@ but in a dispatched session the agent's only sanctioned move is to enter
 `/execute`, which is wrong for a typo fix. This is the real cost of the design
 and the DESIGN must decide what session-local escape exists (see Open Questions).
 
+Decision 3's plugin-declared placement **widens this**. Registration is
+unconditional and machine-wide, so this false positive is no longer confined to
+shirabe repos: it fires in any repository the user works in that happens to carry
+a `docs/plans/PLAN-*.md`, including repos whose authors never adopted shirabe's
+workflow and for whom "enter `/execute`" is not a meaningful instruction. The
+early-out ordering above keeps the *cost* negligible in those repos; it does
+nothing about the *refusal* once a plan file is present. This raises rather than
+lowers the priority of open question 2.
+
 **Attack 2 — the brief that inlines the work. This one lands too.** A
 coordinating agent writes "implement these six things:" and pastes the issue
 bodies without naming the PLAN path. Clause B finds no reference; the session is
@@ -353,12 +401,14 @@ only makes it *stand down*. An unmarked handoff of a whole plan still arms.
 4. Reading the transcript is permitted and non-disruptive. It is a plain file
    read; nothing observed suggests otherwise.
 5. The refusal is delivered by a `type: "command"` `PreToolUse` hook registered
-   through a path that actually fires. Both my probe (project
-   `.claude/settings.json`) and the lead's (`--settings`) confirm settings
-   registration works for main thread and subagent alike; the lead's probe found
-   a `--plugin-dir`-loaded plugin hook did not fire at all. A `prompt`- or
-   `agent`-type hook additionally needs `continueOnBlock: true` or a deny ends the
-   turn instead of correcting it (v2.1.210 behavior change).
+   through a path that actually fires, and registration completes before the
+   session's first write. Settings registration is confirmed working for main
+   thread and subagent alike by two independent probes (mine via project
+   `.claude/settings.json`, the lead's via `--settings`); plugin registration is
+   confirmed for an installed plugin. The startup-ordering half is unverified and
+   matters to AC11 specifically. A `prompt`- or `agent`-type hook additionally
+   needs `continueOnBlock: true` or a deny ends the turn instead of correcting it
+   (v2.1.210 behavior change).
 
 ---
 
@@ -399,3 +449,14 @@ only makes it *stand down*. An unmarked handoff of a whole plan still arms.
    out of scope per the PRD's Known Limitations. The matcher should name
    `Write|Edit|NotebookEdit` explicitly rather than `*`, both to keep the blast
    radius legible and to avoid arming on reads.
+6. **Does plugin hook registration complete before the first tool call in a `-p`
+   session whose opening move is a write?** Carried over from Decision 3's probe,
+   and it lands hardest on this decision: AC11 names the *first* out-of-set write
+   as the one that must be refused. If registration races the first tool call,
+   AC11 fails on exactly its own criterion while every later write is caught. The
+   existing evidence is a `SessionStart` hook, which says nothing about
+   `PreToolUse` ordering.
+7. **Should the arming predicate live in the existing `shirabe pr-body-hook`
+   adapter?** I recommend yes, on cost grounds (see Evaluation order). This is a
+   packaging question that spans Decisions 2 and 3 and neither of us owns it
+   alone.

@@ -99,6 +99,41 @@ child session, so they would be invisible to both halves of this check. That is 
 constraint on future changes to `spawn_and_await`, not a limitation of the current
 evidence.
 
+#### The check does not depend on the substrate, and should not
+
+koto's respawn primitive is a stub, so the substrate that actually drives a child
+is whatever the driving agent chooses, and there is direct evidence it is not
+uniformly understood: the second field incident's own agent read
+`spawn_and_await` as materializing "one `/work-on` child agent per issue" and
+treated that as covered by a prohibition on the Agent tool. The template's wording
+— "koto materializes one child per task using `work-on.md`"
+(`skills/execute/koto-templates/execute.md:455`) — does invite that reading.
+
+The determination should therefore identify children by koto-side facts rather
+than by any assumed session relationship, and it already does. Two clarifications
+on which facts are usable when:
+
+- **`parent_workflow` and `template_name` are live-only.** Both live in the child's
+  `koto-<name>.state.jsonl` header, which cleanup deletes on terminal. They are
+  excellent corroborators for an in-flight run and unavailable for exactly the
+  post-hoc case the check exists to serve.
+- **The `<parent>.` name prefix is the durable equivalent, and it is koto-authored.**
+  koto composes it: `let child_name = format!("{}.{}", parent_name, task.name)`
+  (`public/koto/src/cli/batch.rs:660`, `:937`, `:1564`). **[confirmed]** The agent
+  supplies only `task.name` in the payload; the parent binding is koto's. It
+  survives into `_terminal_index.jsonl`, which is what the check reads.
+
+So the recommendation holds under either substrate, and the "which spawn
+mechanism" question is not load-bearing for it. What *is* load-bearing is that
+delegation produces a koto child session at all — which is why open question 6
+proposes recording that as an invariant.
+
+One caution about which runs can serve as evidence here. `execute-calendar-cli-only`
+cannot settle a question about spawn substrate: its four children were never
+driven by anything. Each holds three log lines — header, `workflow_initialized`,
+`transitioned → entry` — and sits at `entry`. **[confirmed]** That run shows what
+materialization looks like, not what execution looks like.
+
 ### "Produced" in R1 means authored, not caused
 
 Read strictly, R1 is unsatisfiable. Every artifact on the machine is downstream of
@@ -224,6 +259,7 @@ affirmative.
 |---|---|---|---|
 | Registered | `~/.claude/projects/<enc-cwd>/<sid>/workflows/koto-*.json`, `.name` prefix `execute `, `.koto.workflow == execute-<plan-slug>` | koto, from `append_event` | yes |
 | Delegated (numerator) | `~/.koto/_terminal_index.jsonl`, entries with prefix `<parent>.` | koto, on terminal transition | yes |
+| Delegated (live corroborator, optional) | child header `parent_workflow` + `template_name: work-on` | koto, at materialization | no — deleted at terminal |
 | Run finished | same index, exact entry for `<parent>` | koto | yes |
 | Expected issues (denominator) | the PLAN document, re-parsed by the checker | the planning session, not the evaluated one | n/a |
 | Recorder was live | arming component's own log | the enforcement hook | yes |
@@ -683,9 +719,15 @@ session report `indeterminate` instead of `non-conforming`.
    armed session is small, but it is a new durable surface and D2 should own its
    path, schema, and lifecycle rather than inheriting the placeholder
    `~/.shirabe/armed.jsonl` used above.
-6. **Should "delegation goes through koto child sessions, never the Agent tool"
-   become a recorded design invariant?** The determination depends on it. Agent-tool
-   children share the parent's Claude Code session id and create no koto session,
-   so a future `spawn_and_await` that delegated that way would be invisible to both
-   halves of the check while looking, from the outside, like a well-behaved run.
-   The invariant costs nothing to state now and is expensive to discover later.
+6. **Should "delegation produces a koto child session" become a recorded design
+   invariant?** The determination depends on it and nothing currently states it.
+   Agent-tool children share the parent's Claude Code session id and create no koto
+   session, so a `spawn_and_await` that delegated that way would be invisible to
+   both halves of the check while looking, from the outside, like a well-behaved
+   run. The invariant is substrate-neutral by design — it constrains what
+   delegation must *record*, not how it must *run* — which is the right shape given
+   that koto's respawn primitive is a stub and the substrate is currently whatever
+   the driving agent picks. Note the template's present wording invites the
+   ambiguity that produced the field incident's reading, so restating
+   `spawn_and_await`'s expectation in substrate-neutral terms is worth doing
+   alongside the invariant.
