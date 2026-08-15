@@ -184,7 +184,13 @@ now). The states and their tick mechanics:
   (no second PR is opened and no distinct one is linked), the run stays on that
   **settled branch**, and the settled branch (HEAD) is recorded into a koto context
   key for `spawn_and_await`. The recovered branch is re-validated against a safe
-  ref pattern before it is stored or interpolated into emitted shell.
+  ref pattern before it is stored or interpolated into emitted shell, the record is
+  read straight back and compared before the state advances, and a
+  `settled_branch_recorded` gate keyed on that value is referenced by both success
+  transitions — so a run that could not record its branch cannot reach
+  `spawn_and_await` at all, and reaches `done_blocked` instead. That is what lets
+  the read site keep its fallback: the fallback is unreachable with the key
+  missing, rather than being the thing that decides correctness on the adopt path.
 - `spawn_and_await` — run `plan-to-tasks.sh` against the PLAN, inject `SHARED_BRANCH`
   into each task — read from the recorded settled branch with an
   `|| impl/<slug>` fallback, so the adopt/override path routes children to the settled

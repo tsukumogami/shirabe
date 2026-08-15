@@ -352,7 +352,9 @@ states:
 
 Before running the script, check the current branch context. Derive `PLAN_SLUG` from `{{PLAN_DOC}}` (strip the `PLAN-` prefix), then run `git rev-parse --abbrev-ref HEAD` to get the current branch and `gh pr list --head <current-branch> --json number --jq '.[0].number'` to find any open PR on it. If the current branch is non-main and an open PR already covers this work, submit `status: override` rather than running the creation script.
 
-On the `override` path, the branch you stay on (the author's or `/scope` branch — NOT `impl/<slug>`) is the **settled branch**, and the open PR on it (including a `docs/<topic>` scoping PR) is **ADOPTED** as the home PR: `/execute` does not open a second PR and does not link a distinct one. Persist the settled branch so `spawn_and_await` routes children to it instead of recomputing `impl/<slug>`. After the create-or-override decision, record HEAD into a koto context key, validating it first as an input surface (treat the recovered branch name as untrusted — reject anything not matching `^[A-Za-z0-9._/-]+$` before it is stored or interpolated into emitted shell):
+On the `override` path, the branch you stay on (the author's or `/scope` branch — NOT `impl/<slug>`) is the **settled branch**, and the open PR on it (including a `docs/<topic>` scoping PR) is **ADOPTED** as the home PR: `/execute` does not open a second PR and does not link a distinct one. Persist the settled branch so `spawn_and_await` routes children to it instead of recomputing `impl/<slug>`. After the create-or-override decision, record HEAD into a koto context key, validating it first as an input surface (treat the recovered branch name as untrusted — reject anything not matching `^[A-Za-z0-9._/-]+$` before it is stored or interpolated into emitted shell).
+
+**Run this block LAST, whichever path you took.** It reads HEAD, so it has to run once HEAD is already the branch the run settled on: on the override path that is true the moment you decide to override, but on the create path it is only true after the creation script below has checked out `impl/$PLAN_SLUG`. Recording before that checkout stores `main`, and `main` is a perfectly well-formed branch name — the gate accepts it and every child then commits to `main`. That is the one wrong value neither the pattern nor the read-back can catch, because nothing about it is malformed; the ordering is the only thing that prevents it.
 
 ```bash
 SETTLED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -383,9 +385,9 @@ If the verification fails, submit `status: blocked` with the diagnostic as `deta
 
 Unlike the command gate on `worktree_discipline_check`, this one says what it wanted. A submission the gate holds comes back with `"advanced": false` and a `blocking_conditions` entry naming `settled_branch_recorded` with `"matches": false`, so if this state will not advance, read the submission response before anything else — then `koto context get {{SESSION_NAME}} settled_branch` to see what is actually stored.
 
-On the create path this records `impl/$PLAN_SLUG` (the branch just checked out), preserving today's value byte-for-byte; on the override path it records the settled branch.
+On the create path this records `impl/$PLAN_SLUG` — the branch the script below checks out, which is why the block runs after it — preserving today's value byte-for-byte; on the override path it records the settled branch you are already standing on.
 
-Create the shared branch and draft PR. This runs once before children are spawned.
+Create the shared branch and draft PR. This runs once before children are spawned, and on the create path it runs BEFORE the recording block above.
 
 ```bash
 PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
