@@ -387,11 +387,14 @@ docs/designs/archive  docs/plans  docs/roadmaps  docs/strategies
 docs/visions  docs/competitive
 ```
 
-The list is `build_doc_index`'s directory list plus `docs/designs/archive/`
-and the four directories this repo does not have but the format set defines.
-The archive entry is load-bearing rather than defensive: supersession is one of
-the two transitions this check exists for, and without it a superseded design
-is indistinguishable from a deleted one.
+The list is `build_doc_index`'s six directories plus four the format set
+defines and this repository does not currently have on disk:
+`docs/designs/archive/`, `docs/strategies/`, `docs/visions/`, and
+`docs/competitive/`. A directory that does not exist contributes nothing and
+costs nothing, so listing it now is cheaper than discovering its absence later.
+The archive entry in particular is load-bearing rather than defensive:
+supersession is one of the two transitions this check exists for, and without
+it a superseded design is indistinguishable from a deleted one.
 
 The index maps basename to the sorted list of paths carrying it. When a
 basename has more than one entry, the finding names all of them in path order,
