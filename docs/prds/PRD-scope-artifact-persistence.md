@@ -170,11 +170,17 @@ about any document already on disk.
 
 **R16.** `shirabe validate` SHALL fail when an `R<n>` requirement citation whose
 target document this run absorbed resolves neither within the surviving document
-nor within its spliced upstream. The check is tied to the absorb event, not to
-citation resolution generally: 77 documents on disk today cite an `R<n>` they do
-not define, including a PRD whose upstream BRIEF carries no requirement numbers
-at all and a `Done` BRIEF citing another chain's PRD by path. A check on
-citation resolution generally would fail all of them, which R29 forbids.
+nor within its spliced upstream. The check is tied to the absorb event because
+that is what it guards: an absorb that drops requirement numbering orphans every
+citation below it, silently, and fold time is the only point at which that is
+catchable.
+
+A broader rule — every `R<n>` citation in every document resolves — is worth
+having and is named as follow-on work below. It is not this work because it
+audits the corpus rather than guarding this operation. Roughly 77 documents
+carry dangling requirement citations today; that is a defect of the process this
+work fixes, and the cleanup belongs on its own terms rather than as a condition
+on shipping.
 
 **R17.** Re-pointing a survivor's `upstream:` SHALL splice the absorbed
 artifact's parents into the survivor's existing list rather than replacing it,
@@ -243,10 +249,16 @@ count.
 here SHALL reintroduce a pre-artifact worth decision in any form, including an
 author-chosen entry altitude.
 
-**R29.** Documents already on disk SHALL validate unchanged, and the checks this
-work adds SHALL emit nothing on a document that declares no absorption —
-including against the frozen cross-repo parity baseline, so downstream callers
+**R29.** The checks this work adds SHALL emit nothing on a document that declares
+no absorption, so a document untouched by an absorb is unaffected by this change
+— including against the frozen cross-repo parity baseline, so downstream callers
 pinning a shirabe tag do not break.
+
+This is a scoping requirement, not a promise that the corpus is clean. Where a
+document already on disk carries a defect this work's checks happen to surface,
+the finding stands and the document is fixed on its own terms as named follow-on
+work. Pre-existing breakage SHALL NOT be a reason to narrow a check that is
+otherwise correct.
 
 **R30.** The absorb procedure SHALL fail toward `keep` at every decision point
 this work adds: the replaced first stage, the carry check, the citation check,
@@ -376,7 +388,10 @@ See Known Limitations for what the [judg] instrument does and does not buy.
 ### Regression
 
 - [ ] **[mech]** A corpus-wide test walks every document under `docs/`, runs
-      `shirabe validate`, and asserts exit 0 with no new check code emitted.
+      `shirabe validate`, and asserts that none of the check codes this work
+      adds fires on a document that declares no absorption. It does not assert
+      exit 0: pre-existing findings from other checks are the corpus cleanup's
+      business, not this change's gate.
 - [ ] **[mech]** `git diff --exit-code docs/` is clean in the same job, proving
       no existing document was edited to make the corpus pass.
 - [ ] **[mech]** `cargo test --workspace` passes, including the byte-exact
@@ -395,6 +410,13 @@ See Known Limitations for what the [judg] instrument does and does not buy.
   after exclusions, gated on this work's guard and repairs landing and being
   exercised forward at least once. Second, a lifecycle criterion for settled
   documents, with archive rather than deletion as its disposal.
+- **Corpus cleanup of dangling requirement citations.** Roughly 77 documents
+  cite an `R<n>` that resolves nowhere, which is a defect of the process this
+  work fixes rather than a constraint on it. Cleaning them up, and then widening
+  R16 from the absorb event to every citation in every document, is named
+  follow-on work. It is sequenced after this change rather than blocking it:
+  fixing the process comes first, and the documents the old process produced are
+  repaired on their own terms.
 - **The strategic chain under `/charter`.** No consolidation judgment exists
   there to change, and the judgment's logic lives entirely inside `/scope`'s own
   phase files, so extending it is new machinery rather than a follow-on edit.
