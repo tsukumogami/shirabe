@@ -358,7 +358,7 @@ vector at every write-path-construction boundary.
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
   — R9 Hard-Finalization Check Spec (Parts 1-3 plus the
   multi-discriminator and chain-membership-gated additions).
-- Interface I.2 in `docs/designs/DESIGN-shirabe-scope-skill.md`
+- Interface I.2 in `docs/designs/current/DESIGN-shirabe-scope-skill.md`
   — Decision Record path schema and the four boundary ×
   sub-shape combinations.
 - `skills/scope/references/decision-record-{prd|design}-{re-evaluation|rejection}.md`

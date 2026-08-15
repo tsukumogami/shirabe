@@ -196,7 +196,7 @@ this script through `shirabe plan outlines <PLAN.md>`, which writes a
 that validates clean is by construction a PLAN this script reads the same way.
 Before the collapse there were three independent readers of this section and
 they disagreed in eight ways — see
-`docs/designs/DESIGN-issue-outlines-one-parser.md`. An envelope whose `schema`
+`docs/designs/current/DESIGN-issue-outlines-one-parser.md`. An envelope whose `schema`
 is not the expected value is refused rather than read field by field, so a
 binary and a script that have skewed across an install fail loudly.
 

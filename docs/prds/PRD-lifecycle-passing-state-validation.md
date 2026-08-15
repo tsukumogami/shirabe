@@ -398,5 +398,5 @@ above.
   — the multi-pr posture-detection mechanism R3 encodes.
 - `docs/prds/PRD-roadmap-plan-standardization.md` — the parent PRD
   this work amends (R17 and R18, per R8).
-- `docs/designs/DESIGN-roadmap-plan-standardization.md` — the parent
+- `docs/designs/current/DESIGN-roadmap-plan-standardization.md` — the parent
   DESIGN whose Decision 5 the chain-aware model reshapes.
