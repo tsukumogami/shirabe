@@ -70,14 +70,6 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/plan/scripts/plan-to-tasks_test.sh
 
-      - name: Run validate-plan tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/plan/scripts/validate-plan_test.sh
-
       - name: Run plan-to-tasks tests (macOS, system bash 3.2)
         if: runner.os == 'macOS'
         run: /bin/bash skills/plan/scripts/plan-to-tasks_test.sh
-
-      - name: Run validate-plan tests (macOS, system bash 3.2)
-        if: runner.os == 'macOS'
-        run: /bin/bash skills/plan/scripts/validate-plan_test.sh

@@ -157,21 +157,21 @@ every caller at `shirabe validate` plus `shirabe validate --lifecycle-chain`, so
 one implementation answers whether a PLAN may name its upstream.
 
 **Acceptance Criteria**:
-- [ ] `skills/plan/scripts/validate-plan.sh` and
+- [x] `skills/plan/scripts/validate-plan.sh` and
       `skills/plan/scripts/validate-plan_test.sh` are absent from the tree.
-- [ ] No file in the repository references either path, in prose, in workflow
+- [x] No file in the repository references either path, in prose, in workflow
       configuration, or in a script.
-- [ ] The PLAN-docs workflow runs the CLI over each changed PLAN and fails the
+- [x] The PLAN-docs workflow runs the CLI over each changed PLAN and fails the
       job when it reports a violation, covering both the per-file checks and the
       upstream-status rule.
-- [ ] The plan-scripts workflow no longer runs the removed suite on either
+- [x] The plan-scripts workflow no longer runs the removed suite on either
       matrix leg, and its remaining suites still run on Linux and under the bash
       3.2 floor.
-- [ ] The bash floor runner no longer names the removed suite in its plan group,
+- [x] The bash floor runner no longer names the removed suite in its plan group,
       and passes for every suite it still covers.
-- [ ] The planning skill's pre-flight step invokes the CLI, and its prose
+- [x] The planning skill's pre-flight step invokes the CLI, and its prose
       describes what the CLI checks rather than what the script checked.
-- [ ] The surviving upstream-status rule is the lifecycle model's: a PLAN whose
+- [x] The surviving upstream-status rule is the lifecycle model's: a PLAN whose
       upstream DESIGN sits at `Accepted` is refused and one at `Current` is
       accepted, which is the reverse of the retired script on both.
 
