@@ -1,0 +1,7 @@
+{
+  "impact": "none",
+  "checked_at": "2026-08-15T21:52:00Z",
+  "base": "origin/main",
+  "commits_behind": 0,
+  "rationale": "The shared branch was rebased onto origin/main at the start of the scope chain and main has not advanced since. git rev-list --count HEAD..origin/main returns 0, so there are no upstream commits to classify and nothing the PLAN depends on has moved."
+}
