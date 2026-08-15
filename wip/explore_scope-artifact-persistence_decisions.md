@@ -120,9 +120,12 @@
   and `run-cascade.sh`'s roadmap `**Downstream:**` rewrite both assume a DESIGN
   survives. Both must be closed for the encapsulation claim to hold.
 
-- **Reduction stays a content-preserving move.** No discard verdict. Nothing is
-  deleted on a judgment that it was not worth keeping. This constrains the fix:
-  where an absorb would lose content, the verdict is `keep`.
+- ~~**Reduction stays a content-preserving move.**~~ SUPERSEDED by the
+  contribution model. Distilling an ancestor to its contribution discards
+  whatever was not the essence, so no fold is content-preserving. What survives
+  of the original intent: a fold happens only when the judgment holds that
+  nothing beyond the contribution would be lost, and where it would, the verdict
+  is `keep`.
 
 - **The strategic chain is out of scope.** `/charter` has no consolidation
   judgment at all and DESIGN Decision 9 deliberately left it that way; the
@@ -136,7 +139,57 @@
   roughly 20 golden fixtures, for no benefit over the two zero-churn
   alternatives. (Lead: format-mapping.)
 
-- **The format fence comes down, but narrowly.** Re-scoping artifact types was
-  fenced off by the consolidation BRIEF. What this work actually needs is much
-  smaller than that fence implies: no validator change at all, and an editorial
-  carve-out to the Content Boundaries rules for the absorbed case only.
+- ~~**The format fence comes down, but narrowly.**~~ SUPERSEDED. See "This
+  re-scopes the artifact types, deliberately" above. The narrow framing was
+  written against the union rule and understated the change: a type becomes a
+  base shape plus an ordered set of contribution sections, which is genuine
+  re-scoping and must be argued as such.
+
+## Round 1 -- Open Question Decisions
+
+Each ran through the `/decision` framework. Reports at
+`wip/explore_scope-artifact-persistence_d<N>_report.md`.
+
+### D1: Contribution sections have a two-sided adequacy test
+
+"One section, essence only" is the shape, not the whole specification. The
+criterion is lifted from `strategy-format.md`'s Strategic Context contract,
+which is a contribution section in all but name and already ships: if the
+section reads like a rewrite of the upstream, fold it back; if a reader cannot
+follow *this document's* argument without first reading the upstream, expand.
+
+The second clause is the load-bearing one, because it is phrased against the
+survivor's own content rather than abstract sufficiency -- a one-line
+restatement fails the moment the survivor's later sections lean on something the
+contribution never established. It is anchored to two named consumers rather
+than an abstract reader: the `R<n>` citations DESIGNs and PLANs resolve against
+the PRD, and `/execute` seeding CI lifecycle validation on the surviving DESIGN.
+
+Stated in three places (format reference, drafting instruction, the authoring
+artifact's jury), mirroring how STRATEGY states its version. Rides Stage 3's
+existing carry check: a failure keeps `carried: false` semantics, downgrading the
+verdict to `keep` and deleting nothing.
+
+Rejected: presence-only, because it contradicts #260's D5 principle head-on and
+hollows out the carry check while keeping its shape. A scored rubric, because
+this repo has no scored rubric anywhere and functional tests demonstrably work.
+An independent fold-time reviewer as a standing requirement, because that
+independence already exists one phase earlier *if* the child authors the
+contribution. No word count or length floor -- under a model whose point is
+compression, a floor inverts the incentive and padding satisfies it free.
+
+Riders:
+- **A citation-resolution rule belongs in `shirabe validate`**: fail when an
+  `R<n>` cited in a document resolves nowhere in that document or its surviving
+  upstream. The only depth expectation in this problem with a machine check
+  available. It will fire on documents already on disk, so it needs a rollout
+  call.
+- **Correction to a prior artifact.** #260's PRD states "the commit history is
+  the recovery path" for an absorbed document. That holds only while the feature
+  branch lives. This org squash-merges with branch deletion, so after merge an
+  absorbed original never existed on main. There is no recovery path, which
+  raises the price of every inadequate contribution.
+- **Open fork, deliberately not settled here:** whether the contribution section
+  is authored by the child at drafting time or by the parent at fold time. If the
+  child, the criterion rides an existing jury. If the parent, nobody independent
+  reviews the prose and the fold-time reviewer becomes the right answer.
