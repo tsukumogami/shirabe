@@ -29,6 +29,10 @@ child_snapshots:
     status: Accepted
     content_hash: c15d6665a85788058769f6766d61bab54808e707
     captured_at: 2026-08-15T20:16:00Z
+parent_orchestration:
+  invoking_child: prd
+  suppress_status_aware_prompt: true
+  rationale: fresh-chain
 worktree_rebases:
   - phase: brief
     upstream_commits:
