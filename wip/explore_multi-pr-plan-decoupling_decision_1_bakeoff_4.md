@@ -178,3 +178,76 @@ plans `/work-on` cannot schedule. Framed that way, Alternative 4 is honest
 work, not a shortcut: smaller than any option that also resolves P1, but not
 free, and it leaves the author's second complaint (the "should" gate) fully
 open for a decision that still has to happen.
+
+## Final Position
+
+**Q1 — does separability survive a shared recording slot and shared
+`DraftTolerable` check?** Yes, with one condition. I re-read
+`skills/plan/references/phases/phase-7-creation.md` directly for this
+cross-examination and found the "gate" is not a separate mechanism at all —
+it *is* Phase 7's existing `single-pr Mode` / `multi-pr Mode` branch (line 64
+vs. 237): single-pr writes the PLAN straight to `status: Active` with no
+side effect; multi-pr's 7.1 creates GitHub issues and that act *is* the
+Draft→Active transition. So a shared recording slot that captures both "why
+not single-pr" (cardinality, P1) and "why GitHub artifacts were/weren't
+created" (tracking, P2) as two distinct keys in one frontmatter block, read
+by one generic advisory pass, doesn't fuse the decisions — it's the same
+pattern the PLAN frontmatter already uses for `execution_mode` and `status`
+living side by side, checked by one validator, without anyone claiming
+those two fields are one decision. The condition: it only stays separable if
+implemented as two independently-settable keys (e.g. `split_trigger:` and
+`plan_issues:`), not one overloaded field pressed into service for both
+questions — collapsing them into a single value would be the mirror image of
+the error `DESIGN-capstone-orchestration.md` Decision G already rejected
+(splitting one identity across two fields); cramming two identities into one
+field is equally wrong. Shared plumbing is fine; shared *meaning* is not.
+
+**Q2 — rank the two dependents; does either argue for sequencing after the
+recording slot?** Reading `phase-7-creation.md` directly changes my
+ranking. The Draft→Active gate re-key is not separate surgery — it collapses
+into the same Phase 7 branch that tracking decoupling already has to add
+(skip 7.1's issue creation when `## Plan Issues: optional` resolves for a
+multi-pr plan). It's not free — `DECISION-multi-pr-posture-detection-2026-06-06.md`'s
+prose rationale still needs a documentation amendment so it doesn't
+misdescribe the trigger — but it's a cheap edit riding work already in
+scope, not a second design. The `plan-to-tasks.sh` `#N` scheme is the real
+risk: it's a new source-var scheme in a shared, tested contract
+(`plan-to-tasks-contract.md`), not a documentation update, and nothing about
+building the recording slot first retires it — the recording slot answers
+"why," the `#N` problem is "how does `/work-on` find the next task," a
+different subsystem entirely. So: no, neither named dependent is a reason to
+sequence tracking after the recording slot on its own; the #N scheme has to
+be solved as part of tracking regardless of order. The one sequencing
+argument I'll grant is the one Q1 surfaces, not Q2's dependents: if the
+recording slot is going to be tracking's home for `plan_issues:`, building
+that shared frontmatter shape first avoids implementing an ad hoc field for
+tracking now and migrating it later.
+
+**Q3 — concede or defend "different principles → two designs"?** Partial
+concession. The principle claim is correct and I stand on it: P1 owns
+cardinality, P2 owns tracking, and that's in the source text
+(`workflow-principles.md:20-22` vs. `:41`), not inferred. But "two designs"
+overstates what that separation implies, given how much the two halves
+actually share once implementation is examined closely — the same
+`flag > header > default` stack, plausibly the same frontmatter block, the
+same advisory-validator pattern, and now (per Q2) the same Phase 7 branch
+point. The honest answer to "what's the relationship" is closer to: **one
+shared mechanism, two independently-triggered decisions** — which argues for
+one design document with two decision sections, the same shape
+`DESIGN-roadmap-plan-standardization.md` already used for its Decision 6,
+rather than either a single fused design or two unrelated efforts. That's a
+better answer to the author's actual question than my original alternatives
+doc gave, and it doesn't cost Alternative 4 anything: deferring the P1
+decision section while shipping the tracking decision section is exactly
+what "one design, staged decisions" allows.
+
+**Final position:** Alternative 4 (or 4 co-sequenced with Alternative 5's
+recording slot, landing first) remains the right call for *this decision
+point specifically* — the P1 question is genuinely separable and doesn't
+block tracking. But the deliverable the author actually asked for is better
+served by treating this as one design with two decision sections than by
+treating tracking and cardinality as two unrelated pieces of work. Ship
+tracking now under that framing, name the P1 section as the deliberately
+deferred second half of the same document, and use the shared
+`split_trigger` / `plan_issues` frontmatter shape from the start so the
+later P1 decision has a home to land in rather than a retrofit.
