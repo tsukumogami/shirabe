@@ -37,9 +37,12 @@ user_visible_surface: true
 Planned
 
 Six decision questions were evaluated before this document was written; two ran
-the full adversarial path with five persistent validators each. All six reports
-carry `status="assumed"` — they were decided in `--auto` mode without author
-confirmation — and they are the authority for the reasoning summarized here.
+the full adversarial path with five persistent validators each, and all six were
+decided in `--auto` mode without author confirmation. Their reports were working
+artifacts and do not survive this chain; the reasoning that survived them is
+carried in Considered Options and Decision Outcome below, which is the reason
+those sections state each losing option's own strongest form rather than
+summarizing it.
 
 ## Context and Problem Statement
 
