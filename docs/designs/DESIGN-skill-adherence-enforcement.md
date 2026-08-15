@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 upstream: docs/prds/PRD-skill-adherence-enforcement.md
 problem: |
   Agents holding shirabe's skills fail to run plan-scale work under the
@@ -15,9 +15,10 @@ decision: |
   declared write-target set when the session's own inbound instructions name a
   resolvable PLAN and no single-issue delegation marker is present. A separate
   read-only determination reads four koto-authored surfaces plus the conflict
-  store and reports one of conforming, non-conforming, coordinated, or
-  indeterminate. A single conflict-recording command carries a departure to a
-  machine-local store and to the home pull request.
+  store and reports one of conforming, non-conforming, coordinated, departed,
+  disabled, or indeterminate. A single conflict-recording command carries a
+  departure to a machine-local store and, through the existing fail-closed
+  redaction control, to the home pull request.
 rationale: |
   Separating registration from arming is what makes the arming signal
   independent of skill invocation, which the requirements demand because the
@@ -32,7 +33,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
