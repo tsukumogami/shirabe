@@ -1,11 +1,13 @@
 ---
 name: review-plan
-description: Adversarial plan review skill. Challenges a complete plan artifact across
-  four categories before issues are created: Scope Gate (A), Design Fidelity (B), AC
-  Discriminability (C), and Sequencing/Priority Integrity (D). Produces a structured
-  verdict artifact consumed by /plan or returned to the user when called standalone.
-  Use when called as a sub-operation by /plan Phase 6, or when the user runs
-  /review-plan directly to review an existing plan.
+description: >-
+  Adversarial plan review skill. Challenges a complete plan artifact across
+  four categories before issues are created: Scope Gate (A), Design Fidelity
+  (B), AC Discriminability (C), and Sequencing/Priority Integrity (D).
+  Produces a structured verdict artifact consumed by /plan or returned to the
+  user when called standalone. Use when called as a sub-operation by /plan
+  Phase 6, or when the user runs /review-plan directly to review an existing
+  plan.
 argument-hint: '<plan-artifact-or-topic> [--adversarial]'
 ---
 

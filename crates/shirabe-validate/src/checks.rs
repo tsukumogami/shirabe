@@ -2589,45 +2589,70 @@ pub fn check_fc09(
 // FC10 -- writing-style banned-word check
 // =============================================================================
 
-/// The canonical list of banned writing-style words. The list mirrors the
-/// short reference in `skills/writing-style/SKILL.md` (the "quick reference
-/// -- avoid these words" section). Each entry is a lowercase substring; the
-/// check matches case-insensitively against word boundaries.
+/// Maximum findings a single prose rule emits for one file.
 ///
-/// Reading the canonical list from disk at validate-time was considered
-/// (matching the AC's "reads banned vocabulary at validate-time"), but the
-/// validator runs in CI where the SKILL.md file is reliably co-located with
-/// the validator binary -- the same workspace checkout. The AC's intent --
-/// "the banned vocabulary is sourced from the writing-style skill, not
-/// hardcoded out-of-band" -- is satisfied because this constant is the
-/// authoritative compile-time copy of the SKILL.md list; both files share
-/// the same review surface.
-const FC10_BANNED_WORDS: &[&str] = &[
-    "tier",
-    "tiered",
-    "robust",
-    "leverage",
-    "comprehensive",
-    "holistic",
-    "facilitate",
-];
+/// Unbounded emission is a denial of service reachable from any repository
+/// under check: a 10 MB document produces roughly 1.5 million findings at
+/// 875 MB resident. Truncation is reported rather than silent.
+const PROSE_FINDING_CAP: usize = 50;
 
-/// FC10 -- writing-style banned-word check.
+/// FC10 -- writing-style prose check.
 ///
-/// Scans `doc.body` for matches against `FC10_BANNED_WORDS`. Each match
-/// emits a notice naming the file path, the line number, and the matched
-/// word. The check is case-insensitive and matches whole words only (no
-/// substring matches inside other words).
+/// Reads the rule source at enforcement time and matches over prose spans
+/// rather than raw body lines. Findings carry the line the author sees.
 ///
-/// FC10 is notice-level (registered in `is_notice`). The writing-style
-/// SKILL.md is the resolution surface; FC10 notice text references it
-/// directly rather than a separate `references/fixes/` file because the
-/// resolution prose (alternative word suggestions) lives in the SKILL.md.
+/// The superseded implementation hardcoded seven words in a constant whose
+/// own comment argued that a compile-time copy satisfied the requirement to
+/// read the list at validate time. It did not: the constant and the
+/// reference diverged, which is the defect the rule source exists to end.
+///
+/// A rule source that fails to resolve or parse yields no findings here.
+/// The CLI surfaces that as a tool error before checks run, because a
+/// checking surface reporting success when its rules did not load is the
+/// same failure mode.
 pub fn check_writing_style(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError> {
+    match crate::rules::cached_rules() {
+        Some(rules) => {
+            // Per file, not per run: a single invocation spanning two
+            // repositories must honor each one's own declaration.
+            let vocabulary = crate::visibility::resolve_prose_vocabulary(std::path::Path::new(
+                &doc.path,
+            ));
+            let mut errs = check_writing_style_with(doc, &rules, &vocabulary);
+            errs.extend(check_prose_frequency(doc, &rules));
+            errs
+        }
+        None => Vec::new(),
+    }
+}
+
+/// FC10 against an explicit rule set and a repository's declared vocabulary.
+///
+/// `vocabulary` holds the terms of art the repository declared. Suppression
+/// is term-scoped: a declared term stops firing and every other rule stays
+/// active.
+pub fn check_writing_style_with(
+    doc: &Doc,
+    rules: &crate::rules::Rules,
+    vocabulary: &[String],
+) -> Vec<ValidationError> {
     let mut errs = Vec::new();
-    for (idx, line) in doc.body.iter().enumerate() {
-        let lower = line.to_lowercase();
-        for &banned in FC10_BANNED_WORDS {
+    let spans = crate::prose::prose_spans(&doc.body, doc.body_start_line);
+    let suppressed: std::collections::BTreeSet<String> =
+        vocabulary.iter().map(|t| t.to_lowercase()).collect();
+    let terms = rules.all_terms();
+    let mut truncated = false;
+
+    'outer: for span in &spans {
+        if span.text.trim().is_empty() {
+            continue;
+        }
+        let lower = span.text.to_lowercase();
+        for banned in &terms {
+            if suppressed.contains(banned) {
+                continue;
+            }
+            let banned = banned.as_str();
             // Whole-word match: surround banned word with a regex-free
             // word-boundary check (preceded by non-alphanumeric or start;
             // followed by non-alphanumeric or end).
@@ -2648,13 +2673,16 @@ pub fn check_writing_style(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError
                         .map(|b| b.is_ascii_alphanumeric() || *b == b'_')
                         .unwrap_or(false);
                 if before_ok && after_ok {
+                    if errs.len() >= PROSE_FINDING_CAP {
+                        truncated = true;
+                        break 'outer;
+                    }
                     errs.push(ValidationError {
                         file: doc.path.clone(),
-                        line: idx + 1,
+                        line: span.line,
                         code: "FC10".to_string(),
                         message: format!(
-                            "[FC10] writing-style banned word {:?} -- see skills/writing-style/SKILL.md for canonical alternatives",
-                            banned
+                            "[FC10] writing-style banned word {banned:?} -- see skills/writing-style/rules.yaml for canonical alternatives"
                         ),
                     });
                 }
@@ -2665,6 +2693,87 @@ pub fn check_writing_style(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError
             }
         }
     }
+
+    if truncated {
+        errs.push(ValidationError {
+            file: doc.path.clone(),
+            line: 1,
+            code: "FC10".to_string(),
+            message: format!(
+                "[FC10] writing-style findings truncated at {PROSE_FINDING_CAP} for this file; fix these and re-run to see the rest"
+            ),
+        });
+    }
+
+    errs
+}
+
+/// FC10 frequency rules: a rate against a threshold, reported per document.
+///
+/// The first check in shirabe that counts rather than matches. Every value
+/// it needs — the threshold, the denominator, the reporting unit, and which
+/// line the finding carries — comes from the rule source rather than from
+/// this code, so changing any of them is a data edit.
+///
+/// Per document rather than per occurrence because the defect is a
+/// document-level property: a rate reported 2,785 times is noise about one
+/// problem. The finding carries the first occurrence's line, because a
+/// document-level finding still has to point somewhere an author can click
+/// and line 1 points at frontmatter.
+pub fn check_prose_frequency(doc: &Doc, rules: &crate::rules::Rules) -> Vec<ValidationError> {
+    let spans = crate::prose::prose_spans(&doc.body, doc.body_start_line);
+    let words = crate::prose::prose_word_count(&spans);
+    let mut errs = Vec::new();
+
+    // A document with no prose has no rate. Dividing by it would report
+    // every stub as infinitely dense.
+    if words == 0 {
+        return errs;
+    }
+
+    for rule in &rules.frequency {
+        // A rate needs enough denominator to be a rate. Short documents
+        // cross any threshold on a single occurrence.
+        if words < rule.min_words {
+            continue;
+        }
+        let mut count = 0usize;
+        let mut first_line: Option<usize> = None;
+        for span in &spans {
+            let hits = span.text.matches(&rule.pattern).count();
+            if hits > 0 && first_line.is_none() {
+                first_line = Some(span.line);
+            }
+            count += hits;
+        }
+        if count == 0 {
+            continue;
+        }
+
+        // Integer arithmetic: per-thousand scaled by 10 keeps one decimal
+        // place without floating point, so the comparison is exact and the
+        // reported rate is reproducible.
+        let rate_x10 = (count as u64 * 10_000) / words as u64;
+        let threshold_x10 = rule.threshold_per_thousand as u64 * 10;
+        if rate_x10 <= threshold_x10 {
+            continue;
+        }
+
+        errs.push(ValidationError {
+            file: doc.path.clone(),
+            line: first_line.unwrap_or(doc.body_start_line),
+            code: "FC10".to_string(),
+            message: format!(
+                "[FC10] {}: {}.{} per thousand words over {} words, above the threshold of {} -- see skills/writing-style/rules.yaml",
+                rule.id,
+                rate_x10 / 10,
+                rate_x10 % 10,
+                words,
+                rule.threshold_per_thousand
+            ),
+        });
+    }
+
     errs
 }
 
@@ -3401,6 +3510,7 @@ mod tests {
             fields,
             sections,
             body,
+            body_start_line: 1,
         }
     }
 
@@ -6265,6 +6375,7 @@ mod tests {
             fields: HashMap::new(),
             sections: vec![],
             body: lines(body_lines),
+            body_start_line: 1,
         }
     }
 
@@ -6275,19 +6386,198 @@ mod tests {
         assert_eq!(errs.len(), 0, "clean body must produce no FC10 notices; got {:?}", errs);
     }
 
+    /// The seven terms the superseded compile-time constant carried.
+    ///
+    /// Kept as an explicit list so the migration cannot silently narrow
+    /// enforcement: every word the old constant checked must still be
+    /// checked by the rule source that replaced it.
+    const SUPERSEDED_CONSTANT_WORDS: &[&str] = &[
+        "tier",
+        "tiered",
+        "robust",
+        "leverage",
+        "comprehensive",
+        "holistic",
+        "facilitate",
+    ];
+
     #[test]
-    fn check_writing_style_detects_each_banned_word() {
-        for &word in FC10_BANNED_WORDS {
-            let line = format!("We {} the thing.", word);
+    fn check_writing_style_detects_each_word_the_superseded_constant_carried() {
+        for &word in SUPERSEDED_CONSTANT_WORDS {
+            let line = format!("We {word} the thing.");
             let doc = doc_with_body("t.md", &[line.as_str()]);
             let errs = check_writing_style(&doc, &spec_for("brief/v1"));
             assert!(
                 errs.iter().any(|e| e.code == "FC10" && e.message.contains(word)),
-                "FC10 should detect banned word {:?}; got {:?}",
-                word,
-                errs
+                "FC10 should detect banned word {word:?}; got {errs:?}"
             );
         }
+    }
+
+    #[test]
+    fn check_writing_style_detects_every_term_in_the_rule_source() {
+        // The check reads the source; a term added there must fire with no
+        // code change. Multi-word terms are included deliberately.
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        for term in rules.all_terms() {
+            let line = format!("We {term} the thing.");
+            let doc = doc_with_body("t.md", &[line.as_str()]);
+            let errs = check_writing_style(&doc, &spec_for("brief/v1"));
+            assert!(
+                errs.iter().any(|e| e.code == "FC10"),
+                "term {term:?} from the rule source produced no finding"
+            );
+        }
+    }
+
+    #[test]
+    fn check_writing_style_reads_a_sentinel_added_to_the_rule_source() {
+        // The acceptance criterion for R1: a term appended to the source is
+        // honored without rebuilding. Driven through the explicit-rules
+        // entry point so the assertion is about reading, not about the
+        // process-wide cache.
+        let text = r#"
+words:
+  - category: sentinel
+    guidance: g
+    terms:
+      - zzsentinelzz
+"#;
+        let rules = crate::rules::parse_rules(text, "sentinel").expect("parses");
+        let doc = doc_with_body("t.md", &["a zzsentinelzz appears"]);
+        let errs = check_writing_style_with(&doc, &rules, &[]);
+        assert_eq!(errs.len(), 1, "sentinel term must fire; got {errs:?}");
+    }
+
+    #[test]
+    fn check_writing_style_skips_fenced_code_and_urls() {
+        let doc = doc_with_body(
+            "t.md",
+            &[
+                "```",
+                "tier_config --leverage",
+                "```",
+                "see https://example.com/robust-guide",
+                "a real tier in prose",
+            ],
+        );
+        let errs = check_writing_style(&doc, &spec_for("brief/v1"));
+        assert_eq!(
+            errs.len(),
+            1,
+            "only the prose occurrence counts; got {errs:?}"
+        );
+        assert_eq!(errs[0].line, 5);
+    }
+
+    #[test]
+    fn check_writing_style_reports_the_line_the_author_sees() {
+        // body_start_line is the frontmatter offset. A finding on body[0]
+        // of a document whose body starts at file line 25 is line 25, not 1.
+        let mut doc = doc_with_body("t.md", &["a tier here"]);
+        doc.body_start_line = 25;
+        let errs = check_writing_style(&doc, &spec_for("brief/v1"));
+        assert_eq!(errs.len(), 1);
+        assert_eq!(
+            errs[0].line, 25,
+            "the superseded check reported body-relative lines, short by the frontmatter length"
+        );
+    }
+
+    #[test]
+    fn check_writing_style_suppresses_declared_vocabulary_term_scoped() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let doc = doc_with_body("t.md", &["Tier 1 is robust"]);
+
+        let unsuppressed = check_writing_style_with(&doc, &rules, &[]);
+        assert_eq!(unsuppressed.len(), 2, "got {unsuppressed:?}");
+
+        let suppressed = check_writing_style_with(&doc, &rules, &["tier".to_string()]);
+        assert_eq!(
+            suppressed.len(),
+            1,
+            "declaring `tier` must not disable the other rules; got {suppressed:?}"
+        );
+        assert!(suppressed[0].message.contains("robust"));
+    }
+
+    #[test]
+    fn frequency_rule_fires_above_threshold_and_not_below() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let threshold = rules.frequency[0].threshold_per_thousand;
+
+        // Below: one em dash in enough words to sit under the threshold.
+        let words = (2000 / threshold.max(1)) as usize * 10;
+        let filler = vec!["word"; words].join(" ");
+        let under = doc_with_body("t.md", &[&format!("{filler} — one")]);
+        assert!(
+            check_prose_frequency(&under, &rules).is_empty(),
+            "a document below the threshold must not fire"
+        );
+
+        // Above: enough words to clear min_words, with a dash rate over
+        // the threshold.
+        let filler_over = vec!["word"; 400].join(" ");
+        let dashes = vec!["a — b"; 12].join(" ");
+        let over_line = format!("{filler_over} {dashes}");
+        let over = doc_with_body("t.md", &[&over_line]);
+        let errs = check_prose_frequency(&over, &rules);
+        assert_eq!(errs.len(), 1, "one finding per document; got {errs:?}");
+        assert!(errs[0].message.contains("em-dash-density"));
+    }
+
+    #[test]
+    fn frequency_rule_reports_one_finding_per_document_at_the_first_occurrence() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        // Enough words to clear min_words; the dashes are on later lines so
+        // the finding must point at the first occurrence, not line 1.
+        let filler = vec!["word"; 400].join(" ");
+        let dashes = vec!["a — b"; 12].join(" ");
+        let mut doc = doc_with_body(
+            "t.md",
+            &[&filler, "", &dashes, "", &dashes],
+        );
+        doc.body_start_line = 10;
+        let errs = check_prose_frequency(&doc, &rules);
+        assert_eq!(errs.len(), 1, "per document, not per occurrence");
+        assert_eq!(
+            errs[0].line, 12,
+            "the finding points at the first occurrence, not line 1"
+        );
+    }
+
+    #[test]
+    fn frequency_rule_ignores_em_dashes_outside_prose() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let doc = doc_with_body(
+            "t.md",
+            &["```", "a — b — c — d — e — f", "```", "clean prose here"],
+        );
+        assert!(
+            check_prose_frequency(&doc, &rules).is_empty(),
+            "a rate computed over code fences is not the rate the author acts on"
+        );
+    }
+
+    #[test]
+    fn frequency_rule_does_not_divide_by_zero_on_an_empty_document() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let doc = doc_with_body("t.md", &[]);
+        assert!(check_prose_frequency(&doc, &rules).is_empty());
+    }
+
+    #[test]
+    fn check_writing_style_bounds_emission() {
+        let line = "tier tier tier tier tier tier tier tier tier tier";
+        let body: Vec<&str> = std::iter::repeat(line).take(200).collect();
+        let doc = doc_with_body("t.md", &body);
+        let errs = check_writing_style(&doc, &spec_for("brief/v1"));
+        assert_eq!(
+            errs.len(),
+            PROSE_FINDING_CAP + 1,
+            "emission is capped plus one truncation notice"
+        );
+        assert!(errs.last().unwrap().message.contains("truncated"));
     }
 
     #[test]
@@ -6337,6 +6627,7 @@ mod tests {
             fields,
             sections,
             body: lines(body_lines),
+            body_start_line: 1,
         }
     }
 
@@ -6616,6 +6907,7 @@ mod tests {
             fields,
             sections,
             body,
+            body_start_line: 1,
         }
     }
 
@@ -6736,6 +7028,7 @@ mod tests {
             fields,
             sections: vec![],
             body,
+            body_start_line: 1,
         };
         let brief_spec = spec_for("brief/v1");
         assert!(check_fc14(&doc, &brief_spec).is_empty());

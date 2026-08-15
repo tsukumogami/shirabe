@@ -213,7 +213,7 @@ struct ValidateArgs {
     /// Run only the named check(s) instead of the full applicable pass.
     /// Repeatable and comma-splittable (e.g. `--check FC01 --check R7` or
     /// `--check FC01,R7`). Codes are the per-file checks: `SCHEMA`,
-    /// `FC01`-`FC13`, `FC-CONVENTIONS`, `R6`-`R9`. An unknown code is a tool
+    /// `FC01`-`FC16`, `FC-CONVENTIONS`, `R6`-`R9`. An unknown code is a tool
     /// error. A valid but format-inapplicable code is a clean no-op.
     #[arg(long, value_delimiter = ',')]
     check: Vec<String>,
@@ -601,13 +601,71 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
     let mut worst = ValidateOutcome::Clean;
     let mut findings: Vec<ValidationError> = Vec::new();
     for path in &args.files {
-        let spec = match detect_format(basename(path)) {
-            Some(s) => s,
-            None => continue,
-        };
+        // A directory argument matched no artifact prefix and was silently
+        // skipped, so `shirabe validate -- docs` reported success at exit 0
+        // having read nothing, while the same corpus passed as files
+        // reported 5 errors and 139 notices. Reject it: a checking surface
+        // that reports success without having checked is the failure this
+        // capability exists to end. CI passes changed files individually,
+        // so nothing depends on the old behavior.
+        if std::path::Path::new(path).is_dir() {
+            findings.push(ValidationError {
+                file: path.clone(),
+                line: 1,
+                code: "IO".to_string(),
+                message: format!(
+                    "{path} is a directory; pass files (for example: {path}/**/*.md)"
+                ),
+            });
+            worst = worst.merge(ValidateOutcome::ToolError);
+            continue;
+        }
+
+        let spec = detect_format(basename(path));
+
+        // A file carrying no artifact prefix still gets the prose family.
+        // Only Markdown: the reusable workflow passes the PR's whole
+        // changed-file set, so a non-Markdown path reaching prose checking
+        // would be a new way to produce nonsense findings.
+        let is_markdown = std::path::Path::new(path)
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("md"))
+            .unwrap_or(false);
+        if spec.is_none() && !is_markdown {
+            continue;
+        }
 
         let doc = match parse_doc(path) {
             Ok(d) => d,
+            Err(err) if spec.is_none() => {
+                // Frontmatter that will not parse is not a tool error on a
+                // non-artifact file. Two of shirabe's own skill files fail
+                // here today, and they are exactly the class R3 exists to
+                // cover; treating the failure as fatal would turn CI red on
+                // the change that adds the coverage. Fall back to scanning
+                // the raw file as prose.
+                match std::fs::read_to_string(path) {
+                    Ok(text) => shirabe_validate::Doc {
+                        path: path.clone(),
+                        schema: String::new(),
+                        status: String::new(),
+                        fields: Default::default(),
+                        sections: Vec::new(),
+                        body: text.lines().map(str::to_string).collect(),
+                        body_start_line: 1,
+                    },
+                    Err(_) => {
+                        findings.push(ValidationError {
+                            file: path.clone(),
+                            line: 1,
+                            code: "IO".to_string(),
+                            message: format!("could not read file: {}", io_error_text(&err)),
+                        });
+                        worst = worst.merge(ValidateOutcome::ToolError);
+                        continue;
+                    }
+                }
+            }
             Err(err) => {
                 // An unreadable or unparseable input is a tool error: the
                 // run could not complete for this file. Exit code 1, not a
@@ -633,7 +691,12 @@ fn run_validate(args: &ValidateArgs) -> ExitCode {
             allow_untracked_acs: args.allow_untracked_acs,
         };
 
-        for ve in validate_file(&doc, &spec, &cfg) {
+        let file_findings = match &spec {
+            Some(s) => validate_file(&doc, s, &cfg),
+            None => shirabe_validate::validate::validate_prose(&doc, &cfg),
+        };
+
+        for ve in file_findings {
             // When --check selects a subset, skip any finding whose code was
             // not requested: it is neither reported nor counted toward the
             // outcome (so selecting only a check that passes is a clean run,

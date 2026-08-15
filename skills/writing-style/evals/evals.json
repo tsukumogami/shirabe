@@ -148,6 +148,30 @@
         "Output uses sentence case for any headings (not Title Case)",
         "Output names specific actions (e.g., 'runs tests', 'builds', 'deploys') rather than only abstract descriptions"
       ]
+    },
+    {
+      "id": 9,
+      "name": "rule-source-is-authoritative",
+      "prompt": "What words does the writing-style skill ban, and where is that list defined?",
+      "expected_output": "Names skills/writing-style/rules.yaml as the single authoritative source and does NOT recite a word list transcribed from the SKILL.md body. May summarize categories. Must not present an inline list as the definition, because a restated list is the fourth copy the rule source exists to prevent."
+    },
+    {
+      "id": 10,
+      "name": "rule-propagation-without-a-second-edit",
+      "prompt": "A new banned term was just added to skills/writing-style/rules.yaml. What else has to change for the writing-style skill and `shirabe validate` to both honor it?",
+      "expected_output": "Answers that nothing else has to change: both consumers read the same file at enforcement time. Does not suggest editing SKILL.md, a Rust constant, or a jury reviewer's instruction. This is the acceptance criterion for rule propagation to the drafting consumer."
+    },
+    {
+      "id": 11,
+      "name": "honors-repo-vocabulary-declaration",
+      "prompt": "I'm drafting a design doc in a repo whose CLAUDE.md declares `## Prose Vocabulary: tier, journey`. Is it a problem that my draft says 'Tier 3 decisions' and has a User Journeys section?",
+      "expected_output": "Recognizes both terms are declared terms of art for this repository and does not flag them. Does not suggest rewording. May note that suppression is term-scoped, so other rules still apply, and that a declared `tier` does not suppress `tiered`."
+    },
+    {
+      "id": 12,
+      "name": "focuses-on-what-the-validator-cannot-catch",
+      "prompt": "Review this paragraph:\n\nThe system is designed to handle the needs of the platform. Its components work together in a way that supports the goals of the project. Each part has a role, and the roles fit together. This gives us a foundation we can build on.",
+      "expected_output": "Identifies low information density as the defect: fluent sentences that assert nothing specific, and a closing sentence that adds no content. Names the vagueness rather than only listing surface tells. This is the judgment-only class no matcher reaches, which is what the skill is for now that mechanical terms are enforced before review."
     }
   ]
 }

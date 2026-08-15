@@ -36,6 +36,15 @@ pub struct Doc {
     pub sections: Vec<Section>,
     /// Raw body lines, used by FC03 and `check_vision_public`.
     pub body: Vec<String>,
+    /// 1-indexed file line on which `body[0]` sits.
+    ///
+    /// Body-relative indices are what a check naturally has; the line an
+    /// author sees is what a finding must carry. Without this offset a
+    /// finding on `body[i]` reports `i + 1`, which is short by the length
+    /// of the frontmatter — on a 24-line frontmatter, line 38 for an
+    /// occurrence at 62. A document with no frontmatter has `1` here, so
+    /// the arithmetic is uniform rather than conditional.
+    pub body_start_line: usize,
 }
 
 /// A frontmatter field's string value and its 1-indexed line number.

@@ -241,10 +241,16 @@ is public-visibility clean, and writing-style rules are honored.
    exists, the document MUST be in Draft status. Accepted and Done forbid Open
    Questions.
 
-8. **Writing style.** Check the prose against the writing-style rules: no
-   "tier/tiered", "robust", "leverage", "comprehensive/holistic", or
-   "facilitate"; direct prose without preamble; no emojis; no AI attribution.
-   Flag specific offending phrases.
+8. **Writing style.** Check the prose against the rules in
+   `skills/writing-style/rules.yaml`, which is the single source the
+   validator reads too. Do not restate the word list here: a fourth copy is
+   what the rule source exists to end, and a copy that drifts is worse than
+   a pointer. Concentrate on what the validator cannot decide, which the
+   source marks `judgment_only`: vacuous sentences, empty conclusions,
+   demonstratives with no antecedent, attribution without a citation. The
+   mechanical terms are already caught before you see the draft. Also check
+   direct prose without preamble, no emojis, no AI attribution, and flag
+   specific offending phrases.
 
 ## Output Format
 

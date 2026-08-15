@@ -228,6 +228,7 @@ mod tests {
             fields: std::collections::HashMap::new(),
             sections: Vec::new(),
             body: Vec::new(),
+            body_start_line: 1,
         };
         assert!(upstream_entries(&doc).is_empty());
     }

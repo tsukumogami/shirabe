@@ -8,6 +8,24 @@ by koto for structural enforcement.
 Content must not reference private repos, internal resources, or
 pre-announcement features.
 
+## Prose Vocabulary: tier, journey, underscore
+
+Terms shirabe uses as its own terms of art, which the writing-style rules
+must not fire on. `Tier 1-4` is the decision-complexity vocabulary of
+`docs/designs/current/DESIGN-decision-framework.md`; `journey` is a required
+section heading in shirabe's own BRIEF format, so the rulebook fires against
+the repo that wrote it. `underscore` is banned in its verb sense (to
+underscore a point) and shirabe uses the noun constantly, for the `_`
+character in filenames and YAML scalars; a matcher cannot tell those apart,
+so the term is declared rather than the rule weakened.
+
+Declared here rather than exempted in code, so shirabe uses the same
+mechanism an adopting repository uses. Suppression is term-scoped and does
+not extend to variants: `tier` does not suppress `tiered`. A repository with
+no declaration receives findings for every term, and writing a declaration
+is an adopter's first action. The rules themselves live in
+`skills/writing-style/rules.yaml`.
+
 ## Planning Context: Tactical
 
 When running /explore or /plan here:

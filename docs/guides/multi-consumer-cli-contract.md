@@ -86,7 +86,7 @@ repeatable and comma-splittable: `--check FC01 --check R7` and
 `--check FC01,R7` are equivalent. With no `--check`, the full applicable
 pass runs.
 
-- The selectable codes are the per-file checks: `SCHEMA`, `FC01`-`FC13`,
+- The selectable codes are the per-file checks: `SCHEMA`, `FC01`-`FC16`,
   `FC-CONVENTIONS`, and `R6`-`R9`.
 - An unknown code is a tool error (exit `1`), naming the offending code.
 - A valid but format-inapplicable code (for example `FC05`, a plan check,
