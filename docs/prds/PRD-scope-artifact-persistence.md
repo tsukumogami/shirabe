@@ -160,7 +160,8 @@ nothing.
 
 **R15.** Before deleting an artifact, the procedure SHALL search the repository's
 git-tracked files for citations of it, excluding `wip/`, excluding the survivor
-of this fold, and excluding any bookkeeping surface the procedure itself writes. A citation containing the artifact's repo-relative path
+of this fold, and excluding any bookkeeping surface the procedure itself writes.
+A citation containing the artifact's repo-relative path
 SHALL downgrade the verdict to `keep` through the existing abort path. A
 citation naming the artifact without its path SHALL be surfaced to the judging
 agent as a finding and SHALL NOT by itself change the verdict. The check SHALL
@@ -185,11 +186,16 @@ because most survivors cite the path more than once. The exclusion is a named,
 static, design-time rule rather than an override: it narrows what is searched,
 never what the search is allowed to conclude.
 
-Where a record of the fold names a still-live document, that name SHALL NOT
-cause a later hop in the same chain to refuse. The design SHALL state how — by
-re-pointing prior records before the scan, by naming the survivor in a form the
-path match does not catch, or otherwise — because a chain that folds twice
-otherwise refuses at its second hop.
+A record of an earlier fold naming a still-live document SHALL NOT cause a later
+hop in the same chain to refuse. The exclusion above is how, and it is the only
+route this requirement leaves open. Re-pointing earlier records before the scan
+is barred by the ordering — the search runs before any mutation — and it would
+also assert something that never happened: the operation at the first hop was
+BRIEF-into-PRD, and rewriting that row to read BRIEF-into-DESIGN collapses the
+hop-by-hop sequence the record exists to preserve. Naming the survivor by a bare
+name instead of a path is rejected too: it trades the record's most useful field
+for a finding that would fire on every cascading fold and be dismissed every
+time.
 
 **R16.** `shirabe validate` SHALL fail when an `R<n>` requirement citation whose
 target document this run absorbed resolves neither within the surviving document
