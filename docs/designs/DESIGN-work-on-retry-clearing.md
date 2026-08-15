@@ -544,6 +544,17 @@ non-zero and names the key, and the guarded draft exited 0 in silence. That is
 why R5's diagnostic is load-bearing rather than a convenience, and why the
 guard's removal is a correctness fix rather than a tidy-up.
 
+**The key list is a literal, repeated three times.** `for KEY in
+scrutiny_results.json review_results.json qa_results.json` is hardcoded in each
+phase file, and the three copies are correct only in relation to the template's
+state graph. Adding a fourth panel phase, or removing one, means updating four
+places in sync — and nothing catches a partial update, because a block looping
+over a stale list still exits 0. The risk is bounded: changing the panel phases
+already requires editing the template's states in the same commit, and the test
+asserts the three blocks stay byte-identical to each other, so a partial update
+across the three phase files fails. What no check covers is all three agreeing
+with each other and disagreeing with the state graph.
+
 **The residual risk, stated plainly.** The three artifacts are written by agents
 following a heredoc. If an agent improvises a different shape the gate rejects a
 legitimate passing artifact, and every exit from that state is then a failure
