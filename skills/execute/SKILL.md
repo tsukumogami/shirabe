@@ -691,12 +691,14 @@ against its chain shape:
    resume entry with a diagnostic and routes to bail-handling, never proceeds
    silently.
 2. **Closed write-target set.** `/execute`'s filesystem and remote writes are confined
-   to: its state file and scratch under `wip/execute_<topic>_*`; the skill's own
-   files; the home PR / coordination body via `gh` (`gh pr edit`, `gh pr ready`,
-   `gh pr close`); the finalization cascade's atomic chain transitions
-   (PLAN deletion + BRIEF/PRD/DESIGN/ROADMAP transitions under `docs/`); and Decision
-   Records under `docs/decisions/` on `re-evaluation`. A write outside this set fails
-   the R9 hard-finalization check.
+   to the set declared in
+   [`${CLAUDE_PLUGIN_ROOT}/skills/execute/write-targets.json`](write-targets.json),
+   which is the source of truth: the state file and scratch, the skill's own files,
+   the home PR / coordination body via `gh`, the finalization cascade's chain
+   transitions under `docs/`, and Decision Records on `re-evaluation`. The declaration
+   is machine-readable so the enforcement and this prose cannot drift; adding a target
+   means editing that file, not this paragraph. A write outside the set fails the R9
+   hard-finalization check.
 3. **`execution_mode` enum re-validation at both consumers.** The PLAN's
    `execution_mode` is re-validated against `{single-pr, coordinated, multi-pr}` at
    `/execute` entry BEFORE it selects a path or interpolates into any branch name, and

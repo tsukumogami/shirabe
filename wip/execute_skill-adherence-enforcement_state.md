@@ -66,6 +66,31 @@ dispatched as a `/work-on` run against the shared branch with a disjoint file se
 they can run in parallel without racing. Children were instructed not to run git
 write commands; the orchestrator commits.
 
+**Baseline measurement result, and why it belongs in the PR body.** Issue 9's
+child measured the current `execute` description against a 20-query set, 5 runs
+per query, before rewriting anything. Result: 8 of 20 queries pass. The split is
+the informative part. All 8 negatives pass, meaning the description never fires
+on work that belongs to the single-issue workflow. All 12 positives fail, at
+**zero triggers across all 60 positive runs**.
+
+So the description does not undertrigger. It does not fire at all on its own
+canonical invocation, including the literal phrasings from both field incidents
+("Execute the plan at docs/plans/PLAN-...", "Drive every issue in this PLAN to a
+merged pull request"). It also never names resumption, which the skill genuinely
+owns, and "Resume the plan run I started yesterday" scored 0/5.
+
+This sharpens the exploration's finding rather than contradicting it. The
+research established a ceiling on description quality, correctly, on the evidence
+that `work-on`'s near-ideal description also failed to fire. Nobody had measured
+`execute` itself, so the contribution of a defective description was assumed
+small and was never bounded. It is not small. The enforcement work remains
+justified on the second incident, where the skill did fire and the loop was
+skipped anyway, but the first incident now has a measured proximate cause.
+
+Carry this into the PR body at `pr_finalization`: it is the strongest single
+piece of evidence produced across the whole chain, and `wip/` does not survive
+the cascade.
+
 **Precedence note.** The session carries an instruction not to call the Agent tool
 unless the user requested it, and `spawn_and_await` materializes one `/work-on`
 child per issue. The author invoked `/execute` on this PLAN, and under the ordering

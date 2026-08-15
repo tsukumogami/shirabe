@@ -22,10 +22,13 @@ use shirabe_validate::{
     ReviewPosture, SlugPrefixCheck, ValidationError, ARTIFACT_DIRS, SCHEMA_SKIP_CODE,
 };
 
+mod adherence_hook;
+mod conflict_record;
 mod plan_outlines;
 mod populate;
 mod pr_body_hook;
 mod work_summary;
+mod write_targets;
 
 /// The maximum accepted size of the `--custom-statuses` value, matching the
 /// Go binary's 64 KiB guard.
@@ -103,6 +106,20 @@ enum Commands {
     /// always exits 0. Registered via dot-niwa; the CI `pr-body.yml` gate is
     /// the authoritative backstop.
     PrBodyHook,
+    /// Client-side PreToolUse hook on the edit-shaped tools, registered by the
+    /// plugin's `hooks/hooks.json`. Reads a Claude Code hook JSON on stdin,
+    /// records the per-session liveness witness the adherence determination
+    /// reads, and allows the write. Fail-open in every path and always exits 0:
+    /// a non-zero exit from a `PreToolUse` handler blocks the tool call.
+    AdherenceHook(adherence_hook::AdherenceHookArgs),
+    /// Record a departure from the workflow before taking it. `record` is the
+    /// one recorder: it requires the conflicting instruction, the workflow step
+    /// it conflicts with, and the intended course, and writes a durable
+    /// machine-local record whether or not an orchestration session exists,
+    /// mirroring into one best-effort when `--workflow` names it. `notify`
+    /// surfaces new records to the author from a hook; `publish` renders the
+    /// fail-closed-redacted block for the home pull request body.
+    Conflict(conflict_record::ConflictArgs),
 }
 
 #[derive(clap::Args)]
@@ -418,6 +435,8 @@ fn main() -> ExitCode {
         Some(Commands::InstallHooks(args)) => run_install_hooks_cmd(&args),
         Some(Commands::WorkSummary(args)) => work_summary::run(&args.command),
         Some(Commands::PrBodyHook) => pr_body_hook::run(),
+        Some(Commands::AdherenceHook(args)) => adherence_hook::run(&args),
+        Some(Commands::Conflict(args)) => conflict_record::run(&args.command),
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would
         // otherwise leave `command` as `None` and exit 0 silently.

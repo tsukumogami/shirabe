@@ -1,0 +1,102 @@
+[
+  {
+    "query": "Run docs/plans/PLAN-work-on-friction-fixes.md end to end",
+    "should_trigger": true,
+    "note": "canonical invocation: a plan path plus end-to-end intent"
+  },
+  {
+    "query": "Execute the plan at docs/plans/PLAN-skill-adherence-enforcement.md",
+    "should_trigger": true,
+    "note": "plan path, execution verb"
+  },
+  {
+    "query": "The plan is finished. Take it all the way to merged code.",
+    "should_trigger": true,
+    "note": "no path; the outcome (merged code from a finished plan) is the signal"
+  },
+  {
+    "query": "Drive every issue in this PLAN to a merged pull request",
+    "should_trigger": true,
+    "note": "every-issue scope is what separates this from the single-issue workflow"
+  },
+  {
+    "query": "I have a finished PLAN doc. Start implementing it, all the issues, don't stop between them.",
+    "should_trigger": true,
+    "note": "explicit whole-plan scope plus an autonomy instruction"
+  },
+  {
+    "query": "Work through the whole plan autonomously until it is mergeable",
+    "should_trigger": true,
+    "note": "autonomous whole-plan run"
+  },
+  {
+    "query": "Take PLAN-skill-adherence-enforcement.md and implement all nine of its issues",
+    "should_trigger": true,
+    "note": "bare plan filename, all-issues scope"
+  },
+  {
+    "query": "Resume the plan run I started yesterday. It stopped halfway through the issues.",
+    "should_trigger": true,
+    "note": "resuming an interrupted plan run"
+  },
+  {
+    "query": "Run this coordinated multi-repo plan across all three repositories",
+    "should_trigger": true,
+    "note": "coordinated execution mode"
+  },
+  {
+    "query": "Kick off implementation of the plan we just wrote, issue by issue",
+    "should_trigger": true,
+    "note": "handoff phrasing right after planning finishes"
+  },
+  {
+    "query": "Ship the whole plan: every issue, one pull request",
+    "should_trigger": true,
+    "note": "single-pr execution mode described without naming the mode"
+  },
+  {
+    "query": "Start the implementation run for docs/plans/PLAN-work-on-friction-fixes.md and do not stop for checkpoints",
+    "should_trigger": true,
+    "note": "autonomous mode on a named plan"
+  },
+  {
+    "query": "Work on issue 42",
+    "should_trigger": false,
+    "note": "near miss: single issue belongs to /work-on"
+  },
+  {
+    "query": "Implement the next unblocked issue in milestone M3",
+    "should_trigger": false,
+    "note": "near miss: milestone input belongs to /work-on"
+  },
+  {
+    "query": "Just do issue 3 from the plan, nothing else",
+    "should_trigger": false,
+    "note": "hard negative: names a plan but scopes to one issue, so /work-on"
+  },
+  {
+    "query": "Take one issue out of docs/plans/PLAN-work-on-friction-fixes.md and implement only that one",
+    "should_trigger": false,
+    "note": "hardest negative: a plan path with an explicit single-issue scope"
+  },
+  {
+    "query": "Fix the failing CI check on my open pull request",
+    "should_trigger": false,
+    "note": "near miss: repair work on one PR belongs to /work-on"
+  },
+  {
+    "query": "Open a pull request for the change I just made",
+    "should_trigger": false,
+    "note": "near miss: PR mechanics without a plan"
+  },
+  {
+    "query": "Break this design doc into implementable issues",
+    "should_trigger": false,
+    "note": "upstream altitude: /plan, not plan execution"
+  },
+  {
+    "query": "Write a design doc for the caching layer",
+    "should_trigger": false,
+    "note": "upstream altitude: /design"
+  }
+]

@@ -1,0 +1,59 @@
+{
+  "schema": "write-targets/v1",
+  "skill": "execute",
+  "description": "The closed write-target set for /execute. This file is the source of truth; skills/execute/SKILL.md (Security Considerations, point 2) points here rather than restating the set. A write outside this set fails the R9 hard-finalization check.",
+  "placeholders": {
+    "topic": "[a-z0-9-]+"
+  },
+  "path_classes": [
+    {
+      "id": "state-and-scratch",
+      "title": "State file and scratch",
+      "description": "The wip-yaml-md state projection and any scratch keyed on the topic slug. Non-durable: the finalization cascade plus the squash-merge carry it off main.",
+      "patterns": [
+        "wip/execute_{topic}_**"
+      ]
+    },
+    {
+      "id": "own-skill-files",
+      "title": "The skill's own files",
+      "description": "SKILL.md, the lifted koto template, the scripts, the references, and the evals that ship with /execute.",
+      "patterns": [
+        "skills/execute/**"
+      ]
+    },
+    {
+      "id": "chain-transitions",
+      "title": "Finalization cascade chain transitions",
+      "description": "The atomic chain transitions the cascade performs: PLAN deletion plus the BRIEF/PRD/DESIGN/ROADMAP transitions, including the DESIGN move into docs/designs/current/.",
+      "patterns": [
+        "docs/plans/PLAN-*.md",
+        "docs/briefs/BRIEF-*.md",
+        "docs/prds/PRD-*.md",
+        "docs/designs/DESIGN-*.md",
+        "docs/designs/current/DESIGN-*.md",
+        "docs/roadmaps/ROADMAP-*.md"
+      ]
+    },
+    {
+      "id": "decision-records",
+      "title": "Decision Records on re-evaluation",
+      "description": "The Decision Record /execute writes when it exits at an upstream-must-change boundary.",
+      "patterns": [
+        "docs/decisions/DECISION-*.md"
+      ]
+    }
+  ],
+  "command_classes": [
+    {
+      "id": "home-pr",
+      "title": "Home PR and coordination body",
+      "description": "The remote writes /execute makes, all through gh against the home pull request or the coordination PR body. Filing issues is deliberately absent: an automated run-report emit would add a remote target outside this set and needs an R9 amendment first.",
+      "argv_prefixes": [
+        ["gh", "pr", "edit"],
+        ["gh", "pr", "ready"],
+        ["gh", "pr", "close"]
+      ]
+    }
+  ]
+}
