@@ -3203,8 +3203,8 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     // content is the Implementation Issues table, covered by FC05/FC06).
     if mode == "single-pr" {
         // Sub-check B: per-block structural fields.
-        for block in &outlines {
-            if block.goal.is_none() {
+        for block in &outlines.blocks {
+            if !block.goal_declared {
                 errs.push(ValidationError {
                     file: doc.path.clone(),
                     line: block.line,
@@ -3215,7 +3215,7 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
                     ),
                 });
             }
-            if block.acceptance_criteria.is_none() {
+            if !block.acceptance_criteria_declared {
                 errs.push(ValidationError {
                     file: doc.path.clone(),
                     line: block.line,
@@ -3226,7 +3226,7 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
                     ),
                 });
             }
-            if !block.has_dependencies_line {
+            if !block.dependencies_declared {
                 errs.push(ValidationError {
                     file: doc.path.clone(),
                     line: block.line,
@@ -3239,39 +3239,12 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
             }
         }
 
-        // Sub-check C: outline-to-outline dependency resolution.
-        // Build the set of known outline keys plus their `<<ISSUE:N>>`
-        // placeholder forms so dependency tokens written as either the
-        // free-form key or the placeholder resolve correctly.
-        use std::collections::HashSet;
-        let mut known: HashSet<String> = HashSet::new();
-        for (idx, b) in outlines.iter().enumerate() {
-            known.insert(b.key.clone());
-            // Heading shape "Issue N: ..." maps to placeholder <<ISSUE:N>>.
-            known.insert(format!("<<ISSUE:{}>>", idx + 1));
-            // Also a bare numeric form `N` for legacy refs.
-            known.insert(format!("Issue {}", idx + 1));
-        }
-        for block in &outlines {
-            if block.dependencies_is_none {
-                continue;
-            }
-            for token in &block.dependencies {
-                if token.is_empty() {
-                    continue;
-                }
-                if known.contains(token) {
-                    continue;
-                }
-                // Also accept a substring match against any known key: an
-                // outline whose key starts with "Issue 1: feat(...)"
-                // matched by a dep written as "Issue 1" should resolve.
-                let resolved = known
-                    .iter()
-                    .any(|k| k.starts_with(token) || token.starts_with(k));
-                if resolved {
-                    continue;
-                }
+        // Sub-check C: outline-to-outline dependency resolution. The parser
+        // resolves references against the numbers in the headings and hands
+        // back whatever named no sibling, so this check reports rather than
+        // re-derives.
+        for block in &outlines.blocks {
+            for token in &block.unresolved_dependencies {
                 errs.push(ValidationError {
                     file: doc.path.clone(),
                     line: block.line,
@@ -3283,13 +3256,28 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
                 });
             }
         }
+
+        // Sub-check F: heading conformance. A `###` heading inside the
+        // section that is not `### Issue <N>: <title>` opens no outline, so
+        // task extraction never sees the work under it.
+        for heading in &outlines.nonconforming_headings {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: heading.line,
+                code: "FC14".to_string(),
+                message: format!(
+                    "[FC14] heading '### {}' inside '## Issue Outlines' is not a '### Issue <N>: <title>' outline heading and opens no outline (task extraction will not see it)",
+                    heading.text
+                ),
+            });
+        }
     }
 
     // Sub-check D: issue_count consistency.
     if let Some(ic_field) = doc.fields.get("issue_count") {
         if let Ok(declared) = ic_field.value.trim().parse::<usize>() {
             let observed: usize = if mode == "single-pr" {
-                outlines.len()
+                outlines.blocks.len()
             } else {
                 // multi-pr / coordinated: count entity rows in the
                 // Implementation Issues table.
@@ -3342,7 +3330,7 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
         // multi-pr / coordinated: authoritative content is the Implementation
         // Issues table, so a populated Issue Outlines section is the symmetric
         // mutual-exclusion violation.
-        if !outlines.is_empty() {
+        if !outlines.blocks.is_empty() {
             errs.push(ValidationError {
                 file: doc.path.clone(),
                 line: 1,
