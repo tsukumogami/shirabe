@@ -335,6 +335,35 @@ absent or evidence is unreadable; conforming when registration holds and
 delegation is complete or its shortfall is covered by a recorded conflict; and
 non-conforming otherwise.
 
+### Cost, measured
+
+The arming ladder was measured per tool call on v2.1.233. Hook process startup
+plus parsing the hook input is roughly 4ms and dominates. The cheap existence
+check is sub-millisecond. The transcript scan is about 2ms against a 4.1MB file.
+Reading the plan's frontmatter is sub-millisecond. Worst case, armed, in a
+repository that hosts plans: about 10ms. The common case, a repository with no
+plans directory, bails at the existence check for about 5ms, essentially the
+process floor.
+
+That sits comfortably inside the budget the requirements set. One growth risk is
+real: the transcript scan is linear in transcript size, and an armed session
+rescans on every write while the file grows all run. Extrapolating from the
+measured point, a 100MB transcript would be roughly 50ms. Still inside budget,
+with less margin than is comfortable to promise.
+
+Memoizing the verdict per session and agent removes the growth entirely, and it
+is exact rather than approximate **provided the predicate is monotone**. The
+presence half is monotone by construction: the records are an append-only log,
+so once an inbound brief names a resolvable plan, no later record can unname it.
+The exclusion half is the one to be careful about. If the single-issue
+delegation marker is evaluated against the whole received history, a later
+record could introduce a marker and flip an armed verdict to not-armed, which is
+not monotone and would make memoization unsound. The design therefore requires
+the exclusion to be evaluated against the same brief that supplied the plan
+reference, not against records that arrive afterward. With that scoping the
+predicate is monotone and the cache is safe; without it the cache must be
+dropped rather than the scoping quietly assumed.
+
 ### Interfaces created by cross-validation
 
 Two interfaces exist only because decisions met, and both are load-bearing.
@@ -344,26 +373,30 @@ writes it so the determination can distinguish "this run did not register" from
 "nothing was watching." Without it the determination misreports every run that
 predates the recording path.
 
-Four properties are required of it, and they are the contract. Anything
-satisfying them is an acceptable implementation.
+**Shape: one write-once file per session, not a per-call log.** Cross-validation
+first stated this as an entry per evaluated tool call, which over-specifies what
+the determination needs. The requirement is a liveness witness, and liveness is
+a property of the session rather than of each call. A per-call record would need
+a rotation policy, a size cap, and a retention answer; a per-session file needs
+none of them.
 
-- **Session-keyed**, so the determination can look it up by the same key it uses
-  for every other surface.
-- **Sufficient to prove liveness over the session's span**, not merely at one
-  instant. A single marker written once cannot distinguish a component that ran
-  throughout from one that ran once and died before the writes that matter.
-- **Distinguishes evaluated-and-did-not-arm from never-ran.** This is the whole
-  purpose. The common case by volume is a hook that evaluates and allows, and
-  that case must leave a trace, or the witness is present only for sessions that
-  were armed.
-- **Readable after the session ends and bounded in growth.** The determination
-  runs after the fact, so the log outlives the session; and it is written on
-  every edit-shaped call, so an unbounded per-call record is not viable. The
-  bounding strategy is an implementation choice and is deliberately not fixed
-  here.
+- **Keyed by session**, co-located with the conflict store, carrying the session
+  and agent identity, the component's contract version, a first-seen timestamp,
+  and the working directory.
+- **Written after the cheap existence check and before the rest of the ladder.**
+  This placement is load-bearing in both directions. After the check, so the
+  file is not created in every repository on the machine. Before the remaining
+  clauses, so it records evaluations that did **not** arm, which is the entire
+  point: the common case by volume is a hook that evaluates and allows, and if
+  only armed sessions left a witness, the witness would be absent exactly where
+  the determination needs it.
+- **Admissible under the evidence rule.** The hook process writes it; no tool
+  call the evaluated session issued produces it. This is worth stating because a
+  durable file appearing mid-session is precisely the shape that rule exists to
+  exclude, and a reviewer should be able to confirm it rather than infer it.
 
-The determination treats absence of a satisfying entry as `indeterminate`, never
-as `non-conforming`.
+The determination treats absence of the file as `indeterminate`, never as
+`non-conforming`.
 
 **The conflict store is an input to the determination.** A delegation shortfall
 covered by a recorded conflict is conforming; the same shortfall uncovered is
