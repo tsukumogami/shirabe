@@ -236,9 +236,11 @@ it for.
       `execution_mode` for the same input.
 - [ ] A repository declaring nothing produces, for the change above, the same
       `execution_mode` the pre-change workflow produces for it.
-- [ ] The delivery-shape header's name, as documented in
-      `references/fixes/claude-md-conventions.md`, is not `Execution Mode`, and
-      the two headers appear as separate rows.
+- [ ] `references/fixes/claude-md-conventions.md` carries an entry for each of
+      the two new headers, and each entry states the header's accepted values,
+      its default, and its precedence order. The delivery-shape header's name is
+      not `Execution Mode`, and it and the autonomy header appear as separate
+      rows.
 - [ ] Planning a change under `atomic` runs the value-confirmation guard against
       each resulting unit, and a unit that fails it is reported as a
       mis-decomposition rather than accepted because the preference is `atomic`.
@@ -253,6 +255,10 @@ it for.
 - [ ] A repository stating a delivery preference but no tracking preference
       produces `issues-and-milestone` for a `multi-pr` plan and no GitHub
       artifacts for a `single-pr` plan.
+- [ ] Passing the tracking-level flag on the invocation overrides a conflicting
+      CLAUDE.md tracking header, and the header overrides the R9 default. All
+      three levels are exercised in one test, each producing a different
+      observable set of GitHub artifacts for the same input.
 - [ ] A `coordinated` plan produces the tracking its coordination contract
       specifies, unchanged, under every value of the tracking preference.
 - [ ] Activating a plan whose resolved tracking level is `issues` or
@@ -274,10 +280,12 @@ it for.
 - [ ] `shirabe validate` on a `single-pr` PLAN in an `atomic` repository, with no
       R13 field, reports a finding — the plan departed from the stated
       preference and owes a reason.
-- [ ] The R13 field on a plan split by a forcing constraint names the
-      hard-constraint branch; on a plan split under `atomic` with no constraint,
-      it names the stated-preference branch. The two are distinguishable by
-      reading the field.
+- [ ] All three branches are distinguishable by reading the R13 field. A plan
+      split by a forcing constraint names the hard-constraint branch. A plan
+      split under `atomic` with no constraint names the stated-preference
+      branch. A plan split under `consolidated` with no forcing constraint,
+      whose decomposition reveals genuine per-unit value, names the
+      incremental-value branch.
 
 ### Principle reconciliation
 
