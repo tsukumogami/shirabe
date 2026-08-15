@@ -72,9 +72,11 @@ structurally invisible to capture, so the ledger (and the block) will not list
 it.
 
 The sanctioned recovery is to submit it through the validated verb, never to
-narrate it as prose:
+narrate it as prose. Run:
 
-!`shirabe work-summary track <pr-url> [<pr-url> ...]`
+```
+shirabe work-summary track <pr-url> [<pr-url> ...]
+```
 
 `track` validates each URL against the anchored PR-URL pattern **and** a live
 `gh pr view` before appending it to this session's ledger (marked

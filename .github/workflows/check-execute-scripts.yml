@@ -25,5 +25,5 @@ jobs:
       - name: Run cascade tests
         run: bash skills/execute/scripts/run-cascade_test.sh
 
-      - name: Run preflight tests
-        run: bash skills/execute/scripts/preflight_test.sh
+      - name: Run assert-child-template tests
+        run: bash skills/execute/scripts/assert-child-template_test.sh

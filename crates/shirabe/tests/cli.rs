@@ -405,3 +405,92 @@ fn unknown_check_code_message_names_the_legality_range() {
         .failure()
         .stderr(contains("R6-R11"));
 }
+
+/// The stdout marker of a `--format json` run: the versioned envelope tag. A
+/// programmatic consumer tests for this BEFORE it reads the exit code, so the
+/// tests below assert its presence or absence alongside the code rather than
+/// the code alone. See `docs/guides/multi-consumer-cli-contract.md`.
+const ENVELOPE_TAG: &str = "\"schema_version\": \"shirabe-validate/v1\"";
+
+/// A usage error is a CLI-surface failure, not a verdict on a document, so it
+/// takes the tool-error code `1` -- never `2`, which means "the run completed
+/// and found violations". clap's default is exit `2` for every parse error;
+/// `main` overrides it via `try_parse`. Without the override an unrecognized
+/// flag and a genuinely failing document are indistinguishable to a consumer
+/// reading the exit code, and the author is sent to fix content that is not
+/// broken.
+#[test]
+fn unrecognized_flag_exits_one_with_no_envelope() {
+    shirabe()
+        .arg("validate")
+        .arg("--not-a-real-flag")
+        .arg("--format")
+        .arg("json")
+        .assert()
+        .code(1)
+        // The diagnostic goes to stderr and stdout carries no envelope: the
+        // validator never ran, so there is no verdict to report.
+        .stdout(contains(ENVELOPE_TAG).not())
+        .stderr(contains("unexpected argument"));
+}
+
+/// The same contract for the other clap-intercepted usage error.
+#[test]
+fn unrecognized_subcommand_exits_one_with_no_envelope() {
+    shirabe()
+        .arg("frobnicate")
+        .assert()
+        .code(1)
+        .stdout(contains(ENVELOPE_TAG).not())
+        .stderr(contains("unrecognized subcommand"));
+}
+
+/// `--help` keeps clap's stdout / exit-0 routing: it is not a failure, and the
+/// remap must not sweep it up.
+#[test]
+fn help_exits_zero_on_stdout() {
+    shirabe()
+        .arg("--help")
+        .assert()
+        .code(0)
+        .stdout(contains("Workflow skills for AI coding agents"))
+        .stderr("");
+}
+
+/// The other half of the discriminator: a document that genuinely fails a
+/// check exits `2` AND emits an envelope, so a consumer that found the
+/// envelope can trust `2` to mean violations.
+#[test]
+fn violating_document_exits_two_with_an_envelope() {
+    let doc = make_brief("json-violations", BRIEF_NAMING_A_DESIGN);
+    shirabe()
+        .arg("validate")
+        .arg("--check")
+        .arg("R10")
+        .arg("--format")
+        .arg("json")
+        .arg(&doc)
+        .assert()
+        .code(2)
+        .stdout(contains(ENVELOPE_TAG))
+        .stdout(contains("\"outcome\": \"violations\""))
+        .stdout(contains("\"code\": \"R10\""));
+}
+
+/// A clean run exits `0` and still emits the envelope -- envelope presence
+/// tracks "the validator reached a verdict", not "the verdict was bad".
+#[test]
+fn clean_document_exits_zero_with_an_envelope() {
+    let doc = make_repo_with_doc("json-clean", "# repo\n\n## Repo Visibility: Private\n");
+    shirabe()
+        .arg("validate")
+        .arg("--check")
+        .arg("R8")
+        .arg("--format")
+        .arg("json")
+        .arg(&doc)
+        .assert()
+        .code(0)
+        .stdout(contains(ENVELOPE_TAG))
+        .stdout(contains("\"outcome\": \"clean\""));
+}

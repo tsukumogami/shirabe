@@ -379,7 +379,7 @@ this skill may depend on it:
   feature (one `gh issue create` invocation per feature, discrete args),
   then renders an issue-keyed table and diagram. This path goes through the
   R14 approval gate below. Reached only by an explicit human invocation of
-  `/roadmap populate <path>`, after the roadmap is approved.
+  `/roadmap populate <path> --issues`, after the roadmap is approved.
 
 Passing both flags is an error: the subcommand rejects the invocation
 during argument parsing, so nothing is written and no `gh` call is made.
@@ -408,8 +408,14 @@ the dependency-diagram convention come from
 ### Invocation
 
 ```
-/roadmap populate <path>
+/roadmap populate <path> --issues
+/roadmap populate <path> --no-issues
 ```
+
+Name the mode at the slash-command layer too. `/roadmap populate <path>`
+with no flag is the human-at-a-shell form documented under Context
+Resolution, where the `## Roadmap Issues:` header resolves it; it is not a
+form this skill emits.
 
 Or, equivalently, invoking the CLI directly from the project root. The
 issue-creating form, used by the post-approval issue-filing action:

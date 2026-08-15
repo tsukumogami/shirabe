@@ -56,9 +56,11 @@ eight steps in sequence:
 6. **Child-snapshot capture.** Record the child's status +
    content-hash dual-check pair in `child_snapshots:`.
 7. **Validator pass-through.** Run `shirabe validate --format
-   json` against the new intermediate, parse the envelope, and
-   branch on the multi-level exit code; a `violations` or
-   tool-error result halts the chain.
+   json` against the new intermediate, capturing stdout and
+   stderr. Parse the envelope first — no envelope is a tool-error
+   whatever the exit code — and branch on the multi-level exit
+   code only once it parses; a `violations` or tool-error result
+   halts the chain.
 8. **Consolidation judgment.** Compare the artifact that just
    landed against the nearest surviving durable artifact this
    chain produced above it, and reach a `keep` or `absorb`
@@ -401,10 +403,23 @@ header (default Private if absent).
 
 The validator runs the `shirabe` binary at `cmd/shirabe/` —
 the same binary humans invoke for ad-hoc validation. Phase 2
-parses the `shirabe-validate/v1` JSON envelope from stdout and
-branches on the multi-level exit code (the contract shared with
-`transition` and `finalize-chain`; see
-`docs/guides/multi-consumer-cli-contract.md`):
+captures BOTH stdout and stderr from the sub-process; stderr is
+never discarded, because in the no-envelope case it is the entire
+diagnostic.
+
+**Precedence: the envelope decides before the exit code does.**
+Phase 2 parses stdout for the `shirabe-validate/v1` envelope
+FIRST. Absence of a parseable envelope means the validator never
+reached a verdict, whatever the exit code: treat the run as a
+tool-error, surface the captured stderr verbatim, and halt WITHOUT
+reporting a document violation. A `shirabe` too old to recognize a
+flag Phase 2 passes rejects it as a usage error and exits 2, and
+without this rule that reads as "violations" and sends the author
+to fix an intermediate that is not broken.
+
+With a parsed envelope, Phase 2 branches on the multi-level exit
+code (the contract shared with `transition` and `finalize-chain`;
+see `docs/guides/multi-consumer-cli-contract.md`):
 
 - **0 (clean)** — the iteration clears; the loop advances to the
   next child in `planned_chain:`.
@@ -418,15 +433,18 @@ branches on the multi-level exit code (the contract shared with
   `[L05] ...`), so do NOT prepend `[<code>]` again; read the
   `code` field for any branching logic, not for the human-facing
   line.
-- **1 (tool-error)** — the validator could not run (bad
-  invocation, an unreadable or unparseable intermediate, an
-  envelope that does not parse). Treat this as a tool failure
-  DISTINCT from a content violation — surface it as such and halt;
-  do NOT report it as a document violation.
+- **1 (tool-error)** — the validator ran but could not complete
+  (an unreadable or unparseable intermediate, an unknown `--check`
+  code, a bad invocation). Treat this as a tool failure DISTINCT
+  from a content violation — surface it with the captured stderr
+  and halt; do NOT report it as a document violation. A run with
+  no parseable envelope lands here too, via the precedence rule
+  above, whatever its exit code.
 
 `/scope` does NOT auto-fix validator failures, and only the
-consumption mechanism changed (JSON parse plus multi-level exit
-code) — `/scope` still does not re-implement the validator's
+consumption mechanism changed (envelope-presence precedence, then
+the multi-level exit code) — `/scope` still does not re-implement
+the validator's
 checks. The author is the validator-failure resolver; the chain
 remains halted until the author addresses the failure (typically
 by re-running the child with corrections, or by re-invoking

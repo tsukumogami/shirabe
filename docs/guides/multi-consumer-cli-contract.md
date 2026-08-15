@@ -54,6 +54,28 @@ behaves exactly as it did before the modes existed.
 - `line` is the integer line number, or `null` when the finding has no
   specific line.
 
+### Envelope presence precedes the exit code
+
+A programmatic consumer parses stdout for the envelope BEFORE it looks at
+the exit code, and captures stderr rather than discarding it. No parseable
+`shirabe-validate/v1` envelope means the validator never reached a verdict,
+whatever the exit code. Treat such a run as a tool error and surface the
+captured stderr, which in that case is the entire diagnostic. Only a run
+whose envelope parsed gets read through the `0`/`2`/`1`/`3` table below.
+
+The rule exists because a verdict and a CLI-surface failure are different
+events that a bare exit code cannot always separate. A `shirabe` older than
+the flag a caller passes rejects the invocation before any check runs, and
+versions before this contract was written exit `2` for that, the same code
+a document with real violations returns. Reading `2` as "violations" there
+sends the author to fix content that is not broken. Current versions exit
+`1` for a usage error (an unrecognized flag, an unknown subcommand, a
+malformed value), which is the same tool-error code a bad invocation gets
+once parsing succeeds. `--help` and `--version` still exit `0`. But that
+producer-side fix only helps callers of a new-enough binary; the
+envelope-first rule is what makes a consumer correct against every shirabe
+already installed.
+
 ## Exit codes
 
 `validate` returns the multi-level exit code shared with `transition` and
@@ -62,7 +84,7 @@ behaves exactly as it did before the modes existed.
 | Code | Meaning |
 |------|---------|
 | `0` | Clean — no error-level violations. |
-| `1` | Tool error — the run could not complete (bad invocation, an unreadable or unparseable file, an unknown `--check` code). |
+| `1` | Tool error — the run could not complete (a usage error such as an unrecognized flag or unknown subcommand, an unreadable or unparseable file, an unknown `--check` code). |
 | `2` | Violations — the run completed and found at least one error-level result. |
 | `3` | I/O error. |
 
@@ -108,7 +130,7 @@ file set and passes the paths in.
 | Consumer | Output mode | Exit code | How paths are supplied |
 |----------|-------------|-----------|------------------------|
 | **CI** (the reusable `validate-docs.yml` workflow) | `annotation` (default; no `--format`) | Zero vs non-zero as the pass/fail gate | The workflow computes the changed-file set with `git diff --name-only` and passes the paths positionally. |
-| **The workflow skills** | `json` | Branches on the `0/1/2/3` contract — proceed on clean, surface named violations on `2`, escalate differently on `1` | The skill passes the document paths it cares about. |
+| **The workflow skills** | `json` | Tests for the envelope first (no envelope means tool error, stderr surfaced, whatever the exit code), then branches on the `0/1/2/3` contract — proceed on clean, surface named violations on `2`, escalate differently on `1` | The skill passes the document paths it cares about. |
 | **Local pre-commit hooks** | `human` | Fail-closed: any non-zero exit blocks the commit | The hook (scaffolded by `shirabe install-hooks`) computes the staged set with `git diff --cached` and passes the paths after a `--` separator. |
 
 ## Installing the local hook

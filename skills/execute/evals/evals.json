@@ -7,11 +7,11 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent reads execution_mode: single-pr from the PLAN frontmatter, re-validates it against {single-pr, coordinated, multi-pr}, runs the Step 1 preflight (scripts/preflight.sh) to assert the cross-skill work-on.md path resolves, then koto init execute-diamond-test with skills/execute/koto-templates/execute.md and PLAN_DOC set to the fixture path. Drives the orchestrator loop (orchestrator_setup -> spawn_and_await -> pr_finalization -> plan_completion) to a single merged PR. The agent does NOT edit the PLAN doc.",
+      "expected_output": "Agent reads execution_mode: single-pr from the PLAN frontmatter, re-validates it against {single-pr, coordinated, multi-pr}, runs the Step 1 check (scripts/assert-child-template.sh) to assert the cross-skill work-on.md path resolves, then koto init execute-diamond-test with skills/execute/koto-templates/execute.md and PLAN_DOC set to the fixture path. Drives the orchestrator loop (orchestrator_setup -> spawn_and_await -> pr_finalization -> plan_completion) to a single merged PR. The agent does NOT edit the PLAN doc.",
       "files": [],
       "expectations": [
         "Agent reads execution_mode: single-pr and re-validates it against {single-pr, coordinated, multi-pr} before path or branch interpolation",
-        "Agent runs the Step 1 preflight (scripts/preflight.sh) before spawning any child",
+        "Agent runs the Step 1 check (scripts/assert-child-template.sh) before spawning any child",
         "Agent runs koto init with skills/execute/koto-templates/execute.md and PLAN_DOC pointing at the fixture",
         "Agent drives the orchestrator loop through orchestrator_setup, spawn_and_await, pr_finalization, plan_completion to one merged PR",
         "Agent does NOT edit or rewrite the PLAN doc to run it through /execute"
@@ -50,17 +50,17 @@
     },
     {
       "id": 4,
-      "name": "cross-skill-work-on-path-preflight",
+      "name": "cross-skill-work-on-path-assertion",
       "tier": 1,
       "mode": "plan_only",
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- describe the preflight before any child is spawned",
-      "expected_output": "Before spawning any per-issue child, the agent runs the Step 1 preflight (bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/preflight.sh), which asserts the cross-skill work-on.md child template resolves at ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md (referenced relatively from the lifted template as ../../work-on/koto-templates/work-on.md). A non-zero exit halts the run with a clear message before any child is spawned. This is the Issue 1 preflight: the load-bearing cross-skill coupling guarded fail-closed.",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- describe the Step 1 check before any child is spawned",
+      "expected_output": "Before spawning any per-issue child, the agent runs the Step 1 check (bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh), which asserts the cross-skill work-on.md child template resolves at ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md (referenced relatively from the lifted template as ../../work-on/koto-templates/work-on.md). A non-zero exit halts the run with a clear message before any child is spawned. This is the load-bearing cross-skill coupling guarded fail-closed.",
       "files": [],
       "expectations": [
-        "Agent runs scripts/preflight.sh as the Step 1 cross-skill preflight before spawning any child",
+        "Agent runs scripts/assert-child-template.sh as the Step 1 cross-skill check before spawning any child",
         "Agent asserts the work-on.md child template resolves at ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md",
-        "Agent halts the run on a non-zero preflight exit rather than proceeding to spawn children",
-        "Agent treats the cross-skill path resolution as fail-closed (preflight before any child dispatch)"
+        "Agent halts the run on a non-zero exit rather than proceeding to spawn children",
+        "Agent treats the cross-skill path resolution as fail-closed (checked before any child dispatch)"
       ]
     },
     {

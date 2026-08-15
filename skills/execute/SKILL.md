@@ -120,13 +120,13 @@ the base-branch drift gate, cross-issue carry-forward, dependency sequencing wit
 skip-dependents, shared-branch CI choreography, and the atomic finalization cascade
 — carry over by construction rather than reimplementation.
 
-### Step 1 — Preflight (cross-skill coupling)
+### Step 1 — Assert the child template (cross-skill coupling)
 
 Before any child is spawned, assert the cross-skill `/work-on` child template
 resolves:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/preflight.sh
+bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh
 ```
 
 A non-zero exit halts the run with a clear message. This is the load-bearing
@@ -266,14 +266,13 @@ the re-authored coordination PR body (PR-Index and fenced merge-order block, Ste
 item 2). There is no shared code branch across repos; cross-unit carry-forward flows
 through the coordination PR's durable state, not a branch.
 
-### Step 1 — Preflight
+### Step 1 — Assert the child template
 
 Assert the same cross-skill `work-on.md` child template resolves (per-repo PR nodes
-dispatch to it), and confirm `gh` auth is live — it is a precondition, since every
-status read and every body write goes through `gh`:
+dispatch to it):
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/preflight.sh
+bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh
 ```
 
 A non-zero exit halts the run. Locate the coordination PR for this effort (the
@@ -677,9 +676,9 @@ Two `/execute`-specific surfaces are also security-relevant:
 
 - **Cross-skill koto-template path resolution.** `/execute` `koto init`-ing
   children against `${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md` is
-  a load-bearing coupling; a misresolved path is a silent break. The Step-1 preflight
-  (`scripts/preflight.sh`) is the guarded check that fails closed before any child is
-  spawned.
+  a load-bearing coupling; a misresolved path is a silent break. The Step-1 assertion
+  (`scripts/assert-child-template.sh`) is the guarded check that fails closed before
+  any child is spawned.
 - **Fail-closed merge-gate.** The coordinated done-signal recompute
   (`shirabe validate --merge-gate --mode=ready`) is fail-closed against live `gh`: any
   PR it cannot resolve is treated as not-merged and a `gh` failure halts rather than
@@ -703,7 +702,7 @@ inspection, and the six security surfaces) is complete across the **Workflow Pha
 | File | When |
 |------|------|
 | `skills/execute/koto-templates/execute.md` | the lifted `execute` orchestrator template |
-| `skills/execute/scripts/preflight.sh` | Step 1 cross-skill preflight |
+| `skills/execute/scripts/assert-child-template.sh` | Step 1 cross-skill child-template assertion |
 | `skills/execute/scripts/run-cascade.sh` | `plan_completion` atomic finalization cascade (carries the `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch) |
 | `references/coordination-strategy.md` | the canonical coordinated contract the coordinated path binds to (lifecycle, merge-order DAG, done-signal, F1/F2/F4, R20/R21) |
 | `.github/workflows/lifecycle.yml` | the lifecycle CI workflow whose `--mode=ready` step is the R5 finalization-not-done guard at review time (gated on `draft == false`) |
