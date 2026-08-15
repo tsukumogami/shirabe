@@ -132,7 +132,10 @@ impl std::fmt::Display for RulesError {
                 tried.join(", ")
             ),
             RulesError::Unreadable { path, detail } => {
-                write!(f, "writing-style rule source unreadable at {path}: {detail}")
+                write!(
+                    f,
+                    "writing-style rule source unreadable at {path}: {detail}"
+                )
             }
             RulesError::Malformed { path, detail } => {
                 write!(f, "writing-style rule source malformed at {path}: {detail}")

@@ -596,6 +596,12 @@ pub struct OutlineBlock {
     /// second kind silently, which is the defect this field exists to
     /// surface.
     pub unresolved_dependencies: Vec<String>,
+    /// Dependency text that named no outline and is not shaped like a
+    /// reference to one -- a parenthetical, a trailing clause. Reported as an
+    /// advisory notice and nothing more: refusing on it would reject
+    /// `Blocked by Issue 1 (the parser must land first).`, which is a legal
+    /// outline whose edge resolved.
+    pub unrecognized_dependency_text: Vec<String>,
     /// The `**Type**:` annotation, lowercased, when declared.
     pub issue_type: Option<String>,
     /// The backtick-quoted tokens on the block's `**Files**:` line, with
@@ -640,6 +646,12 @@ static OUTLINE_HEADING_RE: LazyLock<Regex> =
 static ISSUE_REF_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Issue\s+(\d+)").unwrap());
 
 static PLACEHOLDER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<<ISSUE:(\d+)>>").unwrap());
+
+/// A dependency leftover that is shaped like a reference to an outline: a
+/// bare number, or a `#N` GitHub-style reference. These are the shapes an
+/// author writes MEANING an edge, which the extractor then dropped without a
+/// word. Anything else in a dependencies line is prose.
+static REFERENCE_SHAPED_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^#?\d+$").unwrap());
 
 static BACKTICKED_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`([^`]*)`").unwrap());
 
@@ -838,8 +850,12 @@ fn resolve(
     let blocks = partials
         .into_iter()
         .map(|p| {
-            let (dependencies_none, waits_on, unresolved_dependencies) =
-                resolve_dependencies(&p.dependencies_raw, &known);
+            let (
+                dependencies_none,
+                waits_on,
+                unresolved_dependencies,
+                unrecognized_dependency_text,
+            ) = resolve_dependencies(&p.dependencies_raw, &known);
             OutlineBlock {
                 key: p.key,
                 number: p.number,
@@ -852,6 +868,7 @@ fn resolve(
                 dependencies_none,
                 waits_on,
                 unresolved_dependencies,
+                unrecognized_dependency_text,
                 issue_type: p.issue_type,
                 files: p.files,
             }
@@ -865,17 +882,17 @@ fn resolve(
 }
 
 /// Split one block's dependency text into
-/// `(is_none, resolved_numbers, unresolved_text)`.
-fn resolve_dependencies(raw: &str, known: &[u32]) -> (bool, Vec<u32>, Vec<String>) {
+/// `(is_none, resolved_numbers, unresolved_references, unrecognized_text)`.
+fn resolve_dependencies(raw: &str, known: &[u32]) -> (bool, Vec<u32>, Vec<String>, Vec<String>) {
     let value = raw.trim().trim_end_matches('.').trim();
     if value.is_empty() {
-        return (false, Vec::new(), Vec::new());
+        return (false, Vec::new(), Vec::new(), Vec::new());
     }
     // The trailing period is stripped BEFORE the `None` test, which is what
     // makes the contract's own `**Dependencies**: None.` example resolve as
     // an intentional absence instead of an unresolved token named `None`.
     if value.eq_ignore_ascii_case("None") {
-        return (true, Vec::new(), Vec::new());
+        return (true, Vec::new(), Vec::new(), Vec::new());
     }
 
     // `<<ISSUE:N>>` is an alternative spelling of `Issue N`, so normalize
@@ -884,6 +901,7 @@ fn resolve_dependencies(raw: &str, known: &[u32]) -> (bool, Vec<u32>, Vec<String
 
     let mut waits_on: Vec<u32> = Vec::new();
     let mut unresolved: Vec<String> = Vec::new();
+    let mut unrecognized: Vec<String> = Vec::new();
 
     for caps in ISSUE_REF_RE.captures_iter(&normalized) {
         let n: u32 = match caps[1].parse() {
@@ -905,9 +923,17 @@ fn resolve_dependencies(raw: &str, known: &[u32]) -> (bool, Vec<u32>, Vec<String
         }
     }
 
-    // Whatever is left once the recognized references and the connecting
-    // words are removed was meant to name a dependency and does not. The
-    // extractor used to drop this residue without a word.
+    // What is left once the recognized references and the connecting words
+    // are removed splits two ways, and the split is the whole point.
+    //
+    // A leftover that is SHAPED like a reference -- a bare `3`, a `#1` -- is
+    // an edge the author declared and the extractor silently dropped. That is
+    // #275, and it becomes an error.
+    //
+    // A leftover that is not is prose: `Blocked by Issue 1 (the parser must
+    // land first).` leaves `(the parser must land first)`. Treating that as a
+    // failed reference would reject a legal outline, so it stays what FC14
+    // always made it -- an advisory notice -- and neither consumer refuses.
     let residue = ISSUE_REF_RE.replace_all(&normalized, "").to_string();
     for token in residue
         .replace("Blocked by", ",")
@@ -919,12 +945,16 @@ fn resolve_dependencies(raw: &str, known: &[u32]) -> (bool, Vec<u32>, Vec<String
             continue;
         }
         let owned = token.to_string();
-        if !unresolved.contains(&owned) {
-            unresolved.push(owned);
+        if REFERENCE_SHAPED_RE.is_match(token) {
+            if !unresolved.contains(&owned) {
+                unresolved.push(owned);
+            }
+        } else if !unrecognized.contains(&owned) {
+            unrecognized.push(owned);
         }
     }
 
-    (false, waits_on, unresolved)
+    (false, waits_on, unresolved, unrecognized)
 }
 
 /// Append a fragment to a block's accumulating dependency text.
@@ -1438,6 +1468,47 @@ mod tests {
             section.blocks[1].unresolved_dependencies,
             vec!["#1".to_string()]
         );
+    }
+
+    #[test]
+    fn outlines_prose_beside_a_resolved_reference_is_not_a_failed_reference() {
+        // `Blocked by Issue 1 (the parser must land first).` declares one edge
+        // and one parenthetical. Treating the parenthetical as a failed
+        // reference would make FC17 reject a legal outline.
+        let doc = single_pr_plan(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n\n### Issue 2: b\n\n**Dependencies**: Blocked by Issue 1 (the parser must land first).\n",
+        );
+        let section = parse_issue_outlines(&doc);
+        assert_eq!(section.blocks[1].waits_on, vec![1]);
+        assert!(
+            section.blocks[1].unresolved_dependencies.is_empty(),
+            "prose must not be reported as a failed reference: {:?}",
+            section.blocks[1].unresolved_dependencies
+        );
+        assert_eq!(
+            section.blocks[1].unrecognized_dependency_text,
+            vec!["(the parser must land first)".to_string()]
+        );
+    }
+
+    #[test]
+    fn outlines_reference_shaped_leftovers_are_the_ones_that_fail() {
+        // A bare number and a `#N` are edges the author declared and the
+        // extractor dropped; both belong in the erroring bucket.
+        for value in ["3", "#3", "Blocked by 3", "Blocked by #3."] {
+            let doc = single_pr_plan(&format!(
+                "## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n\n### Issue 2: b\n\n**Dependencies**: {value}\n"
+            ));
+            let section = parse_issue_outlines(&doc);
+            assert!(
+                !section.blocks[1].unresolved_dependencies.is_empty(),
+                "{value:?} must be reported as a failed reference"
+            );
+            assert!(
+                section.blocks[1].unrecognized_dependency_text.is_empty(),
+                "{value:?} must not land in the advisory bucket"
+            );
+        }
     }
 
     #[test]

@@ -3226,14 +3226,29 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
             }
         }
 
-        // Sub-check C moved out to FC17. Dependency resolution and the
-        // structural sub-checks around it need different severities, and
-        // severity is keyed on the check code: an unresolvable dependency
-        // fails open (a task graph quietly missing an edge), while every
-        // other FC14 sub-check describes something that already refuses
-        // loudly downstream. Flipping FC14 wholesale would have promoted
-        // missing-`**Goal**:` and the issue_count mismatch along with it.
-        //
+        // Sub-check C: dependency text that named no outline and is not
+        // shaped like a reference to one -- a parenthetical, a trailing
+        // clause. It stays here at notice level, which is where FC14 has
+        // always reported it. The reference-shaped half moved to FC17,
+        // because severity is keyed on the check code and only that half
+        // fails open: a bare `3` is an edge the author declared and the
+        // extractor dropped, while `(the parser must land first)` is prose
+        // beside an edge that resolved. Erroring on the second would reject
+        // a legal outline.
+        for block in &outlines.blocks {
+            for token in &block.unrecognized_dependency_text {
+                errs.push(ValidationError {
+                    file: doc.path.clone(),
+                    line: block.line,
+                    code: "FC14".to_string(),
+                    message: format!(
+                        "[FC14] outline '{}' declares unresolved dependency '{}' (no sibling outline matches; use 'None' or a sibling outline key / <<ISSUE:N>> placeholder)",
+                        block.key, token
+                    ),
+                });
+            }
+        }
+
         // Sub-check F: heading conformance. A `###` heading inside the
         // section that is not `### Issue <N>: <title>` opens no outline, so
         // task extraction never sees the work under it.
