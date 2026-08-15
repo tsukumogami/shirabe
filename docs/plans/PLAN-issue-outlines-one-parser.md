@@ -59,31 +59,31 @@ graph its author declared, which is the outcome the PRD's user stories ask for.
 FC14 and L06 onto it.
 
 **Acceptance Criteria**:
-- [ ] One function walks `## Issue Outlines`. `parse_outline_acs` is gone and
+- [x] One function walks `## Issue Outlines`. `parse_outline_acs` is gone and
       `check_l06` reads acceptance-criteria entries off the returned blocks.
-- [ ] Only a heading matching `### Issue <N>: <title>` opens a block.
+- [x] Only a heading matching `### Issue <N>: <title>` opens a block.
       `### Dependencies` opens a dependencies sub-section of the open block.
       Any other `### ` line inside the section is recorded in
       `nonconforming_headings` and is not a block boundary.
-- [ ] Each block carries `number` and `title` parsed from its heading,
+- [x] Each block carries `number` and `title` parsed from its heading,
       `goal_declared`, `acceptance_criteria_declared`, the acceptance-criteria
       entries, `dependencies_declared`, `dependencies_none`, `waits_on` as
       resolved sibling numbers, `unresolved_dependencies` verbatim,
       `issue_type`, and `files`.
-- [ ] Dependency values strip a trailing period before the `None` test, so
+- [x] Dependency values strip a trailing period before the `None` test, so
       `**Dependencies**: None.` resolves as an intentional absence and produces
       no finding.
-- [ ] `**Dependencies:**` with the colon inside the bold parses identically to
+- [x] `**Dependencies:**` with the colon inside the bold parses identically to
       `**Dependencies**:`.
-- [ ] Dependency references resolve against the numbers parsed from headings,
+- [x] Dependency references resolve against the numbers parsed from headings,
       not against outline position, so a non-consecutively-numbered PLAN
       resolves correctly.
-- [ ] The acceptance-criteria tolerance is L06's: only the three canonical
+- [x] The acceptance-criteria tolerance is L06's: only the three canonical
       checkbox shapes count, and a non-canonical bullet is dropped without
       leaving the AC state.
-- [ ] FC14 keeps its four sub-checks and their existing messages, reading the
+- [x] FC14 keeps its four sub-checks and their existing messages, reading the
       new fields, and reports a non-conforming heading at notice level.
-- [ ] `cargo test --workspace` passes with no pre-existing test modified.
+- [x] `cargo test --workspace` passes with no pre-existing test modified.
 
 **Dependencies**: None
 
@@ -97,18 +97,18 @@ code so a single-pr PLAN that would lose an edge fails validation instead of
 emitting a notice.
 
 **Acceptance Criteria**:
-- [ ] A new `FC17` check emits one error-severity finding per entry in a
+- [x] A new `FC17` check emits one error-severity finding per entry in a
       block's `unresolved_dependencies`, naming the outline key, the token
       verbatim, and the accepted forms.
-- [ ] `FC17` is registered in `is_known_check_code` so `--check FC17` selects
+- [x] `FC17` is registered in `is_known_check_code` so `--check FC17` selects
       it, and is absent from `is_intrinsic_notice` and from `posture_class`, so
       it is an error under both draft and ready posture.
-- [ ] FC14 stays notice-level and keeps reporting its structural sub-checks and
+- [x] FC14 stays notice-level and keeps reporting its structural sub-checks and
       the non-conforming-heading finding at that level.
-- [ ] A single-pr PLAN with `**Dependencies**: 3` exits non-zero under
+- [x] A single-pr PLAN with `**Dependencies**: 3` exits non-zero under
       `shirabe validate`; the same PLAN with `**Dependencies**: Issue 3` and a
       third outline exits 0.
-- [ ] `cargo test --workspace` passes with no pre-existing test modified.
+- [x] `cargo test --workspace` passes with no pre-existing test modified.
 
 **Dependencies**: Blocked by <<ISSUE:1>>
 
@@ -122,19 +122,19 @@ subcommand group whose `outlines` subcommand writes a versioned envelope to
 stdout.
 
 **Acceptance Criteria**:
-- [ ] `shirabe plan outlines <PLAN.md>` writes one JSON object carrying
+- [x] `shirabe plan outlines <PLAN.md>` writes one JSON object carrying
       `schema: "shirabe-plan-outlines/v1"`, the path, the execution mode, the
       outlines, and the non-conforming headings.
-- [ ] Each outline entry carries number, title, key, line, the declared flags,
+- [x] Each outline entry carries number, title, key, line, the declared flags,
       `waits_on`, `unresolved_dependencies`, type, and files. Acceptance
       criteria are not in the envelope.
-- [ ] Exit codes follow the established scheme: 0 when the document parsed, 1
+- [x] Exit codes follow the established scheme: 0 when the document parsed, 1
       when it cannot be read or is not a PLAN, 3 on I/O failure. A document
       with unresolvable dependencies still exits 0 and reports them, because
       refusing is the consumer's call.
-- [ ] The subcommand reads and never writes: no file is created, modified, or
+- [x] The subcommand reads and never writes: no file is created, modified, or
       moved, and no reference out of the document is followed.
-- [ ] `cargo test --workspace` passes with no pre-existing test modified.
+- [x] `cargo test --workspace` passes with no pre-existing test modified.
 
 **Dependencies**: Blocked by <<ISSUE:1>>
 
@@ -147,28 +147,28 @@ stdout.
 than emit a task set that is missing an edge.
 
 **Acceptance Criteria**:
-- [ ] `process_single_pr` contains no line-by-line parse of the section. It
+- [x] `process_single_pr` contains no line-by-line parse of the section. It
       resolves a binary, calls `plan outlines`, and reads the envelope with
       `jq`.
-- [ ] Binary resolution follows `run-cascade.sh`'s ladder — `$SHIRABE_BIN`,
+- [x] Binary resolution follows `run-cascade.sh`'s ladder — `$SHIRABE_BIN`,
       then `shirabe` on `PATH`, then a built release or debug binary — and a
       missing binary exits 1 with a message naming all three. There is no
       fallback parse.
-- [ ] The script still works outside a git repository: the repo-root probe is
+- [x] The script still works outside a git repository: the repo-root probe is
       best-effort and only feeds the built-binary fallbacks.
-- [ ] The PLAN path is quoted and passed after `--`.
-- [ ] An envelope whose `schema` is not `shirabe-plan-outlines/v1` is refused
+- [x] The PLAN path is quoted and passed after `--`.
+- [x] An envelope whose `schema` is not `shirabe-plan-outlines/v1` is refused
       rather than read field by field.
-- [ ] Any `unresolved_dependencies` in the envelope causes exit 2 naming each
+- [x] Any `unresolved_dependencies` in the envelope causes exit 2 naming each
       offending outline and token, before any task entry is built.
-- [ ] An empty `outlines` list still exits 2 with the existing
+- [x] An empty `outlines` list still exits 2 with the existing
       no-issue-outlines message, so the heading mismatch keeps failing closed.
-- [ ] Naming, `o-` prefixing, 64-character truncation, collision suffixing,
+- [x] Naming, `o-` prefixing, 64-character truncation, collision suffixing,
       file-ownership edges, and task-entry assembly are unchanged.
-- [ ] The rewrite stays bash 3.2 compatible: no associative arrays, no
+- [x] The rewrite stays bash 3.2 compatible: no associative arrays, no
       namerefs, no GNU-only `sed` forms. The script runs under the macOS
       system bash the CI matrix invokes directly.
-- [ ] `bash skills/plan/scripts/plan-to-tasks_test.sh` passes with no
+- [x] `bash skills/plan/scripts/plan-to-tasks_test.sh` passes with no
       pre-existing case modified. The harness gains a setup step that builds
       the binary and exports `SHIRABE_BIN`, copied from `run-cascade_test.sh`.
 
@@ -183,16 +183,16 @@ than emit a task set that is missing an edge.
 suite run when the Rust parser it now depends on changes.
 
 **Acceptance Criteria**:
-- [ ] `plan-to-tasks-contract.md`'s single-pr section names the single
+- [x] `plan-to-tasks-contract.md`'s single-pr section names the single
       implementation and the `shirabe plan outlines` surface, and states that
       an unresolvable reference is an error at validation and a refusal at
       extraction. The dependency and heading shapes it already documents are
       unchanged.
-- [ ] The contract records the `shirabe` binary as a runtime requirement and
+- [x] The contract records the `shirabe` binary as a runtime requirement and
       names the resolution ladder.
-- [ ] `.github/workflows/check-plan-scripts.yml` triggers on `crates/**` as
+- [x] `.github/workflows/check-plan-scripts.yml` triggers on `crates/**` as
       well as `skills/plan/scripts/**`.
-- [ ] No `wip/` path is referenced from any committed file.
+- [x] No `wip/` path is referenced from any committed file.
 
 **Dependencies**: Blocked by <<ISSUE:4>>
 
