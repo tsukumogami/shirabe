@@ -111,6 +111,16 @@ new configuration system:
    leaving expensive side effects in `orchestrator_setup`, so the artifact the
    detector reads exists before the step an agent might skip.
 
+*Also cheap, ship advisory-first.* Two items from the outcome-gating advocate's
+final position, both buildable today with no R9 amendment and no koto change:
+the **per-child outcome row check** (the finalized PR body's Part 2 should carry
+one outcome row per plan outline), documented explicitly as a heuristic defeated
+by imitation rather than as adherence enforcement; and **closing the payload
+seam** so `plan-to-tasks.sh` cannot emit a payload it is unable to register.
+The seam is the exact place incident 2 walked through. Note the script takes no
+session argument today, is shared with `/plan`, and is called twice per run with
+different evidence, so this is a design task rather than a patch.
+
 *Ship next, needs design.* **Publish the run record off-machine** -- a
 `Koto-Session:` PR trailer or run-report emit, requiring an explicit R9 amendment
 to `/execute`'s closed write-target set. This is what resolves the self-grading
