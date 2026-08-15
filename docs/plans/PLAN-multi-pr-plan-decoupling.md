@@ -68,9 +68,12 @@ coordinated examples, and retire the reviewability ceiling as a fourth trigger b
 folding it into Stated Preference.
 
 **Acceptance Criteria**:
-- `references/split-triggers.md` exists with a shared-core section and two
-  profile sections, following the structure `references/issues-table.md` uses for
-  its shared core plus per-profile deltas.
+- `references/split-triggers.md` exists with a shared-core section that names and
+  defines all three branches (Hard Constraint, Incremental Value, Stated
+  Preference) at the same specificity `references/issues-table.md`'s shared core
+  uses, plus a plan-profile section stating it takes all three as-is and a
+  coordinated-profile section stating it adds Merge-Order Necessity as a fourth.
+  Matching section headings is not sufficient.
 - `references/workflow-principles.md` P1 cites the new reference and no longer
   enumerates its escape conditions inline.
 - `references/coordination-strategy.md`'s Coarsest-Legal-Grouping Rule cites the
@@ -78,6 +81,10 @@ folding it into Stated Preference.
 - Reviewability is named in exactly one place across both files: the Stated
   Preference branch.
 - A reader of either file can reach the full trigger definitions in one hop.
+- After the edit, "independently mergeable" and "independently rollback-able"
+  appear only inside Hard Constraint's coordinated examples in the new reference,
+  not as free-standing bullets in `coordination-strategy.md`, and the
+  reviewability ceiling appears as a trigger nowhere outside Stated Preference.
 - `shirabe validate` passes on both edited files.
 
 **Dependencies**:
@@ -101,8 +108,14 @@ Issue 1's three branches plus the specific justification. Teach step 3.6 in
 branch name alongside the mode it recommends.
 
 **Acceptance Criteria**:
-- `skills/plan/references/plan-format.md` documents the field, its condition, and
-  the requirement that the entry name its branch.
+- `skills/plan/references/plan-format.md` documents `split_rationale` as required
+  exactly when `execution_mode` is not `single-pr`, OR when `execution_mode` is
+  `single-pr` and the repository's resolved delivery preference is `atomic` —
+  both disjuncts stated explicitly — and documents that the entry must name one
+  of the three `split-triggers.md` branches by name.
+- The format contract states that a `split_rationale` present but naming none of
+  the three branches fails `L09`, so the contract and the check agree on what
+  naming a branch requires.
 - Step 3.6's procedure names which branch produced its recommendation and writes
   it into the decomposition artifact.
 - A plan authored under the revised step 3.6 with a forcing constraint carries a
@@ -136,8 +149,13 @@ is inert until Issue 4 lands.
 - `L09` fires on a `multi-pr` PLAN with no `split_rationale`, and does not fire
   when the field is present and names a branch.
 - The finding is a notice under `--mode=draft` and an error under `--mode=ready`.
-- `L09` does not fire on a `single-pr` PLAN with no field, in a repository
-  stating no delivery preference.
+- `L09` does not fire on a `single-pr` PLAN with no field in a repository stating
+  no delivery preference, AND `L09` does fire on a `single-pr` PLAN with no field
+  in a repository whose CLAUDE.md states `## Delivery Preference: atomic`. Both
+  directions are exercised in this issue's own fixtures — `resolve_claude_md_header`
+  matches literal header text, so the positive case is constructible before Issue
+  4 documents the header. Without it, an implementation that stubs the departure
+  branch to always report `consolidated` passes.
 - The two doc comments in `validate.rs` that enumerate the draft-tolerable set
   name `L09`, and `posture_class_classifies_lifecycle_codes` covers it.
 - No `FormatSpec` in `formats.rs` is modified, and `check_fc01`'s signature is
@@ -165,9 +183,14 @@ departure branch so a `single-pr` plan in an `atomic` repository owes a record.
 **Acceptance Criteria**:
 - `references/fixes/claude-md-conventions.md` carries the header with its
   accepted values, its default, and its precedence order.
-- A repository declaring `atomic` produces a multi-PR shape for a change whose
-  decomposition permits one; the same change in a `consolidated` repository
-  produces `single-pr`. The two runs differ only in the header.
+- Using two CLAUDE.md files identical except for the `Delivery Preference` value
+  (`atomic` versus `consolidated`) and the same decomposition input, step 3.6
+  resolves a different preference in each case and the `execution_mode`
+  recommendation differs solely as a function of that resolved value — verified by
+  inspecting the preference step 3.6 recorded as having consulted, not only by
+  comparing the two plans' final shapes. Comparing shapes alone cannot distinguish
+  a real header parse from a branch on something incidentally correlated with the
+  two fixtures.
 - The invocation flag overrides a conflicting header, and the header overrides
   the default, each producing a different observable `execution_mode`.
 - A repository declaring nothing produces the same `execution_mode` the
@@ -214,6 +237,10 @@ contract.
 - Every authored PLAN carries `tracking_level` in frontmatter recording what was
   resolved, and changing the repository header afterwards does not change the
   value in an already-authored plan.
+- A repository whose CLAUDE.md states `## Tracking Level:` with a value outside
+  `none|issues|issues-and-milestone` falls back to the default rather than using
+  the value or erroring, matching the design's stated mitigation for untrusted
+  configuration.
 
 **Dependencies**:
 None. Issue 5 touches a different header, a different phase, and a different
@@ -252,6 +279,15 @@ changed while its decision stands.
   the amendment's own quotation of the old framing. Run against the whole tree,
   not only the prose sites, because `lifecycle.rs` and `transition.rs` carry it
   in comments.
+- A grep for `execution_mode` co-occurring with `multi-pr|single-pr` and with
+  `approv|human|sign.?off` across the seven sites returns nothing outside that
+  same quotation, AND a reviewer confirms by reading each site that none conveys
+  the old rule in different words still keyed on `execution_mode`. The literal
+  grep alone is evadable by paraphrase.
+- A Draft-to-Active transition whose resolved tracking level is not `none` is
+  blocked without recorded approval, and a `multi-pr` plus `none` transition
+  proceeds without it — verified against Phase 7's actual issue-creation gate,
+  which is code, rather than against the transition-table prose alone.
 
 **Dependencies**:
 Issue 5 — the tracking level must be resolvable before a gate can key on it.
@@ -278,8 +314,13 @@ runs, emitting `ISSUE_SOURCE=plan_item` with `m-<slug>` ids. Document the scheme
 in the contract.
 
 **Acceptance Criteria**:
-- A `multi-pr` plan with tracking `none` yields a task graph in which every
-  dependency edge resolves to a declared work item, with no unresolved keys.
+- A `multi-pr` plan with tracking `none`, containing at least one outline whose
+  `Dependencies` references another outline, yields a task graph in which every
+  dependency edge resolves to a declared work item with no unresolved keys. The
+  fixture must carry a real edge: over an empty edge set the claim is vacuously
+  true, and an implementation that emits no edges at all would pass.
+- An outline whose `Dependencies` references a title not present in the outline
+  list produces an unresolved-key error rather than a silently dropped edge.
 - The emitted vars are `ISSUE_SOURCE=plan_item`, `ARTIFACT_PREFIX=m-<slug>`, and
   `ISSUE_TYPE` when the outline carries one.
 - Ids collide-suffix and truncate identically to the single-pr `o-<slug>` path,
@@ -310,9 +351,17 @@ de-conflation of decomposition strategy from execution mode, and its
 re-anchoring of the roadmap case on value rather than mechanism, are unchanged.
 
 **Acceptance Criteria**:
-- Decision 6 carries an amendment naming what changed and what did not.
-- The amendment cites this design rather than restating its reasoning.
-- Nothing in the original decision text is deleted.
+- Decision 6 carries an amendment stating, in its own text, both that the
+  single-pr default is now conditional on the resolved delivery preference and
+  that the decomposition-strategy/execution-mode de-conflation and the
+  value-based re-anchoring of the roadmap case are unchanged. A pointer to
+  another document in place of either statement does not satisfy this.
+- The amendment cites `DESIGN-multi-pr-plan-decoupling.md` for the reasoning and
+  runs to no more than two or three sentences: it does not re-argue why the
+  header exists or reproduce the alternatives analysis.
+- Nothing in the original decision text is deleted, and the amendment is appended
+  as a clearly separated section rather than interleaved into the original
+  paragraphs, and is not phrased as superseding the decision.
 
 **Dependencies**:
 Issue 4 — the preference must exist before a decision can be amended to depend
