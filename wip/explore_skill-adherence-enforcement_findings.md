@@ -233,6 +233,55 @@ enumeration timing. niwa fixed the race in `2d72419` (2026-06-28); incident 2
 postdates the fix and shows the skill loading correctly, which retires the race
 as an explanation for the current problem.
 
+## Finding 8: The gate condition is computable -- this closes the make-or-break question
+
+Koto session state is an append-only JSONL log at
+`~/.koto/sessions/<name>/koto-<name>.state.jsonl`. Its header names the template
+(`"template_name":"execute"`) and its initialization event carries the bound plan
+(`"variables":{"PLAN_DOC":"docs/plans/PLAN-x.md","PLAN_SLUG":"x"}`). So the
+question "does a koto session exist for this plan?" is one grep, answerable from
+outside with zero agent cooperation (`lead-koto-observability`):
+
+```bash
+grep -l "\"PLAN_DOC\":\"docs/plans/PLAN-<slug>.md\"" \
+     ~/.koto/sessions/*/koto-*.state.jsonl 2>/dev/null
+```
+
+Verified live: 32 plan-bound sessions exist on this machine. And it returns
+nothing for incident 2's plan -- **even though that agent ran the skill's scripts
+and produced a valid payload with all six `waits_on` edges.** That is the whole
+argument for the durable artifact as the unit of measurement.
+
+Three consequences:
+
+- **The same predicate serves all three strengths.** Detect-and-report (Stop
+  hook), remind (UserPromptSubmit), and gate (PreToolUse deny) are one condition
+  evaluated at three lifecycle events. That is a strong argument for a graded
+  level over three separate mechanisms.
+- **koto already models deliberate deviation.** `koto overrides` is a shipped verb
+  for recording a gate override. The precedence-conflict problem can therefore be
+  reframed from "stop the agent deviating" to "make deviation leave a record" --
+  much closer to the stated preference for guidance over enforcement.
+- **The visibility loss was a registration failure, not a tooling gap.**
+  `koto dashboard` exists and shows live session hierarchy and state. Nothing
+  appeared in it because nothing was registered.
+
+Koto is structurally blind in one direction that matters: it observes what is
+submitted to it and cannot detect its own absence. So the sensor must be a hook;
+koto state is the reference it consults.
+
+The cheapest single intervention found in the whole round also lives here.
+`plan-to-tasks.sh` produces a payload, and submitting it is a separate, skippable
+step -- a step that looks like progress, produces a real artifact, and leaves no
+koto trace. Making payload-production and session-registration atomic needs no
+hook, no policy, and no niwa change.
+
+Two operational cautions: `koto status` and `koto workflows` emit dozens of
+`migration skipped` lines to stderr before their JSON payload, so any hook must
+redirect stderr or parse only stdout; and the session store has never been reaped
+(1,210 directories, essentially all from March and April), which is adjacent cost
+for a hot-path grep.
+
 ---
 
 ## What only two mechanisms would actually have caught
@@ -267,12 +316,11 @@ continuation *from* a stop hook.
 
 ## Open questions carried into crystallize
 
-1. **What is the observable definition of "executed under the workflow"?**
-   Incident 2 proves invocation is the wrong unit. A durable koto session is the
-   candidate. (Pending: `lead-koto-observability`.)
-2. **Can a hook cheaply compute "a plan is in play and no koto session exists"?**
-   Make-or-break for the only path-agnostic mechanism with teeth. (Pending:
-   `lead-hook-surfaces`, `lead-koto-observability`.)
+1. ~~What is the observable definition of "executed under the workflow"?~~
+   **Answered (Finding 8):** a koto session bound to the plan via `PLAN_DOC`.
+2. ~~Can a hook cheaply compute "a plan is in play and no koto session exists"?~~
+   **Answered (Finding 8):** yes, one grep. The residual gap is how a hook learns
+   *which* plan is in play -- branch name, `wip/` state, PR body, or prompt text.
 3. **Do hooks fire for subagents, and does SessionStart reach a `--bg` dispatch
    worker?** Decides whether one mechanism or two. (Pending: `lead-hook-surfaces`.)
 4. **How is a precedence conflict surfaced rather than resolved silently?**
