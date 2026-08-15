@@ -102,7 +102,7 @@ infrastructure shirabe commits to.
   warns about staleness but never acts unilaterally.
 - The four `/charter` → child delegation contracts are documented at
   requirements altitude precise enough that the downstream design
-  doc (`docs/designs/DESIGN-shirabe-progression-authoring.md`) can
+  doc (`docs/designs/current/DESIGN-shirabe-progression-authoring.md`) can
   lift pattern-level commitments into shared design and leave
   `/charter`-specific bindings in `/charter`'s scope.
 
@@ -254,7 +254,7 @@ Requirements are tagged with `[/charter-specific]` (binding stays in
 this PRD) or `[pattern-level]` (the downstream shared design doc
 should lift the mechanism into pattern-level scope). Pattern-level
 tags signal to the designer of
-`docs/designs/DESIGN-shirabe-progression-authoring.md` which
+`docs/designs/current/DESIGN-shirabe-progression-authoring.md` which
 commitments apply to `/scope` and the future `/work-on` migration
 too.
 
@@ -1257,7 +1257,7 @@ names the area and where the resolution should land.
    the substrate.
 
 3. **Shared design doc authoring timing.** Whether
-   `docs/designs/DESIGN-shirabe-progression-authoring.md` is
+   `docs/designs/current/DESIGN-shirabe-progression-authoring.md` is
    authored alongside this PRD or deferred until at least one
    other parent skill (`/scope` or `/work-on` migration) is in
    scope to validate pattern-level claims. The PRD's
@@ -1585,7 +1585,7 @@ Each downstream artifact owns its own acceptance criteria; the
 linkages below are commitments this PRD makes to the downstream
 artifact's framing.
 
-- **`docs/designs/DESIGN-shirabe-progression-authoring.md`** — the
+- **`docs/designs/current/DESIGN-shirabe-progression-authoring.md`** — the
   shared design doc co-authored across the parent-skill pattern's
   three features (`/charter`, `/scope`, the `/work-on` migration).
   The design should lift every requirement tagged `[pattern-level]`

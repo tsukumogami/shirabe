@@ -809,7 +809,7 @@ Forthcoming work flowing from this PRD:
   R22 public-cleanliness): `docs/prds/PRD-roadmap-plan-standardization.md`.
 - **Parent DESIGN** (Decision 3 staging the reconciliation increment
   behind a spike and a notice rollout):
-  `docs/designs/DESIGN-roadmap-plan-standardization.md`.
+  `docs/designs/current/DESIGN-roadmap-plan-standardization.md`.
 - **Parent PLAN** (the row that schedules this increment):
   `docs/plans/PLAN-roadmap-plan-standardization.md`.
 - **FC07 sub-PRD** (the requirements precedent FC09 mirrors in shape

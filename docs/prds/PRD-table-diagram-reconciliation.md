@@ -644,7 +644,7 @@ Forthcoming work flowing from this PRD:
 - **Upstream brief:** `docs/briefs/BRIEF-table-diagram-reconciliation.md`.
 - **Feasibility spike:** `docs/spikes/SPIKE-mermaid-parser.md`.
 - **Parent design (the staged-reconciliation Decision 3 this PRD
-  binds to):** `docs/designs/DESIGN-roadmap-plan-standardization.md`.
+  binds to):** `docs/designs/current/DESIGN-roadmap-plan-standardization.md`.
 - **Parent plan (the row that schedules this increment):**
   `docs/plans/PLAN-roadmap-plan-standardization.md`.
 - **Parent PRD (R8 staged-reconciliation, R9 spike requirement, R20

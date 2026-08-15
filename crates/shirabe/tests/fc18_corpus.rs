@@ -22,7 +22,7 @@ use std::process::Command;
 /// message which references changed. A bare number edit with no
 /// corresponding reference change is the failure this test exists to make
 /// visible.
-const EXPECTED_FINDINGS: usize = 23;
+const EXPECTED_FINDINGS: usize = 0;
 
 /// Absolute path to the worktree root (parent of `crates/`).
 fn worktree_root() -> PathBuf {

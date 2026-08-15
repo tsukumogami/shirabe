@@ -269,7 +269,7 @@ brief.
   performs but demands indirectly. AC-completeness extends R18's
   posture to the work-completeness dimension.
 - Parent DESIGN Decision 5:
-  `docs/designs/DESIGN-roadmap-plan-standardization.md` — the
+  `docs/designs/current/DESIGN-roadmap-plan-standardization.md` — the
   whole-tree `--lifecycle` mode and the cascade pre/post hooks the
   AC check plugs into.
 - Cascade contract decision:

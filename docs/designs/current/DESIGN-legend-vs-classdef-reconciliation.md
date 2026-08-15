@@ -842,7 +842,7 @@ do not execute any side effect.
   `docs/prds/PRD-roadmap-plan-standardization.md`.
 - Parent DESIGN (Decision 3 staging the reconciliation increment
   behind a notice rollout):
-  `docs/designs/DESIGN-roadmap-plan-standardization.md`.
+  `docs/designs/current/DESIGN-roadmap-plan-standardization.md`.
 - Parent PLAN (the row that schedules this increment):
   `docs/plans/PLAN-roadmap-plan-standardization.md`.
 - PRD that this DESIGN picks up:

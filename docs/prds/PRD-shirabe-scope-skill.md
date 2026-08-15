@@ -156,7 +156,7 @@ second parent the pattern needs to ratify itself.
   tagging convention is reclassified to a required convention.
 - The four `/scope` → child delegation contracts are documented at
   requirements altitude precise enough that the downstream design
-  doc (`docs/designs/DESIGN-shirabe-scope-skill.md`) can lift
+  doc (`docs/designs/current/DESIGN-shirabe-scope-skill.md`) can lift
   pattern-level commitments into shared design and leave
   `/scope`-specific bindings in `/scope`'s scope.
 
@@ -358,7 +358,7 @@ Requirements are tagged with `[/scope-specific]` (binding stays in
 this PRD) or `[pattern-level]` (the downstream shared design doc
 should lift the mechanism into pattern-level scope). Pattern-level
 tags signal to the designer of
-`docs/designs/DESIGN-shirabe-scope-skill.md` which commitments
+`docs/designs/current/DESIGN-shirabe-scope-skill.md` which commitments
 apply to `/charter`, `/scope`, and the future `/work-on` migration
 together.
 
@@ -1859,7 +1859,7 @@ Each downstream artifact owns its own acceptance criteria; the
 linkages below are commitments this PRD makes to the downstream
 artifact's framing.
 
-- **`docs/designs/DESIGN-shirabe-scope-skill.md`** — the design
+- **`docs/designs/current/DESIGN-shirabe-scope-skill.md`** — the design
   doc for `/scope` (renamed from `DESIGN-shirabe-explore-split.md`
   per Decision 1 in the upstream BRIEF and roadmap update). The
   design should lift every requirement tagged `[pattern-level]`

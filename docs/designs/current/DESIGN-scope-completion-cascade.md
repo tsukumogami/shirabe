@@ -41,8 +41,8 @@ Current
 
 ## Upstream Design Reference
 
-This design implements [PRD-scope-completion-cascade.md](../prds/PRD-scope-completion-cascade.md),
-which is framed by [BRIEF-scope-completion-cascade.md](../briefs/BRIEF-scope-completion-cascade.md).
+This design implements [PRD-scope-completion-cascade.md](../../prds/PRD-scope-completion-cascade.md),
+which is framed by [BRIEF-scope-completion-cascade.md](../../briefs/BRIEF-scope-completion-cascade.md).
 
 ## Context and Problem Statement
 
