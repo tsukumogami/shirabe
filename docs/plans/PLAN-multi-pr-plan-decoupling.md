@@ -287,8 +287,13 @@ changed while its decision stands.
   corpus-wide hits from unrelated approval prose, and a narrower pattern misses
   `lifecycle.rs:764` ("human-approved") and `phase-7-creation.md:263` ("approval
   gate" with no "human"). Both failure modes were checked against the current tree.
-- The four `leave` sites are byte-identical to their pre-change state, confirmed
-  by `git diff`. Re-keying a historical record is a defect, not thoroughness.
+- The gate-framing text at each of the four `leave` sites is unchanged, confirmed
+  by `git diff` on the specific lines the design's table names. Re-keying a
+  historical record is a defect, not thoroughness. Note this is a line-level
+  check, not a file-level one: `DESIGN-roadmap-plan-standardization.md` is a
+  `leave` site for its line 577 gate framing while Issue 8 separately appends an
+  amendment elsewhere in the same file, so a whole-file byte-identity check would
+  contradict Issue 8.
 - A reviewer reads each of the six `re-key` sites and confirms none conveys the
   old rule in different words still keyed on `execution_mode`. The grep is
   evadable by paraphrase, so the reading is not optional.
