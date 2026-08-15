@@ -168,9 +168,13 @@ outcome stronger than `keep`. It is justified entirely by the hops this work
 opens forward; it carries no retroactive commitment and produces no verdict
 about any document already on disk.
 
-**R16.** `shirabe validate` SHALL fail when an `R<n>` requirement citation in a
-document resolves neither within that document nor within its surviving
-upstream.
+**R16.** `shirabe validate` SHALL fail when an `R<n>` requirement citation whose
+target document this run absorbed resolves neither within the surviving document
+nor within its spliced upstream. The check is tied to the absorb event, not to
+citation resolution generally: 77 documents on disk today cite an `R<n>` they do
+not define, including a PRD whose upstream BRIEF carries no requirement numbers
+at all and a `Done` BRIEF citing another chain's PRD by path. A check on
+citation resolution generally would fail all of them, which R28 forbids.
 
 **R17.** Re-pointing a survivor's `upstream:` SHALL splice the absorbed
 artifact's parents into the survivor's existing list rather than replacing it,
@@ -243,26 +247,50 @@ post-absorb re-validation, and record production.
 
 ## Acceptance Criteria
 
-Each criterion names its verification instrument. **[mech]** marks a criterion a
-machine decides; **[judg]** marks one an agent decides, which in this repository
-means a `/scope` eval — LLM-graded, plan-graded, and run on a weekly cron rather
-than as a merge gate (see Known Limitations).
+Each criterion names its verification instrument.
+
+- **[mech]** — a machine decides it: a Rust test, a golden fixture, a shell
+  harness scenario, or a CI job.
+- **[judg]** — an agent decides it, via a skill eval. For `/scope` evals that
+  means LLM-graded, plan-graded (the eval grades the agent's stated plan, not an
+  executed run), and run on a weekly cron rather than as a merge gate. The one
+  `/execute` eval here is stronger: `/execute` has the isolated-clone mechanism,
+  so that criterion can be graded against an executed run.
+- **[insp]** — settled by a human or agent reading a file, because the thing
+  being checked is prose with no machine-readable enumeration to diff against.
+
+See Known Limitations for what the [judg] instrument does and does not buy.
 
 ### The judgment
 
 - [ ] **[judg]** A paired `/scope` eval entered at the DESIGN-to-PLAN hop
       returns `absorb` against a sequencing-only DESIGN fixture and `keep`
-      against a live-alternatives DESIGN fixture.
-- [ ] **[mech]** The two fixtures behind that pair are committed, hold their
-      line count within a stated band of each other, and share section set,
-      Decision count, `status`, `upstream` and topic slug — differing only in
-      whether a recorded alternative remains live.
-- [ ] **[judg]** On the `absorb` verdict, the DESIGN is removed from disk and
-      the PLAN carries a contribution section for it.
+      against a live-alternatives DESIGN fixture. The two fixtures are
+      constructed to differ only in whether a recorded alternative remains live:
+      the folding fixture's every Decision is sequencing or ordering with its
+      rationale recoverable from the PLAN, and the keeping fixture carries at
+      least one rejected alternative whose reason the PLAN's issue order does not
+      imply.
+- [ ] **[mech]** The two fixtures behind that pair are committed, sit within 10%
+      of each other on line count, and share section set, Decision count,
+      `status`, `upstream` and topic slug.
+- [ ] **[judg]** On the `absorb` verdict, the plan states the DESIGN is removed
+      and the PLAN carries a contribution section for it.
 - [ ] **[judg]** An artifact held back by re-entry protection is not judged.
+- [ ] **[judg]** The replaced first stage fails toward `keep`: a hop whose first
+      stage cannot reach a verdict leaves both documents on disk.
+- [ ] **[judg]** Scenario 17 `chain-shape-is-constant` still passes — an author
+      declaring the framing settled is not offered a shorter chain. This is the
+      tripwire for R27: implementing R1 is exactly what makes an entry-altitude
+      flag look reasonable to a later maintainer.
 
 ### Contribution sections
 
+- [ ] **[insp]** Each of the BRIEF, PRD, DESIGN and PLAN format references names
+      exactly one contribution for its type.
+- [ ] **[mech]** Each type's contribution section heading is a fixed string
+      derived from the absorbed type, named in the format reference, so the
+      validator recognises it without reading the section body.
 - [ ] **[mech]** A survivor that absorbed one ancestor carries one contribution
       section, immediately after `## Status`.
 - [ ] **[mech]** A survivor that absorbed an ancestor which had itself absorbed
@@ -271,10 +299,12 @@ than as a merge gate (see Known Limitations).
       an absorption and which lacks the implied contribution section.
 - [ ] **[mech]** `shirabe validate` fails a document whose contribution sections
       are present but out of order.
-- [ ] **[mech]** The contribution-section contract in each affected format
-      reference states both the too-long and the too-thin failure.
-- [ ] **[mech]** Each affected format reference's content-boundary rule names
-      the absorbed case as an exception.
+- [ ] **[mech]** The contribution-section contract in each of the BRIEF, PRD,
+      DESIGN and PLAN format references states both the too-long and the
+      too-thin failure.
+- [ ] **[mech]** The content-boundary rule in each of the PRD, DESIGN and PLAN
+      format references names the absorbed case as an exception. (BRIEF is
+      excluded: nothing absorbs into a BRIEF, so it has no absorbed case.)
 
 ### The absorb procedure
 
@@ -293,8 +323,17 @@ than as a merge gate (see Known Limitations).
       absorbed document, undoes the `upstream:` splice, removes the absorption
       declaration, the `## Status` line and the contribution section, and
       records the revert.
-- [ ] **[mech]** Every path the absorb procedure writes or deletes appears in
-      `/scope`'s enumerated write-target set. Verified by inspection.
+- [ ] **[insp]** Every path the absorb procedure writes or deletes appears in
+      `/scope`'s enumerated write-target set, and every deletion in that set is
+      reached only through the consolidation judgment's abort-or-absorb path.
+      The set is prose with no machine-readable enumeration to diff, so this is
+      a reading rather than a test — the second clause is what would catch a
+      second deletion site appearing in the procedure, which is R26's real risk.
+- [ ] **[insp]** The absorb procedure's authoring step precedes its carry-table
+      step, so the carry check cannot run against a prediction.
+- [ ] **[mech]** An absorb of an ancestor already carrying two contributions
+      itemizes all three carries — the ancestor's own and both inherited — and
+      aborts if any one fails.
 - [ ] **[mech]** A completed fold leaves a record identifying the absorbed
       document, the survivor, the verdict, and a content hash matching the
       pre-fold document's bytes. Evaluated on the branch, before merge.
@@ -466,6 +505,13 @@ branch rather than after merge.
 **R15's guard is same-repo only.** Cross-repo citations exist and stay
 unguarded. Issue bodies, PR descriptions and commit messages are outside its
 reach entirely, so its coverage is a floor rather than a bound.
+
+**R28's cross-repo half is unverified.** The in-repo corpus walk and the
+byte-exact golden parity suite cover this repository. The frozen cross-repo
+baseline lives in `parity-check.yml`, which shirabe does not self-call, so
+nothing in the criteria set exercises it. The in-repo walk stands as a proxy:
+if the added checks emit nothing on non-absorbing documents here, they emit
+nothing downstream for the same reason. That is an argument, not a test.
 
 **The rationale-in-code instruction is unmeasurable.** No check distinguishes a
 run that wrote useful why-comments from one that did not. R23 accepts an

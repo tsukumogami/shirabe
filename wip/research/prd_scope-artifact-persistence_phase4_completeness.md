@@ -1,316 +1,207 @@
 # PRD Jury -- Completeness Review: scope-artifact-persistence
 
-FAIL
+PASS
+
+(Round 1 verdict was FAIL. This file records the round-2 re-review of the
+rewritten document; the round-1 findings are summarized under "Round 1
+disposition" rather than reproduced in full.)
 
 Target: `docs/prds/PRD-scope-artifact-persistence.md`
-Reviewer scope: completeness only (decision coverage, requirement-to-criterion
-coverage, BRIEF scope-boundary coverage, the four absorb defects, eval accuracy).
-Clarity and testability are other reviewers' calls and are not judged here.
+Reviewer scope: completeness only -- decision coverage, requirement-to-criterion
+coverage, BRIEF scope-boundary coverage, the four absorb defects, eval accuracy.
 
-The document is close. Twenty-two requirements carry the bulk of five settled
-decisions faithfully, and the two hardest ones (D2's no-gate ruling, D4's
-retirement guard as a point query with no override) are rendered exactly. It
-fails on eleven specific holes, four of which are the failure mode this review
-exists to catch: a settled decision that landed in prose and never became a
-requirement, so the DESIGN and PLAN will not see it.
+Every settled decision from the exploration now reaches a requirement. Every item
+on the BRIEF's Scope Boundary IN list reaches a requirement. All four named
+absorb defects carry a requirement *and* a criterion. The eval-suite requirement
+is now accurate against the recorded family and carries positive coverage rather
+than a negative screen. That closes the failure mode this review exists to catch.
 
----
-
-## 1. Settled decisions that never reached a requirement
-
-### 1.1 The content-boundary carve-out (BLOCKING)
-
-The BRIEF's Scope Boundary IN list, item 3, is two halves:
-
-> The artifact format contracts, to the extent contribution sections need a home
-> **and the content-boundary rules need a carve-out for the absorbed case**.
-
-Only the first half reached a requirement (R5, the validator's presence check).
-The second half has no requirement and no criterion.
-
-This is not cosmetic. The exploration's own finding names it as the real
-obstacle:
-
-> **The real fence is prose, not schema.** `design-format.md` tells a DESIGN to
-> cite requirements by their numbers rather than restate them; `plan-format.md`
-> tells a PLAN that drifts into architecture to replace the content with a
-> citation. ... That is an editorial contract with no machine enforcement, and
-> it is the thing an absorbed case has to carve out.
-
-Under R2 a DESIGN that absorbed a PRD carries a What section that restates
-requirements, and a PLAN that absorbed a DESIGN carries a How section that is
-architecture. Both are prohibited today by the prose contract of the very format
-references this work edits. The validator will pass them; the format reference
-will contradict them. Nothing in the PRD requires that contradiction to be
-resolved.
-
-**Missing requirement (suggested R23):** Each format reference's
-citation-not-duplication rule SHALL carve out the absorbed case, so that a
-contribution section carried under R2 does not violate the content-boundary
-contract of the document carrying it.
-
-**Missing criterion:** A DESIGN carrying a What contribution section and a PLAN
-carrying a How contribution section each conform to their own format reference's
-content-boundary rules as written.
-
-### 1.2 D1's adopted `R<n>` citation-resolution rule vanished (BLOCKING)
-
-D1's chosen option adopts one mechanical backstop explicitly:
-
-> One mechanical backstop rides along: a citation-resolution rule in `shirabe
-> validate` that fails when an `R<n>` cited in a document does not resolve
-> inside that document or its surviving upstream. ... It is worth having because
-> it is the only depth expectation in this problem with a machine check
-> available.
-
-The decisions file carries it as a settled rider ("A citation-resolution rule
-belongs in `shirabe validate`"), and the findings file records only its
-*rollout* as open for the DESIGN, not the rule itself. The PRD has no
-requirement for it, no criterion, and no mention in Decisions and Trade-offs --
-the D1 entry there records the two-sided test and the three rejections and
-silently drops the rider.
-
-Worse, the Out of Scope bullet "a validator rule for unresolvable citations
-generally" reads as though it fences this out. It does not: D4 fenced a
-notice-severity rule for unresolvable document *names* (~374 pre-existing hits,
-a repair campaign). D1's rule is about requirement numbers resolving against a
-surviving upstream, and it fires only on the operation this work adds.
-
-This is the guard on the single silent failure the exploration identified:
-
-> **Absorbing a PRD orphans the chain's most-used cross-reference,
-> undetectably.** ... no rule anywhere validates a requirement citation. So the
-> failure is silent by construction.
-
-**Missing requirement (suggested R24):** `shirabe validate` SHALL fail when an
-`R<n>` citation in a document resolves neither within that document nor within
-its surviving upstream. The rollout posture against documents already on disk is
-the DESIGN's to settle.
-
-**Missing criterion:** A DESIGN citing `R7` whose PRD was absorbed without
-carrying the requirement numbering fails `shirabe validate`.
-
-If the author has decided to drop this rider, the PRD must say so under
-Decisions and Trade-offs with the reason -- not leave it to be inferred from an
-Out of Scope line about a different rule.
-
-### 1.3 The eval-suite requirement under-counts the family (BLOCKING -- answers item 5)
-
-The decisions file records the consolidation family as four evals plus two
-peripheral, with distinct obligations per eval:
-
-- **18** `durable-artifact-floor-is-structural` -- rewrite required.
-- **20** `consolidation-keep-at-unmapped-hop` -- rewrite required; its fourth
-  expectation "explicitly requires absorbability to be derived from the per-type
-  required-section contracts."
-- **19** `consolidation-absorb-brief-into-prd` and **21**
-  `consolidation-carry-check-failure-aborts-absorb` -- "each needs re-reading
-  against the contribution model rather than assumed compatible."
-- **7** and **17** -- "need a read, not necessarily an edit."
-
-R18 covers only the first two: "no eval asserts the type-level absorbability
-rule or the durable-artifact floor as invariants." Evals 19 and 21 assert
-neither, so R18 leaves them untouched -- yet 19 asserts the *shape* of a
-BRIEF-to-PRD absorb, which this work changes substantially (a contribution
-section, an `absorbed:` key, a `## Status` line, the retirement guard, the R14
-record). Evals 7 and 17 are not covered at all.
-
-AC 16 mirrors the same negative shape and is trivially satisfiable by **deleting
-evals 18 and 20** rather than rewriting them, which would silently drop the
-suite's only coverage of the consolidation judgment. Nothing in the PRD requires
-the suite to gain coverage of the behavior this work adds, though D2's
-Consequences names the fixture eval that "should be built before this ships."
-
-**R18 should read:** The skill's eval suite SHALL be updated so that no eval
-asserts the type-level absorbability rule or the durable-artifact floor as
-invariants; the absorb-path and carry-check-abort evals SHALL be re-evaluated
-against the contribution model rather than assumed compatible; and the suite
-SHALL gain at least one eval exercising a hop above BRIEF-to-PRD reaching
-`absorb` and one reaching `keep`.
-
-**Missing criterion (paired with AC 16):** The suite contains an eval in which a
-hop above BRIEF-to-PRD reaches `absorb` and one in which it reaches `keep`, and
-the consolidation family's eval count does not decrease.
-
-### 1.4 D4's firewall sentence and first named follow-on (MODERATE)
-
-D4 makes two things deliverables in their own right, and both were dropped when
-the wip scope file's content moved into the durable chain.
-
-**The firewall.** D4: "**And a firewall, stated in the scope file in these
-words:** the guard is justified entirely by the DESIGN-to-PLAN hop this work
-opens *forward*. It carries no retroactive commitment and produces no verdict
-about any existing document. Without that sentence, corpus work rides in on the
-guard's back and this decision gets re-litigated as an implementation detail."
-The scope file is wip and dies; the PRD is now the durable home. R10 states the
-guard with no forward-only scoping, and the Out of Scope retroactive bullet does
-not tie the guard to it.
-
-**Add to Out of Scope or as a note on R10:** R10's guard is justified entirely
-by the DESIGN-to-PLAN hop this work opens forward. It carries no retroactive
-commitment and produces no verdict about any document already on disk.
-
-**The first follow-on.** D4 specifies two named follow-ons "both now fully
-specified." The PRD's Out of Scope names only the second (the lifecycle
-criterion, "deferred as named follow-on work"). The BRIEF-to-PRD retroactive
-fold -- the one coherent retroactive operation, with a measured population of
-~55 candidates, written exclusion filters, and four named gates -- is absent
-entirely. The prd-format contract asks Out of Scope entries to reference future
-work when applicable; this one is fully characterized and costs one sentence.
-
-### 1.5 The re-entry case is unaddressed (MODERATE)
-
-The decisions file and D4 disagree, and D4 wins by being the later correction.
-
-Decisions file: "The existing `chain_skipped:` concept fires on re-entry
-protection, when a settled artifact already exists, so the document is present
-and can still fold or survive."
-
-D4, alternative (e): "**That is false**: re-entry records held-back children in
-`chain_skipped:` and keeps them out of `planned_chain:`, and Step 8 fires 'only
-when this chain produced a durable artifact above the one that just landed.' A
-pre-existing settled artifact is never judged."
-
-This is a live runtime path, not the retroactive corpus, so the Out of Scope
-retroactive bullet does not cover it. R1 says the decision is made "against the
-two documents present at the hop" without scoping when the judgment fires at
-all. A DESIGN or PLAN reading only the PRD could reasonably implement either
-answer.
-
-**Missing requirement (suggested R25):** The judgment SHALL fire only at a hop
-where this run produced both documents. An artifact held back by re-entry
-protection SHALL NOT be judged.
-
-### 1.6 The `/work-on` naming correction and the prior-artifact contradictions (MINOR)
-
-Two smaller items, neither blocking on its own:
-
-- D5's Consequences: "One naming correction propagates into the design: the
-  'rationale-in-code half of the `/execute` work' is `/work-on` work. ... any
-  design or plan should say `/work-on` where it currently says `/execute`."
-  R17's "Implementation SHALL carry a standing instruction" is altitude-correct
-  and does not misdirect, but the correction is load-bearing (R14/R15 bars
-  `/execute` from reading diffs, so the `/execute` placement is unimplementable)
-  and survives nowhere in the durable chain. One clause in the R17 Decisions
-  entry would carry it.
-- The PRD names `PRD-scope-consolidation-over-skipping.md`'s R14 in References
-  as requiring "the floor R1 removes," and Open Questions asks whether the
-  DESIGN's Decision 9 gets amended -- but asks nothing about the PRD's R14, and
-  D1's recorded correction to that same PRD ("the commit history is the recovery
-  path" is false after squash-merge) reaches only Known Limitations. Either both
-  contradictions get a requirement to amend, or both get an explicit
-  out-of-scope line. Right now one is an open question and the other is invisible.
+Four defects remain. None hides a missing decision, and all four are one-line
+fixes, which is why they do not hold the verdict -- but two of them will produce
+a dead end during implementation if they reach the DESIGN unchanged, so they
+should be fixed before this PRD is Accepted.
 
 ---
 
-## 2. Requirements with no criterion, or with one that passes trivially
+## Round 1 disposition -- all eleven findings
 
-Six requirements have no acceptance criterion that would fail if the requirement
-were unimplemented.
+| # | Finding | Disposition |
+|---|---------|-------------|
+| 1.1 | Content-boundary carve-out had no requirement | **Closed.** R10 + criterion that each affected format reference names the absorbed case as an exception. |
+| 1.2 | D1's `R<n>` citation rule vanished | **Closed.** R16 + criterion; the Out of Scope bullet now distinguishes it from the ~374-name repair campaign; the D1 Decisions entry carries the rider. The rollout call D1 left open is answered by R28 plus the corpus regression criterion -- R16 emits nothing on a document declaring no absorption. |
+| 1.3 | Eval requirement under-counted the family | **Closed and improved.** R24 forbids type-level mapping references, requires positive `absorb`/`keep` coverage above BRIEF-to-PRD, and floors the scenario count. The criterion names scenarios 18, 19, 20, so it is a diff. The positive half is verified by the first judgment criterion. |
+| 1.4 | D4 firewall and first follow-on dropped | **Closed.** The firewall is the last sentence of R15. Both follow-ons are named in Out of Scope, the BRIEF-to-PRD fold with its ~55-candidate population and its gates. |
+| 1.5 | Re-entry case unaddressed | **Closed.** R2 + a criterion. |
+| 1.6 | `/work-on` correction; prior-artifact contradictions | **Closed.** R23 says `/work-on`; the D5 entry carries the R14/R15 reason. Open Question 3 now covers the DESIGN's Decision 9 and that PRD's R14 together. |
+| 2 | R4/R7/R8/R12/R13/R17 (old numbering) had no criteria | **Five of six closed.** Old R8 (author before the carry table, now **R13**) still has none -- see below. |
+| AC vacuity | old AC3, AC16, AC17 | **Closed.** The fixture-parity criterion that replaced AC3 is the strongest single addition in the rewrite: it makes "the two chains differ only in content" mechanically checkable instead of a setup note. |
 
-| Req | What it demands | Criterion status |
-|-----|-----------------|------------------|
-| R4 | Two-sided adequacy expectation; presence alone insufficient | **None.** AC 8 tests R9's abort path; AC 6 tests R5's presence check. A build that implements only presence passes every criterion -- Known Limitations concedes exactly this. |
-| R7 | No gate on the verdict at any hop | **None.** AC 3 constrains the fixtures for ACs 1-2; it does not fail if a confirmation prompt or reviewer spawn is added. |
-| R8 | Contribution authored *before* the carry table is built | **None.** A build that predicts the table and authors afterward passes all seventeen criteria. R8 is load-bearing: D2 declined the independent reviewer *because* R8's reorder buys its one real contribution for free. |
-| R12 | Post-absorb re-validation covers survivor + referrers | **None.** (One of the four named absorb defects -- see section 3.) |
-| R13 | Write-target set names every path an absorb writes or deletes | **None.** (One of the four named absorb defects -- see section 3.) |
-| R17 | Standing rationale-in-code instruction on a blocking review path | **None.** This is a BRIEF Scope Boundary IN item shipping with zero criteria. D5 deliberately bounded it to "two edits, both verifiable by a reviewer reading the diff" precisely so it could be called done. |
-
-Suggested criteria:
-
-- R4: The two-sided criterion (too-long and too-thin) appears in the format
-  reference, the drafting instruction, and the authoring artifact's jury, with a
-  discriminating good/bad example pair.
-- R7: No hop's verdict path introduces a human confirmation, a reviewer spawn,
-  or a mode-conditional branch.
-- R8: The absorb procedure cannot produce a carry table for a contribution
-  section that has not been authored.
-- R12: An absorb whose survivor validates but whose referrer does not is
-  reverted, and both documents remain on disk.
-- R13: Every path an absorb at any hop writes or deletes -- including the
-  upper-hop cases -- appears in `/scope`'s enumerated write-target set, and an
-  upper-hop absorb completes without a write-target violation.
-- R17: The implementation phase file carries the rationale instruction, and the
-  maintainer reviewer's brief names it as a blocking finding.
-
-Criteria that pass too easily:
-
-- **AC 16** -- satisfiable by deleting evals 18 and 20 (see 1.3).
-- **AC 17** -- "`cargo test` passes and the existing golden fixtures are updated
-  in the same change as any format-contract edit" is vacuous if no
-  format-contract edit is made; the fixture half is conditional on a condition
-  the criterion does not force.
-- **AC 3** -- not a criterion about the system. It is a setup constraint on ACs
-  1 and 2 and cannot independently fail.
-
-Non-functional R19, R20, R21, R22: R21 has AC 7; R22 is partially covered by ACs
-8 and 9. R19 and R20 have none, which is defensible for standing negative
-constraints and is not counted against the document here.
+The instrument labels (**[mech]** / **[judg]**) and the Known Limitation about
+graded-not-gated behaviour are additions I did not ask for and they materially
+improve the document: they make it visible which criteria are decided by a weekly
+cron eval rather than a merge gate.
 
 ---
 
-## 3. The four known absorb defects (review item 4)
+## Defect 1 -- R13 still has no acceptance criterion (reported closed; it is not)
+
+**R13.** "The carry check SHALL be evaluated against contribution text that
+already exists, never against a prediction that it will be written."
+
+No criterion tests the ordering. The nearest candidate -- "An absorb whose
+contribution does not carry leaves both documents on disk and records the
+failure" -- verifies R14's abort path and passes identically under a
+prediction-based procedure, since an agent can predict `carried: false` as easily
+as it can observe it. A build that keeps the current step order ships green.
+
+This is the requirement D2 traded the independent reviewer away for: "The
+reviewer's one real contribution -- judging an artifact rather than a prediction
+-- is bought for free by R13." The document says so in its own Decisions section.
+It should not be the one requirement with no verification.
+
+**Suggested criterion (mech):** The absorb procedure cannot produce a carry-table
+row for a contribution section that does not yet exist on disk; the procedure's
+step order places contribution authoring strictly before carry-table
+construction. Verified by inspection.
+
+R12 (no gate on the verdict) also has no criterion naming it, but the paired eval
+does discriminate weakly -- a confirmation gate or reviewer spawn would not reach
+`absorb` in a non-interactive eval run. Acceptable, and consistent with how R26
+and R27 are handled.
+
+---
+
+## Defect 2 -- the regression criteria are jointly unsatisfiable today (BLOCKING for the DESIGN)
+
+> - **[mech]** A corpus-wide test walks every document under `docs/`, runs
+>   `shirabe validate`, and asserts **exit 0** with no new check code emitted.
+> - **[mech]** `git diff --exit-code docs/` is clean in the same job, proving no
+>   existing document was edited to make the corpus pass.
+
+The corpus does not exit 0 today, and this work is fenced out of fixing it.
+
+Verified in this worktree: five documents carry an `upstream:` whose target does
+not exist.
+
+- `docs/briefs/BRIEF-lifecycle-passing-state-validation.md`,
+  `BRIEF-legend-vs-classdef-reconciliation.md` and
+  `BRIEF-table-diagram-reconciliation.md` point at
+  `docs/designs/DESIGN-roadmap-plan-standardization.md` (stranded by the
+  Accepted-to-Current directory move; the file lives at
+  `docs/designs/current/`).
+- `BRIEF-cascade-outline-ac-completeness.md` and
+  `BRIEF-single-pr-plan-validation.md` point at
+  `docs/plans/PLAN-roadmap-plan-standardization.md` (deleted at finalization by
+  design; `docs/plans/` holds one unrelated file).
+
+All five carry `schema: brief/v1`, so the schema gate passes and hard failures
+fire. R6 is error-severity and is not Plan-scoped --
+`crates/shirabe-validate/src/checks.rs:767`: "The check runs for every format,
+not just Plan. A dangling `upstream:` is wrong however it arose." This matches
+the exploration's own finding that `shirabe validate` "exits 2 on them right
+now." (I confirmed the five dangling targets and read the check; I did not build
+and run the binary.)
+
+So the first criterion fails on the pre-existing corpus, and the second forbids
+the repair -- correctly, because repairing dangling references is fenced out of
+scope as a repair campaign. As written the job can never go green.
+
+**Fix:** drop `exit 0` and keep only the clause that is actually the intent --
+no finding carrying a check code this work introduces. Or freeze the current
+findings as a baseline the job diffs against, which additionally catches
+regressions in existing codes.
+
+**Second, smaller problem with the same pair.** `git diff --exit-code docs/`
+compares the working tree to HEAD. It proves the *test run* did not rewrite
+files in place -- a real and worthwhile guard -- but not the stated claim, that
+"no existing document was edited to make the corpus pass," since an edit
+committed on the branch leaves the working tree clean. The stated claim needs a
+merge-base diff restricted to documents that existed before the branch, which is
+awkward here because this chain necessarily adds documents under `docs/`. Either
+narrow the rationale to what the command proves, or specify the merge-base form
+with the new chain artifacts excluded.
+
+---
+
+## Defect 3 -- R25 is under-specified in one respect (the premise is sound)
+
+**R25.** "`docs/guides/doc-validation.md` SHALL document any check family this
+work adds." Criterion: the guide "names every check family this work adds."
+
+The premise holds and the guide is already stale, which is direct evidence for
+including it. `doc-validation.md:23-25` describes R6 as a Plan-doc rule --
+"Format-specific rules -- Plan docs: upstream file existence and git tracking
+(R6)" -- while the code says the opposite. Whatever else R25 produces, that line
+should be corrected in passing.
+
+What is under-specified is "check family." The guide has no such term; its "How
+it works" section enumerates three groups (schema gate, FC01-FC04,
+format-specific rules), and this work's additions do not map cleanly onto them:
+R8's contribution-section requirement is FC-class, R9 reuses the existing
+canonical-order check rather than adding one, R16 is a new format-specific rule,
+and R21's non-resolution exclusion is an exception to an existing rule rather
+than a new check. A criterion marked **[mech]** that asks whether the guide names
+"every check family" cannot be decided without first deciding which of those four
+count.
+
+**Fix:** replace "check family" with "check code," which the crate and the guide
+both already use (FC01-FC16, FC99, L01-L08, R5-R9), and name the additions
+explicitly in the criterion -- the contribution-section requirement check, the
+`R<n>` citation-resolution check, and the absorption-declaration exclusion from
+path resolution. Then the criterion is a grep.
+
+---
+
+## Defect 4 -- R22's third sentence defers a decision without naming it as open (minor)
+
+**R22:** "The PRD-level contract for what `exit_artifacts:` holds under a fully
+folded chain SHALL be stated so the guard has a defined seed." Its criterion
+reads "seeded per R22's stated contract."
+
+The PRD does not state the contract, so the requirement asks for a statement it
+does not make and the criterion verifies conformance to something that does not
+yet exist. Either state it (one clause: what `exit_artifacts:` holds when every
+chain artifact folded) or move it to Open Questions alongside the record surface,
+which is the same shape of deferral and is handled correctly there.
+
+---
+
+## Coverage tables (round 2)
+
+**Requirements with no criterion:** R12 (weakly covered by the paired eval --
+acceptable), **R13 (none)**, R26 and R27 (standing negative constraints, no
+criterion by design and consistent with the document's own convention).
+Everything else carries at least one criterion that discriminates.
+
+**The four absorb defects:**
 
 | Defect | Requirement | Criterion |
 |--------|-------------|-----------|
-| `upstream:` re-point replaces rather than splices | R11 | AC 10 -- **covered** |
-| Missing retirement guard before deletion | R10 | AC 9 -- **covered** (path tier only; the weaker-match tier routing to the judging agent has no criterion) |
-| Post-absorb re-validation checks only the survivor | R12 | **MISSING** |
-| Write-target set does not name upper-hop absorb paths | R13 | **MISSING** |
+| `upstream:` re-point replaces rather than splices | R17 | covered |
+| Missing retirement guard before deletion | R15 | covered, both tiers |
+| Post-absorb re-validation checks only the survivor | R18 | covered -- the revert criterion spells out all five steps |
+| Write-target set omits upper-hop absorb paths | R19 | covered, by inspection |
 
-Two of four. R12's absence matters most: D2 calls that repair an obligation
-independent of everything else in the decision -- "The step-4 referrer
-re-validation must ship regardless of anything else here, because nothing else
-in the system can catch the failure it fixes" -- since `validate-docs.yml` is
-diff-scoped and a stranded document is not a changed file. It ships here with a
-requirement nobody can verify was met.
+**BRIEF Scope Boundary:** all eight IN items reach a requirement; the
+content-boundary half of item 3 is now R10. No OUT item is pulled back in; the
+Out of Scope section gained one exclusion (the isolated-clone eval mechanism)
+which is a narrowing with a stated reason and is paired honestly with Known
+Limitation 2.
 
----
-
-## 4. BRIEF Scope Boundary coverage (review item 3)
-
-**IN list, eight items:**
-
-| BRIEF IN item | Requirement | Verdict |
-|---|---|---|
-| Absorbability judgment onto the two documents | R1, R6 | covered, ACs 1-3 |
-| What a survivor owes its ancestors + adequacy expectation | R2, R3, R4 | covered; R4 has no criterion |
-| Format contracts: home for contribution sections **and content-boundary carve-out** | R5 only | **half missing** (1.1) |
-| The four absorb defects | R10-R13 | covered; two have no criterion |
-| Durable record on the default branch | R14 | covered, AC 11 |
-| Trace on the surviving document | R15 | covered, ACs 12-13 |
-| The two `/execute` DESIGN-survives assumptions | R16 | covered, ACs 14-15 |
-| Standing rationale-in-code instruction | R17 | covered; **no criterion** |
-
-**OUT list:** nothing is silently pulled back in. All five BRIEF exclusions
-survive into the PRD's Out of Scope (retroactive corpus, strategic chain, manual
-child invocation, citation index and general unresolvable-citation rule) or into
-a requirement (R20 for pre-artifact judgments). R10's point query is not the
-repository-wide index the BRIEF fenced out -- D4 drew that line explicitly and
-the PRD keeps it. The PRD adds one exclusion the BRIEF did not carry (CI
-deletion blindness), which is a narrowing with a stated reason and is fine.
-
-One consequence worth surfacing to the DESIGN rather than counted as a gap: the
-findings hold that "BRIEF-to-PRD works because the child carries, not because
-the parent merges" and that "any new absorbable hop needs the same child-side
-consumption block, not just a home." Whether that work exists at all depends
-entirely on Open Question 2 (child at drafting time versus parent at fold time),
-which the PRD correctly leaves open -- but the PLAN's decomposition will be
-materially different under the two answers, and the PRD does not say so.
+**Eval accuracy:** R24 plus its criterion now matches the decisions record.
+Scenarios 18, 19 and 20 are named for rewrite; 21 is left alone, which is what
+the decisions file recommends since R14 preserves the abort semantics 21
+asserts; the count floor and the negative screen cover 7, 17 and 21 without
+mandating edits that may not be needed.
 
 ---
 
-## Summary of what must change to pass
+## Fix list before Accepted
 
-1. Requirement + criterion for the content-boundary carve-out (1.1).
-2. Requirement + criterion for D1's `R<n>` citation-resolution rule, or an
-   explicit recorded decision to drop it (1.2).
-3. R18 rewritten to cover all four consolidation-family evals and the two
-   peripheral ones, plus a positive criterion so AC 16 cannot be satisfied by
-   deletion (1.3).
-4. Criteria for R4, R7, R8, R12, R13, R17 (section 2).
-5. D4's firewall sentence and the BRIEF-to-PRD follow-on named in Out of Scope
-   (1.4).
-6. A requirement scoping when the judgment fires, so the re-entry case is not
-   left to the DESIGN to guess (1.5).
+1. A criterion for R13 (defect 1).
+2. Drop `exit 0` from the corpus criterion and narrow the `git diff` rationale
+   (defect 2) -- this one is a dead end for the DESIGN if it ships as written.
+3. R25: "check code" not "check family," with the three additions named; correct
+   the guide's stale R6 line while there (defect 3).
+4. R22: state the `exit_artifacts:` contract or move it to Open Questions
+   (defect 4).

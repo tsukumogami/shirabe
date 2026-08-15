@@ -2,277 +2,192 @@
 
 Target: `docs/prds/PRD-scope-artifact-persistence.md`
 Reviewer lane: ambiguity, altitude, citation-vs-restatement, decision closure, writing style.
+Round 2 (re-review after revision).
 
-FAIL
+PASS
 
-This is a revision-pass fail, not a rewrite. The document is well argued, the
-Problem Statement stands on its own, the Decisions section mostly does close
-things, and the prose is clean. But five requirements admit two readings that
-would produce materially different systems, one requirement contradicts an Open
-Question outright, and the Decisions section opens with a pointer to marks that
-were never made. Fixes below are mostly one-sentence rewrites.
+All seven blocking findings from round 1 are genuinely fixed, and the fixes are
+the right ones rather than the minimum ones. R13 states the property instead of
+ordering the steps, so the actor stays open and Open Question 2 no longer
+contradicts a requirement. R14 says explicitly that the existing itemization
+survives and contributions are added to it, naming the ancestor's own alongside
+its inherited ones — the replace-or-extend fork is closed. R15 is now the most
+precisely specified requirement in the document: strong match, weak class, file
+set, and `wip/` named out. The eight non-blocking findings are all taken.
 
----
-
-## Blocking
-
-### B1. R8 contradicts Open Question 2
-
-R8: "The absorb procedure SHALL author the contribution section before building
-the carry table."
-
-Open Question 2: "Is the contribution section authored by the child at drafting
-time or by the parent at fold time? R8 fixes the ordering within the absorb, but
-not which actor writes the prose."
-
-R8 assigns the authoring to the absorb procedure, which *is* the parent at fold
-time. Either the actor is settled (and OQ2 should go) or it is open (and R8 must
-not name the actor). An implementer reading R8 will build fold-time authoring and
-never reach the question.
-
-Fix: restate R8 as a property of the carry check rather than an ordering of
-steps — "The carry check SHALL be evaluated against contribution text that
-already exists, never against a prediction that it will be written" — which
-leaves the actor genuinely open and keeps the reason R8 gives.
-
-### B2. R8 is also the clearest altitude break in the document
-
-"Author X before building the carry table" is a sequence of internal procedure
-steps, and "carry table" is not a thing that exists — the current procedure has a
-`carry_check` YAML block in
-`skills/scope/references/phases/phase-2-chain-orchestration.md:466`. So the
-requirement both prescribes the shape of a new internal artifact and orders the
-steps that touch it. The line: naming the existing `carry_check` as something the
-requirement constrains would be fine; inventing "the carry table" and sequencing
-the procedure around it is the DESIGN's call. The B1 rewrite fixes this too.
-
-The Decisions section then leans on the same drift — "bought for free by R8's
-reorder." Reorder is an implementation word; say what the property buys instead.
-
-### B3. R4 has an absurd literal reading
-
-"A contribution section SHALL carry an adequacy expectation with both a too-long
-and a too-thin failure."
-
-Reading 1: the format contract for contribution sections states a two-sided
-adequacy criterion. Reading 2: each individual contribution section must itself
-contain text stating its own adequacy expectation. Reading 2 is silly, but it is
-what the sentence says — the section is the subject of "carry."
-
-Second problem in the same sentence: the criterion given ("judged against whether
-the survivor's own argument stands without the absorbed document") only diagnoses
-the too-thin failure. The too-long failure has no stated test in R4. The Decisions
-section supplies it ("if the section reads like a rewrite of the upstream, fold it
-back"), but a requirement should not need the Decisions section to be complete.
-
-Fix: "The contribution section's format contract SHALL state a two-sided adequacy
-criterion: a section that reads as a rewrite of the absorbed document is too long,
-and a section without which the survivor's own argument does not stand is too
-thin. Presence alone SHALL NOT satisfy it."
-
-### B4. R9 does not say whether it replaces or extends the existing carry check
-
-"The carry check SHALL run per contribution at every hop."
-
-Today the carry check walks the *upstream's required sections* one at a time
-(phase-2, Stage 3). R9 says it runs per contribution. Two readings:
-
-- Replace: the itemization is now per contribution section only, so an ancestor's
-  required sections that are not contributions stop being itemized.
-- Extend: sections are still itemized, and contributions are itemized in addition.
-
-These build different verification surfaces, and the first one silently narrows an
-existing guarantee. A third reading hides inside "per contribution": does it mean
-each contribution section the ancestor carries (transitively inherited ones only),
-or the ancestor's own contribution plus its inherited ones?
-
-Fix: state which itemization survives and say explicitly that the ancestor's own
-contribution is included alongside those it inherited.
-
-### B5. R10 asks the implementer to invent a match taxonomy and a repository scope
-
-"A citation by path SHALL downgrade the verdict ... A weaker citation match SHALL
-be surfaced to the judging agent rather than acted on mechanically."
-
-Nothing defines "weaker." One implementer greps the filename stem, another the
-document title, another the slug, another all three with different confidence.
-The requirement's whole point is that the strong case is mechanical and the weak
-case is judged, so the boundary between them is load-bearing and has to be
-stated, or explicitly handed to the DESIGN as a named choice.
-
-"Any other file in the repository" is the second fork. Tracked files only, or the
-whole working tree? `wip/` is non-durable staging by workspace rule and a `/scope`
-run writes into it constantly — if `wip/` counts, a chain will block its own folds
-on its own scratch state every time. That is a behavioral difference an
-implementer will decide by accident.
-
-Fix: define the strong match (a citation containing the artifact's repo-relative
-path) and characterize the weak class in one clause, then say which file set is
-searched and name `wip/` in or out.
-
-### B6. R16 does not cover the case acceptance criterion 1 requires
-
-R16: "`/execute` SHALL NOT assume a surviving DESIGN."
-
-Two readings: (a) fall back to the next durable anchor — the PRD, then the BRIEF;
-(b) handle the absence of any anchor. The first acceptance criterion demands a run
-that ends "with no durable artifact in `docs/`", and `/execute`'s guard seeds on
-"the durable surviving anchor" (`skills/execute/SKILL.md:541-546`) while the
-cascade's roadmap Downstream rewrite reads `CASCADE_DESIGN_PATH`
-(`skills/execute/scripts/run-cascade.sh:69`). In the fold-everything case there is
-no anchor at all, not merely no DESIGN. Reading (a) satisfies R16 as written and
-still breaks that run.
-
-Fix: say "SHALL NOT assume any surviving durable artifact" and name the
-zero-artifact chain as the case both surfaces must handle.
-
-### B7. The Decisions section points at marks that do not exist
-
-Preamble: "the two marked critical ran the full adversarial path with persistent
-validators." No entry in the section is marked critical. A reader cannot tell
-which two, and the sentence is the only signal about how much weight each decision
-carries.
-
-Fix: mark them, or drop the clause.
+Seven small things remain. None of them produce two different systems, and one
+(the decision count) is a numeral. They should be fixed before the PRD goes to
+Accepted, not before it goes to DESIGN.
 
 ---
 
-## Non-blocking, but fix in the same pass
+## Fix before Accepted
 
-### N1. "Contribution" is used in three senses and defined in none
+### F1. The Status section says five decisions; there are now six
 
-R2 introduces it as a type-level property ("Each artifact type SHALL declare one
-contribution"), then immediately as a section in a document ("SHALL carry that
-ancestor's contribution as a single section"). R6 uses it as content in the
-absorbed document ("holds nothing beyond its contribution"). R9 uses it as a unit
-of verification. One sentence defining the type-level declaration and the
-per-document section that realizes it, before R2 uses both, removes the whole
-class of confusion.
+"whose five settled decisions are recorded under Decisions and Trade-offs"
 
-### N2. R2's "ahead of its own content" is ambiguous against Status
+The section holds six: the two-sided adequacy test, the no-gate decision
+`[critical]`, the corpus-out-of-scope decision `[critical]`, the record of the
+operation, the frontmatter-plus-Status-line, and the one-change shipping
+decision. The count was correct before the revision added the corpus decision.
 
-Every artifact type here opens with `## Status`, and R15 puts the absorption line
-inside it. So "placed ahead of its own content" reads either as first section in
-the document (which fights the canonical section-order check) or as first after
-Status. Say which. Also, "in chain order" is vacuous for a single section — it
-belongs in R3, where there is more than one.
+### F2. R16's scope is stated everywhere except in R16
 
-### N3. R5's "declared absorptions" is undefined until R15
+R16: "`shirabe validate` SHALL fail when an `R<n>` requirement citation in a
+document resolves neither within that document nor within its surviving
+upstream."
 
-R5 requires the sections "a document's declared absorptions imply," but the
-frontmatter field that constitutes the declaration is not introduced until R15.
-A cross-reference in R5 fixes it.
+Read alone, that is a repository-wide requirement-citation resolution check. Two
+other places say it is not. Out of Scope: "R16 is narrower and distinct: it fires
+on requirement numbers orphaned by this work's own absorbs." R28: "the checks
+this work adds SHALL emit nothing on a document that declares no absorption."
+Both close the question, but neither is in R16, and R28 is twelve requirements
+away and phrased as a compatibility constraint rather than a scoping rule. An
+implementer reading R16 in isolation builds the repo-wide check that the same
+document excludes as a repair campaign.
 
-### N4. R17's subject is ambiguous, and its enforcement path is unnamed
+Second problem in the same requirement: "resolves" is undefined for a citation
+that points at another document's requirements, and this PRD contains one. The
+sixth decision says "R14/R15 of the execute contract bar `/execute` from reading
+diffs" — those are `/execute`'s R14 and R15, not this PRD's, but this PRD has an
+R14 and an R15, so the citation resolves locally and wrongly. R16 has no way to
+express a cross-document requirement citation, and no way to tell one from a
+local one.
 
-"Implementation SHALL carry a standing instruction to record in code comments why
-the code is shaped as it is."
+Fix: put the scope in R16 (fires on requirement numbers orphaned by an absorb
+this run performed), and say how a citation to another document's requirements is
+written, or state that R16 does not attempt to check those.
 
-Reading 1: this feature's own code must carry why-comments. Reading 2: shirabe's
-implementation workflow must instruct every future implementation to write them.
-The BRIEF makes reading 2 the intent, but R17 does not name where the instruction
-lives or who receives it, and "Implementation" as a bare subject supports both.
+### F3. R8 and R21 each mandate the frontmatter declaration
 
-"Enforced through an existing blocking review path" then names no path. There are
-several candidates (the jury, a reviewer agent, a CI lifecycle check). Naming the
-existing surface is allowed and would settle it; leaving it unnamed leaves an
-implementer guessing at a mechanism the requirement already constrained.
+R8: "A document SHALL declare its absorptions in frontmatter." R21: "A surviving
+document SHALL record what it absorbed in both a machine-readable frontmatter
+field and one line in its `## Status` section."
 
-### N5. R18's "the skill's" has the wrong antecedent
+One field or two? The acceptance criteria use a single name for it — "a
+survivor's absorption declaration" — which implies one, but the requirements read
+as two independent obligations, one for the validator and one for the reader. Fix:
+have R21 cite R8's declaration rather than re-mandate a field ("The declaration
+R8 requires SHALL hold the absorbed path; the survivor SHALL additionally carry
+one line in `## Status` naming …").
 
-The nearest skill named is `/execute` in R16. R18 means `/scope`'s eval suite. Say
-`/scope`.
+### F4. R22 requires that a PRD-level contract be stated, without stating it
 
-### N6. R12 is arguably empty under R10
+"The PRD-level contract for what `exit_artifacts:` holds under a fully folded
+chain SHALL be stated so the guard has a defined seed."
 
-R12 requires post-absorb re-validation to cover "every document that referenced
-the absorbed artifact." R10 downgrades to `keep` whenever another file cites the
-artifact by path. So by the time R12 runs, that set is empty except for whatever
-weak matches the judging agent waved through — which R10 does not say it can do.
-Either state that the agent may accept a weak match and proceed (making R12's set
-non-empty and meaningful), or R12 should say what it covers that R10 has not
-already excluded.
+If it is PRD-level, this is the document that owes it, and it is not here. If the
+DESIGN is meant to define the seed, say that — a requirement that a requirement
+be written reads as an unfinished sentence either way. This is the one place a
+reader cannot tell whether something is deferred on purpose or left out by
+accident.
 
-### N7. R14's "its absence SHALL prevent the fold" is loosely tensed
+### F5. R15's closing sentence reads as normative but is rationale
 
-The record is described as something a *completed* fold leaves, yet its absence
-prevents that same fold. Precondition or rollback is the DESIGN's call, so the
-requirement should be stated in a way that survives both: "A fold SHALL NOT land
-unless the record was written."
+"It is justified entirely by the hops this work opens forward; it carries no
+retroactive commitment and produces no verdict about any document already on
+disk."
 
-### N8. R3's second sentence is an observation, not a requirement
+The intent is clear against the corpus decision: the check does not judge whether
+existing documents should fold. But "produces no verdict about any document
+already on disk" can be read as a constraint on what the check may report, which
+sits badly next to the criterion requiring the citing file — an existing document
+— to be named. Move it to Out of Scope or to the corpus decision, where the same
+argument already lives.
 
-"The number of contribution sections a document carries SHALL be bounded by the
-number of ancestor types" is a consequence of R3's first sentence, not an
-independent obligation, and "bounded by" does not say whether the bound is
-inclusive. Either drop it or restate it as the invariant you want tested.
+### F6. "[mech] … Verified by inspection" contradicts the criteria preamble
 
----
+"**[mech]** Every path the absorb procedure writes or deletes appears in
+`/scope`'s enumerated write-target set. Verified by inspection."
 
-## Where the PRD is fine, and why
+The preamble defines `[mech]` as "a criterion a machine decides." Inspection is
+not that. Either the write-target set comparison is machine-checkable (say how)
+or the criterion is `[judg]`.
 
-**Altitude, generally.** Most of what looks like mechanism is a named existing
-thing the requirement is constraining, which is the right side of the line:
-`shirabe validate` (R5), the closed write-target set (R13, exists in
-`phase-3-exit-finalization.md`), the existing abort path (R10, the failed carry
-check in phase-2), path resolution (R15), the finalization guard and the roadmap
-Downstream rewrite (R16, both real). None of these prescribe the shape of the new
-thing.
+### F7. "within a stated band" states no band
 
-Two borderline calls I am letting stand. R14's "content-addressed pointer"
-constrains a property rather than a mechanism, the reason is stated in Known
-Limitations (squash-merge means a path pointer resolves to nothing), and the
-Open Questions explicitly leaves the surface to the DESIGN — that is the right
-split. R15's frontmatter-field-plus-one-Status-line is prescriptive about shape,
-but the Decisions section grounds it in an existing house pattern
-(`shirabe transition`'s `superseded_by:`), and matching an existing pattern is a
-requirements-level choice, not a design one.
-
-**Citation vs restatement.** The Problem Statement restates the BRIEF's problem in
-full, which is exactly what the format contract asks for, and a cold reader gets
-the three stages, the schema comparison, and the consequence without opening
-anything. Everything downstream of it is carried into the PRD's own sections
-rather than summarized alongside them: the BRIEF's User Outcome lands in Goals,
-its Journeys become User Stories, its Out list becomes Out of Scope. That is
-carry-forward, not duplication. The Out of Scope entries reproduce the BRIEF's
-reasoning at close to full length, which is defensible for a section whose job is
-to be self-contained, and the fifth entry (CI deletion blindness) is new and earns
-its place. No finding here.
-
-**Decision closure.** Four of the five entries do the job — decision, named losing
-alternatives, and why each lost. The adequacy-test entry is the strongest
-(presence-only, scored rubric, and word-count floor each rejected with a reason).
-The no-gate entry closes both rivals structurally. The tombstone-stub rejection is
-honest enough to say the loser was stronger on the merits and why it still lost.
-
-The record-of-the-operation entry is the weakest of the four: its losing
-alternative is a class ("any destination preserving the absorbed content") rather
-than a named option. That mostly works, because the argument against the class is
-what closes it, but a DESIGN author looking for "why not an archive directory" has
-to derive it.
-
-The fifth entry does not close. "Everything ships in one change" is settled fine,
-but "the rationale-in-code instruction is bounded to two diff-checkable edits"
-names no two edits, and it is plan-altitude besides — how many edits a change
-takes is the PLAN's to decide. Either name them or state the bound as a property
-("bounded to instruction text in existing files, with no new gate"), which is
-what R17 already says.
-
-**Writing style.** Clean. No banned vocabulary (checked the full list: no
-tier/robust/leverage/comprehensive/holistic/facilitate, no adverb openers, no
-hollow gerunds). Ten em dashes across 360 lines is restrained. Contractions
-present, sentence length genuinely varies ("Stage 1 short-circuits it." next to
-the forty-word sentence after it). No preamble anywhere. The Known Limitations
-section takes real positions instead of hedging, and the last entry — that this
-chain cannot dogfood its own change — is the kind of admission an AI draft
-usually omits. No findings.
+The fixture-parity criterion requires the two fixtures to "hold their line count
+within a stated band of each other." Nothing states the band. If the DESIGN sets
+it, say so; as written the criterion cannot be decided by anything until a number
+appears somewhere.
 
 ---
 
-## Outside my lane, flagged anyway
+## Verified fixed
 
-Acceptance criteria 1 and 2 turn on "holds only sequencing value" and "records
-live rejected alternatives," which are agent judgments rather than binary checks.
-Whoever owns testability should look at whether those are verifiable by someone
-who did not write the PRD, or whether they need fixture chains that make the
-condition concrete.
+- **B1/B2.** No ordering-of-steps requirement and no invented internal artifact
+  remain. "Carry table" appears nowhere; R14 refers to the carry check "as it does
+  today." The no-gate decision now credits R13's property rather than a reorder.
+- **B3.** R7 states both failure modes and puts the criterion in the format
+  contract, not in the section.
+- **B4.** R14 closes the replace-or-extend fork and the own-vs-inherited fork in
+  one sentence.
+- **B5.** R15 defines the strong match by repo-relative path, characterizes the
+  weak class, scopes the search to git-tracked files, and names `wip/` out.
+- **B6.** R22 says "any surviving durable artifact" and names the fully folded
+  chain as the case both surfaces must handle. (The seed contract itself is F4.)
+- **B7.** Two decisions carry `[critical]` inline and the preamble says what the
+  mark means.
+- **N1–N8.** Terms paragraph defines both senses before R3 uses either, and its
+  "R4 through R9" pointer is accurate. R4 pins placement against `## Status`,
+  chain order moved to R6. R8 is self-contained. R23 names `/work-on`'s
+  implementation phase and the maintainer reviewer's brief — both exist
+  (`skills/work-on/references/review-panel-orchestration.md`). R24 says `/scope`.
+  R15's weak-match clause makes R18's set non-empty. R20 is the property form.
+  R6's vacuous bound is gone.
+
+## Altitude on the new material
+
+The revision added ten requirements and I checked each against the line. Nothing
+crossed it.
+
+Every newly named surface exists and is being constrained rather than designed:
+re-entry protection (`skills/scope/references/state-schema.md:57-61`),
+`docs/guides/doc-validation.md`, `skills/scope/evals/evals.json`,
+`skills/execute/scripts/run-cascade_test.sh`, the canonical-section-order check,
+the cross-repo parity baseline. R5 requires a fixed type-derived heading and
+gives the reason (machine-recognisable without reading the body) while leaving
+the derivation rule open — property, not mechanism. R21's "pinned shape rather
+than free prose" does the same for the `## Status` line. R9 assigns the placement
+check to the existing order check, which is prescriptive about *which* check, but
+its point is that no new check appears, and that is a requirements-level call of
+the same kind as R23 and R26.
+
+One dip below altitude, and I am letting it stand: the cascade criterion's
+parenthetical "(This fails against current code: `run-cascade.sh` leaves the
+pre-existing line untouched when `CASCADE_DESIGN_PATH` is unset.)" names a script
+variable and its behaviour. It earns its place by proving the criterion is a real
+regression test rather than a tautology, and it describes existing code rather
+than prescribing new code. The DESIGN should stay free to fix that some other
+way.
+
+## Citation vs restatement
+
+Unchanged from round 1, and improved. The Problem Statement still stands alone.
+The material added to Out of Scope is exploration measurement, not BRIEF
+restatement — 55 retroactive candidates, 374 pre-existing unresolvable names, 201
+surviving files, a 1.03 redundancy ratio among DESIGNs actually in a PRD chain.
+Those numbers are what makes the boundaries decidable rather than assertions, and
+none of them are in the BRIEF.
+
+## Decision closure
+
+Six entries, all four elements present in each. The record-of-the-operation entry
+took the round-1 note and now closes the class by name ("including an archive
+directory and a per-run decision record"), so a DESIGN author is not deriving it.
+The shipping entry states the bound as a property instead of counting edits, and
+adds the reason the work sits with `/work-on` rather than `/execute`. The new
+corpus decision is the strongest in the section: it names the alternative, the
+population it would touch, the structural reason it fails, and the fact that the
+advocate assigned to argue for it changed their vote.
+
+## Writing style
+
+Clean. No banned vocabulary on a full-list check. Twenty-one em dashes across 509
+lines, roughly one per twenty-four — restrained for a document this dense. No
+preamble, no adverb openers, contractions present, real burstiness ("Stage 1
+short-circuits it." against the sentence that follows it). Known Limitation 2 —
+that the feature's central behaviour is graded on a weekly cron rather than gated
+on merge, "weaker than it reads" — is the kind of thing a draft usually buries.
+No findings.
