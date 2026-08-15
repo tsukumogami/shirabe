@@ -14,6 +14,7 @@ chain_skipped: []
 chain_ran:
   - brief
   - prd
+  - design
 child_snapshots:
   brief:
     status: Accepted
@@ -22,6 +23,24 @@ child_snapshots:
     artifact: docs/briefs/BRIEF-skill-preflight-checks.md
     validator: clean
     jury: all-PASS on second pass; first pass FAIL on content quality, 7 required changes applied
+  design:
+    status: Accepted
+    content_hash: 65bf3a8037b53be8977df31007e1f51ccee034f6
+    captured_at: 2026-08-15T05:10:00Z
+    artifact: docs/designs/DESIGN-skill-preflight-checks.md
+    validator: clean
+    jury: PASS on second pass; architecture and security both FAILed pass 1 (13 required changes), all applied
+    carried_to_plan: >-
+      Three non-blocking implementation traps from the final verification:
+      (1) empty SHIRABE_PREFLIGHT_ROOTS aborts under set -u in bash 3.2 via
+      "${arr[@]}" on an empty array, and the failure is swallowed by the
+      || true guard; (2) the probe watchdog must explicitly release inherited
+      capture file descriptors or every probe costs the full 2s timeout and a
+      real hang is never killed -- measured at 2.014s on a 3ms call, roughly
+      18s per /work-on load, and no planned test catches it; (3) flag
+      tokenization inside an option line is unspecified, and a literal
+      first-token reading drops --help, contradicting the design's own
+      example block.
   prd:
     status: Accepted
     content_hash: 8e184dd2967e1d3bcef12b441dc1b5d8a744d8f1
@@ -30,6 +49,12 @@ child_snapshots:
     validator: clean
     jury: PASS on final pass; three-axis jury FAILed all three on pass 1 (35 required changes), combined re-review FAILed with 6 must-fix, all applied
 consolidation_judgments:
+  - hop: prd-into-design
+    verdict: keep
+    reason: >-
+      Not absorbable. A DESIGN's required sections have no home for a PRD's
+      Requirements or Acceptance Criteria, so the mapping is not total and
+      absorption would discard content rather than relocate it.
   - hop: brief-into-prd
     verdict: keep
     reason: >-
@@ -49,7 +74,7 @@ worktree_rebases:
     rebased_at: 2026-08-15T01:58:00Z
     notes: origin/main fetched; branch 0 behind, 4 ahead. No rebase required.
 parent_orchestration:
-  invoking_child: design
+  invoking_child: plan
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 execution_mode: auto
