@@ -308,6 +308,7 @@ exists for is a session that never entered the skill.
 | Determination | read-only subcommand | on demand, after or during a run | koto workflows records, koto terminal index, the PLAN, the conflict store, the hook's evaluation log | nothing |
 | Conflict recorder | subcommand | when a session declares a departure | its arguments | machine-local conflict store; the session decision log when one exists; the home pull request body |
 | Write-target declaration | data file shipped with the plugin | read by the hook | n/a | n/a |
+| Skill description | frontmatter field on the plan-execution skill | read by the harness at skill-selection time | n/a | n/a, it is edited content rather than a running component |
 | Selection measurement | committed prompt set plus a wrapper script | on demand, before and after a description change | the prompt set | a committed results record |
 
 ### Data flow, refusal path
@@ -334,6 +335,26 @@ the plan's execution mode says so; indeterminate when the liveness witness is
 absent or evidence is unreadable; conforming when registration holds and
 delegation is complete or its shortfall is covered by a recorded conflict; and
 non-conforming otherwise.
+
+### The description, and why it is architecture rather than copyediting
+
+The plan-execution skill's frontmatter description is the sole input the harness
+uses to decide whether to consult the skill at all. It is not a running
+component and it has no interface, which is why it is easy to leave out of an
+architecture section, but it sits upstream of everything else here: the hook and
+the determination both address what happens when the skill is *not* selected,
+and the description governs how often that situation arises.
+
+Two constraints shape the rewrite. It must name the situations in which the
+skill applies, rather than inventorying the skill's own architecture, because
+the harness matches situations and not capabilities. And it must use no term
+absent from the skill's user-facing documentation, which is a mechanical test
+standing in for the unmeasurable one: a reviewer cannot agree on what counts as
+internal vocabulary, but set membership against the documentation is decidable.
+
+The description change is falsifiable only against a measurement, which is why
+the two ship together and why the baseline is recorded before the rewrite. The
+measurement is the component; the description is the thing measured.
 
 ### Cost, measured
 
@@ -400,8 +421,21 @@ The determination treats absence of the file as `indeterminate`, never as
 
 **The conflict store is an input to the determination.** A delegation shortfall
 covered by a recorded conflict is conforming; the same shortfall uncovered is
-not. The join walks children as well as the parent, because a child records
-under its own session identity.
+not.
+
+The join is the part that is easy to get wrong. Records are keyed by the session
+that wrote them, and a delegated child writes under its own session identity, so
+looking up the orchestrator's session alone misses every conflict a child
+raised. The determination therefore resolves the child set first, from the
+terminal index by parent-name prefix, and reads the store for the orchestrator
+and for each child.
+
+Each record must carry enough to be matched against a specific shortfall rather
+than merely to exist: the workflow step it conflicts with, which is what ties it
+to a missing delegation, alongside the instruction and the intended course the
+requirements already demand. A record that names only an instruction proves a
+conflict happened somewhere and cannot excuse any particular gap, which would
+let one recorded conflict launder an arbitrary number of silent drops.
 
 ## Implementation Approach
 
@@ -413,16 +447,19 @@ closed write-target set from prose into a data file shipped with the plugin. It
 is currently a paragraph in a security section, and two components need to read
 it. Nothing else can be built correctly until it is machine-readable.
 
-**Stage 2: the determination, read-only.** Build it first because it is
-read-only, it cannot break a session, and it produces the evidence that tells us
-whether the refusal is needed as strongly as we think. Ship it with the
-liveness-witness input stubbed as always-absent, so it reports indeterminate
-rather than lying, until stage 3 provides the witness.
+**Stage 2: the hook, in observe-only mode.** Register it, evaluate arming, write
+the per-session witness, and never deny. This runs before the determination
+rather than after it, and the ordering is not cosmetic: the determination treats
+a missing witness as indeterminate, so a determination shipped first would
+report indeterminate for every non-coordinated run and produce no evidence at
+all. Observe-only also yields a measured false-positive rate for the arming
+predicate before any session is blocked by it, which is the input stage 4 needs.
 
-**Stage 3: the hook, in observe-only mode.** Register it, evaluate arming, write
-the evaluation log, and never deny. This closes the determination's liveness
-gap, and it produces a measured false-positive rate for the arming predicate
-before any session is blocked by it.
+**Stage 3: the determination, read-only.** Now that the witness exists, this
+component can return real verdicts. It is read-only and cannot break a session,
+so it carries no rollout risk of its own. It is also where the evidence lands
+that tells us whether the refusal is needed as strongly as we think, which is
+only true because stage 2 preceded it.
 
 **Stage 4: enable the refusal.** The startup-ordering question that would have
 gated this stage has been settled by probe: a plugin-declared hook fires on a
@@ -433,9 +470,26 @@ out to be unavailable in some adopter configuration. Enable denial only after
 stage 3's measured false-positive rate is acceptable, which is now the sole gate
 on this stage.
 
-**Stage 5: the conflict recorder and the selection measurement.** Independent of
-the others and of each other. The measurement is worth running before the
-description change so there is a baseline.
+**Stage 5: the conflict recorder.** Independent of the others. It is what makes
+a departure legitimate rather than merely detected, so it should not lag the
+refusal by long: until it ships, an agent that genuinely must depart has no
+sanctioned way to say so and the determination will report every such run
+non-conforming.
+
+**Stage 6: the description repair and its measurement, in that order with a
+baseline between.** Three deliverables, and they are sequenced because the
+middle one is what makes the first falsifiable. Commit the prompt set. Run the
+measurement against the current description and record the result as the
+baseline. Rewrite the plan-execution skill's frontmatter description so it names
+the situations in which the skill applies and uses no term absent from the
+skill's user-facing documentation. Re-run the measurement and record the second
+result. Running the baseline after the rewrite would leave the change
+unfalsifiable, which is the failure this stage exists to avoid.
+
+This stage is independent of stages 1 through 5 and could run first. It is
+placed last because it addresses the weaker of the two failure modes: a better
+description raises the odds the skill is selected, while the hook and the
+determination address a session that never selects it at all.
 
 ## Security Considerations
 

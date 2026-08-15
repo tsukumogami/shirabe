@@ -529,12 +529,37 @@ predicate that is not yet implementable as written.
 8. **What does the transcript scan cost late in a very long armed run?** My 2 ms
    figure is against a 4.1 MB transcript; an armed plan-scale session rescans on
    every write and the file grows all run. Raised by Decision 3 against AC28.
-   **Proposed answer:** memoize the armed/not-armed verdict per
-   `session_id` + `agent_id` alongside the Interface 1 witness. This is
-   semantically free rather than an approximation — clause B is a *presence* test
-   over an append-only log, so it is monotone: once an inbound brief names a
-   resolvable PLAN, no later record can unname it. Memoizing makes the predicate
-   O(1) after first computation and removes transcript growth from the budget
-   entirely. The DESIGN should confirm the monotonicity argument holds for the
-   single-issue-marker exclusion too, which is the one clause that could in
-   principle flip a verdict from armed to not-armed.
+
+   **My first proposal — memoize the verdict per session — was wrong on two
+   counts, both caught by Decision 3, both accepted.**
+
+   *Cache the arming determination, never the whole verdict.* Clause C is a
+   property of the write's target path, not of the session. AC9 requires an
+   in-set write permitted in the same session where an out-of-set write is
+   refused, and AC12 requires two different targets to carry different reason
+   text. A session-level cached verdict breaks both outright. Only the
+   transcript-derived clauses (A, B, the single-issue exclusion) and the PLAN
+   frontmatter read are cacheable; clause C runs per call.
+
+   *The single-issue-marker exclusion is not monotone.* I raised this as a thing
+   to check and the answer is no. An author re-scoping mid-session — "actually,
+   just do issue 3" — appends a later inbound record whose delegation marker
+   should **disarm**. A frozen cache stays armed, which is stricter-when-stale,
+   cuts against R8's fail-open direction, and produces exactly the false refusal
+   Attack 1 is about.
+
+   **Resolution (Decision 3's fix, plus two guards).** Persist a byte offset and
+   rescan only the tail on each call, rather than freezing a result. Clause B
+   stays monotone in the append direction; the exclusion gets to fire late. O(new
+   bytes) per call, so transcript growth leaves the budget. Two guards the
+   implementation needs:
+
+   - **Store `(byte_offset, state_at_that_offset)` as an atomic pair**, and
+     re-fold from whichever pair is read. Hooks for one event run in parallel, so
+     two concurrent processes can race the cache; with the pair invariant any
+     stale read costs a redundant rescan over a superset and can never produce a
+     wrong answer. Without it, re-folding a carried state from an earlier offset
+     double-applies.
+   - **Reset to `(0, initial)` when the file is shorter than the stored offset**,
+     so truncation or replacement re-derives instead of reading from a bogus
+     position.

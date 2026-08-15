@@ -505,11 +505,16 @@ surfaces, which is decision 4's territory.
    binary version independently. This is why the contract-version staleness check
    (R17/AC17) is a real requirement and not a formality.
 3. `/execute`'s closed write-target set becomes machine-readable inside the plugin
-   and versioned. Today it exists only as prose at `skills/execute/SKILL.md:661-667`,
-   parameterized by `<topic>`. The prose must be generated from, or validated
-   against, the machine-readable form — otherwise the refusal enforces a different
-   set than the skill documents, which is the drift this placement was chosen to
-   avoid.
+   and versioned. Today it exists only as prose at `skills/execute/SKILL.md:661-667`.
+   The prose must be generated from, or validated against, the machine-readable
+   form — otherwise the refusal enforces a different set than the skill documents,
+   and an agent that reads `SKILL.md` and complies is refused anyway, which is a
+   worse failure than the one being fixed. Note the set is **parameterized by
+   `<topic>`** (`wip/execute_<topic>_*`), so the declaration format needs a
+   variable, not a flat path list; the topic is bound from the PLAN under
+   execution, which decision 2's predicate has already resolved by the time the
+   set is evaluated. This is a blocking implementation item shared with decision
+   2's clause C, which is specified against the same English prose today.
 4. Decision 2 supplies the arming predicate, including the orchestrator-role test
    that survives a session boundary, with a cheap not-armed early-out.
 5. A `PreToolUse` deny is not defeated by `bypassPermissions`. Documented, stated in
