@@ -88,7 +88,10 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
             let sep_line = separators[0];
             // Part 1 is every line above the separator (1-based sep_line ->
             // lines[0..sep_line-1]). Non-empty means it has non-whitespace.
-            let part1_empty = body.lines().take(sep_line - 1).all(|l| l.trim().is_empty());
+            let part1_empty = body
+                .lines()
+                .take(sep_line - 1)
+                .all(|l| l.trim().is_empty());
             if part1_empty {
                 findings.push(PrBodyFinding {
                     line: sep_line,
@@ -379,11 +382,7 @@ Fixes #221
 
     #[test]
     fn issue_number_scope_fails() {
-        for title in [
-            "docs(issue-8): update",
-            "chore(#8): update",
-            "fix(8): update",
-        ] {
+        for title in ["docs(issue-8): update", "chore(#8): update", "fix(8): update"] {
             let findings = check_pr_body(GOOD_BODY, Some(title));
             assert!(
                 messages(&findings).contains("issue-number scope"),
@@ -435,12 +434,13 @@ Fixes #221
 
     #[test]
     fn attribution_footer_fails() {
-        let coauthor =
-            "Real change.\n\n---\n\nContext.\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n";
-        assert!(messages(&check_pr_body(coauthor, Some("fix: thing"))).contains("AI-attribution"));
+        let coauthor = "Real change.\n\n---\n\nContext.\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n";
+        assert!(messages(&check_pr_body(coauthor, Some("fix: thing")))
+            .contains("AI-attribution"));
 
         let generated = "Real change.\n\n---\n\nContext.\n\n\u{1f916} Generated with Claude Code\n";
-        assert!(messages(&check_pr_body(generated, Some("fix: thing"))).contains("AI-attribution"));
+        assert!(messages(&check_pr_body(generated, Some("fix: thing")))
+            .contains("AI-attribution"));
     }
 
     #[test]

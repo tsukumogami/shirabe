@@ -512,11 +512,7 @@ mod tests {
     fn declared_lifetimes_and_parent_sets_match_the_contract() {
         let expected: Vec<(FormatId, Lifetime, Vec<FormatId>)> = vec![
             (FormatId::Vision, Lifetime::Durable, vec![FormatId::Vision]),
-            (
-                FormatId::Strategy,
-                Lifetime::Durable,
-                vec![FormatId::Vision],
-            ),
+            (FormatId::Strategy, Lifetime::Durable, vec![FormatId::Vision]),
             (
                 FormatId::Roadmap,
                 Lifetime::Working,
@@ -569,7 +565,12 @@ mod tests {
                 .iter()
                 .find(|f| f.id == id)
                 .unwrap_or_else(|| panic!("no format declares id {}", id.display()));
-            assert_eq!(spec.lifetime, lifetime, "{} lifetime", id.display());
+            assert_eq!(
+                spec.lifetime,
+                lifetime,
+                "{} lifetime",
+                id.display()
+            );
             assert_eq!(
                 spec.legal_upstream,
                 parents,
@@ -626,19 +627,10 @@ mod tests {
                 spec.name
             );
             if let Some(other) = seen.insert(spec.id, spec.name.clone()) {
-                panic!(
-                    "{} and {} both declare id {}",
-                    other,
-                    spec.name,
-                    spec.id.display()
-                );
+                panic!("{} and {} both declare id {}", other, spec.name, spec.id.display());
             }
         }
-        assert_eq!(
-            seen.len(),
-            formats().len(),
-            "every format declares its own id"
-        );
+        assert_eq!(seen.len(), formats().len(), "every format declares its own id");
     }
 
     #[test]

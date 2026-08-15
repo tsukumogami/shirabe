@@ -287,10 +287,7 @@ mod tests {
         let spans = prose_spans(&body, 1);
         let text = joined(&spans);
         assert!(text.contains("robust"), "label is prose; got: {text}");
-        assert!(
-            !text.contains("tier"),
-            "destination is not prose; got: {text}"
-        );
+        assert!(!text.contains("tier"), "destination is not prose; got: {text}");
     }
 
     #[test]
@@ -298,10 +295,7 @@ mod tests {
         let body = lines("| tier | robust |\n|---|---|\n| a | b |\n\nafter tier");
         let spans = prose_spans(&body, 1);
         let text = joined(&spans);
-        assert!(
-            !text.contains("robust"),
-            "table cells are data; got: {text}"
-        );
+        assert!(!text.contains("robust"), "table cells are data; got: {text}");
         assert_eq!(lines_containing(&spans, "after tier"), vec![5]);
     }
 
