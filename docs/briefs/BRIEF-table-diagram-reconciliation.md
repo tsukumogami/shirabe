@@ -17,7 +17,6 @@ outcome: |
   keeps CI green while the corpus reconciles; promotion to error is
   a one-line change once the docs are clean. The diagram becomes a
   trustworthy render of the table by construction.
-upstream: docs/designs/DESIGN-roadmap-plan-standardization.md
 ---
 
 # BRIEF: table-diagram-reconciliation
@@ -254,7 +253,7 @@ The scope explicitly excludes:
 - Feasibility spike (extractor scope and per-dimension strictness):
   `docs/spikes/SPIKE-mermaid-parser.md`.
 - Parent design (the staged-reconciliation Decision 3 the sub-DESIGN
-  refines): `docs/designs/DESIGN-roadmap-plan-standardization.md`.
+  refines): `docs/designs/current/DESIGN-roadmap-plan-standardization.md`.
 - Parent plan (the row that schedules this increment):
   `docs/plans/PLAN-roadmap-plan-standardization.md`.
 - Parent PRD (R8 staged-reconciliation, R9 spike requirement, R20
