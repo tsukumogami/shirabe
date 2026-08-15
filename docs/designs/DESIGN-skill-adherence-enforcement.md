@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 upstream: docs/prds/PRD-skill-adherence-enforcement.md
 problem: |
   Agents holding shirabe's skills fail to run plan-scale work under the
@@ -33,7 +33,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
