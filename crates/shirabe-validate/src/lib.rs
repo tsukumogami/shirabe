@@ -49,7 +49,7 @@ pub use finalize::{
     CrossRepoVerification, Mode, NodeAction, NodeEntry, Report, VerifyError, WalkError,
 };
 pub use formats::{detect_format, formats, FormatSpec};
-pub use frontmatter::{parse_doc, ParseError};
+pub use frontmatter::{parse_doc, parse_doc_bytes, ParseError};
 pub use gh::{
     detect_pr_context, detect_pr_draft, ClientError, GhSubprocessClient, IssueState,
     IssueStateClient, PrContext,
@@ -65,7 +65,10 @@ pub use pr_body::{check_pr_body, check_pr_title, PrBodyFinding};
 pub use report::{
     render_human, render_human_with_advisory, render_json, render_json_with_advisory,
 };
-pub use table::{is_stable_table_key, parse_issues_table, Profile, Row, RowKind, Table};
+pub use table::{
+    is_stable_table_key, parse_issue_outlines, parse_issues_table, parse_outline_acs,
+    NonconformingHeading, OutlineAc, OutlineBlock, OutlineSection, Profile, Row, RowKind, Table,
+};
 pub use transition::{
     run_transition, transition_spec, transition_table, BodyTemplate, ExtraInput, Flags, Moves,
     Outcome, Precondition, ResultFields, Rule, TransitionError, TransitionSpec,
