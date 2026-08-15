@@ -32,7 +32,9 @@ upstream: docs/briefs/BRIEF-shirabe-charter-skill.md
 
 ## Status
 
-Done. Accepted at commit `8c17099`; transitioned to In
+Done
+
+Accepted at commit `8c17099`; transitioned to In
 Progress on 2026-05-24 when design authoring began at
 `docs/designs/current/DESIGN-shirabe-progression-authoring.md`. The PRD is
 the requirements input to that downstream design (co-authored
