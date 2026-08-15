@@ -139,12 +139,23 @@ reachable when the store is what is broken (R4). `override_default` is dropped:
 `koto overrides list` record and the `agent_actionable` flag, so the block buys
 nothing.
 
-Every character of that pattern is load-bearing. `context-matches` evaluates
-`Regex::is_match`, a substring test, so unanchored it would accept any value
-merely containing the token. `(?s)` and `\s*$` are tolerances rather than
-decoration: koto stores stdin verbatim and the phase files write with a heredoc,
-which appends a newline, so a strictly anchored pattern would reject every
+The anchors are load-bearing. `context-matches` evaluates `Regex::is_match`, a
+substring test, so unanchored the pattern would accept any value merely
+containing the token.
+
+`\s*$` is required, and its reason is concrete: koto stores stdin verbatim and
+all three phase files write their artifact with a heredoc, which leaves a
+trailing newline. Anchored strictly at the end, the gate would reject every
 legitimate pass.
+
+`(?s)` is **defensive rather than required**, and an earlier draft of this
+paragraph got that wrong by attributing both to the heredoc's newline. Checked
+against the regex crate koto actually links: the shipped payloads are
+single-line JSON, so `.` never has to cross a newline and the pattern matches
+without DOTALL. It is carried so a future multi-line payload does not silently
+stop matching, which is a different justification from the one `\s*$` has and is
+worth keeping distinct — a reader who believes both are forced by the heredoc
+will draw the wrong conclusion when they change the payload shape.
 
 **Keying on `"passed": true` rather than on `"round"` is the detail that keeps
 R8 true**, and it corrects this design's own earlier research. `scrutiny` and
@@ -382,10 +393,9 @@ converts plus three recorded below.
 
 ```
 scrutiny/review/qa_validation, blocking finding
-  for KEY in the three panel keys
-    koto context exists   -> skip keys never written
+  for KEY in the three panel keys          (unconditionally -- no exists guard)
     printf | koto context add   -> ctx/<key> = sentinel
-    koto context get + compare  -> pass/fail on stdout
+    koto context get + compare  -> pass/fail on stdout, non-zero exit on mismatch
   koto next --with-data blocking_retry
         |
         v

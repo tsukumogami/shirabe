@@ -49,14 +49,14 @@ stateDiagram-v2
     pr_creation --> done : pr_status: shared
     pr_creation --> pr_creation : pr_status: creation_failed_retry
     pr_creation --> done_blocked : pr_status: creation_failed_escalate
-    qa_validation --> verification : gates.qa_results.exists: true, qa_outcome: passed
+    qa_validation --> verification : gates.qa_results.matches: true, qa_outcome: passed
     qa_validation --> implementation : qa_outcome: blocking_retry
     qa_validation --> done_blocked : qa_outcome: blocking_escalate
     research --> post_research_validation
-    review --> qa_validation : gates.review_results.exists: true, review_outcome: passed
+    review --> qa_validation : gates.review_results.matches: true, review_outcome: passed
     review --> implementation : review_outcome: blocking_retry
     review --> done_blocked : review_outcome: blocking_escalate
-    scrutiny --> review : gates.scrutiny_results.exists: true, scrutiny_outcome: passed
+    scrutiny --> review : gates.scrutiny_results.matches: true, scrutiny_outcome: passed
     scrutiny --> implementation : scrutiny_outcome: blocking_retry
     scrutiny --> done_blocked : scrutiny_outcome: blocking_escalate
     setup_free_form --> analysis : gates.baseline_exists.exists: true, gates.on_feature_branch.exit_code: 0, status: completed

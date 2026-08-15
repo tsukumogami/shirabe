@@ -499,14 +499,43 @@ states:
         context_assignments:
           failure_reason: "implementation blocked: ${evidence.rationale}"
 
+  # The three panel gates below are context-matches rather than context-exists,
+  # and the other nine gates in this file are not. The separating rule is about
+  # the KEY, not the state: presence-only gating is sound when the key cannot
+  # survive from one evaluation of that gate into another, BY ANY PATH.
+  #
+  # "By any path" is the load-bearing clause. Every blocking_retry targets
+  # implementation and implementation routes forward into scrutiny, so a retry
+  # re-enters every panel phase at or above the one that raised it and each
+  # finds its own previous verdict still present. A state-based test gets this
+  # wrong -- deferral_approval is entered exactly once and still reads a stale
+  # summary.md, because finalization is on a cycle.
+  #
+  # The nine sound gates all sit on the pre-implementation spine, reached only
+  # from strictly upstream states and evaluated once in a run's life. Three
+  # others -- plan_artifact and the two summary_exists -- are live instances of
+  # the same defect and are NOT fixed here; they hold markdown written
+  # --from-file, which a "passed": true pattern cannot reach.
   scrutiny:
     gates:
       scrutiny_results:
-        type: context-exists
+        type: context-matches
         key: scrutiny_results.json
-        override_default:
-          exists: true
-          error: ""
+        # Anchored at both ends because context-matches is Regex::is_match, a
+        # substring test; unanchored it would accept any value merely containing
+        # the token.
+        #
+        # `\s*$` is required, not decoration: koto stores stdin verbatim and all
+        # three phase files write with a heredoc, which leaves a trailing
+        # newline. Without it every legitimate pass would be rejected.
+        #
+        # `(?s)` is defensive rather than required. The shipped payloads are
+        # single-line JSON, so `.` never needs to cross a newline today; it is
+        # here so a future multi-line payload does not silently stop matching.
+        #
+        # Keyed on "passed" rather than "round" because qa_validation's shipped
+        # artifact has no round field, and a round-keyed pattern would reject it.
+        pattern: '(?s)^\{.*"passed" *: *true.*\}\s*$'
     accepts:
       scrutiny_outcome:
         type: enum
@@ -519,7 +548,7 @@ states:
       - target: review
         when:
           scrutiny_outcome: passed
-          gates.scrutiny_results.exists: true
+          gates.scrutiny_results.matches: true
       - target: implementation
         when:
           scrutiny_outcome: blocking_retry
@@ -532,11 +561,12 @@ states:
   review:
     gates:
       review_results:
-        type: context-exists
+        type: context-matches
         key: review_results.json
-        override_default:
-          exists: true
-          error: ""
+        # Same gate as scrutiny_results; the separating rule and the reason for
+        # each part of this pattern are written out once above the scrutiny
+        # state.
+        pattern: '(?s)^\{.*"passed" *: *true.*\}\s*$'
     accepts:
       review_outcome:
         type: enum
@@ -549,7 +579,7 @@ states:
       - target: qa_validation
         when:
           review_outcome: passed
-          gates.review_results.exists: true
+          gates.review_results.matches: true
       - target: implementation
         when:
           review_outcome: blocking_retry
@@ -562,11 +592,12 @@ states:
   qa_validation:
     gates:
       qa_results:
-        type: context-exists
+        type: context-matches
         key: qa_results.json
-        override_default:
-          exists: true
-          error: ""
+        # Same gate as scrutiny_results; the separating rule and the reason for
+        # each part of this pattern are written out once above the scrutiny
+        # state.
+        pattern: '(?s)^\{.*"passed" *: *true.*\}\s*$'
     accepts:
       qa_outcome:
         type: enum
@@ -579,7 +610,7 @@ states:
       - target: verification
         when:
           qa_outcome: passed
-          gates.qa_results.exists: true
+          gates.qa_results.matches: true
       - target: implementation
         when:
           qa_outcome: blocking_retry
