@@ -11,6 +11,12 @@ on:
       - 'scripts/lib/koto-gates.sh'
       - '.github/workflows/check-template-consistency.yml'
 
+# This job runs under the ubuntu runner's bash, which is 5.x. The bash 3.2
+# floor for the same three scripts is enforced by check-bash-floor.yml, which
+# runs them in a bash:3.2 container; the two together are the cross-version
+# check. Run it yourself with
+# `scripts/check-bash-floor.sh template-consistency`.
+
 jobs:
   check-template-consistency:
     runs-on: ubuntu-latest

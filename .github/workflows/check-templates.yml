@@ -6,6 +6,12 @@ on:
     paths:
       - 'skills/*/koto-templates/**'
 
+# This job runs the interpolation suite under the ubuntu runner's bash, which
+# is 5.x. The bash 3.2 floor for the same suite is enforced by
+# check-bash-floor.yml, which runs it in a bash:3.2 container; the two together
+# are the cross-version check. Run it yourself with
+# `scripts/check-bash-floor.sh templates`.
+
 jobs:
   freshness:
     uses: tsukumogami/koto/.github/workflows/check-template-freshness.yml@main
