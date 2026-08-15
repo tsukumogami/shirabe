@@ -1,6 +1,7 @@
 ---
 schema: design/v1
 status: Proposed
+upstream: docs/prds/PRD-skill-adherence-enforcement.md
 problem: |
   Agents that have shirabe's skills available fail to run plan-scale work under
   the sanctioned workflow, in two distinct ways: the skill is never invoked, or
