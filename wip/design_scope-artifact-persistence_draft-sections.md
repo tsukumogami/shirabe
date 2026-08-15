@@ -55,6 +55,14 @@ because the scoping this work needs — the judgment fires only at a hop where
 because telling an absorbed artifact from one that was never produced is the
 thing the fold record exists to make possible.
 
+The chain and its implementation land in one squash merge. `/execute` adopts an
+existing `docs/<topic>` scoping PR as its home PR rather than opening a second
+one, so the documents a chain produces, the code implementing them, and the
+cascade's deletion of the PLAN are all one merge. The PLAN therefore never
+reaches the default branch in any commit — not deleted from it later, never on
+it. Anything carried in the PLAN is unrecoverable from a clone by construction,
+which is why the fold record cannot live there.
+
 And the failure mode the absorb can cause is invisible to CI by construction.
 `validate-docs.yml` computes its file set with `git diff`, so a document
 stranded by a deletion is not a changed file — its bytes are untouched, only its
