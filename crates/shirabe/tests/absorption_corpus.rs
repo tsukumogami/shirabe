@@ -130,12 +130,17 @@ fn added_checks_are_silent_on_documents_declaring_no_absorption() {
     }
 }
 
-/// The corpus must not have been edited to make the guard above pass.
+/// No *existing* document was edited to make the guard above pass.
 ///
 /// Pairs with the assertion rather than duplicating it: silence is cheap to
 /// obtain by changing the documents, and that would defeat the point.
+///
+/// Modifications and deletions of tracked files are what this forbids. A new
+/// untracked document is not — adding one cannot make a pre-existing document
+/// stop tripping a check, which is the thing being guarded against, and
+/// forbidding additions would make the suite red for any author drafting a doc.
 #[test]
-fn the_corpus_is_unmodified_in_the_working_tree() {
+fn no_existing_document_was_edited() {
     let root = worktree_root();
     if !root.join(".git").exists() && !root.join(".git").is_file() {
         eprintln!("skipping: not a git worktree");
@@ -146,10 +151,20 @@ fn the_corpus_is_unmodified_in_the_working_tree() {
         .args(["status", "--porcelain", "--", "docs/"])
         .output()
         .expect("failed to run git");
-    let dirty = String::from_utf8_lossy(&output.stdout);
-    let dirty = dirty.trim();
+    let status = String::from_utf8_lossy(&output.stdout);
+
+    // Porcelain v1: XY <path>. `??` is untracked; anything else touches a
+    // file git already knows about.
+    let edited: Vec<&str> = status
+        .lines()
+        .filter(|line| !line.starts_with("??"))
+        .collect();
+
     assert!(
-        dirty.is_empty(),
-        "docs/ has uncommitted changes while the corpus guard runs:\n{dirty}"
+        edited.is_empty(),
+        "tracked documents under docs/ were modified while the corpus guard \
+         ran. The guard's silence is only meaningful if the corpus it measured \
+         is the committed one.\n{}",
+        edited.join("\n")
     );
 }

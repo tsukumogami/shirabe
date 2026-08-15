@@ -1,1 +1,10 @@
 *.mermaid.md text eol=lf
+
+# The fold record is append-only and written by /scope's consolidation
+# judgment, so two branches each recording a fold would otherwise conflict on
+# every concurrent chain. Union merge keeps both rows.
+#
+# Union cannot deduplicate, so a cross-branch duplicate row is possible. Rows
+# are keyed by the pre-fold blob hash, which makes a duplicate a duplicate of an
+# identical fact rather than a contradiction, and the record checker flags it.
+docs/folds.md merge=union
