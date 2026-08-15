@@ -107,19 +107,48 @@ ordering against an immediate first write.
 
 ## Bearing on the decisions
 
-- **Decision 3** can rely on a settings-registered hook reaching subagents. It
-  cannot yet rely on a plugin-registered one, and the skill-frontmatter case
-  remains untested. The safest reading is that the mechanism niwa already uses
-  (settings injection) is the one with evidence behind it.
-- **Decision 2** gains its orchestrator-role discriminator: `agent_type` present
-  means delegated child, absent means orchestrator.
+**Superseded on two points.** Decision 3 subsequently ran the probe through the
+supported plugin load path (`claude plugin init` scaffolding, not
+`--plugin-dir`) and established more than this probe could. Its results, on the
+same version:
+
+- A plugin-registered `PreToolUse` hook fires, which the superpowers evidence
+  above could not show because that is a `SessionStart` hook.
+- It fires on the session's **first** tool call, against a prompt whose opening
+  move was a write. This closes the startup-ordering question this probe left
+  open.
+- It fires inside a subagent and on the main thread, reproducing the
+  field-presence finding through the plugin route.
+- It **denies** under permission-bypassing mode, and the deny reason returns to
+  the model as tool-error text verbatim, in both the subagent and the parent.
+  That is the correction mechanism the requirements depend on, observed rather
+  than assumed.
+
+So the corrected reading is: **plugin and settings placement are equivalent on
+mechanism**, and the choice rests on distribution and lifetime rather than on
+whether the hook fires.
+
+- **Decision 3** can rely on the plugin route. The paragraph this section
+  originally carried, saying it could not, is the claim my briefing to that
+  decision was based on, and it was wrong.
 - **Decision 1** must not assume the session id separates orchestrator work from
-  child work. It does not.
+  child work in the Agent-tool case. Correct, and see the session-identity probe
+  for where it does separate.
 
-## Limits
+## Limits, and one inference to discard
 
-One run, one harness invocation, one subagent type. The probe shows the fields
-are present in this configuration; it does not establish that `agent_type` is
-absent for every non-subagent caller in every configuration, and an
-implementation should treat the absence test as a positive check on a known
-field rather than an open-world assumption.
+One run, one harness invocation, one subagent type.
+
+**The orchestrator-role inference drawn from this probe is wrong and should not
+be used.** I read "absent `agent_type`" as meaning orchestrator. The measurement
+is sound; the inference is not. Absence means only *not a Task subagent of this
+process*. If plan execution delegates through separately dispatched sessions or
+per-repository worktrees, every delegated child is a main thread with no
+`agent_type`, and the permitted-write criterion for delegated children fails on
+every delegated write.
+
+Both the arming decision and the placement decision reached this objection
+independently and declined the framing. The role test the design carries is the
+one keyed on the unit of work named in the session's own inbound brief, which
+holds under every dispatch shape. Field presence is used only to select which
+transcript to read.
