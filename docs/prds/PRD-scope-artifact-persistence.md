@@ -182,7 +182,7 @@ never what the search is allowed to conclude.
 Where a record of the fold names a still-live document, that name SHALL NOT
 cause a later hop in the same chain to refuse. The design SHALL state how — by
 re-pointing prior records before the scan, by naming the survivor in a form the
-path tier does not match, or otherwise — because a chain that folds twice
+path match does not catch, or otherwise — because a chain that folds twice
 otherwise refuses at its second hop.
 
 **R16.** `shirabe validate` SHALL fail when an `R<n>` requirement citation whose
