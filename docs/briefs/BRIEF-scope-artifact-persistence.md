@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   `/scope`'s consolidation judgment decides absorbability by comparing type
   schemas, so above BRIEF-to-PRD its verdict is fixed before either document
@@ -22,7 +22,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 The framing here is settled; the requirements are the downstream PRD's to
 articulate. Five decisions that would otherwise be open were settled during
@@ -46,10 +46,10 @@ of contested architecture or restates a decision the PLAN already encodes.
 
 The result is that a run's outcome is fixed rather than decided. Every
 completed `/scope` run leaves a permanent PRD and a permanent DESIGN, which is
-correct for work that earned them and ceremony for work that did not. An author
+correct for work that earned them and ceremony for work that didn't. An author
 who wants a smaller set has to leave `/scope` and invoke a child skill directly,
-which means the judgment is not encapsulated in the workflow that owns it — it
-is made by the author, in advance, from outside, at the moment they have least
+which means the judgment isn't encapsulated in the workflow that owns it — it's
+made by the author, in advance, from outside, at the moment they have least
 information about what the work will turn out to be.
 
 Two things follow that make this worse than a missing feature. The absorb
@@ -112,14 +112,15 @@ chasing a path from an old issue that no longer resolves, greps the dead slug
 and finds it named in the surviving document rather than only in the rotted
 citation — so the trail continues instead of ending.
 
-### An absorb is refused because something else still points at the artifact
+### A maintainer's absorb is refused because something else still cites the artifact
 
-A chain reaches a hop where the judgment says `absorb` and the content genuinely
-carries. Before anything is deleted, the procedure asks what else in the
-repository mentions the document it is about to remove, and finds a skill file
-citing it by path. The verdict is downgraded to `keep`, both documents stay, and
-the run records why. Nothing is stranded, and the author sees a document that
-survived rather than a reference that broke.
+A maintainer's chain reaches a hop where the judgment says `absorb` and the
+content genuinely carries. Before anything is deleted, the procedure asks what
+else in the repository mentions the document it's about to remove, and finds a
+skill file citing it by path. The verdict is downgraded to `keep`, both
+documents stay, and the run tells the maintainer which file held the citation.
+Nothing is stranded, and what they see is a document that survived rather than a
+reference that broke a month later in somebody else's unrelated PR.
 
 ## Scope Boundary
 
@@ -155,9 +156,14 @@ survived rather than a reference that broke.
   Whether a settled document is live guidance or the historical record of
   shipped work is a lifecycle question with its own criterion and its own
   disposal, and it is deferred as named follow-on work.
-- **The strategic chain under `/charter`.** It has no consolidation judgment at
-  all, and applying this one there yields no absorbable hops, so the mechanism
-  would be unreachable code.
+- **The strategic chain under `/charter`.** There is no consolidation judgment
+  there to change — DESIGN Decision 9 declined to add one deliberately — and no
+  shared reference carries the judgment's logic, so it lives entirely inside
+  `/scope`'s own phase files. Extending it to the strategic chain would be new
+  machinery rather than a follow-on edit, which is work of a different size and
+  belongs in its own change. That reason holds before and after this feature
+  lands; the older justification, that the strategic chain has no absorbable
+  hops, rested on the type-level mapping test this feature removes.
 - **Manual invocation of child skills outside `/scope`.** It is the only route
   to a chain with a genuinely missing ancestor, and it is deferred.
 - **A repository-wide citation index, and a validator rule for unresolvable
