@@ -1,72 +1,64 @@
-# Category D: FAIL
+# Category D: PASS
 
-## Dependency graph derived from the outlines' own `**Dependencies**:` lines
+## Dependency graph re-derived from the outlines' current `**Dependencies**:` lines
 
 ```
 1 -> 2 -> 3 -> 4 -> 8
-1 -> 5 -> 6
-1 -> 5 -> 7
+5 -> 6
+5 -> 7
 ```
 
-Acyclic, all 8 issues accounted for. Critical path (1-2-3-4-8) is five deep;
-5-6 and 5-7 are each three deep, consistent with the plan's own claim about
-the critical path length.
+Two roots now (1 and 5), acyclic, all 8 issues accounted for. This matches
+the design's Batch 3 claim that the tracking-level batch "depends on Batch 1
+for nothing" — the earlier false 1→5 edge is gone and the plan's prose
+("Issue 5 has no dependencies at all... can start immediately, alongside
+Issue 1") is now accurate, including the corrected Parallel Opportunity
+paragraph.
 
-## Finding 1 (dependency ordering error, affected_issue_ids: [1, 5]) — false edge, over-serializes
+## Item 1: lifecycle.rs overlap between Issue 3, Issue 4, and Issue 6
 
-Issue 5's stated dependency, "Issue 1 only, for vocabulary consistency," is
-not real. Issue 5's files (`claude-md-conventions.md`,
-`phase-7-creation.md`) and ACs (Tracking Level header, `tracking_level`
-frontmatter, Phase 7 gating on the six mode/level combinations) never touch
-`split-triggers.md`'s branch vocabulary (Hard Constraint / Incremental
-Value / Stated Preference) — that vocabulary is what Issue 2's
-`split_rationale` field names, not what Issue 5 produces or consumes.
-Nothing in Issue 5's AC references Issue 1's output.
+Real file overlap, not a real ordering constraint. Issue 3 adds the `L09`
+check itself (new code) to `lifecycle.rs`; Issue 4 extends that same check's
+departure branch (also functional, and already correctly ordered after 3 via
+the declared 3→4 edge); Issue 6 only touches `lifecycle.rs`'s module doc
+comment, and its own goal text is explicit that this edit is "comment-only;
+no behaviour changes there." Issue 6's ACs never reference `L09`,
+`split_rationale`, or anything Issue 3/4 produce — they're entirely about the
+tracking-level-keyed approval gate. The two edits land in disjoint regions of
+the same file (a new/extended check function vs. a module-level doc comment)
+with no content dependency either direction, so this is a same-file
+coincidence to sequence consciously while implementing on one shared branch
+(to avoid a diff conflict), not a blocker the graph is missing. No edge
+needed between 3/4 and 6.
 
-This contradicts the design doc directly. DESIGN-multi-pr-plan-decoupling.md's
-Batch 3 (Delivery header + registry + Phase 7 gating + gate re-key, i.e.
-Issues 5-6) states explicitly: "it depends on Batch 1 for nothing and could
-equally precede Batch 2" (docs/designs/DESIGN-multi-pr-plan-decoupling.md:489).
-The plan's own outline disagrees with the design it implements on this exact
-edge.
+## Item 2: Issue 3's new fixture AC (constructs `## Delivery Preference: atomic`)
 
-Effect: the plan's "Parallel opportunity" narrative undersells the real
-parallelism — Issue 5 could start immediately alongside Issue 1, not merely
-"alongside 2 → 3 → 4" as currently written, and 6/7 could complete before 4
-is even reached.
+Confirmed: not a real edge to Issue 4. The fixture calls
+`resolve_claude_md_header`, which the design states is pre-existing, shipped
+infrastructure ("Six `## <Noun Phrase>: <value>` headers already carry
+repository-scoped scalar preferences, with a documented registry and a
+tested Rust parser" — D1; "`resolve_claude_md_header`... the same walker
+`resolve_doc_visibility`... already share[s]"). It is a generic literal-text
+matcher, indifferent to whether a given header is registered in
+`claude-md-conventions.md`. Issue 4's job is to *document* the header in the
+registry and *wire step 3.6* to consult it for mode recommendations — neither
+of which `L09`'s own check depends on, since `L09` calls the resolver
+directly. Issue 3's fixture can author a throwaway CLAUDE.md with the literal
+string and exercise both branches before Issue 4 exists, exactly as the AC's
+own justification states. No missing 4→3 (or 3-before-4-blocked-by-4) edge.
 
-Correction: drop the 1→5 edge; Issue 5's Dependencies line should read
-"None." Loop target 5 (Dependencies) per phase-4-sequencing.md, since this
-is a graph-edge correction, not a decomposition/QA reclassification.
+## Everything else re-confirmed on the current text
 
-## Everything else checked out
-
-- Real edges confirmed: 1→2 (branch vocabulary must exist to be named),
-  2→3 (field must be specified before a check enforces it, matches L09's
-  own AC), 3→4 (Issue 4's AC "L09 fires on a single-pr plan in an atomic
-  repository" requires L09 to already exist), 4→8 (Issue 8 amends a
-  decision to depend on the Delivery Preference header Issue 4 creates),
-  5→6 and 5→7 (both genuinely need `tracking_level`, which only Issue 5
-  writes).
-- Issue 5's independence from Issues 2-4 (the delivery-preference spine)
-  holds: `tracking_level`'s default reads whatever `execution_mode`
-  resolves to, not how Issue 4's header logic produced it, and Issue 5's
-  AC never touches `split_rationale`/L09.
-- Natural stopping point after Issue 3 is real: 1-3 form the head of the
-  chain (nothing in 1-3 depends on 4-8), and Issue 3's own text notes the
-  atomic-departure branch is deliberately inert until Issue 4 — consistent
-  with the design, not a bug. The multi-pr branch of L09 is live and
-  testable with just 1-3.
-- Riskiest-issue placement (Issue 7 last) is sound, not deprioritized
-  verification: no issue depends on 7, so its failure cannot strand 4 or 8
-  (the critical path terminates at 8 without touching 7), and the design
-  explicitly rules out walking-skeleton because risk here is concentrated
-  in one issue rather than spread across a pipeline. Since the plan lands
-  as one PR, a stalled Issue 7 can be dropped or fixed without publishing a
-  broken intermediate state.
-- No broken-intermediate-state risk beyond the ordinary single-PR working
-  window: the one theoretical gap (tracking_level=none selectable after
-  Issue 5 but plan-to-tasks.sh not yet updated until Issue 7) is never
-  exercised by Issue 5's own AC (which checks Phase 7 artifact creation,
-  not task extraction), and per the task framing this window is never
-  published.
+- All declared edges (1→2, 2→3, 3→4, 4→8, 5→6, 5→7) check out against each
+  downstream issue's ACs, including the two new ones inspected above.
+- Issue 7 correctly depends only on Issue 5 (not Issue 6) at the issue level
+  even though the design describes Batch 4 as depending on "Batch 3" (5+6)
+  as a whole — extraction only needs the `tracking_level` field Issue 5
+  writes, not Issue 6's approval-gate prose re-key, so the plan's finer
+  granularity is a legitimate refinement of the design's coarser batch
+  dependency, not a contradiction.
+- Natural stopping point after Issue 3, and riskiest-issue-last (Issue 7)
+  placement, are unchanged from the prior pass and still hold: nothing in
+  1-3 depends on 4-8, no issue depends on 7, and the critical path 1→2→3→4→8
+  completes without it — a stall in 7 cannot strand the rest, and since the
+  plan lands as one PR no broken intermediate state is ever published.

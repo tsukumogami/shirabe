@@ -91,8 +91,8 @@ removes."
 `DECISION-multi-pr-posture-detection-2026-06-06.md` explains the asymmetric
 Draft→Active gate by multi-pr being the moment remote artifacts are created.
 Nothing in `transition.rs` or `lifecycle.rs` implements that gate; it lives in
-prose in seven places, two of them Rust doc comments. That changes what
-re-keying it means.
+prose in eleven places, seven of them Rust doc comments, and the phrasing
+varies across them. That changes what re-keying it means.
 
 ## Decision Drivers
 
@@ -319,15 +319,29 @@ sites plus the decision record and calling that the whole surface. It is not. Th
 framing is also restated in Rust doc comments that no longer describe reality once
 the gate is re-keyed:
 
-| Site | Kind |
-|---|---|
-| `skills/plan/SKILL.md` | skill prose |
-| `skills/plan/references/plan-format.md` (`### Transitions`) | format contract |
-| `skills/plan/references/quality/plan-doc-structure.md` | format contract |
-| `skills/plan/references/phases/phase-7-creation.md` | phase prose |
-| `crates/shirabe-validate/src/lifecycle.rs` (module doc) | Rust comment |
-| `crates/shirabe-validate/src/transition.rs` (two comment sites) | Rust comment |
-| `DECISION-multi-pr-posture-detection-2026-06-06.md` | decision record |
+| Site | Line(s) | Kind | Action |
+|---|---|---|---|
+| `skills/plan/SKILL.md` | 60 | live skill prose | re-key |
+| `skills/plan/references/quality/plan-doc-structure.md` | 85, 92 | live format contract | re-key |
+| `skills/plan/references/phases/phase-7-creation.md` | 263 | live phase prose | re-key |
+| `skills/plan/references/plan-format.md` | `### Transitions` | live format contract | re-key |
+| `crates/shirabe-validate/src/lifecycle.rs` | 52, 61, 764 | Rust comment | re-key, comment-only |
+| `crates/shirabe-validate/src/transition.rs` | 263, 469, 1960, 2011 | Rust comment | re-key, comment-only |
+| `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md` | 43, 56 | decision record | amend, do not rewrite |
+| `docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md` | 398 | historical design | leave |
+| `docs/designs/current/DESIGN-shirabe-artifact-decision-contract.md` | 453 | historical design | leave |
+| `docs/designs/current/DESIGN-roadmap-plan-standardization.md` | 577 | historical design | leave; amended separately by Decision 6's own amendment |
+| `crates/shirabe/tests/fixtures/golden/corpus/real/PLAN-roadmap-plan-standardization.md` | 73 | golden fixture | leave |
+
+**The Action column is the load-bearing part.** Four of the eleven sites must
+not change. A `Current` DESIGN records what was decided when it was written, and
+rewriting it to match a later decision falsifies the audit trail rather than
+correcting it — the same reason Decision 6 gets an appended amendment rather than
+an edit. The golden fixture is test input pinned to a corpus snapshot; editing it
+would change what the test asserts. An earlier draft of this section listed seven
+sites and implied all of them needed re-keying, which was wrong in both
+directions: it missed four sites and would have licensed rewriting three
+historical documents.
 
 The re-key is textual at every one of them: each place that says "multi-pr
 requires human approval" becomes "an activation that will create GitHub issues
@@ -337,8 +351,13 @@ naming them here is load-bearing. A downstream issue whose acceptance criterion
 is "a grep for the old framing returns nothing" cannot pass unless its file list
 includes them.
 
+The phrasing is not uniform across the eleven sites — "human approval",
+"human-approval", "human-approved", and at `phase-7-creation.md` "multi-pr-style
+approval gate" with no "human" in it. Any verification grep must cover all four
+forms or it passes while sites survive.
+
 This also refutes the reading that the re-key is the same Phase 7 branch the
-tracking work already touches. Phase 7 is one site of seven.
+tracking work already touches. Phase 7 is one site of eleven.
 
 Two combinations become reachable that the current transition tables have no row
 for, and both need one:

@@ -150,27 +150,60 @@ configuration."
 
 ---
 
-## Issue 6: Re-key the approval gate and amend its decision record
+## Issue 6: Re-key the approval gate and amend its decision record (REVISED — re-judged against the new text)
 
-**Finding — vague/evadable verification target (the reviewer's specific concern,
-confirmed).** AC4: "A grep for the old framing returns nothing outside the
-amendment's own quotation of it." No exact string or pattern is given, across five
-prose sites in four different files with four different authors' phrasing. This is
-both (a) not mechanically executable as specified — a reviewer has to invent the grep
-— and (b) evadable: a wrong implementation could paraphrase the old rule ("a `multi-pr`
-activation needs sign-off before it proceeds," or "human review gates the transition
-when the mode is `multi-pr`") and satisfy a literal-string grep for the original
-phrasing while still gating on `execution_mode` in substance, which is exactly what
-AC1 says must not happen. AC1 has the same underlying weakness — "no remaining
-statement gates activation on `execution_mode`" is a semantic claim with no
-mechanical verification method attached.
+The AC is now a concrete command: `grep -rn "human approval\|human-approval"
+skills/ crates/ docs/` must return only the amendment's own quotation. This is
+mechanically executable, which resolves half of my earlier concern — but running
+it against the actual current tree shows the pattern itself has confirmed,
+demonstrable false negatives, and the Goal's own site count is wrong, which
+together make the AC pass for an incomplete fix.
 
-*Corrected AC4:* "A grep for `execution_mode` co-occurring with any of
-`multi-pr|single-pr` and `approv|human|sign.?off` across `SKILL.md`,
-`plan-format.md`, `plan-doc-structure.md`, and `phase-7-creation.md`'s mode-branch
-headers returns nothing outside the amendment's own quotation of the old text; AND a
-reviewer confirms, reading each of the five sites, that none conveys the old rule in
-different words keyed on `execution_mode` rather than on issue creation."
+**Finding — the grep pattern misses two of the sites the Goal names, by exact
+line, verified against current source:**
+
+1. `crates/shirabe-validate/src/lifecycle.rs:764` — `/// (human-approved for
+   multi-pr, auto-fired for single-pr), so the` — reads "human-approved"
+   (participle), not "human approval" or "human-approval" (noun). The regex
+   `human approval\|human-approval` does not match "human-approved." This is a
+   *separate* comment from the module doc (lines 45-61, which does use matching
+   phrasing at 52 and 61) — the Goal's phrase "lifecycle.rs's module doc" names
+   only the module doc, so this second site in the same file isn't even
+   identified as something to fix, let alone written in a form the grep catches.
+2. `skills/plan/references/phases/phase-7-creation.md:263` — "no multi-pr-style
+   **approval gate** fires" — no word "human" appears in or near this sentence at
+   all, so it can't match either alternative in the pattern. This is one of the
+   Goal's own "five... in skill and format prose" sites, and it evades the AC's
+   verification command entirely.
+
+A wrong implementation that re-keys every site the grep can see, and leaves these
+two exactly as they are today (still stating the old `execution_mode`-keyed rule
+in different words), passes `grep -rn "human approval\|human-approval" skills/
+crates/ docs/` cleanly — it returns nothing outside the amendment's quotation,
+because it never sees either site.
+
+**Finding — the Goal's site count is wrong, independent of the grep issue.**
+"Two in Rust doc comments (`lifecycle.rs`'s module doc and two comment sites in
+`transition.rs`)" undercounts what's actually in the tree today:
+`crates/shirabe-validate/src/transition.rs` carries the same rule at four sites
+(lines 263, 469, 1960, 2011 — confirmed by reading each: all are comments
+describing the Draft→Active gate firing "under human approval" for multi-pr),
+not two. `lifecycle.rs` carries it at two sites (the module doc, and the
+separate comment at line 764), not one. Real total is 5 prose + 6 Rust = 11
+sites, not the stated 7. An implementer who edits exactly what the Goal lists
+(module doc + two `transition.rs` comments) leaves two `transition.rs` sites
+(469, one of 263/1960/2011 depending on which two were picked) untouched, and —
+per the finding above — the grep AC would not reliably catch the miss either,
+since it depends on which two of the four got picked and whether their exact
+wording matches the pattern.
+
+*Corrected AC4:* "`grep -rn -i \"human.approv\" skills/ crates/ docs/` (note:
+`.` not a literal space/hyphen, so it also matches `human-approved`) returns
+nothing outside the amendment's own quotation of the old text — AND every one of
+the following eleven sites has been re-keyed, enumerated explicitly rather than
+left to the Goal's undercount: the five prose sites, `lifecycle.rs`'s module doc
+(lines 52, 61) and its line-764 comment, and all four `transition.rs` comment
+sites (lines 263, 469, 1960, 2011)."
 
 **Finding — Pattern 3 (happy-path only, issue-level, automated).** No AC verifies the
 gate's actual runtime behavior — only that the tables and prose say the right thing.
@@ -249,11 +282,18 @@ decision."
 
 ## Summary
 
-8/8 issues carry at least one Category C finding. Two of the automated-pattern
-findings (Pattern 3, happy-path-only) affect six of eight issues — only Issue 3
-(has "error") and Issue 4 (has "conflicting"/"failing") avoid it, and Issue 4 still
-has a separate Pattern 5 finding. The reviewer's four flagged concerns (Issue 1
-existence-only, Issue 3 vacuous departure test, Issue 4 unchecked causal wording,
-Issue 6 evadable grep) all confirmed as genuine findings; Issue 8's three ACs are
-indeed all prose-presence checks, two of which are under-specified enough to pass a
-non-answer.
+8/8 issues carry at least one Category C finding. Pattern 3 (happy-path-only,
+automated) affects six of eight issues — only Issue 3 (has "error") and Issue 4
+(has "conflicting"/"failing") avoid it, and Issue 4 still has a separate Pattern 5
+finding. The reviewer's four flagged concerns all confirmed as genuine findings:
+Issue 1's existence-only AC1, Issue 3's vacuous departure-branch test, Issue 4's
+unchecked causal wording, and Issue 6's grep — which, now that the AC gives a
+concrete command, was checked against the actual current source and confirmed to
+miss two real sites by exact line (`lifecycle.rs:764` uses "human-approved," which
+the pattern doesn't match; `phase-7-creation.md:263` says "approval gate" with no
+"human" nearby at all) plus a wrong site count in the Goal (`transition.rs` has
+four occurrences, not two). Issue 8's three ACs are indeed all prose-presence
+checks, two of which are under-specified enough to pass a non-answer. Issue 5's
+Dependencies and tracking_level-persistence changes were re-checked against the
+current plan text and don't introduce or resolve any AC-discriminability finding —
+the persistence AC (line 214-216) remains solid as written.

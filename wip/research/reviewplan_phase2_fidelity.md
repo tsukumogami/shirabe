@@ -1,80 +1,90 @@
-# Category B: FAIL
+# Category B: PASS
 
-## Finding 1 — Decision E's "five sites" undercounts real occurrences of the old framing; Issue 6 will fail its own AC
+## Prior finding — resolved
 
-- category: B
-- affected_issue_ids: [6]
-- description: Design Decision E states the Draft→Active gate asymmetry
-  ("multi-pr requires human approval") "lives in skill prose in five places"
-  and that "[n]othing in `transition.rs` or `lifecycle.rs` implements that
-  gate" (true in the narrow sense of *implements*), then concludes the re-key
-  is confined to "a prose-only re-key across five sites" — SKILL.md,
-  plan-doc-structure.md, phase-7-creation.md, plan-format.md, plus a separate
-  decision-record amendment. In fact the same "multi-pr requires human
-  approval" framing is also restated verbatim in two Rust source comments the
-  design never accounts for: `crates/shirabe-validate/src/lifecycle.rs`
-  (module doc, ~line 51: "the only branch is the Draft -> Active gate:
-  multi-pr requires human approval (GitHub issues + milestone are created on
-  the transition)") and `crates/shirabe-validate/src/transition.rs` (two
-  occurrences, ~line 263 and ~line 469: "the gate difference between modes
-  (auto for single-pr, human-approval for multi-pr) is enforced out-of-band by
-  the calling skill"). Neither file appears in Issue 6's Files list
-  (`skills/plan/SKILL.md`, `skills/plan/references/plan-format.md`,
-  `skills/plan/references/quality/plan-doc-structure.md`,
-  `skills/plan/references/phases/phase-7-creation.md`,
-  `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`). Issue
-  6's own AC reads "A grep for the old framing returns nothing outside the
-  amendment's own quotation of it" — that AC is unsatisfiable as scoped,
-  because `lifecycle.rs` and `transition.rs` will still carry the
-  "multi-pr...human approval" phrasing after Issue 6 lands, and neither is the
-  amendment's quotation. This is a design under-specification (the site count
-  and enumeration are wrong) that the plan inherited verbatim into an issue
-  whose acceptance criterion cannot pass against the real codebase.
-- correction_hint: (empty — Category B correction requires re-running Phase 1
-  Analysis to fix the design's site enumeration before issue content changes)
+The original finding (Issue 6's grep-based AC was unsatisfiable because two
+Rust comment sites carrying the old "multi-pr requires human approval"
+framing were missing from its Files list) is fixed on both ends, verified
+directly:
 
-## Other checks — no findings
+- Design Decision E (docs/designs/DESIGN-multi-pr-plan-decoupling.md:309-341)
+  now carries a seven-row table naming every site by kind, four prose/format
+  plus `lifecycle.rs` (module doc) plus `transition.rs` (two comment sites)
+  plus the decision record, states explicitly "no code implements it" is not
+  "no code mentions it," and names the earlier four-site-plus-record
+  enumeration as wrong. The Context and Problem Statement (line 94) now says
+  "prose in seven places, two of them Rust doc comments." `grep -n "human
+  approval\|human-approval" lifecycle.rs transition.rs` returns six hits
+  across the two files, confirming the table's claim.
+- Plan Issue 6 (docs/plans/PLAN-multi-pr-plan-decoupling.md:258-304) now
+  names "all seven sites... five in skill and format prose, and two in Rust
+  doc comments," its Files list includes `crates/shirabe-validate/src/lifecycle.rs`
+  and `crates/shirabe-validate/src/transition.rs`, its grep AC is now a
+  concrete command run against `skills/ crates/ docs/`, and a second AC
+  requires a human read-through against paraphrase evasion (Category C's
+  concern, correctly out of my scope).
 
-1. **Design decisions A–E vs. issues.** Faithfully reflected. Decision A's
-   exact header names/vocab (`## Delivery Preference: consolidated|atomic`,
-   `## Tracking Level: none|issues|issues-and-milestone`) are used unchanged
-   in Issues 4–5. Decision B's `L09`/`DraftTolerable`/`FormatSpec`-untouched
-   shape matches Issue 3's ACs verbatim, including the short-circuit ordering.
-   Decision C's `ISSUE_SOURCE=plan_item`, `m-<slug>` scheme matches Issue 7.
-   Decision D's `references/split-triggers.md` shared-core-plus-profiles
-   matches Issue 1. Decision E's re-key-not-supersede treatment of the
-   decision record matches Issue 6 (apart from Finding 1 above).
+No finding remains from this issue.
 
-2. **Design self-consistency across its two revisions.** `FC20` appears
-   exactly once, inside the "rejected on review" alternative in Decision B —
-   correctly retained as historical record, not a stale live reference; grep
-   confirms no other `FC20` mention anywhere in the design. The
-   `tracking_level` re-resolution question is stated consistently everywhere
-   it appears (Decision Outcome, Solution Architecture component table, both
-   data-flow diagrams): the field is written once at authoring time and read
-   from the PLAN by extraction, never re-resolved from CLAUDE.md. No stale
-   statement implying re-resolution survives.
+## Second requested check — Decision C's `/work-on`/`/execute` claim — the correction is accurate, but it did not fully propagate
 
-3. **Design's factual claims, verified against source:**
-   - `L08` is the highest lifecycle code in use (`crates/shirabe-validate/src/lifecycle.rs:1107`, module-doc catalog stops at L08) and `L09` does not yet exist anywhere in the crate — confirmed, `L09` is free.
-   - `L06` is a legitimate single-document-property precedent — confirmed. The code comment "L06 is chain-scoped, not member-scoped" (lifecycle.rs:1219) refers only to how the check *locates* its subject (it needs chain traversal to find the chain's single-pr PLAN); the property it verifies is entirely within that one PLAN's own body (outline-AC checkboxes), matching the design's characterization exactly. `L09` needs no chain traversal at all, so it is a strictly simpler case of the same precedent.
-   - `validate.rs` documents the FC-family as `AlwaysEnforced` in two places — confirmed at lines 62–63 and 106–107 (near-identical doc comments, both stating "the entire FC-family...is AlwaysEnforced").
-   - Nothing in `transition.rs` or `lifecycle.rs` **implements** the Draft-to-Active approval gate as code — confirmed; `transition.rs` explicitly states in its own comment that the gate is "enforced out-of-band by the calling skill, not by this subcommand," and no branch in either file conditions the Draft→Active edge on `execution_mode`. (But see Finding 1: both files' *comments* restate the old framing in prose, which the design's claim glosses over.)
+Verified `/execute`'s actual behavior: `skills/execute/SKILL.md:40` states
+"`multi-pr` — out of scope for `/execute`; multi-pr plans run one issue at a
+time." So the corrected claim in Consequences (Negative, lines 597-609) is
+accurate: "`/execute` declines `multi-pr` outright... so there is no
+path-driven fallback either... an earlier draft of this section understated
+it by claiming the author could drive the plan by path 'the way `/execute`
+already drives single-pr and coordinated plans' — `/execute` does not drive
+multi-pr at all. *Mitigation:* none within this design's scope." That
+correction is correct and matches Category A's finding.
 
-4. **Decomposition Strategy vs. Implementation Approach.** The mapping is
-   stated in the plan's own Decomposition Strategy section and is correct:
-   Batch 1 (record/emitter/check) = Issues 1–3; Batch 2 (delivery preference)
-   = Issue 4; Batch 3 (tracking level) is split across Issues 5 and 6, a
-   reasonable finer-grained decomposition of one design batch into two
-   reviewable issues, consistent with the design's own statement that the
-   header/gating half and the gate-re-key half are independent within that
-   batch; Batch 4 (issueless extraction) = Issue 7. Issue 8 (amending
-   `DESIGN-roadmap-plan-standardization.md` Decision 6) is not named as one of
-   the design's four batches but is listed in the design's Solution
-   Architecture component table, so its addition as a ninth artifact is a
-   correct pickup of an unbatched component rather than a contradiction.
-   Issue 7 depending only on Issue 5 (not Issue 6) is also correct: the
-   design's stated reason for Batch 4 depending on Batch 3 — "the tracking
-   level has to be resolvable" — is fully satisfied by Issue 5 alone (which
-   writes `tracking_level` to frontmatter); Issue 6 is pure prose re-key with
-   no bearing on extraction.
+**But the correction was applied only in Consequences, not at the other place
+the same false claim lives.** Decision C's own "What is lost" paragraph
+(lines 252-255) still reads: "`/work-on M<N>` has no milestone to resolve
+against when tracking is `none`. The entry point is genuinely gone for that
+combination; the author drives the plan by path instead, the way `/execute`
+already drives single-pr and coordinated plans." That is the exact sentence
+Consequences now quotes and refutes as false, word for word, still standing
+uncorrected two sections earlier in the same document. A reader who stops at
+Decision C — which is where a reader deciding whether to accept the
+trade-off would naturally look — gets the false, mitigated-sounding version;
+only a reader who continues to Consequences gets the corrected,
+unmitigated-capability-gap version. This is not currently encoded in any
+plan issue (grepped the PLAN and PRD for "drives the plan by path" and
+"work-on M<N>" — no hits), so it does not break an issue's AC the way the
+prior finding did, but it is a stale statement that survived this round of
+revision and should be fixed before the design is finalized: either delete
+the "the author drives the plan by path instead, the way `/execute` already
+drives single-pr and coordinated plans" clause from line 254-255, or replace
+it with a forward reference to the corrected Consequences entry.
+
+**A second, smaller instance of the same pattern:** the Solution Architecture
+component table row for `plan-doc-structure.md` (line 415) still reads
+"...one of Decision E's five prose sites" — a leftover count from before
+Decision E was rewritten to seven sites. The two other component-table rows
+touched by the same fix (`lifecycle.rs` line 418, `transition.rs` line 420)
+were correctly updated to the new seven-site framing; this one row was
+missed. Same disposition as above: not inherited by any issue (Issue 1's and
+Issue 6's Files/ACs are unaffected — the row only describes `plan-doc-
+structure.md`, which is already in Issue 6's Files list), but it is residue
+from the revision that should be corrected to keep the document internally
+consistent — change "five" to "seven" (or drop the count and just say "one
+of Decision E's prose sites").
+
+I checked the rest of Consequences (Positive and Negative) and the
+Decision-Drivers cross-references for similar unchecked cross-file capability
+claims (`DESIGN-roadmap-issueless-preference.md` rejecting a config file, the
+`issues-table.md`/`dependency-diagram.md` shared-core-plus-profile precedent
+cited by Decision D) — both check out against the actual files in the tree.
+No other entry makes a claim of this kind that doesn't hold.
+
+## Verdict rationale
+
+No issue currently encodes a contradiction inherited from the design — the
+grep-AC-breaking defect from the last round is fully fixed in both documents.
+The two items above are design-only residue: statements that were true
+before this revision's fixes and are now false-by-omission of an update,
+but neither is quoted or relied on by any PLAN issue. Recommend fixing both
+before the design is finalized, but they do not block this plan on Category
+B's own finding criteria (an issue's body/AC does not encode either stale
+claim).

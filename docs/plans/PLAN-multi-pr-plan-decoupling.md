@@ -260,11 +260,16 @@ feat
 **Goal**:
 Change every statement that the Draft-to-Active gate is human-approved for
 `multi-pr` into one keyed on whether the activation will create GitHub issues,
-across all seven sites that carry it — five in skill and format prose, and two
-in Rust doc comments (`lifecycle.rs`'s module doc and two comment sites in
-`transition.rs`). The Rust edits are comment-only; no behaviour changes there,
-which is why they are easy to miss and why the grep criterion below fails
-without them. Amend
+at the six live sites the design's Decision E table marks `re-key`: four in skill
+and format prose, plus the Rust doc comments in `lifecycle.rs` (lines 52, 61,
+764) and `transition.rs` (lines 263, 469, 1960, 2011). The Rust edits are
+comment-only. Leave the four sites the table marks `leave` untouched — three
+`Current` DESIGN docs and a golden fixture record what was decided when they were
+written, and editing them falsifies the audit trail rather than correcting it.
+Phrasing varies across sites ("human approval", "human-approval",
+"human-approved", and at `phase-7-creation.md:263` "multi-pr-style approval gate"
+with no "human" in it), so any verification pattern must cover all four forms.
+Amend
 `DECISION-multi-pr-posture-detection-2026-06-06.md` to record that its predicate
 changed while its decision stands.
 
@@ -275,15 +280,18 @@ changed while its decision stands.
   human-approved.
 - The decision record carries an amendment naming the new predicate and stating
   that the asymmetry itself is unchanged; it is not superseded.
-- `grep -rn "human approval\|human-approval" skills/ crates/ docs/` returns only
-  the amendment's own quotation of the old framing. Run against the whole tree,
-  not only the prose sites, because `lifecycle.rs` and `transition.rs` carry it
-  in comments.
-- A grep for `execution_mode` co-occurring with `multi-pr|single-pr` and with
-  `approv|human|sign.?off` across the seven sites returns nothing outside that
-  same quotation, AND a reviewer confirms by reading each site that none conveys
-  the old rule in different words still keyed on `execution_mode`. The literal
-  grep alone is evadable by paraphrase.
+- `grep -rniE "multi-pr" skills/ crates/ docs/ | grep -iE "(human[ -]approv|approval gate)"`
+  returns hits only at the four sites the design marks `leave` and at the
+  amendment's own quotation. Every site marked `re-key` is absent from the output.
+  The two-stage pattern is load-bearing: an approval-term grep alone returns 157
+  corpus-wide hits from unrelated approval prose, and a narrower pattern misses
+  `lifecycle.rs:764` ("human-approved") and `phase-7-creation.md:263` ("approval
+  gate" with no "human"). Both failure modes were checked against the current tree.
+- The four `leave` sites are byte-identical to their pre-change state, confirmed
+  by `git diff`. Re-keying a historical record is a defect, not thoroughness.
+- A reviewer reads each of the six `re-key` sites and confirms none conveys the
+  old rule in different words still keyed on `execution_mode`. The grep is
+  evadable by paraphrase, so the reading is not optional.
 - A Draft-to-Active transition whose resolved tracking level is not `none` is
   blocked without recorded approval, and a `multi-pr` plus `none` transition
   proceeds without it — verified against Phase 7's actual issue-creation gate,
