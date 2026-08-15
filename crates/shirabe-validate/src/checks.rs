@@ -41,6 +41,36 @@ const PROHIBITED_PUBLIC_STRATEGY_SECTIONS: &[&str] = &["Competitive Consideratio
 /// three-column shape.
 const LEGACY_PLAN_TABLE_COLUMNS: &[&str] = &["Issue", "Title", "Dependencies", "Complexity"];
 
+/// The canonical root of the git working tree the process is running in, or
+/// `None` when git cannot answer (not a repository, or git is unavailable).
+///
+/// Used as the containment base for an `upstream:` entry. Returning `None`
+/// rather than falling back to the working directory is deliberate: with no
+/// repository there is no "inside the repository" to assert, and inventing a
+/// base would refuse paths on a property nobody established.
+fn git_work_tree_root() -> Option<std::path::PathBuf> {
+    let out = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(out.stdout).ok()?;
+    std::fs::canonicalize(text.trim()).ok()
+}
+
+/// The finding code the schema gate reports under.
+///
+/// Named rather than spelled `"SCHEMA"` at each site because three consumers
+/// now key on it and they must agree: `check_schema` produces it,
+/// `main.rs` rolls a run carrying one up to the incomplete outcome, and
+/// `report::skipped_inputs` derives the envelope's `skipped` array from it.
+/// A finding under this code means the document was routed to a format and
+/// then not checked against it.
+pub const SCHEMA_SKIP_CODE: &str = "SCHEMA";
+
 /// Returns a SCHEMA `ValidationError` (to be emitted as `::notice`) if
 /// `doc.schema` is not `spec.schema_version`. Returns `None` if the schema
 /// matches.
@@ -842,6 +872,51 @@ pub fn check_upstream_resolves(doc: &Doc) -> Vec<ValidationError> {
                 path
             )));
             continue;
+        }
+
+        // The two refusals absorbed from the retired `validate-plan.sh`. They
+        // are here rather than in a check of their own because this function
+        // already resolves the entry and already reports under R6; a second
+        // check would give one entry two places to be refused from.
+        //
+        // Both matter because the value reaches a committed frontmatter
+        // field. A symlinked upstream resolves to different content for
+        // different readers, so the value a reviewer approves is not
+        // necessarily the value a consumer resolves. One escaping the working
+        // tree names something no other clone has.
+        //
+        // Each refusal `continue`s, so a refused entry produces one finding
+        // rather than also collecting the git-tracking one below.
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                errs.push(finding(format!(
+                    "[R6] upstream {:?} is a symlink; name the target directly, because a symlinked upstream resolves differently for different readers",
+                    path
+                )));
+                continue;
+            }
+            _ => {}
+        }
+
+        // Containment is decided on canonical paths, so a `../`-shaped path
+        // and a symlink hop are both resolved before the comparison rather
+        // than pattern-matched in their written form.
+        //
+        // The base is the git working tree, not the process working
+        // directory. An `upstream:` value is repo-relative, so "inside the
+        // repository" is the property being asserted; comparing against the
+        // CWD would call a perfectly contained path an escape whenever the
+        // validator runs from a subdirectory. This is the base the retired
+        // `validate-plan.sh` used, via `git rev-parse --show-toplevel`.
+        if let (Ok(canon), Some(root)) = (std::fs::canonicalize(path), git_work_tree_root()) {
+            if !canon.starts_with(&root) {
+                errs.push(finding(format!(
+                    "[R6] upstream {:?} resolves outside the repository: {}",
+                    path,
+                    canon.display()
+                )));
+                continue;
+            }
         }
 
         let tracked = Command::new("git")
@@ -4301,10 +4376,97 @@ mod tests {
     }
 
     #[test]
+    fn check_upstream_resolves_symlink_returns_r6() {
+        // Absorbed from the retired validate-plan.sh. A symlinked upstream
+        // resolves to different content for different readers, and the value
+        // reaches a committed frontmatter field.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .canonicalize()
+            .expect("workspace target/ exists during a cargo test run");
+        let target = dir.join(format!("shirabe_symlink_target_{}.md", std::process::id()));
+        let link = dir.join(format!("shirabe_symlink_{}.md", std::process::id()));
+        std::fs::write(&target, b"target").expect("write target");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&target, &link).expect("create symlink");
+
+        let mut fields = HashMap::new();
+        fields.insert("upstream".to_string(), fv(&link.display().to_string(), 4));
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+        let errs = check_upstream_resolves(&doc);
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_file(&target);
+
+        assert_eq!(
+            errs.len(),
+            1,
+            "a refused entry produces exactly one finding"
+        );
+        assert_eq!(errs[0].code, "R6");
+        assert!(
+            errs[0].message.contains("is a symlink"),
+            "got {:?}",
+            errs[0].message
+        );
+    }
+
+    #[test]
+    fn check_upstream_resolves_outside_the_tree_returns_r6() {
+        // The second refusal absorbed from validate-plan.sh: a path naming
+        // something no other clone of this repository has.
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("shirabe_outside_{}.md", std::process::id()));
+        std::fs::write(&path, b"outside").expect("write temp file");
+
+        let mut fields = HashMap::new();
+        fields.insert("upstream".to_string(), fv(&path.display().to_string(), 6));
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+        let errs = check_upstream_resolves(&doc);
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(
+            errs.len(),
+            1,
+            "a refused entry produces exactly one finding"
+        );
+        assert_eq!(errs[0].code, "R6");
+        assert!(
+            errs[0].message.contains("resolves outside the repository"),
+            "got {:?}",
+            errs[0].message
+        );
+    }
+
+    #[test]
+    fn check_upstream_resolves_skips_cross_repo_for_the_new_refusals_too() {
+        // A cross-repo reference names no local path, so neither new refusal
+        // has anything to resolve — the same reason the resolution check
+        // already skips it.
+        let mut fields = HashMap::new();
+        fields.insert(
+            "upstream".to_string(),
+            fv("tsukumogami/other:docs/designs/DESIGN-x.md", 2),
+        );
+        let doc = make_doc("plan/v1", "Draft", fields, vec![], vec![]);
+        assert!(check_upstream_resolves(&doc).is_empty());
+    }
+
+    #[test]
     fn check_upstream_resolves_untracked_file_returns_r6() {
         // Create a temporary file that exists on disk but is not committed
         // to git.
-        let dir = std::env::temp_dir();
+        //
+        // The file lives under the workspace `target/` directory rather than
+        // the system temp directory. `target/` is gitignored, so it is still
+        // exactly the untracked-but-present fixture this test wants, and it
+        // is INSIDE the git working tree — which matters now that R6 refuses
+        // an upstream resolving outside the repository. A `/tmp` fixture is
+        // both untracked and out-of-tree, so it would exercise the
+        // containment refusal instead of the tracking one this test names.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .canonicalize()
+            .expect("workspace target/ exists during a cargo test run");
         let path = dir.join(format!("shirabe_untracked_{}.md", std::process::id()));
         std::fs::write(&path, b"untracked").expect("write temp file");
 

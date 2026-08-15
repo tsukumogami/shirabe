@@ -423,6 +423,16 @@ branches on the multi-level exit code (the contract shared with
   envelope that does not parse). Treat this as a tool failure
   DISTINCT from a content violation — surface it as such and halt;
   do NOT report it as a document violation.
+- **4 (incomplete)** — the validator accepted the intermediate and
+  then did not check it: the filename prefix routed it to a format
+  but its `schema:` field is missing or out of range. Halt the
+  chain and surface the envelope's `skipped` entries, naming the
+  file and the reason. This is NOT a content violation — nothing
+  is known to be wrong with the document, which is the problem: it
+  was never examined. The fix is to add the `schema:` field to the
+  intermediate and re-invoke, after which the real checks run.
+  Advancing on a 4 would carry an unvalidated artifact into the
+  next child.
 
 `/scope` does NOT auto-fix validator failures, and only the
 consumption mechanism changed (JSON parse plus multi-level exit
