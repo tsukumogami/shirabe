@@ -17,6 +17,7 @@ planned_chain:
 chain_skipped: []
 chain_ran:
   - brief
+  - prd
 phase_1: empty-cold-start
 shape_predicates:
   P1: fires -- the adopt-path fallback behaviour is an implementation choice left
@@ -37,11 +38,32 @@ chain_ran_detail:
     validator_exit: 0
     jury: serial-self-jury (content-quality PASS, structural-format PASS)
     consolidation: skipped -- no artifact above BRIEF in this chain
+  - child: prd
+    r20_artifact: docs/prds/PRD-settled-branch-record.md
+    validator_exit: 0
+    jury: serial-self-jury (completeness PASS, clarity PASS, testability PASS)
+    consolidation: keep
 child_snapshots:
   brief:
-    status: Draft
+    status: Accepted
     content_hash: e277487ed50bf57e6bdee4f2a067e4df2b06a0eb
     captured_at: 2026-08-15T18:42:43Z
+  prd:
+    status: Accepted
+    content_hash: a88c85f26f1c84014816a7f7ff309161c278887c
+    captured_at: 2026-08-15T18:45:14Z
+consolidation_judgments:
+  - hop: brief->prd
+    absorbable: true
+    verdict: keep
+    finding: >-
+      The BRIEF's User Journeys carry detail the PRD's User Stories do not. Each
+      journey walks the mechanism it exercises -- journey 1 names the sequence
+      (detect non-main branch with open PR, adopt, record, read back, inject as
+      SHARED_BRANCH) that user story 1 compresses to the outcome alone. The PRD's
+      own citation-vs-restatement rule tells it to cite rather than restate that
+      framing, so the walked journeys live only in the BRIEF. Stage 2 answers
+      yes; the absorb does not run.
 visibility: Public
 execution_mode: auto
 max_rounds: 5
