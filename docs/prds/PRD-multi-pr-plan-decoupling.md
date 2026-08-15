@@ -92,12 +92,14 @@ it for.
 - Work tracking is chosen independently of delivery shape, at all three levels
   the current behavior bundles: no GitHub artifacts, issues alone, or issues
   under a milestone.
-- A merged plan answers why it has the shape it has, whenever that shape is not
-  the one its repository's stated preference would have produced. A reader can
-  distinguish "something forced this" from "the repository prefers this" without
-  reading closed pull requests.
+- A merged plan answers why it has the shape it has, whenever that shape is
+  either not single-PR or not the one its repository's stated preference would
+  have produced. A reader can distinguish "something forced this" from "the
+  repository prefers this" without reading closed pull requests.
 - Nothing that works today stops working. A repository that states no preference
-  gets exactly the behavior it gets now.
+  gets the same plans it gets now — the one addition being that a non-single-PR
+  plan now says why, which is the point of the feature rather than an exception
+  to it.
 
 ## Definitions
 
@@ -158,7 +160,9 @@ it for.
   single-pr` unless a hard constraint forces otherwise or the split delivers
   genuine incremental value — today's behavior. Under `atomic`, it SHALL produce
   a multi-PR shape whenever the decomposition permits one, without requiring the
-  split to be justified as incremental value.
+  split to be justified as incremental value. R4 governs which justification the
+  R13 record names; it does not govern whether a unit is well-formed, which is
+  R6's separate question.
 - **R5.** The governing workflow principle SHALL be amended so that a
   reviewability-motivated delivery preference is expressible without being
   described as incremental value, and so that it and
@@ -166,14 +170,17 @@ it for.
   reviewability may motivate a split.
 - **R6.** The value-confirmation guard that asks whether each unit would deliver
   observable value on its own SHALL continue to run, unchanged, against whatever
-  unit the resolved preference makes the default. No delivery preference may
-  create an exemption from it.
+  unit the resolved preference makes the default. It is a per-unit quality gate
+  that runs regardless of which branch R4 selected and regardless of what the R13
+  record names. No delivery preference may create an exemption from it.
 
 ### Functional — tracking preference
 
 - **R7.** The planning workflow SHALL resolve a tracking level for the repository
-  in the same precedence order as R1, independently of the delivery-shape
-  preference and independently of the resolved `execution_mode`.
+  in the same precedence order as R1. Where a level is stated — by flag or by
+  header — that level SHALL apply regardless of the delivery-shape preference and
+  regardless of the resolved `execution_mode`. Where no level is stated, R9's
+  default applies, and it alone reads `execution_mode`.
 - **R8.** The tracking level SHALL accept `none`, `issues`, and
   `issues-and-milestone`, and all six combinations of {`single-pr`, `multi-pr`} ×
   {`none`, `issues`, `issues-and-milestone`} SHALL be reachable.
@@ -207,6 +214,8 @@ it for.
 - **R16.** Validation of a PLAN that violates R13 SHALL report a finding, and
   that finding SHALL be non-blocking while the pull request is a draft and
   blocking once it is ready for review.
+### Functional — documentation
+
 - **R17.** Both preferences SHALL be documented in
   `references/fixes/claude-md-conventions.md` alongside the existing headers,
   each with its accepted values, its default, and its precedence order.
@@ -215,9 +224,14 @@ it for.
 
 - **R18.** Neither preference SHALL introduce a new configuration channel. Both
   bind to the existing CLAUDE.md convention-header mechanism.
-- **R19.** A repository that states neither preference SHALL observe behavior
-  identical to today's: no new prompts, and no new required frontmatter field on
-  any plan that would have validated before this change.
+- **R19.** A repository that states neither preference SHALL observe today's
+  behavior in what the workflow *produces*: the same `execution_mode` for the
+  same input, the same GitHub artifacts, and no new prompts. The R13 record is
+  the one exception, and it is deliberate — a plan that is not `single-pr` owes
+  a reason whether or not the repository has stated a preference, because the
+  reason is what makes the shape auditable and that is the feature's point. The
+  exception costs no retrofit: PLANs are deleted by the completion cascade, so
+  there is no committed corpus of plans to migrate.
 - **R20.** The field of R13 SHALL hold free text naming its branch, not a closed
   enumeration of trigger names, because the plan-altitude trigger vocabulary is
   not settled and widening a closed enumeration later costs a schema migration.
@@ -275,6 +289,10 @@ it for.
 - [ ] `shirabe validate` on a non-`single-pr` PLAN missing the R13 field reports
       a finding; the finding does not fail the run under draft posture and does
       fail it under ready posture.
+- [ ] `shirabe validate` on a `multi-pr` PLAN authored in a repository that
+      states neither preference, split by a forcing constraint, reports the same
+      finding when the R13 field is absent as it does in a repository that states
+      one. The record is owed regardless of whether a preference was stated.
 - [ ] `shirabe validate` on a `single-pr` PLAN in a `consolidated` repository,
       with no R13 field, reports no finding for its absence.
 - [ ] `shirabe validate` on a `single-pr` PLAN in an `atomic` repository, with no
