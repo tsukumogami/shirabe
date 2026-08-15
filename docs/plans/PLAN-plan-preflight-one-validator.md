@@ -186,21 +186,21 @@ one implementation answers whether a PLAN may name its upstream.
 began, diff it, and confirm every difference is one the design named in advance.
 
 **Acceptance Criteria**:
-- [ ] The whole-tree per-file validation is re-run over the same tracked
+- [x] The whole-tree per-file validation is re-run over the same tracked
       document set as the pre-change capture, and the diff is reviewed finding
       by finding.
-- [ ] Every difference in that diff corresponds to an effect named in the
+- [x] Every difference in that diff corresponds to an effect named in the
       design's Decision Outcome or Consequences, and any difference that does
       not is reported rather than accepted.
-- [ ] `shirabe validate --lifecycle . --mode=draft` exits 0 from the repository
+- [x] `shirabe validate --lifecycle . --mode=draft` exits 0 from the repository
       root.
-- [ ] The upstream-status decision's predicted corpus effect is confirmed empty:
+- [x] The upstream-status decision's predicted corpus effect is confirmed empty:
       no committed PLAN changes verdict, because the only PLAN in the tree
       carries no upstream field.
-- [ ] The symlink and containment decision's predicted corpus effect is
+- [x] The symlink and containment decision's predicted corpus effect is
       confirmed empty: no document under the docs tree is a symlink and no
       upstream entry resolves outside the working tree.
-- [ ] `cargo test --workspace`, `cargo fmt --check`, and the bash floor runner
+- [x] `cargo test --workspace`, `cargo fmt --check`, and the bash floor runner
       all pass.
 
 **Dependencies**: Blocked by <<ISSUE:5>>
