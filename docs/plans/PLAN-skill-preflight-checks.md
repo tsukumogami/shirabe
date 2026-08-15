@@ -13,7 +13,7 @@ issue_count: 20
 
 Active
 
-Single-pr, so no GitHub milestone and no issues exist. The nineteen
+Single-pr, so no GitHub milestone and no issues exist. The twenty
 outlines below are the decomposition `/work-on` drives on one shared
 branch. `docs/designs/DESIGN-skill-preflight-checks.md` moves to
 Planned when this PLAN lands; both are deleted by the cascade when
@@ -40,7 +40,8 @@ failure-open blind spot the design names at length. A walking
 skeleton here would build the one artifact whose stub cannot be told
 from its finished form.
 
-The design's six phases map to nineteen outlines. Three choices are
+The design's six phases map to twenty outlines, one of which (Issue 0)
+was added after authoring. Three choices are
 worth stating.
 
 **The twenty declarations are one issue, not twenty.** Each
