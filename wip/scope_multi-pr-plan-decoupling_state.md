@@ -1,7 +1,7 @@
 ```yaml
 topic: multi-pr-plan-decoupling
 chain_started: 2026-08-15T19:45:00Z
-last_updated: 2026-08-15T19:52:00Z
+last_updated: 2026-08-15T20:45:00Z
 phase_pointer: phase-2
 exit: UNSET
 exit_artifacts: []
@@ -17,6 +17,8 @@ chain_ran:
     started_at: 2026-08-15T19:58:00Z
   - name: prd
     started_at: 2026-08-15T20:12:00Z
+  - name: design
+    started_at: 2026-08-15T20:30:00Z
 consolidation_judgments:
   - hop: brief->prd
     stage: judgment
@@ -28,12 +30,29 @@ consolidation_judgments:
     verdict: absorb
     absorbed: docs/briefs/BRIEF-multi-pr-plan-decoupling.md
     into: docs/prds/PRD-multi-pr-plan-decoupling.md
+  - hop: prd->design
+    stage: judgment
+    verdict: keep
+    finding: >-
+      The PRD holds two things the DESIGN does not and a contribution section
+      could not carry. First, twenty numbered requirements that the DESIGN
+      cites by number throughout -- R12, R13, R14 and others appear in the
+      DESIGN's own prose, so a fold would leave those citations pointing at
+      nothing unless the section reproduced the set, which is a rewrite rather
+      than a distillation. Second, the acceptance criteria, which the DESIGN
+      carries none of and needs none of, but which are the testable contract
+      the downstream PLAN decomposes against. The adequacy test fails on its
+      second clause: a reader could not follow the DESIGN's own argument
+      without the document the fold would delete.
 worktree_rebases:
   - phase: brief
     upstream_commits: [83d29e1, 778913e, b8b20eb, e227d7a]
     impact: informational
+  - phase: plan
+    upstream_commits: []
+    impact: none
 parent_orchestration:
-  invoking_child: design
+  invoking_child: plan
   suppress_status_aware_prompt: true
   rationale: fresh-chain
 child_snapshots:
@@ -41,10 +60,14 @@ child_snapshots:
     status: Draft
     content_hash: f6d6abeea9a20fd68ec9f480f14a4b8d2fbeb2e8
     captured_at: 2026-08-15T20:10:00Z
+  prd:
+    status: In Progress
+    content_hash: ce492b083475315da6944ab3eceea2d0a83dd530
+    captured_at: 2026-08-15T20:20:00Z
   design:
-    status: Proposed
-    content_hash: c5d14f04c74b0f1ce608c0a2ba79b8d5d6883974
-    captured_at: 2026-08-15T19:52:00Z
+    status: Accepted
+    content_hash: 8aeb7b7810afc5acc98242a8b6727c6f7d0b23ff
+    captured_at: 2026-08-15T20:45:00Z
 ```
 
 ## Phase 0 Notes
