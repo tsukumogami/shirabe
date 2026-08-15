@@ -48,7 +48,15 @@ pass() { echo -e "${GREEN}PASS${NC}: $*"; ((PASS_COUNT++)) || true; }
 fail() { echo -e "${RED}FAIL${NC}: $*"; ((FAIL_COUNT++)) || true; }
 
 TMPS=()
-cleanup() { for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done; }
+# The expansion is `${arr[@]+"${arr[@]}"}` rather than `"${arr[@]:-}"`, and the
+# reason is the suite's own exit status. Every call site takes a directory
+# through a command substitution, so the append inside mktmp runs in a subshell
+# and this array is empty in the parent. `"${TMPS[@]:-}"` then yields one empty
+# element, `[[ -n "" ]]` is false, and the loop -- the last command the EXIT
+# trap runs -- returns 1. On bash 3.2 that status becomes the script's, so a
+# suite reporting "0 failed" exited 1 anyway, which is a green run reported red
+# on every macOS leg.
+cleanup() { for d in ${TMPS[@]+"${TMPS[@]}"}; do [[ -n "$d" ]] && rm -rf "$d"; done; return 0; }
 trap cleanup EXIT
 
 mktmp() {
