@@ -59,11 +59,54 @@ Read all topic-scoped wip/ artifacts:
 
 Read the `execution_mode` from the decomposition artifact's YAML frontmatter, then branch to the appropriate section below.
 
+### Resolve the Tracking Level first
+
+Before either branch runs, resolve which GitHub artifacts this PLAN's work items
+get. This is a **separate question from `execution_mode`** and is resolved on its
+own stack:
+
+```
+flag > CLAUDE.md `## Tracking Level: none|issues|issues-and-milestone` > default
+```
+
+Where a level is stated it applies regardless of `execution_mode`. Where none is
+stated, the default is derived from the mode -- `issues-and-milestone` for
+`multi-pr`, `none` for `single-pr` -- which is the behavior every repo has today.
+An unrecognized value falls through to that default rather than being used.
+
+`coordinated` PLANs are exempt: their tracking is governed by
+`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`, and the header does
+not apply.
+
+Write the resolved value into the PLAN's `tracking_level` frontmatter field. This
+is load-bearing rather than bookkeeping: task extraction runs against a committed
+PLAN, possibly long after authoring, and if it re-resolved the level from
+CLAUDE.md then a repo that later changed its header would silently change how an
+already-written plan's work items key.
+
+The resolved level, not the mode, decides what gets created:
+
+| Level | What is created |
+|---|---|
+| `none` | No GitHub artifacts. Work items live in the PLAN's Issue Outlines. |
+| `issues` | One GitHub issue per work item, assigned to no milestone. |
+| `issues-and-milestone` | One issue per work item, all assigned to one milestone. |
+
+All six combinations of `{single-pr, multi-pr}` and the three levels are
+reachable. A `single-pr` PLAN with `issues` files them; a `multi-pr` PLAN with
+`none` files nothing.
+
 ---
 
 ## multi-pr Mode
 
 Steps 7.1 through 7.4 apply when `execution_mode: multi-pr`.
+
+**Gated on the resolved tracking level, not on the mode.** Run 7.1 only when the
+level is `issues` or `issues-and-milestone`; under `none`, skip to 7.2 and write
+the PLAN with its work items in an `## Issue Outlines` section, exactly as the
+single-pr branch does. Under `issues`, create the issues without a milestone --
+pass no `--milestone` flag to the batch script.
 
 ### 7.1 Create GitHub Issues Using Batch Script
 
@@ -253,15 +296,21 @@ These references enable traceability from planning issues back to the source roa
 
 Steps 7.1 through 7.2 apply when `execution_mode: single-pr`.
 
-No GitHub milestone or issues are created in single-pr mode.
+**Gated on the resolved tracking level, not on the mode.** Under the default
+(`none` for single-pr) no GitHub milestone or issues are created, which is
+today's behavior. Under a stated `issues` or `issues-and-milestone`, run the
+multi-pr branch's 7.1 to create them, then continue here.
 
 ### 7.1 Write PLAN Artifact
 
 Create `docs/plans/PLAN-<topic>.md` with the following structure.
 
-Single-pr PLANs are authored directly at `status: Active` (no
-multi-pr-style approval gate fires; the Draft -> Active transition
-auto-fires as authoring completes under the unified PLAN lifecycle).
+PLANs whose activation creates no GitHub artifacts are authored directly at
+`status: Active`: the Draft -> Active transition auto-fires as authoring
+completes under the unified PLAN lifecycle. An activation that **will** create
+GitHub issues requires human approval first, whatever the `execution_mode` --
+the gate tracks the remote artifacts, not the mode. See the approval-gate rule in
+`skills/plan/SKILL.md`.
 A committed single-pr PLAN that lands on a branch at `status: Draft`
 is a violation — the chain-aware `--lifecycle` check fails on it.
 

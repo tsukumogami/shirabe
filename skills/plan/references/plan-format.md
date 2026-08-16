@@ -33,9 +33,9 @@ issue_count: 18
 
 Required fields: `schema`, `status`, `execution_mode`, `milestone`,
 `issue_count`. Optional: `upstream` (the DESIGN doc this PLAN
-implements; omit if authored without a single upstream DESIGN), and
+implements; omit if authored without a single upstream DESIGN),
 `split_rationale` (required under the condition below, absent
-otherwise).
+otherwise), and `tracking_level`.
 
 - **schema** -- `plan/v1`. Pins the artifact-type contract.
 - **status** -- lifecycle state (`Draft`, `Active`, `Done`).
@@ -80,6 +80,24 @@ otherwise).
     must reach the default branch before the second unit's
     workflow_dispatch invocation can resolve.
   ```
+
+- **tracking_level** -- one of `none`, `issues`, or
+  `issues-and-milestone`: which GitHub artifacts this PLAN's work
+  items got. Written by Phase 7 with the value it resolved on the
+  `flag > CLAUDE.md ## Tracking Level: header > mode-derived default`
+  stack, so the resolved value is a fact about the document rather
+  than something a later reader re-derives.
+
+  That distinction is load-bearing. Task extraction runs against a
+  committed PLAN, possibly long after authoring; if it re-resolved
+  the level from CLAUDE.md, a repo that later changed its header
+  would silently change how an already-written plan's work items
+  key. Persisting the value also gives `plan-to-tasks.sh` a
+  deterministic branch signal rather than making it infer the level
+  from the table's shape.
+
+  Absent on `coordinated` PLANs, whose tracking is governed by
+  `${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`.
 - **upstream** -- path to the upstream DESIGN doc, repo-relative or
   cross-repo (`owner/repo:path`). Omit if the PLAN was authored from
   a topic with no single upstream DESIGN. Cross-repo upstream
