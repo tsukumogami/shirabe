@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-scope-chain-mandatory-steps.md
 decision_provenance: inline-resolved
 problem: |
@@ -31,7 +31,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 Five decision questions were decomposed and evaluated. Under parent-chain
 dispatch the decisions were resolved inline rather than delegated, recorded here
