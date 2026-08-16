@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   `/release` builds the set of pull requests a release contains twice, through
   two mechanisms with different boundary semantics, and the second one is keyed
@@ -24,7 +24,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 Framing for issue #321. The downstream PRD owns the requirements; this brief
 stops at the problem, the outcome, the journeys that exercise it, and where the

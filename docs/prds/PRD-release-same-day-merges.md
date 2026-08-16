@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 upstream: docs/briefs/BRIEF-release-same-day-merges.md
 source_issue: 321
 problem: |
@@ -30,7 +30,7 @@ motivating_context: |
 
 ## Status
 
-In Progress
+Done
 
 Requirements for issue #321, written from
 [BRIEF-release-same-day-merges](../briefs/BRIEF-release-same-day-merges.md).

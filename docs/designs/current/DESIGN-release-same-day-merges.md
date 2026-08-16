@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-release-same-day-merges.md
 problem: |
   `/release` derives what a release contains twice -- once as a commit range in
@@ -32,7 +32,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 Design for issue #321, written from
 [PRD-release-same-day-merges](../prds/PRD-release-same-day-merges.md). The PRD
