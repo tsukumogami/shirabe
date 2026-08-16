@@ -83,9 +83,10 @@ A durable artifact usually stays in `docs/` after the work ships, but there is
 one way it leaves: `/scope` can fold it into the document below it. After each
 child lands, the chain asks whether the upstream holds anything its successor
 does not. Where it does not, the upstream's contribution is carried into the
-survivor as one section and the upstream is removed, with the fold recorded in
-`docs/folds.md`. That judgment is only ever made against two documents that
-exist -- never against one that has not been written.
+survivor as one section and the upstream is removed, with the survivor
+declaring what it absorbed in its frontmatter and its `## Status` line. That
+judgment is only ever made against two documents that exist -- never against one
+that has not been written.
 
 Retirement is conditional, not automatic. A PLAN is `git rm`'d before its work
 merges, while the PR is still a draft. A ROADMAP is only reached by the cascade

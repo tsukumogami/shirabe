@@ -594,10 +594,17 @@ seed depends on what you are checking:
   anchor to seed on, and that is **completion, not a missing seed**. Treat it as
   complete rather than reporting `L05`.
 
-  Distinguishing it from a genuinely unfinalized chain is what `docs/folds.md` is for:
-  a chain that folded away leaves a row naming what was absorbed into what, and a
-  chain that never ran leaves nothing. The record is the evidence; it is not a seed,
-  and nothing here reads it to make a lifecycle decision.
+  The surface that distinguishes it from a genuinely unfinalized chain is the
+  ROADMAP feature's downstream cell, which the cascade writes as
+  `**Downstream:** _none (chain folded)_` — a chain that never ran carries a named
+  in-flight artifact or a `Needs *` marker there instead. That cell is evidence,
+  not a seed, and nothing here reads it to make a lifecycle decision.
+
+  It is also conditional and temporary: a chain that came through no ROADMAP
+  feature has no cell, and the same cascade deletes the ROADMAP once its features
+  land. Where neither holds, a chain that folded away and a chain that never ran
+  are indistinguishable on the default branch, and both are treated as complete —
+  which is the correct outcome for this guard in either case.
 
 **`/execute` does not know what the chain decided, and must not start knowing.**
 Whether any artifact survives is `/scope`'s call, made per hop against two documents.
