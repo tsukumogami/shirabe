@@ -613,7 +613,7 @@ terminal one.
 
 ### Stage 3 — Compose, verify, move, re-validate
 
-Nine steps. Steps 1 and 2 are Stages 1 and 2 above; the rest run
+Eight steps. Steps 1 and 2 are Stages 1 and 2 above; the rest run
 only on `absorb`.
 
 3. **Compose the contribution, in memory.** Write the ancestor's
@@ -664,17 +664,13 @@ only on `absorb`.
    public document naming a private one is the same violation
    whichever field carries it.
 
-6. **Append the record and stage it.** Append one row to
-   `docs/folds.md` and `git add` it — before anything is deleted,
-   so a failed append aborts with nothing lost.
+6. **Delete the absorbed artifact** with `git rm`.
 
-7. **Delete the absorbed artifact** with `git rm`.
-
-8. **Re-validate the survivor.** Run `shirabe validate` against it.
+7. **Re-validate the survivor.** Run `shirabe validate` against it.
    A non-zero exit triggers the rollback below.
 
-9. **Commit** the deletion, the re-point, the survivor's edits and
-   the record together.
+8. **Commit** the deletion, the re-point and the survivor's edits
+   together.
 
 ### Rollback
 
@@ -685,21 +681,16 @@ of them reverts everything written since, in reverse:
 | Failing step | Undo |
 |---|---|
 | 5 write | restore the survivor from the step-5 snapshot |
-| 6 append | un-stage and remove the appended row; restore the survivor |
-| 7 delete | restore the deleted artifact; un-append; restore the survivor |
-| 8 re-validate | restore the deleted artifact; un-append; restore the survivor |
-| 9 commit | as step 8 |
+| 6 delete | restore the deleted artifact; restore the survivor |
+| 7 re-validate | restore the deleted artifact; restore the survivor |
+| 8 commit | as step 7 |
 
 Then downgrade the verdict to `keep`, record the revert in the
 judgment entry, and route to R8 bail-handling.
 
-The un-append is explicit because the row is forced to exist before
-the deletion. A revert that does not un-append strands a durable
-row on the default branch asserting a fold that was undone.
-
 **A partial absorb is never resumed across sessions.** If a resume
-finds a chain interrupted between steps 5 and 9, un-append the row,
-restore the survivor, delete nothing, and leave the hop at `keep`.
+finds a chain interrupted between steps 5 and 8, restore the
+survivor, delete nothing, and leave the hop at `keep`.
 **No path is ever read back from `consolidation_judgments:` for
 interpolation** — state-file strings reaching a deletion is exactly
 the surface the enum re-validation contract exists to close.
@@ -823,8 +814,10 @@ The fields:
   intent produces.
 - `chain_ran:` entry names against `{brief, prd, design, plan}`.
 - `verdict:` against `{absorb, keep}` and `stage:` against
-  `{preflight, judgment, carry}` — both serialized into the
-  durable fold record.
+  `{preflight, judgment, carry}` — both are read back from the
+  state file and drive the absorb's control flow, and `verdict:`
+  decides whether a deletion happens at all, so a tampered value
+  reaches a `git rm`.
 - `visibility:` against `{Public, Private}`. It is read back from
   the state file and interpolated into
   `shirabe validate --format json --visibility=<value>`, so a

@@ -363,7 +363,7 @@ Phase 3's own writes:
 - `wip/scope_<topic>_*` — state file and ancillary scratch under
   the same prefix.
 
-Phase 2's absorb adds three groups, recorded here because the
+Phase 2's absorb adds two groups, recorded here because the
 enumeration is closed across the skill rather than per phase:
 
 - **Deletions:** `docs/briefs/BRIEF-<topic>.md`,
@@ -372,7 +372,6 @@ enumeration is closed across the skill rather than per phase:
 - **Mutations:** `docs/{prds,designs,plans}/{PRD,DESIGN,PLAN}-<topic>.md`
   — the survivor, at whichever hop. `docs/plans/` is included
   because the PLAN is the survivor at the terminal hop.
-- **Append:** `docs/folds.md`, a fixed constant.
 
 R8's clean cancel adds one deletion, enumerated for the same
 reason:
