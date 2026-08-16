@@ -1,6 +1,6 @@
 ---
 schema: plan/v1
-status: Draft
+status: Active
 execution_mode: single-pr
 tracking_level: none
 upstream: docs/designs/DESIGN-work-on-retry-clearing.md
@@ -12,7 +12,7 @@ issue_count: 7
 
 ## Status
 
-Draft
+Active
 
 ## Scope Summary
 
