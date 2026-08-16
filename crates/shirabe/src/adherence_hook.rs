@@ -2,12 +2,13 @@
 //! adapter registered on the edit-shaped tools (`Edit`, `Write`, `MultiEdit`,
 //! `NotebookEdit`) by shirabe's own plugin `hooks/hooks.json`.
 //!
-//! The hook registers, runs on every edit-shaped call, **always allows**, and
-//! writes the per-session witness the determination later reads as its
-//! liveness input. It also decides **arming** — whether this session is
-//! performing plan-scale execution in the orchestrator role — and returns that
-//! decision for the refusal increment to consume. Refusal itself is a separate,
-//! later increment; the seam it hangs off is marked in [`run`].
+//! The hook registers, runs on every edit-shaped call, writes the per-session
+//! witness the determination later reads as its liveness input, decides
+//! **arming** — whether this session is performing plan-scale execution in the
+//! orchestrator role — and, when armed, compares the call's write target
+//! against the closed set `/execute` declares. A target outside that set is
+//! **denied** with a reason naming it and the route back in; everything else
+//! allows.
 //!
 //! Behavior:
 //!
@@ -16,8 +17,10 @@
 //!   never an option here: the shipped precedent in this workspace is an
 //!   outdated binary that did not recognize a new subcommand and bricked every
 //!   write in every session on the machine.
-//! - Emits nothing on stdout. An allow is the absence of a decision; the deny
-//!   path does not exist yet.
+//! - Emits nothing on stdout on an allow. An allow is the absence of a
+//!   decision; a deny is a `permissionDecision` object assembled with
+//!   `serde_json`, never string-interpolated, because the reason carries a path
+//!   the session chose.
 //! - Performs one cheap existence check (`docs/plans` under the session's
 //!   working directory) before touching disk any further, so a session in a
 //!   repository that cannot host plan-scale execution leaves no witness and
@@ -55,6 +58,19 @@
 //! [`is_prompt_shaped`] is that boundary. It is tested directly, and
 //! `a_plan_filename_in_tool_output_does_not_arm` is the regression test.
 //!
+//! # The scan is a tail scan, and that shape is forced
+//!
+//! The transcript grows all run and the predicate re-runs on every edit-shaped
+//! call, so a full rescan is linear in transcript size: roughly 2ms against
+//! 4.1MB, extrapolating to about 50ms at 100MB. The fix is to persist the fold
+//! and re-read only what was appended, which [`CachedFold`] does. Both of the
+//! simpler things one would reach for first are wrong, and the reasons are
+//! recorded at [`CachedFold`] and [`fold_transcript`] rather than here: in
+//! short, a cached *verdict* is wrong because the write-target comparison is a
+//! property of the target and not of the session, and a *frozen* arming
+//! decision is wrong because the predicate is not monotone — an author who
+//! re-scopes mid-run must be able to disarm the session.
+//!
 //! Env seam: `SHIRABE_ADHERENCE_DISABLE=1` is the operator switch. It does
 //! **not** suppress the witness — a disabled run still writes one, marked
 //! disabled, so the determination can report "somebody turned this off"
@@ -62,8 +78,8 @@
 //! that predates the feature. `SHIRABE_ADHERENCE_STORE_DIR` relocates the
 //! store (tests).
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::OnceLock;
@@ -122,6 +138,18 @@ const MAX_PLAN_REFERENCES: usize = 32;
 
 /// Cap on one reference. Longer than this is not a path anyone typed.
 const MAX_REFERENCE_LEN: usize = 512;
+
+/// The cached fold's contract version. A cache file that does not declare
+/// exactly this is ignored and the fold re-derives from the start, so the shape
+/// can change without a migration and an older binary sharing the store with a
+/// newer one costs a rescan rather than a misread.
+const SCAN_CACHE_CONTRACT_VERSION: u32 = 1;
+
+/// Cap on the cache file. The state it holds is bounded by
+/// [`MAX_PLAN_REFERENCES`] references of [`MAX_REFERENCE_LEN`] bytes, so this is
+/// an order of magnitude above anything this code writes; a file over it is
+/// ignored rather than read.
+const MAX_SCAN_CACHE_BYTES: u64 = 256 * 1024;
 
 /// The schema a PLAN document declares in its frontmatter. Anything else,
 /// including a missing `schema:`, is not a plan and does not arm.
@@ -269,9 +297,13 @@ fn evaluate(input: &str, store: Option<&Path>) -> Evaluation {
     let body = witness_body(&v, &session_id, &cwd, disabled());
     let witness = store.and_then(|s| write_witness_once(s, &session_id, &body));
 
+    // The fold's cache lives beside the witness. Without a store it is `None`
+    // and the scan re-derives from the start every call: slower, never wrong.
+    let cache = store.map(|s| scan_cache_path(s, &session_id, &v));
+
     Evaluation {
         witness,
-        arming: decide_arming(&v, &cwd),
+        arming: decide_arming(&v, &cwd, cache.as_deref()),
     }
 }
 
@@ -361,6 +393,7 @@ enum Arming {
 /// observe-only stage these reasons are the measurement, and a refusal that
 /// silently stood down for an over-cap read would be indistinguishable from one
 /// that correctly saw no plan.
+#[derive(Debug)]
 enum NotArmed {
     /// The hook JSON, session id, or working directory was unusable.
     UnusableInput,
@@ -425,12 +458,24 @@ impl Arming {
 /// The arming ladder. Reads the transcript holding *this* agent's received
 /// records, scans only the prompt-shaped ones, and requires a plan reference
 /// that resolves inside `cwd` to a regular file carrying the plan schema.
-fn decide_arming(v: &serde_json::Value, cwd: &Path) -> Arming {
+/// `cache` is the session's persisted fold (see [`CachedFold`]); `None` scans
+/// the whole transcript, which is what every failure to resolve the store falls
+/// back to.
+fn decide_arming(v: &serde_json::Value, cwd: &Path, cache: Option<&Path>) -> Arming {
     let Some(transcript) = transcript_for(v) else {
         return Arming::NotArmed(NotArmed::NoTranscript);
     };
-    let scan = match scan_instructions(&transcript) {
-        Ok(s) => s,
+    let scan = match fold_transcript(&transcript, cache) {
+        Ok(f) => {
+            // The cost measure, readable in the field during the observe-only
+            // stage: after the first call of a session these bytes track what
+            // was appended, not the size of the transcript.
+            trace(&format!(
+                "fold bytes={} resumed_from={} offset={}",
+                f.bytes_scanned, f.resumed_from, f.offset
+            ));
+            f.scan
+        }
         Err(e) => return Arming::NotArmed(e),
     };
     // Checked before the references: an instruction that both names a plan and
@@ -500,6 +545,12 @@ fn transcript_for(v: &serde_json::Value) -> Option<PathBuf> {
 }
 
 /// What one transcript scan found in the records the session was *given*.
+///
+/// This is a **fold state**, not a verdict: both fields accumulate in the
+/// append direction and neither is ever cleared, which is what lets a scan
+/// resume from a persisted copy of it rather than starting over. The verdict is
+/// derived from it fresh on every call, in [`decide_arming`].
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
 struct Scan {
     /// Plan-shaped references, in first-seen order, deduplicated.
     references: Vec<String>,
@@ -564,26 +615,234 @@ fn is_prompt_shaped(record: &serde_json::Value) -> Option<String> {
     }
 }
 
-/// Scan a JSONL transcript for plan references in prompt-shaped records.
-fn scan_instructions(transcript: &Path) -> Result<Scan, NotArmed> {
+/// A byte offset into the transcript and the scan state derived to **exactly**
+/// that offset, together with the identity of the file the offset indexes into.
+///
+/// # The pair is the race guard
+///
+/// The offset and the state are one value, read as one and published as one.
+/// Hooks for a single event run in parallel, so two hook processes can read and
+/// publish this concurrently. Because a reader always gets a matched pair or
+/// nothing, a stale read costs a re-fold from an earlier offset — a redundant
+/// rescan over a *superset* of the new bytes — and can never produce a wrong
+/// answer. Split into two independently-read values, a state carried from an
+/// earlier offset would be re-folded against a later one, and the records in
+/// between would be applied twice or skipped entirely.
+///
+/// Publication is by `rename(2)`, which is atomic within a directory, so a
+/// concurrent reader observes the complete old pair or the complete new one and
+/// never a mix. See [`publish_cached_fold`].
+struct CachedFold {
+    /// Device and inode of the transcript the offset was derived against. An
+    /// offset means nothing against a different file. The length check alone
+    /// would not catch this: a transcript *replaced* by a longer one leaves the
+    /// stored offset in range while it no longer means what it meant.
+    dev: u64,
+    ino: u64,
+    /// End of the last newline-terminated record folded into `scan`. Never the
+    /// end of a record that ran to end of input: that record may be an append in
+    /// progress, and resuming past it would silently drop its remainder.
+    offset: u64,
+    /// The state derived from the transcript's first `offset` bytes.
+    scan: Scan,
+}
+
+/// Where a session's cached fold lives: beside its witness in the same store,
+/// keyed by session and — when the evaluated call came from a Task subagent —
+/// by agent as well.
+///
+/// The agent key matters because [`transcript_for`] hands each subagent a
+/// different file. One key covering two transcripts would fail the identity
+/// check on every alternating call and reset the fold each time, which is
+/// correct but pays the full rescan the cache exists to avoid.
+fn scan_cache_path(store: &Path, session_id: &str, v: &serde_json::Value) -> PathBuf {
+    match v
+        .get("agent_id")
+        .and_then(|a| a.as_str())
+        .and_then(sanitize_session_id)
+    {
+        Some(agent) => store.join(format!("{session_id}.agent-{agent}.scan.json")),
+        None => store.join(format!("{session_id}.scan.json")),
+    }
+}
+
+/// Read the cached pair, or `None` when there is none, it is unreadable, or it
+/// does not parse into a **complete** pair.
+///
+/// Free to be this strict because every rejection is a re-derivation from the
+/// start: an unrecognized cache costs one full scan, while a half-trusted one
+/// costs correctness. The same `O_NOFOLLOW` and regular-file discipline the
+/// transcript and the plan get applies here — the store is machine-local and
+/// mode 0700, but a file this code seeks by is not worth treating as trusted.
+fn read_cached_fold(path: &Path) -> Option<CachedFold> {
+    let file = open_regular_nofollow(path)?;
+    if regular_file_len(&file)? > MAX_SCAN_CACHE_BYTES {
+        return None;
+    }
+    let mut raw = String::new();
+    file.take(MAX_SCAN_CACHE_BYTES)
+        .read_to_string(&mut raw)
+        .ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    if v.get("contract_version").and_then(|c| c.as_u64())
+        != Some(SCAN_CACHE_CONTRACT_VERSION as u64)
+    {
+        return None;
+    }
+    // Re-imposed on read rather than trusted from the write, so a cache file
+    // cannot smuggle in a state the live scan's own caps would have refused.
+    let raw_refs = v.get("references")?.as_array()?;
+    if raw_refs.len() > MAX_PLAN_REFERENCES {
+        return None;
+    }
+    let mut references = Vec::with_capacity(raw_refs.len());
+    for r in raw_refs {
+        let r = r.as_str()?;
+        if r.len() > MAX_REFERENCE_LEN {
+            return None;
+        }
+        references.push(r.to_string());
+    }
+    Some(CachedFold {
+        dev: v.get("dev")?.as_u64()?,
+        ino: v.get("ino")?.as_u64()?,
+        offset: v.get("offset")?.as_u64()?,
+        scan: Scan {
+            references,
+            single_issue_marker: v.get("single_issue_marker")?.as_bool()?,
+        },
+    })
+}
+
+/// Publish the pair atomically: write the whole thing to a uniquely named
+/// temporary in the same directory, then `rename(2)` it into place.
+///
+/// Unlike the witness, publication is last-writer-wins rather than
+/// exclusive-create, and deliberately so: a later offset is strictly better
+/// than an earlier one, and losing the race costs the loser's next call a
+/// slightly longer re-fold rather than an error. What must not happen is a
+/// *torn* pair, and `rename` is what rules that out.
+fn publish_cached_fold(path: &Path, fold: &CachedFold) {
+    let body = serde_json::json!({
+        "contract_version": SCAN_CACHE_CONTRACT_VERSION,
+        "dev": fold.dev,
+        "ino": fold.ino,
+        "offset": fold.offset,
+        "references": fold.scan.references,
+        "single_issue_marker": fold.scan.single_issue_marker,
+    })
+    .to_string();
+    let Some(dir) = path.parent() else {
+        return;
+    };
+    let tmp = dir.join(format!(
+        ".scan.{}.{}.tmp",
+        std::process::id(),
+        unique_suffix()
+    ));
+    if write_new(&tmp, &body) && std::fs::rename(&tmp, path).is_ok() {
+        return;
+    }
+    // Fail-open, as everywhere else here: an unpublishable cache costs the next
+    // call a full rescan and changes no decision.
+    let _ = std::fs::remove_file(&tmp);
+}
+
+/// What one fold of the transcript produced.
+struct Folded {
+    /// The state derived from the whole file, whatever this call had to read to
+    /// get there.
+    scan: Scan,
+    /// The offset the published pair names.
+    offset: u64,
+    /// Where this call started folding. Zero means it re-derived from the start.
+    resumed_from: u64,
+    /// Bytes this call read from the transcript. The cost measure the design
+    /// asks for: after the first call it tracks the appended bytes rather than
+    /// the file size. Reported on the trace, and asserted by
+    /// `cost_after_the_first_call_tracks_appended_bytes`.
+    bytes_scanned: u64,
+}
+
+/// Fold the transcript's prompt-shaped records into a [`Scan`], resuming from
+/// the cached pair when one is present and usable, and publishing the new pair.
+///
+/// # Why the state and not the answer
+///
+/// Two tempting simplifications are both wrong, and this function is shaped by
+/// avoiding them.
+///
+/// **A cached verdict would be wrong.** The write-target comparison is a
+/// property of the target path, not of the session, so a session-level verdict
+/// would permit or refuse every write in a session alike — which contradicts
+/// the requirement that an in-set write be permitted in the same session where
+/// an out-of-set write is refused. Only the transcript-derived state is cached
+/// here. Reference resolution and the plan's frontmatter read stay per-call, so
+/// a plan that gains `execution_mode: coordinated` mid-session stands the
+/// refusal down on the very next call.
+///
+/// **A frozen arming decision would also be wrong, because the predicate is not
+/// monotone.** Presence is monotone in the append direction — once an
+/// instruction names a resolvable plan, no later record can unname it — but the
+/// exclusion is not, and the counterexample is ordinary rather than
+/// adversarial. An author who re-scopes mid-session ("actually, just do issue
+/// three") appends a record that *should* disarm. A frozen decision stays
+/// armed, which is stricter-when-stale: it runs against the fail-open direction
+/// and produces exactly the false-refusal class this predicate exists to avoid.
+/// `a_session_rescoped_to_one_issue_disarms` is that case.
+///
+/// Folding the state and re-deriving the verdict gets both: presence stays
+/// monotone, and the disarming exclusion still fires late.
+fn fold_transcript(transcript: &Path, cache: Option<&Path>) -> Result<Folded, NotArmed> {
     let file = open_regular_nofollow(transcript).ok_or(NotArmed::TranscriptUnreadable)?;
-    let size = regular_file_len(&file).ok_or(NotArmed::TranscriptUnreadable)?;
+    let meta = file
+        .metadata()
+        .map_err(|_| NotArmed::TranscriptUnreadable)?;
+    if !meta.is_file() {
+        return Err(NotArmed::TranscriptUnreadable);
+    }
+    let size = meta.len();
     if size > MAX_TRANSCRIPT_BYTES {
         return Err(NotArmed::TranscriptOverCap);
     }
 
+    // Whichever pair is on disk. Both filters below re-derive from the start
+    // rather than resume at a position that no longer means what it meant: a
+    // different file, or a file that has since become shorter than the offset
+    // through truncation or replacement in place.
+    let resume = cache
+        .and_then(read_cached_fold)
+        .filter(|c| c.dev == meta.dev() && c.ino == meta.ino())
+        .filter(|c| c.offset <= size);
+
     let mut reader = BufReader::new(file);
-    let mut buf: Vec<u8> = Vec::new();
-    let mut scan = Scan {
-        references: Vec::new(),
-        single_issue_marker: false,
+    let mut start = resume.as_ref().map_or(0, |c| c.offset);
+    if start > 0 && reader.seek(SeekFrom::Start(start)).is_err() {
+        // A failed seek leaves the reader at the beginning; re-derive rather
+        // than fold new records onto a resumed state at an unknown position.
+        start = 0;
+    }
+    let mut scan = match &resume {
+        Some(c) if start > 0 => c.scan.clone(),
+        _ => Scan::default(),
     };
 
-    while let Some(complete) = read_capped_line(&mut reader, &mut buf) {
+    let mut buf: Vec<u8> = Vec::new();
+    let mut offset = start;
+    let mut bytes_scanned = 0u64;
+
+    while let Some(record) = read_capped_line(&mut reader, &mut buf) {
+        bytes_scanned += record.consumed;
+        // Only a newline is a safe place to stop. A record that ended at end of
+        // input may be an append in progress, and an offset past it would drop
+        // the rest of that record once the writer finishes it.
+        if record.terminated {
+            offset += record.consumed;
+        }
         // An over-cap record is skipped, not parsed. A prompt-shaped record is
         // small; anything past the cap is a tool-result payload we discard
         // anyway.
-        if !complete {
+        if !record.complete {
             continue;
         }
         // Cheap gate before the expensive one. The scan's only outputs are plan
@@ -624,20 +883,64 @@ fn scan_instructions(transcript: &Path) -> Result<Scan, NotArmed> {
                 continue;
             }
             if scan.references.len() == MAX_PLAN_REFERENCES {
+                // Returning here abandons the fold, so nothing is published:
+                // there is no offset this partial state was derived to. The
+                // next call rescans from the last published pair and reaches
+                // the same conclusion, which is the correct trade — a session
+                // whose instructions name more than [`MAX_PLAN_REFERENCES`]
+                // distinct plans is an anomaly, and it allows either way.
                 return Err(NotArmed::TooManyReferences);
             }
             scan.references.push(reference.to_string());
         }
     }
-    Ok(scan)
+
+    // Publishing only when the offset moved keeps the common case — an armed
+    // session's second and later calls with nothing appended since — down to
+    // the read. The `resume.is_none()` arm covers the first call of a session,
+    // which must establish a pair even when the transcript is empty.
+    if let Some(path) = cache {
+        if resume.is_none() || offset != start {
+            publish_cached_fold(
+                path,
+                &CachedFold {
+                    dev: meta.dev(),
+                    ino: meta.ino(),
+                    offset,
+                    scan: scan.clone(),
+                },
+            );
+        }
+    }
+
+    Ok(Folded {
+        scan,
+        offset,
+        resumed_from: start,
+        bytes_scanned,
+    })
+}
+
+/// One record read from the transcript.
+#[derive(PartialEq, Eq, Debug)]
+struct RawRecord {
+    /// The record was under [`MAX_RECORD_BYTES`] and is in `buf`. False when it
+    /// exceeded the cap and its remainder was walked past without being held.
+    complete: bool,
+    /// Bytes consumed from the reader, including the terminating newline and any
+    /// discarded remainder.
+    consumed: u64,
+    /// The record ended at a newline rather than at end of input. This is the
+    /// only kind of boundary an offset may be persisted at, since a record that
+    /// ran to end of input may be a write still in progress.
+    terminated: bool,
 }
 
 /// Read one JSONL record into `buf`, bounded by [`MAX_RECORD_BYTES`].
 ///
-/// Returns `Some(true)` for a complete record, `Some(false)` when the record
-/// exceeded the cap and its remainder was discarded, and `None` at end of
-/// input or on an I/O error. Peak memory is one record, not one transcript.
-fn read_capped_line<R: BufRead>(reader: &mut R, buf: &mut Vec<u8>) -> Option<bool> {
+/// Returns `None` at end of input or on an I/O error, otherwise a [`RawRecord`]
+/// describing what was consumed. Peak memory is one record, not one transcript.
+fn read_capped_line<R: BufRead>(reader: &mut R, buf: &mut Vec<u8>) -> Option<RawRecord> {
     buf.clear();
     let n = reader
         .by_ref()
@@ -647,11 +950,17 @@ fn read_capped_line<R: BufRead>(reader: &mut R, buf: &mut Vec<u8>) -> Option<boo
     if n == 0 {
         return None;
     }
+    let terminated = buf.last() == Some(&b'\n');
     // Newline-terminated, or short of the cap and therefore ended by EOF.
-    if buf.last() == Some(&b'\n') || n < MAX_RECORD_BYTES {
-        return Some(true);
+    if terminated || n < MAX_RECORD_BYTES {
+        return Some(RawRecord {
+            complete: true,
+            consumed: n as u64,
+            terminated,
+        });
     }
     // Over the cap: walk to the end of the record without holding it.
+    let mut consumed = n as u64;
     let mut scratch: Vec<u8> = Vec::new();
     loop {
         scratch.clear();
@@ -660,8 +969,13 @@ fn read_capped_line<R: BufRead>(reader: &mut R, buf: &mut Vec<u8>) -> Option<boo
             .take(MAX_RECORD_BYTES as u64)
             .read_until(b'\n', &mut scratch)
             .ok()?;
+        consumed += m as u64;
         if m == 0 || scratch.last() == Some(&b'\n') {
-            return Some(false);
+            return Some(RawRecord {
+                complete: false,
+                consumed,
+                terminated: scratch.last() == Some(&b'\n'),
+            });
         }
     }
 }
@@ -1040,6 +1354,33 @@ mod tests {
                 serde_json::from_str(&hook("sess-arm", &self.repo())).unwrap();
             v["transcript_path"] = serde_json::json!(transcript.to_string_lossy());
             evaluate(&v.to_string(), Some(&self.store())).arming
+        }
+
+        /// Append records to an existing transcript, as the harness does while
+        /// the session runs, and return the bytes appended. In-place: the
+        /// inode is unchanged, which is what a resumed fold requires.
+        fn append(&self, transcript: &Path, records: &[serde_json::Value]) -> u64 {
+            let before = std::fs::metadata(transcript).unwrap().len();
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(transcript)
+                .unwrap();
+            for r in records {
+                writeln!(f, "{r}").unwrap();
+            }
+            drop(f);
+            std::fs::metadata(transcript).unwrap().len() - before
+        }
+
+        /// The cached pair for the session [`Fx::arm_with_transcript`] uses.
+        fn cache(&self) -> PathBuf {
+            self.store().join("sess-arm.scan.json")
+        }
+
+        /// Device and inode of a path, for building pairs by hand.
+        fn identity(&self, path: &Path) -> (u64, u64) {
+            let m = std::fs::metadata(path).unwrap();
+            (m.dev(), m.ino())
         }
     }
 
@@ -1743,15 +2084,34 @@ mod tests {
         );
     }
 
+    /// A record read: `(complete, consumed, terminated)`, for the assertions
+    /// below.
+    fn record(complete: bool, consumed: u64, terminated: bool) -> Option<RawRecord> {
+        Some(RawRecord {
+            complete,
+            consumed,
+            terminated,
+        })
+    }
+
     #[test]
     fn an_over_cap_record_is_skipped_rather_than_parsed() {
-        let mut long = vec![b'x'; MAX_RECORD_BYTES + 10];
+        let over = MAX_RECORD_BYTES + 10;
+        let mut long = vec![b'x'; over];
         long.push(b'\n');
         long.extend_from_slice(b"second\n");
         let mut reader = std::io::Cursor::new(long);
         let mut buf = Vec::new();
-        assert_eq!(read_capped_line(&mut reader, &mut buf), Some(false));
-        assert_eq!(read_capped_line(&mut reader, &mut buf), Some(true));
+        // Skipped, but every byte of it is accounted for, and it ended at a
+        // newline: the offset may advance past it.
+        assert_eq!(
+            read_capped_line(&mut reader, &mut buf),
+            record(false, over as u64 + 1, true)
+        );
+        assert_eq!(
+            read_capped_line(&mut reader, &mut buf),
+            record(true, 7, true)
+        );
         assert_eq!(buf, b"second\n");
         assert_eq!(read_capped_line(&mut reader, &mut buf), None);
     }
@@ -1760,9 +2120,18 @@ mod tests {
     fn a_final_record_without_a_newline_is_still_read() {
         let mut reader = std::io::Cursor::new(b"one\ntwo".to_vec());
         let mut buf = Vec::new();
-        assert_eq!(read_capped_line(&mut reader, &mut buf), Some(true));
+        assert_eq!(
+            read_capped_line(&mut reader, &mut buf),
+            record(true, 4, true)
+        );
         assert_eq!(buf, b"one\n");
-        assert_eq!(read_capped_line(&mut reader, &mut buf), Some(true));
+        // Read and parsed, but *not* newline-terminated, which is what stops
+        // the persisted offset from advancing past a record that may still be
+        // being written.
+        assert_eq!(
+            read_capped_line(&mut reader, &mut buf),
+            record(true, 3, false)
+        );
         assert_eq!(buf, b"two");
         assert_eq!(read_capped_line(&mut reader, &mut buf), None);
     }
@@ -1900,5 +2269,503 @@ mod tests {
         let body = witness_body(&v, "s", &cwd, false);
         let back: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(back["cwd"], cwd.to_string_lossy().to_string());
+    }
+
+    // --- the tail scan -----------------------------------------------------
+
+    #[test]
+    fn a_session_rescoped_to_one_issue_disarms() {
+        // The case a frozen arming decision gets wrong, and the reason the
+        // cache holds a fold state rather than a verdict. The session arms on a
+        // plan reference; the author then appends "actually, just do issue
+        // three". The exclusion half of the predicate is not monotone, so that
+        // later record has to be able to disarm a session that already armed —
+        // and it has to manage it through the cache, from a fold that resumed
+        // rather than one that started over.
+        let fx = Fx::new();
+        let reference = fx.with_plan("PLAN-topic.md", SINGLE_PR_PLAN);
+        let transcript = fx.transcript(&[prompt(&format!("/execute {reference}"))]);
+
+        assert_eq!(fx.arm_with_transcript(&transcript).reason(), "armed");
+        let armed_at = read_cached_fold(&fx.cache()).expect("the first call publishes a pair");
+        assert!(!armed_at.scan.single_issue_marker);
+
+        let appended = fx.append(
+            &transcript,
+            &[prompt(
+                "Actually, you are a single-issue child: just do issue 3 of that plan.",
+            )],
+        );
+
+        // The disarm arrives through a resumed fold, not a restarted one: this
+        // call reads only the bytes the author just appended.
+        let folded = fold_transcript(&transcript, Some(&fx.cache())).unwrap();
+        assert_eq!(folded.resumed_from, armed_at.offset);
+        assert_eq!(folded.bytes_scanned, appended);
+        assert!(folded.scan.single_issue_marker);
+        assert_eq!(
+            folded.scan.references, armed_at.scan.references,
+            "the presence half is monotone: the plan reference survives the append"
+        );
+
+        // And the verdict follows the state.
+        assert_eq!(
+            fx.arm_with_transcript(&transcript).reason(),
+            "single-issue-delegation",
+            "a later instruction re-scoping the session must disarm it"
+        );
+    }
+
+    #[test]
+    fn any_stale_pair_re_folds_to_the_same_answer() {
+        // The concurrency guarantee, stated as a property rather than raced
+        // for. Hooks for a single event run in parallel, so a reader can be
+        // handed a pair published at any earlier offset. Every one of them —
+        // including no pair at all — must fold to the same state as a scan from
+        // the start. That is what "a redundant rescan over a superset, never a
+        // wrong answer" means, and it holds only because the offset and the
+        // state travel together.
+        let fx = Fx::new();
+        let reference = fx.with_plan("PLAN-topic.md", SINGLE_PR_PLAN);
+        let records = [
+            prompt("have a look at the repository"),
+            tool_result(&format!("here is {reference}, which you must ignore")),
+            prompt(&format!("/execute {reference}")),
+            prompt("carry on"),
+            prompt("Actually, you are a single-issue child now."),
+        ];
+        let transcript = fx.transcript(&records);
+        let cache = fx.dir.join("stale.json");
+        let (dev, ino) = fx.identity(&transcript);
+
+        let truth = fold_transcript(&transcript, None).unwrap().scan;
+
+        for k in 0..=records.len() {
+            // The honest pair after the first k records, derived by folding a
+            // file that holds exactly those records.
+            let prefix = fx.transcript(&records[..k]);
+            let offset = std::fs::metadata(&prefix).unwrap().len();
+            let state = fold_transcript(&prefix, None).unwrap().scan;
+            publish_cached_fold(
+                &cache,
+                &CachedFold {
+                    dev,
+                    ino,
+                    offset,
+                    scan: state,
+                },
+            );
+
+            let resumed = fold_transcript(&transcript, Some(&cache)).unwrap();
+            assert_eq!(
+                resumed.resumed_from, offset,
+                "a fold handed a pair at {offset} must resume there"
+            );
+            assert_eq!(
+                resumed.scan, truth,
+                "a pair {k} records stale must still fold to the whole-file answer"
+            );
+        }
+    }
+
+    #[test]
+    fn a_concurrent_reader_never_observes_a_torn_pair() {
+        // Publication is by rename(2), so a reader gets the complete old pair
+        // or the complete new one. This guards the mechanism rather than
+        // hunting a bug: written in place instead, a reader could pair one
+        // process's offset with another's state, and re-folding that would
+        // double-apply the records in between.
+        let fx = Fx::new();
+        let reference = fx.with_plan("PLAN-topic.md", SINGLE_PR_PLAN);
+        let records: Vec<_> = (0..40)
+            .map(|i| {
+                if i == 17 {
+                    prompt(&format!("/execute {reference}"))
+                } else {
+                    prompt(&format!("filler {i}"))
+                }
+            })
+            .collect();
+        let transcript = fx.transcript(&records);
+        let cache = fx.dir.join("raced.json");
+        let (dev, ino) = fx.identity(&transcript);
+
+        // Every honest pair, for the writers to publish and the readers to
+        // check what they saw against.
+        let pairs: Vec<(u64, Scan)> = (0..=records.len())
+            .map(|k| {
+                let prefix = fx.transcript(&records[..k]);
+                let offset = std::fs::metadata(&prefix).unwrap().len();
+                (offset, fold_transcript(&prefix, None).unwrap().scan)
+            })
+            .collect();
+
+        // Published before the racers start, so from here on the cache always
+        // holds a complete pair. That is what lets a reader treat "no pair" as
+        // a failure rather than as a legitimate first-call state: a publisher
+        // that truncated the file in place would be caught here as an
+        // unreadable pair, where a torn write mostly fails to parse rather
+        // than parsing into a mismatched pair.
+        publish_cached_fold(
+            &cache,
+            &CachedFold {
+                dev,
+                ino,
+                offset: pairs[0].0,
+                scan: pairs[0].1.clone(),
+            },
+        );
+
+        let torn = AtomicUsize::new(0);
+        let missing = AtomicUsize::new(0);
+        let seen = AtomicUsize::new(0);
+        std::thread::scope(|s| {
+            for w in 0..4usize {
+                let (pairs, cache) = (&pairs, &cache);
+                s.spawn(move || {
+                    for round in 0..80usize {
+                        let (offset, scan) = &pairs[(w * 7 + round * 3) % pairs.len()];
+                        publish_cached_fold(
+                            cache,
+                            &CachedFold {
+                                dev,
+                                ino,
+                                offset: *offset,
+                                scan: scan.clone(),
+                            },
+                        );
+                    }
+                });
+            }
+            for _ in 0..4 {
+                let (pairs, cache) = (&pairs, &cache);
+                let (torn, missing, seen) = (&torn, &missing, &seen);
+                s.spawn(move || {
+                    for _ in 0..300 {
+                        match read_cached_fold(cache) {
+                            Some(c) => {
+                                seen.fetch_add(1, Ordering::SeqCst);
+                                if !pairs.iter().any(|(o, sc)| *o == c.offset && *sc == c.scan) {
+                                    torn.fetch_add(1, Ordering::SeqCst);
+                                }
+                            }
+                            None => {
+                                missing.fetch_add(1, Ordering::SeqCst);
+                            }
+                        }
+                    }
+                });
+            }
+        });
+
+        assert_eq!(
+            torn.load(Ordering::SeqCst),
+            0,
+            "a reader observed an offset paired with a state never derived to it"
+        );
+        assert_eq!(
+            missing.load(Ordering::SeqCst),
+            0,
+            "a reader caught the cache mid-publish; publication is not atomic"
+        );
+        assert!(
+            seen.load(Ordering::SeqCst) > 0,
+            "the readers never observed a pair at all, so this proved nothing"
+        );
+        // No temporaries survive the race.
+        let leftovers: Vec<_> = std::fs::read_dir(&fx.dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|n| n.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "temporaries left: {leftovers:?}");
+    }
+
+    #[test]
+    fn a_transcript_shorter_than_the_offset_re_derives_from_the_start() {
+        let fx = Fx::new();
+        let reference = fx.with_plan("PLAN-topic.md", SINGLE_PR_PLAN);
+        let transcript =
+            fx.transcript(&[prompt("filler"), prompt(&format!("/execute {reference}"))]);
+        let cache = fx.dir.join("truncated.json");
+
+        let first = fold_transcript(&transcript, Some(&cache)).unwrap();
+        assert!(first.offset > 0);
+        assert_eq!(first.scan.references, vec![reference]);
+
+        // Truncated and rewritten shorter, in place: the inode is unchanged, so
+        // the length check is what has to catch this.
+        std::fs::write(&transcript, format!("{}\n", prompt("only this now"))).unwrap();
+        let after = fold_transcript(&transcript, Some(&cache)).unwrap();
+        assert_eq!(
+            after.resumed_from, 0,
+            "a file shorter than the offset must re-derive from the start"
+        );
+        assert!(
+            after.scan.references.is_empty(),
+            "state derived to an offset that no longer exists must not survive"
+        );
+    }
+
+    #[test]
+    fn a_replaced_transcript_re_derives_even_when_it_is_longer() {
+        // The length check alone would not catch this: a transcript replaced by
+        // a *longer* file leaves the stored offset in range while it no longer
+        // means what it meant. Identity is what catches it, which is why the
+        // pair carries the device and inode it was derived against.
+        let fx = Fx::new();
+        let reference = fx.with_plan("PLAN-topic.md", SINGLE_PR_PLAN);
+        let transcript = fx.transcript(&[prompt(&format!("/execute {reference}"))]);
+        let cache = fx.dir.join("replaced.json");
+
+        let first = fold_transcript(&transcript, Some(&cache)).unwrap();
+        assert_eq!(first.scan.references, vec![reference.clone()]);
+
+        // A different, longer file renamed over the same path: new inode, and
+        // no plan reference anywhere in it.
+        let other = fx.transcript(
+            &(0..20)
+                .map(|i| prompt(&format!("unrelated {i}")))
+                .collect::<Vec<_>>(),
+        );
+        assert!(std::fs::metadata(&other).unwrap().len() > first.offset);
+        std::fs::rename(&other, &transcript).unwrap();
+
+        let after = fold_transcript(&transcript, Some(&cache)).unwrap();
+        assert_eq!(
+            after.resumed_from, 0,
+            "a replaced transcript must re-derive from the start"
+        );
+        assert!(
+            after.scan.references.is_empty(),
+            "the old file's state must not be carried onto the new file"
+        );
+    }
+
+    #[test]
+    fn the_offset_stops_at_the_last_complete_record() {
+        // The transcript is appended to while the hook reads it, so the last
+        // line may be a write in progress. An offset past it would drop the
+        // rest of that record once the writer finishes — a silent wrong answer
+        // rather than a slow one.
+        let fx = Fx::new();
+        let reference = fx.with_plan("PLAN-topic.md", SINGLE_PR_PLAN);
+        let settled = format!("{}\n", prompt("settled instruction"));
+        let full = prompt(&format!("/execute {reference}")).to_string();
+        let cut = full.len() - 20;
+
+        let transcript = fx.dir.join("in-progress.jsonl");
+        std::fs::write(&transcript, format!("{settled}{}", &full[..cut])).unwrap();
+        let cache = fx.dir.join("in-progress-cache.json");
+
+        let first = fold_transcript(&transcript, Some(&cache)).unwrap();
+        assert_eq!(
+            first.offset,
+            settled.len() as u64,
+            "the offset must stop at the last newline, not at end of file"
+        );
+        assert!(
+            first.scan.references.is_empty(),
+            "a half-written record does not parse"
+        );
+
+        // The writer finishes the record.
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&transcript)
+            .unwrap();
+        writeln!(f, "{}", &full[cut..]).unwrap();
+        drop(f);
+
+        let second = fold_transcript(&transcript, Some(&cache)).unwrap();
+        assert_eq!(second.resumed_from, settled.len() as u64);
+        assert_eq!(
+            second.scan.references,
+            vec![reference],
+            "the completed record must be read in full, not from where the fold stopped"
+        );
+    }
+
+    #[test]
+    fn what_is_cached_is_the_arming_decision_not_the_verdict() {
+        // Two writes to different targets in one armed session are evaluated
+        // separately. A session-level cached verdict would permit or refuse
+        // both alike, which would break the requirement that an in-set write be
+        // permitted in the same session where an out-of-set write is refused.
+        // Nothing about the tool call reaches the cache.
+        let fx = Fx::new();
+        let reference = fx.with_plan("PLAN-topic.md", SINGLE_PR_PLAN);
+        let transcript = fx.transcript(&[prompt(&format!("/execute {reference}"))]);
+
+        let evaluate_write = |target: &str| {
+            let mut v: serde_json::Value =
+                serde_json::from_str(&hook("sess-arm", &fx.repo())).unwrap();
+            v["transcript_path"] = serde_json::json!(transcript.to_string_lossy());
+            v["tool_input"]["file_path"] = serde_json::json!(target);
+            evaluate(&v.to_string(), Some(&fx.store())).arming
+        };
+
+        assert_eq!(evaluate_write("wip/execute/state.yaml").reason(), "armed");
+        assert_eq!(evaluate_write("src/unrelated_module.rs").reason(), "armed");
+
+        let raw = std::fs::read_to_string(fx.cache()).unwrap();
+        for absent in [
+            "unrelated_module",
+            "state.yaml",
+            "file_path",
+            "tool_input",
+            "verdict",
+            "allow",
+            "deny",
+        ] {
+            assert!(
+                !raw.contains(absent),
+                "the cache must carry no trace of the write target or its verdict, found {absent:?} in {raw}"
+            );
+        }
+        let pair = read_cached_fold(&fx.cache()).unwrap();
+        assert_eq!(pair.scan.references, vec![reference]);
+    }
+
+    #[test]
+    fn cost_after_the_first_call_tracks_appended_bytes() {
+        let fx = Fx::new();
+        let reference = fx.with_plan("PLAN-topic.md", SINGLE_PR_PLAN);
+        // Big enough that "proportional to the file" and "proportional to the
+        // append" are not the same number.
+        let filler = "x".repeat(2048);
+        let mut records = vec![prompt(&format!("/execute {reference}"))];
+        records.extend((0..1200).map(|i| tool_result(&format!("{filler} {i}"))));
+        let transcript = fx.transcript(&records);
+        let cache = fx.dir.join("cost.json");
+        let size = std::fs::metadata(&transcript).unwrap().len();
+        assert!(
+            size > 2 * 1024 * 1024,
+            "fixture too small to tell apart: {size}"
+        );
+
+        let first = fold_transcript(&transcript, Some(&cache)).unwrap();
+        assert_eq!(first.resumed_from, 0);
+        assert_eq!(
+            first.bytes_scanned, size,
+            "the first call has no pair and reads the whole transcript"
+        );
+
+        let appended = fx.append(&transcript, &[prompt("one more instruction")]);
+        let second = fold_transcript(&transcript, Some(&cache)).unwrap();
+        assert_eq!(second.resumed_from, size);
+        assert_eq!(
+            second.bytes_scanned, appended,
+            "the second call reads the appended bytes and nothing else"
+        );
+        assert!(
+            second.bytes_scanned * 100 < size,
+            "the append is {appended} bytes against a {size} byte file; \
+             a cost that tracked file size would not be two orders smaller"
+        );
+
+        // A call with nothing appended since reads nothing at all.
+        let third = fold_transcript(&transcript, Some(&cache)).unwrap();
+        assert_eq!(third.bytes_scanned, 0);
+        // The answer never moved.
+        assert_eq!(second.scan, first.scan);
+        assert_eq!(third.scan, first.scan);
+    }
+
+    #[test]
+    fn an_unusable_pair_costs_a_rescan_rather_than_a_wrong_answer() {
+        // Every rejection re-derives from the start, so the reader is free to
+        // be strict: an unrecognized pair costs one full scan, a half-trusted
+        // one costs correctness.
+        let fx = Fx::new();
+        let reference = fx.with_plan("PLAN-topic.md", SINGLE_PR_PLAN);
+        let transcript =
+            fx.transcript(&[prompt("filler"), prompt(&format!("/execute {reference}"))]);
+        let (dev, ino) = fx.identity(&transcript);
+        let truth = fold_transcript(&transcript, None).unwrap().scan;
+        let good = serde_json::json!({
+            "contract_version": SCAN_CACHE_CONTRACT_VERSION,
+            "dev": dev,
+            "ino": ino,
+            "offset": 1,
+            "references": [],
+            "single_issue_marker": false,
+        });
+
+        let mutate = |f: &dyn Fn(&mut serde_json::Value)| {
+            let mut v = good.clone();
+            f(&mut v);
+            v.to_string()
+        };
+        let cases: Vec<(&str, String)> = vec![
+            ("not json at all", "{".to_string()),
+            ("a JSON array rather than an object", "[]".to_string()),
+            (
+                "a future contract version",
+                mutate(&|v| v["contract_version"] = serde_json::json!(99)),
+            ),
+            (
+                "an offset that is not a number",
+                mutate(&|v| v["offset"] = serde_json::json!("12")),
+            ),
+            (
+                "a state with no offset beside it",
+                mutate(&|v| {
+                    v.as_object_mut().unwrap().remove("offset");
+                }),
+            ),
+            (
+                "more references than the live scan would admit",
+                mutate(&|v| {
+                    v["references"] = serde_json::json!(vec!["x"; MAX_PLAN_REFERENCES + 1])
+                }),
+            ),
+            (
+                "a reference longer than the live scan would admit",
+                mutate(&|v| {
+                    v["references"] = serde_json::json!([" ".repeat(MAX_REFERENCE_LEN + 1)])
+                }),
+            ),
+        ];
+
+        for (name, body) in cases {
+            let cache = fx.dir.join("unusable.json");
+            let _ = std::fs::remove_file(&cache);
+            std::fs::write(&cache, &body).unwrap();
+            assert!(read_cached_fold(&cache).is_none(), "{name} must be refused");
+            let folded = fold_transcript(&transcript, Some(&cache)).unwrap();
+            assert_eq!(
+                folded.resumed_from, 0,
+                "{name} must re-derive from the start"
+            );
+            assert_eq!(
+                folded.scan, truth,
+                "{name} must still reach the right answer"
+            );
+        }
+    }
+
+    #[test]
+    fn a_symlinked_cache_path_is_refused_and_not_written_through() {
+        let fx = Fx::new();
+        let reference = fx.with_plan("PLAN-topic.md", SINGLE_PR_PLAN);
+        let transcript = fx.transcript(&[prompt(&format!("/execute {reference}"))]);
+        let outside = fx.dir.join("outside.json");
+        let cache = fx.dir.join("linked.json");
+        std::os::unix::fs::symlink(&outside, &cache).unwrap();
+
+        let folded = fold_transcript(&transcript, Some(&cache)).unwrap();
+        assert_eq!(folded.scan.references, vec![reference]);
+        assert!(
+            !outside.exists(),
+            "publication must replace the symlink, never write through it"
+        );
+        assert!(
+            std::fs::symlink_metadata(&cache)
+                .unwrap()
+                .file_type()
+                .is_file(),
+            "the cache path must be left a regular file"
+        );
     }
 }

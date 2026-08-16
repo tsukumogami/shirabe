@@ -2054,7 +2054,9 @@ mod tests {
         fx.index(REAL_INDEX_IDS);
         let d = outcome_of(&fx, &plan);
         assert_eq!(d.outcome, Outcome::NonConforming, "{}", d.reason);
-        assert!(d.reason.contains("registered no koto orchestration session"));
+        assert!(d
+            .reason
+            .contains("registered no koto orchestration session"));
     }
 
     #[test]
@@ -2349,8 +2351,14 @@ mod tests {
 
     #[test]
     fn a_step_naming_an_issue_outside_the_plan_covers_nothing() {
-        assert_eq!(step_identity("delegate issue 9", 9), Some(StepIdentity::Issue(9)));
-        assert_eq!(step_identity("delegate issue-9", 9), Some(StepIdentity::Issue(9)));
+        assert_eq!(
+            step_identity("delegate issue 9", 9),
+            Some(StepIdentity::Issue(9))
+        );
+        assert_eq!(
+            step_identity("delegate issue-9", 9),
+            Some(StepIdentity::Issue(9))
+        );
         assert_eq!(step_identity("delegate issue 10", 9), None);
         assert_eq!(step_identity("delegate issue 0", 9), None);
     }
