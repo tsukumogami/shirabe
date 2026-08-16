@@ -37,42 +37,67 @@ re-derives it.
 ```bash
 LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")
 
-# The commit range the release covers. With no previous tag this is the first
-# release, so the range is the whole history.
+# The commit range the release covers. An empty LAST_TAG is the first release.
+# The guard is load-bearing: "..HEAD" is a range git ACCEPTS, and it resolves to
+# zero commits, so without it a first release derives an empty set silently
+# rather than failing.
 if [ -n "$LAST_TAG" ]; then
   RELEASE_RANGE="$LAST_TAG..HEAD"
 else
   RELEASE_RANGE="HEAD"
 fi
 
-# The pull requests the release contains, read off that range: GitHub's squash
-# merge appends "(#N)" to the commit subject.
-RELEASE_PRS=$(git log --format='%s' "$RELEASE_RANGE" \
-  | grep -oE '\(#[0-9]+\)$' \
+# Later phases run as separate shell invocations, so the derivation is written
+# to files rather than left in variables: a shell variable set here is gone by
+# the time Phase 2 runs, and an empty list there would pass the security check
+# by finding nothing. These three files ARE the release's membership.
+mkdir -p wip
+printf '%s\n' "$RELEASE_RANGE" > wip/release-range.txt
+
+# The pull requests the release contains: GitHub's squash merge appends "(#N)"
+# to the commit subject. grep exits 1 when nothing matches, which is a legal
+# outcome here rather than a failure, so it is guarded.
+git log --format='%s' "$RELEASE_RANGE" \
+  | { grep -oE '\(#[0-9]+\)$' || true; } \
   | tr -d '(#)' \
-  | sort -n -u)
+  | sort -n -u > wip/release-prs.txt
 
 # Commits in the range that name no pull request: the release chore commits,
 # and anything pushed straight to the base branch.
-UNATTRIBUTED_COMMITS=$(git log --format='%h %s' "$RELEASE_RANGE" \
-  | grep -vE '\(#[0-9]+\)$')
+git log --format='%h %s' "$RELEASE_RANGE" \
+  | { grep -vE '\(#[0-9]+\)$' || true; } > wip/release-unattributed.txt
+
+echo "Release range: $RELEASE_RANGE"
+echo "Pull requests in the release: $(wc -l < wip/release-prs.txt)"
+echo "In the release, not in a pull request:"
+cat wip/release-unattributed.txt
 ```
 
-`$RELEASE_PRS` is the release's membership, computed here and nowhere else.
-**Do not re-derive it from a `gh pr list --search "merged:>..."` query.** GitHub
-reads a bare `merged:>YYYY-MM-DD` as "after the *end* of that day", so a
-date-shaped bound silently drops every pull request merged on the previous
-tag's own calendar day -- from the notes and from the security check alike. The
-commit range has no boundary to get wrong, and one value with two consumers
-cannot disagree with itself.
+`wip/release-prs.txt` is the release's membership, computed here and nowhere
+else; Phase 2 and Phase 3 read it. **Do not re-derive it from a `gh pr list
+--search "merged:>..."` query**, for two reasons that compound. GitHub reads a
+bare `merged:>YYYY-MM-DD` as "after the *end* of that day", so a date-shaped
+bound silently drops every pull request merged on the previous tag's own
+calendar day. And `merged:>` has no upper bound at all, so it also credits
+anything merged *after* the release point -- against `v0.16.0` with a release
+point of `v0.17.0` it returns 18 pull requests where the range holds 13. The
+commit range has both bounds and no date semantics to get wrong.
 
-The parse assumes GitHub wrote the `(#N)` suffix, which holds while the
+The parse assumes GitHub wrote the `(#N)` suffix. That holds while the
 repository squash-merges (`allow_merge_commit` and `allow_rebase_merge` both
-false, with `squash_merge_commit_title: PR_TITLE`). It is anchored to the end of
-the subject, so a pull request whose own title ends in a parenthesized number is
-not misread. If the assumption ever stops holding, the symptom is a crowd of
-entries in `$UNATTRIBUTED_COMMITS` rather than a silently short list -- which is
-what that value is for.
+false, with `squash_merge_commit_title: PR_TITLE`) -- a live repository setting,
+not something this file can enforce, and one an adopting repository may not
+share. The pattern is anchored to the end of the subject, so a pull request
+whose own title ends in a parenthesized number is not misread.
+
+The unattributed list printed above is what makes that assumption checkable
+rather than assumed. A handful of entries is normal: every release carries the
+version-bump chore commit. A list that is suddenly most of the range means the
+suffix is no longer being written -- the merge strategy changed, or work is
+landing by direct push -- and the pull request set is incomplete. Stop and
+reconcile by hand before releasing when that happens; it is the one signal that
+the derivation has gone quiet rather than empty. Printing it here, before the
+notes are drafted, is also what makes it useful rather than a footnote.
 
 If no tag exists, this is the first release -- ask for version.
 
@@ -102,14 +127,15 @@ All must pass before proceeding:
 4. **No existing draft**: `gh release view v<version>` returns 404
 5. **No release blockers**: Query `gh issue list --label blocks-release --state open`.
    If any exist, list them and stop. Also check `gh issue list --label priority:critical --state open`.
-6. **Security-labeled PRs**: read the labels of every pull request in
-   `$RELEASE_PRS` (Phase 1) and keep the ones carrying `security`:
+6. **Security-labeled PRs**: read the labels of every pull request Phase 1
+   derived and keep the ones carrying `security`:
 
    ```bash
-   for pr in $RELEASE_PRS; do
+   while read -r pr; do
      gh pr view "$pr" --json number,title,labels \
-       --jq 'select(.labels[]?.name == "security") | "\(.number) \(.title)"'
-   done
+       --jq 'select([.labels[].name] | index("security")) | "\(.number) \(.title)"' \
+       || echo "UNRESOLVED #$pr: in the release range but not a pull request in this repo"
+   done < wip/release-prs.txt
    ```
 
    The set is the one Phase 1 derived and Phase 3 writes the notes from, so a
@@ -117,6 +143,13 @@ All must pass before proceeding:
    the point: this check fails permissively -- a pull request it does not see is
    published with a standard description and nobody is prompted -- so it must not
    be reading a different, narrower set than the notes are.
+
+   The `|| echo` is not decoration. A `(#N)` suffix can name something that is
+   not a pull request in this repository: a revert, a hand-written subject, or a
+   commit cherry-picked from elsewhere. `gh pr view` exits non-zero on those, and
+   without the branch the number would be skipped in silence -- which is the
+   failure mode this whole check exists to close. Treat any `UNRESOLVED` line as
+   something to look at by hand before releasing, not as a pass.
 
    If found, flag them and use AskUserQuestion to decide how each is handled in the
    release notes, following the pattern in
@@ -140,11 +173,15 @@ Report the specific failure and stop on any check.
 
 Generate notes, present them, and confirm the version with the user.
 
-1. Gather commits: `git log --oneline "$RELEASE_RANGE"`
-2. The merged PRs are `$RELEASE_PRS` from Phase 1 -- the pull requests this
-   release contains. No further query is needed: a squash subject already
-   carries the conventional-commit type, the description, and the number, so
-   step 1 has everything the notes group and write.
+1. Gather commits: `git log --oneline "$(cat wip/release-range.txt)"`. Each
+   subject carries the conventional-commit type, the description, and the `(#N)`
+   suffix, so this one read has everything the notes are written from.
+2. Cross-check against `wip/release-prs.txt` from Phase 1 -- the release's
+   membership. Every number in that file must appear in a subject step 1
+   gathered, and no other pull request may be credited. It is a check, not a
+   second gather: the file was derived from this same range, so a disagreement
+   means one of the two reads went wrong and the notes should not be written
+   until you know which.
 3. Group by type (features, fixes, other)
 4. Draft user-facing notes:
    - Focus on user impact
@@ -153,11 +190,10 @@ Generate notes, present them, and confirm the version with the user.
    - Handle security-labeled PRs per user's Phase 2 decision
 
 5. **Print the notes in chat** so the user can read them, followed by
-   `$UNATTRIBUTED_COMMITS` under a short heading such as "In the release, not in
-   a pull request". Every release carries at least the version-bump chore
-   commit, so this is informational and does not stop the release -- it is there
-   so a direct push to the base branch is something the author sees rather than
-   something the pull request list quietly cannot represent.
+   `cat wip/release-unattributed.txt` under a short heading such as "In the
+   release, not in a pull request". Phase 1 already printed this list; repeating
+   it here puts it in front of the author at the moment they are deciding
+   whether the notes are complete.
 
 6. **Use AskUserQuestion** to present the recommended version with
    alternatives. Include the commit analysis from Phase 1:
@@ -190,8 +226,10 @@ gh release create "v<version>" \
 ```
 
 The draft survives workflow failures and is editable in the GitHub
-UI. The `wip/` file is cleaned per the standard pre-merge wip/
-cleanup convention.
+UI. This file and Phase 1's three release-contents files
+(`wip/release-range.txt`, `wip/release-prs.txt`,
+`wip/release-unattributed.txt`) are cleaned per the standard
+pre-merge wip/ cleanup convention.
 
 ### Phase 5: Workflow Dispatch
 
@@ -244,7 +282,9 @@ When `--dry-run` is passed:
 
 | Phase | Failure | Recovery |
 |-------|---------|---------|
-| 1 | `$RELEASE_PRS` is empty but the range has commits | Check `$UNATTRIBUTED_COMMITS`: if every commit is listed there, the repository is not writing `(#N)` suffixes (merge strategy changed) and the derivation's assumption no longer holds |
+| 1 | `wip/release-prs.txt` is empty but the range has commits | Read `wip/release-unattributed.txt`: if every commit is listed there, the repository is not writing `(#N)` suffixes (the merge strategy changed) and the derivation's assumption no longer holds |
+| 1 | `wip/release-range.txt` holds `HEAD` on a repo that has tags | `git describe` found no `v*` tag from this commit -- check you are on the release branch and that tags are fetched (`git fetch --tags`) |
+| 2 | `UNRESOLVED #N` from the security check | The `(#N)` names something that is not a pull request here (a revert, a hand-written subject, a cherry-pick). Check it by hand before releasing |
 | 2 | Dirty tree | `git stash` or commit |
 | 2 | CI failing | Fix and push |
 | 2 | Tag exists | `git push --delete origin v<version>` |

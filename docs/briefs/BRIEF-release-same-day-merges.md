@@ -8,10 +8,11 @@ problem: |
   merged on the same calendar day as the previous tag -- from the notes, and
   from the security check that decides whether a fix may be described.
 outcome: |
-  An author cutting a release gets one set of pull requests, derived from the
-  commits the release actually contains, and the security check runs against
-  that same set. A PR merged four hours after the previous tag appears in both,
-  and the two lists cannot disagree because there is no longer a second list.
+  An author cutting a release gets a pull request set that holds everything the
+  release contains, and the security check runs against that same set. A PR
+  merged four hours after the previous tag appears in both. Whether the two
+  computations become one or the second is made exact is the downstream
+  decision; either way the author stops depending on an undefined value.
 motivating_context: |
   Found while cutting v0.18.0. The notes shipped complete only because the
   missing PR was noticed by hand and pulled in by number. The same truncation
@@ -19,7 +20,7 @@ motivating_context: |
   have surfaced it at all.
 ---
 
-# BRIEF: One PR set for a release, derived from its commits
+# BRIEF: A release credits only some of the pull requests it contains
 
 ## Status
 
@@ -27,7 +28,9 @@ Accepted
 
 Framing for issue #321. The downstream PRD owns the requirements; this brief
 stops at the problem, the outcome, the journeys that exercise it, and where the
-boundary sits.
+boundary sits. It deliberately does not pick between the two candidate
+resolutions the Scope Boundary names -- that is the design's call, and the
+outcome and journeys here are written so either one reaches them.
 
 Two framing details were carried as Open Questions through the Draft and are
 recorded here because Accepted status forbids that section. Both resolve in the
@@ -35,9 +38,10 @@ downstream PRD's Decisions and Trade-offs. Whether the notes gather needs pull
 request bodies or only numbers and titles: only numbers and titles, since a
 squash subject already carries the type prefix, the description, and the
 number, and bodies are read only for the security-labeled subset. What the
-skill does when its two lists disagree: report and continue -- and once the
-second list is gone there is nothing to reconcile, so what gets reported
-instead is the opposite gap, commits in the range that name no pull request.
+skill does when the release's commits and its credited pull requests do not
+line up: report and continue, never stop, because a release legitimately
+contains commits no pull request accounts for and a blocking check would fire
+every time.
 
 ## Problem Statement
 
@@ -92,16 +96,22 @@ the one two consumers happen to read.
 
 ## User Outcome
 
-An author cutting a release gets one answer to "what is in this release",
-derived from the commits the release actually contains. The security check
-asks its question of that same set, so a security-labeled PR merged an hour
-after the previous tag reaches the describe/redact/exclude decision instead of
-falling through it.
+An author cutting a release gets a pull request set that holds everything the
+release contains, and the security check asks its question of that same set, so
+a security-labeled PR merged an hour after the previous tag reaches the
+describe/redact/exclude decision instead of falling through it.
 
 The author does not have to know how GitHub's search resolves a bare date, and
 does not have to reconstruct a variable the skill never defined. Neither does
 the next author, because the skill no longer asks anyone to supply a value
 whose precision decides whether the release notes are complete.
+
+The brief deliberately stops short of saying *how*. Both candidate resolutions
+reach this outcome: deriving the set from the commit range collapses the two
+computations into one, and defining the missing variable as a full-precision
+timestamp leaves two but makes the second exact. Choosing between them is the
+downstream design's call, and this outcome is written so it does not prejudge
+it.
 
 ## User Journeys
 
@@ -111,8 +121,7 @@ A maintainer tags a release in the morning, merges more work through the
 afternoon, and cuts the next release that evening -- or the next morning, with
 the afternoon's merges still on the tag's calendar day. Today the second
 release's notes silently omit everything merged after the first tag but before
-midnight. After this work the notes carry them, because the PR set is read off
-the commit range that already bounds the release.
+midnight. After this work the notes carry them.
 
 The journey's outcome shape is a complete changelog, reached without the author
 noticing anything was at risk.
@@ -135,20 +144,23 @@ document. A missing entry here is a decision that never got made.
 Someone editing `skills/release/SKILL.md` -- or an agent executing it -- reaches
 `$LAST_TAG_DATE` and looks for its definition. There isn't one. Today they
 supply something plausible and the plausible thing is wrong. After this work
-there is no undefined value to resolve, because the release's contents are
-computed once from a range the skill already established.
+every value the skill's commands use is defined in the skill, above its use.
 
 The journey exercises the skill as prose read by whoever runs it next, which is
 the surface a skill actually has.
 
-### The two lists disagree and nobody is told
+### The commit list and the credited PRs do not line up
 
-An author with both lists in front of them sees five commits and four PRs and
-has no reason to think that is a mismatch rather than an ordinary difference --
-a direct push, a release chore commit, a revert. Today nothing reconciles them.
-The journey's outcome shape is that a disagreement between what the release
-contains and what the notes credit is surfaced where an author will see it,
-rather than left to a manual count.
+An author sees five commits and four credited PRs and has no reason to think
+that is a mismatch rather than an ordinary difference -- a direct push, a
+release chore commit, a revert. Today nothing accounts for the gap, so a lost
+PR and a legitimate unattributed commit look identical.
+
+The journey's outcome shape is that whatever the release contains but no pull
+request accounts for is named where the author will see it, so a gap that is
+ordinary reads as ordinary and a gap that is not stands out. Which mechanism
+produces that accounting depends on the resolution the design picks, and this
+journey is written against the outcome rather than against either mechanism.
 
 ## Scope Boundary
 

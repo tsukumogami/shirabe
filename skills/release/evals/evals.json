@@ -72,7 +72,7 @@
       "prompt": "/release 0.3.0 (one merged PR carries the security label, fixing a token-leak in a version that already shipped)",
       "expected_output": "Phase 2 finds the security-labeled PR, reads it, and recommends a single treatment for the release notes rather than listing standard/redacted/excluded for the user to pick from. Because an affected version already shipped, the recommendation is Redacted, grounded in what the PR fixed and the shipped-version fact. The other treatments stay available so the user can override.",
       "assertions": [
-        "Queries for merged PRs carrying the security label since the last tag",
+        "Finds the security-labeled PR by reading labels for the pull requests in the release, not by running a date-bounded `merged:>` search",
         "Reads the PR before asking, rather than asking cold",
         "Recommends one of the three treatments and marks it, instead of listing standard/redacted/excluded as an unranked set",
         "Grounds the recommendation in what the PR actually did and whether an affected version already shipped",

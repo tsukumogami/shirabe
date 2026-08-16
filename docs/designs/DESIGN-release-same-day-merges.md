@@ -117,30 +117,62 @@ can drift.
 
 #### Chosen: Derive from the commit range
 
-Phase 1 already computes `LAST_TAG`. Extend it to name the release range once
-and derive the pull request set from it, by parsing the `(#N)` suffix that
-GitHub's squash merge writes into the commit subject:
+Phase 1 already computes `LAST_TAG`. Extend it to name the release range once,
+derive the pull request set from it by parsing the `(#N)` suffix that GitHub's
+squash merge writes into the commit subject, and **write both to files**:
 
 ```bash
 LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")
-RELEASE_RANGE="$LAST_TAG..HEAD"
+if [ -n "$LAST_TAG" ]; then
+  RELEASE_RANGE="$LAST_TAG..HEAD"
+else
+  RELEASE_RANGE="HEAD"
+fi
 
-RELEASE_PRS=$(git log --format='%s' "$RELEASE_RANGE" \
-  | grep -oE '\(#[0-9]+\)$' \
+mkdir -p wip
+printf '%s\n' "$RELEASE_RANGE" > wip/release-range.txt
+
+git log --format='%s' "$RELEASE_RANGE" \
+  | { grep -oE '\(#[0-9]+\)$' || true; } \
   | tr -d '(#)' \
-  | sort -n -u)
+  | sort -n -u > wip/release-prs.txt
 ```
 
 Phase 2's security precondition and Phase 3's notes gather both read
-`$RELEASE_PRS`. Neither runs a `merged:>` search, and `$LAST_TAG_DATE` is
+`wip/release-prs.txt`. Neither runs a `merged:>` search, and `$LAST_TAG_DATE` is
 deleted.
+
+**The files are the load-bearing part, not a convenience.** A skill's phases are
+prose an agent executes, and each block runs as its own shell invocation --
+shell variables do not survive from one to the next. A `RELEASE_PRS` left in a
+variable would be unset by the time Phase 2 read it, the security precondition
+would iterate an empty list, find no security-labeled pull request, and pass.
+That is the same silent-and-permissive failure this design exists to remove,
+reached by a different route. `wip/` is where a non-koto skill puts
+intermediates (`CLAUDE.md` section "Intermediate Storage"), and Phase 4 already
+writes the notes there, so the carrier follows a convention the skill has rather
+than inventing one.
+
+The `|| true` guard is also load-bearing: `grep` exits 1 when nothing matches,
+which is a legal outcome for a release whose range holds only chore commits, and
+an unguarded non-zero exit reads to an executing agent as a failed step.
+
+The empty-`LAST_TAG` branch is not defensive tidiness. `"..HEAD"` is a range git
+**accepts**: it resolves to `HEAD..HEAD` and returns zero commits, silently. An
+unguarded first release would therefore derive an empty pull request set and an
+empty security check rather than erroring. With the guard the range is `HEAD` and
+the first release derives its whole history -- 141 pull requests in this
+repository -- which over-includes rather than under-includes, the safe direction
+for a precondition that fails permissively.
 
 The suffix is written by GitHub, not by authors: shirabe permits squash merges
 only (`allow_merge_commit` and `allow_rebase_merge` are both false) with
 `squash_merge_commit_title: PR_TITLE`, and GitHub appends `(#N)` to a
-PR_TITLE-derived squash subject. The parse is anchored to the end of the
-subject so a pull request whose own title contains a parenthesized number is
-not misread.
+PR_TITLE-derived squash subject. Across this repository's 185 commits, the 44
+subjects without a suffix are the 42 workflow-authored `chore(release):` commits
+and the two bootstrap commits; no human pull request merge lacks one. The parse
+is anchored to the end of the subject so a pull request whose own title contains
+a parenthesized number is not misread.
 
 Three properties follow, and they are the reason this option is chosen over a
 narrower repair:
@@ -162,13 +194,41 @@ narrower repair:
 both searches otherwise as they are. This is the smaller edit and it does fix
 the reproduced case: the timestamp-shaped search returns `#297`.
 
-Rejected because it leaves two derivations of one fact and two call sites to
-keep correct. The defect being fixed is not that a search term was imprecise;
-it is that the imprecise derivation existed alongside an exact one and nothing
-reconciled them. This option preserves that shape and depends on every future
-editor of either line preserving the precision -- which is the assumption that
-already failed once, since `$LAST_TAG_DATE` presumably had a definition in
-someone's head when the line was written.
+Rejected because it does not express the set the requirement names, and because
+it leaves two derivations of one fact.
+
+R1 is a statement about a commit range: every pull request whose merge falls
+between the previous tag and the release point. `merged:>T` is a half-open
+interval with no upper bound, so it agrees with that range only when the release
+point happens to be the tip of `main` at the instant the search runs. Measured:
+against `v0.16.0` with a release point of `v0.17.0`, the timestamp search returns
+18 pull requests where the range holds 13, and the five extras are exactly the
+next release's contents. The window is not exotic -- Phase 3 gathers from local
+`HEAD`, Phase 5 dispatches with `ref=main`, and between them sit a version
+question, an edit loop on the notes, and up to five minutes of monitoring. A
+stale local checkout produces the same over-inclusion with no elapsed time at
+all. Bounding it above would need a second timestamp, and squash committer dates
+disagree with `mergedAt` by up to a second in both directions, so
+`merged:<$RELEASE_DATE` would drop the newest pull request in a release about as
+often as it worked.
+
+It also leaves two independently editable command strings that must be kept in
+agreement by discipline -- and they already are not: line 91 filters `--base
+main` and line 67 does not, and neither passes `--limit`, so both silently
+truncate at `gh`'s default of 30. The defect being fixed is not that a search
+term was imprecise; it is that the imprecise derivation existed alongside an
+exact one and nothing reconciled them. This option preserves that shape and
+depends on every future editor of either line preserving the precision -- which
+is the assumption that already failed once, since `$LAST_TAG_DATE` presumably
+had a definition in someone's head when the line was written.
+
+The failure modes differ in kind, and that is what settles it. This option's
+failures are all silent: a truncated precision produces a shorter list that
+renders as a complete changelog, a stale checkout produces a longer one, and
+neither leaves a trace. The chosen option's known failure -- a squash subject
+that lost its suffix -- lands in the unattributed-commit report by construction,
+because the same anchored pattern that selects the attributed half prints the
+rest.
 
 It has a second, narrower problem. `git describe --tags` returns a tag name,
 and `git log -1 --format=%cI <tag>` reads the committer date of the commit the
@@ -203,10 +263,11 @@ happen.
 Phase 2 iterates the derived set and reads each pull request's labels:
 
 ```bash
-for pr in $RELEASE_PRS; do
+while read -r pr; do
   gh pr view "$pr" --json number,title,labels \
-    --jq 'select(.labels[]?.name == "security") | "\(.number) \(.title)"'
-done
+    --jq 'select([.labels[].name] | index("security")) | "\(.number) \(.title)"' \
+    || echo "UNRESOLVED #$pr: in the release range but not a pull request in this repo"
+done < wip/release-prs.txt
 ```
 
 This forces the placement question, and the answer is what makes the whole
@@ -216,10 +277,21 @@ computes `LAST_TAG` and already walks the commit range to count prefixes. Phase
 1 becomes the single site that answers "what is in this release"; Phase 2 and
 Phase 3 are consumers.
 
-The cost is one API call per pull request in the release. Recent shirabe
-releases carry five to fifteen, so a release spends five to fifteen calls
-against a 5000-per-hour authenticated limit. The precondition already makes
-several `gh` calls of its own.
+**The `|| echo` branch is required, not hygiene.** A `(#N)` suffix is not
+guaranteed to name a pull request in this repository: a revert, a hand-written
+subject, or a commit cherry-picked from another repository can end in a number
+that is an issue or a foreign pull request. `gh pr view` exits non-zero on
+those -- verified, `gh pr view 320` on an issue returns "Could not resolve to a
+PullRequest with the number of 320" -- and without the branch that number is
+skipped in silence. A precondition that fails permissively must not be able to
+drop an entry without saying so, which is the whole complaint against the
+mechanism being replaced.
+
+The cost is one API call per pull request in the release, against a
+5000-per-hour authenticated limit. A normal release is five to fifteen; the
+first release of a repository is its whole history, 141 here, which is still
+under 3% of an hour's budget. The precondition already makes several `gh` calls
+of its own.
 
 #### Alternatives Considered
 
@@ -229,6 +301,17 @@ calls for one. Rejected because it does not work: GitHub's search treats bare
 numbers as full-text terms rather than as a number filter, so
 `--search "label:security 292 297 311 316 318"` returns an empty set even when
 a matching pull request exists. Verified against this repository.
+
+**One bulk list, filtered locally.** `gh pr list --state merged --base main
+--json number,labels --limit N` returns numbers and labels in one call with no
+search grammar involved; intersect it with the derived set in the shell. This
+works -- verified against this repository -- and costs one call instead of N.
+Rejected as the default because `--limit` reintroduces silent truncation, which
+is the same defect class as the `--limit 30` default already sitting unnoticed
+on line 91, and because it puts a second GitHub query back next to the notes
+gather where it can drift. Worth revisiting if a release ever spans enough pull
+requests for call count to matter; the truncation would then have to be made
+loud rather than accepted.
 
 **Keep a `merged:>` search for the security check alone, with a timestamp.**
 Leave Phase 2 querying GitHub directly and only change Phase 3. Rejected
@@ -243,17 +326,22 @@ commit in the range that carries no `(#N)` suffix is in the release and in no
 pull request. Release chore commits are the routine case; a direct push to
 `main` is the interesting one. PRD R4 requires this be visible.
 
-#### Chosen: Phase 1 computes it, Phase 3 surfaces it with the notes
+#### Chosen: Phase 1 computes and prints it, Phase 3 repeats it with the notes
 
-Phase 1 emits it alongside the derived set:
+Phase 1 emits it alongside the derived set, into the same carrier, and prints
+it:
 
 ```bash
-git log --format='%h %s' "$RELEASE_RANGE" | grep -vE '\(#[0-9]+\)$'
+git log --format='%h %s' "$RELEASE_RANGE" \
+  | { grep -vE '\(#[0-9]+\)$' || true; } > wip/release-unattributed.txt
+cat wip/release-unattributed.txt
 ```
 
-and Phase 3 prints it under the drafted notes, where the author is already
-reading and can decide whether an entry deserves a line. Against the v0.17.0 to
-v0.18.0 range this reports exactly one commit,
+Phase 1 is where the printing happens, and that placement is what satisfies R4:
+the requirement is that the report land *before the notes are drafted*, and
+Phase 3 drafts at its step 4. Phase 3 then repeats the list under the drafted
+notes at step 5, where the author is deciding whether the notes are complete.
+Against the v0.17.0 to v0.18.0 range this reports exactly one commit,
 `chore(release): advance to 0.17.1-dev`, which is the expected shape.
 
 The report is informational and does not stop the release. Every release
@@ -297,14 +385,23 @@ that -- reading the pull request before asking, the recommend-one-treatment
 AskUserQuestion, the standard/redacted/excluded vocabulary -- is unchanged;
 only the set it operates on changes.
 
-Phase 3 step 2 stops searching GitHub and reads the same derived set. Its step
-1 commit gather stays as it is, since the notes are written from commit
-subjects and the subject already carries the type prefix, the description, and
-the number. Phase 3 also prints Phase 1's unattributed-commit list beneath
-the drafted notes.
+Phase 3 step 1 gathers commits over the carried range
+(`git log --oneline "$(cat wip/release-range.txt)"`) rather than over an
+inline `$LAST_TAG..HEAD`, so the first-release guard reaches it too and the two
+reads cannot disagree about which commits the release holds. Step 2 stops
+searching GitHub and becomes a **cross-check** rather than a second gather:
+every number in `wip/release-prs.txt` must appear in a subject step 1 gathered,
+and nothing else may be credited. Stating what step 2 now contributes matters,
+because Decision 1's argument that the notes need no network access implies step
+1 already holds everything -- leaving step 2 as "read the file" would make it a
+no-op an implementer would be right to delete. As a cross-check it earns its
+place: the two reads come from one range, so a disagreement means one of them
+went wrong, and the notes should not be written until it is known which. Phase 3
+also repeats Phase 1's unattributed-commit list beneath the drafted notes.
 
 `$LAST_TAG_DATE` is deleted. After the change the string appears nowhere in the
-skill, which is the mechanically checkable form of PRD R3.
+skill, and every variable the skill still uses has an assignment above its use,
+which is the mechanically checkable form of PRD R3.
 
 The evals gain two scenarios, one per call site, each asserting the same-day
 case specifically: that the gathered set includes a pull request merged after
@@ -324,12 +421,16 @@ remaining assumption honest by putting its failure mode in front of the author
 rather than in a comment.
 
 The trade-off accepted is a dependency on squash-merge subject formatting,
-which is a repository setting rather than a guarantee. That is a real
+which is a live repository setting rather than a guarantee. That is a real
 narrowing compared to a GitHub search, which would keep working under any merge
-strategy. It is accepted because the setting is enforced by the repository
-(merge commits and rebase merges are both disabled), because the failure is
-loud rather than silent under Decision 3, and because the alternative buys its
-generality by keeping a second derivation -- which is the thing that broke.
+strategy, and it is wider than shirabe: `/release` ships as a plugin skill to
+repositories whose merge settings this project does not control. It is accepted
+for one reason, not two -- the failure is loud rather than silent under
+Decision 3 -- and because the alternative buys its generality by keeping a
+second derivation, which is the thing that broke. shirabe's own settings
+(`allow_merge_commit: false`, `allow_rebase_merge: false`) make the assumption
+hold here today; they are not an enforcement mechanism, since they live in
+GitHub's settings UI and nothing in this repository would notice them changing.
 
 ## Solution Architecture
 
@@ -341,40 +442,54 @@ Data flow after the change:
 
 ```
 Phase 1  git describe --tags       -> LAST_TAG
-         "$LAST_TAG..HEAD"         -> RELEASE_RANGE
-         git log --format='%s'     -> RELEASE_PRS          (parsed (#N) suffixes)
-         git log --format='%h %s'  -> unattributed commits (subjects with no suffix)
+         guard on empty LAST_TAG   -> RELEASE_RANGE      -> wip/release-range.txt
+         git log --format='%s'     -> parsed (#N) set    -> wip/release-prs.txt
+         git log --format='%h %s'  -> no-suffix subjects -> wip/release-unattributed.txt
+                                                            (printed here, per R4)
              |                             |
-Phase 2  RELEASE_PRS -> gh pr view --json labels -> security-labeled subset
+Phase 2  wip/release-prs.txt -> gh pr view --json labels -> security-labeled subset
                                            -> AskUserQuestion per PR (unchanged)
              |                             |
-Phase 3  RELEASE_PRS -> notes gather       |
-         git log $LAST_TAG..HEAD -> commits (unchanged, step 1)
-                                           -> unattributed commits printed with notes
+Phase 3  wip/release-range.txt -> git log --oneline -> commits (step 1)
+         wip/release-prs.txt   -> cross-check against those subjects (step 2)
+         wip/release-unattributed.txt -> reprinted beneath the notes (step 5)
 ```
 
-Interfaces: `RELEASE_RANGE`, `RELEASE_PRS`, and the unattributed-commit list
-are the skill's own shell variables, established in Phase 1 and referenced by
-name in Phases 2 and 3. They are internal to one skill invocation; nothing
-outside the skill reads them, and no file format changes.
+**The interface is three files under `wip/`, not shell variables.** Each phase's
+block runs as its own shell invocation, so a variable set in Phase 1 is unset by
+Phase 2. Writing the derivation to `wip/release-range.txt`,
+`wip/release-prs.txt` and `wip/release-unattributed.txt` is what makes "one
+derivation, two consumers" true in execution rather than only on the page; a
+variable-based interface would leave Phase 2 iterating an empty list and passing
+the security precondition by finding nothing. `wip/` is the location
+`CLAUDE.md` section "Intermediate Storage" gives a non-koto skill, and Phase 4
+already writes the notes there, so the three files are cleaned by the same
+pre-merge convention. Nothing outside the skill reads them and no file format
+changes.
 
 Two existing paths through the skill constrain how the range is written.
 `--dry-run` runs Phases 1 through 3 normally, so the derivation runs on that
-path unchanged and needs no special case. The first release does: Phase 1
-already branches on `LAST_TAG` being empty, and `"$LAST_TAG..HEAD"` with an
-empty tag is not a range git accepts. The range is therefore `HEAD` when no tag
-exists and `"$LAST_TAG..HEAD"` otherwise, which makes the first release's set
-every pull request in the repository's history -- the correct answer for a
-release that contains all of it.
+path unchanged and needs no special case. The first release does, and the reason
+is not the one it looks like: `"..HEAD"` with an empty tag is a range git
+**accepts** -- it resolves to `HEAD..HEAD` and returns zero commits. The failure
+is therefore a silent empty set rather than an error, which is exactly why the
+guard is needed and exactly what an implementer told "git rejects this" would
+not think to test. The range is `HEAD` when no tag exists and
+`"$LAST_TAG..HEAD"` otherwise, so a first release derives its whole history --
+141 pull requests here -- which over-includes rather than under-includes.
 
 Sections of `skills/release/SKILL.md` that change:
 
 | Section | Change |
 |---|---|
-| Phase 1: Version Analysis | Add the release-range naming, the `RELEASE_PRS` derivation, the unattributed-commit derivation, and a sentence stating the squash-merge assumption they rest on |
-| Phase 2 precondition 6 | Replace the `gh pr list --search` line with the per-pull-request label read over `$RELEASE_PRS`; leave the treatment guidance untouched |
-| Phase 3 step 2 | Replace the `gh pr list --search` line with a read of `$RELEASE_PRS` |
-| Phase 3 step 5 | Print the unattributed-commit list beneath the notes |
+| Phase 1: Version Analysis | Rename to "Version Analysis and Release Contents". Add the empty-tag range guard, the three-file derivation, the print that satisfies R4, and prose stating the squash-merge assumption and what a mostly-unattributed report means |
+| Phase 2 precondition 6 | Replace the `gh pr list --search` line with a `while read` label loop over `wip/release-prs.txt`, carrying the `|| echo UNRESOLVED` branch; leave the treatment guidance untouched |
+| Phase 3 step 1 | Read the range from `wip/release-range.txt` instead of inlining `$LAST_TAG..HEAD`, so the first-release guard reaches this gather too |
+| Phase 3 step 2 | Replace the `gh pr list --search` line with a cross-check of `wip/release-prs.txt` against the subjects step 1 gathered |
+| Phase 3 step 5 | Reprint `wip/release-unattributed.txt` beneath the notes |
+| Phase 4 | Extend the wip-cleanup sentence to name the three release-contents files |
+| Dry-Run Mode | Name the renamed phase and record that Phase 1's derivation reads git only |
+| Error Recovery | Add a Phase 1 row for an empty PR set against a non-empty range, a Phase 1 row for an unexpected `HEAD` range, and a Phase 2 row for an `UNRESOLVED` line |
 
 `skills/release/requires.tsv` needs no change: it already declares `gh` and
 `git` as always-required tool-only records, and the change adds no new binary.
@@ -394,6 +509,13 @@ PRD rejects.
 2. **Add the two eval scenarios** to `skills/release/evals/evals.json`, one per
    call site, each naming the same-day condition explicitly in its prompt and
    asserting the derived-set behavior rather than the phase in general.
+
+   **Reword the existing scenario 7's first assertion in the same pass.** It
+   reads "Queries for merged PRs carrying the security label since the last
+   tag", which is a description of the mechanism being removed. Left alone it
+   would grade green against the new skill on a loose reading, and the suite
+   would be attesting to a `merged:>` search that no longer exists. Adding
+   scenarios without fixing that one leaves the corpus certifying the defect.
 
 3. **Demonstrate the fix against the real case.** Execute the rewritten Phase 1
    derivation against `v0.17.0..4859557` and confirm the set contains `#297`;
@@ -434,15 +556,39 @@ today. The set it reads them from is derived differently; the data read is the
 same, and all of it is already public in a public repository. The change writes
 nothing new to the release notes.
 
+**A `(#N)` need not name a pull request in this repository.** A revert, a
+hand-written subject, or a commit cherry-picked from elsewhere can end in a
+number that is an issue or a foreign pull request. `gh pr view` exits non-zero
+on the first case (verified: `gh pr view 320`, an issue here, returns "Could not
+resolve to a PullRequest"), and on the second it resolves to an unrelated local
+pull request whose labels get read instead. Without handling, the first case is
+a number silently skipped by the security precondition -- the exact failure
+being fixed. Decision 2's `|| echo "UNRESOLVED #$pr"` branch converts it into a
+line the author must look at. The second case is not detectable from the number
+alone and is bounded only by the unattributed report and by review.
+
 **Residual risk.** The security precondition's correctness now depends on the
 derived set being complete, which depends on GitHub writing `(#N)` into squash
-subjects. If the repository ever enabled merge commits, a pull request could
-land without a suffix and be invisible to the precondition -- the same class of
-silent, permissive failure being fixed, reached by a different route. Two
-things bound it: merge commits and rebase merges are both disabled on the
-repository, and Decision 3's unattributed-commit report surfaces the symptom in
-front of the author at release time. The skill states the assumption where the
-derivation is written, so an editor who changes the merge strategy meets it.
+subjects. If a repository allowed merge commits, a pull request could land
+without a suffix and be invisible to the precondition -- the same class of
+silent, permissive failure being fixed, reached by a different route.
+
+**One thing bounds this, not two.** Decision 3's unattributed-commit report
+surfaces the symptom in front of the author at release time. shirabe's own merge
+settings are not a second bound: `/release` ships as a plugin skill to
+repositories whose settings this project does not control, and even here the
+settings live in GitHub's UI, flippable by any admin, with nothing in the
+repository that would notice. For the same reason, "the skill states the
+assumption where the derivation is written" is not a mitigation for a merge-
+strategy change -- the person changing that setting is in GitHub Settings and
+never opens `skills/release/SKILL.md`. The statement is there for the next
+editor of the derivation, which is a different reader and a real one.
+
+**The first-release path.** With no previous tag the range is the whole history,
+so the derived set is every pull request the repository has and the precondition
+inspects all of them. That over-includes rather than under-includes, which is
+the safe direction for a check that fails permissively; the cost is the
+inspection call count, 141 here.
 
 ## Consequences
 
@@ -465,17 +611,23 @@ derivation is written, so an editor who changes the merge strategy meets it.
   than on a property of git. A repository adopting this skill with merge
   commits enabled would derive an incomplete set.
 - The security precondition costs one API call per pull request in the release
-  instead of one call total.
+  instead of one call total, and a first release costs one per pull request in
+  the repository's history.
 - Phase 1 grows: it now answers a question Phase 3 used to answer, which makes
   it the phase a reader must understand before either consumer makes sense.
+- The skill now writes three files under `wip/` that a run has to clean up.
+  A variable-based interface would leave nothing behind; it would also not work.
 
 **Mitigations.**
 
 - The unattributed-commit report is the detector for the merge-strategy
-  assumption failing, and the skill states the assumption at the point of use
-  so an editor meets it before changing the strategy.
+  assumption failing. It is the only one -- see the Security Considerations
+  note on why the repository's own settings do not count as a second bound.
 - Five to fifteen calls per release against a 5000-per-hour limit is not a
-  practical cost; the precondition already makes several `gh` calls.
+  practical cost, and 141 on a first release is still under 3% of an hour's
+  budget; the precondition already makes several `gh` calls.
 - Phase 1's growth is the price of the property that makes the fix hold: the
   security check runs before the notes, so the shared derivation has to live
   above both.
+- The three files are named in Phase 4's existing wip-cleanup sentence, so they
+  are covered by the convention the skill already follows for the notes file.
