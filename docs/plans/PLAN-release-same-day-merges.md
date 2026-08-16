@@ -59,27 +59,27 @@ release's pull request set is derived once, in Phase 1, from the commit range,
 and both consumers read it.
 
 **Acceptance Criteria**:
-- [ ] Phase 1 names the release range and derives the pull request set from it,
+- [x] Phase 1 names the release range and derives the pull request set from it,
       parsing the `(#N)` suffix anchored to the end of the commit subject, and
       states the squash-merge assumption the parse rests on.
-- [ ] Phase 1 also derives the commits in the range that carry no pull request
+- [x] Phase 1 also derives the commits in the range that carry no pull request
       reference.
-- [ ] Phase 2's sixth precondition reads labels for the derived set rather than
+- [x] Phase 2's sixth precondition reads labels for the derived set rather than
       running a `merged:>` search, and its treatment guidance (read the PR
       first, recommend one of standard/redacted/excluded, name the tiebreaker)
       is unchanged.
-- [ ] Phase 3 step 2 reads the derived set rather than running a `merged:>`
+- [x] Phase 3 step 2 reads the derived set rather than running a `merged:>`
       search.
-- [ ] Phase 3 prints the unattributed-commit list beneath the drafted notes.
-- [ ] `grep -c 'LAST_TAG_DATE' skills/release/SKILL.md` returns 0.
-- [ ] Executing the rewritten Phase 1 derivation against `v0.17.0..4859557`
+- [x] Phase 3 prints the unattributed-commit list beneath the drafted notes.
+- [x] `grep -c 'LAST_TAG_DATE' skills/release/SKILL.md` returns 0.
+- [x] Executing the rewritten Phase 1 derivation against `v0.17.0..4859557`
       yields a set containing `297`, and executing the rewritten Phase 2 label
       read over that set inspects `297`'s labels. Both transcripts are recorded
       in the pull request body rather than asserted.
-- [ ] The `--dry-run` path and the first-release path (`LAST_TAG` empty) still
+- [x] The `--dry-run` path and the first-release path (`LAST_TAG` empty) still
       behave as the skill describes; the Error Recovery table is consistent
       with the rewritten phases.
-- [ ] No file under `.github/workflows/` is modified and no CLI subcommand is
+- [x] No file under `.github/workflows/` is modified and no CLI subcommand is
       added.
 
 **Dependencies**: None.
