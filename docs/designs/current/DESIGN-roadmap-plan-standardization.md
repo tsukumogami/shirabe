@@ -574,7 +574,8 @@ expressions of the same contract, not a runtime coupling.
 ### Data Flow
 
 Authoring a plan or roadmap: the skill reads the shared references for the table
-and diagram shape, drafts the doc, and (multi-pr) stops at the approval gate. On
+and diagram shape, drafts the doc, and stops at the approval gate when the
+activation will create GitHub issues. On
 approval -- or under `--auto`, after recording an assumed approval block -- the
 populate/create scripts run, issues are created, the table and diagram are
 written, and the doc transitions to Active. Validation runs two ways: per-PR on
@@ -795,3 +796,18 @@ PII, or system data enter the new code paths.
   issues; an operator who wants a hard human approval runs interactively.
 - The migration is scoped to a single early phase because the committed corpus is
   small; it lands right after the checks exist so CI is never retroactively red.
+
+
+## Amendment to Decision 6 — 2026-08-15
+
+Decision 6's single-pr default is now conditional on the repository's resolved
+Delivery Preference rather than absolute. Under `consolidated`, the default it
+described is unchanged; under `atomic`, the default is a multi-PR shape and a
+`single-pr` plan becomes the departure that owes a reason.
+
+What Decision 6 settled is unchanged. Work-slicing stays de-conflated from
+execution mode, and the roadmap case stays anchored on the value each feature
+delivers rather than on the mechanism of the input being a roadmap.
+
+See `docs/designs/DESIGN-multi-pr-plan-decoupling.md` for why the default became
+conditional and for the three named branches a non-default shape now cites.
