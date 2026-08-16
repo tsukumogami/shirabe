@@ -145,9 +145,10 @@ before anything is written, which altitude their work deserves.
 An author runs `/scope` on a feature. Before any child fires, they read what
 will run: each child, whether re-entry protection is holding it back and why,
 what shaped the design decision roster, and the notice about grounding on a
-roadmap. Then the chain starts. They are not presented with an option to adjust
-a list that cannot change, and not offered a bail whose two branches cannot
-execute from where they stand.
+roadmap. Then they answer, and the answer does what it says. Correcting a
+framing detail re-runs discovery and re-emits the proposal. Stopping stops, and
+leaves a defined terminal state behind. Neither is offered to them as a way to
+shorten the chain, because neither is one.
 
 ### An author who believes the upstream work is unnecessary
 
@@ -189,9 +190,11 @@ retired.
 - `/explore`'s durable-document authoring. The skill stops writing committed
   artifacts on an author's behalf; the wip handoff artifact that lets a
   downstream skill skip its own scoping phase survives.
-- `/explore`'s terminal recording set for the artifact types no chain owns —
-  rejection record, decision record, spike report, competitive analysis — which
-  stays, because no entry point can receive them.
+- `/explore`'s handling of the artifact types no chain owns — rejection record,
+  decision record, spike report, competitive analysis. Each stays reachable,
+  because no entry point can receive them; whether `/explore` keeps authoring
+  one or routes it to a skill that already owns it is decided per type in the
+  downstream PRD.
 - `/scope` Phase 1's chain-proposal prompt, and the stale prose beside it: the
   direct-invocation redirect, the justification attached to it, the orphan
   `chain_revised:` field, the undefined second confirmation on the post-PRD
@@ -229,8 +232,11 @@ retired.
 - **The child skills' internal phase workflows.** `/brief`, `/prd`, `/design`,
   and `/plan` keep their own structure; only how a parent or a router reaches
   them changes.
-- **`/explore`'s research loop.** Setup, scoping, discovery, and convergence are
-  the skill's actual value and are untouched by the routing change.
+- **`/explore`'s research loop.** Scoping, discovery, and convergence are the
+  skill's actual value and are untouched by the routing change. They are also
+  shared — the strategic chain loads two of them as its own discovery backbone,
+  so they are not `/explore`'s to move or rename. Setup is the exception: it
+  carries a second artifact-type decision that the routing change removes.
 - **Re-opening what #302 settled.** The absorbability judgment, the citation
   preflight, the carry check, and the fold record stay as shipped.
 
