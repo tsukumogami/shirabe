@@ -1470,11 +1470,16 @@ pub fn run_lifecycle_check(
 /// Check that every `- [ ]` / `- [x]` / `- [X]` outline-AC checkbox on
 /// the chain's PLAN is ticked.
 ///
-/// Fires only when the chain has a single-pr PLAN present in the tree:
-/// multi-pr PLANs carry their issues in the `## Implementation Issues`
-/// table without per-AC checkboxes, so the parser returns an empty
-/// vector for them and L06 cannot trigger. Non-PLAN-rooted chains
-/// (ROADMAP roots) likewise carry no outline ACs.
+/// Fires only when the chain's PLAN is outline-shaped -- every
+/// `single-pr` PLAN, plus a `multi-pr` PLAN at `tracking_level: none`.
+/// An issue-carrying PLAN keeps its work items in the
+/// `## Implementation Issues` table without per-AC checkboxes, so the
+/// parser returns an empty vector for it and L06 cannot trigger.
+/// Non-PLAN-rooted chains (ROADMAP roots) likewise carry no outline ACs.
+///
+/// The shape, not the mode, is the gate. Keying this on `single-pr`
+/// would leave an issueless multi-PR plan -- which carries outlines for
+/// exactly the same reason -- with its unticked criteria unchecked.
 ///
 /// One L06 error per unticked AC. The message names the outline-key,
 /// the verbatim AC text, and the 1-indexed line number so the author
@@ -1492,7 +1497,14 @@ fn check_l06_outline_acs(chain: &Chain, idx: &DocIndex, cfg: &Config) -> Vec<Val
             Some(d) => d,
             None => continue,
         };
-        if indexed.execution_mode != "single-pr" {
+        // A PLAN that never carries outlines has nothing here to check.
+        // The mode alone does not settle that: an issueless `multi-pr`
+        // PLAN keeps its work items in `## Issue Outlines` too, and
+        // skipping it would leave that shape with weaker AC coverage
+        // than the single-pr shape it borrows. The cheap frontmatter
+        // test comes first so the common `multi-pr` case still skips
+        // without a file read.
+        if indexed.execution_mode != "single-pr" && indexed.execution_mode != "multi-pr" {
             continue;
         }
         // Re-parse the PLAN body. The doc index carries only the
@@ -1509,6 +1521,9 @@ fn check_l06_outline_acs(chain: &Chain, idx: &DocIndex, cfg: &Config) -> Vec<Val
                 continue;
             }
         };
+        if !crate::checks::plan_is_outline_shaped(&doc) {
+            continue;
+        }
         for ac in parse_outline_acs(&doc) {
             if ac.ticked {
                 continue;
@@ -4670,6 +4685,54 @@ mod tests {
                 &single_pr_plan_body(acs),
             ),
         ])
+    }
+
+    /// An issueless `multi-pr` PLAN gets the same AC coverage as `single-pr`.
+    ///
+    /// It carries `## Issue Outlines` for the same reason `single-pr` does, so
+    /// gating L06 on the mode would leave the shape this feature adds with
+    /// weaker checking than the shape it borrows -- unticked criteria would
+    /// pass silently.
+    #[test]
+    fn l06_fires_on_an_issueless_multi_pr_plan() {
+        let mut fm = make_plan("Draft", "multi-pr", "docs/designs/DESIGN-foo.md");
+        fm.push_str("tracking_level: none\n");
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", "docs/prds/PRD-foo.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &fm,
+                &single_pr_plan_body("- [ ] alpha\n- [x] beta\n"),
+            ),
+        ]);
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let errors =
+            run_lifecycle_chain_check(&plan_path, &Config::default(), ReviewPosture::Draft);
+        let l06s: Vec<_> = errors.iter().filter(|e| e.code == "L06").collect();
+        assert_eq!(
+            l06s.len(),
+            1,
+            "the unticked criterion must be reported here too; got {l06s:?}"
+        );
+        assert!(
+            l06s[0].message.contains("'alpha'"),
+            "expected the unticked AC named; got {:?}",
+            l06s[0].message
+        );
     }
 
     #[test]
