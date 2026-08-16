@@ -242,10 +242,21 @@ that section and not the `## Implementation Issues` table — but the Plan
 profile's per-`execution_mode` required-section map keys on the mode alone, so
 the document this decision prescribes failed `FC04` on two sections it has no
 content for, and `FC14` advised switching the frontmatter back to `single-pr`.
-`checks::plan_is_outline_shaped` resolves the shape from both fields and both
-checks consult it, so the map's `single-pr` entry now means "the issueless
-shape" rather than "the single-pr mode". `coordinated` is excluded, matching the
-tracking-level exemption everywhere else.
+`checks::plan_is_outline_shaped` resolves the shape from both fields, so the
+map's `single-pr` entry now means "the issueless shape" rather than "the
+single-pr mode". `coordinated` is excluded, matching the tracking-level
+exemption everywhere else.
+
+Four checks consult it, because the mode-keyed assumption had spread further
+than the section map. `L06` (outline-AC completeness) skipped anything not
+`single-pr`, which would have left this shape's unticked criteria unchecked.
+The lifecycle posture inference bucketed every `multi-pr` PLAN into a posture
+expecting `Active` — a status reachable only when activation materialized
+GitHub issues, so an issueless plan was told to reach a state it never can.
+Each was invisible until the combination was exercised end to end; each is a
+place where "several pull requests" had been written down as "GitHub issues
+exist". The shape is computed once in `index_doc` and carried on `IndexedDoc`
+so the lifecycle layer answers the question by lookup rather than re-parse.
 
 *Making the first cell a stable internal id in all modes and carrying the GitHub
 number in a separate column — rejected, and this is the closest call.* It is the
