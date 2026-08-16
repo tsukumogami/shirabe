@@ -399,6 +399,32 @@ check_traversal() {
     fi
 }
 
+# The `summary.md` entry in the panel blocks is deliberate belt and braces, not a
+# live requirement, and the design says so. This pins the graph fact that makes
+# that true: the only route from `finalization` back to a panel is through
+# `implementation` -- the `issues_found` edge, which clears summary.md itself.
+# If a future edge routed finalization back to a panel directly, the entry would
+# become load-bearing and the design's wording would be wrong; this fails first.
+check_no_direct_finalization_to_panel() {
+    to_finalization graph-check
+    seed graph-check summary.md
+    submit graph-check '{"finalization_status":"deferral_requested"}'
+    if [ "$NEXT_STATE" = "deferral_approval" ]; then
+        submit graph-check '{"approval_decision":"approved"}'
+        case "$NEXT_STATE" in
+            scrutiny|review|qa_validation)
+                fail "deferral_approval reaches a panel directly -- summary.md in the panel blocks is now load-bearing and the DESIGN says it is not"
+                ;;
+            *)
+                pass "deferral_approval does not reach a panel (went to ${NEXT_STATE:-terminal})"
+                ;;
+        esac
+    else
+        fail "expected deferral_approval from a deferral_requested, got [$NEXT_STATE]"
+    fi
+}
+check_no_direct_finalization_to_panel
+
 check_traversal trav-scrutiny to_scrutiny SCRUTINY_BLOCK
 check_traversal trav-review   to_review   REVIEW_BLOCK
 check_traversal trav-qa       to_qa       QA_BLOCK

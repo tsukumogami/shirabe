@@ -96,6 +96,22 @@ implemented.
 | `implementation_status: scope_expanded_retry` | `implementation` | `analysis` | those four **+ `plan.md`** |
 | `plan_outcome: scope_changed_retry` | `analysis` | `analysis` | those four **+ `plan.md`** |
 
+**The set is a deliberate superset, and one entry is not load-bearing.**
+`summary.md` in the three panel blocks is defence in depth rather than a live
+requirement. Computed from the transition graph: a panel is reachable from
+`finalization` only through `implementation`, which is the `issues_found` edge,
+and that edge clears `summary.md` itself — so with this design in place a panel
+retry never actually finds a summary to remove. `deferral_approval` and
+`pr_creation` reach no panel at all.
+
+It stays in the list anyway, for two reasons worth being explicit about. The
+removal is idempotent, so the cost is a no-op. And the residual this design
+already admits is an agent skipping a clearing step entirely; if that happens at
+`finalization`, the panel block is what catches it. The alternative — a minimal
+per-edge key set — is exactly the shape that produced the bug below, because a
+rule with a different answer for every edge is a rule with five chances to be
+wrong. A uniform set has one.
+
 Deriving the set from the traversal rather than from the raising phase is what
 this design got wrong first time and is worth stating plainly. An earlier version
 cleared each phase's own key: the three panel keys on a `blocking_retry`,
