@@ -28,17 +28,55 @@ identification, release notes, draft creation, workflow dispatch, and monitoring
 
 ## Phases
 
-### Phase 1: Version Analysis
+### Phase 1: Version Analysis and Release Contents
 
-Analyze conventional commits since the last release tag:
+Establish what the release contains, once. Phase 2's security check and Phase
+3's notes are both consumers of the pull request set derived here; neither
+re-derives it.
 
 ```bash
 LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")
+
+# The commit range the release covers. With no previous tag this is the first
+# release, so the range is the whole history.
+if [ -n "$LAST_TAG" ]; then
+  RELEASE_RANGE="$LAST_TAG..HEAD"
+else
+  RELEASE_RANGE="HEAD"
+fi
+
+# The pull requests the release contains, read off that range: GitHub's squash
+# merge appends "(#N)" to the commit subject.
+RELEASE_PRS=$(git log --format='%s' "$RELEASE_RANGE" \
+  | grep -oE '\(#[0-9]+\)$' \
+  | tr -d '(#)' \
+  | sort -n -u)
+
+# Commits in the range that name no pull request: the release chore commits,
+# and anything pushed straight to the base branch.
+UNATTRIBUTED_COMMITS=$(git log --format='%h %s' "$RELEASE_RANGE" \
+  | grep -vE '\(#[0-9]+\)$')
 ```
+
+`$RELEASE_PRS` is the release's membership, computed here and nowhere else.
+**Do not re-derive it from a `gh pr list --search "merged:>..."` query.** GitHub
+reads a bare `merged:>YYYY-MM-DD` as "after the *end* of that day", so a
+date-shaped bound silently drops every pull request merged on the previous
+tag's own calendar day -- from the notes and from the security check alike. The
+commit range has no boundary to get wrong, and one value with two consumers
+cannot disagree with itself.
+
+The parse assumes GitHub wrote the `(#N)` suffix, which holds while the
+repository squash-merges (`allow_merge_commit` and `allow_rebase_merge` both
+false, with `squash_merge_commit_title: PR_TITLE`). It is anchored to the end of
+the subject, so a pull request whose own title ends in a parenthesized number is
+not misread. If the assumption ever stops holding, the symptom is a crowd of
+entries in `$UNATTRIBUTED_COMMITS` rather than a silently short list -- which is
+what that value is for.
 
 If no tag exists, this is the first release -- ask for version.
 
-Count commits by prefix since `$LAST_TAG`:
+Count commits by prefix over `$RELEASE_RANGE`:
 
 | Prefix | Bump signal |
 |--------|------------|
@@ -64,7 +102,22 @@ All must pass before proceeding:
 4. **No existing draft**: `gh release view v<version>` returns 404
 5. **No release blockers**: Query `gh issue list --label blocks-release --state open`.
    If any exist, list them and stop. Also check `gh issue list --label priority:critical --state open`.
-6. **Security-labeled PRs**: Query `gh pr list --state merged --search "label:security merged:>$LAST_TAG_DATE"`.
+6. **Security-labeled PRs**: read the labels of every pull request in
+   `$RELEASE_PRS` (Phase 1) and keep the ones carrying `security`:
+
+   ```bash
+   for pr in $RELEASE_PRS; do
+     gh pr view "$pr" --json number,title,labels \
+       --jq 'select(.labels[]?.name == "security") | "\(.number) \(.title)"'
+   done
+   ```
+
+   The set is the one Phase 1 derived and Phase 3 writes the notes from, so a
+   pull request cannot reach the notes without also reaching this check. That is
+   the point: this check fails permissively -- a pull request it does not see is
+   published with a standard description and nobody is prompted -- so it must not
+   be reading a different, narrower set than the notes are.
+
    If found, flag them and use AskUserQuestion to decide how each is handled in the
    release notes, following the pattern in
    `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`. Read the PR before
@@ -87,8 +140,11 @@ Report the specific failure and stop on any check.
 
 Generate notes, present them, and confirm the version with the user.
 
-1. Gather commits: `git log --oneline $LAST_TAG..HEAD`
-2. Gather merged PRs: `gh pr list --state merged --base main --search "merged:>$LAST_TAG_DATE"`
+1. Gather commits: `git log --oneline "$RELEASE_RANGE"`
+2. The merged PRs are `$RELEASE_PRS` from Phase 1 -- the pull requests this
+   release contains. No further query is needed: a squash subject already
+   carries the conventional-commit type, the description, and the number, so
+   step 1 has everything the notes group and write.
 3. Group by type (features, fixes, other)
 4. Draft user-facing notes:
    - Focus on user impact
@@ -96,7 +152,12 @@ Generate notes, present them, and confirm the version with the user.
    - Highlight breaking changes prominently
    - Handle security-labeled PRs per user's Phase 2 decision
 
-5. **Print the notes in chat** so the user can read them.
+5. **Print the notes in chat** so the user can read them, followed by
+   `$UNATTRIBUTED_COMMITS` under a short heading such as "In the release, not in
+   a pull request". Every release carries at least the version-bump chore
+   commit, so this is informational and does not stop the release -- it is there
+   so a direct push to the base branch is something the author sees rather than
+   something the pull request list quietly cannot represent.
 
 6. **Use AskUserQuestion** to present the recommended version with
    alternatives. Include the commit analysis from Phase 1:
@@ -173,7 +234,9 @@ Draft release with notes: <url>
 
 When `--dry-run` is passed:
 
-- Phases 1-3 run normally (version analysis, checks, notes + confirmation)
+- Phases 1-3 run normally (version analysis and release contents, checks,
+  notes + confirmation). Phase 1's derivation reads git and nothing else, so it
+  runs on this path unchanged.
 - Phase 4-6 are skipped (no draft, no dispatch)
 - Print what would happen: which files change, what tag, what dev version
 
@@ -181,6 +244,7 @@ When `--dry-run` is passed:
 
 | Phase | Failure | Recovery |
 |-------|---------|---------|
+| 1 | `$RELEASE_PRS` is empty but the range has commits | Check `$UNATTRIBUTED_COMMITS`: if every commit is listed there, the repository is not writing `(#N)` suffixes (merge strategy changed) and the derivation's assumption no longer holds |
 | 2 | Dirty tree | `git stash` or commit |
 | 2 | CI failing | Fix and push |
 | 2 | Tag exists | `git push --delete origin v<version>` |
