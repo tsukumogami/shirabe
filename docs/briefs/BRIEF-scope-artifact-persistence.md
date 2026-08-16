@@ -186,3 +186,14 @@ reference that broke a month later in somebody else's unrelated PR.
   replaces.
 - `skills/scope/references/phases/phase-1-discovery.md` — the Durable-Artifact
   Floor section, whose condition this feature makes reachable.
+
+## Amendment — 2026-08-16
+
+`BRIEF-fold-record-removal.md` removes `docs/folds.md`. The original text above is left unedited; this section records what no longer holds.
+
+**"A durable record, on the default branch, of what folded into what and on what
+verdict" is withdrawn from the in-scope list.** It was the framing decision this
+brief made, and it was never re-examined downstream: the PRD assumed it, and the
+design chose only which surface would carry it. The surviving half of the pair
+holds unchanged — the trace on the surviving document, which is the carrier the
+removal relies on.

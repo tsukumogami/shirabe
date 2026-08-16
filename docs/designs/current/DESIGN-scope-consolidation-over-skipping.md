@@ -867,3 +867,35 @@ The conclusion survives on grounds that do not depend on it: there is no
 consolidation judgment in `/charter` to change, and the judgment's logic
 lives entirely inside `/scope`'s own phase files, so extending it to the
 strategic chain would be new machinery rather than a follow-on edit.
+
+## Amendment — 2026-08-16
+
+`DESIGN-fold-record-removal.md` removes `docs/folds.md`. The original text above is left unedited; this section records what no longer holds.
+
+**Option D stays adopted. The second half of the answer that rescued it is
+withdrawn, and this section states what replaces it.** The objection was that
+absorbing a DESIGN into a PLAN "trades a durable audit trail for a shorter run and
+loses the record of why the work happened," and the 2026-08-15 amendment above
+answered it in two halves.
+
+The half recording *why* is unchanged and is the stronger of the two. It lives in
+the code, as a standing `/work-on` instruction that holds regardless of what
+documents the work leaves behind — which is written for exactly this case.
+
+The half recording *what happened* pointed at `docs/folds.md`. Three things now
+carry it, in descending coverage. The survivor's `absorbed:` declaration and
+`## Status` absorption line carry it for every hop that leaves a survivor, under
+error-level enforcement, and they accumulate so the last survivor names every
+ancestor folded into it. The ROADMAP feature's downstream cell carries it for a
+chain that folded to nothing — conditionally, since a chain that came through no
+roadmap feature has no cell, and temporarily, since the same cascade deletes the
+roadmap once its features land. And for a chain that folds to a PLAN the cascade
+deletes, with no roadmap feature behind it, **nothing carries it**: that chain and
+a chain that never ran are indistinguishable on the default branch.
+
+That last case is stated rather than solved. It is the accepted cost of the
+removal, and it does not reopen this decision: the objection was about the audit
+trail Option D trades away, and the trade is now smaller than the record made it
+look — the *why* survives in the code, and the *what* survives wherever a
+document does. No durable-artifact floor follows from it, and the prohibition
+against a guard that forces `keep` to manufacture one is unaffected.

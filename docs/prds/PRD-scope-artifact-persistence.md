@@ -652,3 +652,23 @@ the new judgment would have decided about them.
   floor R1 removes.
 - `skills/scope/references/phases/phase-2-chain-orchestration.md` — the three
   stages and the mapping table.
+
+## Amendment — 2026-08-16
+
+`PRD-fold-record-removal.md` removes `docs/folds.md`. The original text above is left unedited; this section records what no longer holds.
+
+**R20 is withdrawn.** No fold writes a record to the default branch. The
+requirement's gloss argued that a record carried in the PLAN would be deleted by
+the implementation cascade, so the one fold leaving nothing else behind would
+leave no record of itself. That reasoning is sound and the case is real; it is
+now an accepted residual rather than a requirement, because the shared file that
+discharged it cost more than the case is worth. The reasoning is recorded in
+`DESIGN-fold-record-removal.md`.
+
+**R21 is unaffected and now carries the guarantee alone.** The survivor's
+`absorbed:` declaration and `## Status` absorption line remain error-level
+enforced, and they accumulate across hops, so a reader holding a dead path is
+served by the surviving document at every hop that leaves one.
+
+**R15's bookkeeping-surface clause is vacuous rather than unmet.** The citation
+preflight no longer excludes a record, because there is none to exclude.

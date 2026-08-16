@@ -808,3 +808,15 @@ between them reads the difference rather than discovering it.
 The recurrence risk is named in the PRD's Known Limitations rather than mitigated
 here. A pull-request-time structural check is the obvious follow-on and is
 deliberately out of scope.
+
+## Amendment — 2026-08-16
+
+`DESIGN-fold-record-removal.md` removes `docs/folds.md`. The original text above is left unedited; this section records what no longer holds.
+
+**The clean-cancel carve-out no longer has the fold record's carve-out to be
+shaped like.** Both passages justify stating the carve-out explicitly by pointing
+at the shape the record's own carve-out in Phase 4 already used. That carve-out is
+deleted with the record. The justification stands on its own without the
+comparison: the enumerated write-target set and the Phase 4 sweep are both written
+as the prefix `wip/scope_<topic>_*`, so a reader who is not told otherwise sweeps
+a path the set authorises. The carve-out is stated for that reason, not by analogy.

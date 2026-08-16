@@ -782,3 +782,13 @@ to end in anger, so the first real use will be the test.
   `/explore`'s to move or rename.
 - **Re-opening what #302 settled.** The absorbability judgment, the citation
   preflight, the carry check, and the fold record stay as shipped.
+
+## Amendment — 2026-08-16
+
+`PRD-fold-record-removal.md` removes `docs/folds.md`. The original text above is left unedited; this section records what no longer holds.
+
+**The Out-of-Scope entry naming the fold record as staying "as shipped" no longer
+holds.** The absorbability judgment, the citation preflight, and the carry check
+do stay as shipped; the fold record does not. Nothing else in this document's
+scope is affected — the record was named there as a thing this work would not
+touch, not as a thing it depended on.

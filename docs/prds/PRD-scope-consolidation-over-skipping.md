@@ -414,3 +414,15 @@ The successor's R20 replaces the assumption with a mechanism:
 `docs/folds.md` records each fold on the default branch with a
 content-addressed hash of the pre-fold document, written before anything
 is deleted.
+
+## Amendment — 2026-08-16
+
+`PRD-fold-record-removal.md` removes `docs/folds.md`. The original text above is left unedited; this section records what no longer holds.
+
+**The 2026-08-15 amendment above named the successor's R20 as the mechanism that
+replaced this document's falsified recovery-path assumption. That mechanism is
+withdrawn.** What replaces it is narrower and was always doing most of the work:
+the surviving document's `absorbed:` declaration, which is error-level enforced
+and accumulates across hops. The case the record uniquely covered — a chain that
+folds to a PLAN the implementation cascade later deletes — is now an accepted
+residual rather than a discharged requirement.

@@ -708,3 +708,25 @@ assertion that removal forecloses.
 - `docs/designs/current/DESIGN-scope-consolidation-over-skipping.md` — Decision 8
   rejected the terminal fold and Decision 9 rests on the deleted test; both are
   amended by this work.
+
+## Amendment — 2026-08-16
+
+`DESIGN-fold-record-removal.md` removes `docs/folds.md`. The original text above is left unedited; this section records what no longer holds.
+
+**The record, its checker, and its merge driver are withdrawn.** The surface
+question this design answered — which destination carries the fold record — is
+un-asked rather than answered differently.
+
+**One argument that decided it was wrong.** The frontmatter-only alternative was
+rejected because "the record dies with the document at the next hop." It does
+not: the `absorbed:` declaration accumulates, so a survivor's list is its
+ancestor's list plus the ancestor, and a document at the end of a chain names
+every ancestor folded into it. Only the second clause held — the terminal fold
+whose survivor the cascade later deletes — and that case is now an accepted
+residual.
+
+**The checker never fired on the case it was built for.** Its trigger reads
+`git diff --diff-filter=D` between two endpoints, which cannot see a document
+created and deleted between them; the firing condition guarantees exactly that
+state. The repository's one real fold confirmed it. The duplicate detection this
+document credited the checker with was never implemented.
