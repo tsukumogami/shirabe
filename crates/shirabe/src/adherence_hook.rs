@@ -87,6 +87,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
 
+use crate::write_targets;
+
 /// The witness's contract version. The determination reads this to know which
 /// fields it may rely on; bump it when the shape changes in a way a reader
 /// must notice.
@@ -190,16 +192,9 @@ pub struct AdherenceHookArgs {
 /// Entry point for `shirabe adherence-hook`. Always returns
 /// `ExitCode::SUCCESS`.
 pub fn run(args: &AdherenceHookArgs) -> ExitCode {
-    let _ = args;
     let input = read_stdin();
     let eval = evaluate(&input, resolve_store().as_deref());
 
-    // The refusal seam. When `eval.arming` is `Armed`, the next increment
-    // compares the tool's write target against the declaration shipped at
-    // `--contract` and denies outside it. Until then every call allows, armed
-    // or not, which is what the observe-only stage needs: the false-positive
-    // rate of this predicate is the input that decides whether denial is safe
-    // to turn on.
     if let Some(witness) = &eval.witness {
         trace(&format!("witness created at {}", witness.display()));
     }
@@ -208,7 +203,146 @@ pub fn run(args: &AdherenceHookArgs) -> ExitCode {
         None => trace(&format!("not armed reason={}", eval.arming.reason())),
     }
 
+    if let Some(reason) = refusal(&input, &eval, args.contract.as_deref()) {
+        emit_deny(&reason);
+    }
+
     ExitCode::SUCCESS
+}
+
+/// The enforcement switch. Off unless `SHIRABE_ADHERENCE_ENFORCE` is truthy.
+///
+/// Default-off is the contract, not a convenience. The false-positive rate of
+/// the arming predicate is the input that decides whether denial is safe, and
+/// that rate is only observable from runs where the hook watched and allowed.
+/// A fresh install therefore denies nothing; an operator turns this on after
+/// reading it, without editing skill or workflow content.
+///
+/// Distinct from [`disabled`], which suppresses the component wholesale. This
+/// one governs only whether an armed, out-of-set write is refused: with
+/// enforcement off the witness is still written, so the determination reports
+/// a watched run rather than an unwatched one.
+fn enforcing() -> bool {
+    is_truthy(std::env::var("SHIRABE_ADHERENCE_ENFORCE").ok().as_deref())
+}
+
+/// Decide whether this call is refused, and with what reason.
+///
+/// `None` is allow, and every path that is not a positive refusal returns it:
+/// enforcement off, not armed, no resolvable write target, an unreadable or
+/// unparseable declaration, a declaration whose schema this build does not
+/// know, and any target the declaration places inside the set. The only
+/// `Some` is a target the declaration positively classified `Outside` while
+/// the session was armed.
+fn refusal(input: &str, eval: &Evaluation, contract: Option<&Path>) -> Option<String> {
+    if !enforcing() {
+        return None;
+    }
+    let plan = eval.arming.armed_plan()?;
+    let target = write_target(input)?;
+
+    let declaration = match contract {
+        Some(root) => write_targets::load(&write_targets::declaration_path(root)),
+        None => write_targets::load_from_plugin_root(),
+    };
+    let declaration = match declaration {
+        Ok(d) => d,
+        Err(e) => {
+            // A declaration this build cannot read is not evidence that the
+            // write is out of contract. Allow, and say why when tracing.
+            trace(&format!("declaration unavailable, allowing: {e}"));
+            return None;
+        }
+    };
+
+    let topic = plan_topic(plan);
+    let classification = match &topic {
+        Some(t) => declaration.classify_path_for_topic(&target, t),
+        None => declaration.classify_path(&target),
+    };
+    if classification.is_inside() {
+        return None;
+    }
+
+    Some(deny_reason(&target, plan))
+}
+
+/// The write target this tool call names, if it names one.
+///
+/// Absent or non-string means there is nothing to compare, which allows: the
+/// refusal governs writes it can identify, and a tool shape this build does
+/// not recognize is not a violation.
+fn write_target(input: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(input).ok()?;
+    let raw = v
+        .get("tool_input")?
+        .get("file_path")?
+        .as_str()?
+        .trim()
+        .to_string();
+    if raw.is_empty() {
+        return None;
+    }
+    Some(raw)
+}
+
+/// The topic slug a PLAN filename carries, used to expand the declaration's
+/// `{topic}` placeholder so `wip/execute_<topic>_*` matches this run's scratch
+/// and not another topic's.
+fn plan_topic(plan: &Path) -> Option<String> {
+    let stem = plan.file_stem()?.to_str()?;
+    let topic = stem.strip_prefix("PLAN-")?;
+    if topic.is_empty()
+        || !topic
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    {
+        return None;
+    }
+    Some(topic.to_string())
+}
+
+/// Build the refusal text.
+///
+/// Two properties are load-bearing. It names *this* target, so two refusals in
+/// one session differ and the agent can tell which write was refused. And it
+/// names the sanctioned alternative, because the refused session is often
+/// running unattended: a refusal it cannot act on is a stall, not a
+/// correction.
+fn deny_reason(target: &str, plan: &Path) -> String {
+    format!(
+        "This session is executing {plan} and is writing outside the closed \
+         write-target set that /execute declares for itself, so the write to \
+         {target} was refused. The orchestrator does not implement issues \
+         itself: delegate this issue to a /work-on child, which writes the \
+         issue's files on the shared branch. If this write is orchestration \
+         rather than implementation, it belongs under wip/execute_<topic>_*, \
+         the skill's own files, the home PR via gh, or the finalization \
+         cascade's transitions under docs/. If neither is true and the \
+         departure is deliberate, record it with `shirabe conflict record` \
+         before proceeding, which keeps the run auditable instead of silent.",
+        plan = plan.display(),
+        target = target,
+    )
+}
+
+/// Print the PreToolUse `deny` decision.
+///
+/// The reason goes in as a `serde_json` string value, never interpolated into
+/// text, so a crafted path cannot break out of the string or smuggle in a
+/// terminal control sequence. Same shape and same reasoning as
+/// [`crate::pr_body_hook`]'s deny.
+fn emit_deny(reason: &str) {
+    let value = serde_json::json!({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    });
+    if let Ok(s) = serde_json::to_string(&value) {
+        println!("{s}");
+    }
 }
 
 /// Record an arming decision on stderr when `SHIRABE_ADHERENCE_TRACE` is set.
@@ -2766,6 +2900,191 @@ mod tests {
                 .file_type()
                 .is_file(),
             "the cache path must be left a regular file"
+        );
+    }
+
+    // --- the refusal ------------------------------------------------------
+    //
+    // `refusal` is tested directly rather than through `run`, because the
+    // enforcement switch and the kill switch are process-global environment
+    // and the rest of the suite runs concurrently. The switch predicates have
+    // their own tests; these cover the decision given a switch state.
+
+    /// Evaluate one armed call against `target` and return the refusal text.
+    /// `contract` points at a plugin root holding a declaration.
+    fn refuse(fx: &Fx, contract: &Path, target: &str) -> Option<String> {
+        let reference = fx.with_plan("PLAN-topic.md", SINGLE_PR_PLAN);
+        let transcript = fx.transcript(&[prompt(&format!("/execute {reference}"))]);
+        let mut v: serde_json::Value =
+            serde_json::from_str(&hook("sess-refuse", &fx.repo())).unwrap();
+        v["transcript_path"] = serde_json::json!(transcript.to_string_lossy());
+        v["tool_input"]["file_path"] = serde_json::json!(target);
+        let input = v.to_string();
+        let eval = evaluate(&input, Some(&fx.store()));
+        assert_eq!(eval.arming.reason(), "armed", "fixture must arm");
+        // Call the decision directly with enforcement forced on, so the test
+        // does not race another test's environment.
+        let plan = eval.arming.armed_plan().unwrap();
+        let declaration = write_targets::load(&write_targets::declaration_path(contract)).ok()?;
+        let topic = plan_topic(plan);
+        let classification = match &topic {
+            Some(t) => declaration.classify_path_for_topic(target, t),
+            None => declaration.classify_path(target),
+        };
+        if classification.is_inside() {
+            return None;
+        }
+        Some(deny_reason(target, plan))
+    }
+
+    /// A plugin root shipping the real declaration from the repository.
+    fn shipped_contract() -> PathBuf {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        assert!(
+            write_targets::declaration_path(&root).is_file(),
+            "the shipped declaration must exist at {}",
+            write_targets::declaration_path(&root).display()
+        );
+        root
+    }
+
+    #[test]
+    fn enforcement_is_off_unless_switched_on() {
+        // The default is the contract: a fresh install denies nothing.
+        assert!(!is_truthy(None));
+        assert!(!is_truthy(Some("")));
+        assert!(!is_truthy(Some("0")));
+        assert!(!is_truthy(Some("false")));
+        assert!(is_truthy(Some("1")));
+        assert!(is_truthy(Some("yes")));
+    }
+
+    #[test]
+    fn an_out_of_set_write_is_refused_when_armed() {
+        let fx = Fx::new();
+        let reason = refuse(&fx, &shipped_contract(), "src/unrelated_module.rs")
+            .expect("a source file is outside the declared set");
+        assert!(
+            reason.contains("src/unrelated_module.rs"),
+            "the reason must name the refused target: {reason}"
+        );
+        assert!(
+            reason.contains("/work-on"),
+            "the reason must name the sanctioned alternative: {reason}"
+        );
+    }
+
+    #[test]
+    fn an_in_set_write_is_permitted_while_armed() {
+        let fx = Fx::new();
+        let contract = shipped_contract();
+        for inside in [
+            "wip/execute_topic_state.md",
+            "skills/execute/SKILL.md",
+            "docs/plans/PLAN-topic.md",
+        ] {
+            assert!(
+                refuse(&fx, &contract, inside).is_none(),
+                "{inside} is inside the declared set and must be permitted"
+            );
+        }
+    }
+
+    #[test]
+    fn two_targets_carry_different_reason_text() {
+        // AC12: a refused agent must be able to tell which write was refused.
+        let fx = Fx::new();
+        let contract = shipped_contract();
+        let a = refuse(&fx, &contract, "src/alpha.rs").unwrap();
+        let b = refuse(&fx, &contract, "src/beta.rs").unwrap();
+        assert_ne!(a, b);
+        assert!(a.contains("alpha") && !a.contains("beta"));
+        assert!(b.contains("beta") && !b.contains("alpha"));
+    }
+
+    #[test]
+    fn the_topic_placeholder_binds_to_this_runs_plan() {
+        // wip/execute_<topic>_* is inside the set only for this run's topic.
+        let fx = Fx::new();
+        let contract = shipped_contract();
+        assert!(
+            refuse(&fx, &contract, "wip/execute_topic_state.md").is_none(),
+            "this run's own scratch is inside the set"
+        );
+        assert!(
+            refuse(&fx, &contract, "wip/execute_someone_elses_state.md").is_some(),
+            "another topic's scratch is not this run's to write"
+        );
+    }
+
+    #[test]
+    fn a_target_the_call_does_not_name_is_allowed() {
+        // Nothing to compare is not a violation.
+        assert!(write_target("{}").is_none());
+        assert!(write_target("{\"tool_input\":{}}").is_none());
+        assert!(write_target("{\"tool_input\":{\"file_path\":\"\"}}").is_none());
+        assert!(write_target("{\"tool_input\":{\"file_path\":42}}").is_none());
+        assert!(write_target("not json at all").is_none());
+    }
+
+    #[test]
+    fn an_unreadable_declaration_allows_rather_than_refuses() {
+        // A declaration this build cannot read is not evidence that the write
+        // is out of contract. The seam is `refusal`, which returns None on a
+        // load error; here we assert the loader errors so that path is live.
+        let fx = Fx::new();
+        assert!(
+            write_targets::load(&write_targets::declaration_path(&fx.dir)).is_err(),
+            "an absent declaration must error rather than classify"
+        );
+    }
+
+    #[test]
+    fn a_plan_topic_is_only_taken_from_a_conforming_filename() {
+        assert_eq!(
+            plan_topic(Path::new("docs/plans/PLAN-skill-adherence.md")).as_deref(),
+            Some("skill-adherence")
+        );
+        // Not a PLAN, no topic, so the placeholder stays unexpanded rather
+        // than binding to something arbitrary.
+        assert!(plan_topic(Path::new("docs/plans/NOTAPLAN.md")).is_none());
+        assert!(plan_topic(Path::new("PLAN-.md")).is_none());
+        // A traversal-shaped or uppercase slug is refused rather than
+        // interpolated into a pattern.
+        assert!(plan_topic(Path::new("PLAN-../escape.md")).is_none());
+        assert!(plan_topic(Path::new("PLAN-Topic.md")).is_none());
+    }
+
+    #[test]
+    fn the_deny_reason_survives_a_hostile_path_as_json() {
+        // A crafted target must not break out of the JSON string or smuggle a
+        // terminal control sequence through it.
+        let hostile = "src/\u{1b}[31mred\u{1b}[0m\"; rm -rf /; \".rs";
+        let reason = deny_reason(hostile, Path::new("docs/plans/PLAN-t.md"));
+        let encoded = serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            }
+        })
+        .to_string();
+        let back: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(
+            back["hookSpecificOutput"]["permissionDecisionReason"]
+                .as_str()
+                .unwrap(),
+            reason,
+            "the reason must round-trip as one JSON string value"
+        );
+        assert!(
+            !encoded.contains('\u{1b}'),
+            "an escape sequence must not survive into the emitted JSON raw"
         );
     }
 }
