@@ -1627,7 +1627,10 @@ fn resolve_delivery_preference(doc_path: &Path) -> Option<String> {
         |contents| {
             for line in contents.lines() {
                 let trimmed = line.trim();
-                if !trimmed.to_lowercase().starts_with("## delivery preference:") {
+                if !trimmed
+                    .to_lowercase()
+                    .starts_with("## delivery preference:")
+                {
                     continue;
                 }
                 let value = trimmed[trimmed.find(':')? + 1..].trim().to_lowercase();
