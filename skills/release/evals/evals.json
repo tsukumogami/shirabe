@@ -76,7 +76,7 @@
         "Reads the PR before asking, rather than asking cold",
         "Recommends one of the three treatments and marks it, instead of listing standard/redacted/excluded as an unranked set",
         "Grounds the recommendation in what the PR actually did and whether an affected version already shipped",
-        "Recommends the more conservative treatment as the named tiebreaker when the call is genuinely borderline",
+        "Names the tiebreaker (default to the more conservative treatment) whether or not the call is borderline, and says which it judged this one to be",
         "Leaves the other two treatments available so the user can override",
         "Does NOT ask the user how to handle the PR with no stated preference"
       ]

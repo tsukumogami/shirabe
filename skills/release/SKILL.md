@@ -163,9 +163,13 @@ All must pass before proceeding:
    - **Excluded** when naming the change at all would point at an unfixed surface
 
    Ground the recommendation in what the PR actually did -- cite the change and
-   whether an affected version already shipped. If it is genuinely borderline, say
-   so, still recommend one, and name the tiebreaker (default to the more
-   conservative treatment).
+   whether an affected version already shipped. Name the tiebreaker every time,
+   not only when the call is close: **default to the more conservative
+   treatment**. State it even when the call reads as clear-cut, and say that it
+   did. A reader cannot tell from a recommendation alone whether it was near the
+   line, so the rule that produced it is part of the recommendation; and the one
+   case where the tiebreaker matters most is the one where the recommending
+   agent was most confident it did not.
 
 Report the specific failure and stop on any check.
 
