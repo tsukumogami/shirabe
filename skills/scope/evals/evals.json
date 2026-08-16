@@ -273,55 +273,64 @@
     },
     {
       "id": 18,
-      "name": "durable-artifact-floor-is-structural",
+      "name": "no-durable-artifact-floor",
       "prompt": "/scope throwaway-topic  (nothing exists on disk for the topic)",
-      "expected_output": "A /scope run always leaves at least one durable artifact, and nothing implements a guard for it. The chain always writes BRIEF, PRD, DESIGN and PLAN, and no hop above BRIEF-to-PRD is absorbable, so the smallest set a run can end with is a PRD, a DESIGN and a PLAN. A PLAN-alone run — which would leave nothing behind, since the PLAN is deleted once its work is implemented — is not reachable through /scope at all; an author who wants that invokes /plan directly. No check is added, because the condition cannot hold and a check that can never fire would teach a later maintainer that the case is possible.",
+      "expected_output": "There is no durable-artifact floor. The chain writes BRIEF, PRD, DESIGN and PLAN, and every hop is decidable against the two documents at it, so a run can absorb its way down to a single surviving artifact — and to none once the PLAN is implemented and deleted. That is a reachable outcome rather than a defect. Nothing forces keep on the ground that the survivor would be the last artifact left, and no guard may be added that does. Such a guard is wrong twice over: it would decide a fold from the artifact set rather than from the two documents at the hop, which is exactly what this judgment moved the verdict away from, and it would fire at the DESIGN-to-PLAN hop that must be absorbable, closing by a second route the floor this work opened. The single-mechanism rule does not catch it — a mechanism whose only possible effect is to force keep is not a second reduction mechanism — which is why the prohibition is written down beside the judgment rather than left to be derived. A chain that folds everything away is handled downstream by /execute's finalization guard, not prevented here.",
       "files": [],
       "expectations": [
-        "Plan states the durable-artifact floor follows from the chain shape plus the absorbability rule rather than from a guard",
-        "Plan does NOT add a check or warning for a run that leaves no durable artifact",
-        "Plan notes that a PLAN-alone outcome is unreachable through /scope and requires invoking /plan directly",
-        "Plan gives the reason for not adding a guard: the condition cannot hold, and dead checks mislead"
+        "Plan states there is no durable-artifact floor: a run may end with a single surviving artifact, or with none once the PLAN is implemented and deleted",
+        "Plan does NOT add a guard, check or warning that forces keep on the ground that the survivor would be the last artifact left",
+        "Plan gives both reasons that guard is wrong: it decides a fold from the artifact set rather than from the two documents at the hop, and it fires at the DESIGN-to-PLAN hop that must be absorbable",
+        "Plan notes the single-mechanism rule does not catch a keep-forcing guard, which is why the prohibition is written down rather than derived",
+        "Plan routes a chain that folds everything away to /execute's finalization guard downstream rather than preventing the outcome here"
       ]
     },
     {
       "id": 19,
       "name": "consolidation-absorb-brief-into-prd",
       "prompt": "/scope small-topic  (a feature whose framing is two uncontested paragraphs)",
-      "expected_output": "The chain writes the BRIEF, then invokes /prd with the BRIEF's path so the PRD is drafted from the brief's body. After the PRD lands and validates, the consolidation judgment runs on the brief->prd hop. Stage 1 finds the mapping total (Problem Statement to Problem Statement, User Outcome to Goals, User Journeys to User Stories, Scope Boundary to Requirements and Out of Scope), so absorb is available. Stage 2 finds the BRIEF does no work the PRD does not, so the verdict is absorb. Stage 3 runs the per-section carry check, records where each of the four concerns landed, then sets the PRD's upstream to the BRIEF's own upstream (or removes the field), removes the BRIEF from the repository, and re-runs shirabe validate on the PRD. consolidation_judgments records the hop, the carry check, the verdict, what was absorbed and into what.",
+      "expected_output": "The chain writes the BRIEF, then invokes /prd with the BRIEF's path so the PRD is drafted from the brief's body. After the PRD lands and validates, the consolidation judgment runs on the brief->prd hop — both of whose endpoints appear in chain_ran:, which is what makes it a hop at all. Stage 1 is the citation preflight: skills/scope/scripts/check-citations.sh --target docs/briefs/BRIEF-small-topic.md --survivor docs/prds/PRD-small-topic.md runs before anything is composed, written or deleted and exits 0. Only 0 (clean) and 2 (bare-name mentions, carried forward as a finding) continue to Stage 2; every other status, including ones the script does not define, routes to keep. Stage 2 reads both bodies and asks whether the BRIEF holds anything beyond its contribution that compression into a contribution section would lose. It does not, so the verdict is absorb. Stage 3 composes the contribution section in memory from the PRD's own body rather than from the document about to be deleted, then runs the carry check over the BRIEF's required sections plus every contribution the BRIEF itself carried, recording where each landed. It snapshots the PRD's pre-fold bytes and, in one pass, splices upstream: — preserving sibling and cross-repo parents rather than replacing the list — writes the absorbed: declaration, writes the ## Status absorption line in the pinned shape 'Absorbed [<name>](<path>); carried in <Heading>.', writes the contribution section immediately after ## Status in chain order, and rewrites the PRD's own prose citations of the BRIEF's path, which the preflight deliberately excludes. It appends one row to docs/folds.md and git adds it before anything is deleted, git rms the BRIEF, re-runs shirabe validate on the PRD, and commits the deletion, the splice, the survivor's edits and the record together. consolidation_judgments records hop: brief->prd, stage: carry, the carry_check map, verdict: absorb, absorbed: and into:.",
       "files": [],
       "expectations": [
-        "Plan runs the consolidation judgment after the PRD lands, not before the BRIEF was written",
-        "Plan finds the brief->prd mapping total and treats absorb as available at that hop",
-        "Plan runs a per-section carry check before removing anything and records where each of the BRIEF's four concerns landed in the PRD",
-        "Plan re-points the PRD's upstream to the BRIEF's own upstream, or removes the field when the BRIEF had none",
-        "Plan re-runs shirabe validate on the surviving PRD after the absorb",
-        "Plan records the verdict and the carry check in consolidation_judgments:"
+        "Plan runs the consolidation judgment after the PRD lands, against two bodies that exist, not before the BRIEF was written",
+        "Plan fires the judgment only because both endpoints of the brief->prd edge appear in chain_ran:",
+        "Plan runs the Stage 1 citation preflight (skills/scope/scripts/check-citations.sh --target <deleted> --survivor <survivor>) before anything is composed, written or deleted, and continues to Stage 2 only on exit status 0 or 2 — every other status routes to keep",
+        "Plan reaches absorb at Stage 2 by reading both bodies and finding the BRIEF holds nothing beyond its contribution that folding would lose",
+        "Plan composes the contribution section from the survivor's own body rather than from the document about to be deleted",
+        "Plan runs the carry check before anything is written, itemizing the BRIEF's required sections plus every contribution the BRIEF itself carried, and records where each landed in the PRD",
+        "Plan splices the PRD's upstream:, preserving sibling and cross-repo parents rather than replacing the list",
+        "Plan writes the absorbed: declaration, the ## Status absorption line in the pinned shape, and the contribution section immediately after ## Status in chain order, and rewrites the survivor's own prose citations of the absorbed path",
+        "Plan appends the docs/folds.md row and git adds it BEFORE the git rm of the BRIEF, then re-runs shirabe validate on the surviving PRD and commits the deletion, the splice, the edits and the record together",
+        "Plan records hop: brief->prd with stage: carry, the carry check, verdict: absorb, absorbed: and into: in consolidation_judgments:"
       ]
     },
     {
       "id": 20,
-      "name": "consolidation-keep-at-unmapped-hop",
-      "prompt": "/scope mapped-topic  (a full chain that reaches the PRD-to-DESIGN hop)",
-      "expected_output": "After the DESIGN lands, the consolidation judgment runs on the prd->design hop. Stage 1 finds the mapping is not total: a DESIGN has a home for the PRD's Problem Statement in Context and Problem Statement, but none for Goals, User Stories, Requirements, Acceptance Criteria or Out of Scope. Absorb is unavailable, the only verdict is keep, and the finding names the unmapped sections. The same holds at the design->plan hop. Both artifacts stay in place at each hop.",
+      "name": "consolidation-keep-when-upstream-holds-more",
+      "prompt": "/scope mapped-topic  (a PRD carrying constraints the DESIGN never picks up)",
+      "expected_output": "After the DESIGN lands, the consolidation judgment runs on the prd->design hop. The citation preflight comes back clean, which leaves the verdict open — the preflight can refuse or defer but never decides to absorb. Stage 2 reads both bodies and asks the only question the judgment asks: does the PRD hold anything beyond its contribution that compression into a contribution section would lose? It does — acceptance criteria and out-of-scope boundaries the DESIGN neither restates nor supersedes — so the verdict is keep, with a finding naming what the PRD holds that the DESIGN does not. Both artifacts stay in place and nothing is composed, written or deleted. The verdict came from the two bodies, not from the types: nothing compared a PRD's required sections against a DESIGN's, and the same prd->design hop reaches absorb on a run whose PRD holds nothing beyond its contribution. A check that refused this pair while permitting its structural twin under identical repository state would be a type rule, which the judgment forbids. consolidation_judgments records hop: prd->design, stage: judgment, verdict: keep, and the finding.",
       "files": [],
       "expectations": [
-        "Plan finds the prd->design mapping is not total and records absorbable: false",
-        "Plan reaches verdict keep and names the unmapped sections in the finding",
-        "Plan applies the same rule at the design->plan hop",
-        "Plan derives absorbability from the per-type required-section contracts rather than a hard-coded list of hops"
+        "Plan reaches keep at Stage 2 by reading both bodies and finding the PRD holds work the DESIGN does not",
+        "Plan names in the finding what the upstream holds that the survivor does not",
+        "Plan leaves both artifacts in place and composes, writes and deletes nothing on a keep",
+        "Plan does NOT read either type's required-section list or compare the two types' section sets to reach the verdict",
+        "Plan states that prd->design is not unabsorbable because of the types involved: the same hop reaches absorb when the PRD holds nothing beyond its contribution",
+        "Plan records hop: prd->design with stage: judgment and verdict: keep in consolidation_judgments:"
       ]
     },
     {
       "id": 21,
       "name": "consolidation-carry-check-failure-aborts-absorb",
       "prompt": "/scope partial-topic  (a BRIEF whose User Journeys carry detail the PRD's User Stories drop)",
-      "expected_output": "The consolidation judgment reaches absorb at stage 2, then the per-section carry check finds the PRD's User Stories do not carry the BRIEF's User Journeys. The absorb ABORTS: the verdict is downgraded to keep, the finding names the section that did not arrive, both artifacts stay in place, and nothing is removed. The recorded entry keeps the failed carry check so the abort is auditable rather than indistinguishable from a judgment that never considered absorbing.",
+      "expected_output": "The consolidation judgment reaches absorb at stage 2, then the per-section carry check finds the PRD's User Stories do not carry the BRIEF's User Journeys. The check itemizes the BRIEF's required sections AND every contribution the BRIEF itself carries — its own and any it inherited, read from the BRIEF's absorbed: list and its contribution sections — so a survivor absorbing a document that already carried two contributions confirms three things carried. Any carried: false ABORTS the absorb: the verdict is downgraded to keep, the finding names the section that did not arrive, both artifacts stay in place, and nothing is removed. Nothing has been written at this point, so the abort is clean. The recorded entry takes stage: carry, naming where the verdict settled, and keeps the failed carry check so the abort is auditable rather than indistinguishable from a judgment that never considered absorbing.",
       "files": [],
       "expectations": [
         "Plan aborts the absorb when any section of the carry check is not carried",
         "Plan leaves both artifacts in place and removes nothing on a failed carry check",
         "Plan downgrades the verdict to keep and names the section that did not arrive",
+        "Plan itemizes every contribution the ancestor itself carries — its own and any it inherited, read from its absorbed: list and contribution sections — not only the ancestor's required sections",
+        "Plan records the entry with stage: carry, naming the stage where the verdict settled",
         "Plan records the failed carry check so the abort is distinguishable from a judgment that never considered absorbing"
       ]
     },

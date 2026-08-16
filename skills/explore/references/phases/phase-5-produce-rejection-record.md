@@ -5,8 +5,10 @@ documenting why this topic was explored and why it should not be pursued.
 
 A Rejection Record is appropriate only when exploration reached an active rejection
 conclusion — specific blockers were identified, demand was validated as absent, or
-re-proposal risk is high. If leads merely ran out without a conclusion, route to
-No Artifact instead.
+re-proposal risk is high. If leads merely ran out without a conclusion, return to
+Phase 4: lead exhaustion is an anti-signal for this category, and the framework's
+insufficient-signal fallback runs another discover-converge round rather than
+recording a rejection nobody reached.
 
 ## Write the Artifact
 

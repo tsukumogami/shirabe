@@ -6,8 +6,10 @@ are pattern-level fixed, and parent-specific body slots each parent's
 SKILL.md fills with its own chain-shape prompts.
 
 The ladder is first-match-wins, top to bottom. A reader of any parent's
-SKILL.md sees the same 9-row ladder shape; the differences are in the body
-slots' specific prompt vocabulary, not the meta-flow.
+SKILL.md sees the same three-part shape — meta-ladder head, body slots,
+meta-ladder tail — and the same slot semantics in the same order; the
+differences are in the body slots' specific prompt vocabulary and in how
+many rows each parent's slot expands into, not in the meta-flow.
 
 The ladder consults the state file documented in
 [`parent-skill-state-schema.md`](parent-skill-state-schema.md) and the
@@ -16,7 +18,7 @@ child-doc surfaces documented in
 
 ## Ladder Shape
 
-The template's 9-row ordering:
+The template's ordering, written at its minimum width of nine rows:
 
 ```
 1. state file malformed                           -> Error + offer Discard
@@ -32,6 +34,34 @@ The template's 9-row ordering:
 
 Rows 1-4 and 8-9 are the meta-ladder (pattern-level fixed). Rows 5-7 are
 parent-specific body slots each parent fills.
+
+### Body-Slot Expansion
+
+A parent MAY expand a body slot into more than one numbered row. The slot
+is a position and a semantics, not a row count: what binds is that the
+slot's rows sit between the meta-ladder head and the meta-ladder tail, in
+slot order, and that every row inside a slot carries that slot's
+semantics. `/scope` expands slot 5 into nine sub-numbered rows and slot 6
+into four; `/charter` expands slot 5 into rows 5-6, slot 6 into rows 7-8,
+and slot 7 into a single row.
+
+A parent numbering its rows sequentially rather than by slot may add a row
+to a slot without renumbering the rows below it — a fractional number
+(row 8.5 between rows 8 and 9) keeps every existing citation of the later
+rows true, and citations into a resume ladder are common enough that
+renumbering is the more expensive choice. The number carries ordering
+only; a fractional row is an ordinary row.
+
+**The meta-ladder tail is identified by role and by position, not by
+ordinal.** The tail is the last two rows of any parent's ladder: the
+on-topic-branch row followed by the main-or-unrelated-branch row, in that
+order, with nothing below them. A parent whose body slots expand past the
+template's minimum ends with those two rows at whatever ordinals its
+numbering reaches — `/charter` ships ten rows plus row 8.5 against the
+template's nine, and its rows 9-10 are the tail for that reason rather
+than because the template names 8 and 9. The same reading applies to the
+head: rows 1-4 are the first four rows, and no body slot may precede
+them.
 
 ## Meta-Ladder Entries
 
@@ -134,7 +164,7 @@ downstream skill owns the artifact). When the parent's chain has no
 downstream-owning skill (e.g., `/charter`'s STRATEGY is Accepted-
 terminal), the parent's Slot 5 entries for the corresponding
 lifecycle states are vacuous — the slot template accommodates both
-cases without changing the 9-row meta-ladder count.
+cases without changing the meta-ladder head or tail.
 
 ### Slot 6 — partial-child-run
 

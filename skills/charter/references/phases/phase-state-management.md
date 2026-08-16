@@ -197,9 +197,10 @@ file at every phase pointer.
 
 ### Conditional Fields
 
-These 7 fields are present iff their trigger fires — a specific
-`exit:` or `decision_record_sub_shape:` value for six of them, and
-a validated `--upstream` invocation argument for the seventh. When
+These 8 fields are present iff their trigger fires — a specific
+`exit:` or `decision_record_sub_shape:` value for six of them, a
+validated `--upstream` invocation argument for the seventh, and a
+resume-ladder row firing for the eighth. When
 the triggering condition does not hold, the field MUST be absent
 from the state file — not set to null, not set to an empty string,
 not set to a placeholder value. Absence-when-not-applicable is the
@@ -229,6 +230,26 @@ below).
     `/strategy`, and re-validated by the resume ladder on every
     re-entry (see
     `skills/charter/references/phases/phase-resume.md`).
+- **`consumed_handoff`** — path string naming the `/explore`
+  handoff this run consumed: `wip/charter_<topic>_handoff.md`,
+  composed from `/charter`'s own prefix and the validated topic
+  slug.
+  - **Required iff** the resume ladder's row 8.5 fired and consumed
+    the file.
+  - **MUST be absent otherwise** — including when a handoff was on
+    disk but a higher row matched first, and when a handoff was
+    found malformed and the run degraded to a cold start. Nothing
+    was consumed in either case, and a field written anyway would
+    record a consumption that did not happen.
+  - Written by row 8.5 in the same state-file write that creates the
+    file. **Its reader is the resume ladder**
+    (`skills/charter/references/phases/phase-resume.md`), which
+    reads it on a later re-entry to tell a run that consumed a
+    handoff from one that started cold. The field is specified here,
+    with its reader named, rather than being written by a phase file
+    and read by nobody. The recorded value is re-validated against
+    the slug regex before it is interpolated anywhere, on the same
+    grounds as `consumed_upstream:`.
 - **`decision_record_sub_shape`** — string from `{re-evaluation,
   rejection}`. The sub-shape identifies which Decision Record body
   shape the chain produced.
@@ -308,12 +329,13 @@ artifact path).
 
 ## Conditional-Field Gating Discipline
 
-The seven conditional fields above are gated by R9 (invariant I-5
+The eight conditional fields above are gated by R9 (invariant I-5
 of the pattern). Each conditional field carries a "required iff
 <condition>; MUST be absent otherwise" rule documented above.
-`consumed_upstream:` is gated on an invocation argument rather than
-on an exit value, so it can be present at any phase pointer; the
-gating discipline binds it identically.
+`consumed_upstream:` is gated on an invocation argument and
+`consumed_handoff:` on a resume-ladder row firing, rather than on an
+exit value, so either can be present at any phase pointer; the
+gating discipline binds them identically.
 
 The discipline has two halves and BOTH bind:
 
@@ -341,7 +363,7 @@ errors at re-entry.
 The discipline composes with the pattern-level conditional-field
 gating invariant cited from
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
-(Conditional-field gating section). `/charter`'s six conditional
+(Conditional-field gating section). `/charter`'s eight conditional
 fields are the parent-specific instantiation.
 
 ## R9 Hard Finalization Check
@@ -388,7 +410,10 @@ the check passes only when none of them does.
    `consumed_upstream:` is the invocation argument rather than an
    exit value — so a `consumed_upstream:` alongside any of the three
    exits is well-formed, and its failure shape is presence without a
-   supplied and validated `--upstream`.
+   supplied and validated `--upstream`. `consumed_handoff:` is the
+   same shape against a different condition: well-formed alongside
+   any exit, and failing when it is present on a run whose row 8.5
+   never fired.
 4. **Failure mode 4 — conditional field set to null/empty/
    placeholder when ungated.** A conditional field is present with
    a "falsy" value (null, empty string, placeholder like `"TBD"`)

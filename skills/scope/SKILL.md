@@ -354,8 +354,10 @@ shape: Slot 5 has 9 rows evaluated most-downstream-first (with
 PLAN-Active and PLAN-Done as refuse-and-redirect rows owned by
 downstream skills, and DESIGN-Accepted / PRD-Accepted as the two
 settled-upstream boundary rows offering the **Re-evaluate /
-Revise / Bail** triad); Slot 6 has 4 partial-child-run rows;
-Slot 7 is vacuous in v1.
+Revise / Bail** triad); Slot 6 has 4 partial-child-run rows; Slot 7
+is the feeder-doc clause, matching the `/explore` handoff at
+`wip/scope_<topic>_handoff.md` and entering Phase 1 with it
+pre-loaded.
 
 ## Phase Execution
 
@@ -413,7 +415,7 @@ Execute phases sequentially by reading the corresponding phase file:
 | `skills/scope/references/phases/phase-2-chain-orchestration.md` | Phase 2 — includes Phase-N Reject in-chain mechanism |
 | `skills/scope/references/phases/phase-3-exit-finalization.md` | Phase 3 |
 | `skills/scope/references/phases/phase-4-cleanup.md` | Phase 4 |
-| `skills/scope/references/phases/phase-resume.md` | Resume Logic — Slot 5 (9 rows), Slot 6 (4 rows), Slot 7 (vacuous), Drift Detection (Re-run / Accept / Proceed-without) |
+| `skills/scope/references/phases/phase-resume.md` | Resume Logic — Slot 5 (9 rows), Slot 6 (4 rows), Slot 7 (`/explore` handoff), Drift Detection (Re-run / Accept / Proceed-without) |
 | `skills/scope/references/state-schema.md` | All phases — `/scope`-specific state-file field enumeration (`visibility:`, `consolidation_judgments:`, exit discriminators, worktree audit fields, `drift_acknowledged:`, `parent_orchestration:` sentinel) |
 
 ## Chain-Proposal Output
@@ -630,7 +632,8 @@ minimum (`topic`, `last_updated`, `phase_pointer`, `exit`,
 with `/scope`-specific fields. The full field enumeration —
 including the exit-conditioned discriminators (`boundary:`,
 `decision_record_sub_shape:`), the invocation-conditioned
-`consumed_upstream:`, the Drift-Detection audit field
+`consumed_upstream:`, the resume-conditioned `consumed_handoff:`,
+the Drift-Detection audit field
 (`drift_acknowledged:`), the worktree-discipline audit fields
 (`worktree_rebases:`, `worktree_divergences:`), and the ephemeral
 `parent_orchestration:` sentinel — lives in

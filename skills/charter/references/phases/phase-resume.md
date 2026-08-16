@@ -15,10 +15,11 @@ matches, control falls through to row 10's start-fresh path.
 Rows 1-4 and 9-10 inherit the universal meta-ladder from the
 pattern-level template at
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md`.
-Rows 5-8 are `/charter`'s parent-specific body slots: rows 5-6 fill
+Rows 5-8.5 are `/charter`'s parent-specific body slots: rows 5-6 fill
 the status-aware re-entry slot against an upstream STRATEGY; rows 7-8
 fill the partial-child-run slots against `/strategy` and `/vision`
-wip/ artifacts.
+wip/ artifacts; row 8.5 fills the feeder-doc slot against an
+`/explore` handoff.
 
 The contract framing for drift detection plus the R14-widened
 child-internals isolation rule is cited from
@@ -35,6 +36,7 @@ child-internals isolation rule is cited from
 - [Row 6 — Draft STRATEGY Exists](#row-6--draft-strategy-exists)
 - [Row 7 — `/strategy` Partial Run](#row-7--strategy-partial-run)
 - [Row 8 — `/vision` Partial Run](#row-8--vision-partial-run)
+- [Row 8.5 — `/explore` Handoff Detected](#row-85--explore-handoff-detected)
 - [Row 9 — On Topic-Related Branch](#row-9--on-topic-related-branch)
 - [Row 10 — On Main or Unrelated Branch](#row-10--on-main-or-unrelated-branch)
 - [Recorded-Upstream Re-Validation](#recorded-upstream-re-validation)
@@ -48,20 +50,36 @@ child-internals isolation rule is cited from
 ## The 10-Row Ladder
 
 ```
-1.  state file malformed                                  -> Hard error naming malformation + offer Discard
-2.  state file has exit field set                         -> Exit-value-specific re-entry prompt
-3.  state file exists, last_updated < 7d                  -> Resume at recorded phase_pointer (no prompt)
-4.  state file exists, last_updated >= 7d                 -> Resume / Force-materialize / Discard prompt
-5.  STRATEGY-<topic>.md Accepted/Active                   -> Re-evaluate / Revise / Bail prompt
-6.  STRATEGY-<topic>.md Draft                             -> continue-or-start-fresh prompt
-7.  wip/strategy_<topic>_discover.md exists               -> Resume into /strategy
-8.  wip/vision_<topic>_scope.md exists                    -> Resume into /vision
-9.  On branch related to topic                            -> Resume at Phase 1
-10. On main or unrelated branch                           -> Start at Phase 0
+1.   state file malformed                                 -> Hard error naming malformation + offer Discard
+2.   state file has exit field set                        -> Exit-value-specific re-entry prompt
+3.   state file exists, last_updated < 7d                 -> Resume at recorded phase_pointer (no prompt)
+4.   state file exists, last_updated >= 7d                -> Resume / Force-materialize / Discard prompt
+5.   STRATEGY-<topic>.md Accepted/Active                  -> Re-evaluate / Revise / Bail prompt
+6.   STRATEGY-<topic>.md Draft                            -> continue-or-start-fresh prompt
+7.   wip/strategy_<topic>_discover.md exists              -> Resume into /strategy
+8.   wip/vision_<topic>_scope.md exists                   -> Resume into /vision
+8.5  wip/charter_<topic>_handoff.md exists                -> Phase 0 setup, then Phase 1 with the handoff pre-loaded
+9.   On branch related to topic                           -> Resume at Phase 1
+10.  On main or unrelated branch                          -> Start at Phase 0
 ```
 
 Each row is documented below with its match condition and the
 specific action `/charter` takes when the row fires.
+
+**Why row 8.5 carries a fractional number.** The number is an
+ordering position and nothing else: row 8.5 is evaluated after row
+8 and before row 9, and it is an ordinary row in every other
+respect. It is numbered fractionally because rows 9 and 10 are the
+shared meta-ladder tail that `/scope` uses too, and because both
+are cited by ordinal in this file, in `skills/charter/SKILL.md`,
+and in the eval suite. Renumbering them to make room would disturb
+`/charter` and `/scope` alike and falsify every one of those
+citations — the same constraint row 6 states as its reason for
+putting the mid-roadmap disambiguation inside an existing row. The
+pattern-level license for a body slot to expand this way, and for
+the tail to be identified by role rather than by ordinal, is in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md`
+(Body-Slot Expansion).
 
 ## Row 1 — Malformed State File
 
@@ -301,10 +319,94 @@ published path, no `/strategy` partial-run artifact exists, AND
 letting `/vision`'s own resume logic detect the partial-run
 artifact and continue.
 
+## Row 8.5 — `/explore` Handoff Detected
+
+**Match condition.** No state file exists at
+`wip/charter_<topic>_state.md`, no STRATEGY exists at the published
+path, no child partial-run artifact matched rows 7-8, AND
+`wip/charter_<topic>_handoff.md` exists on disk. That one path is
+the whole condition; the row reads no other file to decide whether
+it fires. The path is composed from `/charter`'s own prefix and the
+validated topic slug, which is what keeps it inside the closed
+write-target set `skills/charter/SKILL.md` enumerates — the row
+never fires on a path in another skill's namespace.
+
+**Action.** Run Phase 0's setup obligations against the current
+worktree — slug validation (step 0.3), `--upstream` validation when
+the invocation supplied a value (step 0.4), and state-file creation
+(step 0.5) — then enter Phase 1 with the handoff pre-loaded as
+discovery input. Repository visibility is detected in Phase 1.1 as
+on any other run. Record `consumed_handoff:
+wip/charter_<topic>_handoff.md` in the state file at the same write.
+
+Phase 1 runs. The row never skips it and never resumes into a
+child: a handoff is discovery material, not a resume point inside
+the chain. The chain proposal is emitted and confirmed as always.
+
+Two Phase 1 behaviors change, and the rest do not:
+
+- **The thesis-shift question is still surfaced**, verbatim as
+  Phase 1.4 requires, but as a confirmation rather than a fresh
+  ask: the exploration concluded X; confirm or correct it. The
+  author's response is what gets classified and recorded. A
+  pre-supplied answer is never accepted as recorded state — a
+  positive signal overrides the `/vision` auto-skip against an
+  Accepted or Active VISION, so it is the one carried value that
+  reaches a gate and the confirmation is mandatory rather than a
+  formality. Under `--auto` the pre-supplied answer is taken and
+  announced rather than applied silently.
+- **The child-doc globs are unchanged.** They are filesystem reads
+  and they run on every invocation, handoff or not.
+
+`/charter` runs no shape-predicate walk, so the shape-signals block
+`/scope`'s handoff carries has no analogue here and no reader in
+this row.
+
+**What the handoff carries.** Six sections shared with `/scope`'s
+Slot 7 plus one `/charter`-specific section: provenance (which
+exploration wrote it, when); the theme statement; the scope
+boundary; the decisions the exploration already settled; coverage
+notes on what it did and did not examine; observations about
+upstream artifacts it found; and the author's thesis-shift answer
+with the evidence behind it.
+
+**What it does not carry, and what that means here.** The handoff
+carries conversation, never filesystem state. It states no
+artifact's existence, no frontmatter `status:`, no content hash, no
+repo visibility, and no upstream validation result. Every one of
+those is re-read on every run: the Phase 1 globs establish what is
+on disk, Phase 1.1 reads CLAUDE.md's `## Repo Visibility:` header,
+Phase 2 computes child snapshots itself, and a `--upstream` VISION
+is validated from the invocation argument by step 0.4 rather than
+from this file. A handoff that carries such a value anyway is
+ignored on that value, not trusted and not treated as
+malformation.
+
+**A malformed handoff degrades to a cold start.** If the file is
+truncated, unparseable, or missing the sections above, `/charter`
+announces that it found a handoff it could not consume, names the
+path, and proceeds as though none existed. There is no partial
+consumption: a half-read handoff would pre-supply some discovery
+inputs and not others with no way for the author to tell which.
+`consumed_handoff:` is not written on this path, because nothing
+was consumed.
+
+**When a higher row fires first.** A settled artifact on disk wins.
+The handoff has nothing to say about it — being barred from
+carrying existence, status, or hashes, it cannot be the more
+current evidence — so a row 5-8 match takes its own action and row
+8.5 is never reached. The handoff is not silently dropped: the row
+that fires states that a router handoff exists at
+`wip/charter_<topic>_handoff.md` and was not consumed, and offers
+its theme statement as context for the choice the row is asking the
+author to make. The file is left on disk, so a later Revise that
+clears the way down the ladder reaches this row on its own terms.
+
 ## Row 9 — On Topic-Related Branch
 
 **Match condition.** No state file exists, no upstream STRATEGY
-exists, no child partial-run artifacts exist, AND the current git
+exists, no child partial-run artifacts exist, no `/explore` handoff
+exists at `wip/charter_<topic>_handoff.md`, AND the current git
 branch name is related to the topic (typically the branch name
 contains the topic slug, or a workflow-naming convention links the
 branch to the topic).
