@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Planned
 upstream: docs/prds/PRD-fold-record-removal.md
 problem: |
   docs/folds.md records each /scope fold in one shared append-only file. Wherever
@@ -31,7 +31,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Planned
 
 Three decision questions were evaluated; two more were mechanical and resolved
 inline. The decision reports were working artifacts and do not survive this
