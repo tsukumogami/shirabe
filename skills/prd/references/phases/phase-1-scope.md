@@ -16,6 +16,10 @@ If `wip/prd_<topic>_scope.md` exists and this is NOT a loop-back from Phase 2, s
 If this IS a loop-back (Phase 2 determined the scope was fundamentally wrong), delete
 `wip/prd_<topic>_scope.md` first, then re-scope from scratch.
 
+Either way the file came from this phase on an earlier run. Nothing hands /prd
+a pre-populated scope file: /scope invokes /prd and lets this phase do the
+scoping, so a file on disk means an interrupted run, never a handoff.
+
 ## Approach: Conversational with Coverage Tracking
 
 Ask open-ended questions, adapting to what the user already knows. Internally track

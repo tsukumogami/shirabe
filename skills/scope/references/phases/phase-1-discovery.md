@@ -93,6 +93,23 @@ and the chain proceeds with `/brief` at its head as always (the
 framing-shift answer is deferred to the BRIEF authoring
 conversation).
 
+## Entering Phase 1 With an `/explore` Handoff
+
+When the resume ladder's Slot 7 clause fired, Phase 1 runs with the
+handoff at `wip/scope_<topic>_handoff.md` pre-loaded as discovery
+input. Four things change and nothing else does: the framing-shift
+question is put as a confirmation of the answer the handoff carries
+rather than as a fresh ask, and the author's response is what gets
+recorded; the cold-start projection above is suppressed, because a
+handoff run is not a cold start; and P1 and P3 accept the handoff's
+estimate with its stated reasons while P2 is recomputed against the
+tree. The child-doc globs run as always — they are filesystem reads,
+and the handoff carries no filesystem state.
+
+The full clause, including what the handoff carries and what happens
+when it is malformed, is in
+`skills/scope/references/phases/phase-resume.md` (Slot 7).
+
 ## Post-`/prd` Re-evaluation Gate
 
 After `/prd` returns Accepted, Phase 1 re-evaluates the R6 shape

@@ -50,11 +50,15 @@ it here.>
 Commit: `docs(explore): produce spike report for <topic>`
 
 If the exploration started from an issue (issue number known from Phase 0),
-remove the `needs-spike` label:
+check the project's label vocabulary (CLAUDE.md `## Label Vocabulary`) for a
+label that marks the issue as awaiting a feasibility answer, and clear it:
 
 ```bash
-gh issue edit <N> --remove-label needs-spike
+gh issue edit <N> --remove-label <label>
 ```
+
+If the project defines no such label, skip this -- `/explore` assigns no labels
+of its own, so there's nothing of its own to clear.
 
 Tell the user:
 

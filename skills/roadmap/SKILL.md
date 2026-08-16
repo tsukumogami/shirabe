@@ -133,16 +133,22 @@ From `$ARGUMENTS`:
 
 ### Standalone Entry and Handoff Detection
 
-/roadmap works both standalone and as a handoff target from /explore.
+/roadmap works both standalone and as a handoff target from /charter.
 
-On startup, check for `wip/roadmap_<topic>_scope.md`. If it exists, an
-/explore session already ran Phase 5 and wrote the handoff artifact with
-synthesized findings (theme statement, candidate features, coverage notes).
-Skip Phase 1 (scoping) and proceed directly to Phase 2 (discover) -- the
-scope file provides the theme and candidate features as investigation
-targets.
+On startup, check for `wip/roadmap_<topic>_scope.md`. If it exists, /charter
+pre-populated it before invoking this skill, and it carries the seven fields
+/charter derives from the STRATEGY the chain just produced (theme statement,
+initial scope, candidate features, dependency sketch, sequencing constraints,
+downstream artifact state, coverage notes). Skip Phase 1 (scoping) and proceed
+directly to Phase 2 (discover) -- the scope file provides the theme and
+candidate features as investigation targets.
 
-If no handoff artifact exists, start from Phase 1.
+/charter is the only skill that pre-populates that file. The other way it can
+be on disk is that /roadmap's own Phase 1 wrote it and the run was interrupted
+before Phase 2 finished, which lands in the same place: Phase 1 is done either
+way, so the run continues at Phase 2.
+
+If neither exists, start from Phase 1.
 
 ### Context Resolution
 

@@ -514,10 +514,15 @@ proceed to step 2.
 ### Step 2 — First `planned_chain` Entry with Non-Empty wip/
 
 Take the first entry in `planned_chain` that has a non-empty wip/
-intermediate on disk. The check inspects the documented partial-run
-filenames per child (e.g., `wip/strategy_<topic>_discover.md` for
+intermediate on disk. The check inspects each child's own wip/
+intermediates (e.g., `wip/strategy_<topic>_discover.md` for
 `/strategy`, `wip/vision_<topic>_scope.md` for `/vision`, the
 analogous filenames for `/roadmap` and the gated feeder if any).
+This is a wider surface than row 8's match condition, and
+deliberately so: the tie-break runs inside a chain whose state file
+records that the child was invoked, so a scoping artifact is
+evidence of which child was in flight. Row 8 fires with no state
+file at all, where the same artifact proves nothing.
 
 If such a child is found, the tie-break resolves to it and
 `triggering_child` is set to the child name. Proceed to artifact

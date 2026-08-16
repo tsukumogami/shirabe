@@ -334,14 +334,19 @@ would also make the flag unable to express the one case that
 motivates it, since the strategic corpus commonly lives outside the
 repo the chain runs in.
 
-**Closed write-target set.** `/charter` writes to exactly five
+**Closed write-target set.** `/charter` writes to exactly six
 places: the state file at `wip/charter_<topic>_state.md`, the
 `/roadmap` handoff at `wip/roadmap_<topic>_scope.md`, Decision
 Records under `docs/decisions/`, the force-materialized partial
 artifact its abandonment path produces under `docs/strategies/`
-(plus the `git rm` of a rejected Draft at the same path), and the
+(plus the `git rm` of a rejected Draft at the same path), the
+removal of the `/explore` handoff at
+`wip/charter_<topic>_handoff.md` once a run has consumed it, and the
 `wip/` cleanup its finalization performs. Every one of those paths
 is composed from the validated topic slug, never from
-author-supplied text. The `--upstream` value does not widen the
+author-supplied text. The `/explore` handoff is a read target that
+becomes a delete target, and it is named here for the same reason
+the rest are: the set is a closed list of concrete paths, so a path
+`/charter` touches and the list omits is outside the set. The `--upstream` value does not widen the
 set: it is a read target only — validated, recorded, handed to a
 child — and is never written to.

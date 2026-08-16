@@ -432,8 +432,10 @@ When `/roadmap` fires, `/charter` passes BOTH of the following:
   with no basename enforcement.
 - A pre-populated `wip/roadmap_<topic>_scope.md` file matching the
   schema `/roadmap` Phase 1 expects. The handoff causes `/roadmap`
-  to skip its Phase 1, analogous to the existing `/explore` Phase
-  5 handoff pattern.
+  to skip its Phase 1. `/charter` is the only skill that
+  pre-populates that file — the router hands its findings to
+  `/charter` at `wip/charter_<topic>_handoff.md` and never writes
+  into a child's namespace.
 
 The pre-populated `wip/roadmap_<topic>_scope.md` schema has seven
 named fields. `/charter` populates each based on the discovery and

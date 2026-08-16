@@ -35,7 +35,7 @@
       "id": 3,
       "name": "baseline-child-internals-isolation",
       "prompt": "/scope test-topic",
-      "expected_output": "On resume against an existing chain state, /scope reads only the three permitted sources: child doc frontmatter status: at the published path, the child doc git blob hash (via read-only git hash-object), and /scope's own state file. /scope does NOT read child internal phase pointers, does NOT read wip/research/<child>_<topic>_phase<N>_*.md files, does NOT read any child wip/ intermediate beyond the named partial-run-detection patterns wip/brief_<topic>_*, wip/prd_<topic>_*, wip/design_<topic>_*, wip/plan_<topic>_* (Slot 6 of the resume ladder). Manual-review verified by code-path inspection per AC20b.",
+      "expected_output": "On resume against an existing chain state, /scope reads only the three permitted sources: child doc frontmatter status: at the published path, the child doc git blob hash (via read-only git hash-object), and /scope's own state file. /scope does NOT read child internal phase pointers, does NOT read wip/research/<child>_<topic>_phase<N>_*.md files, does NOT read any child wip/ intermediate beyond the named partial-run-detection patterns wip/brief_<topic>_*, wip/prd_<topic>_decisions.md, wip/design_<topic>_coordination.json, wip/plan_<topic>_* (Slot 6 of the resume ladder). Manual-review verified by code-path inspection per AC20b.",
       "files": [],
       "expectations": [
         "Plan reads child doc frontmatter status: from the published path (docs/briefs/BRIEF-<topic>.md, docs/prds/PRD-<topic>.md, docs/designs/DESIGN-<topic>.md, docs/designs/current/DESIGN-<topic>.md, docs/plans/PLAN-<topic>.md) only — never from child internal state",

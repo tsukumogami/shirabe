@@ -57,7 +57,7 @@ child-internals isolation rule is cited from
 5.   STRATEGY-<topic>.md Accepted/Active                  -> Re-evaluate / Revise / Bail prompt
 6.   STRATEGY-<topic>.md Draft                            -> continue-or-start-fresh prompt
 7.   wip/strategy_<topic>_discover.md exists              -> Resume into /strategy
-8.   wip/vision_<topic>_scope.md exists                   -> Resume into /vision
+8.   wip/vision_<topic>_decisions.md exists               -> Resume into /vision
 8.5  wip/charter_<topic>_handoff.md exists                -> Phase 0 setup, then Phase 1 with the handoff pre-loaded
 9.   On branch related to topic                           -> Resume at Phase 1
 10.  On main or unrelated branch                          -> Start at Phase 0
@@ -313,20 +313,63 @@ PRD explicitly accommodates the asymmetry here.
 **Match condition.** No state file exists at
 `wip/charter_<topic>_state.md`, no STRATEGY exists at the
 published path, no `/strategy` partial-run artifact exists, AND
-`wip/vision_<topic>_scope.md` exists on disk.
+`wip/vision_<topic>_decisions.md` exists on disk.
 
 **Action.** Resume into `/vision`, passing the topic slug and
 letting `/vision`'s own resume logic detect the partial-run
 artifact and continue.
+
+**Why the row reads the decisions ledger and not
+`wip/vision_<topic>_scope.md`.** The scoping artifact is the one
+file in `/vision`'s namespace that a feeder doc imitates by
+construction. `/vision` treats `wip/vision_<topic>_scope.md` as
+either its own Phase 1 output or a pre-supplied handoff, skipping
+Phase 1 and resuming at Phase 2 in both cases, so the file's
+presence says nothing about whether a `/vision` run ever started.
+A row whose action is to jump straight into `/vision` cannot rest
+on it. `wip/vision_<topic>_decisions.md` is `/vision`'s
+autonomous-decision ledger, written at context resolution under
+`--auto` and by nothing else, so it exists only because `/vision`
+itself ran.
+
+Row 7 keeps its single filename for the same reason it always had
+one: `wip/strategy_<topic>_discover.md` is `/strategy`'s own
+discover output and no feeder convention writes there. Row 6 reads
+the convention the other way round already, treating
+`wip/roadmap_<topic>_scope.md` as the pre-populated handoff it is
+rather than as proof that `/roadmap` ran.
+
+**The narrowing is defense in depth, not the live fix.** The
+collision was real: row 8's old condition named
+`wip/vision_<topic>_scope.md`, the exact filename the pre-router
+`/explore` wrote for `/vision`, so a handoff resumed straight into
+the child and the chain got no state file, no proposal, and no
+`/strategy` or `/roadmap` behind it. What closed that is the move of
+the handoff to `wip/charter_<topic>_handoff.md`, which row 8.5
+matches and no row above it can. The narrowing covers what the move
+does not reach: a handoff left on disk by an older `/explore`, a
+hand-written feeder doc, or a future producer that reaches for the
+child-namespaced convention `/charter` still uses for its own
+pre-populated `/roadmap` handoff.
+
+**What it costs is one hop, in the safe direction.** An interactive
+`/vision` interrupted after its Phase 1 leaves only
+`wip/vision_<topic>_scope.md`, so row 8 does not fire and the
+ladder falls through to row 9 or row 10. The scoping work is not
+lost. `/vision` resumes at its own Phase 2 off that same file when
+the chain reaches it, and the run now gets the state file, the
+chain proposal, and `/strategy` and `/roadmap` scheduled behind
+`/vision`, all of which the direct jump skipped.
 
 ## Row 8.5 — `/explore` Handoff Detected
 
 **Match condition.** No state file exists at
 `wip/charter_<topic>_state.md`, no STRATEGY exists at the published
 path, no child partial-run artifact matched rows 7-8, AND
-`wip/charter_<topic>_handoff.md` exists on disk. That one path is
-the whole condition; the row reads no other file to decide whether
-it fires. The path is composed from `/charter`'s own prefix and the
+`wip/charter_<topic>_handoff.md` exists on disk. Beyond the rows
+above not matching, that one path is the whole condition: the row
+reads no other file to decide whether it fires. The path is
+composed from `/charter`'s own prefix and the
 validated topic slug, which is what keeps it inside the closed
 write-target set `skills/charter/SKILL.md` enumerates — the row
 never fires on a path in another skill's namespace.
@@ -363,12 +406,12 @@ Two Phase 1 behaviors change, and the rest do not:
 this row.
 
 **What the handoff carries.** Six sections shared with `/scope`'s
-Slot 7 plus one `/charter`-specific section: provenance (which
+Slot 7, plus the parent-specific block: provenance (which
 exploration wrote it, when); the theme statement; the scope
 boundary; the decisions the exploration already settled; coverage
 notes on what it did and did not examine; observations about
-upstream artifacts it found; and the author's thesis-shift answer
-with the evidence behind it.
+upstream artifacts it found; and — the parent-specific one — the
+author's thesis-shift answer with the evidence behind it.
 
 **What it does not carry, and what that means here.** The handoff
 carries conversation, never filesystem state. It states no
@@ -415,11 +458,24 @@ branch to the topic).
 context provides enough signal to skip Phase 0 setup; the parent
 uses Phase 1 discovery prompts to ground the chain shape.
 
+**Why this does not collide with `/explore`'s topic branch.**
+`/explore` Phase 0 creates a `docs/<topic>` branch, so an author
+arriving from an exploration is usually standing on a branch this
+row matches — and this row skips Phase 0 setup on what the author
+experiences as a first invocation. It never fires on a handoff run:
+row 8.5 sits above it and takes its own action, which runs Phase 0's
+setup obligations before entering Phase 1. What this row is left
+holding is the residual case — an exploration that routed here but
+wrote no handoff, or one whose handoff was already consumed and
+cleaned up. Resuming at Phase 1 on an existing topic branch is the
+behavior the row was written for, so it stays as it is.
+
 ## Row 10 — On Main or Unrelated Branch
 
 **Match condition.** No state file, no upstream STRATEGY, no child
-partial-run artifacts, and the current branch is not topic-related
-(main, an unrelated feature branch, or a detached HEAD).
+partial-run artifacts, no `/explore` handoff, and the current branch
+is not topic-related (main, an unrelated feature branch, or a
+detached HEAD).
 
 **Action.** Start fresh at Phase 0 — the entry-point guard rail
 that validates the topic slug, creates the state file, and routes
@@ -595,6 +651,14 @@ other child internals to make resume decisions.
 3. `/charter`'s own state file at
    `wip/charter_<topic>_state.md`.
 
+Row 8.5 reads a fourth file, `wip/charter_<topic>_handoff.md`, and
+it is outside this rule rather than an exception to it. The handoff
+is not a child internal: it sits in `/charter`'s own namespace, is
+written by the router rather than by any child, and carries
+conversation rather than filesystem state. Reading it consults no
+child's surface, so the three-source enumeration above stands as
+written.
+
 **Prohibited sources** (the ladder MUST NEVER read these):
 
 - **Child internal phase pointers** — `/strategy`, `/vision`,
@@ -608,9 +672,12 @@ other child internals to make resume decisions.
 - **Any other child `wip/` intermediate** beyond the partial-run
   detection patterns explicitly listed in rows 7-8 of the ladder
   (`wip/strategy_<topic>_discover.md` and
-  `wip/vision_<topic>_scope.md`). The two filenames in rows 7-8
+  `wip/vision_<topic>_decisions.md`). The two filenames in rows 7-8
   are the minimum surface needed for partial-run detection and are
   the only `/charter`-side knowledge of child `wip/` paths.
+  `wip/vision_<topic>_scope.md` left this list when row 8 stopped
+  reading it, and it is now an intermediate `/charter` does not
+  touch.
 - **Any other child-private state** — log files, comment threads,
   CI output, any other internal-only surface the child might
   produce.
@@ -696,7 +763,9 @@ sufficient for drift detection.
 The ladder reads only the documented sources (the three permitted
 sources in the R14 Child-Internals Isolation section above, plus
 the two child `wip/` artifact filenames explicitly named in rows
-7-8, plus the existence and git-tracked status of the path in
+7-8, plus the `/explore` handoff at
+`wip/charter_<topic>_handoff.md` that row 8.5 reads, plus the
+existence and git-tracked status of the path in
 `consumed_upstream:` — metadata about that file, never its body).
 No other child internals are consulted. The bounded read
 surface is the R14-widened isolation rule's defense against

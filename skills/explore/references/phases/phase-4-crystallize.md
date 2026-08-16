@@ -25,7 +25,8 @@ If `wip/explore_<topic>_crystallize.md` already exists, skip to Phase 5.
 - **Research files**: `wip/research/explore_<topic>_r*_lead-*.md` (for detail
   when the findings summary is insufficient)
 - **Scope file**: `wip/explore_<topic>_scope.md` (for the `## Visibility` value
-  the competitive-analysis precondition reads)
+  the competitive-analysis precondition reads, and for the `## Entry Assessment`
+  section when Phase 0 wrote one)
 - **Crystallize framework**: loaded in Step 4.1
 
 ## Steps
@@ -146,6 +147,11 @@ For each candidate entry point (File an Issue, `/charter`, `/scope`, and
 `/execute` only if Step 4.3 established its candidacy), walk the signal and
 anti-signal tables the same way and score. Rank, then apply the same demotion
 rule.
+
+If the scope file carries an `## Entry Assessment` section, read it as one more
+piece of evidence here: it says what the issue looked like before any research
+ran. It is evidence, not a verdict, and the findings win where the two
+disagree -- the assessment saw only the issue body.
 
 If the top two are tied or within 1 point after demotion, apply these:
 

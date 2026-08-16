@@ -203,6 +203,20 @@ this file with child-invocation logic). This prelude does NOT
 decide whether `/vision` is invoked; it only surfaces the question
 and records the classification for the chain-shape gate to read.
 
+### On a Handoff-Fed Run
+
+When the resume ladder's row 8.5 fired, the handoff at
+`wip/charter_<topic>_handoff.md` carries the author's thesis-shift
+answer from the exploration. The question is still surfaced
+verbatim, as a confirmation of that answer rather than as a fresh
+ask, and the response the author gives here is what gets classified
+and recorded. A pre-supplied answer is never taken as the recorded
+classification: a positive signal overrides the `/vision` auto-skip
+against a settled VISION, which makes the confirmation mandatory
+rather than a formality. Under `--auto` the pre-supplied answer is
+taken and announced. Nothing else in this prelude changes — the
+child-doc globs are filesystem reads and run as always.
+
 ---
 
 <!--

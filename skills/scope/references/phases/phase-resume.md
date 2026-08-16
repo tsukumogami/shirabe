@@ -68,9 +68,44 @@ the child against its own resume ladder, most-downstream first:
 
 - **6.1 `wip/plan_<topic>_*` exists.** Re-invoke `/plan` against
   its own resume logic; do not re-run from scratch.
-- **6.2 `wip/design_<topic>_*` exists.** Re-invoke `/design`.
-- **6.3 `wip/prd_<topic>_*` exists.** Re-invoke `/prd`.
+- **6.2 `wip/design_<topic>_coordination.json` exists.** Re-invoke
+  `/design`.
+- **6.3 `wip/prd_<topic>_decisions.md` exists.** Re-invoke `/prd`.
 - **6.4 `wip/brief_<topic>_*` exists.** Re-invoke `/brief`.
+
+**Why 6.2 and 6.3 name one file where 6.1 and 6.4 glob a prefix.**
+A child's scoping artifact is the one file in its namespace that a
+feeder doc imitates by construction. A feeder doc pre-supplies the
+child's Phase 1 output so the child can skip Phase 1, which lands it
+at the child's own scoping path: `wip/design_<topic>_summary.md` for
+`/design`, `wip/prd_<topic>_scope.md` for `/prd`. Neither file proves
+a `/design` or `/prd` run started, so neither can carry a row whose
+action is to jump straight into that child.
+`wip/design_<topic>_coordination.json` is `/design`'s decomposition
+ledger, written by its Phase 1 and by nothing else.
+`wip/prd_<topic>_decisions.md` is `/prd`'s autonomous-decision
+ledger, written at context resolution under `--auto`. Both exist only
+because the child itself ran. `/plan` and `/brief` write nothing at a
+scoping path a feeder doc would reach for (their intermediates are
+`wip/plan_<topic>_analysis.md`, `wip/brief_<topic>_discover.md`, and
+their siblings), so 6.1 and 6.4 keep the prefix glob.
+
+**The narrowing is defense in depth, not the live fix.** `/explore`
+writes its handoff at `wip/scope_<topic>_handoff.md`, which Slot 7
+matches and no Slot 6 row has ever matched. What the narrowing
+protects against is a handoff left on disk by an older `/explore`, a
+hand-written feeder doc, or a future producer that reaches for the
+child-namespaced convention `/charter` still uses for its own
+pre-populated `/roadmap` handoff.
+
+**What it costs is one hop, in the safe direction.** An interactive
+`/prd` interrupted after its own Phase 1 leaves only
+`wip/prd_<topic>_scope.md`, so no Slot 6 row fires and the ladder
+falls through to a normal start: Phase 0, Phase 1, the chain
+proposal. The scoping work is not lost. `/prd` resumes at its own
+Phase 2 off that same file when the chain reaches it, because that is
+what `/prd`'s resume ladder does with it. All the row gives up is a
+jump taken on evidence that cannot support it.
 
 Slugs recovered from on-disk paths during Slot 6 matches and during
 the Slot 7 feeder-doc match against `wip/scope_<topic>_handoff.md`
@@ -87,9 +122,10 @@ author's argument.
 **Match condition.** `wip/scope_<topic>_handoff.md` exists on disk,
 and no row above matched — no state file at
 `wip/scope_<topic>_state.md`, no child doc at a status Slot 5
-recognizes, and no child wip partial Slot 6 matches. That one path
-is the whole condition. The slot reads no other file to decide
-whether it fires, and it never fires on a path in another skill's
+recognizes, and no child wip partial Slot 6 matches. Beyond the
+rows above not matching, that one path is the whole condition: the
+slot reads no other file to decide whether it fires, and it never
+fires on a path in another skill's
 namespace: `wip/scope_<topic>_handoff.md` is composed from
 `/scope`'s own prefix and the validated topic slug, which is what
 keeps it inside the closed write-target set enumerated in
@@ -134,7 +170,8 @@ Four Phase 1 behaviors change, and the rest do not:
   accepting an estimate safe here.
 
 **What the handoff carries.** Six sections shared with `/charter`'s
-row 8.5 plus two `/scope`-specific ones: provenance (which
+row 8.5, the parent-specific block, and one block only `/scope`
+carries: provenance (which
 exploration wrote it, when); the problem statement; the scope
 boundary; the decisions the exploration already settled; coverage
 notes on what it did and did not examine; observations about
@@ -173,6 +210,20 @@ dropped: the row that fires states that a router handoff exists at
 problem statement as context for the choice the row is asking the
 author to make. The file is left on disk, so a later Revise that
 clears the way down the ladder reaches this slot on its own terms.
+
+**The topic-branch row below, and why it does not collide.**
+`/explore` Phase 0 creates a `docs/<topic>` branch, so an author
+arriving from an exploration is usually standing on a branch the
+meta-ladder's on-topic-branch row matches — and that row resumes at
+Phase 1, skipping Phase 0, on what the author experiences as a
+first invocation. It never fires on a handoff run: the meta-ladder
+tail sits below every body slot, so Slot 7 is evaluated first and
+takes its action, which runs Phase 0's setup obligations before
+Phase 1 rather than skipping them. What the branch row is left
+holding is the residual case — an exploration that routed here but
+wrote no handoff, or one whose handoff was already consumed and
+cleaned up. Resuming at Phase 1 on an existing topic branch is the
+behavior that row was written for, so it stays as it is.
 
 ## Recorded-Upstream Re-Validation
 
