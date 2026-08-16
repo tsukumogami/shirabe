@@ -72,6 +72,29 @@ convention headers shirabe uses:
   skill, not the validator, the same way `## Execution Mode:` is
   read. The full stack is
   `flag > this header > issueless default`.
+- **`## Delivery Preference: consolidated|atomic`** -- how the repo
+  prefers planned work to arrive. `consolidated` reaches for the
+  fewest pull requests the work permits; `atomic` reaches for the
+  smallest reviewable increments it permits. Default `consolidated`
+  when the header is absent, which is the behavior every repo has
+  today. Read by `/plan` step 3.6 when it recommends an
+  `execution_mode`, and by the validator's `L09` when it decides
+  whether a `single-pr` PLAN departed from the stated preference.
+  The full stack is `flag > this header > consolidated default`.
+  An unrecognized value falls through to the default rather than
+  being used. Deliberately NOT named `Execution Mode`, which is
+  already taken above for autonomy and would also collide with the
+  `execution_mode` PLAN frontmatter field.
+- **`## Tracking Level: none|issues|issues-and-milestone`** -- which
+  GitHub artifacts a PLAN's work items get, independent of how many
+  pull requests the work arrives in. Where a level is stated it
+  applies regardless of `execution_mode`; where none is stated the
+  default is `issues-and-milestone` for a `multi-pr` PLAN and `none`
+  for a `single-pr` one, which is the behavior every repo has today.
+  Does not apply to `coordinated` PLANs, whose tracking is governed
+  by `references/coordination-strategy.md`. Read by `/plan` phase 7.
+  The full stack is `flag > this header > the mode-derived default`.
+  An unrecognized value falls through to the default.
 - **`## Release Notes Convention: <path>`** -- the directory or
   file path the release-notes skill targets when emitting
   release-notes prose.
