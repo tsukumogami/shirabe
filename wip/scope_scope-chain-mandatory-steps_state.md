@@ -22,6 +22,10 @@ child_snapshots:
     content_hash: 3f1174177af4e69ec5340ffdcacc4921f50728ed
     captured_at: 2026-08-16T03:15:04Z
 consolidation_judgments: []
+parent_orchestration:
+  invoking_child: prd
+  suppress_status_aware_prompt: true
+  rationale: fresh-chain
 worktree_rebases:
   - phase: brief
     upstream_commits: [8e07f07, 85fda73]

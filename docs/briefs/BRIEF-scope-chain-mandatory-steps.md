@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   The corpus gives two answers to whether a tactical-chain step is optional.
   /execute states the post-#302 model and /scope states it and then contradicts
@@ -23,13 +23,22 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
-Framed from the `/explore` run on this branch. Two questions are deferred to the
-downstream PRD's Decisions and Trade-offs section, recorded under Open
-Questions. The brief stops at the boundary: which surfaces state the wrong
-model and what an author should experience instead. Which prose replaces each
-one, and in what order, is PRD and DESIGN work.
+Framed from the `/explore` run on this branch. The two questions this brief
+deferred — what "a shorter chain" means to an author now, and whether the
+abandonment exit must stay reachable from the author's own flow — are closed in
+the downstream PRD's Decisions and Trade-offs section. The brief stops at the
+boundary: which surfaces state the wrong model and what an author should
+experience instead. Which prose replaces each one, and in what order, is PRD and
+DESIGN work.
+
+Edited in place after the PRD landed. The original framing said the chain
+proposal's question mark was what had to go. Requirements-altitude research
+found the opposite: the proposal's two remaining options each do work the
+default cannot reach, and one of them does not function as documented. The
+Problem Statement and User Outcome above carry the corrected reading; the
+problem this brief frames is unchanged.
 
 ## Problem Statement
 
@@ -55,14 +64,15 @@ upstream is a direction violation nothing downstream catches. `/scope`,
 merely route: four of its produce handlers write committed documents, including
 a DESIGN skeleton.
 
-`/scope` states the current model in its own prose and then asks a question that
-contradicts it. Phase 1 says `planned_chain:` is constant and that no starting
-altitude is choosable, then emits a proposal ending in `Proceed / Adjust /
-Bail?` — a prompt whose answer nothing records, nothing reads, and `--auto`
-skips entirely while producing the identical chain. The same file gives a
-redirect to invoke `/design` or `/plan` directly for "a shorter chain," and a
-later section of that same file calls that redirect an escape hatch from a
-constraint that no longer exists.
+`/scope` states the current model in its own prose and then contradicts itself
+beside it. Phase 1 says `planned_chain:` is constant and that no starting
+altitude is choosable, and then gives a redirect to invoke `/design` or `/plan`
+directly for "a shorter chain" — which a later section of that same file calls
+an escape hatch from a constraint that no longer exists. The chain proposal that
+ends Phase 1 justifies offering no shorter chain on the ground that `/scope`
+cannot produce one, which consolidation falsified. And the proposal's own bail
+option, documented as the author's only stop before the first child writes,
+cannot execute either of its branches.
 
 The shared parent-skill pattern, which both parents inherit from, never states
 the model at all. It carries no mention of consolidation, absorption, or whether
@@ -103,12 +113,11 @@ artifact is authored on their behalf by the skill that was supposed to route
 them.
 
 Entering the tactical chain, they are told what will run and why each child
-fires, and are not asked to confirm a list nothing can change. They are also
-told what happens to the documents afterward: the chain runs whole, and whatever
-did not earn its keep is folded once it and its successor both exist. The
-information in the current proposal survives — the per-child re-entry verdicts,
-the reasons behind the design roster's shape, the upstream notice — because an
-author cannot get it anywhere else. What goes is the question mark.
+fires, and what happens to the documents afterward: the chain runs whole, and
+whatever did not earn its keep is folded once it and its successor both exist.
+The affordances the proposal offers them do what they claim. They can correct a
+framing answer that was wrong, and they can stop before the first child writes.
+Neither is advertised as a way to shorten the chain, because neither is.
 
 A maintainer reading the shared pattern to build a third parent finds the model
 stated once, in the document both existing parents inherit from, along with what
@@ -225,20 +234,10 @@ retired.
 - **Re-opening what #302 settled.** The absorbability judgment, the citation
   preflight, the carry check, and the fold record stay as shipped.
 
-## Open Questions
+## Downstream Artifacts
 
-- **What does "a shorter chain" mean to an author now?** Absorption reduces the
-  artifact set but not the conversation — an author who says the framing is
-  settled still sits through a brief and a requirements conversation before the
-  fold happens. Whether the direct-invocation redirect is retired, narrowed, or
-  merely re-justified turns on that, and an eval scenario currently pins it
-  either way. The downstream PRD owns the answer.
-- **Must the abandonment exit stay reachable from the author's own flow, and
-  from where?** The bail option in the chain proposal is one route to it and the
-  resume ladder's prompt is the other. If the proposal stops asking, an author
-  who wants out mid-chain needs somewhere to say so — or the corpus needs to say
-  that leaving the chain is not an author-facing action at that point. The
-  downstream PRD owns which.
+- `docs/prds/PRD-scope-chain-mandatory-steps.md` — the requirements written from
+  this framing, and the closure surface for both questions this brief deferred.
 
 ## References
 
