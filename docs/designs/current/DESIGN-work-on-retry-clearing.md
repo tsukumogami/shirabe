@@ -73,20 +73,49 @@ no alternative is live rather than staging a contest between three.
 
 Three parts.
 
-**1. Removal, on every path that re-enters.** Each retry edge gains a block that
-removes the keys the re-entry will re-read: the three panel keys on a
-`blocking_retry`, `plan.md` on both edges that return to `analysis`,
-`summary.md` on an `issues_found`. Removal is idempotent, so a key a phase has
+**1. Removal, on every path that re-enters, covering the whole traversal.** Each
+retry edge gains a block that removes every key its re-entry will re-read and
+whose artifact the retry invalidates. Removal is idempotent, so a key a phase has
 not written yet costs nothing and needs no guard.
 
-`plan.md` has two such edges, and both count. `implementation` submits
-`implementation_status: scope_expanded_retry` and routes to `analysis`
-(`work-on.md:488`), and `analysis` self-loops on `plan_outcome:
-scope_changed_retry` (`work-on.md:417`). Both arrive at the same
-`plan_artifact` gate holding the plan the state is being re-entered to replace,
-so the block goes in `phase-4-implementation.md` as well as
-`phase-3-analysis.md`. Covering one and not the other leaves the gate stale on
-the uncovered edge, which is the defect this design exists to close.
+The key set follows from one rule rather than from each phase's own output, and
+this distinction is the design's second structural claim. Every retry returns to
+`implementation`, directly or through `analysis`, and a code-typed run walks
+forward from there through `scrutiny`, `review`, `qa_validation`, `verification`
+and `finalization`. So every retry invalidates all four code-derived artifacts —
+the three panel verdicts and `summary.md` — because the code they describe is
+about to change. Edges that return to `analysis` to rewrite the plan invalidate
+`plan.md` as well; the others do not, because the plan is still the thing being
+implemented.
+
+| Retry edge | From | Returns to | Keys cleared |
+|---|---|---|---|
+| `blocking_retry` | each panel | `implementation` | the four code-derived |
+| `verification_outcome: failed` | `verification` | `implementation` | the four code-derived |
+| `finalization_status: issues_found` | `finalization` | `implementation` | the four code-derived |
+| `implementation_status: scope_expanded_retry` | `implementation` | `analysis` | those four **+ `plan.md`** |
+| `plan_outcome: scope_changed_retry` | `analysis` | `analysis` | those four **+ `plan.md`** |
+
+Deriving the set from the traversal rather than from the raising phase is what
+this design got wrong first time and is worth stating plainly. An earlier version
+cleared each phase's own key: the three panel keys on a `blocking_retry`,
+`plan.md` on the analysis edges, `summary.md` on `issues_found`. That is right
+about the key the phase writes and wrong about the traversal the retry begins.
+Driven against real koto, two edges then advanced on a round-1 verdict with no
+round-2 artifact written — `verification_outcome: failed`, which had no clearing
+step at all, and `issues_found`, which cleared only `summary.md` and left all
+three panel verdicts standing. `scope_expanded_retry` had the same shape.
+
+`plan.md` has two edges and both count. `implementation` submits
+`scope_expanded_retry` and routes to `analysis` (`work-on.md:488`); `analysis`
+self-loops on `scope_changed_retry` (`work-on.md:417`). Both arrive at the same
+`plan_artifact` gate holding the plan the state is being re-entered to replace.
+
+`verification` is the one edge with no phase reference file — its directive lives
+in the template — so its block goes there. That costs the empty template diff an
+earlier draft of this design claimed as a virtue. It is prose in a directive, not
+a gate change: PRD R5 holds, `koto template compile` exits 0, and the mermaid
+companion is unchanged because directive text is not part of the graph.
 
 **2. Verification on two signals, because neither alone is sufficient.** After
 removing, the block stops if **either** `remove` reported failure **or**
@@ -132,7 +161,8 @@ anything at all.
 
 **And no gate changes.** With removal available, `context-exists` is exactly the
 right gate for "this phase must produce a fresh artifact" — remove the key and
-it fails. `work-on.md` is not edited.
+it fails. `work-on.md`'s `gates:` blocks are untouched; the only template edit is
+directive prose for `verification`, which has no phase reference file of its own.
 
 #### Alternatives Considered
 
@@ -181,15 +211,26 @@ something the others do not. The removal makes the gate fail. The verification
 catches the case where the removal did not take, which is silently fatal
 otherwise. The diagnostic keeps a broken store from bricking the run.
 
-What falls out of the choice is that `work-on.md` does not change at all. The
-gate main already ships turns out to be the right gate; it was only ever missing
-the verb that makes a presence gate actionable. That is the design's main
-structural claim, and it is verifiable by an empty diff rather than argued in
-prose.
+What falls out of the choice is that no gate declaration changes. The gate main
+already ships turns out to be the right gate; it was only ever missing the verb
+that makes a presence gate actionable. That is the design's main structural
+claim, and it is verifiable by diffing the template's `gates:` blocks rather than
+argued in prose.
+
+An earlier draft made the stronger claim that `work-on.md` does not change at
+all, and treated the empty template diff as the evidence. That was true only
+because the draft had missed the `verification_outcome: failed` edge, whose
+directive lives in the template and nowhere else. The weaker claim is the one
+that was actually load-bearing: gate declarations unchanged, which is what PRD R5
+asks for and what makes the mermaid companion and the eval fixtures safe.
 
 ## Solution Architecture
 
-Six files change and one is new. No template, no mermaid companion, no eval
+Ten files change and two are new: six phase reference files, the panel
+orchestration reference, the template's `verification` directive,
+`scripts/check-bash-floor.sh` and `skills/work-on/evals/evals.json`; new are
+`skills/work-on/scripts/retry-clearing_test.sh` and
+`.github/workflows/check-work-on-scripts.yml`. No mermaid companion and no eval
 fixtures.
 
 **The three retry-bearing phase files** — `phase-4a-scrutiny.md`,
@@ -198,12 +239,12 @@ fixtures.
 
 ```bash
 OUTCOME_FIELD=scrutiny_outcome   # review_outcome / qa_outcome in the other two
-for KEY in scrutiny_results.json review_results.json qa_results.json; do
+for KEY in scrutiny_results.json review_results.json qa_results.json summary.md; do
   koto context remove <WF> "$KEY" >/dev/null 2>&1
   REMOVE_STATUS=$?
   if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
     echo "$KEY was not confirmed cleared from context."
-    echo "The stale verdict may still be in place, and the gate may accept it."
+    echo "The stale artifact may still be in place, and its gate may accept it."
     echo "Do NOT submit $OUTCOME_FIELD: passed on the next pass."
     echo "To stop the run, submit $OUTCOME_FIELD: blocking_escalate with a failure_reason."
     exit 1
@@ -212,6 +253,10 @@ done
 koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}"
 ```
 
+The blocks are generated from the edge table above rather than hand-written per
+file, which is how the traversal rule stays applied consistently: the hand-written
+version is what missed three of the five edges.
+
 The differing line is the first rather than the last because the diagnostic has
 to name the phase's own field, and PRD R4 requires it to. Hoisting the field into
 a variable at the top is what keeps everything below it identical; a diagnostic
@@ -219,13 +264,25 @@ that interpolated the field inline would leave three blocks differing in four
 places, and "identical below the first line" is an assertion a harness can make
 where "mostly the same" is not.
 
-`phase-3-analysis.md` and `phase-4-implementation.md` each gain the same shape
-over `plan.md`, on `plan_outcome: scope_changed_retry` and
-`implementation_status: scope_expanded_retry` respectively, and
-`phase-5-finalization.md` over `summary.md` on `finalization_status:
-issues_found`. Each names its own escalate outcome in the third diagnostic
-line: `scope_changed_escalate` for `analysis`, `partial_tests_failing_escalate`
-for `implementation`, `deferral_requested` for `finalization`.
+`phase-3-analysis.md` and `phase-4-implementation.md` gain the same shape over
+the five-key set, on `plan_outcome: scope_changed_retry` and
+`implementation_status: scope_expanded_retry` respectively;
+`phase-5-finalization.md` over the four-key set on `finalization_status:
+issues_found`; and the template's `verification` directive over the four-key set
+on `verification_outcome: failed`.
+
+Each names the way out on its **fourth** diagnostic line — the third names the
+outcome not to submit. `scope_changed_escalate` for `analysis`,
+`partial_tests_failing_escalate` for `implementation`, `cannot_verify` for
+`verification`, `deferral_requested` for `finalization`.
+
+`finalization` is the one that is not an escalate outcome, and the wording of
+this design has to be careful about it. `finalization` has no escalate edge at
+all; `deferral_requested` targets `deferral_approval`, which is a human gate
+rather than a terminal state. What PRD R6 requires is that a broken store leave
+a reachable exit, and `deferral_requested` is `finalization`'s. Calling it "the
+escalate outcome" would be wrong twice over — wrong about its name and wrong
+about where it goes.
 
 **`review-panel-orchestration.md`** gains the all-three contract and loses
 nothing else.
@@ -359,13 +416,17 @@ override rather than absolute.
 
 ## Consequences
 
-**Positive.** A retry cannot advance any re-entered phase on the previous
-round's artifact, and the refusal is the state machine's rather than an
-instruction's. One mechanism covers all six gates, including the two markdown
-ones no content-shaped pattern could reach. `work-on.md` is untouched, so there
-is no template diff, no mermaid regeneration, and no eval-fixture churn. And no
-sentinel value enters the artifact namespace, so nothing has to be kept in sync
-with a pattern.
+**Positive.** On each of the five retry edges, a phase the run re-enters cannot
+advance on the previous round's artifact, and the refusal is the state machine's
+rather than an instruction's — demonstrated per edge against real koto rather
+than argued from the graph. The claim is scoped to those edges deliberately: an
+earlier version of this sentence said "any re-entered phase," which was false on
+the three edges whose traversal it had not covered.
+
+One mechanism covers all six gates, including the two markdown ones no
+content-shaped pattern could reach. No gate declaration changes, so the mermaid
+companion is unchanged and no eval fixture is rebuilt. And no sentinel value
+enters the artifact namespace, so nothing has to be kept in sync with a pattern.
 
 **Negative.** The clearing block is duplicated in six phase files rather than
 referenced once, and the three panel copies must stay identical — asserted by

@@ -1038,6 +1038,32 @@ entry matched and no usable default, or a command could not run); this fails clo
 and does not advance toward a clean finalization. Always include `commands_run` so the
 evidence records what executed, not merely what was declared.
 
+On `failed`, clear the artifacts the return trip invalidates before submitting. The run
+goes back to implementation and, for a code-typed issue, walks forward through scrutiny,
+review and qa_validation again — each gated on `context-exists` over a verdict about the
+code that is about to change. Run this instead of a bare `koto next`:
+
+```bash
+OUTCOME_FIELD=verification_outcome
+for KEY in scrutiny_results.json review_results.json qa_results.json summary.md; do
+  koto context remove <WF> "$KEY" >/dev/null 2>&1
+  REMOVE_STATUS=$?
+  if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
+    echo "$KEY was not confirmed cleared from context."
+    echo "The stale artifact may still be in place, and its gate may accept it."
+    echo "Do NOT submit $OUTCOME_FIELD: passed on the next pass."
+    echo "To stop the run, submit verification_outcome: cannot_verify."
+    exit 1
+  fi
+done
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"failed\", \"commands_run\": \"<what ran>\"}"
+```
+
+The check is on both signals deliberately: `koto context exists` cannot tell a key that
+is absent from a store it cannot read, so `remove` reporting failure is the only signal
+that survives an unreadable store. See `references/phases/phase-4a-scrutiny.md` for the
+full reasoning, which is identical here.
+
 Evidence schema:
 - `verification_outcome`: `passed`, `failed`, or `cannot_verify`
 - `commands_run`: the commands selected and run, with each command's pass/fail result

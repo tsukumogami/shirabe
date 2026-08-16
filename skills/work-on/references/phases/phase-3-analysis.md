@@ -78,16 +78,19 @@ When they differ, use your classification and note the override in `decisions`.
 `scope_changed_retry` re-enters this phase to write a *replacement* plan, and the `plan_artifact` gate holds the `plan.md` being replaced. Clear it before submitting:
 
 ```bash
-koto context remove <WF> plan.md >/dev/null 2>&1
-REMOVE_STATUS=$?
-if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> plan.md >/dev/null 2>&1; then
-  echo "plan.md was not confirmed cleared from context."
-  echo "The superseded plan may still be in place, and the plan_artifact gate may accept it."
-  echo "Do NOT submit plan_outcome: plan_ready on the next pass."
-  echo "To stop the run, submit plan_outcome: scope_changed_escalate."
-  exit 1
-fi
-koto next <WF> --with-data '{"plan_outcome": "scope_changed_retry"}'
+OUTCOME_FIELD=plan_outcome
+for KEY in plan.md scrutiny_results.json review_results.json qa_results.json summary.md; do
+  koto context remove <WF> "$KEY" >/dev/null 2>&1
+  REMOVE_STATUS=$?
+  if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
+    echo "$KEY was not confirmed cleared from context."
+    echo "The stale artifact may still be in place, and its gate may accept it."
+    echo "Do NOT submit plan_outcome: plan_ready on the next pass."
+    echo "To stop the run, submit plan_outcome: scope_changed_escalate."
+    exit 1
+  fi
+done
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"scope_changed_retry\"}"
 ```
 
 The gate is `context-exists`: it asks whether `plan.md` is present, not which round wrote it. Left in place, the plan this phase is being re-entered to replace is the one that satisfies the gate on the way out.

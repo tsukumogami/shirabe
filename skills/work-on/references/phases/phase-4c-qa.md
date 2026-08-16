@@ -27,7 +27,7 @@ The tester writes full results to `wip/research/work-on_qa_<WF>.md` and returns:
 
 After the tester returns:
 
-- If `scenarios_failed > 0`: spawn the coder agent with the failing scenarios, fix them, and re-enter this phase.
+- If `scenarios_failed > 0`: submit `qa_outcome: blocking_retry` via the Retry Loop below. That routes to `implementation`, where the coder agent fixes the failing scenarios; the run then walks forward through `scrutiny` and `review` before re-entering this phase. It does not self-loop, which is why the retry clears those two panels' verdicts as well as this one's.
 - If all scenarios pass: write `qa_results.json` to koto context and submit `qa_outcome: passed`.
 
 ```bash
@@ -43,12 +43,12 @@ When a defect sends the work back, clear the panel verdicts before submitting th
 
 ```bash
 OUTCOME_FIELD=qa_outcome
-for KEY in scrutiny_results.json review_results.json qa_results.json; do
+for KEY in scrutiny_results.json review_results.json qa_results.json summary.md; do
   koto context remove <WF> "$KEY" >/dev/null 2>&1
   REMOVE_STATUS=$?
   if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
     echo "$KEY was not confirmed cleared from context."
-    echo "The stale verdict may still be in place, and the gate may accept it."
+    echo "The stale artifact may still be in place, and its gate may accept it."
     echo "Do NOT submit $OUTCOME_FIELD: passed on the next pass."
     echo "To stop the run, submit $OUTCOME_FIELD: blocking_escalate with a failure_reason."
     exit 1

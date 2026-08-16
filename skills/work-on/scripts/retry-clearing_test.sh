@@ -97,6 +97,9 @@ QA_BLOCK=$(      extract_block "$PHASES/phase-4c-qa.md"            "koto context
 ANALYSIS_BLOCK=$(extract_block "$PHASES/phase-3-analysis.md"       "koto context remove")
 IMPL_BLOCK=$(    extract_block "$PHASES/phase-4-implementation.md" "koto context remove")
 FINAL_BLOCK=$(   extract_block "$PHASES/phase-5-finalization.md"   "koto context remove")
+# `verification` has no phase reference file -- its directive lives in the
+# template -- so its clearing block is extracted from there.
+VERIFY_BLOCK=$(  extract_block "$TEMPLATE"                         "koto context remove")
 
 for pair in \
     "SCRUTINY_BLOCK:phase-4a-scrutiny.md" \
@@ -104,7 +107,8 @@ for pair in \
     "QA_BLOCK:phase-4c-qa.md" \
     "ANALYSIS_BLOCK:phase-3-analysis.md" \
     "IMPL_BLOCK:phase-4-implementation.md" \
-    "FINAL_BLOCK:phase-5-finalization.md"
+    "FINAL_BLOCK:phase-5-finalization.md" \
+    "VERIFY_BLOCK:koto-templates/work-on.md"
 do
     var=${pair%%:*}
     src=${pair#*:}
@@ -197,10 +201,14 @@ to_qa() {
     submit "$1" '{"review_outcome":"passed"}'
 }
 
-to_finalization() {
+to_verification() {
     to_qa "$1"
     seed "$1" qa_results.json
     submit "$1" '{"qa_outcome":"passed"}'
+}
+
+to_finalization() {
+    to_verification "$1"
     submit "$1" '{"verification_outcome":"passed","commands_run":"none"}'
 }
 
@@ -361,19 +369,33 @@ check_traversal() {
     seed "$1" scrutiny_results.json
     seed "$1" review_results.json
     seed "$1" qa_results.json
+    # summary.md too: a retry raised at a panel returns to implementation and the
+    # run walks forward through verification into finalization, whose gate would
+    # otherwise be satisfied by a summary written before this round's fixes. On a
+    # second cycle -- finalization issues_found, then a panel raising again --
+    # that summary really is present.
+    seed "$1" summary.md
     eval "blk=\${$3}"
     out=$(render "$blk" "$1" | bash 2>/dev/null)
     rc=$?
     left=""
-    for k in scrutiny_results.json review_results.json qa_results.json; do
+    for k in scrutiny_results.json review_results.json qa_results.json summary.md; do
         if koto context exists "$1" "$k" >/dev/null 2>&1; then
             left="$left $k"
         fi
     done
     if [ "$rc" -eq 0 ] && [ -z "$left" ]; then
-        pass "$1: the shipped block removed all three panel keys (exit 0)"
+        pass "$1: the shipped block removed every key the re-entry re-reads (exit 0)"
     else
         fail "$1: block exit $rc, keys still present:${left:- none}"
+    fi
+    # plan.md must NOT be cleared here: the plan is still the thing being
+    # implemented, and analysis is not on this traversal. An over-broad key list
+    # would strand the run at analysis if it were ever re-entered.
+    if koto context exists "$1" plan.md >/dev/null 2>&1; then
+        pass "$1: plan.md is left alone -- the retry does not invalidate the plan"
+    else
+        fail "$1: plan.md was cleared by a panel retry; the plan is still valid here"
     fi
 }
 
@@ -415,28 +437,64 @@ fi
 
 echo "--- Case 9: both edges into analysis clear plan.md"
 
-to_analysis edge-self
-seed edge-self plan.md
-render "$ANALYSIS_BLOCK" edge-self | bash >/dev/null 2>&1
-if koto context exists edge-self plan.md >/dev/null 2>&1; then
-    fail "analysis self-loop (scope_changed_retry): plan.md survived the shipped block"
-else
-    pass "analysis self-loop (scope_changed_retry): plan.md cleared by the shipped block"
-fi
+check_analysis_edge() {
+    # $1 session  $2 walk-fn  $3 block-var  $4 label
+    "$2" "$1"
+    seed "$1" plan.md
+    # The panel keys and the summary too. Both edges return to `analysis`, and a
+    # plan_ready from there goes to `implementation` and on through every panel,
+    # so the traversal is a superset of a panel retry's -- not just plan.md. An
+    # earlier version cleared only plan.md and left all four of these stale.
+    seed "$1" scrutiny_results.json
+    seed "$1" review_results.json
+    seed "$1" qa_results.json
+    seed "$1" summary.md
+    eval "blk=\${$3}"
+    render "$blk" "$1" | bash >/dev/null 2>&1
 
-to_implementation edge-impl
-seed edge-impl plan.md
-render "$IMPL_BLOCK" edge-impl | bash >/dev/null 2>&1
-if koto context exists edge-impl plan.md >/dev/null 2>&1; then
-    fail "implementation (scope_expanded_retry): plan.md survived the shipped block"
-else
-    pass "implementation (scope_expanded_retry): plan.md cleared by the shipped block"
-fi
+    left=""
+    for k in plan.md scrutiny_results.json review_results.json qa_results.json summary.md; do
+        if koto context exists "$1" "$k" >/dev/null 2>&1; then
+            left="$left $k"
+        fi
+    done
+    if [ -z "$left" ]; then
+        pass "$4: every key the traversal re-reads is cleared, plan.md included"
+    else
+        fail "$4: keys survive the clearing step:$left"
+    fi
+}
+
+check_analysis_edge edge-self to_analysis       ANALYSIS_BLOCK "analysis self-loop (scope_changed_retry)"
+check_analysis_edge edge-impl to_implementation IMPL_BLOCK     "implementation (scope_expanded_retry)"
+
+# The consequence at the analysis gate itself.
 submit edge-impl '{"plan_outcome":"plan_ready","issue_type":"code"}'
 if [ "$NEXT_STATE" = "analysis" ]; then
     pass "implementation (scope_expanded_retry): analysis then refuses plan_ready"
 else
     fail "implementation (scope_expanded_retry): analysis advanced to [$NEXT_STATE]"
+fi
+
+# And the consequence further down the traversal: write a fresh plan, walk to
+# implementation and on to scrutiny, and try to pass it on the round-1 verdict.
+# Without the panel keys in the analysis blocks' lists, this advances.
+seed edge-impl plan.md
+submit edge-impl '{"plan_outcome":"plan_ready","issue_type":"code"}'
+if [ "$NEXT_STATE" = "implementation" ]; then
+    submit edge-impl '{"implementation_status":"complete","issue_type":"code"}'
+    if [ "$NEXT_STATE" = "scrutiny" ]; then
+        submit edge-impl '{"scrutiny_outcome":"passed"}'
+        if [ "$NEXT_STATE" = "scrutiny" ]; then
+            pass "scope_expanded_retry: scrutiny refuses passed on the round-1 verdict"
+        else
+            fail "scope_expanded_retry: scrutiny advanced to [$NEXT_STATE] on a round-1 verdict"
+        fi
+    else
+        fail "scope_expanded_retry: expected scrutiny after a fresh plan, got [$NEXT_STATE]"
+    fi
+else
+    fail "scope_expanded_retry: expected implementation on a fresh plan, got [$NEXT_STATE]"
 fi
 
 # --- Case 10 — issues_found clears summary.md ---------------------------------
@@ -451,6 +509,67 @@ if koto context exists final-clear summary.md >/dev/null 2>&1; then
 else
     pass "finalization (issues_found): summary.md cleared by the shipped block"
 fi
+
+# --- Case 10b — every retry edge covers the traversal it starts ----------------
+#
+# The defect this case exists for: an earlier version of these blocks cleared the
+# raising phase's own key and nothing else. That is right for the key the phase
+# writes and wrong for the traversal the retry begins, because every retry routes
+# back to `implementation` and a code-typed run walks forward from there through
+# all three panels, verification, and finalization.
+#
+# Two edges were reached that way and advanced on a round-1 verdict with no
+# round-2 artifact written: `verification_outcome: failed` (which had no clearing
+# step at all) and `finalization_status: issues_found` (which cleared only
+# summary.md). Each is driven end to end here rather than asserted from the graph.
+
+echo "--- Case 10b: the verification and finalization edges cover their traversal"
+
+check_edge_traversal() {
+    # $1 session  $2 block-var  $3 human label  $4 walk-fn (state the edge leaves from)
+    "$4" "$1"
+    seed "$1" scrutiny_results.json
+    seed "$1" review_results.json
+    seed "$1" qa_results.json
+    seed "$1" summary.md
+    eval "blk=\${$2}"
+    render "$blk" "$1" | bash >/dev/null 2>&1
+
+    left=""
+    for k in scrutiny_results.json review_results.json qa_results.json summary.md; do
+        if koto context exists "$1" "$k" >/dev/null 2>&1; then
+            left="$left $k"
+        fi
+    done
+    if [ -z "$left" ]; then
+        pass "$3: every key the traversal re-reads is cleared"
+    else
+        fail "$3: keys survive the clearing step:$left"
+    fi
+
+    # And the consequence, driven: walk back to scrutiny and try to pass it on
+    # the verdict that was there before. Clearing the keys is only interesting
+    # because of this.
+    submit "$1" '{"implementation_status":"complete","issue_type":"code"}'
+    if [ "$NEXT_STATE" = "scrutiny" ]; then
+        submit "$1" '{"scrutiny_outcome":"passed"}'
+        if [ "$NEXT_STATE" = "scrutiny" ]; then
+            pass "$3: scrutiny refuses passed on the round-1 verdict after the retry"
+        else
+            fail "$3: scrutiny advanced to [$NEXT_STATE] on a round-1 verdict"
+        fi
+    else
+        fail "$3: expected the retry to reach implementation then scrutiny, got [$NEXT_STATE]"
+    fi
+}
+
+# Each block is driven from the state its edge actually leaves from -- the
+# verification block from `verification`, the finalization block from
+# `finalization`. Driving one from the wrong state would submit an outcome that
+# state does not accept, and the case would fail for a reason that has nothing to
+# do with clearing.
+check_edge_traversal edge-verify VERIFY_BLOCK "verification failed"        to_verification
+check_edge_traversal edge-issues FINAL_BLOCK  "finalization issues_found"  to_finalization
 
 # --- Case 11 — idempotence on a key no phase has written ----------------------
 #
@@ -701,7 +820,8 @@ for pair in \
     "QA_BLOCK:phase-4c-qa.md" \
     "ANALYSIS_BLOCK:phase-3-analysis.md" \
     "IMPL_BLOCK:phase-4-implementation.md" \
-    "FINAL_BLOCK:phase-5-finalization.md"
+    "FINAL_BLOCK:phase-5-finalization.md" \
+    "VERIFY_BLOCK:koto-templates/work-on.md"
 do
     var=${pair%%:*}
     src=${pair#*:}

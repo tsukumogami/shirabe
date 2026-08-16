@@ -46,12 +46,12 @@ When a blocking finding sends the work back, clear the panel verdicts before sub
 
 ```bash
 OUTCOME_FIELD=scrutiny_outcome
-for KEY in scrutiny_results.json review_results.json qa_results.json; do
+for KEY in scrutiny_results.json review_results.json qa_results.json summary.md; do
   koto context remove <WF> "$KEY" >/dev/null 2>&1
   REMOVE_STATUS=$?
   if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
     echo "$KEY was not confirmed cleared from context."
-    echo "The stale verdict may still be in place, and the gate may accept it."
+    echo "The stale artifact may still be in place, and its gate may accept it."
     echo "Do NOT submit $OUTCOME_FIELD: passed on the next pass."
     echo "To stop the run, submit $OUTCOME_FIELD: blocking_escalate with a failure_reason."
     exit 1

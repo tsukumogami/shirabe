@@ -107,13 +107,27 @@ am about to write is impossible.
 - **R1. The keys behind the six re-entrant gates are removed on the path that
   re-enters them.** Five distinct keys across six gates; `summary.md` is gated
   twice.
-  A `blocking_retry` from any panel removes `scrutiny_results.json`,
-  `review_results.json` and `qa_results.json`. An `issues_found` from
-  `finalization` removes `summary.md`. `plan.md` is removed on **both** edges
-  that re-enter `analysis`, not one: `implementation` submitting
-  `scope_expanded_retry`, and `analysis` self-looping on `scope_changed_retry`.
-  Both land on the same `plan_artifact` gate holding the plan the state is being
-  re-entered to replace, so covering one leaves the defect live on the other.
+  The key set is derived from the **traversal the retry starts**, not from the
+  artifact the raising phase happens to write. Every retry returns to
+  `implementation`, directly or through `analysis`, and a code-typed run walks
+  forward from there through all three panels, `verification` and `finalization`.
+  So every retry removes the four code-derived artifacts — the three panel
+  verdicts and `summary.md` — because the code they describe is about to change.
+  The two edges that return to `analysis` to rewrite the plan remove `plan.md` as
+  well; the others do not, because the plan is still what is being implemented.
+
+  | Retry edge | From | Keys removed |
+  |---|---|---|
+  | `blocking_retry` | each of the three panels | the four code-derived |
+  | `verification_outcome: failed` | `verification` | the four code-derived |
+  | `finalization_status: issues_found` | `finalization` | the four code-derived |
+  | `implementation_status: scope_expanded_retry` | `implementation` | those four + `plan.md` |
+  | `plan_outcome: scope_changed_retry` | `analysis` | those four + `plan.md` |
+
+  All five edges, because a mechanism that covers some of them leaves the same
+  defect live on the rest. `verification_outcome: failed` is the one with no
+  phase reference file of its own, and is the edge most easily missed for exactly
+  that reason.
 - **R2. Removal covers every key the re-entry will re-read, not only the
   raising phase's.** A retry raised at `qa_validation` re-enters `scrutiny` and
   `review`, and the code both reviewed is about to change, so their verdicts are
@@ -132,7 +146,10 @@ am about to write is impossible.
   migration noise.
 - **R5. The gate declarations are unchanged.** All twelve stay
   `type: context-exists`. Removal makes a presence gate correct rather than
-  requiring a different gate type, so `work-on.md`'s gates are not edited.
+  requiring a different gate type, so `work-on.md`'s `gates:` blocks are not
+  edited and the mermaid companion needs no regeneration. Directive prose in the
+  template may change where a state has no phase reference file of its own — as
+  `verification` does not — since that is where its instructions live.
 - **R6. A broken context store must not brick the run.** The clearing step runs
   on the retry path, so a failure there must still leave a terminal state
   reachable. Naming the transitions rather than gesturing at them, because an
@@ -196,6 +213,15 @@ am about to write is impossible.
       other.
 - [ ] After `finalization` submits `issues_found`, `summary.md` is absent and
       neither `finalization` nor `deferral_approval` advances on it.
+- [ ] **Each retry edge covers its whole traversal, not just its own key.** For
+      `verification_outcome: failed` and `finalization_status: issues_found`:
+      after the clearing step, all three panel verdicts and `summary.md` are
+      absent, and walking back to `scrutiny` and submitting `passed` without
+      writing a round-2 artifact does not advance. Both edges advanced on a
+      round-1 verdict before this requirement existed.
+- [ ] For both edges into `analysis`, the same holds with `plan.md` added, and a
+      panel retry leaves `plan.md` alone — the plan is not invalidated by a code
+      change, and clearing it would strand a run that re-enters `analysis`.
 - [ ] The clearing step exits 0 when a key it is asked to remove was never
       written.
 - [ ] With the context store unwritable, the clearing step exits non-zero,

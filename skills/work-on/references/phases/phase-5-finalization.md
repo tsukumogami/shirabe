@@ -79,16 +79,19 @@ integration between components. Skip for docs-only or config changes.
 Returning to implementation invalidates the summary. Clear it before submitting:
 
 ```bash
-koto context remove <WF> summary.md >/dev/null 2>&1
-REMOVE_STATUS=$?
-if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> summary.md >/dev/null 2>&1; then
-  echo "summary.md was not confirmed cleared from context."
-  echo "The pre-fix summary may still be in place, and the summary gates may accept it."
-  echo "Do NOT submit finalization_status: ready_for_pr on the next pass."
-  echo "To route to the human gate instead, submit finalization_status: deferral_requested."
-  exit 1
-fi
-koto next <WF> --with-data '{"finalization_status": "issues_found"}'
+OUTCOME_FIELD=finalization_status
+for KEY in scrutiny_results.json review_results.json qa_results.json summary.md; do
+  koto context remove <WF> "$KEY" >/dev/null 2>&1
+  REMOVE_STATUS=$?
+  if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
+    echo "$KEY was not confirmed cleared from context."
+    echo "The stale artifact may still be in place, and its gate may accept it."
+    echo "Do NOT submit finalization_status: ready_for_pr on the next pass."
+    echo "To stop the run, submit finalization_status: deferral_requested."
+    exit 1
+  fi
+done
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"issues_found\"}"
 ```
 
 Two states gate on `summary.md`, and both are covered by clearing it here. This phase is the obvious one. `deferral_approval` is the one worth naming, because it looks safe and is not: exactly one transition targets it and nothing routes back into it, so the state is entered once — but `finalization` upstream of it sits on a cycle, so that single entry can happen carrying a summary written before the fixes. What makes presence gating sound is that the key cannot survive from one evaluation of the gate into another, by any path; counting entries into the state is the wrong test.
