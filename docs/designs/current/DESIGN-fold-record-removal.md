@@ -7,8 +7,8 @@ problem: |
   a survivor remains it duplicates a trace three error-level checks already
   enforce; its concurrency mitigation is inert on the forge this repository
   merges on and absent entirely in adopting repositories; and its CI check cannot
-  fire on the fold shape it exists for, which the repository's one real fold
-  confirms. Removing it means replacing two prose claims that cite it as
+  fire on the fold shape it exists for, which both of the repository's real
+  folds confirm. Removing it means replacing two prose claims that cite it as
   evidence, amending seven shipped documents, and recording why no replacement
   carrier was adopted.
 decision: |
@@ -63,13 +63,16 @@ be a file the chain wrote *outside* its own fold set — precisely the shape
 `docs/folds.md` had. No replacement can eliminate the residual without
 reintroducing that shape under another name.
 
-**The record's one real exercise demonstrates the case against it.** `#316`
-absorbed `BRIEF-scope-chain-mandatory-steps.md` into its PRD. The surviving PRD
-declares the absorbed path in frontmatter, names it in its `## Status` line, and
-carries it in `## Absorbed Brief`. The absorbed brief was created and deleted
-inside that same squashed chain, so `git diff --diff-filter=D BASE...HEAD` saw
-nothing and the fold-record check exited without asserting anything. The row was
-written by an agent following prose and verified by nothing.
+**Both of the record's real exercises demonstrate the case against it.** `#316`
+absorbed `BRIEF-scope-chain-mandatory-steps.md` into its PRD, and `#311`
+absorbed `BRIEF-multi-pr-plan-decoupling.md` into its PRD. In each, the surviving
+PRD declares the absorbed path in frontmatter, names it in its `## Status` line,
+and carries it in `## Absorbed Brief`. In each, the absorbed brief was created
+and deleted inside that same squashed chain, so
+`git diff --diff-filter=D BASE...HEAD` saw nothing and the fold-record check
+exited without asserting anything. Both rows were written by an agent following
+prose and verified by nothing — two for two, on the only two runs there have
+been.
 
 ## Decision Drivers
 

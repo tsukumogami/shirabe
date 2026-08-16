@@ -16,7 +16,7 @@ motivating_context: |
   fold. An /explore run across six research leads found its unique
   guarantee is one fact in one fold shape, its concurrency mitigation is
   inert on the platform this repository merges on, and its CI check cannot
-  fire on the case it was written for — which the one real fold confirms.
+  fire on the case it was written for — which both real folds confirm.
 ---
 
 # BRIEF: Fold-Record Removal
@@ -80,14 +80,14 @@ check that is supposed to backstop all of this cannot fire on the fold
 shape the record exists for, because a two-endpoint tree comparison
 cannot see a file created and deleted between those endpoints.
 
-The corpus now contains exactly one executed fold, and it settles the
-argument rather than complicating it. The surviving PRD declares the
+The corpus now contains two executed folds, and both settle the argument
+rather than complicating it. In each, the surviving PRD declares the
 absorbed brief in its frontmatter, names it in its status line, and
 carries it in a contribution section — every fact the row holds, on disk,
-where a reader is already looking. The absorbed brief was also created
+where a reader is already looking. In each, the absorbed brief was created
 and deleted inside the same squashed chain, so the check that is supposed
-to verify the row observed nothing at all. The one fold this repository
-has performed is a demonstration of both halves of the case.
+to verify the row observed nothing at all. Every fold this repository has
+performed demonstrates both halves of the case.
 
 ## User Outcome
 
@@ -189,8 +189,8 @@ record the removal reads as an oversight and invites the mechanism back.
 - **Fixing the defects in the fold-record check as standalone work.**
   They are evidence that the mechanism was never load-bearing, and they
   are deleted along with the step that carries them.
-- **A migration path for the one existing row.** The single fold on record is
-  already carried by its surviving document, so there is nothing to move.
+- **A migration path for the existing rows.** Each fold on record is already
+  carried by its surviving document, so there is nothing to move.
 
 ## References
 

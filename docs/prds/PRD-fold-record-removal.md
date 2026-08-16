@@ -18,9 +18,9 @@ goals: |
   someone reading its absence as an oversight.
 upstream: docs/briefs/BRIEF-fold-record-removal.md
 motivating_context: |
-  The record has recorded exactly one fold, and that fold demonstrates both
-  halves of the case: the survivor carries every fact the row holds, and the
-  check meant to verify the row observed nothing. The decision to keep a record
+  The record has recorded two folds, and both demonstrate both halves of the
+  case: the survivor carries every fact the row holds, and the check meant to
+  verify the row observed nothing. The decision to keep a record
   was fixed at BRIEF altitude and never re-examined; the design that shipped it
   chose among surfaces for a record it already assumed, in --auto mode without
   author confirmation, on a pull request with no review.
@@ -81,17 +81,18 @@ reported as a mismatch whenever the base branch has advanced. On top of that,
 the record promises duplicate detection in three separate documents and no code
 implements it.
 
-The repository has performed exactly one fold, and it settles all three counts
-at once. `#316` absorbed `BRIEF-scope-chain-mandatory-steps.md` into its PRD.
-The surviving PRD declares the absorbed path in frontmatter, names it in its
+The repository has performed two folds, and both settle all three counts at
+once. `#316` absorbed `BRIEF-scope-chain-mandatory-steps.md` into its PRD, and
+`#311` absorbed `BRIEF-multi-pr-plan-decoupling.md` into its PRD. In each, the
+surviving PRD declares the absorbed path in frontmatter, names it in its
 `## Status` line, and carries it in `## Absorbed Brief` — every fact the row
-holds, on disk. The absorbed brief was created and deleted inside that same
-squashed chain, so it appeared in neither endpoint of the workflow's tree
-comparison and the fold-record check exited without asserting anything. The one
-row in the record was written by an agent following prose, verified by nothing,
-and duplicates a trace that three error-level checks already enforce.
+holds, on disk. In each, the absorbed brief was created and deleted inside that
+same squashed chain, so it appeared in neither endpoint of the workflow's tree
+comparison and the fold-record check exited without asserting anything. Both
+rows were written by an agent following prose, verified by nothing, and
+duplicate a trace that three error-level checks already enforce.
 
-Around that single row sit a merge attribute, an append-only assertion, a
+Around those two rows sit a merge attribute, an append-only assertion, a
 cleanup carve-out, a citation-search exclusion, an eval fixture, and seven
 shipped documents of rationale.
 
@@ -381,13 +382,13 @@ in an appended section, so the historical text stays as written.
   trigger that cannot fire, the dead skip-guard, and the absent duplicate
   detection are evidence that the mechanism was never load-bearing. They are
   deleted with the step that carries them and are not separately repaired.
-- **Migrating the one existing row.** The record holds a single row, for the
-  `#316` brief-to-PRD fold. It is deleted with the file and nothing is carried
-  anywhere, because the surviving PRD already declares the absorbed path in
-  frontmatter, names it in its `## Status` line, and carries it in
-  `## Absorbed Brief`. Every field of the row except the pre-fold blob hash is
+- **Migrating the existing rows.** The record holds two rows, for the `#316`
+  and `#311` brief-to-PRD folds. Both are deleted with the file and nothing is
+  carried anywhere, because each surviving PRD already declares the absorbed
+  path in frontmatter, names it in its `## Status` line, and carries it in
+  `## Absorbed Brief`. Every field of each row except the pre-fold blob hash is
   recoverable from that survivor, and the hash fingerprints bytes no plain clone
-  can reach now that the branch is gone. Migration would move a fact that is
+  can reach now that the branch is gone. Migration would move facts that are
   already in a better place.
 - **Auditing adopting repositories for rows.** Not verifiable from here, and it
   does not gate this change; removing a check from a reusable workflow cannot
@@ -451,12 +452,13 @@ is deliberately absent from this document.
   narrows this to chains with no roadmap feature entry — and even there the
   cascade eventually deletes the roadmap. This is the accepted cost of the
   removal and the residual R11's record exists to explain.
-- **The removal is specified against a mechanism that has executed once.** One
-  fold has run, which is enough to confirm the argument and not enough to
-  characterize the mechanism's behavior across fold shapes. The
-  design-to-plan hop, the multi-hop chain, and the concurrent-fold case remain
-  documented rather than observed, and the acceptance criteria test the absence
-  of machinery rather than a change in observed fold behavior.
+- **The removal is specified against a mechanism that has executed twice.**
+  Both runs were the same shape — a brief absorbed into its PRD — which is
+  enough to confirm the argument and not enough to characterize the mechanism
+  across fold shapes. The design-to-plan hop, the multi-hop chain, and the
+  concurrent-fold case remain documented rather than observed, and the
+  acceptance criteria test the absence of machinery rather than a change in
+  observed fold behavior.
 - **Two of the seven amended documents already carry a dated amendment.** The
   new sections are appended alongside, so those documents will carry two, which
   is correct but reads oddly on first encounter.
