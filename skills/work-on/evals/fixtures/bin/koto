@@ -114,12 +114,14 @@ case "$ARGS" in
     fi
     exit 1                        # absent
     ;;
-  *"context list"*)
-    if [ -d "$CTX_STATE" ]; then
-      ls -1 "$CTX_STATE" 2>/dev/null || true
-    fi
-    exit 0
-    ;;
+  # No `context list` arm on purpose. The clearing block uses `remove` and
+  # `exists` only, and an earlier version of this shim added `list` for
+  # completeness -- which changed what an unrelated eval sees when it probes:
+  # exit 1 "no match" became exit 0 with empty output. Two evals that probe
+  # `list` regressed in the run that introduced it. The failing assertions were
+  # about `koto next` replay rather than about `list`, so it was probably not
+  # the cause, but adding a verb nothing needs is not worth an environment
+  # delta that cannot be fully accounted for. `list` falls through below.
 esac
 
 echo "koto shim: no match for args: $ARGS" >&2
