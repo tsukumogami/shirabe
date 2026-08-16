@@ -475,7 +475,15 @@ else
         fail "the diagnostic does not say what to submit instead"
     fi
 
-    # Negative control: the guarded variant misses exactly this.
+    # Negative control: the guarded variant misses exactly this. The injection
+    # is a directory chmod rather than the key-file chmod above, because that is
+    # what makes `koto context exists` itself fail -- which is the condition the
+    # guard cannot distinguish from "key absent" and therefore skips on.
+    #
+    # This asserts a real outcome in both directions. An earlier revision called
+    # pass() in both branches, which made it decoration counted among the
+    # harness's own passing results -- the exact non-assertion this suite exists
+    # to catch one layer down.
     new_session
     seed "$CUR" scrutiny_results.json '{"passed": true, "round": 1}'
     GUARDED_CTX="$HOME/.koto/sessions/$CUR/ctx"
@@ -486,10 +494,11 @@ else
     bash blk5g.sh >/dev/null 2>&1
     GRC=$?
     chmod 0755 "$GUARDED_CTX"
-    if [ "$GRC" -eq 0 ]; then
-        pass "negative control: a guarded variant exits 0 and misses the failure"
+    STILL=$(koto context get "$CUR" scrutiny_results.json 2>/dev/null)
+    if [ "$GRC" -eq 0 ] && [ "$STILL" != "$CLEARED" ]; then
+        pass "negative control: the guarded variant exits 0 while leaving the real verdict in place"
     else
-        pass "negative control inconclusive on this platform (guarded variant also failed)"
+        fail "negative control did not reproduce the guard's failure (exit $GRC, value [$STILL]) -- this case no longer shows what the guard costs"
     fi
 fi
 
@@ -520,6 +529,85 @@ for pair in "A:$BLOCK_A:scrutiny_outcome" "B:$BLOCK_B:review_outcome" "C:$BLOCK_
     else
         fail "phase-4$label does not submit $want"
     fi
+done
+
+# --- Case 7 — the SHIPPED template's wiring, not the probe's ------------------
+#
+# Every case above drives a probe this harness writes. The probe carries the
+# shipped PATTERN, but its gate type and its when-clause references are
+# reconstructed here rather than extracted -- so on their own those cases would
+# stay green against a template whose real `passed` edge had lost its gate
+# reference, which koto silently ignores (a gate no `when` clause references is
+# evaluated and discarded). That is the whole guarantee this change rests on, so
+# it is asserted directly against work-on.md.
+#
+# Case 7 also covers what `grep -m1` cannot: the pattern is read once above, so
+# without this the review_results and qa_results patterns are never checked and
+# loosening either one leaves the suite green.
+
+echo
+echo "--- Case 7: the shipped template's gate wiring ---"
+
+# All three panel patterns are present and identical to each other.
+PATTERN_LINES=$(grep -c "pattern: '(?s)" "$TEMPLATE")
+UNIQUE_PATTERNS=$(grep "pattern: '(?s)" "$TEMPLATE" | sed 's/^[[:space:]]*//' | sort -u | wc -l | tr -d ' ')
+if [ "$PATTERN_LINES" -eq 3 ]; then
+    pass "all three panel gates declare a pattern"
+else
+    fail "expected 3 pattern lines in the template, found $PATTERN_LINES"
+fi
+if [ "$UNIQUE_PATTERNS" -eq 1 ]; then
+    pass "the three patterns are identical -- one contract, not three"
+else
+    fail "the three panel patterns have diverged ($UNIQUE_PATTERNS distinct values)"
+fi
+
+# Per panel state: the gate is context-matches, the passed edge references
+# .matches, and neither failure edge references any gate.
+for TRIPLE in "scrutiny:scrutiny_results:scrutiny_outcome" \
+              "review:review_results:review_outcome" \
+              "qa_validation:qa_results:qa_outcome"; do
+    ST=$(printf '%s' "$TRIPLE" | cut -d: -f1)
+    GA=$(printf '%s' "$TRIPLE" | cut -d: -f2)
+    OU=$(printf '%s' "$TRIPLE" | cut -d: -f3)
+
+    # The state's own block, from its header to the next top-level state.
+    awk -v st="  $ST:" '
+        $0 == st { inblk = 1; print; next }
+        inblk && /^  [a-z_]+:$/ { exit }
+        inblk { print }
+    ' "$TEMPLATE" > "state_$ST.txt"
+
+    if grep -q "type: context-matches" "state_$ST.txt"; then
+        pass "$ST declares a context-matches gate"
+    else
+        fail "$ST does not declare a context-matches gate"
+    fi
+    if grep -q "gates\.$GA\.matches: true" "state_$ST.txt"; then
+        pass "$ST references gates.$GA.matches in a when clause"
+    else
+        fail "$ST never references gates.$GA.matches -- koto ignores a gate no when clause names"
+    fi
+    if grep -q "gates\.$GA\.exists" "state_$ST.txt"; then
+        fail "$ST still carries a gates.$GA.exists reference"
+    else
+        pass "$ST carries no stale .exists reference"
+    fi
+
+    # The two failure edges must reference no gate, or a broken store traps the
+    # run with no terminal state reachable.
+    for OUTCOME in blocking_retry blocking_escalate; do
+        GATED=$(awk -v want="          $OU: $OUTCOME" '
+            $0 == want { found = 1; next }
+            found && /^      - target:/ { exit }
+            found && /gates\./ { print "GATED"; exit }
+        ' "state_$ST.txt")
+        if [ -z "$GATED" ]; then
+            pass "$ST: the $OUTCOME edge references no gate, so it stays reachable"
+        else
+            fail "$ST: the $OUTCOME edge references a gate -- a broken store would trap the run"
+        fi
+    done
 done
 
 # --- summary ------------------------------------------------------------------
