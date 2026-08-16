@@ -442,12 +442,17 @@ The three branch behaviors:
   adjustment input; re-emit the proposal after re-running the R6
   predicates against the adjusted scope. Adjust refines the topic
   and the framing, not the list of children.
-- **Bail** — route to R8 bail-handling. If any wip state exists
-  for the topic (the state file, any child intermediate, or any
-  research scratch), the bail records `exit: abandonment-forced`
-  and force-materializes the most-recently-running child's
-  intermediate; if no wip state exists, the bail is a clean
-  cancel with no terminal artifact.
+- **Bail** — route to R8 bail-handling. The route turns on what a
+  child produced: a child intermediate under
+  `wip/{brief,prd,design,plan}_<topic>_*` or research scratch
+  under `wip/research/{prd,design}_<topic>_*` records
+  `exit: abandonment-forced` and force-materializes the
+  most-recently-running child's intermediate. With neither on
+  disk the bail is a clean cancel — no terminal artifact, no
+  `exit:` recorded, and the state file disposed of. Nothing under
+  the parent's own `wip/scope_<topic>_*` prefix counts toward the
+  first branch, because nothing under that prefix is a child's
+  output.
 
 The per-predicate reasons feeding the shape-dependent verdict are
 surfaced verbatim so the author sees the predicate verdicts
@@ -584,14 +589,23 @@ the exit produces:
   ends with the uniform single-line HTML-comment marker (see the
   Abandonment-Forced HTML-Comment Marker section below).
 
-**R8 bail-handling tie-break.** When the chain bails and the
-abandonment-forced exit must name a `triggering_child`, the
-resolution is the most-recently-running child per the chain's
-progression. The tie-break inspects `wip/{brief,prd,design,plan}_<topic>_*`
-intermediates and resolves to whichever child holds the most-
-recent intermediate; if no intermediate exists, the
-`triggering_child` is whichever child Phase 2 was about to
-invoke when the bail fired.
+**R8 bail-handling.** A bail routes on what a child produced.
+The abandonment-forced branch is taken when a child intermediate
+under `wip/{brief,prd,design,plan}_<topic>_*` or research scratch
+under `wip/research/{prd,design}_<topic>_*` exists for the topic;
+the tie-break then resolves `triggering_child` to whichever child
+holds the most-recent intermediate. Nothing under the parent's own
+`wip/scope_<topic>_*` prefix counts toward that branch, because
+nothing under that prefix is a child's output — which is what lets
+a bail at Phase 1, where the state file exists and no child has
+run, take the other branch.
+
+**Clean cancel.** That other branch produces no terminal artifact,
+records no `exit:` value, and never names a `triggering_child`.
+The bail handler removes `wip/scope_<topic>_state.md` on its way
+out, because Phase 4 does not run on a cancel. The full rule, the
+R9 interaction, and the handoff carve-out live in
+`skills/scope/references/phases/phase-3-exit-finalization.md`.
 
 ## State File Schema
 
@@ -798,7 +812,8 @@ re-validation, stale `parent_orchestration:` self-heal, visibility
 boundary, and no untrusted-input interpolation. `/scope` v1 binds
 to public-repo tactical chains exclusively. This is the
 authoritative declaration of the closed write-target set; the
-Phase 3 reference restates it and must not diverge from it.
+Phase 3 reference restates it and the Phase 4 reference reads it
+back, and neither may diverge from it.
 
 **Deletions**, by Phase 2's absorb:
 
@@ -832,6 +847,17 @@ the phase is what makes both true at once.
 `docs/decisions/`, force-materialized partials under
 `docs/{briefs,prds,designs}/` on `abandonment-forced`, and
 state-file plus child-wip cleanup under `wip/`.
+
+**Deletion**, by R8's clean cancel:
+
+- `wip/scope_<topic>_state.md` — one path, not the prefix. The
+  bail handler owns it because Phase 4 does not run on a cancel,
+  and naming it here is what keeps the deletion inside the set. `wip/scope_<topic>_handoff.md` sits under the same prefix
+  and is NOT removed by a bail: it belongs to the router rather
+  than to the parent, and leaving it is what lets a later
+  invocation resume against it instead of starting cold.
+  Enumerated here and carved out of the clean cancel, so it is a
+  known target that a bail never sweeps.
 
 Three corrections are folded into that enumeration, each a
 pre-existing defect rather than a consequence of this change. The

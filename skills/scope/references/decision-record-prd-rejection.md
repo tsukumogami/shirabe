@@ -73,7 +73,9 @@ chose to reject. The two REJECTED alternatives:
   partial is produced.
 - **Downstream children auto-skipped.** Any `/design` or `/plan`
   children in `planned_chain:` are auto-skipped; `chain_skipped:`
-  records them with reason "PRD-boundary rejection".
+  records them as `{child, reason}` entries with reason
+  `prd-boundary-rejection`, the vocabulary member for a rejection
+  at the PRD boundary.
 - **Next steps.** The author may re-open the topic with a
   reframed question, reuse the same topic slug after rethinking,
   or drop the question entirely. The Consequences prose names

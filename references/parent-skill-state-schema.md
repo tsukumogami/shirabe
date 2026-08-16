@@ -141,8 +141,9 @@ explicitly using three fields:
 - **`planned_chain`** — the children the parent intended to invoke at the
   start of the chain.
 - **`chain_ran`** — the children whose invocations completed.
-- **`chain_skipped`** — children the chain decided to skip, with free-text
-  reasons.
+- **`chain_skipped`** — list of `{child, reason}` entries naming children
+  that were planned and did not run. `child` is the entry key at every
+  parent; `reason` is drawn from the closed vocabulary below.
 
 The three chain-tracking fields are conditional on chain-shaped parents.
 Non-chain-shaped parents (e.g., an implementation-loop parent that runs a
@@ -150,6 +151,77 @@ single recurring inner phase rather than a sequence of distinct children)
 MAY omit them. When omitted, invariant I-5 (conditional fields absent when
 ungated) is satisfied; when present, the dual-check and resume-ladder
 machinery consumes them.
+
+#### What the triad says, and what it does not
+
+`planned_chain` records intent, not outcome. A child listed there did not
+necessarily fire. A child that was planned and then held back stays in
+`planned_chain` and is recorded in `chain_skipped` with its reason,
+because the plan was to run it. `chain_ran` is the only field that says a
+child fired, and a check that reads membership in `planned_chain` as
+evidence of an invocation is reading the wrong field.
+
+Whether `planned_chain` is the same list on every run is a per-parent
+property, and both readings satisfy the same rule. `/scope`'s list is
+constant: the whole tactical chain, in order, on every run. `/charter`'s
+varies with its Phase 1 gates, so two runs can plan different children.
+What both satisfy is that the list is fixed before the first child is
+invoked and is never amended afterwards to record what happened;
+`chain_ran` and `chain_skipped` carry that.
+
+A third category sits outside both lists. A conditional feeder whose gate
+never opened belongs to neither `planned_chain` nor `chain_skipped`, and
+the state file names no reason for it: the skip is stated conversationally
+and never recorded (see Conditional Feeder Invocation Shape in
+[`parent-skill-pattern.md`](parent-skill-pattern.md)). The ground is
+visibility rather than bookkeeping. The state file is durably public from
+feature-branch push, and a feeder's artifact type may be private-only, so
+naming the child at all would put a private artifact type in a public
+record. `/charter`'s `/comp` is the worked case.
+
+#### `chain_skipped[].reason` vocabulary
+
+`reason` is a closed enum. Four members ship, each with at least one
+writer in the corpus today.
+
+| `reason` | Written when | Writer |
+|---|---|---|
+| `settled-artifact-at-canonical-path-reentry-protection` | A Mandatory-with-auto-skip gate found the child's durable artifact already at a settled status at the canonical path | `/scope` Phase 1, against an Accepted BRIEF, PRD, or DESIGN |
+| `upstream-supplied-by-author` | The author supplied the artifact the child would have authored, and the value passed the parent's Phase 0 upstream validation | `/charter`'s `/vision` gate, on `--upstream <vision-path>` |
+| `author-declined-at-confirmation-prompt` | The author declined an ALWAYS child at the parent's declination prompt | `/charter`'s `/roadmap` confirmation prompt |
+| `<boundary>-boundary-rejection` | A Reject at a settled-upstream boundary ended the chain, so the children below it never ran | `/scope`'s rejection Decision Records, for every child below the boundary |
+
+`<boundary>` is drawn from the `boundary:` enum (see Parent-specific
+conditional fields above), so the fourth member is the closed pair
+`prd-boundary-rejection` and `design-boundary-rejection` rather than an
+open family.
+
+The enum is what makes the prohibition checkable. No member says a child's
+artifact was judged not worth producing, because no parent makes that
+judgment before the artifact exists, and a closed set is the only form of
+that rule a grep can assert. Free text cannot be checked for the absence
+of a worth judgment.
+
+A parent MAY carry an optional `detail:` beside `reason` in the same
+entry, holding the specifics the enum drops: which path the author
+supplied, what the author answered at the prompt. `detail:` is advisory
+and is NEVER the ground for anything. Every check reads `reason`; nothing
+parses `detail:`, and a parent that routes on it has moved the contract
+into a field the schema does not constrain. The field carries the same
+content discipline as `/charter`'s `rejection_rationale:`, which is opaque
+free text that MUST NOT be echoed into a parsed field (see
+`rejection_rationale` Treated as Opaque Free-Text in
+`skills/charter/references/phases/phase-finalization.md`). The reason
+there is the reason here: the same prose meaning different things in
+different fields is a contract-confusion vector.
+
+The enum grows the way the child-inspection surface table grows. A parent
+that needs a fifth ground adds a member, and the new member goes through
+that parent's own PR review (see Per-Parent Surface Table in
+[`parent-skill-child-inspection.md`](parent-skill-child-inspection.md)).
+The bar that review applies is the one the four members meet: a real
+writer, and a ground that is not a judgment about an artifact nobody has
+written yet.
 
 Output-mode selection — when a chain's terminal child exposes more
 than one output mode — is recorded SEPARATELY from `chain_ran` and

@@ -324,8 +324,14 @@ The three branch behaviors:
   adjustment input; re-emit the proposal after re-running the
   gates against the adjusted scope.
 - **Bail** — route to R8 bail-handling per the parent's own
-  bail-handling rule (force-materialize if any wip state exists
-  for the topic; clean-cancel otherwise).
+  bail-handling rule: force-materialize when a child intermediate
+  (`wip/{brief,prd,design,plan}_<topic>_*`) or research scratch
+  (`wip/research/{prd,design}_<topic>_*`) exists for the topic;
+  clean-cancel otherwise. Nothing under the parent's own
+  `wip/scope_<topic>_*` prefix counts toward the first branch, so
+  a bail here — where Phase 0 has written the state file and no
+  child has run — reaches the clean cancel, and the bail handler
+  disposes of that state file.
 
 ### The Pre-Authoring Upstream Notice
 
@@ -434,16 +440,20 @@ When re-entry protection holds a child back, the entry shape is:
 
 ```yaml
 chain_skipped:
-  - name: prd
+  - child: prd
     reason: settled-artifact-at-canonical-path-reentry-protection
 ```
 
-That is the only reason Phase 1 ever writes. A child is never
-recorded there because Phase 1 judged its artifact not worth
-producing; Phase 1 makes no such judgment. (Phase 2 writes one
-other reason, when a Reject at a settled-upstream boundary ends
-the chain and the remaining children never run — see the
-decision-record templates under `skills/scope/references/`.)
+`child` is the pattern-level entry key and `reason` is a member of
+the closed vocabulary in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`;
+neither is `/scope`'s to choose. That member is the only reason
+Phase 1 ever writes. A child is never recorded there because
+Phase 1 judged its artifact not worth producing; Phase 1 makes no
+such judgment. (Phase 2 writes `prd-boundary-rejection` or
+`design-boundary-rejection`, when a Reject at a settled-upstream
+boundary ends the chain and the children below it never run — see
+the decision-record templates under `skills/scope/references/`.)
 
 Phase 2 reads `planned_chain:` and invokes the listed children in
 order, skipping any that `chain_skipped:` already names; it does

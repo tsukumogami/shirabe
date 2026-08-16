@@ -82,9 +82,10 @@ The state file at `wip/charter_<topic>_state.md` is written with:
 - `chain_ran: [<children that ran>]` (`/strategy` always;
   `/roadmap` always unless the author declined it; `/vision` if R4
   fired; the gated feeder if its three-condition gate held)
-- `chain_skipped:` carries a `{child: roadmap, reason: <the
-  author's declination>}` entry when the author declined
-  `/roadmap`, and is otherwise empty of any `roadmap` entry
+- `chain_skipped:` carries a `{child: roadmap, reason:
+  author-declined-at-confirmation-prompt}` entry when the author
+  declined `/roadmap`, and is otherwise empty of any `roadmap`
+  entry
 - `exit_artifacts:` populated per the chain shape (see AC coverage
   below)
 

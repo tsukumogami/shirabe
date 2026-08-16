@@ -141,9 +141,21 @@ file at every phase pointer.
   artifact and `/charter` recorded the result). Appended-to as each
   child completes; never overwritten.
 - **`chain_skipped`** — list of `{child, reason}` entries. The
-  child name plus the free-text human-readable reason the chain
-  skipped the child. The reasons are NOT parsed by tooling — they
-  are durable evidence for human readers reviewing the chain.
+  child name plus the ground on which the chain skipped it.
+  `child` is the pattern-level entry key and `reason` is a member
+  of the closed vocabulary cited from
+  `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
+  (Chain-tracking); neither is `/charter`'s to choose. `/charter`
+  writes two of the four members:
+  `upstream-supplied-by-author` when a validated `--upstream`
+  vision path skips `/vision`, and
+  `author-declined-at-confirmation-prompt` when the author
+  declines `/roadmap`. An entry MAY carry an optional `detail:`
+  holding the specifics the member drops (which path was supplied,
+  what the author answered). `detail:` is advisory: every check
+  reads `reason`, and nothing parses `detail:`. It carries the
+  same opaque-free-text discipline as `rejection_rationale:` (see
+  `skills/charter/references/phases/phase-finalization.md`).
 - **`exit`** — string from `{full-run, re-evaluation, abandonment-
   forced}`. UNSET while the chain is in progress; SET to one of the
   three values at finalization. The R9 hard finalization check (see
@@ -256,7 +268,7 @@ planned_chain: [vision?, comp?, strategy, roadmap]
 chain_ran: [<sub-list of completed children>]
 chain_skipped:
   - child: <name>
-    reason: <free text>
+    reason: <vocabulary member>
 exit: re-evaluation
 decision_record_sub_shape: re-evaluation
 exit_artifacts:
@@ -440,8 +452,10 @@ branch is pushed:
 - **`referenced_strategy`** — a path string. The path itself is
   unlikely to be sensitive, but it points at a STRATEGY whose body
   is also durably public on the feature branch.
-- **`chain_skipped[].reason`** — free-text reasons for skipping
-  children. Durable on the feature branch pre-merge; public.
+- **`chain_skipped[].detail`** — the optional free-text sibling of
+  the closed `reason` enum. `reason` itself is a vocabulary member
+  and carries nothing an author wrote; `detail:` carries prose and
+  paths, and is durable on the feature branch pre-merge and public.
 - **`consumed_upstream`** — an author-supplied path. This is the
   one field whose value comes from outside the chain, which is why
   Phase 0 refuses to write it at all when a public repo was pointed

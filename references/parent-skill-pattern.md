@@ -112,6 +112,52 @@ wrong outcome.
 
 ## Gate Vocabulary
 
+**Chain steps are mandatory, and reduction is post-hoc.** A parent
+SHALL NOT decide, before a child's artifact exists, that the artifact
+is not worth producing. Reduction of the artifact set happens against
+documents that exist, or it does not happen. The reason is that the
+judgment in question is whether one document holds anything its
+successor does not, and that is only answerable by reading two
+documents. When a chain is proposed neither has been written, so
+nothing a parent can read at that point answers it.
+
+Three grounds let a child legitimately not run, and the three gate
+shapes below admit exactly those three and no fourth:
+
+1. A settled durable artifact already sits at the child's canonical
+   path, so the auto-skip closes the gate (Mandatory-with-auto-skip).
+2. The author declines an ALWAYS child at a prompt formed after the
+   upstream artifact is on disk (ALWAYS, and see Author Declination
+   on an ALWAYS Child below).
+3. A conditional feeder's gate never opened, so the child was never
+   planned at all (Conditional Feeder Invocation Shape).
+
+None of the three is a worth judgment made against an unwritten
+document. The first reads the filesystem, the second reads the
+author, and the third reads whether the feeder's own preconditions
+ever held.
+
+A parent MAY define a post-hoc reduction mechanism that folds
+redundant artifacts away once they exist. `/scope` defines one, its
+consolidation judgment, which reads the two bodies at each hop and
+absorbs the upstream when folding loses nothing. `/charter` and
+`/execute` define none, and a parent that defines none conforms
+fully: the model constrains when reduction may happen, not whether a
+parent offers it at all.
+
+A parent SHALL NOT carry two reduction mechanisms firing at different
+times. One running before the artifacts exist and one running after
+leaves neither reading as the rule, which is why `/scope` withdrew
+its entry-altitude choice rather than keeping it beside the
+consolidation judgment.
+
+The model is stated over children rather than over state-file fields,
+so it binds a parent that keeps no `planned_chain`. `/execute` is
+that parent: its run is a homogeneous execution loop rather than a
+heterogeneous authoring chain, and it omits the chain-tracking triad
+for that reason. What it inherits is the rule above, not a field it
+does not write.
+
 Parents invoke children behind named gates. The pattern recognizes
 three gate shapes; every child-invocation gate in every parent SHALL
 be one of these three. Naming the shapes pattern-side keeps reviewers
@@ -123,18 +169,11 @@ introduces a category the existing shapes already cover.
   invocation, which is the main-chain spine and runs whether or not
   upstream VISION or ROADMAP exists. `/charter`'s `/roadmap`
   invocation is ALWAYS as well: the parent inspects nothing in the
-  upstream STRATEGY to decide. A parent MAY additionally offer the
-  author an explicit declination for an ALWAYS child (`/charter`
-  does, for `/roadmap`); that is author-supplied input, not a
-  predicate the parent computes, and unlike an exit-path
-  intervention such as Bail it leaves the chain on its normal exit
-  with the skip recorded in `chain_skipped`. A parent MAY read the
-  upstream artifact to inform what it tells the author at that
-  declination prompt — reading for the prompt is not reading for
-  the gate, and the gate stays ALWAYS as long as no reading can
-  change the pre-selected answer or skip the child on its own.
-  Offering a declination is per-parent and optional — `/scope`'s
-  `/plan` is ALWAYS with no declination surface.
+  upstream STRATEGY to decide. A parent MAY offer the author an
+  explicit declination for an ALWAYS child, under the three-property
+  clause in Author Declination on an ALWAYS Child below; the gate
+  stays ALWAYS because the skip comes from the author rather than
+  from anything the parent computes.
 
 - **shape-dependent** — the child invocation's *form* (which sub-
   shape of the child fires, with how many peers, against which set
@@ -177,6 +216,51 @@ settled artifact already on disk — so a cold start fires the child
 whatever the signal says. A parent MAY still surface the override
 question on every run for the framing it gives the conversation; it
 just cannot change the outcome when there is nothing to skip.
+
+### Author Declination on an ALWAYS Child
+
+A declination is an instance of the mandatory-steps model, not an
+exception to it. The child was planned, the parent decided nothing,
+and the author answered a question about a document they could
+already read. What the model forbids is a parent deciding that an
+unwritten artifact is not worth producing, and a declination is not
+that.
+
+Three properties make a declination conforming. A parent offering
+one SHALL satisfy all three.
+
+- **Author-supplied.** No predicate the parent evaluates can produce
+  the skip on its own. A parent MAY read the upstream artifact to
+  inform what it tells the author at the prompt; reading for the
+  prompt is not reading for the gate, and the gate stays ALWAYS as
+  long as no reading can change the pre-selected answer or skip the
+  child by itself. In a non-interactive mode where no author
+  answers, the child runs. `/charter` binds this by not firing the
+  roadmap prompt at all under `--auto`, so `/roadmap` always runs
+  there.
+- **Formed against a document that exists.** The prompt fires after
+  the upstream artifact is on disk. `/charter` asks immediately
+  after `/strategy` returns, with the Draft STRATEGY written, so the
+  author answers about a document rather than about a plan to write
+  one.
+- **Recorded.** The child stays in `planned_chain`, because the plan
+  was to run it, and the skip lands in `chain_skipped` with its
+  ground. Unlike an exit-path intervention such as Bail, a
+  declination leaves the chain on its normal exit.
+
+The prompt SHALL NOT ask whether the child's artifact is worth
+producing. `/charter`'s roadmap prompt is the worked example of a
+question that stays inside the model: it asks whether the STRATEGY
+is headed for execution at all, and it refuses size and shape as
+grounds, so a small strategy still gets a ROADMAP and only a bet
+nobody intends to act on does not.
+
+Offering a declination is per-parent and optional. `/scope`'s
+`/plan` is ALWAYS with no declination surface at all, and
+`/charter`'s `/roadmap` is the only live instance in the corpus.
+
+Restating the clause changed no behavior: the same children fire on
+the same runs.
 
 *EITHER-signal retired 2026-08-08.* An earlier revision named a
 fourth shape, EITHER-signal: "the child is invoked when a
@@ -376,37 +460,73 @@ whether to materialize a single instance (reviewer) or N instances
 The dispatch contract is the single source of truth for how a parent
 skill invokes a child skill across the parent/child boundary. It is a
 contract — every parent SHALL satisfy every element verbatim and every
-child SHALL participate identically. The mechanism in v1 is the Skill
-tool, invoked inline by the parent. The contract applies symmetrically
-to both v1 parents (`/scope`, `/charter`) and all seven children
-(`/brief`, `/prd`, `/design`, `/plan`, `/vision`, `/strategy`,
-`/roadmap`); no parent or child gets a per-binding override slot in v1.
+child SHALL participate identically. It applies symmetrically to all
+three v1 parents (`/scope`, `/charter`, `/execute`) and to every child
+they invoke; no parent or child gets a per-binding override slot in v1.
+
+**What the child roster counts.** Nine children, counted as the
+distinct children the three parents actually invoke: `/scope`'s
+`/brief`, `/prd`, `/design`, and `/plan`; `/charter`'s `/vision`,
+`/strategy`, `/roadmap`, and its conditional feeder `/comp`; and
+`/execute`'s `/work-on`. An earlier revision said seven and listed the
+two authoring parents' non-feeder children only, which left `/comp`
+out and said nothing about `/work-on`. The roster counts invocation
+rather than artifact altitude: a child a parent dispatches is bound by
+this contract whether it authors a durable doc, runs a competitive
+analysis, or implements an issue. Seven of the nine ship the
+`team.yaml` the Child Team-Shape Declaration element below requires;
+`/comp` and `/work-on` do not, which is a conformance gap in those two
+children rather than a per-binding exemption in the contract.
 
 The contract has five labelled elements: a dispatch mechanism, a
 pre-dispatch state, an observability surface, a hand-back contract,
 and a child team-shape declaration. The four Layer-1 elements
 (mechanism, pre-dispatch state, observability surface, hand-back)
 are substrate-agnostic — every future substrate names them. The
-specific bindings (the Skill tool, the dedicated `team.yaml` file
-path, the YAML schema, the `wip/<parent>_<topic>_state.md` path) are
-Layer 2 (substrate-bound, replaceable when the amplifier layer ships
-via the `team_primitive` substitution surface above).
+specific bindings (the two dispatch bindings named below, the
+dedicated `team.yaml` file path, the YAML schema, the
+`wip/<parent>_<topic>_state.md` path) are Layer 2 (substrate-bound,
+replaceable when the amplifier layer ships via the `team_primitive`
+substitution surface above).
 
 ### Dispatch Mechanism
 
-The parent invokes the child via the **Skill tool**, called inline
-from the parent's own agent context with the child's name and the
-topic slug — the same way a user typing `/<child-name> <topic-slug>`
-would. This is the v1 binding under `team_primitive:
-single-team-per-leader-no-nested`: the parent owns no team at its
-own layer; the child runs in the parent's agent context and the
-child itself constructs whatever team it needs at the child layer.
+The Layer-1 element is that a parent hands a child a name and a
+topic key and then waits on it, owning no team of its own at the
+parent layer. v1 carries **two** Layer-2 bindings for that element:
 
-R14 child-isolation is preserved by construction: the parent reads
-only the child's durable artifact (per the hand-back contract below)
-and never inspects the child's wip/ state, the child's inbox, or any
-sub-team the child spawns. The Skill tool gives the parent no
-privileged view into the child's internals.
+- **Inline Skill-tool invocation.** The authoring parents (`/scope`,
+  `/charter`) call the Skill tool from their own agent context with
+  the child's name and the topic slug, the same way a user typing
+  `/<child-name> <topic-slug>` would. The child runs in the parent's
+  agent context and constructs whatever team it needs at the child
+  layer.
+- **Materialized `/work-on` runs.** `/execute` submits its per-issue
+  children to a koto session that materializes one child per issue
+  against `/work-on`'s child template, and drives that loop rather
+  than blocking on a single call. Its coordinated path dispatches the
+  same `/work-on` single-issue run per repo through a plain
+  durable-state loop instead of a koto session.
+
+The mechanism statement is widened to carry both rather than
+admitting `/execute` as a named variance. The layering already treats
+the dispatch mechanism as Layer-1 and its binding as Layer-2, so a
+second binding is what the split was built for; naming the third
+parent a variance would read a conforming parent as an exception and
+would put the pattern's own layering to no use. Both bindings sit
+under `team_primitive: single-team-per-leader-no-nested`, and all
+three parents are single-agent at their own layer. The four remaining
+elements are written against the inline binding because it came
+first; where they name the Skill-tool call, read it as the dispatch
+under whichever binding the parent uses.
+
+R14 child-isolation is preserved by construction under both. The
+parent reads only the child's durable artifact (per the hand-back
+contract below) and never inspects the child's wip/ state, the
+child's inbox, or any sub-team the child spawns. The Skill tool gives
+the parent no privileged view into the child's internals, and a
+materialized child is reached through the same durable surfaces plus
+`gh` metadata on the child's own pull request.
 
 ### Pre-Dispatch State
 
@@ -425,11 +545,15 @@ following four pre-dispatch state elements:
    The classification SHALL be resolved before dispatch; an
    unresolved classification fails the gate and dispatch does not
    fire.
-3. **State-file fields written before dispatch** — the parent
-   advances `planned_chain`, bumps `last_updated`, and captures
-   `pre_invocation_sha` (the HEAD commit SHA at dispatch time, used
-   by the hand-back contract's Phase-N Reject discard-commit
-   detection) BEFORE the Skill-tool call fires.
+3. **State-file fields written before dispatch** — the parent bumps
+   `last_updated` and captures `pre_invocation_sha` (the HEAD commit
+   SHA at dispatch time, used by the hand-back contract's Phase-N
+   Reject discard-commit detection) BEFORE the Skill-tool call fires.
+   `planned_chain` is not one of them. The list is fixed before the
+   first child is invoked and no dispatch advances it; what the chain
+   did lands in `chain_ran` and `chain_skipped` instead (see
+   Chain-tracking in
+   [`parent-skill-state-schema.md`](parent-skill-state-schema.md)).
 4. **Child-side team-shape declaration glob marker** — the file
    `skills/<name>/team.yaml` exists and parses against the schema
    below. The marker is the contract surface; the parent does NOT
@@ -540,7 +664,8 @@ glob-checkable presence via `skills/*/team.yaml`) exists in v1; the
 runtime read is a v2 binding.
 
 v1 has no per-parent override slot — the contract applies verbatim
-to both parents and all seven children. The contract applies to
+to all three parents and to the nine children counted above. The
+contract applies to
 chain runs initiated after the contract lands; existing in-flight
 runs are not retroactively re-shaped (R11), because their dispatch
 shape already matches what the contract codifies.
@@ -605,6 +730,21 @@ Note that the SHALL-NOT constraints naming this triad (the
 refuse-and-redirect rows) are **conceptual**, not byte-literal — they
 forbid *offering* the triad, however rendered — so they neither depend
 on nor are weakened by the positive form chosen here.
+
+**What Adjust reaches.** The chain proposal's Adjust option SHALL
+re-enter the parent's own discovery with the author's adjustment
+input and re-emit the proposal against the adjusted result. That much
+is pattern-level and the same in every parent. Whether the re-entry
+can change chain *membership* is a per-parent property, and each
+parent SHALL state which it has in its own chain-proposal section.
+`/scope`'s cannot: its planned chain is the same four children on
+every run, so Adjust refines the topic and the framing and the
+proposal returns with the same membership. `/charter`'s can: its
+redirected discovery may force a previously-skipped child on.
+Neither reach admits a third thing. No parent may use Adjust to reach
+a child whose artifact the parent judged not worth producing, because
+under the mandatory-steps model no parent makes that judgment, and
+Adjust is not a route back to one.
 
 ## Team-Lead Operating Discipline
 
@@ -738,27 +878,30 @@ audit trails, retrospectives) treat them differently.
 
 ### Binding Notes for v1 Parents
 
-Both v1 parents (`/scope` and `/charter`) bind the discipline at the
-child layer, not at the dispatch boundary. The dispatch mechanism the
-discipline binds against is named in the `## Dispatch Contract` section
-above: inline Skill-tool invocation from the parent's own agent context,
-with the child running its own team (when it has one) at the child layer.
-The discipline's content — sleep-check-nudge loop, terminal exits, timing
-table, idle-pings rule, nudge content rule, `ci_outcome` semantics — is
-unchanged; what changes is the layer the binding fires at.
+All three v1 parents (`/scope`, `/charter`, `/execute`) bind the
+discipline at the child layer, not at the dispatch boundary. The two
+dispatch bindings the discipline binds against are named in the
+`## Dispatch Contract` section above, and neither gives the parent a
+team of its own: the child runs its own team (when it has one) at the
+child layer. The discipline's content — sleep-check-nudge loop, terminal
+exits, timing table, idle-pings rule, nudge content rule, `ci_outcome`
+semantics — is unchanged; what changes is the layer the binding fires at.
 
-- **At the parent-itself layer:** the binding is vacuous in v1. Both
-  parents run as single-agent skills (see each parent's SKILL.md Team
-  Shape section); no peers are dispatched at the parent-itself layer, so
-  the loop has zero dispatched tasks to drive.
+- **At the parent-itself layer:** the binding is vacuous in v1. All
+  three parents run as single-agent skills (see each parent's SKILL.md
+  Team Shape section); no peers are dispatched at the parent-itself
+  layer, so the loop has zero dispatched tasks to drive. `/execute`'s
+  orchestrator loop is not a counterexample: what it drives is children,
+  not peers.
 - **At the child-itself layer:** the discipline binds inside each child
   against the child's own peers. Each child constructs its own team (when
   it has one) per the Dispatch Contract's Child Team-Shape Declaration;
   the child is the team-lead in the discipline sense, driving its own
   peers' dispatched tasks to terminal exits. The child-skill invocation
   task class is the implementation pass class above (120s window,
-  10-cycle patience budget) as seen from the parent's synchronous
-  Skill-tool wait. When ESCALATE fires inside a child invocation, the
+  10-cycle patience budget) as seen from the parent's wait on the
+  child, synchronous under the inline binding and loop-driven under
+  the materialized one. When ESCALATE fires inside a child invocation, the
   escalation surfaces through the child's normal terminal artifact (a
   partial doc with abandonment-forced state) and the child's
   `triggering_teammate:` field; the parent learns about it via the
@@ -768,4 +911,5 @@ unchanged; what changes is the layer the binding fires at.
 | Parent | Children invoked |
 |---|---|
 | `/scope` | `/brief`, `/prd`, `/design`, `/plan` |
-| `/charter` | `/vision`, `/strategy`, `/roadmap` |
+| `/charter` | `/vision`, `/strategy`, `/roadmap`, `/comp` (conditional feeder) |
+| `/execute` | `/work-on` (one run per issue) |

@@ -79,17 +79,22 @@ state-schema reference).
   reads this field. That promotes it from bookkeeping to a gate on
   a destructive operation, and a tampered entry would otherwise put
   a document this run did not produce on the deletion path.
-- **`chain_skipped`** — list of `{name, reason}` entries for
-  children held back by re-entry protection (e.g. `/prd` when an
+- **`chain_skipped`** — list of `{child, reason}` entries for
+  children that were planned and did not run (e.g. `/prd` when an
   Accepted PRD already exists at the canonical path, per the
   Mandatory-with-auto-skip gate from `parent-skill-pattern.md`).
-  Phase 1 writes exactly one reason,
-  `settled-artifact-at-canonical-path-reentry-protection`; a
-  child is never recorded here because the chain judged its
-  artifact not worth producing, since `/scope` makes no such
-  judgment before an artifact exists. Phase 2 writes one further
-  reason when a Reject at a settled-upstream boundary ends the
-  chain and the remaining children never run.
+  `child` is the pattern-level entry key, shared with `/charter`;
+  `reason` is drawn from the closed vocabulary in
+  `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
+  (Chain-tracking). `/scope` writes three of its four members:
+  `settled-artifact-at-canonical-path-reentry-protection` from
+  Phase 1, and `prd-boundary-rejection` or
+  `design-boundary-rejection` from Phase 2, when a Reject at a
+  settled-upstream boundary ends the chain and the children below
+  the boundary never run. A child is never recorded here because
+  the chain judged its artifact not worth producing, since `/scope`
+  makes no such judgment before an artifact exists, and the closed
+  vocabulary is what makes that checkable rather than asserted.
 - **`consolidation_judgments`** — conditional list. One entry per
   hop at which Phase 2's consolidation judgment ran, appended in
   chain order. Absent when the chain produced fewer than two

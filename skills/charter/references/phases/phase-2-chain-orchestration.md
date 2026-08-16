@@ -42,8 +42,9 @@ carries `consumed_upstream:` — the author invoked
 `/charter <topic> --upstream <vision-path>` and the value passed
 Phase 0 step 0.4 — the auto-skip half of the gate fires on that
 value rather than on the canonical path, and `/charter` records
-`/vision` in `chain_skipped` with a reason naming the supplied
-upstream. The thesis-shift override still applies: a positive
+`/vision` in `chain_skipped` with reason
+`upstream-supplied-by-author`; the supplied path itself goes in the
+entry's optional `detail:`, which nothing reads. The thesis-shift override still applies: a positive
 signal fires `/vision` anyway, and a chain that authors its own
 VISION passes that one to `/strategy` instead.
 
@@ -138,10 +139,11 @@ Nothing that gets committed carries it:
   file is durably public from feature-branch push time (see the
   security discussion in
   `skills/charter/references/phases/phase-state-management.md`),
-  and `chain_skipped[].reason` is free text that lands in the
-  repo. A child whose gate never opened was never planned, so
-  there is nothing to record; `chain_skipped:` is for children
-  that were planned and then dropped, like a declined `/roadmap`.
+  so an entry naming `comp` would put a private-only artifact type
+  into a public record whatever the `reason` field said. A child
+  whose gate never opened was never planned, so there is nothing to
+  record; `chain_skipped:` is for children that were planned and
+  then held back, like a declined `/roadmap`.
 - The STRATEGY, the ROADMAP, and anything else the chain writes
   under `docs/` — no mention of the skipped child, the gate, or
   the reason.
@@ -389,8 +391,14 @@ and is absent from `chain_ran`:
 ```yaml
 chain_skipped:
   - child: roadmap
-    reason: author declined the roadmap at the confirmation prompt
+    reason: author-declined-at-confirmation-prompt
+    detail: declined the roadmap prompt; STRATEGY marked non-actionable
 ```
+
+`reason` is the vocabulary member, not prose about this run;
+`detail:` is the optional sibling that carries the specifics, and
+nothing reads it. Both are cited from
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`.
 
 The chain then completes at the full-run exit with the STRATEGY as
 the sole `exit_artifacts` entry (the AC11a shape in

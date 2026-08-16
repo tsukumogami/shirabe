@@ -89,14 +89,24 @@ is, by construction, not a mergeable state.
 
 The Phase 4 removal set reads back the closed write-target
 enumeration documented in `phase-3-exit-finalization.md` and in
-SKILL.md's Closed Write-Target Set section (L670-674), which
-names both removal scopes:
+SKILL.md's Security Considerations section, which names both
+removal scopes:
 
 - `wip/scope_<topic>_*` — removed on every exit path.
 - `wip/{brief,prd,design,plan}_<topic>_*` and
   `wip/research/{prd,design}_<topic>_*` — removed on `full-run`
   and `re-evaluation` exits; preserved on `abandonment-forced`
   exit for resumability.
+
+**The clean cancel's deletion is not Phase 4's.** R8's clean
+cancel removes `wip/scope_<topic>_state.md` — one path inside the
+parent's prefix, carving out `wip/scope_<topic>_handoff.md` — and
+the bail handler does it, because Phase 4 does not run on a
+cancel. Phase 4 runs only behind Phase 3's R9 success gate, and a
+clean cancel records no exit and reaches no finalization. The
+deletion is enumerated in the same closed set for that reason;
+Phase 4 reads it back here so a reader checking the set against
+this file's sweeps does not find an unaccounted removal.
 
 **`docs/folds.md` is enumerated and never swept.** It is in the
 closed write-target set as Phase 2's append target, so a reader
@@ -115,9 +125,10 @@ above; an implementation that removes anything outside this
 set, or that omits a required removal on `full-run` or
 `re-evaluation`, fails the closed-set invariant. Reviewers
 checking that the invariant holds find the enumeration in
-Phase 3, the matched scope in SKILL.md (L333-337 substrate
-description and L670-674 closed-set list), and the
-exit-path-aware read-back here.
+Phase 3, the matched scope in SKILL.md (the State File Schema
+section's substrate description and the Security Considerations
+section's closed-set list), and the exit-path-aware read-back
+here.
 
 ## Success Summary
 

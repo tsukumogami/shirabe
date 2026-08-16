@@ -774,13 +774,17 @@ per-child re-entry protection is NOT re-walked at Phase 2 — it is
 cached in Phase 1's verdicts. The state-file fields driving the
 cache:
 
-- `planned_chain:` — the whole tactical chain, minus any child
-  held back by re-entry protection. `/brief` heads it, so `/brief`
-  is the child that receives the topic slug and every other child
+- `planned_chain:` — the whole tactical chain, including any child
+  held back by re-entry protection, because membership records the
+  plan rather than the outcome. `/brief` heads it, so `/brief` is
+  the child that receives the topic slug and every other child
   receives an artifact path.
-- `chain_skipped:` — children held back by re-entry protection
-  (e.g. `/prd` against an Accepted PRD), carrying the reason
-  `settled-artifact-at-canonical-path-reentry-protection`.
+- `chain_skipped:` — `{child, reason}` entries for the children
+  held back by re-entry protection (e.g. `/prd` against an Accepted
+  PRD), carrying the reason
+  `settled-artifact-at-canonical-path-reentry-protection`. Phase 2
+  skips the children this list names; `planned_chain:` alone does
+  not tell it which children to invoke.
 - `child_snapshots:` — initial snapshots of pre-existing
   durable artifacts Phase 1 discovered.
 

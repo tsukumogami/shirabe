@@ -108,7 +108,7 @@
       "id": 8,
       "name": "us-2-prd-auto-skip",
       "prompt": "/scope test-topic",
-      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists. /scope's Phase 1 holds /prd back under re-entry protection and records it in chain_skipped with reason 'settled-artifact-at-canonical-path-reentry-protection'. The recorded reason and the surrounding prose say this protects a settled document from being overwritten; it is NOT a judgment that the PRD would not have been worth producing. The chain proceeds; /design and /plan both run. State file: chain_skipped contains { name: prd, reason: settled-artifact-at-canonical-path-reentry-protection }; planned_chain contains the whole chain including /prd, because a held-back child stays planned and is separated from the children that ran by chain_ran. When PLAN reaches Active status under /work-on, a subsequent /scope test-topic invocation fires Slot 5 row 5.1 (PLAN-Active) and surfaces a refuse-and-redirect prompt containing the literal substring 'redirect to /work-on' (case-insensitive); the Re-evaluate / Revise / Bail triad MUST NOT appear at that row.",
+      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists. /scope's Phase 1 holds /prd back under re-entry protection and records it in chain_skipped with reason 'settled-artifact-at-canonical-path-reentry-protection'. The recorded reason and the surrounding prose say this protects a settled document from being overwritten; it is NOT a judgment that the PRD would not have been worth producing. The chain proceeds; /design and /plan both run. State file: chain_skipped contains { child: prd, reason: settled-artifact-at-canonical-path-reentry-protection } -- the entry key is child, matching /charter and the sentinel's invoking_child; planned_chain contains the whole chain including /prd, because a held-back child stays planned and is separated from the children that ran by chain_ran. When PLAN reaches Active status under /work-on, a subsequent /scope test-topic invocation fires Slot 5 row 5.1 (PLAN-Active) and surfaces a refuse-and-redirect prompt containing the literal substring 'redirect to /work-on' (case-insensitive); the Re-evaluate / Revise / Bail triad MUST NOT appear at that row.",
       "files": [
         "docs/prds/PRD-test-topic.md"
       ],
@@ -163,7 +163,7 @@
       "id": 11,
       "name": "us-4-prd-rejection-sub-shape",
       "prompt": "/scope test-topic",
-      "expected_output": "Cold start. /scope invokes /prd per R5; /prd reaches Phase 4 and the author selects Reject as a deliberate finalization judgment (NOT a bail). /prd runs git rm docs/prds/PRD-test-topic.md, cleans up wip/prd_test-topic_*, and commits the discard with message docs(prd): discard PRD draft for test-topic. Control returns to /scope; /scope captures the discard commit SHA via read-only git log (no git writes from /scope). /scope writes a Decision Record at docs/decisions/DECISION-prd-test-topic-rejection-<YYYY-MM-DD>.md citing the discard commit SHA and the author's rejection rationale (passed through stdin/git commit -F, not interpolated into git commit -m). State file: exit: re-evaluation, boundary: prd, decision_record_sub_shape: rejection, discard_commit_sha: <sha>, rejection_rationale: <text>. /design and /plan auto-skipped per the rejection-sub-shape termination rule (chain_skipped records both with reason 'PRD-boundary rejection'). When a subsequent /scope test-topic invocation finds the discard commit but the rejection was out-of-chain (Phase-N Reject fired outside /scope), NO retroactive Decision Record is written per AC30c — the discard commit alone is the durable trace.",
+      "expected_output": "Cold start. /scope invokes /prd per R5; /prd reaches Phase 4 and the author selects Reject as a deliberate finalization judgment (NOT a bail). /prd runs git rm docs/prds/PRD-test-topic.md, cleans up wip/prd_test-topic_*, and commits the discard with message docs(prd): discard PRD draft for test-topic. Control returns to /scope; /scope captures the discard commit SHA via read-only git log (no git writes from /scope). /scope writes a Decision Record at docs/decisions/DECISION-prd-test-topic-rejection-<YYYY-MM-DD>.md citing the discard commit SHA and the author's rejection rationale (passed through stdin/git commit -F, not interpolated into git commit -m). State file: exit: re-evaluation, boundary: prd, decision_record_sub_shape: rejection, discard_commit_sha: <sha>, rejection_rationale: <text>. /design and /plan auto-skipped per the rejection-sub-shape termination rule (chain_skipped records both as { child: <name>, reason: prd-boundary-rejection } entries, the closed-vocabulary member). When a subsequent /scope test-topic invocation finds the discard commit but the rejection was out-of-chain (Phase-N Reject fired outside /scope), NO retroactive Decision Record is written per AC30c — the discard commit alone is the durable trace.",
       "files": [],
       "expectations": [
         "Plan invokes /prd per R5 and the chain reaches /prd's Phase 4 finalization phase",
@@ -173,7 +173,7 @@
         "Plan writes the rejection Decision Record at docs/decisions/DECISION-prd-test-topic-rejection-<YYYY-MM-DD>.md using the template at skills/scope/references/decision-record-prd-rejection.md with the five ADR-style sections",
         "Plan ensures the Context section references the discard commit SHA inline so a future reader can navigate to the git history",
         "Plan ensures author-supplied rejection_rationale is passed to git commit via -F or stdin (never interpolated into git commit -m \"...\") per the security discipline",
-        "Plan writes state file with exit: re-evaluation, boundary: prd, decision_record_sub_shape: rejection, discard_commit_sha, rejection_rationale; chain_skipped records /design and /plan with reason 'PRD-boundary rejection'",
+        "Plan writes state file with exit: re-evaluation, boundary: prd, decision_record_sub_shape: rejection, discard_commit_sha, rejection_rationale; chain_skipped records /design and /plan under the child: key with reason 'prd-boundary-rejection'",
         "Plan ensures AC30c: when the discard commit is observed but the rejection fired OUT-OF-CHAIN (no parent_orchestration: sentinel was present), NO retroactive Decision Record is written; the discard commit alone is the durable trace"
       ]
     },
@@ -392,7 +392,7 @@
       "id": 26,
       "name": "pre-authoring-notice-suppressed",
       "prompt": "/scope inline-diff --upstream docs/roadmaps/ROADMAP-editor.md",
-      "expected_output": "Two suppression cases for the pre-authoring upstream notice, both of which leave the chain proposal carrying no notice at all. First, this invocation: the --upstream value passes Phase 0's Upstream Validation and is recorded in consumed_upstream:, so the notice does not fire -- the author already did the thing it describes, and /brief is invoked as /brief inline-diff --upstream docs/roadmaps/ROADMAP-editor.md. Second, the held-back case: on /scope inline-diff with an Accepted BRIEF already at docs/briefs/BRIEF-inline-diff.md, re-entry protection records /brief in chain_skipped with reason settled-artifact-at-canonical-path-reentry-protection and keeps it out of planned_chain, so the notice does not fire either -- nothing is about to be authored at the head altitude. In both cases the rest of the chain-proposal output and its options block are unchanged.",
+      "expected_output": "Two suppression cases for the pre-authoring upstream notice, both of which leave the chain proposal carrying no notice at all. First, this invocation: the --upstream value passes Phase 0's Upstream Validation and is recorded in consumed_upstream:, so the notice does not fire -- the author already did the thing it describes, and /brief is invoked as /brief inline-diff --upstream docs/roadmaps/ROADMAP-editor.md. Second, the held-back case: on /scope inline-diff with an Accepted BRIEF already at docs/briefs/BRIEF-inline-diff.md, re-entry protection records /brief in chain_skipped as { child: brief, reason: settled-artifact-at-canonical-path-reentry-protection } while /brief stays in planned_chain, so the notice does not fire either -- nothing is about to be authored at the head altitude. In both cases the rest of the chain-proposal output and its options block are unchanged.",
       "files": [],
       "expectations": [
         "Plan suppresses the pre-authoring upstream notice when consumed_upstream: was recorded",
@@ -425,6 +425,22 @@
         "Plan makes the call before authoring or posting the coordination PR body, not after",
         "Plan makes no mode call on a single-repo run where intent is absent",
         "Plan does NOT substitute its own gh or shirabe probe for the check"
+      ]
+    },
+    {
+      "id": 29,
+      "name": "bail-at-phase-1-reaches-clean-cancel",
+      "prompt": "/scope test-topic  (the author selects Bail at the chain proposal, before any child fires)",
+      "expected_output": "Cold start: nothing on disk for the topic. Phase 0 validates the slug and writes wip/scope_test-topic_state.md before returning control, Phase 1 emits the chain proposal, and the author selects Bail. R8 bail-handling routes on what a child produced: no child intermediate at wip/{brief,prd,design,plan}_test-topic_* and no research scratch at wip/research/{prd,design}_test-topic_* exists, so the bail is a clean cancel. The state file Phase 0 wrote does not route the bail the other way -- nothing under the parent's own wip/scope_test-topic_* prefix counts, because nothing under that prefix is a child's output. The clean cancel records no exit: value, names no triggering_child:, and force-materializes nothing; the bail handler removes wip/scope_test-topic_state.md on its way out, because Phase 4 does not run on a cancel. wip/scope_test-topic_handoff.md, if one is on disk, is NOT removed -- the deletion is one path inside the prefix, not the prefix. R9 never fires: it runs at finalization against a recorded exit, and the run terminates through none of the three artifact-requiring exits, so the empty exit_artifacts: refusal is not reached.",
+      "files": [],
+      "expectations": [
+        "Plan routes the Phase 1 Bail to a clean cancel, not to abandonment-forced, because no child intermediate (wip/{brief,prd,design,plan}_test-topic_*) and no research scratch (wip/research/{prd,design}_test-topic_*) exists",
+        "Plan states the route test positively and treats nothing under the parent's own wip/scope_test-topic_* prefix as evidence a child ran, rather than excluding the state file by name",
+        "Plan disposes of wip/scope_test-topic_state.md in the bail handler, and gives the reason: Phase 4 does not run on a cancel",
+        "Plan removes that one path only and does NOT sweep the wip/scope_test-topic_* prefix; wip/scope_test-topic_handoff.md is carved out of the bail's deletion",
+        "Plan records no exit: value and names no triggering_child:, and force-materializes no artifact",
+        "Plan does NOT trip the R9 hard-finalization check: the run terminates through none of the three artifact-requiring exits, so the empty exit_artifacts: condition is never evaluated",
+        "Plan does NOT set triggering_child: to the first child in planned_chain: that has not completed; no child ran and no intermediate exists to materialize"
       ]
     }
   ]
