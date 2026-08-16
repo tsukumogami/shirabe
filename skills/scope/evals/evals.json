@@ -263,12 +263,12 @@
       "id": 17,
       "name": "chain-shape-is-constant",
       "prompt": "/scope refactor-topic  (the author says the problem and the requirements are settled; they only want to talk about architecture)",
-      "expected_output": "The chain still runs /brief, /prd, /design and /plan. /scope has no altitude selection: an author who says the framing and requirements are settled is not offered a shorter chain, because deciding that an unwritten BRIEF is not worth writing is the exact judgment this skill removed. The BRIEF is written, the PRD is written from it, and if the BRIEF turns out to do no work the PRD does not, the Phase 2 consolidation judgment absorbs it after both exist. The correct redirect for an author who genuinely wants to start at the architecture is to invoke /design directly, and /scope's prose says so.",
+      "expected_output": "The chain still runs /brief, /prd, /design and /plan. /scope has no altitude selection: an author who says the framing and requirements are settled is not offered a shorter chain, because deciding that an unwritten BRIEF is not worth writing is the exact judgment this skill removed. The BRIEF is written, the PRD is written from it, and if the BRIEF turns out to do no work the PRD does not, the Phase 2 consolidation judgment absorbs it after both exist. The correct redirect for an author who genuinely wants to start at the architecture is to invoke /design directly, and /scope's prose says so - while also saying what that redirect does and does not buy: a shorter conversation, not a smaller artifact set. Which documents survive is the Phase 2 consolidation judgment's call, made after they exist.",
       "files": [],
       "expectations": [
         "Plan runs the whole chain and does not offer a shortened one",
         "Plan explains that skipping the BRIEF here would be a judgment about an unwritten document",
-        "Plan points the author at invoking /design directly if they want to start above /brief",
+        "Plan points the author at invoking /design directly if they want a shorter conversation, and says plainly that this does not reach a smaller artifact set, which the Phase 2 consolidation judgment decides after the fact",
         "Plan notes a redundant BRIEF is removed by the Phase 2 consolidation judgment, after both documents exist"
       ]
     },

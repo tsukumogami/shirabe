@@ -17,9 +17,9 @@
     },
     {
       "id": 2,
-      "name": "explore-handoff-detection",
+      "name": "charter-handoff-detection",
       "prompt": "/roadmap release-automation",
-      "expected_output": "Detects existing handoff artifact at wip/roadmap_release-automation_scope.md. Skips Phase 1 (scope) and resumes at Phase 2 (discover). Uses the handoff artifact's theme statement and candidate features as input.",
+      "expected_output": "Detects an existing pre-populated scope artifact at wip/roadmap_release-automation_scope.md. /charter pre-populates it before invoking /roadmap; the check treats that and /roadmap's own prior run alike, because either way scoping is settled. Skips Phase 1 (scope) and resumes at Phase 2 (discover). Uses the artifact's theme statement and candidate features as input.",
       "files": [
         "wip/roadmap_release-automation_scope.md"
       ],

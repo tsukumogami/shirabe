@@ -173,32 +173,15 @@
     },
     {
       "id": 15,
-      "name": "triage-stage-1-recommends-a-route",
+      "name": "entry-assessment-feeds-crystallize",
       "prompt": "/explore #212 -- issue #212 carries a needs-triage label and its body describes three loosely-related cleanups to the recipe loader.",
-      "expected_output": "Phase 0 step 0.4 runs the Stage 1 triage agents and synthesizes 'needs breakdown'. The routing decision is presented with a recommendation, not as a bare pair: 'Break down (Recommended)' ranks first because the Stage 1 agents found three separable cleanups in one issue body, and 'Implement directly' follows with a short reason for ranking lower. The description field cites the specific signals the agents named -- the three distinct cleanups, any dissent -- rather than restating the 'needs breakdown' label. The user can still pick either option; the recommendation does not decide the route.",
+      "expected_output": "Phase 0 step 0.4 runs the three entry-assessment agents and synthesizes 'needs breakdown'. The assessment is recorded as an input to the crystallize step, not acted on: step 0.4 ends at Phase 1 whatever it concludes. It edits no label, stops the skill for nobody, and sends the author to no other command — the router decides where the work goes, after research has run, and this is one of the things it reads.",
       "files": [],
       "expectations": [
-        "Transcript marks one routing option '(Recommended)' rather than presenting Break down and Implement directly as an unranked pair",
-        "Transcript grounds the recommendation in the Stage 1 agent assessments, citing the specific signals the agents named",
-        "Transcript's grounding cites issue content (the separable cleanups), not merely the 'needs breakdown' category label",
-        "Transcript gives the non-recommended option a stated reason for ranking lower",
-        "Transcript still routes on the user's choice -- the recommendation does not select the route on the user's behalf",
-        "Transcript does NOT present the two routes neutrally and ask the user to pick with no stated preference"
-      ]
-    },
-    {
-      "id": 16,
-      "name": "triage-stage-2-recommendation-is-grounded",
-      "prompt": "/explore #77 -- issue #77 carries needs-triage, Stage 1 returned 'needs investigation', and the three Stage 2 agents split three ways between needs-prd, needs-design, and needs-spike.",
-      "expected_output": "Phase 0 step 0.5 presents the assessments side by side and recommends the strongest one. Because the split is three-way with no clear winner, the description says so explicitly, names the primary-gap heuristic as the tiebreaker (prefer the earlier-stage artifact: needs-prd before needs-design, needs-design before needs-spike), and still recommends needs-prd. Option 1 ('Explore') is marked '(Recommended)'; 'Different type' remains available so the user can override the recommendation.",
-      "files": [],
-      "expectations": [
-        "Transcript marks the Explore option '(Recommended)' rather than listing the three routes unranked",
-        "Transcript states explicitly that the three-way split surfaced no clear winner instead of manufacturing a preference",
-        "Transcript names the primary-gap heuristic as the tiebreaker and still recommends a single artifact type",
-        "Transcript's description cites what each Stage 2 agent argued, not just the recommended type's name",
-        "Transcript preserves the 'Different type' option so the user can override",
-        "Transcript does NOT skip the recommendation on the grounds that the assessments disagreed"
+        "Transcript runs the three entry-assessment agents and synthesizes a category",
+        "Transcript records the assessment as an input to the crystallize step rather than acting on it",
+        "Transcript proceeds to Phase 1 regardless of which category the assessment reached",
+        "Transcript does NOT assign a needs-* label, stop the skill, or route the author to another command from this step"
       ]
     }
   ]
