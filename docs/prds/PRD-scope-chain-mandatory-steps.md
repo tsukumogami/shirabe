@@ -1,6 +1,8 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
+absorbed:
+  - docs/briefs/BRIEF-scope-chain-mandatory-steps.md
 problem: |
   The corpus gives two answers to whether a tactical-chain step is optional.
   /execute states the post-#302 model and /scope states it and then contradicts
@@ -16,7 +18,6 @@ goals: |
   point rather than to a step inside a chain, the tactical chain keeps the two
   author affordances that do real work while shedding the prose that
   contradicts them, and the eval suite grades the model the skills implement.
-upstream: docs/briefs/BRIEF-scope-chain-mandatory-steps.md
 motivating_context: |
   Research at requirements altitude found two live misrouting bugs the router
   would otherwise inherit, and reversed a working assumption: the chain
@@ -28,11 +29,52 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
-Requirements written from `docs/briefs/BRIEF-scope-chain-mandatory-steps.md`.
-Both of the brief's Open Questions are closed under Decisions and Trade-offs,
-along with three decisions that reverse or narrow what the brief assumed.
+Requirements written from the brief this document absorbed. Both of that
+brief's Open Questions are closed under Decisions and Trade-offs, along with
+three decisions that reverse or narrow what it assumed.
+
+Absorbed [BRIEF-scope-chain-mandatory-steps](docs/briefs/BRIEF-scope-chain-mandatory-steps.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+**The problem the feature solves.** Shirabe's tactical chain used to let a step
+be skipped because someone judged its document not worth writing. #280 argued
+that judgment is the wrong shape, because whether a document carried anything
+can only be decided against a document that exists, and #302 replaced it. The
+corpus did not finish moving: four surfaces still describe the earlier world,
+and they are the surfaces an author touches first.
+
+**The outcome an author should experience.** They never decide which chain step
+to start at. They choose an entry point, the chain runs whole, and whatever did
+not earn its keep is folded once it and its successor both exist. Every surface
+describing chain shape says the same thing, and the affordances the chain offers
+them do what they claim.
+
+**The journeys that exercise it.** An author who does not know what they need
+and is routed to a place to start rather than to a document to write. An author
+entering the tactical chain, who reads what will run and can correct a framing
+answer or stop before the first child writes. An author who believes the
+upstream work is unnecessary and is told why the chain runs anyway. A maintainer
+building a third parent, who finds the model stated in the document both
+existing parents inherit from. An agent graded by the eval suite, pulled toward
+the model the skills implement rather than away from it.
+
+**Where the feature ends.** In: the four stale surfaces, the handoff subsystem
+the router needs, and the eval scenarios that grade any of it. Out: adding a
+consolidation judgment to the strategic chain, retiring `/charter`'s roadmap
+declination, `/execute`'s behavior, the absorption checks in code, and
+re-opening what #302 settled. The Requirements and Out of Scope sections below
+carry both lists at full resolution.
+
+**Framing provenance.** This work finishes propagating #302, whose own
+documents — `BRIEF-`, `PRD-` and `DESIGN-scope-artifact-persistence.md` — state
+the rule it enforces: no judgment runs before the artifact it is about exists,
+including an author-chosen entry altitude. Its predecessor pair,
+`PRD-` and `DESIGN-scope-consolidation-over-skipping.md`, each carry an
+amendment recording what #302 falsified; that amendment shape is this corpus's
+precedent for superseded durable prose.
 
 ## Problem Statement
 
