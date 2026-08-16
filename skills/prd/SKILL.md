@@ -9,7 +9,10 @@ description: >-
   (/explore). Drives a multi-phase workflow: conversational scoping, parallel research
   agents, structured drafting, and a 3-agent jury review.
 argument-hint: '<topic or feature name>'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh prd 2>&1 || true`
 
 @.claude/shirabe-extensions/prd.md
 @.claude/shirabe-extensions/prd.local.md
@@ -120,6 +123,10 @@ wip/prd_<topic>_scope.md exists                    -> Resume at Phase 2
 On a branch related to the topic                   -> Resume at Phase 1
 On main or unrelated branch                        -> Start at Phase 0
 ```
+
+The `wip/prd_<topic>_scope.md` row is a partial-run row, not a handoff row.
+Its only producer is this skill's own Phase 1 -- /scope pre-populates nothing
+for /prd; it invokes /prd and lets Phase 1 do the scoping.
 
 Phase 0 detection: if the parent-chain sentinel is present in
 `wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`

@@ -6,7 +6,10 @@ description: >-
   the reusable workflow, and monitors progress. Falls back to draft +
   manual tag when no workflow is detected.
 argument-hint: '[version] [--dry-run]'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh release 2>&1 || true`
 
 # Release
 

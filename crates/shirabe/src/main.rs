@@ -177,6 +177,13 @@ struct InstallHooksArgs {
 /// already consumes. `json` emits the versioned `shirabe-validate/v1`
 /// envelope for programmatic consumers (the skills). `human` emits a
 /// terminal-shaped summary.
+///
+/// The freeze covers the bytes a *validating* run prints, together with the
+/// exit code the parity baselines captured for those runs. It does not reach
+/// a usage error, which never gets far enough to render a finding: clap
+/// rejects the invocation before `run_validate` is entered, so no annotation
+/// byte exists to hold stable and the parity corpus (well-formed
+/// `validate <file>` runs only) never observes one.
 #[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 enum Format {
     Annotation,
@@ -365,8 +372,38 @@ struct ValidateArgs {
     pr_title: Option<String>,
 }
 
+/// Print a clap parse failure and map it onto shirabe's own exit-code
+/// vocabulary.
+///
+/// clap's `Error::exit` prints help and version to stdout with exit `0` and
+/// everything else to stderr with exit `2`. That `2` collides with
+/// `validate`'s `2` ("the run completed and found violations"): a binary too
+/// old to know a flag a skill passes is then indistinguishable from a
+/// document that genuinely fails a check, and the author is sent to fix
+/// content that is not broken. A usage error IS a `ValidateOutcome::ToolError`
+/// ("bad invocation") -- it just happens before `run_validate` is entered --
+/// so it takes that variant's exit code `1`.
+///
+/// `Error::print` keeps clap's own stream routing (stdout for help/version,
+/// stderr for a usage error), so only the integer changes; the annotation
+/// bytes frozen for CI parity are untouched because a usage error emits none.
+fn exit_for_parse_error(err: clap::Error) -> ExitCode {
+    // Swallow a write failure (e.g. closed stdout) exactly as clap's own
+    // `exit` does -- the exit code is the contract.
+    let _ = err.print();
+    match err.kind() {
+        clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => {
+            ExitCode::SUCCESS
+        }
+        _ => ExitCode::from(ValidateOutcome::ToolError.exit_code()),
+    }
+}
+
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => return exit_for_parse_error(err),
+    };
     match cli.command {
         Some(Commands::Validate(args)) => run_validate(&args),
         Some(Commands::Roadmap(args)) => match args.command {
@@ -1282,6 +1319,22 @@ fn run_transition_cmd(args: &TransitionArgs) -> ExitCode {
     };
     match run_transition(&args.file, &args.status, &flags) {
         Ok(outcome) => {
+            // The repoint report goes to stderr, not into the result JSON:
+            // that envelope is pinned against the scripts this subcommand
+            // replaced, and its consumers parse `success` / `code` /
+            // `new_path`. An operator still needs to see what else the move
+            // touched, since every named file is now staged.
+            if !outcome.repointed.is_empty() {
+                let total: usize = outcome.repointed.iter().map(|r| r.occurrences).sum();
+                eprintln!(
+                    "repointed {} reference(s) across {} file(s):",
+                    total,
+                    outcome.repointed.len()
+                );
+                for rewrite in &outcome.repointed {
+                    eprintln!("  {} ({})", rewrite.path, rewrite.occurrences);
+                }
+            }
             print!("{}", outcome.to_json());
             ExitCode::SUCCESS
         }

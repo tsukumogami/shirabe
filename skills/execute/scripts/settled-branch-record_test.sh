@@ -95,9 +95,19 @@ if [ -z "$RECORD_BLOCK" ]; then
     echo; echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"; exit 1
 fi
 
-# The read-back idiom as spawn_and_await runs it: the assignment plus the case
-# guard on the three lines that follow it.
-READ_IDIOM=$(grep -A3 -m1 'SETTLED_BRANCH=\$(koto context get' "$TEMPLATE")
+# The read-back idiom as spawn_and_await runs it, extracted whole rather than by
+# a fixed -A count: it is no longer one assignment. `koto context get` writes its
+# key-absent payload to stdout and exits 3, so the read captures the two streams
+# separately and branches on the status -- 0 takes the value, 3 takes the
+# `impl/$PLAN_SLUG` fallback, anything else surfaces and exits. The span runs from
+# the stderr temp file to the end of the branch-name sanitizer, which is the
+# second `esac`; `$SETTLED_BRANCH` is defined by the end of it either way, which
+# is all Case 1 needs.
+READ_IDIOM=$(awk '
+    /^SETTLED_ERR=\$\(mktemp\)$/ { inb = 1 }
+    inb { print }
+    inb && /^esac$/ { if (++seen == 2) exit }
+' "$TEMPLATE")
 if [ -z "$READ_IDIOM" ]; then
     fail "could not extract the read-back idiom from $TEMPLATE"
     echo; echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"; exit 1

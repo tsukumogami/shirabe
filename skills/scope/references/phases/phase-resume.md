@@ -1,12 +1,13 @@
-# Phase Resume — Status-Aware Re-Entry, Partial-Child-Run, Drift Detection
+# Phase Resume — Status-Aware Re-Entry, Partial-Child-Run, Feeder-Doc, Drift Detection
 
 `/scope`'s resume ladder fills the parent-specific body slots (rows
 5-7) of the universal meta-ladder at
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md`.
 This reference enumerates the per-row prompts, the refuse-and-
-redirect shape for PLAN's downstream-owned lifecycle states, and
-the dual-check drift-detection contract `/scope` runs against
-`child_snapshots:` on every ladder match.
+redirect shape for PLAN's downstream-owned lifecycle states, the
+Slot 7 clause consuming an `/explore` handoff, and the dual-check
+drift-detection contract `/scope` runs against `child_snapshots:`
+on every ladder match.
 
 ## Slot 5 — Status-Aware Re-Entry (9 rows, most-downstream-first)
 
@@ -67,21 +68,167 @@ the child against its own resume ladder, most-downstream first:
 
 - **6.1 `wip/plan_<topic>_*` exists.** Re-invoke `/plan` against
   its own resume logic; do not re-run from scratch.
-- **6.2 `wip/design_<topic>_*` exists.** Re-invoke `/design`.
-- **6.3 `wip/prd_<topic>_*` exists.** Re-invoke `/prd`.
+- **6.2 `wip/design_<topic>_coordination.json` exists.** Re-invoke
+  `/design`.
+- **6.3 `wip/prd_<topic>_decisions.md` exists.** Re-invoke `/prd`.
 - **6.4 `wip/brief_<topic>_*` exists.** Re-invoke `/brief`.
 
-Slugs recovered from these on-disk wip paths during Slot 6 matches
+**Why 6.2 and 6.3 name one file where 6.1 and 6.4 glob a prefix.**
+A child's scoping artifact is the one file in its namespace that a
+feeder doc imitates by construction. A feeder doc pre-supplies the
+child's Phase 1 output so the child can skip Phase 1, which lands it
+at the child's own scoping path: `wip/design_<topic>_summary.md` for
+`/design`, `wip/prd_<topic>_scope.md` for `/prd`. Neither file proves
+a `/design` or `/prd` run started, so neither can carry a row whose
+action is to jump straight into that child.
+`wip/design_<topic>_coordination.json` is `/design`'s decomposition
+ledger, written by its Phase 1 and by nothing else.
+`wip/prd_<topic>_decisions.md` is `/prd`'s autonomous-decision
+ledger, written at context resolution under `--auto`. Both exist only
+because the child itself ran. `/plan` and `/brief` write nothing at a
+scoping path a feeder doc would reach for (their intermediates are
+`wip/plan_<topic>_analysis.md`, `wip/brief_<topic>_discover.md`, and
+their siblings), so 6.1 and 6.4 keep the prefix glob.
+
+**The narrowing is defense in depth, not the live fix.** The
+collision was real: the old 6.3 globbed `wip/prd_<topic>_*`, which
+caught `wip/prd_<topic>_scope.md`, the file the pre-router
+`/explore` wrote for `/prd`, so a router handoff read as an
+interrupted `/prd` run and skipped `/brief`, Phase 1, and the chain
+proposal. What closed that is the move of the handoff to
+`wip/scope_<topic>_handoff.md`, which Slot 7 matches and no Slot 6
+row can. The narrowing covers what the move does not reach: a
+handoff left on disk by an older `/explore`, a hand-written feeder
+doc, or a future producer that reaches for the child-namespaced
+convention `/charter` still uses for its own pre-populated
+`/roadmap` handoff.
+
+**What it costs is one hop, in the safe direction.** An interactive
+`/prd` interrupted after its own Phase 1 leaves only
+`wip/prd_<topic>_scope.md`, so no Slot 6 row fires and the ladder
+falls through to a normal start: Phase 0, Phase 1, the chain
+proposal. The scoping work is not lost. `/prd` resumes at its own
+Phase 2 off that same file when the chain reaches it, because that is
+what `/prd`'s resume ladder does with it. All the row gives up is a
+jump taken on evidence that cannot support it.
+
+Slugs recovered from on-disk paths during Slot 6 matches and during
+the Slot 7 feeder-doc match against `wip/scope_<topic>_handoff.md`
 follow the slug re-validation rule documented in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md`
 (Slug Re-Validation on Resume section): re-validate against
 `^[a-z0-9-]+$` before interpolation into any emitted shell command.
+Slot 7 is covered for the same reason the wip partials above are:
+the slug arrives from a filename found on disk, not from the
+author's argument.
 
-## Slot 7 — Feeder-Doc-Detected (vacuous in v1)
+## Slot 7 — Feeder-Doc-Detected (the `/explore` handoff)
 
-No feeder defined in v1; reserved for future. The slot is named
-explicitly here so future authors recognize the position rather
-than re-invent it.
+**Match condition.** `wip/scope_<topic>_handoff.md` exists on disk,
+and no row above matched — no state file at
+`wip/scope_<topic>_state.md`, no child doc at a status Slot 5
+recognizes, and no child wip partial Slot 6 matches. Beyond the
+rows above not matching, that one path is the whole condition: the
+slot reads no other file to decide whether it fires, and it never
+fires on a path in another skill's
+namespace: `wip/scope_<topic>_handoff.md` is composed from
+`/scope`'s own prefix and the validated topic slug, which is what
+keeps it inside the closed write-target set enumerated in
+`skills/scope/SKILL.md`.
+
+**Action.** Run Phase 0's setup obligations against the current
+worktree — slug validation, the slug-prefix convention check,
+visibility detection, `--upstream` validation when the invocation
+supplied one, and state-file creation — then enter Phase 1 with the
+handoff pre-loaded as discovery input. Record `consumed_handoff:
+wip/scope_<topic>_handoff.md` in the state file at the same write.
+
+Phase 1 runs. The slot never skips it, and it never invokes a child
+directly: a handoff is discovery material, not a resume point
+inside the chain. `planned_chain:` is `[brief, prd, design, plan]`
+on a handoff run exactly as on any other, and the chain proposal is
+emitted and confirmed as always.
+
+Four Phase 1 behaviors change, and the rest do not:
+
+- **The framing-shift question is still surfaced**, as a
+  confirmation rather than a fresh ask: the exploration concluded X;
+  confirm or correct it. The author's response is what gets
+  recorded. A pre-supplied answer is never accepted as recorded
+  state — it is the one carried value that reaches a gate (a
+  positive answer fires `/brief` against an Accepted BRIEF), so the
+  confirmation is mandatory rather than a formality. Under `--auto`
+  the pre-supplied answer is taken and announced rather than applied
+  silently.
+- **The child-doc globs are unchanged.** They are filesystem reads
+  and they run on every invocation, handoff or not.
+- **The cold-start projected-PRD evaluation is suppressed.** A
+  handoff run is not a cold start; the projection exists to guess
+  from a slug what the handoff states outright.
+- **Two of the three R6 shape predicates accept the handoff's
+  estimate** with the reasons it states — P1 (architectural
+  alternatives) and P3 (Complex classification). **P2 is recomputed
+  against the tree**, because it cross-references the repo's
+  directory structure and the handoff carries no filesystem
+  material for it. All three are re-derived against the real PRD by
+  the post-`/prd` re-evaluation gate regardless, which is what makes
+  accepting an estimate safe here.
+
+**What the handoff carries.** Six sections shared with `/charter`'s
+row 8.5, the parent-specific block, and one block only `/scope`
+carries: provenance (which
+exploration wrote it, when); the problem statement; the scope
+boundary; the decisions the exploration already settled; coverage
+notes on what it did and did not examine; observations about
+upstream artifacts it found; the author's framing-shift answer with
+the evidence behind it; and a shape-signals block carrying the
+architectural alternatives left open and the complexity signals
+surfaced — predicate inputs, never predicate verdicts.
+
+**What it does not carry, and what that means here.** The handoff
+carries conversation, never filesystem state. It states no
+artifact's existence, no frontmatter `status:`, no content hash, no
+repo visibility, and no upstream validation result. Every one of
+those is re-read on every run: the child-doc globs establish what is
+on disk, Phase 0's visibility detection reads CLAUDE.md's `## Repo
+Visibility:` header, Phase 2 computes child snapshots itself, and a
+`--upstream` value is validated from the invocation argument rather
+than from this file. A handoff that carries such a value anyway is
+ignored on that value, not trusted and not treated as malformation.
+
+**A malformed handoff degrades to a cold start.** If the file is
+truncated, unparseable, or missing the sections above, `/scope`
+announces that it found a handoff it could not consume, names the
+path, and proceeds as though none existed — cold-start projection
+included. There is no partial consumption: a half-read handoff
+would pre-supply some discovery inputs and not others with no way
+for the author to tell which. `consumed_handoff:` is not written on
+this path, because nothing was consumed.
+
+**When a higher row fires first.** A settled artifact on disk wins.
+The handoff has nothing to say about it — being barred from
+carrying existence, status, or hashes, it cannot be the more
+current evidence — so a Slot 5 or Slot 6 match takes its own
+action, and Slot 7 is never reached. The handoff is not silently
+dropped: the row that fires states that a router handoff exists at
+`wip/scope_<topic>_handoff.md` and was not consumed, and offers its
+problem statement as context for the choice the row is asking the
+author to make. The file is left on disk, so a later Revise that
+clears the way down the ladder reaches this slot on its own terms.
+
+**The topic-branch row below, and why it does not collide.**
+`/explore` Phase 0 creates a `docs/<topic>` branch, so an author
+arriving from an exploration is usually standing on a branch the
+meta-ladder's on-topic-branch row matches — and that row resumes at
+Phase 1, skipping Phase 0, on what the author experiences as a
+first invocation. It never fires on a handoff run: the meta-ladder
+tail sits below every body slot, so Slot 7 is evaluated first and
+takes its action, which runs Phase 0's setup obligations before
+Phase 1 rather than skipping them. What the branch row is left
+holding is the residual case — an exploration that routed here but
+wrote no handoff, or one whose handoff was already consumed and
+cleaned up. Resuming at Phase 1 on an existing topic branch is the
+behavior that row was written for, so it stays as it is.
 
 ## Recorded-Upstream Re-Validation
 
@@ -209,4 +356,5 @@ walks its own `child_snapshots:` — the state file is internal to
   Slug re-validation on resume; State-file enum re-validation.
 - `skills/scope/references/state-schema.md` — the
   `child_snapshots:`, `drift_acknowledged:`, and `worktree_rebases:`
-  fields the drift-detection prompt writes against.
+  fields the drift-detection prompt writes against, and the
+  `consumed_handoff:` field Slot 7 writes and this ladder reads.

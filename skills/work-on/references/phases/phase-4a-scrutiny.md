@@ -32,18 +32,24 @@ After all three return:
 - If all `blocking_count: 0`: write `scrutiny_results.json` to koto context and submit `scrutiny_outcome: passed`.
 
 ```bash
-koto context add <WF> scrutiny_results.json < /dev/stdin <<EOF
-{"passed": true, "round": 1, "blocking_count": 0}
+koto context add <WF> scrutiny_results.json <<EOF
+{"passed": true, "round": <N>, "blocking_count": 0}
 EOF
 koto next <WF> --with-data '{"scrutiny_outcome": "passed"}'
 ```
 
+`<N>` is the number of the scrutiny round that just ran: 1 the first time through, incremented on each pass through the retry loop below.
+
 ## Retry Loop
 
 When re-entering after a blocking finding:
-1. The `scrutiny_results.json` artifact may be stale — the gate will fail, prompting a fresh run.
-2. Delete the stale artifact from context before re-running: `koto context remove <WF> scrutiny_results.json`
+
+1. Ignore whatever `scrutiny_results.json` is already in context. It describes the round that failed and says nothing about the fixes the coder agent has since made.
+2. Do not try to delete it. `koto context` advertises `add`, `get`, `exists`, and `list` — koto has no verb that removes a key. A stale value is cleared by being overwritten, not by being deleted.
 3. Spawn all three reviewers again. The coder agent's fixes should resolve the blocking findings.
+4. When the fresh round comes back with every `blocking_count: 0`, run the Aggregation command above again with `<N>` set to this round's number. `koto context add` on a key that already exists replaces its content in place, so the key ends up holding this round's result and no earlier round's JSON survives.
+
+If the fresh round still finds blocking findings, write nothing to context: submit `scrutiny_outcome: blocking_retry`, or escalate as described below, and leave the key as it stands. The `scrutiny_results` gate is `context-exists` — it checks that the key is present, not which round wrote it — so what keeps an earlier pass from advancing the workflow is the `scrutiny_outcome` you submit, which must always describe the round that just ran.
 
 ## Escalation
 

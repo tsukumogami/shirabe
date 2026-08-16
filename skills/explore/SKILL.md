@@ -1,15 +1,18 @@
 ---
 name: explore
-description: Structured exploration workflow and artifact-type routing advisor. Use when the user
+description: Structured exploration workflow and routing advisor. Use when the user
   isn't sure what to build, doesn't know which workflow fits their situation, or wants to research
-  before committing to a PRD, design doc, or plan. Triggers on "should I write a PRD or a design
+  before committing to a chain. Triggers on "should I write a PRD or a design
   doc?", "I don't know where to start", "what should I do next?", "how do I start this?", "I'm
-  stuck", or explicit /explore invocations. Helps figure out whether you need a PRD, design doc,
-  plan, or something else through a discover-converge loop with research agents.
-  Does NOT apply when the user already knows their artifact type -- use /prd, /design,
-  or /plan directly instead.
+  stuck", or explicit /explore invocations. Helps figure out whether the work enters at /scope or
+  /charter, is one issue, or is a spike, decision, or landscape write-up, through a
+  discover-converge loop with research agents. Does NOT apply when the user already knows the
+  altitude -- use /scope, /charter, or /execute directly instead.
 argument-hint: '<topic or issue number>'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh explore 2>&1 || true`
 
 @.claude/shirabe-extensions/explore.md
 @.claude/shirabe-extensions/explore.local.md
@@ -20,48 +23,70 @@ Explore is the entry point for "I don't know what I need." It serves two roles:
 as a passive routing advisor (when Claude is auto-loaded and users need help picking
 a command), and as an active exploration workflow (when invoked via /explore).
 
-Other skills own specific artifact types: /prd owns requirements, /design owns
-technical architecture, /plan owns issue decomposition. Explore owns the question
-of WHICH artifact type to produce. It investigates before committing.
+Other skills own the work itself: `/scope` runs the tactical chain, `/charter`
+the strategic one, `/execute` drives a finished PLAN, and `/work-on` takes a
+single issue. Explore owns the question of which one receives the work, and it
+answers that question after the research rather than before it.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
-## Artifact Type Routing Guide
+## Routing Guide
 
-When a user isn't sure what to build, use this table to recommend a starting point.
+When a user isn't sure where to start, use this table to recommend a command.
+Every destination is something the author runs. None of them is a step inside a
+chain that a parent skill already sequences: a BRIEF, a PRD, a DESIGN, and a
+PLAN are hops inside `/scope`, and picking one of them as an entry point is the
+choice this skill stopped making.
 
 | Situation | Route To | Why |
 |-----------|----------|-----|
-| "I want to build X but don't know where to start" | `/explore <topic>` | Open-ended; the right artifact type isn't clear yet |
-| "Should I write a PRD or design doc?" | Read the decision table below | Match signals to the situation |
-| "I know what to build, not how" | `/design <topic>` | What-to-build is settled, how-to-build is the question |
-| "I have a feature named but haven't framed its problem and scope yet" | `/brief <topic>` | Frames a feature's problem, outcome, journeys, and scope before requirements; the step between roadmap and PRD |
-| "I know what we need but haven't written it down" | `/prd <topic>` | Requirements need to be captured and agreed on |
-| "I have a design doc, need to break it into issues" | `/plan <design-doc-path>` | Decomposition of an existing artifact |
-| "This is simple, just do it" | `/work-on <issue>` | No artifact needed, go straight to implementation |
-| "I need to justify this project" or "I have a multi-feature initiative" | `/explore --strategic <topic>` | Strategic scope; needs VISION or Roadmap before features |
+| "I want to build X but don't know where to start" | `/explore <topic>` | Open-ended; what the work turns out to be isn't clear yet |
+| "I have one feature to specify, from its framing through its issues" | `/scope <topic>` | The tactical chain runs whole and reduces per hop; its terminal artifact is a PLAN |
+| "I need to justify this project" or "I have a multi-feature initiative" | `/charter <topic>` | The strategic chain: thesis, bet, and a sequenced roadmap |
+| "I have a PLAN and want it built" | `/execute <plan-path>` | Plan-level execution; it accepts a PLAN path and nothing else |
+| "This is simple, just do it" | `/work-on <issue>` | No document needed, go straight to implementation |
+| "I have one choice between named options" | `/decision <question>` | A single decision with a durable record and no work attached |
+| "What exists in this space?" | `/comp <topic>` | Competitive landscape, with a jury and a lifecycle transition; private repos only |
 
 ### Quick Decision Table
 
 | Core Question | Best Fit | Alternative |
 |---------------|----------|-------------|
-| "Do I need any artifact at all?" | No artifact, `/work-on` directly | `/prd` if scope creep is likely |
-| "What should we build and why?" | PRD | Explore (if even the question is unclear) |
-| "How should we build this?" | Design Doc | Explore (if multiple paths exist) |
-| "What order do we build in?" | Plan | Design Doc (if approach isn't decided) |
-| "Can we build this?" (feasibility) | Explore | No artifact (just try it) |
-| "What exists already?" (landscape) | Explore | No artifact (write up findings) |
-| "Should this project exist?" or "Which features should we build?" | VISION or Roadmap via `/explore --strategic` | `/explore` without flag if scope is unclear |
+| "Do I need any document at all?" | File an issue, then `/work-on` | `/scope` if the scope is likely to grow |
+| "What should we build, and how?" | `/scope` | `/explore` if even the question is unclear |
+| "Can we build this?" (feasibility) | `/explore`, which authors the spike report | File an issue and try |
+| "What exists already?" (landscape) | `/explore`, which routes to `/comp` in a private repo | File an issue and write the findings into it |
+| "Which option, and why?" | `/decision` | `/explore` if the options aren't identified yet |
+| "Should this project exist?" or "Which features should we build?" | `/charter` | `/explore` if the scope is unclear |
+| "Should we start building the PLAN we have?" | `/execute <plan-path>` | `/work-on <issue>` if only one issue out of it is in play |
+
+Three distinctions are gone from these two tables rather than re-pointed:
+"should I write a PRD or a design doc?", the pair that split "what should we
+build" from "how should we build it", and "what order do we build in?". Each one
+separated two hops of the same chain, and each mattered only while those hops
+were separately choosable. A BRIEF, a PRD, a DESIGN, and a PLAN are steps inside
+`/scope`, so all three questions now have one answer and take one row.
 
 ### Complexity-Based Routing
 
+Complexity is advisory, and only here. It answers "which command should I run?"
+before any exploration exists. Once an exploration has run, Phase 4 scores the
+accumulated findings, and nothing in this section feeds that scoring -- a second
+classification vocabulary inside the one routing surface would just disagree
+with it.
+
 | Complexity | Signals | Recommended Path |
 |------------|---------|------------------|
-| Trivial | Self-evident change, no issue needed, single file, no design decisions | `/work-on` directly (no issue) |
-| Simple | Clear requirements, few files, one person, no competing approaches | `/work-on` or `/prd` then implement |
-| Medium | Known approach, some integration risk, design decisions between viable options | `/design` then `/plan` |
-| Complex | Multiple unknowns, shape unclear, can't state requirements or approach | `/explore` to discover first |
-| Strategic | Project inception, multi-feature sequencing, thesis validation needed | VISION or `/roadmap` then per-feature pipeline |
+| Trivial | Self-evident change, single file, no decisions, no issue needed | `/work-on` directly, no issue |
+| Simple | Clear requirements, few files, one person, no competing approaches | File an issue, then `/work-on <issue>` |
+| Complex | Multiple unknowns, shape unclear, can't state requirements or approach | `/explore`, and let the crystallize step name the destination |
+| Strategic | Project inception, multi-feature sequencing, thesis validation needed | `/charter` |
+
+The Medium row is removed rather than re-pointed. Its recommendation was design
+then plan, and the case it described -- requirements settled, approach open --
+was worth separating only while those two were separately choosable. A request
+that used to land on Medium reads as Complex here, and `/explore` decides
+whether it enters the chain at `/scope` or is small enough to file.
 
 ### Detection Algorithm
 
@@ -73,30 +98,29 @@ Check from highest complexity down. Stop at the first YES.
    YES -> Strategic
    Boundary: if it's about one feature within an existing project -> Complex
 
-2. Can the user clearly state what to build?
-   NO (the problem itself is unclear) -> Complex
+2. Can the user clearly state both what to build and how?
+   NO (the problem is unclear, or the approach is contested) -> Complex
 
-3. Are there design decisions where reasonable people could disagree
-   on the approach?
-   YES -> Medium
-   Boundary: if too many unknowns to even frame the questions -> Complex
-
-4. Does a GitHub issue exist (or should one exist) with defined scope?
+3. Does a GitHub issue exist (or should one exist) with defined scope?
    YES -> Simple
-   Boundary: if no design decisions and clear acceptance criteria -> Simple;
-   if "done" is self-evident without criteria -> Trivial
+   Boundary: if "done" is self-evident without acceptance criteria -> Trivial
 
-5. Is the change self-evident and fire-and-forget?
+4. Is the change self-evident and fire-and-forget?
    YES -> Trivial
 
-6. Default -> Simple (create an issue and proceed)
+5. Default -> Simple (file an issue and proceed)
 ```
+
+Step 2 absorbs the old Medium question. Design decisions where reasonable people
+could disagree leave "how" unstated, which is a Complex answer now.
 
 ## Crystallize Framework
 
-Phase 4 uses the crystallize framework to evaluate which artifact type fits the
-exploration's findings. See `references/quality/crystallize-framework.md` for the
-full scoring system, loaded during Phase 4.
+Phase 4 scores the exploration's findings in two stages: what the exploration is
+-- four terminal outcomes no chain owns, plus "a chain" -- and then, for a chain,
+which entry point receives it. See `references/quality/crystallize-framework.md`
+for the candidacy preconditions, both scoreboards, and the tiebreakers. Loaded
+during Phase 4.
 
 ---
 
@@ -167,6 +191,13 @@ default from CLAUDE.md:
 
 Default to Tactical if not found.
 
+Scope sets how the research phases read the topic and how content governance
+applies. It puts no thumb on the crystallize scoreboard. `--strategic` is also a
+repo default read from CLAUDE.md, so letting it bias the outcome would
+pre-answer the router for every exploration in a strategic-default repo. An
+exploration launched strategic can land on `/scope`, and one launched tactical
+can land on `/charter`.
+
 #### 3. Log Context
 
 Output before proceeding:
@@ -222,12 +253,12 @@ Phase 0: SETUP -> Phase 1: SCOPE -> Phase 2: DISCOVER -> Phase 3: CONVERGE --+
 
 | Phase | Purpose | Artifact |
 |-------|---------|----------|
-| 0. Setup | Branch, context, triage (if needed) | On topic branch |
+| 0. Setup | Branch, context, entry assessment (if from an issue) | On topic branch |
 | 1. Scope | Conversational scoping, produce leads | `wip/explore_<topic>_scope.md` |
 | 2. Discover | Fan out lead agents (round N) | `wip/research/explore_<topic>_r<N>_lead-<name>.md` |
 | 3. Converge | Present findings, user narrows or exits loop | `wip/explore_<topic>_findings.md` |
 | 4. Crystallize | Evaluate artifact type, user confirms | `wip/explore_<topic>_crystallize.md` |
-| 5. Produce | Hand off to target command or route to action | Handoff artifact for target command |
+| 5. Produce | Author the outcome, or hand off to the command that owns it | Terminal document, issue, or parent handoff |
 
 ### Phase Execution with Loop Management
 
@@ -327,10 +358,13 @@ explicit decisions were made during exploration.
 | `references/phases/phase-3-converge.md` | Phase 3 (each round) |
 | `references/phases/phase-4-crystallize.md` | Phase 4 |
 | `references/phases/phase-5-produce.md` | Phase 5 (routing stub) |
-| `references/phases/phase-5-produce-prd.md` | Phase 5, PRD handoff |
-| `references/phases/phase-5-produce-design.md` | Phase 5, Design Doc handoff |
-| `references/phases/phase-5-produce-plan.md` | Phase 5, Plan handoff |
-| `references/phases/phase-5-produce-no-artifact.md` | Phase 5, No artifact |
-| `references/phases/phase-5-produce-decision.md` | Phase 5, Decision Record handoff |
-| `references/phases/phase-5-produce-deferred.md` | Phase 5, Roadmap/Spike/Competitive/Prototype |
+| `references/phases/phase-5-produce-rejection-record.md` | Phase 5, rejection record (authored here) |
+| `references/phases/phase-5-produce-spike-report.md` | Phase 5, spike report (authored here) |
+| `references/phases/phase-5-produce-decision.md` | Phase 5, routes to `/decision` |
+| `references/phases/phase-5-produce-comp.md` | Phase 5, routes to `/comp` (private repos) |
+| `references/phases/phase-5-produce-file-an-issue.md` | Phase 5, file an issue |
+| `references/phases/phase-5-produce-handoff.md` | Phase 5, both parent arms (`/scope` and `/charter`) |
+| `references/phases/phase-5-produce-execute.md` | Phase 5, `/execute` |
+| `references/phases/phase-5-produce-deferred.md` | Phase 5, deferred type (prototype) |
 | `references/quality/crystallize-framework.md` | Phase 4 (full decision framework) |
+| `references/label-reference.md` | Phase 0, when the topic came from a labelled issue |

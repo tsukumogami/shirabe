@@ -6,10 +6,13 @@ When the input is a roadmap, **do not** re-drive this phase to fill the
 roadmap's reserved sections by prose substitution -- that path is retired.
 The roadmap workflow now ships its own native CLI subcommand,
 `shirabe roadmap populate`, that reads the Features section using the
-shared `shirabe-validate` parser, creates one GitHub issue per feature
-with discrete `gh issue create` args, and writes the reserved sections by
-structural section replacement. Invoke it via `/roadmap populate <path>`
-(see `skills/roadmap/SKILL.md`).
+shared `shirabe-validate` parser and writes the reserved sections by
+structural section replacement. Its issue-creating mode also creates one
+GitHub issue per feature with discrete `gh issue create` args. Invoke it
+via `/roadmap populate <path> --issues` to file issues, or
+`/roadmap populate <path> --no-issues` to render the sections without
+touching GitHub; always name the mode rather than relying on the
+subcommand's default (see `skills/roadmap/SKILL.md`).
 
 The `input_type: roadmap` branch in this phase remains only for the case
 where a PLAN document is being produced from a roadmap upstream (i.e., the
@@ -29,10 +32,13 @@ slice). It no longer rewrites the roadmap document itself.
 **For roadmap input** (`input_type: roadmap`): The roadmap's reserved
 Implementation Issues and Dependency Graph sections are populated by the
 roadmap-native subcommand `shirabe roadmap populate` (via
-`/roadmap populate <path>`), NOT by this phase. This phase still handles
-creating a PLAN document for a roadmap-scoped slice when one is wanted;
-for populating the roadmap document itself, exit and run
-`/roadmap populate`.
+`/roadmap populate <path> --issues` or `--no-issues`), NOT by this phase.
+This phase still handles creating a PLAN document for a roadmap-scoped
+slice when one is wanted; for populating the roadmap document itself,
+exit and run `/roadmap populate <path>` with the mode flag that matches
+what you want -- `--issues` to file GitHub issues, `--no-issues` to
+render the sections without them. Do not leave the mode to the
+subcommand's default.
 
 Check if `docs/plans/PLAN-<topic>.md` exists.
 

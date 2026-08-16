@@ -10,7 +10,10 @@ description: >-
   exploration (/explore). Drives a multi-phase workflow: conversational scoping,
   parallel research agents, structured drafting, and jury review.
 argument-hint: '<project or org topic>'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh vision 2>&1 || true`
 
 @.claude/shirabe-extensions/vision.md
 @.claude/shirabe-extensions/vision.local.md
@@ -86,16 +89,21 @@ From `$ARGUMENTS`:
    <vision-path> <status>` (Sunset optionally takes `--superseded-by <path>`)
 3. **Anything else** -- use as the starting topic for Phase 1 scoping
 
-### Standalone Entry and Handoff Detection
+### Standalone Entry
 
-/vision works both standalone and as a handoff target from /explore.
+/vision works standalone and as a chain child of /charter. No skill hands
+/vision a pre-populated scope file: /charter invokes /vision directly and lets
+this skill's own Phase 1 do the scoping, and the router routes to /charter
+rather than here. There is no handoff to detect.
 
-On startup, check for `wip/vision_<topic>_scope.md`. If it exists, an /explore
-session already ran Phase 5 and wrote the handoff artifact with synthesized
-findings. Skip Phase 1 (scoping) and proceed directly to Phase 2 (discover) --
-the scope file provides the problem statement and research leads.
+On startup, check for `wip/vision_<topic>_scope.md` anyway. It is what this
+skill's own Phase 1 writes, so finding one means an earlier run got through
+scoping and stopped before Phase 2 finished. Skip Phase 1 and resume at Phase 2
+against it -- the scope file already holds the problem statement and research
+leads. /charter's resume ladder reads the same file for the same reason, to
+route a partial run back into /vision.
 
-If no handoff artifact exists, start from Phase 1.
+If it does not exist, start from Phase 1.
 
 ### Context Resolution
 
@@ -125,7 +133,7 @@ Phase 0: SETUP --> Phase 1: SCOPE --> Phase 2: DISCOVER --> Phase 3: DRAFT --> P
 | Phase | Purpose | Artifact |
 |-------|---------|----------|
 | 0. Setup | Create feature branch, detect visibility | On topic branch |
-| 1. Scope | Conversational scoping (or skip if handoff exists) | Problem statement + research leads |
+| 1. Scope | Conversational scoping (or skip if an earlier run's scope file exists) | Problem statement + research leads |
 | 2. Discover | Parallel research agents investigate leads | Research findings in wip/ |
 | 3. Draft | Produce VISION draft | Complete VISION draft |
 | 4. Validate | Jury review (thesis quality, boundaries) | Validated VISION |
@@ -151,6 +159,10 @@ wip/vision_<topic>_scope.md exists                      -> Resume at Phase 2
 On a branch related to the topic                        -> Resume at Phase 1
 On main or unrelated branch                             -> Start at Phase 0
 ```
+
+The `wip/vision_<topic>_scope.md` row is a partial-run row, not a handoff row.
+Its only producer is this skill's own Phase 1, and /charter's ladder relies on
+that: its row 8 hands a topic back to /vision precisely so this row fires.
 
 Phase 0 detection: if the parent-chain sentinel is present in
 `wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
@@ -178,7 +190,8 @@ Execute phases sequentially by reading the corresponding phase file:
 
 1. **Scope**: Conversational scoping
    - Instructions: `references/phases/phase-1-scope.md`
-   - Skipped when handoff artifact (`wip/vision_<topic>_scope.md`) exists
+   - Skipped when an earlier run's scope file (`wip/vision_<topic>_scope.md`)
+     exists
 
 2. **Discover**: Parallel research agents investigate leads
    - Instructions: `references/phases/phase-2-discover.md`

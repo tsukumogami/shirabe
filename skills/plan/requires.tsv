@@ -1,0 +1,41 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# Phase 1 and Phase 7 move the upstream design to Planned; no flag is on either
+# call line.
+#
+# Every record here is `always`, and the absence of a mode-scoped record is a
+# recorded finding rather than an oversight. /plan selects single-pr or multi-pr
+# at step 3.6 of phase-3-decomposition.md, which is exactly where a mode call
+# would go; that step says in prose that /plan makes none, and this is the other
+# half of the same statement.
+#
+# gh is always rather than mode:multi-pr because Resume Logic checks for
+# existing issues with `gh issue list --search` on every run, before the
+# execution mode is known. Issue creation, labelling, and milestone work in
+# Phase 7 multi-pr add more gh subcommands but no new tool -- and gh has an
+# independent release cadence, so its record names the tool alone and multi-pr
+# cannot change what verifying it means.
+#
+# jq backs build-dependency-graph.sh (Phase 5), create-issues-batch.sh, and the
+# outline-envelope read in plan-to-tasks.sh; git backs the Phase 7 wip-hygiene
+# scan and the same script's repo-root resolution.
+#
+# `shirabe validate --lifecycle-chain` is a call /plan makes: Phase 7 runs it
+# over the finished PLAN to decide whether the upstream is at a status a PLAN
+# may be built from. That check used to live in skills/plan/scripts/validate-plan.sh,
+# which is why python3 (its portable realpath) was declared here; the script is
+# gone and the validator owns the rule, so the record went with it.
+#
+# The `shirabe validate --lifecycle` line in SKILL.md describes the CI
+# workflow, which /plan does not run. Nothing mechanical separates that
+# documentation from a call site, so it is exempted by name for
+# scripts/check-skill-requires.sh; an exemption that stops matching its line
+# fails as stale.
+#not-a-call-site	skills/plan/SKILL.md	shirabe	--lifecycle	Documents the validator's whole-tree mode, which CI runs; /plan does not.
+#not-a-call-site	skills/plan/scripts/plan-to-tasks.sh	shirabe	--release	cargo's build flag, quoted in the "shirabe binary not found" message; not a shirabe flag.
+shirabe	transition	-	always
+shirabe	validate	--lifecycle-chain	always
+gh	-	-	always
+jq	-	-	always
+git	-	-	always

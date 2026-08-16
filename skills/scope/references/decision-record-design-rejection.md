@@ -70,8 +70,10 @@ chose to reject. The two REJECTED alternatives:
 - **Chain ended at this Decision Record.** No force-materialized
   partial is produced.
 - **`/plan` auto-skipped.** Any `/plan` child in `planned_chain:`
-  is auto-skipped; `chain_skipped:` records it with reason
-  "DESIGN-boundary rejection". Only `/plan` is affected.
+  is auto-skipped; `chain_skipped:` records it as a
+  `{child, reason}` entry with reason `design-boundary-rejection`,
+  the vocabulary member for a rejection at the DESIGN boundary.
+  Only `/plan` is affected.
 - **PRD remains in place.** The existing PRD at
   `docs/prds/PRD-<topic>.md` remains at Accepted; the DESIGN-
   boundary rejection does NOT roll back the PRD-boundary.

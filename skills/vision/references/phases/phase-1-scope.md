@@ -17,6 +17,10 @@ to Phase 2.
 If this IS a loop-back (Phase 2 determined the thesis direction was fundamentally wrong),
 delete `wip/vision_<topic>_scope.md` first, then re-scope from scratch.
 
+Either way the file came from this phase on an earlier run. Nothing hands /vision a
+pre-populated scope file: /charter invokes /vision and lets this phase do the scoping,
+so a file on disk means an interrupted run, never a handoff.
+
 ## Approach: Conversational with Coverage Tracking
 
 Ask open-ended questions, adapting to what the user already knows. Internally track

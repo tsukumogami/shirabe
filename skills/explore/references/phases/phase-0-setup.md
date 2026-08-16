@@ -1,12 +1,15 @@
 # Phase 0: Setup
 
-Establish the working branch, resolve context, and triage the issue if needed.
+Establish the working branch, resolve context, and assess the issue if it
+arrived unclassified.
 
 ## Goal
 
 Get onto a topic branch with visibility and scope resolved, ready for scoping.
-If starting from a `needs-triage` issue, assess whether exploration is the right
-path before proceeding.
+If starting from a `needs-triage` issue, record what the issue looks like so the
+crystallize step has it. Phase 0 assigns no labels and takes no routing
+decision: the skill has one routing surface and it runs after the research, not
+before it.
 
 **Label vocabulary reference:** `references/label-reference.md`
 
@@ -76,10 +79,12 @@ codebase. Then proceed to Phase 1.
 
 **If starting from a plain topic (no issue):** proceed directly to Phase 1.
 
-### 0.4 Triage Stage 1: Investigation vs. Actionable
+### 0.4 Entry Assessment
 
-Run a two-stage triage to determine what the issue actually needs. Stage 1 determines
-whether the issue needs upstream artifact work, breakdown, or is ready.
+Read the issue and record what it looks like before any research has run. The
+assessment is an input to the crystallize step, not a decision: whatever it
+says, this step ends at Phase 1. Nothing here edits a label, stops the skill, or
+sends the author to another command.
 
 Launch 3 agents in parallel, each arguing for one category:
 
@@ -102,14 +107,15 @@ one PR).
 Each agent writes a 3-5 line assessment to chat (no files needed). Include the
 issue number and a confidence level (low/medium/high).
 
-#### Stage 1 Agent Prompt Template
+#### Agent Prompt Template
 
 ```
-You are assessing a placeholder issue for triage from the perspective of a [ROLE].
+You are assessing an issue from the perspective of a [ROLE]. Your assessment is
+evidence for a decision made later, after research; it does not route anything.
 
 Issue: [TITLE]
 Body: [BODY]
-Upstream context: [CONTEXT FROM STEP 2]
+Upstream context: [CONTEXT FROM STEP 0.3]
 
 Evaluate which category fits best:
 
@@ -127,126 +133,44 @@ Provide:
 - Confidence level (high/medium/low)
 ```
 
-#### Stage 1 Synthesis
+#### Synthesis
 
 After agents respond, synthesize:
 1. If unanimous: that category is the result
 2. If split: the majority category is the result, note dissent
 
-If the result is **needs investigation**, proceed to Step 0.5.
+Write the result to `wip/explore_<topic>_scope.md` under an `## Entry
+Assessment` heading, next to the `## Visibility` value Step 0.2a wrote:
 
-If the result is **needs breakdown** or **ready**, present the routing decision
-using AskUserQuestion following the pattern in
-`${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`.
+```markdown
+## Entry Assessment
 
-**Recommendation heuristic:** If Stage 1 landed on **needs breakdown**, recommend
-"Break down." If it landed on **ready**, recommend "Implement directly."
-
-**Options (order by recommendation heuristic):**
-1. "Break down (Recommended)" or "Implement directly (Recommended)" -- based on
-   the heuristic above
-2. The other option, with a brief justification for why it ranks lower
-
-**Description field:** Ground the recommendation in the Stage 1 assessments --
-cite the specific signals the agents named (scope breadth, dissent, whether the
-issue body already states what to build), not the category label alone.
-
-Route based on the user's choice:
-- **Break down:** Create sub-issues from the original. Stop and suggest the user
-  run `/work-on` on individual sub-issues.
-- **Implement directly:** Remove the `needs-triage` label. Stop and suggest the
-  user run `/work-on <issue-number>`.
-
-### 0.5 Triage Stage 2: Investigation Type
-
-Only reached when Stage 1 determined "needs investigation." Launch 3 agents in
-parallel, each arguing for a specific artifact type:
-
-**Agent 1 -- needs-prd:**
-Argue that requirements are the primary gap. Look for: unclear or contested
-requirements, multiple stakeholders with different expectations, "what to build"
-is the open question.
-
-**Agent 2 -- needs-design:**
-Argue that the approach is the primary gap. Look for: requirements are clear but
-the technical approach isn't, multiple valid architectures, integration risk, "how
-to build" is the open question.
-
-**Agent 3 -- needs-spike / needs-decision:**
-Argue that either a feasibility question or a single architectural choice is the
-primary gap. Look for: "can we build this?" uncertainty (spike), or a clear choice
-between 2-3 known options that just needs a decision (decision record). State which
-one fits and why.
-
-Each agent writes a 3-5 line assessment to chat (no files needed).
-
-#### Stage 2 Agent Prompt Template
-
-```
-You are assessing what type of upstream artifact work an issue needs.
-
-Issue: [TITLE]
-Body: [BODY]
-Upstream context: [CONTEXT FROM STEP 2]
-Stage 1 result: The jury agreed this issue needs investigation before implementation.
-
-Evaluate which investigation type fits best:
-
-1. **needs-prd**: Requirements unclear or contested. "What to build" is the open
-   question. Multiple stakeholders may disagree on scope or behavior.
-2. **needs-design**: What to build is clear, how to build it is not. Technical
-   approach needs exploration, multiple valid architectures exist.
-3. **needs-spike**: Feasibility is unknown. "Can we build this?" needs answering
-   before committing to an approach.
-4. **needs-decision**: A single architectural choice between known options.
-   The options are identified but the trade-offs haven't been evaluated.
-
-Primary gap heuristic: when both requirements AND approach are unclear, route
-to the earlier-stage artifact (needs-prd before needs-design). Requirements
-clarity is a prerequisite for meaningful design work.
-
-Provide:
-- Your recommended type (needs-prd/needs-design/needs-spike/needs-decision)
-- Brief rationale (2-3 sentences)
-- Confidence level (high/medium/low)
+Result: <needs investigation | needs breakdown | ready>
+Confidence: <high | medium | low>
+Dissent: <the category a dissenting agent argued for, and its reason, or "none">
+Signals cited: <what the agents pointed at in the issue body>
 ```
 
-#### Stage 2 Synthesis
+Then continue to Phase 1 regardless of the result. Say the result to the user in
+one line so the assessment isn't invisible, and say that the exploration
+continues either way.
 
-After agents respond, synthesize:
-1. If unanimous: that type is the recommendation
-2. If split: the majority type is the recommendation, note dissent
-3. If three-way split: apply the primary gap heuristic -- when both requirements
-   AND approach are unclear, prefer the earlier-stage artifact (needs-prd before
-   needs-design, needs-design before needs-spike)
+#### What the Assessment Feeds
 
-Present the assessments side-by-side and recommend the strongest one. Ask the user
-to confirm via AskUserQuestion, following the pattern in
-`${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`:
+Phase 4 reads this section as stage-2 evidence, alongside everything the
+research turned up:
 
-> Based on the assessments, this issue looks like it **[needs a PRD / needs design /
-> needs a spike / needs a decision record]**. How would you like to proceed?
->
-> 1. **Explore (Recommended)** -- continue with /explore to produce the artifact
-> 2. **Different type** -- you see a different need (user can override the recommendation)
-> 3. **Implement directly** -- skip investigation; use /work-on
+- **ready** carries the file-an-issue signals: one deliverable, one person, no
+  coordination, "just do it" is the right next step.
+- **needs breakdown** carries a shape signal rather than an altitude one. Work
+  that splits into several independent pieces reads toward `/scope`, whose
+  terminal artifact is the PLAN that sequences them, or toward `/charter` when
+  the pieces are separate features whose order affects delivery.
+- **needs investigation** says the issue arrived with open requirements or an
+  open approach, which is the chain's own signal set.
 
-**Description field:** Ground the recommendation in the Stage 2 assessments --
-name which agent's argument carried, quote the specific gap it identified, and
-say what the dissenting agents were weighing against it. If the assessments were
-a three-way split with no clear winner, say so, name the primary-gap heuristic as
-the tiebreaker, and still recommend the type it selects.
-
-Route based on the user's choice:
-
-- **Explore (or confirmed type):** Update the issue label (remove `needs-triage`,
-  add the chosen `needs-*` label). If the chosen type is `needs-design`, gather
-  upstream context from linked issues and existing design docs before proceeding
-  to Phase 1. For other types, proceed to Phase 1 as well -- /explore will
-  crystallize to the appropriate artifact type.
-- **Different type:** Apply the user's chosen label instead and proceed as above.
-- **Implement directly:** Remove the `needs-triage` label. Stop and suggest the
-  user run `/work-on <issue-number>`.
+None of these is a verdict. The exploration can contradict any of them, and when
+it does, the findings win: the assessment saw the issue body and nothing else.
 
 ## Quality Checklist
 
@@ -254,15 +178,18 @@ Before proceeding:
 - [ ] On branch `docs/<topic>`
 - [ ] Visibility and scope resolved and logged
 - [ ] Visibility value written to `wip/explore_<topic>_scope.md` under `## Visibility`
-- [ ] If from needs-triage: two-stage triage complete, user confirmed routing
+- [ ] If from needs-triage: entry assessment run and written under
+      `## Entry Assessment`
+- [ ] No label added or removed, and no routing decision taken
 
 ## Artifact State
 
 After this phase:
 - On the `docs/<topic>` branch
 - Context resolved (visibility + scope)
-- If from an issue: triage handled, upstream context gathered
-- `wip/explore_<topic>_scope.md` exists with `## Visibility` section
+- If from an issue: entry assessment recorded, upstream context gathered
+- `wip/explore_<topic>_scope.md` exists with a `## Visibility` section, plus an
+  `## Entry Assessment` section when the topic came from a `needs-triage` issue
 
 ## Next Phase
 

@@ -360,7 +360,7 @@ Lnn range without colliding (L06 is the plausible default).
 - `docs/prds/PRD-roadmap-plan-standardization.md` R17/R18 — the
   `Lnn` family and verified-deletion-as-human-act framing this
   PRD extends.
-- `docs/designs/DESIGN-roadmap-plan-standardization.md` Decision
+- `docs/designs/current/DESIGN-roadmap-plan-standardization.md` Decision
   5 — the cascade pre/post hooks the AC check plugs into.
 - `docs/decisions/DECISION-cascade-trigger-mechanism-2026-06-06.md`
   — single-source-of-truth cascade contract.

@@ -128,22 +128,49 @@ file at every phase pointer.
   check.
 - **`planned_chain`** — ordered list of child-name strings naming
   which children are in scope for this run. Values are drawn from
-  `{vision?, comp?, strategy, roadmap}` (children with `?` are
-  conditional on their Phase 1 gates; `strategy` and `roadmap` are
+  `{vision?, strategy, roadmap}` (`vision` carries a `?` because it
+  is conditional on its Phase 1 gate; `strategy` and `roadmap` are
   unconditional). Set at Phase 1 chain-proposal acceptance;
   modified only if the author re-proposes the chain. `roadmap` is
   planned on every chain even though the author may later decline
   it at the Phase 2 roadmap confirmation prompt — a declination
   moves `roadmap` into `chain_skipped`, it does not retract the
   plan.
+
+  The conditional feeder `/comp` is not a value here, on either
+  side of its gate. A gate that never opened means the child was
+  never planned, so there is nothing to record; and the state file
+  is durably public from feature-branch push, so an entry naming a
+  private-only artifact type is a visibility violation whatever the
+  field around it says. That argument does not weaken in a repo
+  where the gate does open, because the field's domain is one shape
+  everywhere: a reader of a state file never has to work out
+  whether a `comp` entry was legal in the repo it came from. The
+  feeder sits beside the tracked chain rather than in it. The rule
+  and its reasoning live under `/comp` Invocation Rule in
+  `skills/charter/references/phases/phase-2-chain-orchestration.md`;
+  the skip is stated to the author in conversation and recorded
+  nowhere.
 - **`chain_ran`** — ordered sub-list of `planned_chain` naming the
   children whose invocations completed (the child wrote its durable
   artifact and `/charter` recorded the result). Appended-to as each
   child completes; never overwritten.
 - **`chain_skipped`** — list of `{child, reason}` entries. The
-  child name plus the free-text human-readable reason the chain
-  skipped the child. The reasons are NOT parsed by tooling — they
-  are durable evidence for human readers reviewing the chain.
+  child name plus the ground on which the chain skipped it.
+  `child` is the pattern-level entry key and `reason` is a member
+  of the closed vocabulary cited from
+  `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
+  (Chain-tracking); neither is `/charter`'s to choose. `/charter`
+  writes two of the four members:
+  `upstream-supplied-by-author` when a validated `--upstream`
+  vision path skips `/vision`, and
+  `author-declined-at-confirmation-prompt` when the author
+  declines `/roadmap`. An entry MAY carry an optional `detail:`
+  holding the specifics the member drops (which path was supplied,
+  what the author answered). `detail:` is advisory: every check
+  reads `reason`, and nothing parses `detail:`. It carries the
+  same opaque-free-text discipline as `rejection_rationale:` (see
+  `skills/charter/references/phases/phase-finalization.md`).
 - **`exit`** — string from `{full-run, re-evaluation, abandonment-
   forced}`. UNSET while the chain is in progress; SET to one of the
   three values at finalization. The R9 hard finalization check (see
@@ -170,9 +197,10 @@ file at every phase pointer.
 
 ### Conditional Fields
 
-These 7 fields are present iff their trigger fires — a specific
-`exit:` or `decision_record_sub_shape:` value for six of them, and
-a validated `--upstream` invocation argument for the seventh. When
+These 8 fields are present iff their trigger fires — a specific
+`exit:` or `decision_record_sub_shape:` value for six of them, a
+validated `--upstream` invocation argument for the seventh, and a
+resume-ladder row firing for the eighth. When
 the triggering condition does not hold, the field MUST be absent
 from the state file — not set to null, not set to an empty string,
 not set to a placeholder value. Absence-when-not-applicable is the
@@ -202,6 +230,26 @@ below).
     `/strategy`, and re-validated by the resume ladder on every
     re-entry (see
     `skills/charter/references/phases/phase-resume.md`).
+- **`consumed_handoff`** — path string naming the `/explore`
+  handoff this run consumed: `wip/charter_<topic>_handoff.md`,
+  composed from `/charter`'s own prefix and the validated topic
+  slug.
+  - **Required iff** the resume ladder's row 8.5 fired and consumed
+    the file.
+  - **MUST be absent otherwise** — including when a handoff was on
+    disk but a higher row matched first, and when a handoff was
+    found malformed and the run degraded to a cold start. Nothing
+    was consumed in either case, and a field written anyway would
+    record a consumption that did not happen.
+  - Written by row 8.5 in the same state-file write that creates the
+    file. **Its reader is the resume ladder**
+    (`skills/charter/references/phases/phase-resume.md`), which
+    reads it on a later re-entry to tell a run that consumed a
+    handoff from one that started cold. The field is specified here,
+    with its reader named, rather than being written by a phase file
+    and read by nobody. The recorded value is re-validated against
+    the slug regex before it is interpolated anywhere, on the same
+    grounds as `consumed_upstream:`.
 - **`decision_record_sub_shape`** — string from `{re-evaluation,
   rejection}`. The sub-shape identifies which Decision Record body
   shape the chain produced.
@@ -252,11 +300,11 @@ phase_pointer: N
 chain_started: <ISO-8601 timestamp>
 chain_completed: <ISO-8601 timestamp>
 last_updated: <ISO-8601 timestamp>
-planned_chain: [vision?, comp?, strategy, roadmap]
+planned_chain: [vision?, strategy, roadmap]
 chain_ran: [<sub-list of completed children>]
 chain_skipped:
   - child: <name>
-    reason: <free text>
+    reason: <vocabulary member>
 exit: re-evaluation
 decision_record_sub_shape: re-evaluation
 exit_artifacts:
@@ -281,12 +329,13 @@ artifact path).
 
 ## Conditional-Field Gating Discipline
 
-The seven conditional fields above are gated by R9 (invariant I-5
+The eight conditional fields above are gated by R9 (invariant I-5
 of the pattern). Each conditional field carries a "required iff
 <condition>; MUST be absent otherwise" rule documented above.
-`consumed_upstream:` is gated on an invocation argument rather than
-on an exit value, so it can be present at any phase pointer; the
-gating discipline binds it identically.
+`consumed_upstream:` is gated on an invocation argument and
+`consumed_handoff:` on a resume-ladder row firing, rather than on an
+exit value, so either can be present at any phase pointer; the
+gating discipline binds them identically.
 
 The discipline has two halves and BOTH bind:
 
@@ -314,7 +363,7 @@ errors at re-entry.
 The discipline composes with the pattern-level conditional-field
 gating invariant cited from
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
-(Conditional-field gating section). `/charter`'s six conditional
+(Conditional-field gating section). `/charter`'s eight conditional
 fields are the parent-specific instantiation.
 
 ## R9 Hard Finalization Check
@@ -361,7 +410,10 @@ the check passes only when none of them does.
    `consumed_upstream:` is the invocation argument rather than an
    exit value — so a `consumed_upstream:` alongside any of the three
    exits is well-formed, and its failure shape is presence without a
-   supplied and validated `--upstream`.
+   supplied and validated `--upstream`. `consumed_handoff:` is the
+   same shape against a different condition: well-formed alongside
+   any exit, and failing when it is present on a run whose row 8.5
+   never fired.
 4. **Failure mode 4 — conditional field set to null/empty/
    placeholder when ungated.** A conditional field is present with
    a "falsy" value (null, empty string, placeholder like `"TBD"`)
@@ -440,8 +492,10 @@ branch is pushed:
 - **`referenced_strategy`** — a path string. The path itself is
   unlikely to be sensitive, but it points at a STRATEGY whose body
   is also durably public on the feature branch.
-- **`chain_skipped[].reason`** — free-text reasons for skipping
-  children. Durable on the feature branch pre-merge; public.
+- **`chain_skipped[].detail`** — the optional free-text sibling of
+  the closed `reason` enum. `reason` itself is a vocabulary member
+  and carries nothing an author wrote; `detail:` carries prose and
+  paths, and is durable on the feature branch pre-merge and public.
 - **`consumed_upstream`** — an author-supplied path. This is the
   one field whose value comes from outside the chain, which is why
   Phase 0 refuses to write it at all when a public repo was pointed

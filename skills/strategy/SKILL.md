@@ -16,7 +16,10 @@ description: >-
   six-phase workflow: conversational scoping, structured drafting,
   Building Blocks decomposition, three-reviewer jury, finalization.
 argument-hint: '<project or org topic, optional VISION or PRD path, or STRATEGY path + lifecycle verb> [--upstream <path>]'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh strategy 2>&1 || true`
 
 @.claude/shirabe-extensions/strategy.md
 @.claude/shirabe-extensions/strategy.local.md

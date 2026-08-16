@@ -15,7 +15,10 @@ description: >-
   names the alternatives, and lets the author decide whether to
   continue.
 argument-hint: <topic-slug> [--upstream <path>]
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh comp 2>&1 || true`
 
 # Competitive Analysis Workflow
 

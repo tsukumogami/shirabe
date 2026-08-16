@@ -1313,7 +1313,7 @@ promotes the check to error.
   (R1-R17 and 28 acceptance criteria; PRD Decisions 1-6 frame this
   design's seven decisions).
 - **Parent DESIGN (the Decision 3 this design refines).**
-  `docs/designs/DESIGN-roadmap-plan-standardization.md`, Decision 3
+  `docs/designs/current/DESIGN-roadmap-plan-standardization.md`, Decision 3
   ("The mermaid-parser spike and the staged reconciliation check");
   the notice-then-error staging posture and the no-new-dependency
   anchor.

@@ -35,7 +35,7 @@
       "id": 3,
       "name": "baseline-child-internals-isolation",
       "prompt": "/scope test-topic",
-      "expected_output": "On resume against an existing chain state, /scope reads only the three permitted sources: child doc frontmatter status: at the published path, the child doc git blob hash (via read-only git hash-object), and /scope's own state file. /scope does NOT read child internal phase pointers, does NOT read wip/research/<child>_<topic>_phase<N>_*.md files, does NOT read any child wip/ intermediate beyond the named partial-run-detection patterns wip/brief_<topic>_*, wip/prd_<topic>_*, wip/design_<topic>_*, wip/plan_<topic>_* (Slot 6 of the resume ladder). Manual-review verified by code-path inspection per AC20b.",
+      "expected_output": "On resume against an existing chain state, /scope reads only the three permitted sources: child doc frontmatter status: at the published path, the child doc git blob hash (via read-only git hash-object), and /scope's own state file. /scope does NOT read child internal phase pointers, does NOT read wip/research/<child>_<topic>_phase<N>_*.md files, does NOT read any child wip/ intermediate beyond the named partial-run-detection patterns wip/brief_<topic>_*, wip/prd_<topic>_decisions.md, wip/design_<topic>_coordination.json, wip/plan_<topic>_* (Slot 6 of the resume ladder). Manual-review verified by code-path inspection per AC20b.",
       "files": [],
       "expectations": [
         "Plan reads child doc frontmatter status: from the published path (docs/briefs/BRIEF-<topic>.md, docs/prds/PRD-<topic>.md, docs/designs/DESIGN-<topic>.md, docs/designs/current/DESIGN-<topic>.md, docs/plans/PLAN-<topic>.md) only — never from child internal state",
@@ -92,14 +92,15 @@
       "id": 7,
       "name": "us-1-cold-standalone-full-run",
       "prompt": "/scope test-topic",
-      "expected_output": "Cold-start invocation against a fresh worktree under public-repo visibility: no wip/scope_test-topic_state.md exists, no upstream BRIEF/PRD/DESIGN/PLAN exists at the canonical paths. /scope walks Phase 1 discovery surfacing the framing-shift question and walks the R6 predicates (P1/P2/P3) to size /design's decision roster. planned_chain is [brief, prd, design, plan] — the whole tactical chain, as it is on every run; Phase 1 chooses no starting altitude and decides nothing about how many artifacts the run will leave. The chain-proposal output names those four children with their re-entry verdicts and contains the literal Proceed / Adjust / Bail substrings. The author selects Proceed; Phase 2 invokes /brief with the topic slug and then /prd, /design and /plan each with the path of the artifact the chain produced above it; each invocation writes the parent_orchestration: sentinel immediately before and clears it immediately after; shirabe validate --format json --visibility=public runs against each intermediate; the consolidation judgment runs after each artifact lands. The terminal PLAN lives at docs/plans/PLAN-test-topic.md. State file: exit: full-run, exit_artifacts lists the surviving durable artifacts plus the PLAN, plan_execution_mode set, and consolidation_judgments records a verdict per hop.",
+      "expected_output": "Cold-start invocation against a fresh worktree under public-repo visibility: no wip/scope_test-topic_state.md exists, no upstream BRIEF/PRD/DESIGN/PLAN exists at the canonical paths. /scope walks Phase 1 discovery surfacing the framing-shift question and walks the R6 predicates (P1/P2/P3) to size /design's decision roster. planned_chain is [brief, prd, design, plan] — the whole tactical chain, as it is on every run; Phase 1 chooses no starting altitude and decides nothing about how many artifacts the run will leave. The chain-proposal output names those four children with their re-entry verdicts and carries the literal substrings \"Proceed\", \"Adjust\" and \"Bail\", asserted per-token rather than as one contiguous slash-joined string, per the Gate Vocabulary's prompt-vocabulary rule in references/parent-skill-pattern.md: the chain proposal is not a co-equal menu (Proceed is the expected path), and a parent MAY render an interstitial label such as \"Adjust chain\". The author selects Proceed; Phase 2 invokes /brief with the topic slug and then /prd, /design and /plan each with the path of the artifact the chain produced above it; each invocation writes the parent_orchestration: sentinel immediately before and clears it immediately after; shirabe validate --format json --visibility=public runs against each intermediate; the consolidation judgment runs after each artifact lands. The terminal PLAN lives at docs/plans/PLAN-test-topic.md. State file: exit: full-run, exit_artifacts lists the surviving durable artifacts plus the PLAN, plan_execution_mode set, and consolidation_judgments records a verdict per hop.",
       "files": [],
       "expectations": [
         "Plan populates planned_chain: as [brief, prd, design, plan] on this run",
         "Plan describes no starting-altitude choice and no state field recording one",
         "Plan does NOT decide, at Phase 1, whether any artifact is worth producing",
         "Plan invokes /brief with the topic slug and every later child with the path of the artifact the chain produced above it",
-        "Plan emits a chain-proposal output containing the literal substrings Proceed, Adjust and Bail",
+        "Plan emits a chain-proposal output containing the literal substrings \"Proceed\", \"Adjust\" and \"Bail\" (case-insensitive), asserted individually rather than as one contiguous slash-joined string",
+        "Plan does NOT require a contiguous \"Proceed / Adjust / Bail\" string, and tolerates a rendering whose Adjust label carries an interstitial word",
         "Plan runs the consolidation judgment after each artifact lands and records the verdict in consolidation_judgments:",
         "Plan records exit: full-run with exit_artifacts listing the surviving durable artifacts"
       ]
@@ -108,7 +109,7 @@
       "id": 8,
       "name": "us-2-prd-auto-skip",
       "prompt": "/scope test-topic",
-      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists. /scope's Phase 1 holds /prd back under re-entry protection and records it in chain_skipped with reason 'settled-artifact-at-canonical-path-reentry-protection'. The recorded reason and the surrounding prose say this protects a settled document from being overwritten; it is NOT a judgment that the PRD would not have been worth producing. The chain proceeds; /design and /plan both run. State file: chain_skipped contains { name: prd, reason: settled-artifact-at-canonical-path-reentry-protection }; planned_chain contains the children that run (not /prd). When PLAN reaches Active status under /work-on, a subsequent /scope test-topic invocation fires Slot 5 row 5.1 (PLAN-Active) and surfaces a refuse-and-redirect prompt containing the literal substring 'redirect to /work-on' (case-insensitive); the Re-evaluate / Revise / Bail triad MUST NOT appear at that row.",
+      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists. /scope's Phase 1 holds /prd back under re-entry protection and records it in chain_skipped with reason 'settled-artifact-at-canonical-path-reentry-protection'. The recorded reason and the surrounding prose say this protects a settled document from being overwritten; it is NOT a judgment that the PRD would not have been worth producing. The chain proceeds; /design and /plan both run. State file: chain_skipped contains { child: prd, reason: settled-artifact-at-canonical-path-reentry-protection } -- the entry key is child, matching /charter and the sentinel's invoking_child; planned_chain contains the whole chain including /prd, because a held-back child stays planned and is separated from the children that ran by chain_ran. When PLAN reaches Active status under /work-on, a subsequent /scope test-topic invocation fires Slot 5 row 5.1 (PLAN-Active) and surfaces a refuse-and-redirect prompt containing the literal substring 'redirect to /work-on' (case-insensitive); the Re-evaluate / Revise / Bail triad MUST NOT appear at that row.",
       "files": [
         "docs/prds/PRD-test-topic.md"
       ],
@@ -163,7 +164,7 @@
       "id": 11,
       "name": "us-4-prd-rejection-sub-shape",
       "prompt": "/scope test-topic",
-      "expected_output": "Cold start. /scope invokes /prd per R5; /prd reaches Phase 4 and the author selects Reject as a deliberate finalization judgment (NOT a bail). /prd runs git rm docs/prds/PRD-test-topic.md, cleans up wip/prd_test-topic_*, and commits the discard with message docs(prd): discard PRD draft for test-topic. Control returns to /scope; /scope captures the discard commit SHA via read-only git log (no git writes from /scope). /scope writes a Decision Record at docs/decisions/DECISION-prd-test-topic-rejection-<YYYY-MM-DD>.md citing the discard commit SHA and the author's rejection rationale (passed through stdin/git commit -F, not interpolated into git commit -m). State file: exit: re-evaluation, boundary: prd, decision_record_sub_shape: rejection, discard_commit_sha: <sha>, rejection_rationale: <text>. /design and /plan auto-skipped per the rejection-sub-shape termination rule (chain_skipped records both with reason 'PRD-boundary rejection'). When a subsequent /scope test-topic invocation finds the discard commit but the rejection was out-of-chain (Phase-N Reject fired outside /scope), NO retroactive Decision Record is written per AC30c — the discard commit alone is the durable trace.",
+      "expected_output": "Cold start. /scope invokes /prd per R5; /prd reaches Phase 4 and the author selects Reject as a deliberate finalization judgment (NOT a bail). /prd runs git rm docs/prds/PRD-test-topic.md, cleans up wip/prd_test-topic_*, and commits the discard with message docs(prd): discard PRD draft for test-topic. Control returns to /scope; /scope captures the discard commit SHA via read-only git log (no git writes from /scope). /scope writes a Decision Record at docs/decisions/DECISION-prd-test-topic-rejection-<YYYY-MM-DD>.md citing the discard commit SHA and the author's rejection rationale (passed through stdin/git commit -F, not interpolated into git commit -m). State file: exit: re-evaluation, boundary: prd, decision_record_sub_shape: rejection, discard_commit_sha: <sha>, rejection_rationale: <text>. /design and /plan auto-skipped per the rejection-sub-shape termination rule (chain_skipped records both as { child: <name>, reason: prd-boundary-rejection } entries, the closed-vocabulary member). When a subsequent /scope test-topic invocation finds the discard commit but the rejection was out-of-chain (Phase-N Reject fired outside /scope), NO retroactive Decision Record is written per AC30c — the discard commit alone is the durable trace.",
       "files": [],
       "expectations": [
         "Plan invokes /prd per R5 and the chain reaches /prd's Phase 4 finalization phase",
@@ -173,7 +174,7 @@
         "Plan writes the rejection Decision Record at docs/decisions/DECISION-prd-test-topic-rejection-<YYYY-MM-DD>.md using the template at skills/scope/references/decision-record-prd-rejection.md with the five ADR-style sections",
         "Plan ensures the Context section references the discard commit SHA inline so a future reader can navigate to the git history",
         "Plan ensures author-supplied rejection_rationale is passed to git commit via -F or stdin (never interpolated into git commit -m \"...\") per the security discipline",
-        "Plan writes state file with exit: re-evaluation, boundary: prd, decision_record_sub_shape: rejection, discard_commit_sha, rejection_rationale; chain_skipped records /design and /plan with reason 'PRD-boundary rejection'",
+        "Plan writes state file with exit: re-evaluation, boundary: prd, decision_record_sub_shape: rejection, discard_commit_sha, rejection_rationale; chain_skipped records /design and /plan under the child: key with reason 'prd-boundary-rejection'",
         "Plan ensures AC30c: when the discard commit is observed but the rejection fired OUT-OF-CHAIN (no parent_orchestration: sentinel was present), NO retroactive Decision Record is written; the discard commit alone is the durable trace"
       ]
     },
@@ -262,66 +263,75 @@
       "id": 17,
       "name": "chain-shape-is-constant",
       "prompt": "/scope refactor-topic  (the author says the problem and the requirements are settled; they only want to talk about architecture)",
-      "expected_output": "The chain still runs /brief, /prd, /design and /plan. /scope has no altitude selection: an author who says the framing and requirements are settled is not offered a shorter chain, because deciding that an unwritten BRIEF is not worth writing is the exact judgment this skill removed. The BRIEF is written, the PRD is written from it, and if the BRIEF turns out to do no work the PRD does not, the Phase 2 consolidation judgment absorbs it after both exist. The correct redirect for an author who genuinely wants to start at the architecture is to invoke /design directly, and /scope's prose says so.",
+      "expected_output": "The chain still runs /brief, /prd, /design and /plan. /scope has no altitude selection: an author who says the framing and requirements are settled is not offered a shorter chain, because deciding that an unwritten BRIEF is not worth writing is the exact judgment this skill removed. The BRIEF is written, the PRD is written from it, and if the BRIEF turns out to do no work the PRD does not, the Phase 2 consolidation judgment absorbs it after both exist. The correct redirect for an author who genuinely wants to start at the architecture is to invoke /design directly, and /scope's prose says so - while also saying what that redirect does and does not buy: a shorter conversation, not a smaller artifact set. Which documents survive is the Phase 2 consolidation judgment's call, made after they exist.",
       "files": [],
       "expectations": [
         "Plan runs the whole chain and does not offer a shortened one",
         "Plan explains that skipping the BRIEF here would be a judgment about an unwritten document",
-        "Plan points the author at invoking /design directly if they want to start above /brief",
+        "Plan points the author at invoking /design directly if they want a shorter conversation, and says plainly that this does not reach a smaller artifact set, which the Phase 2 consolidation judgment decides after the fact",
         "Plan notes a redundant BRIEF is removed by the Phase 2 consolidation judgment, after both documents exist"
       ]
     },
     {
       "id": 18,
-      "name": "durable-artifact-floor-is-structural",
+      "name": "no-durable-artifact-floor",
       "prompt": "/scope throwaway-topic  (nothing exists on disk for the topic)",
-      "expected_output": "A /scope run always leaves at least one durable artifact, and nothing implements a guard for it. The chain always writes BRIEF, PRD, DESIGN and PLAN, and no hop above BRIEF-to-PRD is absorbable, so the smallest set a run can end with is a PRD, a DESIGN and a PLAN. A PLAN-alone run — which would leave nothing behind, since the PLAN is deleted once its work is implemented — is not reachable through /scope at all; an author who wants that invokes /plan directly. No check is added, because the condition cannot hold and a check that can never fire would teach a later maintainer that the case is possible.",
+      "expected_output": "There is no durable-artifact floor. The chain writes BRIEF, PRD, DESIGN and PLAN, and every hop is decidable against the two documents at it, so a run can absorb its way down to a single surviving artifact — and to none once the PLAN is implemented and deleted. That is a reachable outcome rather than a defect. Nothing forces keep on the ground that the survivor would be the last artifact left, and no guard may be added that does. Such a guard is wrong twice over: it would decide a fold from the artifact set rather than from the two documents at the hop, which is exactly what this judgment moved the verdict away from, and it would fire at the DESIGN-to-PLAN hop that must be absorbable, closing by a second route the floor this work opened. The single-mechanism rule does not catch it — a mechanism whose only possible effect is to force keep is not a second reduction mechanism — which is why the prohibition is written down beside the judgment rather than left to be derived. A chain that folds everything away is handled downstream by /execute's finalization guard, not prevented here.",
       "files": [],
       "expectations": [
-        "Plan states the durable-artifact floor follows from the chain shape plus the absorbability rule rather than from a guard",
-        "Plan does NOT add a check or warning for a run that leaves no durable artifact",
-        "Plan notes that a PLAN-alone outcome is unreachable through /scope and requires invoking /plan directly",
-        "Plan gives the reason for not adding a guard: the condition cannot hold, and dead checks mislead"
+        "Plan states there is no durable-artifact floor: a run may end with a single surviving artifact, or with none once the PLAN is implemented and deleted",
+        "Plan does NOT add a guard, check or warning that forces keep on the ground that the survivor would be the last artifact left",
+        "Plan gives both reasons that guard is wrong: it decides a fold from the artifact set rather than from the two documents at the hop, and it fires at the DESIGN-to-PLAN hop that must be absorbable",
+        "Plan notes the single-mechanism rule does not catch a keep-forcing guard, which is why the prohibition is written down rather than derived",
+        "Plan routes a chain that folds everything away to /execute's finalization guard downstream rather than preventing the outcome here"
       ]
     },
     {
       "id": 19,
       "name": "consolidation-absorb-brief-into-prd",
       "prompt": "/scope small-topic  (a feature whose framing is two uncontested paragraphs)",
-      "expected_output": "The chain writes the BRIEF, then invokes /prd with the BRIEF's path so the PRD is drafted from the brief's body. After the PRD lands and validates, the consolidation judgment runs on the brief->prd hop. Stage 1 finds the mapping total (Problem Statement to Problem Statement, User Outcome to Goals, User Journeys to User Stories, Scope Boundary to Requirements and Out of Scope), so absorb is available. Stage 2 finds the BRIEF does no work the PRD does not, so the verdict is absorb. Stage 3 runs the per-section carry check, records where each of the four concerns landed, then sets the PRD's upstream to the BRIEF's own upstream (or removes the field), removes the BRIEF from the repository, and re-runs shirabe validate on the PRD. consolidation_judgments records the hop, the carry check, the verdict, what was absorbed and into what.",
+      "expected_output": "The chain writes the BRIEF, then invokes /prd with the BRIEF's path so the PRD is drafted from the brief's body. After the PRD lands and validates, the consolidation judgment runs on the brief->prd hop — both of whose endpoints appear in chain_ran:, which is what makes it a hop at all. Stage 1 is the citation preflight: skills/scope/scripts/check-citations.sh --target docs/briefs/BRIEF-small-topic.md --survivor docs/prds/PRD-small-topic.md runs before anything is composed, written or deleted and exits 0. Only 0 (clean) and 2 (bare-name mentions, carried forward as a finding) continue to Stage 2; every other status, including ones the script does not define, routes to keep. Stage 2 reads both bodies and asks whether the BRIEF holds anything beyond its contribution that compression into a contribution section would lose. It does not, so the verdict is absorb. Stage 3 composes the contribution section in memory from the PRD's own body rather than from the document about to be deleted, then runs the carry check over the BRIEF's required sections plus every contribution the BRIEF itself carried, recording where each landed. It snapshots the PRD's pre-fold bytes and, in one pass, splices upstream: — preserving sibling and cross-repo parents rather than replacing the list — writes the absorbed: declaration, writes the ## Status absorption line in the pinned shape 'Absorbed [<name>](<path>); carried in <Heading>.', writes the contribution section immediately after ## Status in chain order, and rewrites the PRD's own prose citations of the BRIEF's path, which the preflight deliberately excludes. It appends one row to docs/folds.md and git adds it before anything is deleted, git rms the BRIEF, re-runs shirabe validate on the PRD, and commits the deletion, the splice, the survivor's edits and the record together. consolidation_judgments records hop: brief->prd, stage: carry, the carry_check map, verdict: absorb, absorbed: and into:.",
       "files": [],
       "expectations": [
-        "Plan runs the consolidation judgment after the PRD lands, not before the BRIEF was written",
-        "Plan finds the brief->prd mapping total and treats absorb as available at that hop",
-        "Plan runs a per-section carry check before removing anything and records where each of the BRIEF's four concerns landed in the PRD",
-        "Plan re-points the PRD's upstream to the BRIEF's own upstream, or removes the field when the BRIEF had none",
-        "Plan re-runs shirabe validate on the surviving PRD after the absorb",
-        "Plan records the verdict and the carry check in consolidation_judgments:"
+        "Plan runs the consolidation judgment after the PRD lands, against two bodies that exist, not before the BRIEF was written",
+        "Plan fires the judgment only because both endpoints of the brief->prd edge appear in chain_ran:",
+        "Plan runs the Stage 1 citation preflight (skills/scope/scripts/check-citations.sh --target <deleted> --survivor <survivor>) before anything is composed, written or deleted, and continues to Stage 2 only on exit status 0 or 2 — every other status routes to keep",
+        "Plan reaches absorb at Stage 2 by reading both bodies and finding the BRIEF holds nothing beyond its contribution that folding would lose",
+        "Plan composes the contribution section from the survivor's own body rather than from the document about to be deleted",
+        "Plan runs the carry check before anything is written, itemizing the BRIEF's required sections plus every contribution the BRIEF itself carried, and records where each landed in the PRD",
+        "Plan splices the PRD's upstream:, preserving sibling and cross-repo parents rather than replacing the list",
+        "Plan writes the absorbed: declaration, the ## Status absorption line in the pinned shape, and the contribution section immediately after ## Status in chain order, and rewrites the survivor's own prose citations of the absorbed path",
+        "Plan appends the docs/folds.md row and git adds it BEFORE the git rm of the BRIEF, then re-runs shirabe validate on the surviving PRD and commits the deletion, the splice, the edits and the record together",
+        "Plan records hop: brief->prd with stage: carry, the carry check, verdict: absorb, absorbed: and into: in consolidation_judgments:"
       ]
     },
     {
       "id": 20,
-      "name": "consolidation-keep-at-unmapped-hop",
-      "prompt": "/scope mapped-topic  (a full chain that reaches the PRD-to-DESIGN hop)",
-      "expected_output": "After the DESIGN lands, the consolidation judgment runs on the prd->design hop. Stage 1 finds the mapping is not total: a DESIGN has a home for the PRD's Problem Statement in Context and Problem Statement, but none for Goals, User Stories, Requirements, Acceptance Criteria or Out of Scope. Absorb is unavailable, the only verdict is keep, and the finding names the unmapped sections. The same holds at the design->plan hop. Both artifacts stay in place at each hop.",
+      "name": "consolidation-keep-when-upstream-holds-more",
+      "prompt": "/scope mapped-topic  (a PRD carrying constraints the DESIGN never picks up)",
+      "expected_output": "After the DESIGN lands, the consolidation judgment runs on the prd->design hop. The citation preflight comes back clean, which leaves the verdict open — the preflight can refuse or defer but never decides to absorb. Stage 2 reads both bodies and asks the only question the judgment asks: does the PRD hold anything beyond its contribution that compression into a contribution section would lose? It does — acceptance criteria and out-of-scope boundaries the DESIGN neither restates nor supersedes — so the verdict is keep, with a finding naming what the PRD holds that the DESIGN does not. Both artifacts stay in place and nothing is composed, written or deleted. The verdict came from the two bodies, not from the types: nothing compared a PRD's required sections against a DESIGN's, and the same prd->design hop reaches absorb on a run whose PRD holds nothing beyond its contribution. A check that refused this pair while permitting its structural twin under identical repository state would be a type rule, which the judgment forbids. consolidation_judgments records hop: prd->design, stage: judgment, verdict: keep, and the finding.",
       "files": [],
       "expectations": [
-        "Plan finds the prd->design mapping is not total and records absorbable: false",
-        "Plan reaches verdict keep and names the unmapped sections in the finding",
-        "Plan applies the same rule at the design->plan hop",
-        "Plan derives absorbability from the per-type required-section contracts rather than a hard-coded list of hops"
+        "Plan reaches keep at Stage 2 by reading both bodies and finding the PRD holds work the DESIGN does not",
+        "Plan names in the finding what the upstream holds that the survivor does not",
+        "Plan leaves both artifacts in place and composes, writes and deletes nothing on a keep",
+        "Plan does NOT read either type's required-section list or compare the two types' section sets to reach the verdict",
+        "Plan states that prd->design is not unabsorbable because of the types involved: the same hop reaches absorb when the PRD holds nothing beyond its contribution",
+        "Plan records hop: prd->design with stage: judgment and verdict: keep in consolidation_judgments:"
       ]
     },
     {
       "id": 21,
       "name": "consolidation-carry-check-failure-aborts-absorb",
       "prompt": "/scope partial-topic  (a BRIEF whose User Journeys carry detail the PRD's User Stories drop)",
-      "expected_output": "The consolidation judgment reaches absorb at stage 2, then the per-section carry check finds the PRD's User Stories do not carry the BRIEF's User Journeys. The absorb ABORTS: the verdict is downgraded to keep, the finding names the section that did not arrive, both artifacts stay in place, and nothing is removed. The recorded entry keeps the failed carry check so the abort is auditable rather than indistinguishable from a judgment that never considered absorbing.",
+      "expected_output": "The consolidation judgment reaches absorb at stage 2, then the per-section carry check finds the PRD's User Stories do not carry the BRIEF's User Journeys. The check itemizes the BRIEF's required sections AND every contribution the BRIEF itself carries — its own and any it inherited, read from the BRIEF's absorbed: list and its contribution sections — so a survivor absorbing a document that already carried two contributions confirms three things carried. Any carried: false ABORTS the absorb: the verdict is downgraded to keep, the finding names the section that did not arrive, both artifacts stay in place, and nothing is removed. Nothing has been written at this point, so the abort is clean. The recorded entry takes stage: carry, naming where the verdict settled, and keeps the failed carry check so the abort is auditable rather than indistinguishable from a judgment that never considered absorbing.",
       "files": [],
       "expectations": [
         "Plan aborts the absorb when any section of the carry check is not carried",
         "Plan leaves both artifacts in place and removes nothing on a failed carry check",
         "Plan downgrades the verdict to keep and names the section that did not arrive",
+        "Plan itemizes every contribution the ancestor itself carries — its own and any it inherited, read from its absorbed: list and contribution sections — not only the ancestor's required sections",
+        "Plan records the entry with stage: carry, naming the stage where the verdict settled",
         "Plan records the failed carry check so the abort is distinguishable from a judgment that never considered absorbing"
       ]
     },
@@ -343,7 +353,9 @@
       "name": "upstream-flag-consumed",
       "prompt": "/scope inline-diff --upstream docs/roadmaps/ROADMAP-editor.md",
       "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before the positional slug is read, so the topic slug validated against ^[a-z0-9-]+$ is 'inline-diff' and the ROADMAP path is never tested against the regex. The value is canonicalized and bounds-checked, confined to <repo-root>/docs/roadmaps/, its basename is confirmed to start with ROADMAP-, and the three ordered checks run: not under wip/, tracked by git (git ls-files), and not a private artifact named from a public repo. The validated path is recorded in the state file's conditional consumed_upstream: field. The roadmap then travels to TWO children for two different reasons. Phase 2 invokes the head child as '/brief inline-diff --upstream docs/roadmaps/ROADMAP-editor.md' -- the slug positional, the upstream in the flag -- and the produced docs/briefs/BRIEF-inline-diff.md grounds its problem and outcome in that roadmap while recording the roadmap's own durable ancestor -- the STRATEGY it sequences, or a VISION -- which /brief resolves for itself in one hop at its Phase 0. The roadmap path is never written into the BRIEF. Phase 2 then invokes the terminal child as '/plan docs/designs/DESIGN-inline-diff.md --upstream docs/roadmaps/ROADMAP-editor.md', and the produced docs/plans/PLAN-inline-diff.md carries a sequence-valued upstream: naming the DESIGN first and the ROADMAP second. That is where the crossing from the strategic chain into the tactical one is recorded, because the PLAN is deleted by the same cascade that deletes the ROADMAP and goes first, so the link cannot dangle. No durable artifact in the chain names the ROADMAP. Where the consolidation judgment absorbs the BRIEF into the PRD, the absorb re-points the survivor to the absorbed artifact's own upstream -- so the surviving PRD inherits the STRATEGY the BRIEF had resolved, never the roadmap's path. A PRD may legally name a STRATEGY, so the absorb's re-validation passes rather than reverting. Passing the ROADMAP positionally to either child would have named the produced document after the roadmap and broken the R20 file-existence check, which looks for docs/briefs/BRIEF-inline-diff.md.",
-      "files": ["docs/roadmaps/ROADMAP-editor.md"],
+      "files": [
+        "docs/roadmaps/ROADMAP-editor.md"
+      ],
       "expectations": [
         "Plan parses --upstream and consumes the following token as its argument before validating the positional slug",
         "Plan validates 'inline-diff' as the topic slug and does NOT test the ROADMAP path against the topic-slug regex",
@@ -363,7 +375,9 @@
       "name": "upstream-flag-stale-on-resume",
       "prompt": "/scope inline-diff",
       "expected_output": "Re-entry against an existing wip/scope_inline-diff_state.md that carries consumed_upstream: docs/roadmaps/ROADMAP-editor.md, where that file no longer exists. The resume ladder re-validates the recorded upstream before any slot's action runs and before the path is interpolated into a child invocation, re-running the whole Phase 0 battery against the worktree as it is now. The failure is SURFACED rather than silently ignored: the ladder names the recorded path and the check it now fails, and offers Re-supply (clear the field and ask the author to re-invoke with a working path -- the interactive default), Continue without (remove the field and resume with no upstream, stated plainly), or Bail. Under --auto the ladder takes Continue without and announces it.",
-      "files": ["wip/scope_inline-diff_state.md"],
+      "files": [
+        "wip/scope_inline-diff_state.md"
+      ],
       "expectations": [
         "Plan re-validates consumed_upstream: on re-entry rather than trusting the recorded value",
         "Plan surfaces the failure naming the recorded path and the check it fails, and does not silently drop or silently keep the value",
@@ -375,12 +389,13 @@
       "id": 25,
       "name": "pre-authoring-notice-cold-start",
       "prompt": "/scope inline-diff",
-      "expected_output": "Cold start under public-repo visibility: no settled BRIEF at docs/briefs/BRIEF-inline-diff.md, so /brief is in planned_chain, and no --upstream was supplied, so Phase 0 recorded no consumed_upstream:. The chain-proposal output therefore carries the pre-authoring upstream notice inside the /brief entry, verbatim: \"A new BRIEF will be written for this topic, with no ROADMAP behind it. If one already sequences this feature, re-invoke as /scope inline-diff --upstream <path-to-the-ROADMAP> and this chain will ground the BRIEF in it and record it on the PLAN. No candidate has been looked for; this is a notice, not a question, and the chain proceeds as proposed.\" The notice sits in the entry list above the options block, which still reads \"Proceed / Adjust / Bail?\" byte-for-byte. No directory is scanned for a candidate ROADMAP and no candidate is named. The notice adds no option, no default, and no decision point.",
+      "expected_output": "Cold start under public-repo visibility: no settled BRIEF at docs/briefs/BRIEF-inline-diff.md, so /brief is in planned_chain, and no --upstream was supplied, so Phase 0 recorded no consumed_upstream:. The chain-proposal output therefore carries the pre-authoring upstream notice inside the /brief entry, verbatim: \"A new BRIEF will be written for this topic, with no ROADMAP behind it. If one already sequences this feature, re-invoke as /scope inline-diff --upstream <path-to-the-ROADMAP> and this chain will ground the BRIEF in it and record it on the PLAN. No candidate has been looked for; this is a notice, not a question, and the chain proceeds as proposed.\" The notice sits in the entry list above the options block, which still carries the literal substrings \"Proceed\", \"Adjust\" and \"Bail\" -- asserted per-token, not as one contiguous slash-joined string, per the Gate Vocabulary's prompt-vocabulary rule in references/parent-skill-pattern.md, which puts the chain proposal in the per-token row because Proceed is the expected path and a parent MAY render an interstitial label such as \"Adjust chain\". No directory is scanned for a candidate ROADMAP and no candidate is named. The notice adds no option, no default, and no decision point.",
       "files": [],
       "expectations": [
         "Plan emits the pre-authoring upstream notice verbatim inside the /brief entry, before any child fires",
         "Plan names no candidate ROADMAP and performs no directory scan to produce the notice",
-        "Plan leaves the options block \"Proceed / Adjust / Bail?\" unchanged and adds no new option or decision point",
+        "Plan leaves the options block carrying the literal substrings \"Proceed\", \"Adjust\" and \"Bail\" (case-insensitive), asserted individually rather than as one contiguous string, and adds no new option or decision point",
+        "Plan does NOT require the options block to read \"Proceed / Adjust / Bail?\" byte-for-byte, and tolerates a rendering whose Adjust label carries an interstitial word",
         "Plan treats the notice as non-blocking output rather than a prompt, including under --auto"
       ]
     },
@@ -388,12 +403,75 @@
       "id": 26,
       "name": "pre-authoring-notice-suppressed",
       "prompt": "/scope inline-diff --upstream docs/roadmaps/ROADMAP-editor.md",
-      "expected_output": "Two suppression cases for the pre-authoring upstream notice, both of which leave the chain proposal carrying no notice at all. First, this invocation: the --upstream value passes Phase 0's Upstream Validation and is recorded in consumed_upstream:, so the notice does not fire -- the author already did the thing it describes, and /brief is invoked as /brief inline-diff --upstream docs/roadmaps/ROADMAP-editor.md. Second, the held-back case: on /scope inline-diff with an Accepted BRIEF already at docs/briefs/BRIEF-inline-diff.md, re-entry protection records /brief in chain_skipped with reason settled-artifact-at-canonical-path-reentry-protection and keeps it out of planned_chain, so the notice does not fire either -- nothing is about to be authored at the head altitude. In both cases the rest of the chain-proposal output and its options block are unchanged.",
+      "expected_output": "Two suppression cases for the pre-authoring upstream notice, both of which leave the chain proposal carrying no notice at all. First, this invocation: the --upstream value passes Phase 0's Upstream Validation and is recorded in consumed_upstream:, so the notice does not fire -- the author already did the thing it describes, and /brief is invoked as /brief inline-diff --upstream docs/roadmaps/ROADMAP-editor.md. Second, the held-back case: on /scope inline-diff with an Accepted BRIEF already at docs/briefs/BRIEF-inline-diff.md, re-entry protection records /brief in chain_skipped as { child: brief, reason: settled-artifact-at-canonical-path-reentry-protection } while /brief stays in planned_chain, so the notice does not fire either -- nothing is about to be authored at the head altitude. In both cases the rest of the chain-proposal output and its options block are unchanged.",
       "files": [],
       "expectations": [
         "Plan suppresses the pre-authoring upstream notice when consumed_upstream: was recorded",
         "Plan suppresses the pre-authoring upstream notice when re-entry protection held /brief back",
         "Plan does not otherwise alter the chain-proposal output or its options block in either case"
+      ]
+    },
+    {
+      "id": 27,
+      "name": "stale-validator-no-envelope-is-a-tool-error",
+      "prompt": "/scope inline-diff",
+      "expected_output": "The chain reaches Phase 2's validator pass-through against the intermediate /brief just produced, but the shirabe on PATH is a stale build that does not recognize a flag the pass-through passes: it writes nothing to stdout, writes \"error: unexpected argument '--format' found\" to stderr, and exits 2. Phase 2 tests stdout for the shirabe-validate/v1 envelope BEFORE consulting the exit code, finds none, and classifies the run as a tool-error even though the exit code is 2 -- the code that means violations only for a run that reached a verdict. The chain halts and the captured stderr is surfaced verbatim as the diagnostic. Phase 2 does NOT report a document violation, does NOT name a check code, and does NOT send the author to edit the BRIEF, which is not broken; the author is pointed at the validator invocation (a stale or wrong shirabe binary) instead.",
+      "files": [],
+      "expectations": [
+        "Plan parses stdout for the shirabe-validate/v1 envelope before consulting the exit code",
+        "Plan treats a run with no parseable envelope as a tool-error regardless of the exit code, including exit 2",
+        "Plan surfaces the captured stderr as the diagnostic rather than discarding it",
+        "Plan does NOT report a document violation, name a check code, or send the author to edit the BRIEF"
+      ]
+    },
+    {
+      "id": 28,
+      "name": "coordinated-intent-verifies-its-mode-scoped-records",
+      "prompt": "/scope inline-diff --coordinated",
+      "expected_output": "Coordination intent resolves to coordinated on the flag, which is the moment /scope's mode:coordinated records become live -- shirabe validate's --coordination-body and --merge-gate modes, and gh. None of them was checked at load, because the load-time preflight evaluates always records only and intent had not resolved yet. So before the coordination PR is authored and posted, the transcript runs bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode coordinated 2>&1 || true, keeping the guard. Silence means the coordinated surface is present and the create-up-front phase proceeds; output is surfaced to the author before the PR is created. A /scope run with no coordination intent makes no such call, because no mode was selected.",
+      "files": [],
+      "expectations": [
+        "Plan runs the preflight entry point with --mode coordinated once intent resolves to coordinated",
+        "Plan keeps the 2>&1 || true guard on that call rather than running it bare",
+        "Plan makes the call before authoring or posting the coordination PR body, not after",
+        "Plan makes no mode call on a single-repo run where intent is absent",
+        "Plan does NOT substitute its own gh or shirabe probe for the check"
+      ]
+    },
+    {
+      "id": 29,
+      "name": "bail-at-phase-1-reaches-clean-cancel",
+      "prompt": "/scope test-topic  (the author selects Bail at the chain proposal, before any child fires)",
+      "expected_output": "Cold start: nothing on disk for the topic. Phase 0 validates the slug and writes wip/scope_test-topic_state.md before returning control, Phase 1 emits the chain proposal, and the author selects Bail. R8 bail-handling routes on what a child produced: no child intermediate at wip/{brief,prd,design,plan}_test-topic_* and no research scratch at wip/research/{prd,design}_test-topic_* exists, so the bail is a clean cancel. The state file Phase 0 wrote does not route the bail the other way -- nothing under the parent's own wip/scope_test-topic_* prefix counts, because nothing under that prefix is a child's output. The clean cancel records no exit: value, names no triggering_child:, and force-materializes nothing; the bail handler removes wip/scope_test-topic_state.md on its way out, because Phase 4 does not run on a cancel. wip/scope_test-topic_handoff.md, if one is on disk, is NOT removed -- the deletion is one path inside the prefix, not the prefix. R9 never fires: it runs at finalization against a recorded exit, and the run terminates through none of the three artifact-requiring exits, so the empty exit_artifacts: refusal is not reached.",
+      "files": [],
+      "expectations": [
+        "Plan routes the Phase 1 Bail to a clean cancel, not to abandonment-forced, because no child intermediate (wip/{brief,prd,design,plan}_test-topic_*) and no research scratch (wip/research/{prd,design}_test-topic_*) exists",
+        "Plan states the route test positively and treats nothing under the parent's own wip/scope_test-topic_* prefix as evidence a child ran, rather than excluding the state file by name",
+        "Plan disposes of wip/scope_test-topic_state.md in the bail handler, and gives the reason: Phase 4 does not run on a cancel",
+        "Plan removes that one path only and does NOT sweep the wip/scope_test-topic_* prefix; wip/scope_test-topic_handoff.md is carved out of the bail's deletion",
+        "Plan records no exit: value and names no triggering_child:, and force-materializes no artifact",
+        "Plan does NOT trip the R9 hard-finalization check: the run terminates through none of the three artifact-requiring exits, so the empty exit_artifacts: condition is never evaluated",
+        "Plan does NOT set triggering_child: to the first child in planned_chain: that has not completed; no child ran and no intermediate exists to materialize"
+      ]
+    },
+    {
+      "id": 30,
+      "name": "explore-handoff-enters-phase-1",
+      "prompt": "/scope inline-diff",
+      "expected_output": "wip/scope_inline-diff_handoff.md exists on disk, written by /explore's Phase 5 parent-handoff arm. No state file at wip/scope_inline-diff_state.md, no child doc at a status Slot 5 recognizes, and no child wip partial Slot 6 matches, so the resume ladder falls to Slot 7. That one path is the whole match condition; the slot reads no other file to decide whether it fires, and the path is composed from /scope's own prefix plus the validated slug, so it never fires on a path in another skill's namespace. The slug recovered from that filename is re-validated against ^[a-z0-9-]+$ before it is interpolated anywhere. Slot 7 runs Phase 0's setup obligations against the current worktree -- slug validation, the slug-prefix convention check, visibility detection, --upstream validation when the invocation supplied one, and state-file creation -- and records consumed_handoff: wip/scope_inline-diff_handoff.md at that same write. It then enters /scope's own Phase 1 with the handoff pre-loaded as discovery input. Phase 1 is never skipped and no child is resumed into: a handoff is discovery material, not a resume point inside the chain. planned_chain: is [brief, prd, design, plan] exactly as on any other run, and the chain proposal is emitted and confirmed as always. Four Phase 1 behaviors differ: the framing-shift question is surfaced as a confirmation of the pre-supplied answer rather than a fresh ask, and the author's response is what gets recorded; the child-doc globs run unchanged because they are filesystem reads; the cold-start projected-PRD evaluation is suppressed, since a handoff run is not a cold start; and predicates P1 and P3 accept the handoff's shape-signal estimate with its stated reasons while P2 is recomputed against the tree, because the handoff carries no filesystem material. The handoff is not deleted on consumption -- Phase 4's sweep owns that, and a bail at Phase 1 leaves it in place so a later invocation reaches the same slot.",
+      "files": [
+        "wip/scope_inline-diff_handoff.md"
+      ],
+      "expectations": [
+        "Plan falls through to Slot 7 and fires it on the presence of wip/scope_inline-diff_handoff.md alone, after the rows above fail to match",
+        "Plan re-validates the slug recovered from the handoff filename against ^[a-z0-9-]+$ before interpolating it anywhere",
+        "Plan runs Phase 0's setup obligations before entering Phase 1, and records consumed_handoff: wip/scope_inline-diff_handoff.md in the state file",
+        "Plan enters /scope's own Phase 1 with the handoff pre-loaded as discovery input, and does NOT skip Phase 1",
+        "Plan does NOT resume into or invoke /brief, /prd, /design or /plan directly off the handoff; the chain runs from Phase 2 as always",
+        "Plan keeps planned_chain: as [brief, prd, design, plan] and still emits the chain proposal for confirmation",
+        "Plan surfaces the framing-shift question as a confirmation of the handoff's pre-supplied answer and records the author's response rather than the file's",
+        "Plan accepts the handoff's estimates for predicates P1 and P3 but recomputes P2 against the worktree's directory structure",
+        "Plan does NOT delete the handoff on consumption; Phase 4's sweep owns its removal"
       ]
     }
   ]

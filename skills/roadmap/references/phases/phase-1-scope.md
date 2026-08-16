@@ -29,6 +29,10 @@ skip to Phase 2.
 If this IS a loop-back (Phase 2 determined the theme or feature list was fundamentally
 wrong), delete `wip/roadmap_<topic>_scope.md` first, then re-scope from scratch.
 
+The file has two producers and the check treats them alike: /charter pre-populates it
+before invoking /roadmap, and this phase writes it on a run of its own. Either way
+scoping is settled, so the run continues at Phase 2.
+
 ## Approach: Conversational with Coverage Tracking
 
 Ask open-ended questions, adapting to what the user already knows. Internally track

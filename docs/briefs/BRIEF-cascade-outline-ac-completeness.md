@@ -13,7 +13,6 @@ outcome: |
   delete the PLAN until every outline AC box is ticked off. The
   discipline the checkbox encodes — "the thing this AC names has been
   done" — is enforced at the moment of finalization, not silently lost.
-upstream: docs/plans/PLAN-roadmap-plan-standardization.md
 ---
 
 # BRIEF: cascade-outline-ac-completeness
@@ -269,7 +268,7 @@ brief.
   performs but demands indirectly. AC-completeness extends R18's
   posture to the work-completeness dimension.
 - Parent DESIGN Decision 5:
-  `docs/designs/DESIGN-roadmap-plan-standardization.md` — the
+  `docs/designs/current/DESIGN-roadmap-plan-standardization.md` — the
   whole-tree `--lifecycle` mode and the cascade pre/post hooks the
   AC check plugs into.
 - Cascade contract decision:

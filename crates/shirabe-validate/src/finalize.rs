@@ -608,6 +608,16 @@ pub fn walk_chain_mode(plan_path: &str, mode: Mode) -> Result<Report, WalkError>
                 &e,
             )
         })?;
+        // A node that moved repointed its inbound references, and every
+        // rewritten file is now staged. The chain report's JSON shape is a
+        // contract the cascade script parses, so the list goes to stderr
+        // beside the transition subcommand's own report rather than into it.
+        for rewrite in &outcome.repointed {
+            eprintln!(
+                "repointed {} reference(s) in {}",
+                rewrite.occurrences, rewrite.path
+            );
+        }
         let entry = &mut nodes[i].entry;
         entry.old_status = Some(outcome.old_status);
         entry.new_status = Some(outcome.new_status);

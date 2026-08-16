@@ -45,12 +45,31 @@ state-schema reference).
   never. Read at Phase 2, where it becomes the `--upstream`
   argument `/scope` hands `/brief`, and re-validated by the resume
   ladder on every re-entry.
+- **`consumed_handoff`** — conditional path string naming the
+  `/explore` handoff this run consumed:
+  `wip/scope_<topic>_handoff.md`, composed from `/scope`'s own
+  prefix and the validated topic slug. Present iff the resume
+  ladder's Slot 7 clause fired and consumed the file; absent
+  otherwise, including when a handoff was on disk but a higher row
+  matched first, and when a handoff was found malformed and the run
+  degraded to a cold start — in both of those cases nothing was
+  consumed. Written by Slot 7 in the same state-file write that
+  creates the file. **Its reader is the resume ladder**
+  (`skills/scope/references/phases/phase-resume.md`), which reads it
+  on a later re-entry to tell a run that consumed a handoff from one
+  that started cold. A Slot 7 clause that wrote a field nothing read
+  would be an orphan of exactly the shape the post-`/prd` gate's
+  retired chain-revision flag was: written by a phase file, named in
+  no schema, read by nobody. The value is a path recovered from state and is
+  re-validated against the slug regex before it is interpolated
+  anywhere, on the same grounds as `consumed_upstream:`.
 - **`planned_chain`** — list of child names the chain plans to
   invoke: the whole tactical chain (`brief`, `prd`, `design`,
-  `plan`) in order, minus any child held back by re-entry
-  protection (output of Phase 1's chain-proposal). There is no
-  field recording where the chain starts, because it always starts
-  at `brief`.
+  `plan`) in order, on every run. A child held back by re-entry
+  protection stays here and is also recorded in `chain_skipped`,
+  because the plan was to run it; `chain_ran` is what separates the
+  two afterwards. There is no field recording where the chain
+  starts, because it always starts at `brief`.
 - **`chain_ran`** — list of children whose invocations completed,
   each with the timestamp its invocation began:
 
@@ -78,17 +97,27 @@ state-schema reference).
   reads this field. That promotes it from bookkeeping to a gate on
   a destructive operation, and a tampered entry would otherwise put
   a document this run did not produce on the deletion path.
-- **`chain_skipped`** — list of `{name, reason}` entries for
-  children held back by re-entry protection (e.g. `/prd` when an
+- **`chain_skipped`** — list of `{child, reason}` entries for
+  children that were planned and did not run (e.g. `/prd` when an
   Accepted PRD already exists at the canonical path, per the
   Mandatory-with-auto-skip gate from `parent-skill-pattern.md`).
-  Phase 1 writes exactly one reason,
-  `settled-artifact-at-canonical-path-reentry-protection`; a
-  child is never recorded here because the chain judged its
-  artifact not worth producing, since `/scope` makes no such
-  judgment before an artifact exists. Phase 2 writes one further
-  reason when a Reject at a settled-upstream boundary ends the
-  chain and the remaining children never run.
+  `child` is the pattern-level entry key, shared with `/charter`;
+  `reason` is drawn from the closed vocabulary in
+  `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
+  (Chain-tracking). `/scope` writes two of its four members, which
+  instantiate as three reason strings:
+  `settled-artifact-at-canonical-path-reentry-protection` from
+  Phase 1, and both halves of the `<boundary>-boundary-rejection`
+  pair from Phase 2 — `prd-boundary-rejection` and
+  `design-boundary-rejection`, written when a Reject at a
+  settled-upstream boundary ends the chain and the children below
+  the boundary never run. Those three are the whole set the skill
+  writes; the two members `/scope` never writes are
+  `upstream-supplied-by-author` and
+  `author-declined-at-confirmation-prompt`, both `/charter`'s. A child is never recorded here because
+  the chain judged its artifact not worth producing, since `/scope`
+  makes no such judgment before an artifact exists, and the closed
+  vocabulary is what makes that checkable rather than asserted.
 - **`consolidation_judgments`** — conditional list. One entry per
   hop at which Phase 2's consolidation judgment ran, appended in
   chain order. Absent when the chain produced fewer than two

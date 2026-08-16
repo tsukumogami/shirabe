@@ -703,7 +703,7 @@ in the number of fenced lines.
 ## References
 
 - **Parent design (the Decision 3 this design refines).**
-  `docs/designs/DESIGN-roadmap-plan-standardization.md`, Decision 3
+  `docs/designs/current/DESIGN-roadmap-plan-standardization.md`, Decision 3
   ("The mermaid-parser spike and the staged reconciliation check");
   Solution Architecture, "Validator"; Implementation Approach,
   Phase 7.

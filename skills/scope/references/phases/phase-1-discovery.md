@@ -35,12 +35,18 @@ exist, and the consolidation judgment there is the only mechanism
 that does it. See the Consolidation Judgment section of
 `skills/scope/references/phases/phase-2-chain-orchestration.md`.
 
-**An author who wants a shorter chain reaches for a child skill
-directly.** `/design <topic>` and `/plan <topic>` are the
+**An author who wants a shorter conversation reaches for a child
+skill directly.** `/design <topic>` and `/plan <topic>` are the
 documented ways to enter the tactical chain above `/brief`, and
-that choice is theirs and visible in what they typed. `/scope`
-means "walk the whole chain"; it does not guess that an altitude
-is not worth writing down.
+that choice is theirs and visible in what they typed. It is
+supported and stays supported.
+
+What it does not buy is a smaller artifact set. Those are two
+rules, not one: a direct invocation shortens the conversation, and
+the artifact set is decided afterwards by the consolidation
+judgment, per hop, against documents that exist. `/scope` means
+"walk the whole chain"; it does not guess that an altitude is not
+worth writing down.
 
 ## Discovery Prompt Structure
 
@@ -87,18 +93,49 @@ and the chain proceeds with `/brief` at its head as always (the
 framing-shift answer is deferred to the BRIEF authoring
 conversation).
 
+## Entering Phase 1 With an `/explore` Handoff
+
+When the resume ladder's Slot 7 clause fired, Phase 1 runs with the
+handoff at `wip/scope_<topic>_handoff.md` pre-loaded as discovery
+input. Four things change and nothing else does: the framing-shift
+question is put as a confirmation of the answer the handoff carries
+rather than as a fresh ask, and the author's response is what gets
+recorded; the cold-start projection above is suppressed, because a
+handoff run is not a cold start; and P1 and P3 accept the handoff's
+estimate with its stated reasons while P2 is recomputed against the
+tree. The child-doc globs run as always — they are filesystem reads,
+and the handoff carries no filesystem state.
+
+The full clause, including what the handoff carries and what happens
+when it is malformed, is in
+`skills/scope/references/phases/phase-resume.md` (Slot 7).
+
 ## Post-`/prd` Re-evaluation Gate
 
 After `/prd` returns Accepted, Phase 1 re-evaluates the R6 shape
 predicates against the real PRD body rather than the pre-PRD
-projection. If any P1/P2/P3 verdict changed, the gate writes
-`chain_revised: true` into the state file and re-narrates
-`/design`'s roster shape. The author confirms the revised shape
-before Phase 2 proceeds.
+projection. If any P1/P2/P3 verdict changed, the gate re-narrates
+`/design`'s roster shape to the author and the chain proceeds.
 
-When the post-PRD predicates match the pre-PRD projection,
-`chain_revised:` stays unset and the chain proceeds without
-re-narration.
+The re-narration is a notice, not a prompt. It adds no option, no
+default, and no decision point, and it follows the shape of the
+pre-authoring upstream notice below rather than the shape of the
+chain proposal. Phase 1 offers exactly one options block, the
+chain proposal's `Proceed / Adjust / Bail`, and this gate does not
+open a second one. An author who wants to act on what the
+re-narration says has the route they always had: re-invoke and
+answer the chain proposal differently.
+
+When the post-PRD predicates match the pre-PRD projection, nothing
+is narrated and the chain proceeds unchanged.
+
+The gate records nothing in the state file. No verdict here is
+one a resume needs, because the predicates are re-derivable from
+the PRD on disk, and a field this gate wrote would have no reader
+in `skills/scope/references/state-schema.md` to name. An earlier
+revision did write a chain-revision flag here. Nothing read it, the
+schema never carried it, and the behavior it was named for is the
+produce-or-skip reading this file retires.
 
 The re-evaluation changes `/design`'s roster size, never whether
 `/design` runs. `planned_chain:` is the whole chain on every run
@@ -162,7 +199,7 @@ the gate governs *how* a child is invoked, not whether.
 At Phase 1 the PRD does not exist yet, so the predicates are
 evaluated against the projected PRD shape from the cold-start
 projection and the discovery conversation, then re-evaluated
-against the real PRD by the post-`/prd` gate below. That
+against the real PRD by the post-`/prd` gate above. That
 re-evaluation is why a Phase-1 estimate is safe here and would not
 be safe as a gate: it resizes a roster, and a wrong estimate is
 corrected the moment the PRD lands.
@@ -276,16 +313,22 @@ that its condition could not hold, and redirected an author who
 wanted no durable record to invoke `/plan` directly.
 
 All three of those rested on the type-level absorbability test,
-which is gone. Every hop is now decidable, a run can absorb its
-way down to nothing, and the redirect describes an escape hatch
-from a constraint that no longer exists.
+which is gone. Every hop is now decidable and a run can absorb its
+way down to nothing, so the no-durable-record redirect went with
+them: it pointed at an escape hatch from a floor that is no longer
+there.
 
-The prohibition on guarding it survives, with a corrected reason,
-and lives beside the judgment in
+The prohibition on guarding the zero-artifact case survives, with
+a corrected reason, and lives beside the judgment in
 `phase-2-chain-orchestration.md` — because that is where the
 temptation now is. The Phase 1 form of the same temptation, an
 entry-altitude shortcut, is forbidden elsewhere and graded by
 eval 17.
+
+What survives with the redirect gone is direct invocation itself,
+narrowed. It is still how an author reaches the altitude they
+want, and what it buys is a shorter conversation rather than a
+smaller artifact set, per the head of this file.
 
 ## Chain-Proposal Output
 
@@ -322,10 +365,25 @@ The three branch behaviors:
   and begin invoking children in order.
 - **Adjust** — return to Phase 1 discovery with the author's
   adjustment input; re-emit the proposal after re-running the
-  gates against the adjusted scope.
+  gates against the adjusted scope. `/scope`'s Adjust refines the
+  topic and the framing; it cannot change chain membership,
+  because the planned chain is the same four children on every
+  run. A corrected framing-shift answer can still un-skip
+  `/brief`, because that answer is a gate input the re-run
+  re-evaluates, not an instruction about who is in the chain.
+  Whether Adjust reaches membership is a per-parent property
+  each parent declares for itself
+  (`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`,
+  What Adjust reaches); this is `/scope`'s declaration.
 - **Bail** — route to R8 bail-handling per the parent's own
-  bail-handling rule (force-materialize if any wip state exists
-  for the topic; clean-cancel otherwise).
+  bail-handling rule: force-materialize when a child intermediate
+  (`wip/{brief,prd,design,plan}_<topic>_*`) or research scratch
+  (`wip/research/{prd,design}_<topic>_*`) exists for the topic;
+  clean-cancel otherwise. Nothing under the parent's own
+  `wip/scope_<topic>_*` prefix counts toward the first branch, so
+  a bail here — where Phase 0 has written the state file and no
+  child has run — reaches the clean cancel, and the bail handler
+  disposes of that state file.
 
 ### The Pre-Authoring Upstream Notice
 
@@ -352,8 +410,12 @@ candidate.
 
 Both conditions, and nothing else:
 
-1. `/brief` is in `planned_chain:` — the head child will author a
-   NEW head-altitude artifact on this run.
+1. `/brief` will actually fire — it is in `planned_chain:` and NOT
+   in `chain_skipped:`, so the head child will author a NEW
+   head-altitude artifact on this run. Membership alone is not the
+   test: `planned_chain:` now carries every child on every run, so
+   a held-back `/brief` appears there too and the notice would fire
+   against an artifact this run will not write.
 2. Phase 0's Upstream Validation recorded no `consumed_upstream:` —
    no upstream was supplied.
 
@@ -399,10 +461,18 @@ keeps each of them true:
 ## `planned_chain:` Population
 
 Phase 1 writes `planned_chain:` in the state file as the whole
-tactical chain, in order, minus any child held back by re-entry
-protection. Held-back children appear in `chain_skipped:` with
-their reason, not in `planned_chain:`. The two lists together
-cover the full Phase 1 verdict surface.
+tactical chain, in order. A child held back by re-entry protection
+stays in the list and is *also* recorded in `chain_skipped:` with
+its reason, because the plan was to run it — the artifact already
+on disk is why it did not, not a decision that it was never
+planned. `chain_ran:` is what separates the two afterwards. The
+three lists together cover the full Phase 1 verdict surface.
+
+This is the same rule `/charter` states for a declined `/roadmap`:
+a skip moves a child into `chain_skipped:`, it does not retract the
+plan. The one case that is genuinely absent from `planned_chain:`
+is a conditional feeder whose gate never opened — `/scope` has no
+feeder in v1, so the case does not arise here.
 
 ```yaml
 planned_chain:
@@ -413,28 +483,35 @@ planned_chain:
 chain_skipped: []
 ```
 
-That list is a constant. Phase 1 has no input that can shorten it
-and no field that records a different shape.
+That list is a constant, and now literally so: it is
+`[brief, prd, design, plan]` on every run, and re-entry protection
+no longer subtracts from it. Phase 1 has no input that can shorten
+it and no field that records a different shape.
 
 When re-entry protection holds a child back, the entry shape is:
 
 ```yaml
 chain_skipped:
-  - name: prd
+  - child: prd
     reason: settled-artifact-at-canonical-path-reentry-protection
 ```
 
-That is the only reason Phase 1 ever writes. A child is never
-recorded there because Phase 1 judged its artifact not worth
-producing; Phase 1 makes no such judgment. (Phase 2 writes one
-other reason, when a Reject at a settled-upstream boundary ends
-the chain and the remaining children never run — see the
-decision-record templates under `skills/scope/references/`.)
+`child` is the pattern-level entry key and `reason` is a member of
+the closed vocabulary in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`;
+neither is `/scope`'s to choose. That member is the only reason
+Phase 1 ever writes. A child is never recorded there because
+Phase 1 judged its artifact not worth producing; Phase 1 makes no
+such judgment. (Phase 2 writes `prd-boundary-rejection` or
+`design-boundary-rejection`, when a Reject at a settled-upstream
+boundary ends the chain and the children below it never run — see
+the decision-record templates under `skills/scope/references/`.)
 
-Phase 2 reads `planned_chain:` and invokes the listed children
-in order; it does NOT re-walk Phase 1's evaluations per child.
-Phase 1's verdicts are the cached chain-shape; Phase 2 consumes
-them.
+Phase 2 reads `planned_chain:` and invokes the listed children in
+order, skipping any that `chain_skipped:` already names; it does
+NOT re-walk Phase 1's evaluations per child. Phase 1's verdicts are
+the cached chain-shape, carried across the two lists together, and
+Phase 2 consumes them.
 
 ## Initial `child_snapshots:` Capture
 
@@ -462,10 +539,12 @@ body edit at the same status.
 When the author selects Adjust, Phase 1 re-enters at the
 discovery prompt with the author's adjustment input merged in —
 a re-framed topic, a corrected framing-shift answer, a different
-read on the problem. Adjust does not change which children run,
-because that list is fixed. Re-entry re-runs the R6 predicates
-and re-emits the chain proposal;
-the loop continues until the author selects Proceed or Bail.
+read on the problem. Adjust does not change chain membership,
+per the declaration in the Adjust option above: the planned chain
+is the same four children on every run, and a re-framed topic
+returns a proposal over the same four. Re-entry re-runs the R6
+predicates and re-emits the chain proposal; the loop continues
+until the author selects Proceed or Bail.
 There is no implicit limit on Adjust iterations; the
 `--max-rounds=N` flag governs re-evaluation iterations across
 chain instances, not Phase 1 Adjust iterations within a single

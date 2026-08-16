@@ -425,7 +425,7 @@ resolve_shirabe_bin() {
 # used to carry its own line-by-line re-implementation of that parse; the two
 # drifted in eight ways, one of which let a PLAN validate clean and then
 # extract to a task list with every waits_on empty. See
-# docs/designs/DESIGN-issue-outlines-one-parser.md.
+# docs/designs/current/DESIGN-issue-outlines-one-parser.md.
 #
 # What stays here is everything downstream of the parse -- slug generation,
 # the o- prefix, truncation, collision suffixing, the file-ownership edges,

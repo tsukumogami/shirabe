@@ -19,22 +19,43 @@
       "id": 3,
       "name": "routing-advisor-prd-vs-design",
       "prompt": "Should I write a PRD or a design doc for our new plugin system?",
-      "expected_output": "Triggers as routing advisor (matches 'should I write a PRD or a design doc?'). Consults the Quick Decision Table and Complexity-Based Routing table. Asks clarifying questions to determine whether the core question is 'what should we build' (PRD) vs 'how should we build it' (Design Doc). Does NOT immediately start the full explore workflow unless the user's situation maps to the Complex/Explore path.",
-      "files": []
+      "expected_output": "Triggers as routing advisor. The distinction the question asks about is gone from both routing tables: a PRD and a DESIGN are two hops of the same chain, so 'what should we build, and how?' takes one row and its answer is `/scope`. The advisor says so plainly -- it does not ask clarifying questions to split 'what' from 'how', because the split no longer selects between two commands -- and recommends `/scope plugin-system`. It does NOT route to `/prd` or `/design`, and does NOT start the full discover-converge loop unless the user's situation is genuinely Complex (the shape itself is unclear).",
+      "files": [],
+      "expectations": [
+        "Transcript recommends `/scope` as the answer to the PRD-or-design question rather than choosing between /prd and /design",
+        "Transcript states that a PRD and a DESIGN are steps inside one chain, so the question no longer selects between two commands",
+        "Transcript does NOT ask clarifying questions whose purpose is to decide 'what to build' (PRD) versus 'how to build it' (design doc)",
+        "Transcript does NOT recommend invoking /prd or /design as the starting point",
+        "Transcript does NOT launch the full discover-converge exploration loop for a question the routing tables answer directly"
+      ]
     },
     {
       "id": 4,
-      "name": "crystallize-to-design-doc",
+      "name": "crystallize-design-shaped-routes-to-scope",
       "prompt": "/explore how to migrate our monolith to microservices",
-      "expected_output": "Runs the full explore workflow. In Phase 4 Crystallize, evaluates artifact types using the crystallize framework. For a 'how to build' question with multiple architectural unknowns, should score Design Doc highest. Produces wip/explore_migrate-monolith-to-microservices_crystallize.md with scoring rationale. Phase 5 hands off to /design.",
-      "files": []
+      "expected_output": "Runs the full explore workflow. Phase 4 Crystallize scores in two stages. Stage 1 scores 'a chain' highest -- the exploration converged on something someone will build and architectural questions remain open. Stage 2 scores the entry point, and a 'how to build' question with multiple architectural unknowns lands on `/scope`: one coherent effort, what to build clearer than how, several viable implementation paths surfaced. Produces wip/explore_migrate-monolith-to-microservices_crystallize.md with both stages' rationale. Phase 5 takes the `/scope` arm of phase-5-produce-handoff.md: it writes wip/scope_migrate-monolith-to-microservices_handoff.md and tells the author to run `/scope migrate-monolith-to-microservices`. It does NOT invoke /design, does NOT write a DESIGN skeleton under docs/designs/, and does not invoke the parent itself.",
+      "files": [],
+      "expectations": [
+        "Transcript scores 'a chain' at crystallize stage 1 and an entry point at stage 2 rather than picking one artifact type off a single scoreboard",
+        "Transcript reaches `/scope` at stage 2 and grounds it in the architectural questions the exploration left open",
+        "Transcript writes the handoff at wip/scope_migrate-monolith-to-microservices_handoff.md, in /scope's own namespace",
+        "Transcript stops with `/scope migrate-monolith-to-microservices` named as the command the author runs, rather than invoking the parent in-session",
+        "Transcript does NOT hand off to /design or any other chain-internal child, and writes no document under docs/designs/"
+      ]
     },
     {
       "id": 5,
-      "name": "crystallize-to-prd",
+      "name": "crystallize-prd-shaped-routes-to-scope",
       "prompt": "/explore what analytics features our users actually need",
-      "expected_output": "Runs explore workflow. The topic is about 'what to build' (user needs, requirements). In Phase 4 Crystallize, should score PRD highest since the core question is about requirements rather than architecture. Produces crystallize artifact recommending /prd handoff.",
-      "files": []
+      "expected_output": "Runs the explore workflow. The topic is about 'what to build' -- user needs, contested requirements, missing acceptance criteria. Stage 1 scores 'a chain'; stage 2 scores `/scope`, because a requirements-shaped exploration and an architecture-shaped one enter the same chain at the same door. The crystallize artifact records that reasoning, and Phase 5 writes wip/scope_analytics-features_handoff.md and names `/scope analytics-features` as the command to run. Requirements-shaped is not a reason to enter below `/scope`: the chain runs whole and reduces per hop afterwards.",
+      "files": [],
+      "expectations": [
+        "Transcript scores the requirements-shaped exploration as 'a chain' at stage 1 rather than as a terminal outcome",
+        "Transcript reaches `/scope` at stage 2 and grounds it in the unclear or contested requirements",
+        "Transcript writes the handoff at wip/scope_analytics-features_handoff.md and names `/scope analytics-features` as the next command",
+        "Transcript does NOT hand off to /prd or treat 'requirements, not architecture' as a reason to enter the chain below /scope",
+        "Transcript writes no durable document under docs/ on this arm"
+      ]
     },
     {
       "id": 6,
@@ -54,8 +75,15 @@
       "id": 8,
       "name": "simple-task-routes-away",
       "prompt": "I need to bump the version number in package.json, what workflow should I use?",
-      "expected_output": "Acts as routing advisor. Recognizes this as a Simple complexity task (clear requirements, few files, one person). Routes to /work-on or direct implementation rather than starting explore. Should NOT launch the full discover-converge loop for a trivial change.",
-      "files": []
+      "expected_output": "Acts as routing advisor. Recognizes this as a Simple complexity task (clear requirements, few files, one person, no competing approaches) and gives the Simple row's recommendation: file an issue, then run `/work-on <issue-number>`. `/work-on` is named because it is the skill that accepts an issue number; `/execute` is not, and is not offered here. The advisor does NOT launch the full discover-converge loop and does NOT send a one-line change into `/scope`.",
+      "files": [],
+      "expectations": [
+        "Transcript classifies the request as Simple complexity",
+        "Transcript recommends filing an issue and then running `/work-on <issue-number>`",
+        "Transcript does NOT name /execute as the way to pick up the filed issue",
+        "Transcript does NOT recommend /scope, /charter, or any chain for a one-line version bump",
+        "Transcript does NOT launch the full discover-converge exploration loop"
+      ]
     },
     {
       "id": 9,
@@ -104,26 +132,27 @@
     },
     {
       "id": 12,
-      "name": "roadmap-handoff-upstream-propagation",
+      "name": "crystallize-roadmap-shaped-routes-to-charter",
       "prompt": "/explore --auto --strategic new monitoring infrastructure with alerting and dashboards",
-      "expected_output": "Exploration in strategic scope with multiple features to sequence. Crystallize framework scores Roadmap highest. Phase 5 routes to the roadmap handoff handler (phase-5-produce-roadmap.md). The handler writes a scope artifact and invokes /roadmap.",
+      "expected_output": "Exploration in strategic scope with multiple features whose order affects delivery. Stage 1 scores 'a chain'; stage 2 scores `/charter` on the multi-feature boundary -- more than one feature needs ordering, and a sequenced roadmap is the strategic chain's terminal artifact. Phase 5 takes the `/charter` binding of phase-5-produce-handoff.md: it writes wip/charter_monitoring-infrastructure_handoff.md and names `/charter monitoring-infrastructure` as the command to run. It does NOT write wip/roadmap_<topic>_scope.md, does NOT invoke /roadmap, and does NOT pass --upstream <STRATEGY> to anything: /charter accepts only a VISION, and a chain entering at /charter writes its own STRATEGY through /strategy. A STRATEGY the exploration found is named in the handoff's Upstream Observations prose instead.",
       "files": [],
       "expectations": [
-        "Transcript describes Phase 5 routing to the roadmap produce handler or phase-5-produce-roadmap.md",
-        "Transcript describes writing a scope artifact (wip/roadmap_*_scope.md) as part of the roadmap handoff",
-        "Transcript describes invoking or handing off to /roadmap or /shirabe:roadmap after the scope artifact is written",
-        "Transcript identifies this as a strategic-scope exploration with multiple features needing coordinated sequencing"
+        "Transcript reaches `/charter` at crystallize stage 2 and grounds it in the multi-feature sequencing boundary, not in the size of any one feature",
+        "Transcript writes the handoff at wip/charter_monitoring-infrastructure_handoff.md via the /charter binding of phase-5-produce-handoff.md",
+        "Transcript stops with `/charter monitoring-infrastructure` named as the command the author runs, rather than invoking the parent in-session",
+        "Transcript does NOT hand off to /roadmap and writes no wip/roadmap_*_scope.md artifact",
+        "Transcript does NOT pass --upstream naming a STRATEGY on this arm; a STRATEGY the exploration found is named in the handoff's Upstream Observations prose"
       ]
     },
     {
       "id": 13,
       "name": "trivial-classification",
       "prompt": "fix a typo in the README, the word 'recieve' should be 'receive'",
-      "expected_output": "Routes as Trivial complexity. The routing advisor recognizes this as a self-evident, fire-and-forget change. Recommends /work-on directly without creating an issue or artifact. Does NOT launch the full explore workflow.",
+      "expected_output": "Routes as Trivial complexity. The routing advisor recognizes this as a self-evident, fire-and-forget change. Recommends /work-on directly without creating an issue or artifact -- the Trivial row's recommendation, and the one row that skips the issue the Simple row files. Does NOT launch the full explore workflow and does NOT send a typo fix into a chain.",
       "files": [],
       "expectations": [
         "Transcript classifies the request as Trivial complexity or recognizes it as a simple direct fix",
-        "Transcript recommends /work-on or direct implementation rather than /explore, /prd, or /design",
+        "Transcript recommends /work-on or direct implementation rather than /explore, /scope, or /charter",
         "Transcript does NOT launch the full discover-converge exploration loop",
         "Transcript does NOT recommend creating an issue for this change"
       ]
@@ -132,43 +161,27 @@
       "id": 14,
       "name": "strategic-classification",
       "prompt": "I'm thinking about building a new developer tool for managing cloud credentials across teams. I need to figure out if this is worth pursuing, who the audience is, and what features to prioritize.",
-      "expected_output": "Routes as Strategic complexity. The routing advisor recognizes project inception signals: new project, audience undefined, feature prioritization needed. Recommends /explore --strategic or VISION as the starting point. Does NOT route to /prd or /design directly.",
+      "expected_output": "Routes as Strategic complexity. The routing advisor recognizes project inception signals: new project, audience undefined, feature prioritization needed. The Strategic row's recommendation is `/charter`, the strategic chain's entry point, which walks VISION, STRATEGY and ROADMAP as one conversation. It does NOT recommend starting at /vision, /strategy or /roadmap -- those are steps inside that chain, not destinations a router picks -- and does NOT recommend /scope, whose chain is one bounded feature. `/explore --strategic` remains available for the case where even the shape is unclear, but it is not the recommendation when the inception signals are this legible.",
       "files": [],
       "expectations": [
         "Transcript classifies the request as Strategic complexity or recognizes project-inception signals",
-        "Transcript recommends /explore --strategic or starting with a VISION document",
-        "Transcript does NOT recommend /prd or /design as the first step",
+        "Transcript recommends `/charter` as the starting point for the strategic work",
+        "Transcript does NOT recommend starting at /vision, /strategy, or /roadmap, which are steps inside /charter's chain",
+        "Transcript does NOT recommend /scope, whose chain covers one bounded feature",
         "Transcript identifies signals like project inception, undefined audience, or multi-feature prioritization"
       ]
     },
     {
       "id": 15,
-      "name": "triage-stage-1-recommends-a-route",
+      "name": "entry-assessment-feeds-crystallize",
       "prompt": "/explore #212 -- issue #212 carries a needs-triage label and its body describes three loosely-related cleanups to the recipe loader.",
-      "expected_output": "Phase 0 step 0.4 runs the Stage 1 triage agents and synthesizes 'needs breakdown'. The routing decision is presented with a recommendation, not as a bare pair: 'Break down (Recommended)' ranks first because the Stage 1 agents found three separable cleanups in one issue body, and 'Implement directly' follows with a short reason for ranking lower. The description field cites the specific signals the agents named -- the three distinct cleanups, any dissent -- rather than restating the 'needs breakdown' label. The user can still pick either option; the recommendation does not decide the route.",
+      "expected_output": "Phase 0 step 0.4 runs the three entry-assessment agents and synthesizes 'needs breakdown'. The assessment is recorded as an input to the crystallize step, not acted on: step 0.4 ends at Phase 1 whatever it concludes. It edits no label, stops the skill for nobody, and sends the author to no other command — the router decides where the work goes, after research has run, and this is one of the things it reads.",
       "files": [],
       "expectations": [
-        "Transcript marks one routing option '(Recommended)' rather than presenting Break down and Implement directly as an unranked pair",
-        "Transcript grounds the recommendation in the Stage 1 agent assessments, citing the specific signals the agents named",
-        "Transcript's grounding cites issue content (the separable cleanups), not merely the 'needs breakdown' category label",
-        "Transcript gives the non-recommended option a stated reason for ranking lower",
-        "Transcript still routes on the user's choice -- the recommendation does not select the route on the user's behalf",
-        "Transcript does NOT present the two routes neutrally and ask the user to pick with no stated preference"
-      ]
-    },
-    {
-      "id": 16,
-      "name": "triage-stage-2-recommendation-is-grounded",
-      "prompt": "/explore #77 -- issue #77 carries needs-triage, Stage 1 returned 'needs investigation', and the three Stage 2 agents split three ways between needs-prd, needs-design, and needs-spike.",
-      "expected_output": "Phase 0 step 0.5 presents the assessments side by side and recommends the strongest one. Because the split is three-way with no clear winner, the description says so explicitly, names the primary-gap heuristic as the tiebreaker (prefer the earlier-stage artifact: needs-prd before needs-design, needs-design before needs-spike), and still recommends needs-prd. Option 1 ('Explore') is marked '(Recommended)'; 'Different type' remains available so the user can override the recommendation.",
-      "files": [],
-      "expectations": [
-        "Transcript marks the Explore option '(Recommended)' rather than listing the three routes unranked",
-        "Transcript states explicitly that the three-way split surfaced no clear winner instead of manufacturing a preference",
-        "Transcript names the primary-gap heuristic as the tiebreaker and still recommends a single artifact type",
-        "Transcript's description cites what each Stage 2 agent argued, not just the recommended type's name",
-        "Transcript preserves the 'Different type' option so the user can override",
-        "Transcript does NOT skip the recommendation on the grounds that the assessments disagreed"
+        "Transcript runs the three entry-assessment agents and synthesizes a category",
+        "Transcript records the assessment as an input to the crystallize step rather than acting on it",
+        "Transcript proceeds to Phase 1 regardless of which category the assessment reached",
+        "Transcript does NOT assign a needs-* label, stop the skill, or route the author to another command from this step"
       ]
     }
   ]

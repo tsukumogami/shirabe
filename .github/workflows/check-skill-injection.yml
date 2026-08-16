@@ -1,0 +1,23 @@
+name: Check skill injection
+
+on:
+  pull_request:
+    paths:
+      - 'skills/**/SKILL.md'
+      - 'scripts/check-skill-injection.sh'
+      - 'scripts/check-skill-injection_test.sh'
+      - '.github/workflows/check-skill-injection.yml'
+
+jobs:
+  check-skill-injection:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # A `!`-prefixed command at column 0 in a SKILL.md runs at skill load, and
+      # a non-zero exit from it aborts the whole invocation -- the model never
+      # sees the body, and nothing says so. Two live defects came from that. The
+      # test harness runs the check against the tree as its first case, so this
+      # one step covers both the scan and its own regression suite.
+      - name: Check injected SKILL.md commands
+        run: bash scripts/check-skill-injection_test.sh

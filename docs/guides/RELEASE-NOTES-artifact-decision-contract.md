@@ -215,7 +215,7 @@ tooling enforcement is the next layer.
 ## References
 
 - PRD: `docs/prds/PRD-shirabe-artifact-decision-contract.md`
-- DESIGN: `docs/designs/DESIGN-shirabe-artifact-decision-contract.md`
+- DESIGN: `docs/designs/current/DESIGN-shirabe-artifact-decision-contract.md`
 - PLAN: `docs/plans/PLAN-shirabe-artifact-decision-contract.md`
 - PLAN lifecycle template source:
   `docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md`

@@ -1,14 +1,15 @@
 # Pipeline Model Reference
 
 The shirabe workflow is organized as a three-diamond pipeline. Each diamond
-is a diverge-converge pair. Work enters at a complexity-dependent point and
-flows through the diamonds it needs.
+is a diverge-converge pair. Work enters at one point, chosen before any of the
+pipeline runs, and flows forward from there.
 
 ## Three-diamond model
 
 ```
 Diamond 1: EXPLORE / CRYSTALLIZE
-  /explore (diverge) -> crystallize (converge) -> artifact type
+  /explore (diverge) -> crystallize (converge) -> a terminal outcome, or the
+                                                  chain that receives the work
 
 Diamond 2: SPECIFY / SCOPE
   /prd, /design (diverge) -> /plan (converge) -> issues
@@ -17,56 +18,75 @@ Diamond 3: IMPLEMENT / SHIP
   /work-on (diverge) -> /release (converge) -> shipped
 ```
 
-Diamond 1 discovers what to build and what artifact to produce. Diamond 2
+Diamond 1 discovers what to build and where the work goes next. Diamond 2
 specifies requirements, designs the approach, and decomposes into issues.
 Diamond 3 implements and ships.
 
-Not all work needs all three diamonds. Trivial and simple work enters at
-Diamond 3. Medium work enters at Diamond 2. Complex and strategic work
-starts at Diamond 1.
+Diamonds 2 and 3 name their steps in a vocabulary that predates the parent
+skills. `/prd`, `/design`, and `/plan` are hops inside `/scope`, and `/work-on`
+runs under `/execute` when a PLAN drives it. None of those names is an entry
+point an author picks. Reconciling the model's vocabulary with the current
+skill set is separate work; what this file says about routing is reconciled
+here.
+
+Not all work passes through all three diamonds. Trivial and simple work goes
+straight to Diamond 3 through `/work-on`, and a finished PLAN enters there
+through `/execute`. Everything else enters at the top of a chain: `/explore`
+when the shape is unclear, `/scope` or `/charter` when it isn't.
 
 ## Complexity levels
 
-Five levels determine where work enters the pipeline and which skills are
-involved.
+Four levels suggest which command an author runs first.
 
 | Level | Entry point | Diamonds | Typical path |
 |-------|------------|----------|--------------|
 | Trivial | /work-on (no issue) | 3 only | Direct fix, no artifact |
 | Simple | /work-on with issue | 3 only | Issue -> implement -> ship |
-| Medium | /design | 2-3 | Design -> plan -> implement |
-| Complex | /explore | 1-2-3 | Explore -> crystallize -> specify -> implement |
-| Strategic | /explore --strategic | 1-2-3 with branching | VISION -> STRATEGY -> Roadmap -> per-feature pipeline |
+| Complex | /explore | 1, then whatever crystallize names | Explore -> crystallize -> the chain it names |
+| Strategic | /charter | the strategic chain, then 2-3 per feature | VISION -> STRATEGY -> Roadmap -> per-feature pipeline |
 
-Detection runs top-down (Strategic first, Trivial last). The full detection
-algorithm and tiebreaker rules live in `/explore SKILL.md` under "Detection
-Algorithm." This reference describes the levels; /explore owns the
-classification logic.
+The Medium level is gone. It recommended a design and then a plan, and that
+recommendation only meant something while those two were separately choosable
+entry points. A request that used to land on Medium reads as Complex now.
+
+Detection runs top-down (Strategic first, Trivial last). The algorithm lives in
+`skills/explore/SKILL.md` under "Detection Algorithm," and it is advisory: it
+answers which command to run before any exploration exists, and nothing in it
+feeds what happens afterward. Once an exploration has run, `/explore` scores the
+findings instead -- two stages, four terminal outcomes and four chain entry
+points, with the preconditions and tiebreakers in
+`skills/explore/references/quality/crystallize-framework.md`. This file
+describes the levels; `/explore` owns both surfaces.
 
 ### Key discriminators between levels
 
 | Boundary | Question |
 |----------|----------|
 | Strategic vs Complex | Multi-feature initiative or single capability? |
-| Complex vs Medium | Can the user state what to build? |
-| Medium vs Simple | Are there design decisions where reasonable people disagree? |
+| Complex vs Simple | Can the user state both what to build and how? |
 | Simple vs Trivial | Does a GitHub issue exist or is one warranted? |
 
 ## Named transitions
 
-Five transitions connect diamonds and handle non-linear flow.
+Four transitions connect diamonds and handle non-linear flow.
 
 | Transition | From | To | When |
 |------------|------|-----|------|
-| **Advance** | Any diamond | Next diamond | Normal progression. Crystallize produces an artifact type; /plan produces issues; /release ships. |
-| **Recycle** | Any diamond | Same diamond | The converge step sends work back to diverge. Crystallize can't pick a type; review finds gaps in the plan. |
-| **Skip** | Diamond 1 or 2 | Later diamond | Complexity routing bypasses diamonds. Simple work skips Diamonds 1-2. Medium skips Diamond 1. |
+| **Advance** | Any diamond | Next diamond | Normal progression. Crystallize names a terminal outcome or a chain entry point; /plan produces issues; /release ships. |
+| **Recycle** | Any diamond | Same diamond | The converge step sends work back to diverge. Crystallize can't pick an outcome; review finds gaps in the plan. |
 | **Hold** | Any point | Paused | Work is paused. The artifact stays at its current status. No state transition occurs. |
 | **Kill** | Any point | Abandoned | Work is abandoned. Artifacts may move to a Dropped or Superseded state (convention TBD, see F11). |
 
 Advance is the default. Recycle happens when a diamond's converge step
-determines the work isn't ready to move forward. Skip is driven by
-complexity classification at entry. Hold and Kill are human decisions.
+determines the work isn't ready to move forward. Hold and Kill are human
+decisions.
+
+There is no transition that bypasses a diamond's steps. Work enters the pipeline
+at one point, and from there every step of the chain it entered runs. Whether a
+document is worth producing is answered by reading it against the one before it,
+which is possible only once both exist, so the reduction happens afterward and
+not from a classification made at entry. `/scope`'s consolidation judgment is
+that mechanism; see [`parent-skill-pattern.md`](parent-skill-pattern.md).
 
 ## Artifact lifecycle states
 
@@ -141,8 +161,9 @@ check does not adjudicate it. Legality is decided from two basenames, so the
 check cannot tell a roadmap that skipped an existing strategy from one written
 where no strategy exists; rejecting the second in order to catch the first would
 fail the legitimate case. Preferring the nearest altitude is therefore authoring
-guidance -- `/roadmap` states it in its own contract, and `/explore` hands it a
-STRATEGY or nothing -- rather than a rule the validator enforces. An earlier
+guidance -- `/roadmap` states it in its own contract, and `/charter` runs
+`/strategy` ahead of it, so a roadmap written inside the strategic chain is
+handed a STRATEGY -- rather than a rule the validator enforces. An earlier
 version of this file called the strategic chain strict and the tactical chain
 loose; both halves were wrong. `/scope` walks all four tactical altitudes on
 every run, and the strategic chain is the one where an altitude is routinely
@@ -236,32 +257,48 @@ skills apply and in what order.
 | Trivial fix (typo, config) | /work-on directly |
 | Simple task with issue | /work-on -> /release |
 | Full plan ready to ship | /execute PLAN-*.md (plan orchestrator) -> /release |
-| Known approach, design decisions exist | /design -> /plan -> /work-on |
-| Shape unclear, multiple unknowns | /explore -> (crystallize) -> /prd or /design -> /plan -> /work-on |
-| New project, thesis needed | /explore --strategic -> /vision -> /strategy -> /roadmap -> per-feature pipeline |
+| Whole tactical chain in one sitting | /scope -> BRIEF -> PRD -> DESIGN -> PLAN |
 | Whole strategic chain in one sitting | /charter -> VISION -> STRATEGY -> ROADMAP |
-| Multi-feature initiative | /roadmap -> /plan (enriches roadmap) -> per-feature /prd, /design, /plan |
+| One feature to specify, however large | /scope -> /execute -> /release |
+| Project needs a thesis, or features need ordering | /charter -> per-feature /scope |
+| Shape unclear, multiple unknowns | /explore -> (crystallize) -> the entry point it names |
 | Feasibility unknown | /explore -> (crystallize) -> spike report |
 | Single contested choice | /explore -> (crystallize) -> /decision |
 
-The crystallize step in /explore determines which artifact type to produce.
-The detection algorithm in /explore determines which complexity level applies.
-Both are documented in `/explore SKILL.md`.
+Every sequence starts at something an author runs. The rows that used to name a
+chain hop as a destination -- design-then-plan for a known approach, a PRD or a
+design after crystallize, the strategic children after `--strategic` -- named
+steps that `/scope` and `/charter` now sequence themselves, so they collapse
+into the parent rows above.
+
+The crystallize step in `/explore` decides whether an exploration is a terminal
+outcome or a chain, and for a chain, which entry point receives it; it is
+documented in `skills/explore/references/quality/crystallize-framework.md`. The
+detection algorithm in `skills/explore/SKILL.md` suggests a complexity level
+before an exploration exists.
 
 ### Roadmap branching
 
 Strategic work follows a branching pattern. A Roadmap decomposes into
-features. Each feature gets a planning issue with a `needs-*` label
-(needs-prd, needs-design, needs-spike, needs-decision). The feature then
-enters its own pipeline at the appropriate diamond based on what it needs.
+features. Each feature gets a planning issue, and `/plan` labels it with what
+the feature is missing: `needs-prd` or `needs-design`. The label is an entry
+signal, not a route. A feature carrying either one enters the tactical chain at
+`/scope`, which writes the framing, the requirements, the design, and the plan
+in that order and folds a hop away only once the document it would fold is on
+disk. A feature with no `Needs` annotation is ready for direct implementation.
 
 ```
 Roadmap
-  ├── Feature A (needs-prd) -> /prd -> /design -> /plan -> /work-on
-  ├── Feature B (needs-design) -> /design -> /plan -> /work-on
-  ├── Feature C (needs-spike) -> spike -> then reassess
-  └── Feature D (needs-decision) -> /decision -> then reassess
+  ├── Feature A (needs-prd) -> /scope -> /execute
+  ├── Feature B (needs-design) -> /scope -> /execute
+  └── Feature C (no Needs annotation) -> file an issue -> /work-on
 ```
+
+The feasibility and single-choice labels this tree used to branch on are retired
+from the label vocabulary, because the triage that assigned them is gone. Both
+questions reach `/explore` instead, which authors the spike report and routes a
+single choice to `/decision`. See
+`skills/explore/references/label-reference.md` for the surviving vocabulary.
 
 Each feature's pipeline runs independently. The Roadmap tracks overall
 progress; /plan enriches the Roadmap with an Implementation Issues table

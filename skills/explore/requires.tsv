@@ -1,0 +1,11 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# /explore reads issues with `gh issue view --repo --json` when the topic is
+# issue-grounded, and clears the project's own blocking label with
+# `gh issue edit --remove-label` on the spike-report path. Independent cadence,
+# so one tool-only record.
+#
+# The skill produces artifacts by invoking other skills, never by calling a
+# shirabe subcommand itself.
+gh	-	-	always

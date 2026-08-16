@@ -8,7 +8,10 @@ description: >-
   projection over the durable home PR (cross-branch resume), the three exit-path
   bindings, parent-skill conformance, the six security surfaces, and an explicit
   autonomy mandate.
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute 2>&1 || true`
 
 # Execute
 
@@ -46,6 +49,36 @@ The PLAN's `execution_mode` is an enum-typed input surface; re-validate it again
 interpolated into any branch name or emitted shell (see **Security Considerations**).
 `/execute` is the first untrusted-enum consumer; the `/work-on` dispatcher is the
 second, and re-validates the same enum independently.
+
+**When the enum resolves to `coordinated`, verify the mode-scoped
+prerequisites before the coordinated path starts.** `skills/execute/requires.tsv`
+declares one `mode:coordinated` record — `shirabe validate` with
+`--coordination-body` and `--merge-gate`, the two modes a single-pr plan never
+reaches. It was not checked when this skill loaded: the load-time check
+evaluates `always` records only, because the PLAN had not been read yet and
+reporting on a record it never evaluated would be a claim it can't support.
+Field four of the declaration is where the deferral is visible. Run, right
+after the enum re-validation passes and before the loop drives anything:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute --mode coordinated 2>&1 || true
+```
+
+Silence means the coordinated surface is present. Output means the merge-last
+gate this path fails closed on cannot run as declared — surface it before the
+first child is dispatched, not at the gate, where a whole cascade has already
+landed.
+
+The `single-pr` path makes no such call: the declaration has no `mode:single-pr`
+record, because every tool that path needs is already `always`.
+
+This is a command the skill runs mid-run through Bash, not a `!`-prefixed
+injected line at column 0, so `scripts/check-skill-injection.sh` — which reads
+only injected lines — never sees it and the `allowed-tools` frontmatter is not
+what governs it. The `2>&1 || true` guard is carried regardless: a missing
+script or an unexpanded `${CLAUDE_PLUGIN_ROOT}` exits 127, and an unguarded 127
+here kills a run mid-cascade. The contract for the `--mode` call is in
+[`${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md`](${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md).
 
 ## Execution-Mode Flags
 
@@ -120,13 +153,13 @@ the base-branch drift gate, cross-issue carry-forward, dependency sequencing wit
 skip-dependents, shared-branch CI choreography, and the atomic finalization cascade
 — carry over by construction rather than reimplementation.
 
-### Step 1 — Preflight (cross-skill coupling)
+### Step 1 — Assert the child template (cross-skill coupling)
 
 Before any child is spawned, assert the cross-skill `/work-on` child template
 resolves:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/preflight.sh
+bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh
 ```
 
 A non-zero exit halts the run with a clear message. This is the load-bearing
@@ -269,14 +302,13 @@ the re-authored coordination PR body (PR-Index and fenced merge-order block, Ste
 item 2). There is no shared code branch across repos; cross-unit carry-forward flows
 through the coordination PR's durable state, not a branch.
 
-### Step 1 — Preflight
+### Step 1 — Assert the child template
 
 Assert the same cross-skill `work-on.md` child template resolves (per-repo PR nodes
-dispatch to it), and confirm `gh` auth is live — it is a precondition, since every
-status read and every body write goes through `gh`:
+dispatch to it):
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/preflight.sh
+bash ${CLAUDE_PLUGIN_ROOT}/skills/execute/scripts/assert-child-template.sh
 ```
 
 A non-zero exit halts the run. Locate the coordination PR for this effort (the
@@ -695,9 +727,9 @@ Two `/execute`-specific surfaces are also security-relevant:
 
 - **Cross-skill koto-template path resolution.** `/execute` `koto init`-ing
   children against `${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md` is
-  a load-bearing coupling; a misresolved path is a silent break. The Step-1 preflight
-  (`scripts/preflight.sh`) is the guarded check that fails closed before any child is
-  spawned.
+  a load-bearing coupling; a misresolved path is a silent break. The Step-1 assertion
+  (`scripts/assert-child-template.sh`) is the guarded check that fails closed before
+  any child is spawned.
 - **Fail-closed merge-gate.** The coordinated done-signal recompute
   (`shirabe validate --merge-gate --mode=ready`) is fail-closed against live `gh`: any
   PR it cannot resolve is treated as not-merged and a `gh` failure halts rather than
@@ -721,7 +753,7 @@ inspection, and the six security surfaces) is complete across the **Workflow Pha
 | File | When |
 |------|------|
 | `skills/execute/koto-templates/execute.md` | the lifted `execute` orchestrator template |
-| `skills/execute/scripts/preflight.sh` | Step 1 cross-skill preflight |
+| `skills/execute/scripts/assert-child-template.sh` | Step 1 cross-skill child-template assertion |
 | `skills/execute/scripts/run-cascade.sh` | `plan_completion` atomic finalization cascade (carries the `WORK_ON_ALLOW_UNTRACKED_ACS` escape hatch) |
 | `references/coordination-strategy.md` | the canonical coordinated contract the coordinated path binds to (lifecycle, merge-order DAG, done-signal, F1/F2/F4, R20/R21) |
 | `.github/workflows/lifecycle.yml` | the lifecycle CI workflow whose `--mode=ready` step is the R5 finalization-not-done guard at review time (gated on `draft == false`) |

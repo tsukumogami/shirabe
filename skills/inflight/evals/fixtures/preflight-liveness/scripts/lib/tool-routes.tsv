@@ -1,0 +1,31 @@
+#schema	tool-routes/v1
+#
+# Fixture route table for the preflight liveness eval. It is NOT a copy of
+# scripts/lib/tool-routes.tsv, and it must not become one: the four helper
+# scripts beside it are symlinks into the real tree precisely so the fixture
+# cannot drift from the code under test, and this file is the one deliberate
+# exception. It exists to make the fixture host-independent.
+#
+# The declaration reader rejects any field-one value absent from this column,
+# so an unsatisfiable declaration needs a routed tool name that cannot exist.
+# Naming a real tool instead -- koto, or shirabe -- would make the eval pass
+# or fail on whether the runner happened to have it installed, which is the
+# opposite of what a liveness assertion needs.
+#
+#   preflight-absent-tool   a name no host ships. Its only route is excluded,
+#                           so the absent block ends in the no-route
+#                           enumeration rather than an install command a
+#                           reader might actually run.
+#   sh                      the satisfied twin. Present on every POSIX host,
+#                           always at an absolute path outside the working
+#                           directory, so the twin resolves without depending
+#                           on the runner. Its route is excluded for the same
+#                           reason: it is unreachable by construction.
+#
+# Both citations name this fixture rather than an issue. The route-table
+# schema requires a non-dash citation on any excluded route, and pointing a
+# fixture at a real issue number would put a false trail in front of whoever
+# reads the enumeration in a report.
+#
+preflight-absent-tool	none	any	never	-	fixture/preflight-liveness
+sh	none	any	never	-	fixture/preflight-liveness

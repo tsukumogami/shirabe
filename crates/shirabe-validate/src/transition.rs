@@ -518,6 +518,15 @@ pub struct Outcome {
     /// The optional trailing extra field (`superseded_by` / `reason`), emitted
     /// after `moved` on a `WithPath` result when present.
     pub extra_field: ExtraField,
+    /// The files whose inbound references the move repointed, in
+    /// `git ls-files` order. Empty for a non-moving transition, and empty on
+    /// a second run over a tree that already names the new path.
+    ///
+    /// Deliberately absent from [`Outcome::to_json`]. That envelope is
+    /// pinned byte-for-byte against the shell scripts it replaced, and its
+    /// consumers parse `success` / `code` / `new_path`; the repoint report
+    /// is operator-facing and goes to stderr.
+    pub repointed: Vec<crate::repoint::FileRewrite>,
 }
 
 impl Outcome {
@@ -714,6 +723,7 @@ pub fn run_transition(
             file,
             false,
             extra_field,
+            Vec::new(),
         ));
     }
 
@@ -742,7 +752,23 @@ pub fn run_transition(
     // Step 9: move. If the spec moves on this target status and the doc is not
     // already in the target directory, `git mv` (or `mv` outside a repo) into
     // it; a file-operation failure (e.g. target exists) is exit 3.
+    let old_rel = normalized_path(file);
     let (new_path, moved) = maybe_move(&spec, file, target_status)?;
+
+    // Step 9a: repoint. A move that relocated the file leaves every document
+    // naming the old path wrong, and the command holds both paths, so the
+    // rewrite is determined rather than inferred. This is the half that stops
+    // the defect recurring; FC20 only ever sees moves that predate it.
+    //
+    // A repoint failure is the transition's failure: it exits non-zero and the
+    // move is not reported as successful, because a move whose inbound
+    // references were only partly repaired is not a state to report as done.
+    let repointed = if moved {
+        crate::repoint::repoint_references(&doc_root, &old_rel, &new_path)
+            .map_err(|e| TransitionError::new(3, e.message()))?
+    } else {
+        Vec::new()
+    };
 
     // Step 10: assemble the result.
     Ok(success(
@@ -753,6 +779,7 @@ pub fn run_transition(
         &new_path,
         moved,
         extra_field,
+        repointed,
     ))
 }
 
@@ -989,6 +1016,7 @@ fn success(
     new_path: &str,
     moved: bool,
     extra_field: ExtraField,
+    repointed: Vec<crate::repoint::FileRewrite>,
 ) -> Outcome {
     Outcome {
         doc_path: file.to_string(),
@@ -998,6 +1026,7 @@ fn success(
         moved,
         result_fields: spec.result_fields.clone(),
         extra_field,
+        repointed,
     }
 }
 
@@ -1144,6 +1173,21 @@ fn normalized_dir(path: &str) -> String {
     rel.parent()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| ".".to_string())
+}
+
+/// The doc's own path, normalized relative to the repo work tree.
+///
+/// The repoint's "before" path, in the same repo-relative shape `maybe_move`
+/// returns for the "after" one, so both sides of the substitution are written
+/// the way the corpus writes them.
+fn normalized_path(path: &str) -> String {
+    let dir = normalized_dir(path);
+    let name = basename(path);
+    if dir == "." || dir.is_empty() {
+        name.to_string()
+    } else {
+        format!("{dir}/{name}")
+    }
 }
 
 /// Additive path hardening (the design's Security section): reject a path that
@@ -1687,6 +1731,7 @@ mod tests {
             moved: false,
             result_fields: ResultFields::Base,
             extra_field: ExtraField::None,
+            repointed: Vec::new(),
         };
         let expected = "{\n  \"success\": true,\n  \"doc_path\": \"docs/prds/PRD-foo.md\",\n  \"old_status\": \"Draft\",\n  \"new_status\": \"Done\"\n}\n";
         assert_eq!(outcome.to_json(), expected);
@@ -1702,6 +1747,7 @@ mod tests {
             moved: false,
             result_fields: ResultFields::WithPath,
             extra_field: ExtraField::None,
+            repointed: Vec::new(),
         };
         let expected = "{\n  \"success\": true,\n  \"doc_path\": \"x\",\n  \"old_status\": \"Draft\",\n  \"new_status\": \"Active\",\n  \"new_path\": \"x\",\n  \"moved\": false\n}\n";
         assert_eq!(outcome.to_json(), expected);
@@ -2056,6 +2102,7 @@ mod tests {
             moved: false,
             result_fields: ResultFields::WithMoved,
             extra_field: ExtraField::None,
+            repointed: Vec::new(),
         };
         let expected = "{\n  \"success\": true,\n  \"doc_path\": \"docs/competitive/COMP-x.md\",\n  \"old_status\": \"Draft\",\n  \"new_status\": \"Accepted\",\n  \"moved\": false\n}\n";
         assert_eq!(outcome.to_json(), expected);
