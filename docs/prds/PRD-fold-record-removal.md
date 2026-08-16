@@ -133,9 +133,10 @@ repository.
 
 **R2.** The absorb procedure SHALL NOT write, stage, or roll back any shared
 record. Its step sequence, the sentence stating how many steps it has, its
-rollback table, the standalone paragraph justifying the un-append, and its final
-commit step SHALL all be rewritten so that nothing refers to an append, an
-un-append, or a record committed alongside the deletion. The cross-reference in
+rollback table, the standalone paragraph justifying the un-append, its final
+commit step, and the partial-absorb resume paragraph that names a step range
+SHALL all be rewritten so that nothing refers to an append, an un-append, or a
+record committed alongside the deletion. The cross-reference in
 `skills/scope/SKILL.md` that states the procedure's step count and enumerates
 its parts SHALL be updated to match.
 
@@ -294,9 +295,11 @@ in an appended section, so the historical text stays as written.
       sentences stating its step count — in `phase-2-chain-orchestration.md` and
       in `skills/scope/SKILL.md`'s cross-reference — both match the list length;
       the rollback table has one row per writing step with step numbers matching
-      the renumbered list; and no step, row, paragraph, or cross-reference
-      mentions an append, an un-append, or a record committed alongside the
-      deletion.
+      the renumbered list; every prose reference to a step number inside the
+      Consolidation Judgment section, including the partial-absorb resume
+      paragraph, matches the renumbered list; and no step, row, paragraph, or
+      cross-reference mentions an append, an un-append, or a record committed
+      alongside the deletion.
 - [ ] **AC9.** The closed write-target set in `skills/scope/SKILL.md` and the
       read-back in `phase-3-exit-finalization.md` both enumerate deletions and
       mutations only, with no append group, do not contradict each other, and
@@ -310,7 +313,8 @@ in an appended section, so the historical text stays as written.
       Known Limitations concedes.
 - [ ] **AC12.** `bash skills/execute/scripts/run-cascade_test.sh` exits 0, and
       the roadmap downstream cell the script emits contains no pointer to the
-      record.
+      record while still distinguishing a chain that folded from one that never
+      ran.
 - [ ] **AC13.** `README.md` describes the consolidation judgment without naming
       the record.
 - [ ] **AC14.** `docs/guides/doc-validation.md` describes no fold-record check.
@@ -323,10 +327,11 @@ in an appended section, so the historical text stays as written.
       contains both the phrase naming the surviving half of the answer (the
       record of *why*, in the code) and an explicit statement of what carries
       the record of *what happened*, including the case where nothing does.
-- [ ] **AC17.** `docs/designs/current/DESIGN-fold-record-removal.md` exists and
-      names, each with a reason for rejection: survivor frontmatter alone,
-      commit trailer, git notes, per-chain file, forge metadata, rotation, and
-      per-fold file.
+- [ ] **AC17.** The document carrying the removal rationale —
+      `docs/designs/current/DESIGN-fold-record-removal.md`, or the surviving
+      document that absorbed it — exists in the working tree and names, each
+      with a reason for rejection: survivor frontmatter alone, commit trailer,
+      git notes, per-chain file, forge metadata, rotation, and per-fold file.
 - [ ] **AC18.** `git diff <merge-base>..HEAD -- crates/` touches comment lines
       only, and `cargo test` passes.
 - [ ] **AC19.** `git diff <merge-base>..HEAD --` over
@@ -415,8 +420,10 @@ cheaper option is to delete and move on. It was rejected because the original
 decision was never argued: a later contributor finding no ledger and no
 reasoning has exactly the information the original author had and reaches the
 same conclusion. Siting the rationale in the DESIGN rather than the PRD is
-deliberate — a PRD reaches Done and stops being consulted, and R11's `keep`
-obligation is what stops this chain from folding the reasoning away.
+deliberate — a PRD reaches Done and stops being consulted. The expectation is
+that the design-to-plan hop reaches `keep` on its own terms, because the carrier
+reasoning is content the PLAN does not carry; R11 requires the outcome, not the
+verdict.
 
 **Amendment in place, not supersession.** A requirements document has no
 superseded state, so the mechanism is unavailable for the document carrying the
