@@ -42,14 +42,32 @@ koto next <WF> --with-data '{"scrutiny_outcome": "passed"}'
 
 ## Retry Loop
 
-When re-entering after a blocking finding:
+When a blocking finding sends the work back, clear the panel verdicts before submitting the retry. Run this instead of a bare `koto next`:
 
-1. Ignore whatever `scrutiny_results.json` is already in context. It describes the round that failed and says nothing about the fixes the coder agent has since made.
-2. Do not try to delete it. `koto context` advertises `add`, `get`, `exists`, and `list` — koto has no verb that removes a key. A stale value is cleared by being overwritten, not by being deleted.
-3. Spawn all three reviewers again. The coder agent's fixes should resolve the blocking findings.
-4. When the fresh round comes back with every `blocking_count: 0`, run the Aggregation command above again with `<N>` set to this round's number. `koto context add` on a key that already exists replaces its content in place, so the key ends up holding this round's result and no earlier round's JSON survives.
+```bash
+OUTCOME_FIELD=scrutiny_outcome
+for KEY in scrutiny_results.json review_results.json qa_results.json; do
+  koto context remove <WF> "$KEY" >/dev/null 2>&1
+  if koto context exists <WF> "$KEY" >/dev/null 2>&1; then
+    echo "$KEY is still in context after koto context remove."
+    echo "The stale verdict is in place and the gate will accept it."
+    echo "Do NOT submit $OUTCOME_FIELD: passed on the next pass."
+    echo "To stop the run, submit $OUTCOME_FIELD: blocking_escalate with a failure_reason."
+    exit 1
+  fi
+done
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}"
+```
 
-If the fresh round still finds blocking findings, write nothing to context: submit `scrutiny_outcome: blocking_retry`, or escalate as described below, and leave the key as it stands. The `scrutiny_results` gate is `context-exists` — it checks that the key is present, not which round wrote it — so what keeps an earlier pass from advancing the workflow is the `scrutiny_outcome` you submit, which must always describe the round that just ran.
+Why removal rather than leaving the old verdict to be overwritten: the `scrutiny_results` gate is `context-exists`, so it asks whether the key is present and nothing else. A verdict left in context satisfies it on the next pass, and the panel can advance on a review of code the coder agent has since changed. Removing the key makes the gate demand this round's artifact — the refusal is the state machine's, not a matter of remembering to submit the right outcome.
+
+All three keys go, not only this panel's. A `blocking_retry` returns to `implementation` and the run walks forward from there into every panel at or above this one, so the fixes invalidate the verdicts the other panels recorded even though they passed and raised nothing.
+
+Do not guard the removals with `koto context exists`. `koto context remove` is idempotent — removing a key no phase has written yet exits 0 — so there is nothing for a guard to protect against, and `exists` reports absent for a store it cannot read as well as for a key that is not there. A guard would skip a key whose verdict is really still in place, which is the failure this block exists to prevent.
+
+The check after each removal is the part that must not be dropped. A removal that fails leaves the key present and the gate satisfied, which is indistinguishable from a successful one at the point it matters. `koto context exists` and the `context-exists` gate evaluator call the same function, so "exists reports absent" is the gate's own condition rather than a proxy for it.
+
+Then spawn all three reviewers again. When the fresh round comes back with every `blocking_count: 0`, run the Aggregation command above with `<N>` set to this round's number. If it still finds blocking findings, run this block again, or escalate as described below.
 
 ## Escalation
 

@@ -73,6 +73,28 @@ Classify as:
 Set `issue_type` in evidence. When the PLAN hint and your assessment agree, use it as-is.
 When they differ, use your classification and note the override in `decisions`.
 
+## Retry Loop
+
+`scope_changed_retry` re-enters this phase to write a *replacement* plan, and the `plan_artifact` gate holds the `plan.md` being replaced. Clear it before submitting:
+
+```bash
+koto context remove <WF> plan.md >/dev/null 2>&1
+if koto context exists <WF> plan.md >/dev/null 2>&1; then
+  echo "plan.md is still in context after koto context remove."
+  echo "The superseded plan is in place and the plan_artifact gate will accept it."
+  echo "Do NOT submit plan_outcome: plan_ready on the next pass."
+  echo "To stop the run, submit plan_outcome: scope_changed_escalate."
+  exit 1
+fi
+koto next <WF> --with-data '{"plan_outcome": "scope_changed_retry"}'
+```
+
+The gate is `context-exists`: it asks whether `plan.md` is present, not which round wrote it. Left in place, the plan this phase is being re-entered to replace is the one that satisfies the gate on the way out.
+
+The check after the removal is not optional. A failed removal leaves the key present and the gate satisfied, which is indistinguishable from success at the point it matters. Do not guard the removal with `koto context exists` first — `remove` is idempotent, and `exists` reports absent for a store it cannot read as well as for a missing key.
+
+`implementation` reaches this phase by the same gate on a different edge (`scope_expanded_retry`) and clears the same key; see `phase-4-implementation.md`.
+
 ## Evidence
 
 - `plan_outcome: plan_ready` — plan complete, submit with `issue_type`

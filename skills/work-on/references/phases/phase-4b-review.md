@@ -38,6 +38,31 @@ EOF
 koto next <WF> --with-data '{"review_outcome": "passed"}'
 ```
 
+## Retry Loop
+
+When a blocking finding sends the work back, clear the panel verdicts before submitting the retry. Run this instead of a bare `koto next`:
+
+```bash
+OUTCOME_FIELD=review_outcome
+for KEY in scrutiny_results.json review_results.json qa_results.json; do
+  koto context remove <WF> "$KEY" >/dev/null 2>&1
+  if koto context exists <WF> "$KEY" >/dev/null 2>&1; then
+    echo "$KEY is still in context after koto context remove."
+    echo "The stale verdict is in place and the gate will accept it."
+    echo "Do NOT submit $OUTCOME_FIELD: passed on the next pass."
+    echo "To stop the run, submit $OUTCOME_FIELD: blocking_escalate with a failure_reason."
+    exit 1
+  fi
+done
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}"
+```
+
+The `review_results` gate is `context-exists`, so it asks whether the key is present and nothing else. A verdict left in context satisfies it on the next pass and this panel can advance on a review of code the coder agent has since changed. Removing the key makes the gate demand this round's artifact.
+
+All three keys go, not only this panel's — see `review-panel-orchestration.md` for why a retry raised anywhere invalidates every panel's verdict.
+
+The check after each removal is not optional: a failed removal leaves the key present and the gate satisfied, which looks exactly like success at the point it matters. Do not add a `koto context exists` guard *before* removing; `remove` is idempotent, and `exists` reports absent for an unreadable store as well as a missing key, so a guard would skip a key whose verdict is really still there.
+
 ## Escalation
 
 If a blocking finding cannot be resolved, submit `review_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`.

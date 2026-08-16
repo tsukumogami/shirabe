@@ -141,3 +141,25 @@ implementation — e.g., the user asks to configure behaviour that was previousl
 hard-coded, or a referenced file turns out to need parallel changes. Explain
 the change in `rationale`; the transition rewinds to `analysis` so the plan can
 absorb it cleanly.
+
+## Retry Loop: scope_expanded_retry
+
+The rewind lands on `analysis`, whose `plan_artifact` gate holds the `plan.md` the rewind exists to replace. Clear it before submitting:
+
+```bash
+koto context remove <WF> plan.md >/dev/null 2>&1
+if koto context exists <WF> plan.md >/dev/null 2>&1; then
+  echo "plan.md is still in context after koto context remove."
+  echo "The superseded plan is in place and the plan_artifact gate will accept it."
+  echo "Do NOT submit plan_outcome: plan_ready from analysis on the next pass."
+  echo "To stop the run, submit implementation_status: partial_tests_failing_escalate."
+  exit 1
+fi
+koto next <WF> --with-data '{"implementation_status": "scope_expanded_retry", "rationale": "<why the scope grew>"}'
+```
+
+The gate is `context-exists`: it asks whether `plan.md` is present, not whether it accounts for the scope that just appeared. Left in place, `analysis` can pass straight back through on the old plan — which is the outcome the rewind was meant to prevent.
+
+The check after the removal is not optional: a failed removal leaves the key present and the gate satisfied, which looks exactly like success. Do not guard the removal with `koto context exists` first — `remove` is idempotent, and `exists` reports absent for an unreadable store as well as a missing key.
+
+`analysis` clears the same key on its own `scope_changed_retry` self-loop; see `phase-3-analysis.md`. Two edges, one gate, and each needs its own clearing step.
