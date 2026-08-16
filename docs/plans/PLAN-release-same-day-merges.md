@@ -104,20 +104,20 @@ the same-day-merge behavior at the Phase 2 precondition and the Phase 3 gather,
 and run the suite.
 
 **Acceptance Criteria**:
-- [ ] `skills/release/evals/evals.json` carries a scenario whose prompt names a
+- [x] `skills/release/evals/evals.json` carries a scenario whose prompt names a
       pull request merged after the previous tag's timestamp but before the end
       of that tag's calendar day, asserting the Phase 3 gather includes it.
-- [ ] It carries a second scenario asserting the Phase 2 security precondition
+- [x] It carries a second scenario asserting the Phase 2 security precondition
       evaluates that same pull request, so a security-labeled change merged in
       that window reaches the describe/redact/exclude decision.
-- [ ] Each new scenario asserts the same-day condition specifically -- the
+- [x] Each new scenario asserts the same-day condition specifically -- the
       assertions name the boundary, not the phase in general -- and at least one
       asserts that no `merged:>` date search is used.
-- [ ] `scripts/run-evals.sh release` has been run by an agent with
+- [x] `scripts/run-evals.sh release` has been run by an agent with
       `/skill-creator` loaded, per `CLAUDE.md` section "Skill Evals", and its
       results are reported in the pull request body.
-- [ ] Any failing assertion is fixed before the pull request is marked ready.
-- [ ] The pre-existing seven scenarios still pass, or a change to one is
+- [x] Any failing assertion is fixed before the pull request is marked ready.
+- [x] The pre-existing seven scenarios still pass, or a change to one is
       explained.
 
 **Dependencies**: Blocked by Issue 1.
