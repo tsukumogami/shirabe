@@ -44,7 +44,7 @@ readonly EXIT_INCOMPLETE=3
 # Must match `ABSORBED_ENTRY_PATTERN` in crates/shirabe-validate/src/formats.rs,
 # widened to admit a PLAN because the survivor at the terminal hop is one.
 # Asserted against that constant by check-scope-scripts.yml: the string has one
-# owner even though three sites read it.
+# owner even though two sites read it.
 readonly DOC_PATH_RE='^docs/(briefs|prds|designs|plans)/(BRIEF|PRD|DESIGN|PLAN)-[a-z0-9-]+\.md$'
 
 usage() {

@@ -214,8 +214,9 @@ what replaces it and SHALL state plainly where nothing does.
 **R11.** The removal rationale SHALL be readable in the working tree after this
 chain completes, naming each carrier evaluated and why it was not adopted, so a
 later proposal to reintroduce a fold ledger is answered from the artifact rather
-than by re-investigation. Its home is
-`docs/designs/current/DESIGN-fold-record-removal.md`.
+than by re-investigation. Its home is `DESIGN-fold-record-removal.md`, which
+sits under `docs/designs/` until the cascade transitions it to Current and moves
+it to `docs/designs/current/`.
 
 This requirement states an outcome, not a verdict. `/scope`'s consolidation
 judgment is made against two documents and this PRD does not reach into it. The
@@ -280,7 +281,7 @@ in an appended section, so the historical text stays as written.
       ':!docs/designs/current/DESIGN-scope-chain-mandatory-steps.md'
       ':!docs/briefs/BRIEF-fold-record-removal.md'
       ':!docs/prds/PRD-fold-record-removal.md'
-      ':!docs/designs/current/DESIGN-fold-record-removal.md'` returns no output.
+      ':!docs/designs/*DESIGN-fold-record-removal.md'` returns no output.
 - [ ] **AC3.** `git grep -in 'fold record\|fold-record\|record checker\|fold
       signature' HEAD` with the same exclusion set returns no output.
 - [ ] **AC4.** `.gitattributes` contains no `merge=union` entry and no comment
@@ -331,8 +332,9 @@ in an appended section, so the historical text stays as written.
       record of *why*, in the code) and an explicit statement of what carries
       the record of *what happened*, including the case where nothing does.
 - [ ] **AC17.** The document carrying the removal rationale —
-      `docs/designs/current/DESIGN-fold-record-removal.md`, or the surviving
-      document that absorbed it — exists in the working tree and names, each
+      `DESIGN-fold-record-removal.md` at whichever of `docs/designs/` or
+      `docs/designs/current/` its status puts it, or the surviving document that
+      absorbed it — exists in the working tree and names, each
       with a reason for rejection: survivor frontmatter alone, commit trailer,
       git notes, per-chain file, forge metadata, rotation, and per-fold file.
 - [ ] **AC18.** `git diff <merge-base>..HEAD -- crates/` touches comment lines

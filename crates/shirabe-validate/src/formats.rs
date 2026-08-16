@@ -174,12 +174,12 @@ pub const CONTRIBUTION_SECTIONS: [(&str, &str); 4] = [
 
 /// The shape every `absorbed:` entry must match.
 ///
-/// Declared here, beside [`CONTRIBUTION_SECTIONS`], because three sites read it
+/// Declared here, beside [`CONTRIBUTION_SECTIONS`], because two sites read it
 /// and each answers a different question: the absorb procedure (the *gate* — the
-/// only site that can stop a deletion), this crate's absorbed-declaration check
-/// (the *backstop* — it fires on documents nobody is folding), and the record
-/// checker's fold signature (the *trigger*). None substitutes for another, so
-/// the string is shared rather than the behaviour.
+/// only site that can stop a deletion) and this crate's absorbed-declaration
+/// check (the *backstop* — it fires on documents nobody is folding). Neither
+/// substitutes for the other, so the string is shared rather than the
+/// behaviour.
 ///
 /// Anchored at both ends deliberately: an unanchored match would accept a path
 /// with a prefix or suffix, and this value reaches a `git rm` argument.
@@ -190,8 +190,8 @@ pub const ABSORBED_ENTRY_PATTERN: &str =
 /// `path`, or `None` when the basename matches no known prefix.
 ///
 /// Returns `None` rather than a default because an unrecognised prefix must
-/// fail closed: it reaches a required-section splice and a durable record
-/// column, and a silent default would put an unvalidated value in both.
+/// fail closed: it reaches a required-section splice, and a silent default
+/// would put an unvalidated value there.
 pub fn contribution_heading(path: &str) -> Option<&'static str> {
     let basename = path.rsplit('/').next().unwrap_or(path);
     let mut best: Option<(usize, &'static str)> = None;
