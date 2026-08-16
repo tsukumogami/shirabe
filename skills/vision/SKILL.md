@@ -10,7 +10,10 @@ description: >-
   exploration (/explore). Drives a multi-phase workflow: conversational scoping,
   parallel research agents, structured drafting, and jury review.
 argument-hint: '<project or org topic>'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh vision 2>&1 || true`
 
 @.claude/shirabe-extensions/vision.md
 @.claude/shirabe-extensions/vision.local.md

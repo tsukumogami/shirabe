@@ -11,8 +11,10 @@ description: >-
   session-scoped empty-state when none are tracked, not an arbitrary query.
 argument-hint: ''
 disable-model-invocation: true
-allowed-tools: Bash(shirabe:*)
+allowed-tools: Bash(shirabe:*), Bash(echo:*), Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh inflight 2>&1 || true`
 
 # In Flight
 
@@ -37,13 +39,46 @@ turn and never issues a non-session `gh` listing.
 
 Run the command and relay whatever it prints, unchanged:
 
-!`shirabe work-summary render`
+!`shirabe work-summary render || echo 'shirabe work-summary render did not run: the shirabe binary is not on PATH. Report to the user that the work-in-flight block is unavailable on this host and that installing shirabe restores it. Do not substitute an empty-state line and do not list pull requests from memory.'`
 
 Present the output to the user exactly as produced -- do not reformat,
 summarize, or add PRs from memory. `render` always prints something: either the
 work-in-flight block, or the session-scoped empty-state line (for example `no
 pull requests tracked for this session`). Relay that empty-state line as-is; it
 is the truthful answer for a session with nothing tracked.
+
+### Why the line carries a fallback
+
+`render` itself is not the risk. Every `shirabe work-summary` subcommand exits 0
+by construction -- an internal error degrades to no output, never a non-zero
+abort -- so once the binary runs, the injection cannot fail. The `|| echo`
+branch catches the one case the binary cannot handle from inside itself: the
+binary is absent or unresolvable, the shell returns 127, and a non-zero exit
+from an injected command aborts the entire skill invocation. Without the
+branch, a host without `shirabe` gets no skill body at all rather than a
+degraded one.
+
+The fallback text is written for the model, not the user: it names what failed,
+what to tell the user, and what not to do. It deliberately does not print an
+empty block or the empty-state line, because both are assertions about this
+session's ledger that nothing read. Relaying either would make `/inflight` claim
+no PRs are tracked when the truth is that nothing was checked, and an empty
+block is precisely the shape that invites narrating PRs from memory to fill it.
+
+The frontmatter declares `Bash(shirabe:*), Bash(echo:*)` for this line because
+permission patterns do not compose across shell operators: `||` splits the line
+into two subcommands, and each is matched against `allowed-tools` on its own. A
+single `Bash(shirabe:*)` entry would leave the `echo` half undeclared, and an
+undeclared subcommand deletes the skill silently rather than degrading it.
+
+`/inflight` is the only skill carrying two injected lines, so its `allowed-tools`
+carries four patterns rather than two: the pair above, plus
+`Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)` for
+the preflight line every skill now has at the top of its body. The list is
+additive for the same reason it is a list: one entry per subcommand across both
+lines, four subcommands, four patterns. Extending it rather than replacing it is
+the whole point -- dropping either pair to make room for the other deletes the
+skill on exactly the host the surviving pair was meant to protect.
 
 ## Session id and the empty-state
 
@@ -72,9 +107,11 @@ structurally invisible to capture, so the ledger (and the block) will not list
 it.
 
 The sanctioned recovery is to submit it through the validated verb, never to
-narrate it as prose:
+narrate it as prose. Run:
 
-!`shirabe work-summary track <pr-url> [<pr-url> ...]`
+```
+shirabe work-summary track <pr-url> [<pr-url> ...]
+```
 
 `track` validates each URL against the anchored PR-URL pattern **and** a live
 `gh pr view` before appending it to this session's ledger (marked

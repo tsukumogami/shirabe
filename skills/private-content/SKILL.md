@@ -2,7 +2,10 @@
 name: private-content
 description: Content guidelines for private repository artifacts -- what's allowed when writing issues, PRs, design docs, and code comments in private repos.
 disable-model-invocation: true
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh private-content 2>&1 || true`
 
 # Private Repository Content Guidelines
 

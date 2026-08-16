@@ -2,7 +2,11 @@
 name: work-on
 description: Implement work end-to-end with branch creation, analysis, coding, tests, and a pull request with CI monitoring. Accepts a GitHub issue (number or URL), a milestone (selects the next unblocked issue), a PLAN document path (drives multiple issues through one shared branch and PR), or a free-form task description. Use when asked to work on, implement, fix, build, tackle, pick up, close, or ship work — at any size, from a single issue to a whole plan.
 argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description">'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh work-on 2>&1 || true`
+
 @.claude/shirabe-extensions/work-on.md
 @.claude/shirabe-extensions/work-on.local.md
 
@@ -172,14 +176,6 @@ The plan-level orchestrator — shared branch and draft PR, child spawning, cros
 You are assigned to work on the resolved issue. The issue number determined above replaces `<N>` throughout this workflow. The workflow name `<WF>` is the ARTIFACT_PREFIX value: `issue_<N>` for issue-backed, `task_<slug>` for free-form.
 
 ## Koto Orchestration
-
-### Prerequisites
-
-Run `koto version` to verify koto >= 0.3.3 is installed. If missing:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/tsukumogami/koto/main/install.sh | bash
-```
 
 ### Initialize
 

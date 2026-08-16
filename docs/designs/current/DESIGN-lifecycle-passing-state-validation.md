@@ -629,5 +629,5 @@ The check is read-only — it never writes files, never invokes
   inferencer encodes.
 - `docs/prds/PRD-roadmap-plan-standardization.md` — the parent PRD
   whose R17 and R18 this work amends.
-- `docs/designs/DESIGN-roadmap-plan-standardization.md` — the parent
+- `docs/designs/current/DESIGN-roadmap-plan-standardization.md` — the parent
   DESIGN whose Decision 5 this work reshapes.

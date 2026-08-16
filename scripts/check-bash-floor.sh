@@ -100,7 +100,7 @@ mktempdir() {
 #       /bin/bash. Two also shell out to python3, so a floor run would mostly
 #       exercise that rather than bash.
 
-SUITES="plan execute work-on templates template-consistency"
+SUITES="plan execute work-on preflight templates template-consistency"
 
 suite_scripts() {
     case "$1" in
@@ -109,7 +109,7 @@ suite_scripts() {
             ;;
         execute)
             echo "skills/execute/scripts/run-cascade_test.sh"
-            echo "skills/execute/scripts/preflight_test.sh"
+            echo "skills/execute/scripts/assert-child-template_test.sh"
             # Skips cleanly when koto is absent, which it is on the macOS
             # runner. It is here for the floor's own sake: a developer running
             # this suite on macOS has koto, so the cases execute on 3.2 there.
@@ -123,6 +123,14 @@ suite_scripts() {
             # there.
             echo "skills/work-on/scripts/retry-clearing_test.sh"
             ;;
+        preflight)
+            echo "scripts/skill-preflight_test.sh"
+            echo "scripts/lib/preflight-probe_test.sh"
+            echo "scripts/lib/preflight-report_test.sh"
+            echo "scripts/check-skill-requires_test.sh"
+            echo "scripts/check-skill-injection_test.sh"
+            echo "scripts/check-tool-diagnostic-discards_test.sh"
+            ;;
         templates)
             echo "scripts/check-template-interpolation_test.sh"
             echo "scripts/check-template-interpolation.sh"
@@ -131,6 +139,11 @@ suite_scripts() {
             echo "scripts/validate-template-mermaid.sh"
             echo "scripts/validate-template-mermaid_test.sh"
             echo "scripts/ci-gate-expression_test.sh"
+            # Extracts and runs the settled-branch read straight out of
+            # skills/execute/koto-templates/execute.md, which is what makes it a
+            # template-consistency check rather than a preflight one -- and it is
+            # check-template-consistency.yml that runs it in CI.
+            echo "scripts/settled-branch-read_test.sh"
             ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
@@ -150,6 +163,7 @@ suite_workflow() {
         plan)                 echo ".github/workflows/check-plan-scripts.yml" ;;
         execute)              echo ".github/workflows/check-execute-scripts.yml" ;;
         work-on)              echo ".github/workflows/check-work-on-scripts.yml" ;;
+        preflight)            echo ".github/workflows/check-preflight-scripts.yml" ;;
         templates)            echo ".github/workflows/check-templates.yml" ;;
         template-consistency) echo ".github/workflows/check-template-consistency.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;

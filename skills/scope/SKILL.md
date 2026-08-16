@@ -11,7 +11,10 @@ description: >-
   knows which artifact altitude they want (reach for `/brief`,
   `/prd`, `/design`, or `/plan` directly).
 argument-hint: '<topic-slug or freeform topic> [--upstream <path>]'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope 2>&1 || true`
 
 # Scope
 
@@ -187,6 +190,33 @@ CLAUDE.md-header > default` stack:
   CLAUDE.md — the durable workspace preferences that, when present,
   signal coordinated defaults for routine efforts.
 - default — single-repo (intent absent).
+
+**The moment intent resolves to coordinated, verify the mode-scoped
+prerequisites.** `skills/scope/requires.tsv` declares two `mode:coordinated`
+records — `shirabe validate` with `--coordination-body` and `--merge-gate`,
+and `gh` — and neither was checked when this skill loaded. The load-time
+check evaluates `always` records only, because intent had not resolved yet
+and reporting on a record it never evaluated would be a claim it can't
+support; field four of the declaration is where the deferral is visible.
+Run, before the coordination PR is authored:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode coordinated 2>&1 || true
+```
+
+Silence means the coordinated surface is present and the run proceeds
+normally. Output names a prerequisite the coordinated path depends on and
+the single-repo path does not; surface it to the author before creating the
+PR, since a missing `gh` here means an authored body with nowhere to go.
+
+This is a command the skill runs mid-run through Bash, not a `!`-prefixed
+injected line at column 0, and it is not subject to
+`scripts/check-skill-injection.sh`, which reads only injected lines. It
+carries `2>&1 || true` anyway, for the same reason the injected line does:
+a missing script or an unexpanded `${CLAUDE_PLUGIN_ROOT}` exits 127, and an
+unguarded 127 mid-chain kills a run that has already written state. The
+contract for the `--mode` call is in
+[`${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md`](${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md).
 
 When intent is present, `/scope` creates the coordination PR **up
 front**, before invoking any child. Like every other shirabe
@@ -639,24 +669,41 @@ Phase 2 runs `shirabe validate --format json
 after the child returns and before invoking the next child. The
 validator is the same binary shirabe ships at `cmd/shirabe/`; the
 visibility flag inherits the visibility detection result (see
-Visibility Detection above).
+Visibility Detection above). Phase 2 captures BOTH stdout and
+stderr from the sub-process; stderr is never discarded, because in
+the no-envelope case below it is the entire diagnostic.
 
-Phase 2 parses the `shirabe-validate/v1` JSON envelope and
-branches on the multi-level exit code: **0 (clean)** advances to
+**Precedence: the envelope decides before the exit code does.**
+Phase 2 parses stdout for the `shirabe-validate/v1` envelope
+FIRST. Absence of a parseable envelope means the validator never
+reached a verdict, whatever the exit code: treat the run as a
+tool-error, surface the captured stderr verbatim as the
+diagnostic, and halt WITHOUT reporting a document violation. This
+rule is load-bearing for a stale binary: a `shirabe` too old to
+recognize a flag `/scope` passes rejects it as a usage error and
+exits 2, which without this rule reads as "violations" and sends
+the author to fix a document that is not broken. The exit-code
+branch below applies ONLY once the envelope has parsed.
+
+With a parsed envelope, Phase 2 branches on the multi-level exit
+code (see `docs/guides/multi-consumer-cli-contract.md`): **0
+(clean)** advances to
 the next child; **2 (violations)** halts the chain and routes via
 R8's bail-handling, surfacing each error-severity finding as
 `<message> (<file>:<line>)` (the `message` already embeds the
 check code, so it is not prepended again) so the author sees which
 check failed in plain terms; **1 (tool-error)** is a validator
 failure DISTINCT from a content violation (the validator could
-not run) and halts without reporting a document violation;
+not run, or was invoked wrongly) and halts without reporting a
+document violation, surfacing the captured stderr;
 **4 (incomplete)** means the validator accepted the intermediate
 and then did not check it (its `schema:` is missing or out of
 range) and halts, surfacing the envelope's `skipped` entries —
 also not a content violation, because the content was never read.
 `/scope` does NOT auto-fix validator failures and does NOT
 re-implement the validator's checks — only the consumption
-mechanism changed (JSON parse plus multi-level exit code). The
+mechanism changed (envelope-presence precedence, then the
+multi-level exit code). The
 author is the validator-failure resolver, and the chain remains
 halted until the author addresses the failure and re-invokes
 `/scope`. The per-phase mechanism (which validator flag, which

@@ -395,6 +395,33 @@
         "Plan suppresses the pre-authoring upstream notice when re-entry protection held /brief back",
         "Plan does not otherwise alter the chain-proposal output or its options block in either case"
       ]
+    },
+    {
+      "id": 27,
+      "name": "stale-validator-no-envelope-is-a-tool-error",
+      "prompt": "/scope inline-diff",
+      "expected_output": "The chain reaches Phase 2's validator pass-through against the intermediate /brief just produced, but the shirabe on PATH is a stale build that does not recognize a flag the pass-through passes: it writes nothing to stdout, writes \"error: unexpected argument '--format' found\" to stderr, and exits 2. Phase 2 tests stdout for the shirabe-validate/v1 envelope BEFORE consulting the exit code, finds none, and classifies the run as a tool-error even though the exit code is 2 -- the code that means violations only for a run that reached a verdict. The chain halts and the captured stderr is surfaced verbatim as the diagnostic. Phase 2 does NOT report a document violation, does NOT name a check code, and does NOT send the author to edit the BRIEF, which is not broken; the author is pointed at the validator invocation (a stale or wrong shirabe binary) instead.",
+      "files": [],
+      "expectations": [
+        "Plan parses stdout for the shirabe-validate/v1 envelope before consulting the exit code",
+        "Plan treats a run with no parseable envelope as a tool-error regardless of the exit code, including exit 2",
+        "Plan surfaces the captured stderr as the diagnostic rather than discarding it",
+        "Plan does NOT report a document violation, name a check code, or send the author to edit the BRIEF"
+      ]
+    },
+    {
+      "id": 28,
+      "name": "coordinated-intent-verifies-its-mode-scoped-records",
+      "prompt": "/scope inline-diff --coordinated",
+      "expected_output": "Coordination intent resolves to coordinated on the flag, which is the moment /scope's mode:coordinated records become live -- shirabe validate's --coordination-body and --merge-gate modes, and gh. None of them was checked at load, because the load-time preflight evaluates always records only and intent had not resolved yet. So before the coordination PR is authored and posted, the transcript runs bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh scope --mode coordinated 2>&1 || true, keeping the guard. Silence means the coordinated surface is present and the create-up-front phase proceeds; output is surfaced to the author before the PR is created. A /scope run with no coordination intent makes no such call, because no mode was selected.",
+      "files": [],
+      "expectations": [
+        "Plan runs the preflight entry point with --mode coordinated once intent resolves to coordinated",
+        "Plan keeps the 2>&1 || true guard on that call rather than running it bare",
+        "Plan makes the call before authoring or posting the coordination PR body, not after",
+        "Plan makes no mode call on a single-repo run where intent is absent",
+        "Plan does NOT substitute its own gh or shirabe probe for the check"
+      ]
     }
   ]
 }

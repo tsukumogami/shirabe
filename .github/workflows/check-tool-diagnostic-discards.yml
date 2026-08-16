@@ -1,0 +1,29 @@
+name: Check tool diagnostic discards
+
+on:
+  pull_request:
+    paths:
+      - 'skills/**'
+      - 'references/tool-diagnostic-discards.md'
+      - 'scripts/check-tool-diagnostic-discards.sh'
+      - 'scripts/check-tool-diagnostic-discards_test.sh'
+      - '.github/workflows/check-tool-diagnostic-discards.yml'
+
+jobs:
+  check-tool-diagnostic-discards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # A call site that throws away a declared tool's diagnostics has to be
+      # written down in references/tool-diagnostic-discards.md, with the exit
+      # status its fallback is entered on and the incident behind it. The scan
+      # makes no judgment about whether the discard was reasonable -- that
+      # judgment moved into a reviewed file, which is the point. It fails in
+      # both directions, so the list cannot rot into a permanent allowlist.
+      #
+      # The test harness runs the check against the tree as its first case, so
+      # this one step covers both the scan and its own regression suite. No
+      # matrix: the scan is pure text and behaves the same everywhere.
+      - name: Check every discarded tool diagnostic is enumerated
+        run: bash scripts/check-tool-diagnostic-discards_test.sh

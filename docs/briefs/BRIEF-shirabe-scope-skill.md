@@ -512,5 +512,5 @@ The scope explicitly excludes:
   `skills/explore/references/phases/phase-3-converge.md`.
 - Shared design doc (planned, renamed from
   `DESIGN-shirabe-explore-split.md`):
-  `docs/designs/DESIGN-shirabe-scope-skill.md`.
+  `docs/designs/current/DESIGN-shirabe-scope-skill.md`.
 - Cross-repo visibility rules: `references/cross-repo-references.md`.

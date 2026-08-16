@@ -14,7 +14,10 @@ description: >-
   multi-phase workflow: conversational scoping, parallel research agents,
   structured drafting, and jury review.
 argument-hint: '<initiative topic>'
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh roadmap 2>&1 || true`
 
 @.claude/shirabe-extensions/roadmap.md
 @.claude/shirabe-extensions/roadmap.local.md
@@ -379,7 +382,7 @@ this skill may depend on it:
   feature (one `gh issue create` invocation per feature, discrete args),
   then renders an issue-keyed table and diagram. This path goes through the
   R14 approval gate below. Reached only by an explicit human invocation of
-  `/roadmap populate <path>`, after the roadmap is approved.
+  `/roadmap populate <path> --issues`, after the roadmap is approved.
 
 Passing both flags is an error: the subcommand rejects the invocation
 during argument parsing, so nothing is written and no `gh` call is made.
@@ -408,8 +411,14 @@ the dependency-diagram convention come from
 ### Invocation
 
 ```
-/roadmap populate <path>
+/roadmap populate <path> --issues
+/roadmap populate <path> --no-issues
 ```
+
+Name the mode at the slash-command layer too. `/roadmap populate <path>`
+with no flag is the human-at-a-shell form documented under Context
+Resolution, where the `## Roadmap Issues:` header resolves it; it is not a
+form this skill emits.
 
 Or, equivalently, invoking the CLI directly from the project root. The
 issue-creating form, used by the post-approval issue-filing action:
@@ -449,6 +458,42 @@ Options:
 - `--repo <owner/repo>` -- override the repo used when rendering issue links
 - `--dry-run` -- skip `gh` invocations; synthesize a deterministic mapping
 - `-h, --help` -- print help
+
+### Mode-scoped prerequisite check (issue-creating mode)
+
+Selecting issue-creating mode is the moment `/roadmap`'s `mode:issues`
+records become live. `skills/roadmap/requires.tsv` declares two of them:
+`shirabe roadmap populate` with the milestone and mapping flags, and `gh`,
+which no issueless run touches at all. Neither was checked when this skill
+loaded -- the load-time check evaluates `always` records only, because the
+mode had not been chosen and reporting on a record it never evaluated would
+be a claim it can't support. Field four of the declaration is where the
+deferral is visible.
+
+So verify them here, once issue-creating mode is settled and before the R14
+gate presents anything to the author:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh roadmap --mode issues 2>&1 || true
+```
+
+Silence means every `mode:issues` record is satisfied; run the gate and
+carry on. Output means a prerequisite the issue-creating path depends on is
+not met -- report it to the author before filing anything, because a `gh`
+that isn't there fails partway through a per-feature loop and leaves the
+roadmap half-filed.
+
+This is a command the skill runs mid-run through Bash, not a `!`-prefixed
+injected line at column 0, so `scripts/check-skill-injection.sh` -- which
+reads only injected lines -- never sees it and the `allowed-tools`
+frontmatter is not what governs it. It is deliberately placed here rather
+than in the frontmatter: the injected line runs before the model sees the
+body, which is before this decision exists. The `2>&1 || true` guard is carried for the
+same reason the injected line carries it -- a missing script or an
+unexpanded `${CLAUDE_PLUGIN_ROOT}` exits 127, and an unguarded 127 at this
+point kills a run that has already written the roadmap. The contract for the
+`--mode` call is in
+[`${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md`](${CLAUDE_PLUGIN_ROOT}/references/tool-declaration-policy.md).
 
 ### R14 approval gate (lives in this caller, not in the subcommand)
 

@@ -2,7 +2,10 @@
 name: public-content
 description: Content guidelines and restrictions for public repository artifacts -- what to avoid when writing issues, PRs, design docs, and code comments in public repos.
 disable-model-invocation: true
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
+
+!`bash ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh public-content 2>&1 || true`
 
 # Public Repository Content Guidelines
 

@@ -620,7 +620,7 @@ The implementation handoff to a downstream sub-DESIGN settles:
   public-cleanliness): `docs/prds/PRD-roadmap-plan-standardization.md`.
 - Parent DESIGN (Decision 3 staging the reconciliation increment
   behind a notice rollout):
-  `docs/designs/DESIGN-roadmap-plan-standardization.md`.
+  `docs/designs/current/DESIGN-roadmap-plan-standardization.md`.
 - Parent PLAN (the row that schedules this increment as the FC08 leaf
   node depending on FC07's class-extraction infrastructure):
   `docs/plans/PLAN-roadmap-plan-standardization.md`.

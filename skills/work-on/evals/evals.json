@@ -164,13 +164,13 @@
       "mode": "execute",
       "scenario": "koto-missing",
       "prompt": "/work-on #10",
-      "expected_output": "Agent resolves issue #10, reads it successfully, detects koto is not installed when running koto version, then installs koto using the install script before proceeding.",
+      "expected_output": "Agent resolves issue #10 and reads it successfully. The koto prerequisite is checked by the load-time preflight line the skill carries, not by prose in the body: SKILL.md no longer has a Prerequisites section and states no version floor. When the preflight reports koto's prerequisite is unmet, the agent relays what the report says and runs the one command the report names. It never substitutes its own probe or its own install command.",
       "files": [],
       "expectations": [
         "Agent reads issue #10 with gh issue view",
-        "Agent attempts to run koto version to check prerequisites",
-        "Agent detects that koto is not installed or not on PATH",
-        "Agent attempts to install koto using curl and the install script",
+        "Agent does NOT run koto version as its own prerequisite check -- the skill declares koto in requires.tsv and the injected preflight line checks it at load",
+        "Agent does NOT install koto with a curl-pipe-bash install script",
+        "When a preflight report is present, the agent treats it as the authority on which prerequisite is unmet and on the command that resolves it",
         "Agent does NOT skip koto and fall back to manual orchestration"
       ]
     },

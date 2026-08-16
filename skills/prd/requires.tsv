@@ -1,0 +1,13 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# SKILL.md transitions the upstream BRIEF to Accepted.
+# references/prd-format.md tells the author to run `shirabe validate --check
+# <CODE>` to evaluate one validation rule in isolation; the flag is what makes
+# that call single-rule, so it is named.
+#
+# Phase 4 removes a rejected draft with `git rm` and commits the rationale with
+# `git commit -F`.
+shirabe	transition	-	always
+shirabe	validate	--check	always
+git	-	-	always

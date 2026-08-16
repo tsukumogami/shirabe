@@ -1,0 +1,12 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# The heaviest gh user in the corpus after /execute: release create, release
+# view, release delete, workflow run, run list, run view, api, issue list, pr
+# list, auth status. Version analysis reads `git describe` and `git log`, and
+# the no-workflow fallback tags and pushes.
+#
+# Both are independent-cadence, so each is one tool-only record however many
+# subcommands the skill calls.
+gh	-	-	always
+git	-	-	always

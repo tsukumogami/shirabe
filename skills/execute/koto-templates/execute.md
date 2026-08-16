@@ -442,7 +442,31 @@ TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
 # Route children to the branch orchestrator_setup settled on (the adopted/override
 # branch), falling back byte-identically to impl/$PLAN_SLUG on the fresh path (R7).
-SETTLED_BRANCH=$(koto context get {{SESSION_NAME}} settled_branch 2>/dev/null || echo "impl/$PLAN_SLUG")
+# `koto context get` writes its "key absent" JSON to stdout, not stderr, so the old
+# `2>/dev/null || echo` shape spliced that blob into the variable next to the
+# fallback. Branch on exit status instead: 0 is a stored value, 3 is an absent key
+# or session (the fresh path), and anything else -- 2 for a usage error, 127 for a
+# missing binary -- is a real failure that must surface rather than be replaced by
+# a fabricated branch name that flows onward as though the read succeeded.
+SETTLED_ERR=$(mktemp)
+SETTLED_OUT=$(koto context get {{SESSION_NAME}} settled_branch 2>"$SETTLED_ERR")
+SETTLED_RC=$?
+case "$SETTLED_RC" in
+  0) ;;
+  3) SETTLED_OUT="impl/$PLAN_SLUG" ;;
+  *)
+    echo "execute: koto context get settled_branch failed (exit $SETTLED_RC)" >&2
+    if [ -s "$SETTLED_ERR" ]; then cat "$SETTLED_ERR" >&2; fi
+    if [ -n "$SETTLED_OUT" ]; then printf '%s\n' "$SETTLED_OUT" >&2; fi
+    rm -f "$SETTLED_ERR"
+    exit "$SETTLED_RC"
+    ;;
+esac
+rm -f "$SETTLED_ERR"
+SETTLED_BRANCH="$SETTLED_OUT"
+# Defence in depth, no longer load-bearing: the exit-status branch above already
+# guarantees this is either koto's stored value or the fallback, never an error
+# blob. Kept so a malformed stored value still cannot reach a branch name.
 case "$SETTLED_BRANCH" in
   *[!A-Za-z0-9._/-]*|"") SETTLED_BRANCH="impl/$PLAN_SLUG" ;;
 esac
@@ -460,8 +484,28 @@ koto materializes one child per task using `work-on.md` with `failure_policy: sk
 PLAN_SLUG=$(basename {{PLAN_DOC}} .md | sed 's/^PLAN-//')
 TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
-# Same settled-branch read as Tick 1 — the dedup re-submit must inject the same branch.
-SETTLED_BRANCH=$(koto context get {{SESSION_NAME}} settled_branch 2>/dev/null || echo "impl/$PLAN_SLUG")
+# Same settled-branch read as Tick 1 — the dedup re-submit must inject the same
+# branch, so it branches on exit status the same way. 3 is an absent key and takes
+# the fallback; 2 and 127 stop the step instead of fabricating a branch name.
+SETTLED_ERR=$(mktemp)
+SETTLED_OUT=$(koto context get {{SESSION_NAME}} settled_branch 2>"$SETTLED_ERR")
+SETTLED_RC=$?
+case "$SETTLED_RC" in
+  0) ;;
+  3) SETTLED_OUT="impl/$PLAN_SLUG" ;;
+  *)
+    echo "execute: koto context get settled_branch failed (exit $SETTLED_RC)" >&2
+    if [ -s "$SETTLED_ERR" ]; then cat "$SETTLED_ERR" >&2; fi
+    if [ -n "$SETTLED_OUT" ]; then printf '%s\n' "$SETTLED_OUT" >&2; fi
+    rm -f "$SETTLED_ERR"
+    exit "$SETTLED_RC"
+    ;;
+esac
+rm -f "$SETTLED_ERR"
+SETTLED_BRANCH="$SETTLED_OUT"
+# Defence in depth, no longer load-bearing: the exit-status branch above already
+# guarantees this is either koto's stored value or the fallback, never an error
+# blob. Kept so a malformed stored value still cannot reach a branch name.
 case "$SETTLED_BRANCH" in
   *[!A-Za-z0-9._/-]*|"") SETTLED_BRANCH="impl/$PLAN_SLUG" ;;
 esac

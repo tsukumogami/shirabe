@@ -8,6 +8,7 @@ on:
       - 'scripts/validate-template-mermaid.sh'
       - 'scripts/validate-template-mermaid_test.sh'
       - 'scripts/ci-gate-expression_test.sh'
+      - 'scripts/settled-branch-read_test.sh'
       - 'scripts/lib/koto-gates.sh'
       - '.github/workflows/check-template-consistency.yml'
 
@@ -31,3 +32,6 @@ jobs:
 
       - name: Test the CI gate expression
         run: bash scripts/ci-gate-expression_test.sh
+
+      - name: Test the settled-branch read
+        run: bash scripts/settled-branch-read_test.sh

@@ -1,0 +1,6 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# Explicitly empty. /review-plan reads a plan artifact and its wip/ siblings
+# and writes a verdict; nothing in SKILL.md, the seven phase files, or the two
+# templates invokes a host tool.

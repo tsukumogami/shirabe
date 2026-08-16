@@ -1,0 +1,10 @@
+#schema	skill-requires/v1
+# Split rule: references/tool-declaration-policy.md
+#
+# /vision's only host-tool call is the lifecycle transition. `--superseded-by`
+# is on the call line in references/vision-format.md and carries the Sunset
+# supersession target, so the call's behaviour depends on it.
+#
+# The `shirabe validate` mentions elsewhere in this skill describe what CI runs
+# against the finished VISION, not a call /vision makes.
+shirabe	transition	--superseded-by	always

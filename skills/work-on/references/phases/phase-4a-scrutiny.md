@@ -32,11 +32,14 @@ After all three return:
 - If all `blocking_count: 0`: write `scrutiny_results.json` to koto context and submit `scrutiny_outcome: passed`.
 
 ```bash
-koto context add <WF> scrutiny_results.json < /dev/stdin <<EOF
-{"passed": true, "round": 1, "blocking_count": 0}
+koto context add <WF> scrutiny_results.json <<EOF
+{"passed": true, "round": <N>, "blocking_count": 0}
 EOF
 koto next <WF> --with-data '{"scrutiny_outcome": "passed"}'
 ```
+
+`<N>` is the number of the scrutiny round that just ran: 1 the first time
+through, incremented on each pass through the retry loop below.
 
 **The `"passed": true` field is the evidence contract, not decoration.** The
 `scrutiny_results` gate is `context-matches` on
@@ -97,8 +100,24 @@ original defect here, when this step named a removal subcommand koto's context
 group does not have and failed silently on every run.
 
 Then spawn all three reviewers again. The coder agent's fixes should resolve the
-blocking findings, and this round's `scrutiny_results.json` replaces the
-sentinel.
+blocking findings, and this round's `scrutiny_results.json` — written by the
+Aggregation command above with `<N>` set to the new round's number — replaces
+the sentinel.
+
+**This supersedes an earlier prose-only repair of the same defect.** That
+version told the agent to ignore the stale artifact, not to try deleting it, and
+to overwrite it when the fresh round passed, closing with: the gate "is
+`context-exists` — it checks that the key is present, not which round wrote it —
+so what keeps an earlier pass from advancing the workflow is the
+`scrutiny_outcome` you submit." Every sentence of that was true of the file it
+was written against, and it correctly removed the instruction to run a verb koto
+does not have.
+
+It is replaced rather than merged because its last clause is the whole problem:
+it makes the guarantee an agent's submitted outcome, which is prose the agent
+can skip, on a workflow where an agent skipping a step is the failure mode that
+produced this defect twice. The gate is now `context-matches`, so the sentence
+is also no longer factually true — presence is not what it checks.
 
 ## Escalation
 

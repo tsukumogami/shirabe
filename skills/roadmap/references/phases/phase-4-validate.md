@@ -232,8 +232,8 @@ Three things about this step:
   unconditionally, regardless of what `## Roadmap Issues:` resolved to
   during setup. An automatic run must never create GitHub issues; the
   preference governs only what a human-invoked `/roadmap populate <path>`
-  does. Pass the flag explicitly rather than relying on the subcommand's
-  default.
+  does when that human passes no mode flag. Pass the flag explicitly rather
+  than relying on the subcommand's default.
 - **The R14 approval gate does not apply.** Nothing is created, so there
   is nothing to approve. Do not present the gate here.
 - **Warnings are worth surfacing.** The run reports on stderr when a
