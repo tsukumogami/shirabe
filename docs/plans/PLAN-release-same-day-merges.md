@@ -64,13 +64,23 @@ and both consumers read it.
       states the squash-merge assumption the parse rests on.
 - [x] Phase 1 also derives the commits in the range that carry no pull request
       reference.
+- [x] The derivation reaches its consumers. Each phase block runs as its own
+      shell invocation, so the three values are written to files under `wip/`
+      rather than left in shell variables; review caught this and it is the
+      difference between the fix working and the security precondition passing
+      on an empty list.
 - [x] Phase 2's sixth precondition reads labels for the derived set rather than
       running a `merged:>` search, and its treatment guidance (read the PR
       first, recommend one of standard/redacted/excluded, name the tiebreaker)
-      is unchanged.
-- [x] Phase 3 step 2 reads the derived set rather than running a `merged:>`
-      search.
-- [x] Phase 3 prints the unattributed-commit list beneath the drafted notes.
+      keeps its shape. One sentence of it did change: the tiebreaker is now
+      named on every recommendation rather than only on a borderline call. That
+      was not planned here; it came out of the eval run, and the reasoning is in
+      commit `ff61187`.
+- [x] Phase 3 step 1 reads the range from the carrier and step 2 cross-checks
+      the derived set against the subjects it gathered, rather than running a
+      `merged:>` search.
+- [x] Phase 1 prints the unattributed-commit list before the notes are drafted,
+      which is what R4 requires, and Phase 3 step 5 reprints it beneath them.
 - [x] `grep -c 'LAST_TAG_DATE' skills/release/SKILL.md` returns 0.
 - [x] Executing the rewritten Phase 1 derivation against `v0.17.0..4859557`
       yields a set containing `297`, and executing the rewritten Phase 2 label
