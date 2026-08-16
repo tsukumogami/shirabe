@@ -47,7 +47,7 @@ in one sitting, plus the child skills you can also reach for directly.
 
 | Skill | What it does |
 |-------|-------------|
-| `/explore` | Fan out research agents to investigate options and figure out which artifact to produce next |
+| `/explore` | Fan out research agents to investigate options, then route you to where the work starts: an issue, `/charter`, `/scope`, or an existing plan |
 | `/review-plan` | Adversarial review of a plan across scope, design fidelity, acceptance criteria, and sequencing (runs automatically inside `/plan`, so you don't need to invoke it directly; still callable on an existing plan) |
 | `/decision` | Structured decision-making for contested choices with adversarial agents, cross-examination, and synthesis (also callable from inside `/design`) |
 | `/release` | Recommend a version, generate release notes, draft a GitHub release, dispatch the release workflow, and monitor it |
@@ -74,11 +74,18 @@ artifacts and drive work off them. The frontmatter and sections are what
 resumable: a `/execute` run picks up a PLAN by reading its status, and `/plan`
 refuses to run against a DESIGN that isn't Accepted yet.
 
-Artifacts come in two kinds. **Durable** artifacts stay in `docs/` after the
-work ships and serve as the audit trail: VISION, STRATEGY, BRIEF, PRD, DESIGN,
-COMP. **Working** artifacts -- ROADMAP and PLAN -- are not part of that audit
-trail; they exist to drive work, and the completion cascade can retire them
-once it is done.
+Artifacts come in two kinds. **Durable** artifacts serve as the audit trail:
+VISION, STRATEGY, BRIEF, PRD, DESIGN, COMP. **Working** artifacts -- ROADMAP
+and PLAN -- are not part of that audit trail; they exist to drive work, and the
+completion cascade can retire them once it is done.
+
+A durable artifact usually stays in `docs/` after the work ships, but there is
+one way it leaves: `/scope` can fold it into the document below it. After each
+child lands, the chain asks whether the upstream holds anything its successor
+does not. Where it does not, the upstream's contribution is carried into the
+survivor as one section and the upstream is removed, with the fold recorded in
+`docs/folds.md`. That judgment is only ever made against two documents that
+exist -- never against one that has not been written.
 
 Retirement is conditional, not automatic. A PLAN is `git rm`'d before its work
 merges, while the PR is still a draft. A ROADMAP is only reached by the cascade
@@ -100,10 +107,12 @@ never visited by any cascade and stays on disk until someone removes it.
 
 Artifacts reference each other through an `upstream:` frontmatter field.
 Each one points at the nearest artifact actually produced above it, and omits
-the field when nothing was. Not every step runs: a feature framed directly in
-its PRD has no BRIEF, so that PRD points at the ROADMAP instead, and a
-straightforward feature may skip the DESIGN entirely. The field records what
-the chain really did, not an idealized shape.
+the field when nothing was. Not every artifact is always there, for two
+reasons, and neither is a step someone decided to skip: you can invoke a child
+directly rather than the parent, so a PRD written on its own has no BRIEF above
+it, and a fold can remove an artifact after the fact. A chain run through
+`/scope` walks all four of its children every time. The field records what the
+chain really did, not an idealized shape.
 
 What it never does is point downward or sideways. A BRIEF does not point at a
 PRD, which is written from the brief's framing rather than the other way
@@ -136,30 +145,35 @@ need to add a plugin system to your CLI tool, but you're not sure where to start
 **Step 1 -- Explore.** You run `/explore plugin system` and describe what you're
 thinking. shirabe spins up research agents that look at how your codebase is
 structured, what plugin approaches exist, and what constraints matter. After a
-few rounds of convergence, it recommends producing a PRD first (since you
-haven't nailed down requirements yet) and a design doc after.
+few rounds of convergence it routes you: this is one coherent feature inside a
+project that already exists, so the answer is `/scope`. It hands over what the
+exploration settled so you don't answer the same questions twice.
 
-**Step 2 -- Requirements.** You run `/prd plugin system`. Through a
-conversational scoping phase, shirabe narrows the feature to concrete
-requirements: "plugins must be loadable from a directory", "plugins declare
-capabilities via a manifest file", etc. Parallel research agents check your
-codebase for existing patterns. A 3-agent jury reviews the draft for
-completeness and consistency.
+**Step 2 -- Scope.** You run `/scope plugin-system`, and the tactical chain runs
+as one conversation.
 
-**Step 3 -- Design.** You run `/design docs/prds/PRD-plugin-system.md`. shirabe
-decomposes the PRD into decision questions: "how should plugins be discovered?",
-"what's the manifest format?", "how do we handle version conflicts?" Each
-question gets a structured trade-off analysis with alternatives. The final
-design doc captures the chosen approach with rationale.
+It opens with a **brief**: the problem, the outcome you want, the journeys that
+exercise it, and where the feature ends. Then a **PRD** narrows that to concrete
+requirements -- "plugins must be loadable from a directory", "plugins declare
+capabilities via a manifest file" -- with research agents checking your codebase
+for existing patterns and a three-agent jury reviewing the draft. Then a
+**design** decomposes those requirements into decision questions: "how should
+plugins be discovered?", "what's the manifest format?", "how do we handle
+version conflicts?" Each gets a structured trade-off analysis with real
+alternatives. Finally a **plan** breaks the design into atomic issues ordered by
+dependency, each with acceptance criteria specific enough to verify
+mechanically; `/review-plan` challenges it before any issues are created.
 
-**Step 4 -- Plan.** You run `/plan docs/designs/DESIGN-plugin-system.md`. shirabe
-breaks the design into atomic issues, ordered by dependency. A walking skeleton
-issue comes first so you can validate the end-to-end flow early. Each issue gets
-acceptance criteria specific enough to verify mechanically. `/review-plan` then
-challenges the plan before any issues are created -- catching gaps in scope,
-weak acceptance criteria, or sequencing problems.
+Every one of those four runs. After each lands, the chain asks whether the
+document above it still holds anything the new one does not -- and folds it away
+if not. So you might end up with all four, or with a PRD that carries the
+brief's framing inside it. What you never get is a step skipped because
+something guessed, before writing it, that it would not have been worth
+reading. Each child is also invocable on its own if you already know the
+altitude you want; that buys a shorter conversation, not a smaller set of
+documents.
 
-**Step 5 -- Implement.** If `/plan` created a GitHub milestone, you run
+**Step 3 -- Implement.** If `/plan` created a GitHub milestone, you run
 `/work-on M3`. shirabe picks the first unblocked issue, creates a branch,
 analyzes the code, implements the change, runs it through a three-panel review
 (completeness/justification/intent, then pragmatic/architect/maintainer, then

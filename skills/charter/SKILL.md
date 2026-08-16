@@ -215,13 +215,16 @@ The ladder shape follows the universal meta-ladder template at
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md`:
 universal rows 1-4 (malformed → exit set → fresh resume → stale-
 session) and rows 9-10 (on-topic branch → main fallback) are the
-pattern-level meta-ladder; rows 5-8 are parent-specific body slots
+pattern-level meta-ladder; rows 5-8.5 are parent-specific body slots
 `/charter` fills against its child set (`/vision`, `/strategy`,
 `/roadmap`). Slot 5 (status-aware re-entry) expands into rows 5-6
 for Accepted/Active vs Draft STRATEGY; slot 6 (partial-child-run)
 expands into rows 7-8 for `/strategy` vs `/vision`; slot 7
-(feeder-doc-detected) is unfilled because `/charter` has no
-feeder-doc case.
+(feeder-doc-detected) is row 8.5, matching the `/explore` handoff at
+`wip/charter_<topic>_handoff.md`. The fractional number keeps rows 9
+and 10 — the shared meta-ladder tail `/scope` uses too — at their
+existing ordinals; the template licenses a body slot to expand this
+way.
 
 Because `/roadmap` runs on every full-run chain, an interrupted
 chain commonly leaves a Draft STRATEGY on disk with `/roadmap`
@@ -234,7 +237,8 @@ does, and into `/strategy` otherwise.
 `last_updated` ≥ 7 days old surfaces the Resume / Force-materialize
 / Discard prompt; fresher state silently resumes.
 
-The ladder body (rows 1-10 with the prompt vocabulary for each row,
+The ladder body (rows 1 through 10, row 8.5 included, with the
+prompt vocabulary for each row,
 dual-check drift detection, status-aware re-entry suppression, and
 R14 child-internals isolation discipline) lives in
 `skills/charter/references/phases/phase-resume.md`.
@@ -330,14 +334,19 @@ would also make the flag unable to express the one case that
 motivates it, since the strategic corpus commonly lives outside the
 repo the chain runs in.
 
-**Closed write-target set.** `/charter` writes to exactly five
+**Closed write-target set.** `/charter` writes to exactly six
 places: the state file at `wip/charter_<topic>_state.md`, the
 `/roadmap` handoff at `wip/roadmap_<topic>_scope.md`, Decision
 Records under `docs/decisions/`, the force-materialized partial
 artifact its abandonment path produces under `docs/strategies/`
-(plus the `git rm` of a rejected Draft at the same path), and the
+(plus the `git rm` of a rejected Draft at the same path), the
+removal of the `/explore` handoff at
+`wip/charter_<topic>_handoff.md` once a run has consumed it, and the
 `wip/` cleanup its finalization performs. Every one of those paths
 is composed from the validated topic slug, never from
-author-supplied text. The `--upstream` value does not widen the
+author-supplied text. The `/explore` handoff is a read target that
+becomes a delete target, and it is named here for the same reason
+the rest are: the set is a closed list of concrete paths, so a path
+`/charter` touches and the list omits is outside the set. The `--upstream` value does not widen the
 set: it is a read target only — validated, recorded, handed to a
 child — and is never written to.

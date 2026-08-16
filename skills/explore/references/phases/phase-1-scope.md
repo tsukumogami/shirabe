@@ -23,6 +23,11 @@ scope file now. Then proceed with Phase 1 normally.
 Run this gate before starting the conversation. It sets a pre-classification
 result that may skip the post-conversation gate entirely.
 
+The labels it reads come from outside this skill: a human applies them, or
+roadmap decomposition in `/plan` does. `/explore` writes none of them, so the
+gate is reading what someone else said about the issue, not a classification
+this run made.
+
 **If entering from an issue with the `needs-prd` label:**
 Pre-classify as directional. The adversarial lead will fire. Skip the
 post-conversation gate in section 1.1a.

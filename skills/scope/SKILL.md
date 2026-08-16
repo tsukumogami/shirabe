@@ -354,8 +354,10 @@ shape: Slot 5 has 9 rows evaluated most-downstream-first (with
 PLAN-Active and PLAN-Done as refuse-and-redirect rows owned by
 downstream skills, and DESIGN-Accepted / PRD-Accepted as the two
 settled-upstream boundary rows offering the **Re-evaluate /
-Revise / Bail** triad); Slot 6 has 4 partial-child-run rows;
-Slot 7 is vacuous in v1.
+Revise / Bail** triad); Slot 6 has 4 partial-child-run rows; Slot 7
+is the feeder-doc clause, matching the `/explore` handoff at
+`wip/scope_<topic>_handoff.md` and entering Phase 1 with it
+pre-loaded.
 
 ## Phase Execution
 
@@ -372,8 +374,9 @@ Execute phases sequentially by reading the corresponding phase file:
    - Instructions: `skills/scope/references/phases/phase-1-discovery.md`
 
 2. **Child Invocation Loop** — invoke the planned chain (the
-   whole tactical chain, minus any child held back by re-entry
-   protection), running the worktree-staleness
+   whole tactical chain on every run; a child held back by re-entry
+   protection stays in the list and is also recorded in
+   `chain_skipped:`), running the worktree-staleness
    check before each invocation, writing the
    `parent_orchestration:` sentinel immediately before invoking,
    clearing the sentinel immediately after, capturing the child
@@ -412,15 +415,16 @@ Execute phases sequentially by reading the corresponding phase file:
 | `skills/scope/references/phases/phase-2-chain-orchestration.md` | Phase 2 — includes Phase-N Reject in-chain mechanism |
 | `skills/scope/references/phases/phase-3-exit-finalization.md` | Phase 3 |
 | `skills/scope/references/phases/phase-4-cleanup.md` | Phase 4 |
-| `skills/scope/references/phases/phase-resume.md` | Resume Logic — Slot 5 (9 rows), Slot 6 (4 rows), Slot 7 (vacuous), Drift Detection (Re-run / Accept / Proceed-without) |
+| `skills/scope/references/phases/phase-resume.md` | Resume Logic — Slot 5 (9 rows), Slot 6 (4 rows), Slot 7 (`/explore` handoff), Drift Detection (Re-run / Accept / Proceed-without) |
 | `skills/scope/references/state-schema.md` | All phases — `/scope`-specific state-file field enumeration (`visibility:`, `consolidation_judgments:`, exit discriminators, worktree audit fields, `drift_acknowledged:`, `parent_orchestration:` sentinel) |
 
 ## Chain-Proposal Output
 
 At the end of Phase 1 discovery, `/scope` emits a chain-proposal
 output naming the children it intends to invoke — always the whole
-tactical chain, minus any child held back by re-entry protection —
-the re-entry verdict for each (per the Gate Vocabulary section of
+tactical chain, with any child held back by re-entry protection
+shown as held rather than dropped from the list — the re-entry
+verdict for each (per the Gate Vocabulary section of
 `parent-skill-pattern.md`), and the per-predicate reasons feeding
 R6's shape-dependent verdict for `/design`'s decision-roster shape
 (architectural-alternatives count, new-component references,
@@ -428,9 +432,17 @@ Complex classification). The output ends with a confirmation prompt
 containing the literal substrings **Proceed**, **Adjust**, and
 **Bail** (case-insensitive) in the offered options.
 
-The proposal never offers a shorter chain, because `/scope` has no
-way to produce one. An author who wants to start above `/brief`
-invokes `/design` or `/plan` directly.
+The proposal never offers a shorter chain. The reason is not that
+`/scope` cannot end a run with fewer documents than the chain has
+altitudes; the consolidation judgment does exactly that in Phase 2.
+The reason is that Phase 1 has no artifact to decide against. A
+shorter chain offered here would be a verdict on documents nobody
+has written, which is the one call the chain does not make.
+
+An author who wants to start above `/brief` still invokes `/design`
+or `/plan` directly. That buys a shorter conversation, not a
+smaller artifact set: inside `/scope`, the set is settled per hop
+after the artifacts land.
 
 The three branch behaviors:
 
@@ -440,12 +452,17 @@ The three branch behaviors:
   adjustment input; re-emit the proposal after re-running the R6
   predicates against the adjusted scope. Adjust refines the topic
   and the framing, not the list of children.
-- **Bail** — route to R8 bail-handling. If any wip state exists
-  for the topic (the state file, any child intermediate, or any
-  research scratch), the bail records `exit: abandonment-forced`
-  and force-materializes the most-recently-running child's
-  intermediate; if no wip state exists, the bail is a clean
-  cancel with no terminal artifact.
+- **Bail** — route to R8 bail-handling. The route turns on what a
+  child produced: a child intermediate under
+  `wip/{brief,prd,design,plan}_<topic>_*` or research scratch
+  under `wip/research/{prd,design}_<topic>_*` records
+  `exit: abandonment-forced` and force-materializes the
+  most-recently-running child's intermediate. With neither on
+  disk the bail is a clean cancel — no terminal artifact, no
+  `exit:` recorded, and the state file disposed of. Nothing under
+  the parent's own `wip/scope_<topic>_*` prefix counts toward the
+  first branch, because nothing under that prefix is a child's
+  output.
 
 The per-predicate reasons feeding the shape-dependent verdict are
 surfaced verbatim so the author sees the predicate verdicts
@@ -488,11 +505,16 @@ decision that shrank the artifact set before any artifact existed,
 and having two reduction mechanisms fire at different times meant
 neither read as the rule.
 
-**A shorter chain is still reached by invoking a child
+**A shorter conversation is still reached by invoking a child
 directly.** `/design <topic>` and `/plan <topic>` enter the
 tactical chain above `/brief`, which is what CLAUDE.md tells
-authors to do when they know the altitude they want. `/scope`
-means "walk the whole chain."
+authors to do when they know the altitude they want. All four
+children ship as standalone entry points, so the choice is real and
+it stays supported. What it no longer is, is the route to a smaller
+artifact set: that is consolidation's call, made per hop against
+documents that exist. Two rules, stated separately, because
+collapsing them puts the artifact-set decision back where no
+artifact exists. `/scope` means "walk the whole chain."
 
 What it no longer means is a fixed outcome. Every hop is
 decidable, so a run ends with all four artifacts, or some, or —
@@ -582,14 +604,23 @@ the exit produces:
   ends with the uniform single-line HTML-comment marker (see the
   Abandonment-Forced HTML-Comment Marker section below).
 
-**R8 bail-handling tie-break.** When the chain bails and the
-abandonment-forced exit must name a `triggering_child`, the
-resolution is the most-recently-running child per the chain's
-progression. The tie-break inspects `wip/{brief,prd,design,plan}_<topic>_*`
-intermediates and resolves to whichever child holds the most-
-recent intermediate; if no intermediate exists, the
-`triggering_child` is whichever child Phase 2 was about to
-invoke when the bail fired.
+**R8 bail-handling.** A bail routes on what a child produced.
+The abandonment-forced branch is taken when a child intermediate
+under `wip/{brief,prd,design,plan}_<topic>_*` or research scratch
+under `wip/research/{prd,design}_<topic>_*` exists for the topic;
+the tie-break then resolves `triggering_child` to whichever child
+holds the most-recent intermediate. Nothing under the parent's own
+`wip/scope_<topic>_*` prefix counts toward that branch, because
+nothing under that prefix is a child's output — which is what lets
+a bail at Phase 1, where the state file exists and no child has
+run, take the other branch.
+
+**Clean cancel.** That other branch produces no terminal artifact,
+records no `exit:` value, and never names a `triggering_child`.
+The bail handler removes `wip/scope_<topic>_state.md` on its way
+out, because Phase 4 does not run on a cancel. The full rule, the
+R9 interaction, and the handoff carve-out live in
+`skills/scope/references/phases/phase-3-exit-finalization.md`.
 
 ## State File Schema
 
@@ -601,7 +632,8 @@ minimum (`topic`, `last_updated`, `phase_pointer`, `exit`,
 with `/scope`-specific fields. The full field enumeration —
 including the exit-conditioned discriminators (`boundary:`,
 `decision_record_sub_shape:`), the invocation-conditioned
-`consumed_upstream:`, the Drift-Detection audit field
+`consumed_upstream:`, the resume-conditioned `consumed_handoff:`,
+the Drift-Detection audit field
 (`drift_acknowledged:`), the worktree-discipline audit fields
 (`worktree_rebases:`, `worktree_divergences:`), and the ephemeral
 `parent_orchestration:` sentinel — lives in
@@ -796,7 +828,8 @@ re-validation, stale `parent_orchestration:` self-heal, visibility
 boundary, and no untrusted-input interpolation. `/scope` v1 binds
 to public-repo tactical chains exclusively. This is the
 authoritative declaration of the closed write-target set; the
-Phase 3 reference restates it and must not diverge from it.
+Phase 3 reference restates it and the Phase 4 reference reads it
+back, and neither may diverge from it.
 
 **Deletions**, by Phase 2's absorb:
 
@@ -830,6 +863,17 @@ the phase is what makes both true at once.
 `docs/decisions/`, force-materialized partials under
 `docs/{briefs,prds,designs}/` on `abandonment-forced`, and
 state-file plus child-wip cleanup under `wip/`.
+
+**Deletion**, by R8's clean cancel:
+
+- `wip/scope_<topic>_state.md` — one path, not the prefix. The
+  bail handler owns it because Phase 4 does not run on a cancel,
+  and naming it here is what keeps the deletion inside the set. `wip/scope_<topic>_handoff.md` sits under the same prefix
+  and is NOT removed by a bail: it belongs to the router rather
+  than to the parent, and leaving it is what lets a later
+  invocation resume against it instead of starting cold.
+  Enumerated here and carved out of the clean cancel, so it is a
+  known target that a bail never sweeps.
 
 Three corrections are folded into that enumeration, each a
 pre-existing defect rather than a consequence of this change. The

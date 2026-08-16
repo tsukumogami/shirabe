@@ -1,9 +1,12 @@
 # Phase 3 — Exit Finalization
 
 Phase 3 lands the chain at one of three terminal exit paths and
-runs the R9 hard-finalization check. Every chain ends here.
+runs the R9 hard-finalization check. Every chain that produces a
+terminal artifact ends here; a bail taken before any child ran
+ends at the clean cancel below instead, which finalizes nothing.
 Phase 3's contracts cover the three exit-path bindings, the R8
-tie-break for `triggering_child:` on abandonment-forced, the
+bail route and its tie-break for `triggering_child:` on
+abandonment-forced, the clean cancel and its one deletion, the
 HTML-comment marker placement for force-materialized partials,
 the `git commit -F` discipline for author-supplied prose
 written into commits, the public-history disclaimer for in-
@@ -16,7 +19,9 @@ touch.
   - [Full-Run Exit](#full-run-exit)
   - [Re-Evaluation Exit](#re-evaluation-exit)
   - [Abandonment-Forced Exit](#abandonment-forced-exit)
-- [R8 Tie-Break for `triggering_child:`](#r8-tie-break-for-triggering_child)
+- [R8 Bail Route](#r8-bail-route)
+  - [R8 Tie-Break for `triggering_child:`](#r8-tie-break-for-triggering_child)
+  - [Clean Cancel](#clean-cancel)
 - [HTML-Comment Marker](#html-comment-marker)
 - [R9 Hard-Finalization Check](#r9-hard-finalization-check)
 - [`git commit -F` Discipline](#git-commit--f-discipline)
@@ -67,7 +72,7 @@ Phase 4 removes the state file, so the record of which artifacts
 were produced and which were absorbed has to leave `wip/` before
 then. Phase 3 writes it into the run's pull-request body: every
 artifact in `chain_ran:`, every entry in `chain_skipped:` with its
-re-entry-protection reason, and every entry in
+`child` and its vocabulary `reason`, and every entry in
 `consolidation_judgments:` with its verdict, its finding, and —
 on a completed absorb — what was absorbed into what.
 
@@ -154,7 +159,24 @@ exit_artifacts:
     status: Draft
 ```
 
-## R8 Tie-Break for `triggering_child:`
+## R8 Bail Route
+
+A bail routes on what a child produced. The abandonment-forced
+branch is taken when a child intermediate under
+`wip/{brief,prd,design,plan}_<topic>_*` or research scratch under
+`wip/research/{prd,design}_<topic>_*` exists for the topic;
+otherwise the bail is a clean cancel.
+
+Nothing under the parent's own `wip/scope_<topic>_*` prefix counts
+toward the abandonment-forced branch, because nothing under that
+prefix is a child's output. The test is stated that way rather than
+as an exclusion of the state file, so a later file under the same
+prefix inherits it: `wip/scope_<topic>_handoff.md` is no more a
+child's output than the state file is, and an exclusion naming only
+the state file would route a bail on it. `/charter`'s bail step
+already tests this way.
+
+### R8 Tie-Break for `triggering_child:`
 
 When more than one child has an unfinished `wip/` intermediate
 at the moment of abandonment, the `triggering_child:` field is
@@ -169,11 +191,43 @@ broken by the child name's order in `planned_chain:` (later in
 the chain wins). No author prompt fires; the tie-break is
 fully mechanical.
 
-When NO child has an unfinished intermediate (the bail fired
-in Phase 1 with no Phase 2 invocations yet), `triggering_child:`
-is set to whichever child Phase 2 was about to invoke when the
-bail fired — the first child in `planned_chain:` that has not
-yet completed.
+The tie-break runs only where an abandonment-forced exit is
+already the outcome — the route above, or a Force-materialize
+selected at the resume ladder's stale-session row. A bail with no
+child intermediate and no research scratch takes the clean cancel
+instead and never names a `triggering_child:` at all.
+
+### Clean Cancel
+
+A bail at Phase 1 is the canonical case: Phase 0 wrote the state
+file before returning control, no child has been invoked, and
+nothing under `wip/scope_<topic>_*` is a child's output. The bail
+is a clean cancel, which means:
+
+- **No terminal artifact.** Nothing is force-materialized, because
+  nothing exists to materialize. Abandonment-forced exists to
+  preserve a partial artifact; at Phase 1 there is none.
+- **No `exit:` value and no `triggering_child:`.** The run records
+  neither. There is no chain progress to record.
+- **One deletion.** The bail handler removes
+  `wip/scope_<topic>_state.md`. Phase 4 does not run on a cancel,
+  which is why the disposal is the handler's rather than Phase 4's.
+
+The deletion is one path, not the prefix, and the inverse of the
+route test above: the test ignores the whole `wip/scope_<topic>_*`
+prefix, the deletion touches a single file inside it.
+`wip/scope_<topic>_handoff.md` is NOT removed by a bail — it
+belongs to the router rather than to the parent, and leaving it is
+what lets a later invocation resume against it instead of starting
+cold.
+
+**R9 does not fire.** The check runs at finalization against a
+recorded exit, and a clean cancel finalizes nothing: it records no
+exit, so it never reaches the check and never trips condition 2's
+empty-`exit_artifacts:` refusal. That is not a hole in the
+three-exits invariant. The invariant binds every run that produces
+a terminal artifact, and a clean cancel produces none — tearing
+down the empty state file is the whole of what it leaves behind.
 
 ## HTML-Comment Marker
 
@@ -209,8 +263,11 @@ substring downstream consumers assert against is
 
 ## R9 Hard-Finalization Check
 
-R9 fires at Phase 3 termination and refuses finalization if any
-of the following conditions hold:
+R9 fires at Phase 3 termination against a run that finalized. A
+clean cancel does not reach it — see Clean Cancel above — so the
+`exit:` a cancelled run never sets is not a condition-1 violation.
+The check refuses finalization if any of the following conditions
+hold:
 
 1. **`exit:` UNSET or out-of-enum.** The field is empty, null,
    or carries a value outside `{full-run, re-evaluation,
@@ -316,6 +373,14 @@ enumeration is closed across the skill rather than per phase:
   — the survivor, at whichever hop. `docs/plans/` is included
   because the PLAN is the survivor at the terminal hop.
 - **Append:** `docs/folds.md`, a fixed constant.
+
+R8's clean cancel adds one deletion, enumerated for the same
+reason:
+
+- `wip/scope_<topic>_state.md` — the one path a bail removes.
+  `wip/scope_<topic>_handoff.md` sits under the same prefix and is
+  carved out of that deletion; it is enumerated here and never
+  swept by a bail.
 
 Phase 3 does not delete and does not write the PLAN; it records
 the deletion Phase 2 already performed and lists the terminal

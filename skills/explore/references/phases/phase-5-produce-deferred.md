@@ -1,185 +1,34 @@
-# Phase 5: Deferred Artifact Types
+# Phase 5: Deferred Type (Prototype)
 
-This file handles artifact types that were recognized during crystallize but fall
-outside the core /prd, /design, /plan routing. Each section produces the artifact
-directly rather than handing off to another skill.
-
-## Table of Contents
-
-- [Unsupported Type (Prototype)](#unsupported-type-prototype-only)
-- [Spike Report](#spike-report)
-- [Competitive Analysis](#competitive-analysis)
-
----
-
-## Unsupported Type (Prototype Only)
-
-The only remaining deferred type is **Prototype**. Prototypes produce working
-code rather than documentation artifacts, so they don't fit the skill-based
-production pattern.
+Prototype is the one type the crystallize framework recognizes and `/explore`
+does not produce. Prototypes are working code rather than a document, so they
+don't fit the produce pattern at all — no arm here writes one, and the step's job
+is to route the author to the closest thing that helps.
 
 Present the decision using AskUserQuestion following the pattern in
 `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`.
 
-**Description field:** Explain that Prototype was selected as best fit, but
-prototype production isn't available through /explore -- prototypes are code
-artifacts that need hands-on development rather than document generation.
+**Description field:** Explain that Prototype fit the findings best, but
+prototype production isn't available through `/explore` — a prototype is code
+that needs hands-on development, not a document.
 
-**Recommendation heuristic:** If the exploration focused on feasibility or
-unknowns, recommend the spike report. If it focused on architecture or system
-structure, recommend the design doc.
+**Recommendation heuristic:** If the exploration focused on one narrow
+feasibility question, recommend the spike report — it records the question and
+the timebox before anyone spends the day. If the question is "does this work in
+our codebase" and the answer comes from trying, recommend filing an issue and
+building.
 
 **Options (order by recommendation heuristic):**
-1. "Create a spike report (Recommended)" or "Create a design doc (Recommended)"
-2. The other document option, with justification for why it ranks lower
+1. "File an issue and start building (Recommended)" or "Create a spike report
+   (Recommended)"
+2. The other option, with the reason it ranks lower
 3. "Stop here -- research is saved in wip/"
 
-If the user picks spike report, follow the Spike Report section below.
-If the user picks design doc, read `phase-5-produce-design.md` instead.
+If the user picks the spike report, follow `phase-5-produce-spike-report.md`.
+If the user picks filing an issue, follow `phase-5-produce-file-an-issue.md`.
 
----
+## Artifact State
 
-## Spike Report
-
-Produce a spike report directly.
-
-Write `docs/spikes/SPIKE-<topic>.md`:
-
-```markdown
----
-status: Draft
-question: |
-  <The specific feasibility question, synthesized from exploration.
-  Should be answerable with go/no-go.>
-timebox: "<estimated time based on exploration complexity>"
----
-
-# SPIKE: <Topic>
-
-## Status
-
-Draft
-
-## Question
-
-<Expanded from frontmatter. The specific question this investigation
-will answer.>
-
-## Context
-
-<From exploration findings. Why this question matters now, what decision
-is blocked.>
-
-## Approach
-
-<Planned or completed investigation steps. What to try, what tools to
-use, what to measure.>
-
-## Findings
-
-<Evidence from exploration if available. Otherwise: "Investigation not
-yet started." If the exploration already gathered relevant data, include
-it here.>
-
-## Recommendation
-
-<If findings exist: go/no-go with conditions. If not yet investigated:
-"Pending investigation.">
-```
-
-Commit: `docs(explore): produce spike report for <topic>`
-
-If the exploration started from an issue (issue number known from Phase 0),
-remove the `needs-spike` label:
-
-```bash
-gh issue edit <N> --remove-label needs-spike
-```
-
-Tell the user:
-
-> Created `docs/spikes/SPIKE-<topic>.md` as a Draft spike report. The
-> exploration findings have been incorporated where relevant.
->
-> Complete the investigation within the timebox, then update Findings and
-> Recommendation to transition to Complete.
-
----
-
-## Competitive Analysis
-
-**Before producing, check repo visibility.** Read the nearest `CLAUDE.md` file
-and check for visibility indicators (`Repo Visibility: Private`, path contains
-`private/`, or Private Repository Context heading).
-
-**If public repo:** Refuse and explain:
-
-> Your exploration points to **Competitive Analysis** as the best fit, but
-> competitive analyses can only be created in private repositories.
->
-> **Alternatives:**
-> 1. Create a design doc with competitive findings in the Market Context section
->    (requires strategic scope in a private repo)
-> 2. Create a spike report investigating a specific technical approach instead
-> 3. Stop here -- your research is saved in `wip/`
-
-Route to the user's chosen alternative.
-
-**If private repo:** Produce the analysis.
-
-Write `docs/competitive/COMP-<topic>.md`:
-
-```markdown
----
-status: Draft
-market: |
-  <1 paragraph identifying the market segment, synthesized from
-  exploration findings.>
-date: "<today's date, YYYY-MM-DD>"
----
-
-# COMP: <Topic>
-
-## Status
-
-Draft
-
-## Market Overview
-
-<From exploration findings. The segment being analyzed, key dimensions
-of competition.>
-
-## Competitors
-
-<From exploration findings. Individual analysis per competitor.>
-
-### <Competitor Name>
-
-**Strengths:** <specific>
-**Weaknesses:** <specific>
-**Approach:** <how they address the space>
-
-## Comparative Matrix
-
-| Dimension | <Our product> | <Competitor 1> | <Competitor 2> |
-|-----------|---------------|----------------|----------------|
-| <dim 1> | | | |
-| <dim 2> | | | |
-
-## Opportunities
-
-<Gaps in the competitive landscape that represent opportunities.>
-
-## Implications
-
-<How findings should influence our decisions. Connect insights to
-specific choices.>
-```
-
-Commit: `docs(explore): produce competitive analysis for <topic>`
-
-Tell the user:
-
-> Created `docs/competitive/COMP-<topic>.md` as a Draft competitive analysis.
-> Complete the analysis and transition to Final when all sections have
-> substantive content.
+After this step:
+- All explore artifacts in `wip/` (untouched)
+- Whatever the chosen option produces, which is nothing on option 3

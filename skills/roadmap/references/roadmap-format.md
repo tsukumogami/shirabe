@@ -317,7 +317,7 @@ Draft --> Active --> Done
 
 | Status | Meaning | Transition Trigger |
 |--------|---------|-------------------|
-| Draft | Under development, feature list may change | Created by /explore |
+| Draft | Under development, feature list may change | Created by /roadmap |
 | Active | Feature list locked, execution in progress | Human approval |
 | Done | All features delivered or explicitly dropped | All features complete |
 

@@ -17,9 +17,9 @@
     },
     {
       "id": 2,
-      "name": "explore-handoff-detection",
+      "name": "charter-handoff-detection",
       "prompt": "/roadmap release-automation",
-      "expected_output": "Detects existing handoff artifact at wip/roadmap_release-automation_scope.md. Skips Phase 1 (scope) and resumes at Phase 2 (discover). Uses the handoff artifact's theme statement and candidate features as input.",
+      "expected_output": "Detects an existing pre-populated scope artifact at wip/roadmap_release-automation_scope.md. /charter pre-populates it before invoking /roadmap; the check treats that and /roadmap's own prior run alike, because either way scoping is settled. Skips Phase 1 (scope) and resumes at Phase 2 (discover). Uses the artifact's theme statement and candidate features as input.",
       "files": [
         "wip/roadmap_release-automation_scope.md"
       ],
@@ -90,13 +90,14 @@
       "id": 7,
       "name": "crystallize-discrimination",
       "prompt": "/explore --auto --strategic improve CI pipeline reliability and add deployment automation",
-      "expected_output": "Exploration in strategic scope with multiple features to sequence. Crystallize framework scores Roadmap higher than PRD because multiple independent features need coordinated sequencing. Routes to /roadmap via Phase 5 handoff.",
+      "expected_output": "Exploration in strategic scope with multiple features to sequence. The crystallize framework's two stages still make the discrimination this scenario exists for: stage 1 scores 'a chain', and stage 2 prefers `/charter` over `/scope` on the multi-feature boundary, because more than one feature needs ordering and a sequenced ROADMAP is the strategic chain's terminal artifact. What moved is the invocation, not the scoring: Phase 5 writes wip/charter_ci-pipeline-reliability_handoff.md and names `/charter` as the command to run. /roadmap is reached inside that chain, by /charter, not by the router.",
       "files": [],
       "expectations": [
         "Transcript recognizes this as an /explore command, not /roadmap directly",
         "Transcript identifies the request contains multiple independent features needing coordinated sequencing",
-        "Transcript describes a crystallize or artifact type selection step that scores Roadmap higher than PRD",
-        "Transcript describes a Phase 5 handoff that routes to /roadmap with a scope artifact"
+        "Transcript describes a crystallize step that prefers the strategic chain over the tactical one on the multi-feature-sequencing boundary",
+        "Transcript describes a Phase 5 handoff that writes a /charter-namespaced handoff artifact and names `/charter` as the command the author runs",
+        "Transcript does NOT describe /explore handing off to or invoking /roadmap; a ROADMAP is reached inside /charter's chain"
       ]
     },
     {
