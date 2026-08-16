@@ -1,0 +1,43 @@
+{
+  "topic": "fold-record-removal",
+  "upstream": "docs/prds/PRD-fold-record-removal.md",
+  "decision_provenance": "inline-resolved",
+  "note": "Running under /scope's parent_orchestration sentinel. Phase 2 uses decision-bypass-with-inline-resolution: decision researchers investigate and report, the design resolves inline and records rationale in Considered Options rather than delegating to /decision.",
+  "decisions": [
+    {
+      "id": "D1",
+      "question": "What replaces /execute's rule for distinguishing a chain that folded every artifact away from one that never ran?",
+      "status": "pending",
+      "requirement": "R8 (first bullet), AC11",
+      "why_contested": "The record was the named evidence. AC11 requires the replacement to name a concrete artifact or signal AND state what a reader observes when even that is absent. The absent case is real: a fully-folded chain whose PLAN the cascade deleted leaves nothing chain-shaped."
+    },
+    {
+      "id": "D2",
+      "question": "What does the roadmap downstream cell say when a chain folds to nothing, now that it cannot point at the record?",
+      "status": "pending",
+      "requirement": "R8 (second bullet), AC12",
+      "why_contested": "Must drop the pointer while preserving the folded-versus-never-started distinction, in a single short cell, with no surviving artifact to point at. Inherited as the BRIEF's deferred open question."
+    },
+    {
+      "id": "D3",
+      "question": "What does the amendment to DESIGN-scope-consolidation-over-skipping.md affirmatively state now answers the objection Option D was rescued from?",
+      "status": "pending",
+      "requirement": "R10a, AC16",
+      "why_contested": "The original answer had two halves. The 'record of why' half survives (a standing /work-on instruction). The 'record of what happened' half is withdrawn with the record. The amendment must say what replaces it and where nothing does, without reopening Option D, which stays shipped."
+    }
+  ],
+  "resolved_inline": [
+    {
+      "id": "D4",
+      "question": "How is the absorb procedure's step sequence restructured?",
+      "resolution": "Mechanical. Nine steps become eight by removing the append; the rollback table loses its append row and its two un-append cells; the step-count sentence, the SKILL.md cross-reference, and the partial-absorb resume range all follow the renumbering. The final commit step drops 'and the record' from its object list. No alternative is live.",
+      "requirement": "R2, AC8"
+    },
+    {
+      "id": "D5",
+      "question": "What do the three-reader comments become?",
+      "resolution": "Mechanical. Three readers become two: the absorb procedure (the gate) and the crate's absorbed-declaration check (the backstop). The record checker's fold signature (the trigger) is deleted with the workflow step. formats.rs's contribution_heading comment drops 'and a durable record column', leaving the required-section splice as the sole consumer. No alternative is live.",
+      "requirement": "R12, AC22"
+    }
+  ]
+}
