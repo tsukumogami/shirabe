@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A /scope fold deletes a chain document, and something must record that the
   document was absorbed rather than never written. Today that is docs/folds.md,
@@ -30,7 +30,7 @@ motivating_context: |
 
 ## Status
 
-In Progress
+Done
 
 Three review passes ran against these requirements; the findings converged from
 seven blocking items to four localized corrections, and one of those corrected a

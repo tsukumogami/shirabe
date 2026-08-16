@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   A /scope fold deletes a chain document, and the fact that it was
   absorbed rather than never written has to survive. Today that fact is
@@ -23,7 +23,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 The framing stops at the boundary of what a fold must leave behind. The
 downstream PRD owns the requirements — which files change, what replaces
