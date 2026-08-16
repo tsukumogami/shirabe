@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A PLAN's execution_mode is read as the answer to three separate questions:
   whether the work can land in one pull request, whether it should, and what
@@ -29,7 +29,7 @@ motivating_context: |
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-multi-pr-plan-decoupling](docs/briefs/BRIEF-multi-pr-plan-decoupling.md); carried in Absorbed Brief.
 
