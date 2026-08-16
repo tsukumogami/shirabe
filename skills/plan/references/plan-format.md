@@ -40,10 +40,11 @@ otherwise), and `tracking_level`.
 - **schema** -- `plan/v1`. Pins the artifact-type contract.
 - **status** -- lifecycle state (`Draft`, `Active`, `Done`).
 - **execution_mode** -- one of `single-pr`, `multi-pr`, or
-  `coordinated`. Determines whether the PLAN materializes GitHub
-  issues at finalization (`multi-pr`) or stays self-contained and
-  drives one PR (`single-pr`); `coordinated` is the multi-repo
-  generalization of `multi-pr`.
+  `coordinated`. Determines how the work lands: one pull request
+  (`single-pr`) or several (`multi-pr`); `coordinated` is the
+  multi-repo generalization of `multi-pr`. It does **not** determine
+  whether the PLAN materializes GitHub issues -- that is
+  `tracking_level`, resolved separately.
 - **split_rationale** -- why this PLAN has the delivery shape it has.
   Required when **either** of these holds:
   - `execution_mode` is not `single-pr`; **or**
@@ -102,9 +103,10 @@ otherwise), and `tracking_level`.
   cross-repo (`owner/repo:path`). Omit if the PLAN was authored from
   a topic with no single upstream DESIGN. Cross-repo upstream
   references follow `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
-- **milestone** -- human-readable milestone name. In `multi-pr` mode
-  this becomes the GitHub milestone title. In `single-pr` mode it is
-  prose only.
+- **milestone** -- human-readable milestone name. At
+  `tracking_level: issues-and-milestone` this becomes the GitHub
+  milestone title; at every other level it is prose only, whatever
+  the `execution_mode`.
 - **issue_count** -- integer count of atomic issues the PLAN
   decomposes into. Must match the row count of the Implementation
   Issues table.
@@ -193,17 +195,35 @@ a migration hint pointing at the canonical three-column shape. The
 migration folds the Title cell into the issue link text:
 `[#N: <title>](url) | <deps> | <complexity>`.
 
-### Single-pr vs multi-pr emission
+### Which sections a PLAN carries
 
-- **single-pr mode** -- the table holds local anchors to outlines
-  within the same PLAN. No GitHub issues are materialized. The
-  implementing agent works through the outlines in dependency order
-  on one branch and ships one PR.
-- **multi-pr mode** -- the table holds `#N` links to GitHub issues
-  materialized at PLAN finalization (Phase 7 populate). A milestone
-  groups the issues. Each issue ships its own PR.
+The section shape follows what the PLAN materialized, not how its code
+lands. There are two shapes:
 
-In both modes, the table shape and validator contract are identical.
+- **Issue-carrying** -- the `## Implementation Issues` table holds `#N`
+  links to GitHub issues materialized at PLAN finalization (Phase 7
+  populate), and a `## Dependency Graph` accompanies it. Any PLAN whose
+  resolved `tracking_level` is `issues` or `issues-and-milestone`.
+- **Outline-shaped** -- work items live in `## Issue Outlines`, keyed by
+  local ids rather than issue numbers, and neither the table nor the
+  graph is required. Every `single-pr` PLAN, plus any `multi-pr` PLAN at
+  `tracking_level: none`.
+
+An outline-shaped `multi-pr` PLAN is a real combination, not a
+degenerate one: the work still lands in several pull requests, and the
+implementing agent reads the ordering out of the outlines'
+`**Dependencies**:` declarations exactly as `single-pr` does. It may
+still carry a `## Dependency Graph` -- it has inter-PR ordering worth
+drawing, which is why the diagram is barred from `single-pr` but not
+from this shape.
+
+Whichever shape applies, the work items are authoritative in exactly one
+place. `FC14` fires when both are populated.
+
+`coordinated` is always issue-carrying. Its tracking is governed by
+`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`, so a
+`tracking_level` written onto a coordinated PLAN does not move its
+shape.
 
 ## Dependency Graph
 
@@ -281,7 +301,7 @@ DESIGN/PRD/ROADMAP and replace the PLAN content with a citation.
 | State | Meaning |
 |-------|---------|
 | Draft | Under decomposition. Issue table may be incomplete. |
-| Active | Issues being implemented. Used in `multi-pr` mode while issues are open. `single-pr` mode skips this state. |
+| Active | Issues being implemented. Reached only when the resolved `tracking_level` created GitHub issues; a PLAN at `none` skips this state at either `execution_mode`. |
 | Done | All issues complete; lifecycle cascade has completed. Terminal state. |
 
 ### Transitions

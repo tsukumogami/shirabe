@@ -236,6 +236,17 @@ shared branch with one pull request. An issueless multi-PR plan shares the
 parser but not the model, so reusing the value would make a downstream consumer
 that branches on it wrong.
 
+**The required-section shape moves with the tracking level, not the mode.**
+Reusing the `## Issue Outlines` parse means an issueless `multi-pr` PLAN carries
+that section and not the `## Implementation Issues` table — but the Plan
+profile's per-`execution_mode` required-section map keys on the mode alone, so
+the document this decision prescribes failed `FC04` on two sections it has no
+content for, and `FC14` advised switching the frontmatter back to `single-pr`.
+`checks::plan_is_outline_shaped` resolves the shape from both fields and both
+checks consult it, so the map's `single-pr` entry now means "the issueless
+shape" rather than "the single-pr mode". `coordinated` is excluded, matching the
+tracking-level exemption everywhere else.
+
 *Making the first cell a stable internal id in all modes and carrying the GitHub
 number in a separate column — rejected, and this is the closest call.* It is the
 more correct fix: it stops `#N` being the key everywhere rather than adding a

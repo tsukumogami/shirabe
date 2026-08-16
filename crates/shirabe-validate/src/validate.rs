@@ -152,7 +152,7 @@ pub fn is_notice(err: &ValidationError, posture: ReviewPosture) -> bool {
 /// Reports whether `code` is a known per-file check code that the `--check`
 /// selector can address. The set is the codes the per-file validation pass
 /// can emit: `SCHEMA`, `FC01`-`FC20`, `FC-CONVENTIONS`, and `R6`-`R11`. The
-/// lifecycle codes (`L01`-`L05`) are produced by the `--lifecycle` traversal
+/// lifecycle codes (`L01`-`L09`) are produced by the `--lifecycle` traversal
 /// modes, not the per-file pass, so they are not selectable here.
 pub fn is_known_check_code(code: &str) -> bool {
     matches!(

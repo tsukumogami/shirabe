@@ -76,7 +76,8 @@ issue_count: <N>
 roadmap that this plan decomposes.
 
 The `milestone` field is always present (it names the logical work
-unit) but GitHub milestone creation only happens in multi-pr mode.
+unit) but GitHub milestone creation only happens at
+`tracking_level: issues-and-milestone`, whatever the execution mode.
 
 ## Lifecycle
 

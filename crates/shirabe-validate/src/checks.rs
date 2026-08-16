@@ -337,11 +337,48 @@ fn required_sections_for(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
     spliced
 }
 
+/// Whether this PLAN carries its work items in `## Issue Outlines` rather than
+/// in the `## Implementation Issues` table.
+///
+/// The section shape follows what the PLAN materialized, not how its code
+/// lands. A `multi-pr` PLAN whose resolved `tracking_level` is `none` filed no
+/// GitHub issues, so it has no `#N` links to tabulate and its work items live
+/// in the outlines section -- the shape `single-pr` has always used. Without
+/// this, the document `/plan` is instructed to write for that combination
+/// fails `FC04` on two sections it cannot populate.
+///
+/// `coordinated` is deliberately excluded. Its tracking is governed by
+/// `references/coordination-strategy.md` rather than by this field, so a
+/// `tracking_level` written onto a coordinated PLAN does not move its shape.
+pub fn plan_is_outline_shaped(doc: &Doc) -> bool {
+    let mode = doc
+        .fields
+        .get("execution_mode")
+        .map(|f| f.value.trim())
+        .unwrap_or("");
+    match mode {
+        "single-pr" => true,
+        "multi-pr" => doc
+            .fields
+            .get("tracking_level")
+            .is_some_and(|f| f.value.trim() == "none"),
+        _ => false,
+    }
+}
+
 /// The list before any contribution splice.
 fn base_required_sections(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
     if let Some(map) = &spec.execution_mode_required_sections {
         if let Some(mode_field) = doc.fields.get("execution_mode") {
-            if let Some(per_mode) = map.get(&mode_field.value) {
+            // An issueless multi-pr PLAN takes the issueless section list.
+            // Looked up under the `single-pr` key because that is where the
+            // shape is defined, not because the plan is single-pr.
+            let key = if plan_is_outline_shaped(doc) {
+                "single-pr"
+            } else {
+                mode_field.value.as_str()
+            };
+            if let Some(per_mode) = map.get(key) {
                 return per_mode.clone();
             }
         }
@@ -3625,12 +3662,17 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     // "single-pr vs not-single-pr" rather than naming each multi-PR mode.
     let multi_pr_shaped = mode == "multi-pr" || mode == "coordinated";
 
+    // Every sub-check below branches on where the work items live, which is
+    // not the same question as how the code lands: an issueless `multi-pr`
+    // PLAN keeps them in `## Issue Outlines`. See `plan_is_outline_shaped`.
+    let outline_shaped = plan_is_outline_shaped(doc);
+
     let mut errs = Vec::new();
     let outlines = parse_issue_outlines(doc);
 
     // Sub-check B + C apply only to single-pr (multi-pr's authoritative
     // content is the Implementation Issues table, covered by FC05/FC06).
-    if mode == "single-pr" {
+    if outline_shaped {
         // Sub-check B: per-block structural fields.
         for block in &outlines.blocks {
             if !block.goal_declared {
@@ -3710,18 +3752,18 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     // Sub-check D: issue_count consistency.
     if let Some(ic_field) = doc.fields.get("issue_count") {
         if let Ok(declared) = ic_field.value.trim().parse::<usize>() {
-            let observed: usize = if mode == "single-pr" {
+            let observed: usize = if outline_shaped {
                 outlines.blocks.len()
             } else {
-                // multi-pr / coordinated: count entity rows in the
-                // Implementation Issues table.
+                // Issue-carrying multi-pr / coordinated: count entity rows in
+                // the Implementation Issues table.
                 use crate::table::{parse_issues_table, RowKind};
                 parse_issues_table(doc)
                     .map(|t| t.rows.iter().filter(|r| r.kind == RowKind::Entity).count())
                     .unwrap_or(0)
             };
             if declared != observed {
-                let section_name = if mode == "single-pr" {
+                let section_name = if outline_shaped {
                     "## Issue Outlines"
                 } else {
                     "## Implementation Issues"
@@ -3743,16 +3785,27 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     // sections. A single-pr plan with a populated Implementation Issues or
     // Dependency Graph fires; a multi-pr plan with a populated Issue
     // Outlines section fires.
-    if mode == "single-pr" {
+    if outline_shaped {
         if has_populated_implementation_issues(doc) {
+            // The advice differs by why the plan is outline-shaped. Telling an
+            // issueless multi-pr PLAN to "switch the frontmatter to multi-pr"
+            // would be nonsense -- it already is.
+            let message = if mode == "single-pr" {
+                "[FC14] execution_mode is 'single-pr' but '## Implementation Issues' is populated -- switch the frontmatter to 'multi-pr' or move the content to '## Issue Outlines'".to_string()
+            } else {
+                "[FC14] tracking_level is 'none' but '## Implementation Issues' is populated -- a PLAN that files no GitHub issues carries its work items in '## Issue Outlines'; move the content there or raise the tracking level".to_string()
+            };
             errs.push(ValidationError {
                 file: doc.path.clone(),
                 line: 1,
                 code: "FC14".to_string(),
-                message: "[FC14] execution_mode is 'single-pr' but '## Implementation Issues' is populated -- switch the frontmatter to 'multi-pr' or move the content to '## Issue Outlines'".to_string(),
+                message,
             });
         }
-        if has_populated_dependency_graph(doc) {
+        // The Dependency Graph exclusion is single-pr's alone. It bans the
+        // diagram because one pull request has no inter-PR ordering to draw;
+        // an issueless multi-pr PLAN lands several and legitimately does.
+        if mode == "single-pr" && has_populated_dependency_graph(doc) {
             errs.push(ValidationError {
                 file: doc.path.clone(),
                 line: 1,
@@ -8211,6 +8264,94 @@ words:
                 && e.message.contains("## Issue Outlines")),
             "expected FC14 coordinated mutual-exclusion notice; got {:?}",
             errs
+        );
+    }
+
+    /// A `multi-pr` PLAN at `tracking_level: none` keeps its work items in
+    /// `## Issue Outlines`, and neither FC04 nor FC14 objects.
+    ///
+    /// This is the document `/plan` Phase 7 is instructed to write for that
+    /// combination. Before the outline-shape rule it failed FC04 on two
+    /// sections it has no content for, and FC14 told the author to switch the
+    /// frontmatter back to `single-pr` -- the exact coupling this decoupling
+    /// exists to break.
+    #[test]
+    fn issueless_multi_pr_plan_is_outline_shaped() {
+        let mut doc = make_plan_doc("multi-pr", 2, well_formed_single_pr_body());
+        doc.fields
+            .insert("tracking_level".to_string(), fv("none", 1));
+
+        assert!(plan_is_outline_shaped(&doc));
+
+        let missing: Vec<_> = check_fc04(&doc, &plan_spec())
+            .into_iter()
+            .map(|e| e.message)
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "issueless multi-pr takes the outline section shape; got {missing:?}"
+        );
+
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            !errs.iter().any(|e| e.message.contains("## Issue Outlines")),
+            "outlines are authoritative here, not a mutual-exclusion violation; got {errs:?}"
+        );
+    }
+
+    /// The widening is scoped to `tracking_level: none` and nothing else.
+    ///
+    /// A `multi-pr` PLAN that files issues still owes the table and the graph,
+    /// and `coordinated` is unmoved by the field because its tracking is
+    /// governed by the coordination strategy rather than by `tracking_level`.
+    #[test]
+    fn outline_shape_does_not_leak_to_issue_carrying_plans() {
+        let plain = make_plan_doc("multi-pr", 2, well_formed_single_pr_body());
+        assert!(!plan_is_outline_shaped(&plain));
+        assert!(
+            check_fc04(&plain, &plan_spec())
+                .iter()
+                .any(|e| e.message.contains("## Implementation Issues")),
+            "a multi-pr PLAN with no tracking_level still owes the table"
+        );
+
+        for (mode, level) in [
+            ("multi-pr", "issues"),
+            ("multi-pr", "issues-and-milestone"),
+            ("coordinated", "none"),
+        ] {
+            let mut doc = make_plan_doc(mode, 2, well_formed_single_pr_body());
+            doc.fields
+                .insert("tracking_level".to_string(), fv(level, 1));
+            assert!(
+                !plan_is_outline_shaped(&doc),
+                "{mode} at tracking_level {level} keeps the table shape"
+            );
+        }
+    }
+
+    /// An issueless PLAN that carries a populated table is told the truth.
+    ///
+    /// The single-pr message ("switch the frontmatter to 'multi-pr'") would be
+    /// nonsense here -- the plan already is multi-pr.
+    #[test]
+    fn issueless_multi_pr_plan_rejects_a_populated_issues_table() {
+        let mut body = well_formed_single_pr_body();
+        body.push("## Implementation Issues".to_string());
+        body.push(String::new());
+        body.push("| Issue | Title | Deps |".to_string());
+        body.push("|---|---|---|".to_string());
+        body.push("| #1 | a thing | - |".to_string());
+        let mut doc = make_plan_doc("multi-pr", 2, body);
+        doc.fields
+            .insert("tracking_level".to_string(), fv("none", 1));
+
+        let errs = check_fc14(&doc, &plan_spec());
+        assert!(
+            errs.iter().any(|e| e.code == "FC14"
+                && e.message.contains("tracking_level is 'none'")
+                && !e.message.contains("switch the frontmatter to 'multi-pr'")),
+            "expected the issueless-specific advice; got {errs:?}"
         );
     }
 
