@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   A /scope fold deletes a chain document, and the fact that it was
   absorbed rather than never written has to survive. Today that fact is
@@ -23,12 +23,18 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 The framing stops at the boundary of what a fold must leave behind. The
 downstream PRD owns the requirements — which files change, what replaces
 the two prose claims that cite the record, and what the amended
 requirement says.
+
+One framing question is deferred to that PRD rather than settled here:
+what a roadmap's downstream cell says when a chain folds to nothing, now
+that it cannot point at the record. No roadmap carries that text today,
+so the choice is unconstrained by existing content and belongs with the
+requirements that decide it.
 
 ## Problem Statement
 
@@ -179,12 +185,6 @@ record the removal reads as an oversight and invites the mechanism back.
   They are evidence that the mechanism was never load-bearing, and they
   are deleted along with the step that carries them.
 - **A migration path for existing rows.** The record has never held one.
-
-## Open Questions
-
-- What the roadmap's downstream cell says when a chain folds to nothing,
-  now that it cannot point at the record. No roadmap carries that text
-  today, so the choice is unconstrained by existing content.
 
 ## References
 
