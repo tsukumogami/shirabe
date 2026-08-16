@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   Six gates in /work-on demand an artifact that a re-entry can supply from a
   previous round, so a phase re-entered after a retry can advance on work that
@@ -19,7 +19,7 @@ outcome: |
 
 ## Status
 
-Accepted
+Done
 
 Second framing of this topic. The first was written while koto had no way to
 remove a context key, and against a phase file that has since been rewritten; it

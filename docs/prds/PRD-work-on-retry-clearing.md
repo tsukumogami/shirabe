@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   Six gates in /work-on demand an artifact that a re-entry can supply from the
   previous round. What prevents a stale pass today is the agent submitting an
@@ -20,7 +20,7 @@ source_issue: 304
 
 ## Status
 
-In Progress
+Done
 
 ## Problem Statement
 

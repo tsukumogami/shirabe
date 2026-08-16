@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-work-on-retry-clearing.md
 problem: |
   Six gates in /work-on hold a key a re-entry can supply from the previous
@@ -26,7 +26,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
