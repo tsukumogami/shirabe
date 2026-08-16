@@ -447,6 +447,260 @@ FIXTURE
 }
 
 # ── Test: exit 1 on missing file ──
+# ── Fixture: issueless multi-pr (tracking_level: none) ──
+# A multi-pr PLAN whose tracking level is `none` has no GitHub issues,
+# so no `#N` exists to key work items on. It keys on the PLAN's own
+# outlines instead, reusing the single-pr parser and local-id algorithm
+# with a distinct prefix and ISSUE_SOURCE.
+test_issueless_multi_pr() {
+    local name="issueless multi-pr keys on outlines"
+    setup
+
+    cat > "$TEST_DIR/plan-issueless.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Active
+execution_mode: multi-pr
+tracking_level: none
+milestone: "Test Milestone"
+issue_count: 2
+split_rationale: |
+  Hard Constraint. Fixture plan.
+---
+
+# PLAN: test
+
+## Status
+
+Active
+
+## Scope Summary
+
+Issueless multi-pr plan.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Issue Outlines
+
+### Issue 1: feat: add foundation
+
+**Complexity**: testable
+
+**Goal**: Build the shared foundation.
+
+**Acceptance Criteria**:
+- [ ] Foundation exists
+
+**Dependencies**: None.
+
+---
+
+### Issue 2: feat: add extension
+
+**Complexity**: simple
+
+**Goal**: Extend the foundation.
+
+**Acceptance Criteria**:
+- [ ] Extension exists
+
+**Dependencies**: Blocked by Issue 1.
+
+## Implementation Sequence
+
+Critical path: Issue 1 -> Issue 2.
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-issueless.md" 2>/dev/null)
+
+    local count
+    count=$(echo "$output" | jq 'length' 2>/dev/null) || true
+    if [[ "$count" != "2" ]]; then
+        fail "$name" "expected 2 elements, got: $count (output: $output)"
+        teardown
+        return
+    fi
+    pass "$name (array length)"
+
+    # Distinct prefix: m- rather than single-pr's o-.
+    local name1
+    name1=$(echo "$output" | jq -r '.[0].name' 2>/dev/null) || true
+    if [[ ! "$name1" =~ ^m- ]]; then
+        fail "$name" "expected name to start with 'm-', got: $name1"
+    else
+        pass "$name (name starts with m-)"
+    fi
+
+    local issue_source
+    issue_source=$(echo "$output" | jq -r '.[0].vars.ISSUE_SOURCE' 2>/dev/null) || true
+    if [[ "$issue_source" != "plan_item" ]]; then
+        fail "$name" "expected ISSUE_SOURCE=plan_item, got: $issue_source"
+    else
+        pass "$name (ISSUE_SOURCE=plan_item)"
+    fi
+
+    # The fixture carries a real dependency edge on purpose: over an
+    # empty edge set "every edge resolves" is vacuously true, and an
+    # implementation that emitted no edges at all would pass.
+    local issue2_waits
+    issue2_waits=$(echo "$output" | jq -r '.[1].waits_on[0]' 2>/dev/null) || true
+    if [[ "$issue2_waits" != "$name1" ]]; then
+        fail "$name" "Issue 2 should wait on '${name1}', got: $issue2_waits"
+    else
+        pass "$name (dependency edge resolves)"
+    fi
+
+    # No ISSUE_NUMBER: the whole point is that no GitHub issue exists.
+    local issue_number
+    issue_number=$(echo "$output" | jq -r '.[0].vars.ISSUE_NUMBER // "absent"' 2>/dev/null) || true
+    if [[ "$issue_number" != "absent" ]]; then
+        fail "$name" "expected no ISSUE_NUMBER, got: $issue_number"
+    else
+        pass "$name (no ISSUE_NUMBER emitted)"
+    fi
+
+    teardown
+}
+
+# A multi-pr PLAN with issues (or with no tracking_level at all, the
+# pre-existing shape) still takes the '#N' path unchanged.
+test_multi_pr_with_issues_unchanged() {
+    local name="multi-pr with issues still keys on #N"
+    setup
+
+    cat > "$TEST_DIR/plan-tracked.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Active
+execution_mode: multi-pr
+tracking_level: issues-and-milestone
+milestone: "Test Milestone"
+issue_count: 1
+split_rationale: |
+  Hard Constraint. Fixture plan.
+---
+
+# PLAN: test
+
+## Status
+
+Active
+
+## Scope Summary
+
+Tracked multi-pr plan.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#41: feat: add thing](https://github.com/o/r/issues/41) | None | simple |
+
+## Dependency Graph
+
+```mermaid
+graph LR
+    I1["#41"]
+```
+
+## Implementation Sequence
+
+Only one issue.
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-tracked.md" 2>/dev/null)
+
+    local issue_source
+    issue_source=$(echo "$output" | jq -r '.[0].vars.ISSUE_SOURCE' 2>/dev/null) || true
+    if [[ "$issue_source" != "github" ]]; then
+        fail "$name" "expected ISSUE_SOURCE=github, got: $issue_source"
+    else
+        pass "$name (ISSUE_SOURCE=github)"
+    fi
+
+    local issue_number
+    issue_number=$(echo "$output" | jq -r '.[0].vars.ISSUE_NUMBER' 2>/dev/null) || true
+    if [[ "$issue_number" != "41" ]]; then
+        fail "$name" "expected ISSUE_NUMBER=41, got: $issue_number"
+    else
+        pass "$name (ISSUE_NUMBER preserved)"
+    fi
+
+    teardown
+}
+
+# An unrecognized tracking_level falls through to the mode-derived
+# default rather than redirecting extraction.
+test_unrecognized_tracking_level_falls_through() {
+    local name="unrecognized tracking_level falls through"
+    setup
+
+    cat > "$TEST_DIR/plan-bogus.md" <<'FIXTURE'
+---
+schema: plan/v1
+status: Active
+execution_mode: multi-pr
+tracking_level: nonsense
+milestone: "Test Milestone"
+issue_count: 1
+split_rationale: |
+  Hard Constraint. Fixture plan.
+---
+
+# PLAN: test
+
+## Status
+
+Active
+
+## Scope Summary
+
+Bogus tracking level.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+| [#7: feat: add thing](https://github.com/o/r/issues/7) | None | simple |
+
+## Dependency Graph
+
+```mermaid
+graph LR
+    I1["#7"]
+```
+
+## Implementation Sequence
+
+Only one issue.
+FIXTURE
+
+    local output
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-bogus.md" 2>/dev/null)
+
+    local issue_source
+    issue_source=$(echo "$output" | jq -r '.[0].vars.ISSUE_SOURCE' 2>/dev/null) || true
+    if [[ "$issue_source" != "github" ]]; then
+        fail "$name" "expected fall-through to github, got: $issue_source"
+    else
+        pass "$name (falls through to the mode default)"
+    fi
+
+    teardown
+}
+
 test_missing_file_exit_code() {
     local name="exit 1 on missing file"
 
@@ -2750,6 +3004,9 @@ test_coordinated_invalid_tags
 test_multi_pr_basic
 test_single_pr_basic
 test_single_pr_diamond
+test_issueless_multi_pr
+test_multi_pr_with_issues_unchanged
+test_unrecognized_tracking_level_falls_through
 test_missing_file_exit_code
 test_wrong_schema_exit_code
 test_missing_execution_mode

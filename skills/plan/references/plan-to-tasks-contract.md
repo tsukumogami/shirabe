@@ -62,10 +62,44 @@ The `template` field is intentionally omitted (set by the caller).
 
 ### multi-pr vars
 
+Emitted when the PLAN's `tracking_level` is `issues` or
+`issues-and-milestone`, or when the field is absent (the pre-existing
+shape, and the mode-derived default).
+
 | Key | Value |
 |-----|-------|
 | `ISSUE_SOURCE` | `"github"` |
 | `ISSUE_NUMBER` | Issue number as string (e.g., `"42"`) |
+
+### multi-pr vars, issueless
+
+Emitted when the PLAN's `tracking_level` is `none`. No GitHub issues
+exist, so there is no `#N` to key on; work items come from the PLAN's own
+`## Issue Outlines` section instead.
+
+| Key | Value |
+|-----|-------|
+| `ISSUE_SOURCE` | `"plan_item"` |
+| `ARTIFACT_PREFIX` | Same as `name` (e.g., `"m-add-foundation"`) |
+| `ISSUE_TYPE` | Value of the **Type**: annotation, omitted if annotation is absent |
+
+The shape is deliberately identical to single-pr's below: the two share
+one parser and one local-id algorithm (slugify, collision suffixing,
+64-char truncation), and only the `ISSUE_SOURCE` value and the id prefix
+differ. Reusing that path is what satisfies "no GitHub issue numbers as
+work-item keys" without a second parser.
+
+The distinct value matters even though the vars match. `plan_outline`
+signals single-pr's execution model (one shared branch, one pull
+request), and an issueless multi-pr PLAN shares the parser but not that
+model. A consumer branching on `ISSUE_SOURCE` would be wrong if the two
+collapsed into one value.
+
+`tracking_level` is read from the PLAN rather than re-resolved from
+CLAUDE.md, so extraction is a function of the document: a repository that
+changes its header later cannot retroactively change how an
+already-written plan's work items key. An absent or unrecognized value
+falls through to the mode-derived default.
 
 ### single-pr vars
 

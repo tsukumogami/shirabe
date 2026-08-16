@@ -430,8 +430,23 @@ resolve_shirabe_bin() {
 # What stays here is everything downstream of the parse -- slug generation,
 # the o- prefix, truncation, collision suffixing, the file-ownership edges,
 # and the koto task-entry assembly. None of it reads the document.
+# Emit task entries from the PLAN's own '## Issue Outlines' section.
+#
+# Used by two callers with different work-item keying:
+#
+#   single-pr            -> id prefix 'o-', ISSUE_SOURCE=plan_outline
+#   multi-pr + no issues -> id prefix 'm-', ISSUE_SOURCE=plan_item
+#
+# The parse, the local-id algorithm (slugify, collision suffixing,
+# 64-char truncation) and the waits_on resolution are identical, which
+# is the point: an issueless multi-pr PLAN has no '#N' to key on, and
+# reusing this path is what keeps R12's "no GitHub issue numbers as
+# keys" from needing a second parser. Only the prefix and the source
+# value differ, so the two remain visibly distinct in a task graph.
 process_single_pr() {
     local file="$1"
+    local id_prefix="${2:-o-}"
+    local issue_source="${3:-plan_outline}"
 
     local bin
     bin=$(resolve_shirabe_bin) || die_input "shirabe binary not found. Set \$SHIRABE_BIN, install shirabe so it is on PATH, or build it with 'cargo build --release'. The '## Issue Outlines' parse lives in that binary; this script does not carry a copy."
@@ -587,7 +602,7 @@ process_single_pr() {
             die_schema "issue ${issue_numbers[$i]} title '${title}' produces empty slug after sanitization"
         fi
 
-        local base_name="o-${slug}"
+        local base_name="${id_prefix}${slug}"
 
         # Truncate name if it exceeds koto's maximum length
         if [[ ${#base_name} -gt $KOTO_NAME_MAX ]]; then
@@ -699,7 +714,7 @@ process_single_pr() {
         if [[ -n "$issue_type" ]]; then
             json_entries+=("$(jq -n \
                 --arg name "$name" \
-                --arg issue_source "plan_outline" \
+                --arg issue_source "$issue_source" \
                 --arg artifact_prefix "$name" \
                 --arg issue_type "$issue_type" \
                 --argjson waits_on "$waits_json" \
@@ -707,7 +722,7 @@ process_single_pr() {
         else
             json_entries+=("$(jq -n \
                 --arg name "$name" \
-                --arg issue_source "plan_outline" \
+                --arg issue_source "$issue_source" \
                 --arg artifact_prefix "$name" \
                 --argjson waits_on "$waits_json" \
                 '{name: $name, vars: {ISSUE_SOURCE: $issue_source, ARTIFACT_PREFIX: $artifact_prefix}, waits_on: $waits_on}')")
@@ -1206,14 +1221,37 @@ if [[ -z "$execution_mode" ]]; then
     die_schema "PLAN frontmatter missing required field: execution_mode"
 fi
 
+# Which GitHub artifacts this PLAN's work items got, read from the
+# document rather than re-resolved from CLAUDE.md. Extraction runs
+# against a committed PLAN, possibly long after authoring: re-resolving
+# would let a repo that later changed its header silently change how an
+# already-written plan's work items key.
+#
+# Absent means the mode-derived default, which is what every PLAN
+# written before this field existed carries. An unrecognized value is
+# treated the same way, so a malformed header cannot redirect
+# extraction.
+tracking_level=$(echo "$frontmatter" | awk '/^tracking_level:/ { gsub(/^tracking_level: */, ""); print; exit }')
+case "$tracking_level" in
+    none|issues|issues-and-milestone) ;;
+    *) tracking_level="" ;;
+esac
+
 case "$execution_mode" in
     single-pr)
         log "Processing single-pr PLAN: $PLAN_PATH"
         process_single_pr "$PLAN_PATH"
         ;;
     multi-pr)
-        log "Processing multi-pr PLAN: $PLAN_PATH"
-        process_multi_pr "$PLAN_PATH"
+        if [[ "$tracking_level" == "none" ]]; then
+            # No GitHub issues exist, so there are no '#N' references to
+            # key on. Work items come from the PLAN's own outlines.
+            log "Processing multi-pr PLAN (issueless): $PLAN_PATH"
+            process_single_pr "$PLAN_PATH" "m-" "plan_item"
+        else
+            log "Processing multi-pr PLAN: $PLAN_PATH"
+            process_multi_pr "$PLAN_PATH"
+        fi
         ;;
     coordinated)
         log "Processing coordinated PLAN: $PLAN_PATH"
