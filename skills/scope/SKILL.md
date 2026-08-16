@@ -372,8 +372,9 @@ Execute phases sequentially by reading the corresponding phase file:
    - Instructions: `skills/scope/references/phases/phase-1-discovery.md`
 
 2. **Child Invocation Loop** — invoke the planned chain (the
-   whole tactical chain, minus any child held back by re-entry
-   protection), running the worktree-staleness
+   whole tactical chain on every run; a child held back by re-entry
+   protection stays in the list and is also recorded in
+   `chain_skipped:`), running the worktree-staleness
    check before each invocation, writing the
    `parent_orchestration:` sentinel immediately before invoking,
    clearing the sentinel immediately after, capturing the child
@@ -419,8 +420,9 @@ Execute phases sequentially by reading the corresponding phase file:
 
 At the end of Phase 1 discovery, `/scope` emits a chain-proposal
 output naming the children it intends to invoke — always the whole
-tactical chain, minus any child held back by re-entry protection —
-the re-entry verdict for each (per the Gate Vocabulary section of
+tactical chain, with any child held back by re-entry protection
+shown as held rather than dropped from the list — the re-entry
+verdict for each (per the Gate Vocabulary section of
 `parent-skill-pattern.md`), and the per-predicate reasons feeding
 R6's shape-dependent verdict for `/design`'s decision-roster shape
 (architectural-alternatives count, new-component references,

@@ -352,8 +352,12 @@ candidate.
 
 Both conditions, and nothing else:
 
-1. `/brief` is in `planned_chain:` — the head child will author a
-   NEW head-altitude artifact on this run.
+1. `/brief` will actually fire — it is in `planned_chain:` and NOT
+   in `chain_skipped:`, so the head child will author a NEW
+   head-altitude artifact on this run. Membership alone is not the
+   test: `planned_chain:` now carries every child on every run, so
+   a held-back `/brief` appears there too and the notice would fire
+   against an artifact this run will not write.
 2. Phase 0's Upstream Validation recorded no `consumed_upstream:` —
    no upstream was supplied.
 
@@ -399,10 +403,18 @@ keeps each of them true:
 ## `planned_chain:` Population
 
 Phase 1 writes `planned_chain:` in the state file as the whole
-tactical chain, in order, minus any child held back by re-entry
-protection. Held-back children appear in `chain_skipped:` with
-their reason, not in `planned_chain:`. The two lists together
-cover the full Phase 1 verdict surface.
+tactical chain, in order. A child held back by re-entry protection
+stays in the list and is *also* recorded in `chain_skipped:` with
+its reason, because the plan was to run it — the artifact already
+on disk is why it did not, not a decision that it was never
+planned. `chain_ran:` is what separates the two afterwards. The
+three lists together cover the full Phase 1 verdict surface.
+
+This is the same rule `/charter` states for a declined `/roadmap`:
+a skip moves a child into `chain_skipped:`, it does not retract the
+plan. The one case that is genuinely absent from `planned_chain:`
+is a conditional feeder whose gate never opened — `/scope` has no
+feeder in v1, so the case does not arise here.
 
 ```yaml
 planned_chain:
@@ -413,8 +425,10 @@ planned_chain:
 chain_skipped: []
 ```
 
-That list is a constant. Phase 1 has no input that can shorten it
-and no field that records a different shape.
+That list is a constant, and now literally so: it is
+`[brief, prd, design, plan]` on every run, and re-entry protection
+no longer subtracts from it. Phase 1 has no input that can shorten
+it and no field that records a different shape.
 
 When re-entry protection holds a child back, the entry shape is:
 
@@ -431,10 +445,11 @@ other reason, when a Reject at a settled-upstream boundary ends
 the chain and the remaining children never run — see the
 decision-record templates under `skills/scope/references/`.)
 
-Phase 2 reads `planned_chain:` and invokes the listed children
-in order; it does NOT re-walk Phase 1's evaluations per child.
-Phase 1's verdicts are the cached chain-shape; Phase 2 consumes
-them.
+Phase 2 reads `planned_chain:` and invokes the listed children in
+order, skipping any that `chain_skipped:` already names; it does
+NOT re-walk Phase 1's evaluations per child. Phase 1's verdicts are
+the cached chain-shape, carried across the two lists together, and
+Phase 2 consumes them.
 
 ## Initial `child_snapshots:` Capture
 

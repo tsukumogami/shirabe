@@ -47,10 +47,11 @@ state-schema reference).
   ladder on every re-entry.
 - **`planned_chain`** — list of child names the chain plans to
   invoke: the whole tactical chain (`brief`, `prd`, `design`,
-  `plan`) in order, minus any child held back by re-entry
-  protection (output of Phase 1's chain-proposal). There is no
-  field recording where the chain starts, because it always starts
-  at `brief`.
+  `plan`) in order, on every run. A child held back by re-entry
+  protection stays here and is also recorded in `chain_skipped`,
+  because the plan was to run it; `chain_ran` is what separates the
+  two afterwards. There is no field recording where the chain
+  starts, because it always starts at `brief`.
 - **`chain_ran`** — list of children whose invocations completed,
   each with the timestamp its invocation began:
 
