@@ -90,13 +90,18 @@ scoping path a feeder doc would reach for (their intermediates are
 `wip/plan_<topic>_analysis.md`, `wip/brief_<topic>_discover.md`, and
 their siblings), so 6.1 and 6.4 keep the prefix glob.
 
-**The narrowing is defense in depth, not the live fix.** `/explore`
-writes its handoff at `wip/scope_<topic>_handoff.md`, which Slot 7
-matches and no Slot 6 row has ever matched. What the narrowing
-protects against is a handoff left on disk by an older `/explore`, a
-hand-written feeder doc, or a future producer that reaches for the
-child-namespaced convention `/charter` still uses for its own
-pre-populated `/roadmap` handoff.
+**The narrowing is defense in depth, not the live fix.** The
+collision was real: the old 6.3 globbed `wip/prd_<topic>_*`, which
+caught `wip/prd_<topic>_scope.md`, the file the pre-router
+`/explore` wrote for `/prd`, so a router handoff read as an
+interrupted `/prd` run and skipped `/brief`, Phase 1, and the chain
+proposal. What closed that is the move of the handoff to
+`wip/scope_<topic>_handoff.md`, which Slot 7 matches and no Slot 6
+row can. The narrowing covers what the move does not reach: a
+handoff left on disk by an older `/explore`, a hand-written feeder
+doc, or a future producer that reaches for the child-namespaced
+convention `/charter` still uses for its own pre-populated
+`/roadmap` handoff.
 
 **What it costs is one hop, in the safe direction.** An interactive
 `/prd` interrupted after its own Phase 1 leaves only

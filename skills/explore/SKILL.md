@@ -60,11 +60,12 @@ choice this skill stopped making.
 | "Should this project exist?" or "Which features should we build?" | `/charter` | `/explore` if the scope is unclear |
 | "Should we start building the PLAN we have?" | `/execute <plan-path>` | `/work-on <issue>` if only one issue out of it is in play |
 
-Two rows are gone rather than re-pointed. "Should I write a PRD or a design
-doc?" and the pair that split "what should we build" from "how should we build
-it" drew the same distinction, and that distinction only existed while a PRD and
-a DESIGN were separately choosable. Both are hops inside `/scope` now, so the
-question has one answer.
+Three distinctions are gone from these two tables rather than re-pointed:
+"should I write a PRD or a design doc?", the pair that split "what should we
+build" from "how should we build it", and "what order do we build in?". Each one
+separated two hops of the same chain, and each mattered only while those hops
+were separately choosable. A BRIEF, a PRD, a DESIGN, and a PLAN are steps inside
+`/scope`, so all three questions now have one answer and take one row.
 
 ### Complexity-Based Routing
 
