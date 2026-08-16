@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   A /scope fold deletes a chain document, and something must record that the
   document was absorbed rather than never written. Today that is docs/folds.md,
@@ -30,10 +30,13 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
-Requirements are drafted and awaiting the jury. The downstream DESIGN owns
-which replacement claim each prose site gets and what each amendment says.
+Three review passes ran against these requirements; the findings converged from
+seven blocking items to four localized corrections, and one of those corrected a
+premise the repository falsified mid-drafting when the record recorded its first
+fold. The downstream DESIGN owns which replacement claim each prose site gets
+and what each amendment says.
 
 ## Problem Statement
 
