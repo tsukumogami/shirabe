@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   An agent holding shirabe's skills can be handed a finished plan and still not
   run it under the sanctioned workflow, either by never invoking the skill or by
@@ -21,7 +21,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 The framing here stops at the boundary of the problem, the outcome, the
 journeys, and the scope. Which mechanism enforces the contract, and how the

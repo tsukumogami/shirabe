@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 upstream: docs/briefs/BRIEF-skill-adherence-enforcement.md
 problem: |
   An agent holding shirabe's skills can be handed a finished plan and produce all
@@ -26,7 +26,7 @@ motivating_context: |
 
 ## Status
 
-In Progress
+Done
 
 ## Problem Statement
 
