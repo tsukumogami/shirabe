@@ -104,10 +104,16 @@ am about to write is impossible.
 
 ### Functional
 
-- **R1. The six re-entrant keys are removed on the path that re-enters them.**
+- **R1. The keys behind the six re-entrant gates are removed on the path that
+  re-enters them.** Five distinct keys across six gates; `summary.md` is gated
+  twice.
   A `blocking_retry` from any panel removes `scrutiny_results.json`,
-  `review_results.json` and `qa_results.json`. A `scope_expanded_retry` removes
-  `plan.md`. An `issues_found` from `finalization` removes `summary.md`.
+  `review_results.json` and `qa_results.json`. An `issues_found` from
+  `finalization` removes `summary.md`. `plan.md` is removed on **both** edges
+  that re-enter `analysis`, not one: `implementation` submitting
+  `scope_expanded_retry`, and `analysis` self-looping on `scope_changed_retry`.
+  Both land on the same `plan_artifact` gate holding the plan the state is being
+  re-entered to replace, so covering one leaves the defect live on the other.
 - **R2. Removal covers every key the re-entry will re-read, not only the
   raising phase's.** A retry raised at `qa_validation` re-enters `scrutiny` and
   `review`, and the code both reviewed is about to change, so their verdicts are
@@ -134,6 +140,7 @@ am about to write is impossible.
   |---|---|---|
   | `scrutiny` / `review` / `qa_validation` | `blocking_escalate` | `done_blocked` |
   | `analysis` | `scope_changed_escalate`, `blocked_missing_context` | `done_blocked` |
+  | `implementation` | `partial_tests_failing_escalate`, `blocked` | `done_blocked` |
   | `finalization` | `deferral_requested` | `deferral_approval` |
 
   Concretely: the clearing step must not be a precondition for submitting
@@ -178,8 +185,12 @@ am about to write is impossible.
       on `passed` — though neither raised the retry.
 - [ ] **Traversal, from each entry point.** The same holds for a retry raised at
       `review` and at `scrutiny`.
-- [ ] After a `scope_expanded_retry`, `plan.md` is absent and `analysis` does
-      not advance on `plan_ready`.
+- [ ] After a `scope_expanded_retry` from `implementation`, `plan.md` is absent
+      and `analysis` does not advance on `plan_ready`.
+- [ ] After a `scope_changed_retry` self-loop at `analysis`, the same holds.
+      Driven separately rather than argued from the previous case: they are
+      different edges in different phase files, and one can ship without the
+      other.
 - [ ] After `finalization` submits `issues_found`, `summary.md` is absent and
       neither `finalization` nor `deferral_approval` advances on it.
 - [ ] The clearing step exits 0 when a key it is asked to remove was never
@@ -201,7 +212,7 @@ am about to write is impossible.
 - [ ] `grep -c "koto has no verb that removes a key" skills/` returns 0.
 - [ ] Every phase file holding a re-entrant gate states what happens to its
       artifact on re-entry: the three panel files, `phase-3-analysis.md`,
-      `phase-5-finalization.md`.
+      `phase-4-implementation.md`, `phase-5-finalization.md`.
 - [ ] `review-panel-orchestration.md` states that a retry removes all three
       panel artifacts.
 - [ ] `git diff origin/main...HEAD -- skills/work-on/koto-templates/work-on.md`
