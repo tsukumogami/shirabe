@@ -388,7 +388,16 @@ across runs; agents and eval scenarios assert against them.
   of a child that would otherwise fire, or reframe the topic
   entirely. After the redirection, the chain proposal re-fires
   against the new discovery outputs; the prompt cycle repeats
-  until the author Proceeds or Bails.
+  until the author Proceeds or Bails. `/charter`'s Adjust
+  therefore reaches chain membership: the redirected discovery may
+  force a previously-skipped child on. Whether Adjust reaches
+  membership is a per-parent property each parent declares for
+  itself
+  (`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`,
+  What Adjust reaches); this is `/charter`'s declaration, and
+  `/scope`'s Adjust does not reach membership. What no parent's
+  Adjust reaches is a child whose artifact the parent judged not
+  worth producing, because no parent makes that judgment.
 - **Bail** — the author abandons the chain. Routing is owned by
   the companion outline implementing the exit-path orchestration
   (the R8 tie-break rule between abandonment-forced and clean-

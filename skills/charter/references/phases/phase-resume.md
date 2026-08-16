@@ -601,6 +601,22 @@ surface is the R14-widened isolation rule's defense against
 contract drift — adding a new "permitted source" without revising
 this prose is itself a violation.
 
+### Slug Re-Validation on Resume
+
+A row that recovers the topic slug from a path on disk rather than
+from `$ARGUMENTS` re-validates it against `^[a-z0-9-]+$` before the
+slug reaches any emitted command or state-file write path. This
+covers the published-STRATEGY rows, the child partial-run rows, and
+the slot-7 feeder-doc row matching `wip/charter_<topic>_handoff.md`:
+each finds its slug by a filesystem match, so each carries the
+path-traversal surface a maliciously-named file placed under `docs/`
+or `wip/` would otherwise open. An unparseable slug rejects the
+resume entry, surfaces a diagnostic naming the offending path, and
+routes to `/charter`'s bail handling; the ladder never proceeds on
+an unvalidated slug. The pattern-level rule and its wording live in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` (Slug
+Re-Validation on Resume section).
+
 ### Recorded-Upstream Re-Validation Is a Second Interpolation Site
 
 The `consumed_upstream:` re-validation above is not a repeat of

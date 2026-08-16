@@ -86,12 +86,17 @@ state-schema reference).
   `child` is the pattern-level entry key, shared with `/charter`;
   `reason` is drawn from the closed vocabulary in
   `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
-  (Chain-tracking). `/scope` writes three of its four members:
+  (Chain-tracking). `/scope` writes two of its four members, which
+  instantiate as three reason strings:
   `settled-artifact-at-canonical-path-reentry-protection` from
-  Phase 1, and `prd-boundary-rejection` or
-  `design-boundary-rejection` from Phase 2, when a Reject at a
+  Phase 1, and both halves of the `<boundary>-boundary-rejection`
+  pair from Phase 2 — `prd-boundary-rejection` and
+  `design-boundary-rejection`, written when a Reject at a
   settled-upstream boundary ends the chain and the children below
-  the boundary never run. A child is never recorded here because
+  the boundary never run. Those three are the whole set the skill
+  writes; the two members `/scope` never writes are
+  `upstream-supplied-by-author` and
+  `author-declined-at-confirmation-prompt`, both `/charter`'s. A child is never recorded here because
   the chain judged its artifact not worth producing, since `/scope`
   makes no such judgment before an artifact exists, and the closed
   vocabulary is what makes that checkable rather than asserted.

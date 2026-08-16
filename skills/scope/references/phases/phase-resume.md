@@ -71,11 +71,15 @@ the child against its own resume ladder, most-downstream first:
 - **6.3 `wip/prd_<topic>_*` exists.** Re-invoke `/prd`.
 - **6.4 `wip/brief_<topic>_*` exists.** Re-invoke `/brief`.
 
-Slugs recovered from these on-disk wip paths during Slot 6 matches
+Slugs recovered from on-disk paths during Slot 6 matches and during
+the Slot 7 feeder-doc match against `wip/scope_<topic>_handoff.md`
 follow the slug re-validation rule documented in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md`
 (Slug Re-Validation on Resume section): re-validate against
 `^[a-z0-9-]+$` before interpolation into any emitted shell command.
+Slot 7 is covered for the same reason the wip partials above are:
+the slug arrives from a filename found on disk, not from the
+author's argument.
 
 ## Slot 7 — Feeder-Doc-Detected (vacuous in v1)
 

@@ -128,14 +128,24 @@ file at every phase pointer.
   check.
 - **`planned_chain`** — ordered list of child-name strings naming
   which children are in scope for this run. Values are drawn from
-  `{vision?, comp?, strategy, roadmap}` (children with `?` are
-  conditional on their Phase 1 gates; `strategy` and `roadmap` are
+  `{vision?, strategy, roadmap}` (`vision` carries a `?` because it
+  is conditional on its Phase 1 gate; `strategy` and `roadmap` are
   unconditional). Set at Phase 1 chain-proposal acceptance;
   modified only if the author re-proposes the chain. `roadmap` is
   planned on every chain even though the author may later decline
   it at the Phase 2 roadmap confirmation prompt — a declination
   moves `roadmap` into `chain_skipped`, it does not retract the
   plan.
+
+  The conditional feeder `/comp` is not a value here. A child whose
+  gate never opened was never planned, and the state file is
+  durably public from feature-branch push, so naming a private-only
+  artifact type in it is a visibility violation whatever the
+  surrounding field says. The rule and its reasoning live under
+  `/comp` Invocation Rule in
+  `skills/charter/references/phases/phase-2-chain-orchestration.md`;
+  the skip is stated to the author in conversation and recorded
+  nowhere.
 - **`chain_ran`** — ordered sub-list of `planned_chain` naming the
   children whose invocations completed (the child wrote its durable
   artifact and `/charter` recorded the result). Appended-to as each
@@ -264,7 +274,7 @@ phase_pointer: N
 chain_started: <ISO-8601 timestamp>
 chain_completed: <ISO-8601 timestamp>
 last_updated: <ISO-8601 timestamp>
-planned_chain: [vision?, comp?, strategy, roadmap]
+planned_chain: [vision?, strategy, roadmap]
 chain_ran: [<sub-list of completed children>]
 chain_skipped:
   - child: <name>

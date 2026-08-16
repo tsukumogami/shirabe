@@ -189,7 +189,7 @@ writer in the corpus today.
 | `settled-artifact-at-canonical-path-reentry-protection` | A Mandatory-with-auto-skip gate found the child's durable artifact already at a settled status at the canonical path | `/scope` Phase 1, against an Accepted BRIEF, PRD, or DESIGN |
 | `upstream-supplied-by-author` | The author supplied the artifact the child would have authored, and the value passed the parent's Phase 0 upstream validation | `/charter`'s `/vision` gate, on `--upstream <vision-path>` |
 | `author-declined-at-confirmation-prompt` | The author declined an ALWAYS child at the parent's declination prompt | `/charter`'s `/roadmap` confirmation prompt |
-| `<boundary>-boundary-rejection` | A Reject at a settled-upstream boundary ended the chain, so the children below it never ran | `/scope`'s rejection Decision Records, for every child below the boundary |
+| `<boundary>-boundary-rejection` | A Reject at a settled-upstream boundary ended the chain, so the children below it never ran | `/scope` Phase 2, per the rejection Decision Record templates under `skills/scope/references/` |
 
 `<boundary>` is drawn from the `boundary:` enum (see Parent-specific
 conditional fields above), so the fourth member is the closed pair

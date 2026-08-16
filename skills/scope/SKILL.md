@@ -430,9 +430,17 @@ Complex classification). The output ends with a confirmation prompt
 containing the literal substrings **Proceed**, **Adjust**, and
 **Bail** (case-insensitive) in the offered options.
 
-The proposal never offers a shorter chain, because `/scope` has no
-way to produce one. An author who wants to start above `/brief`
-invokes `/design` or `/plan` directly.
+The proposal never offers a shorter chain. The reason is not that
+`/scope` cannot end a run with fewer documents than the chain has
+altitudes; the consolidation judgment does exactly that in Phase 2.
+The reason is that Phase 1 has no artifact to decide against. A
+shorter chain offered here would be a verdict on documents nobody
+has written, which is the one call the chain does not make.
+
+An author who wants to start above `/brief` still invokes `/design`
+or `/plan` directly. That buys a shorter conversation, not a
+smaller artifact set: inside `/scope`, the set is settled per hop
+after the artifacts land.
 
 The three branch behaviors:
 
@@ -495,11 +503,16 @@ decision that shrank the artifact set before any artifact existed,
 and having two reduction mechanisms fire at different times meant
 neither read as the rule.
 
-**A shorter chain is still reached by invoking a child
+**A shorter conversation is still reached by invoking a child
 directly.** `/design <topic>` and `/plan <topic>` enter the
 tactical chain above `/brief`, which is what CLAUDE.md tells
-authors to do when they know the altitude they want. `/scope`
-means "walk the whole chain."
+authors to do when they know the altitude they want. All four
+children ship as standalone entry points, so the choice is real and
+it stays supported. What it no longer is, is the route to a smaller
+artifact set: that is consolidation's call, made per hop against
+documents that exist. Two rules, stated separately, because
+collapsing them puts the artifact-set decision back where no
+artifact exists. `/scope` means "walk the whole chain."
 
 What it no longer means is a fixed outcome. Every hop is
 decidable, so a run ends with all four artifacts, or some, or —

@@ -121,8 +121,9 @@ successor does not, and that is only answerable by reading two
 documents. When a chain is proposed neither has been written, so
 nothing a parent can read at that point answers it.
 
-Three grounds let a child legitimately not run, and the three gate
-shapes below admit exactly those three and no fourth:
+Three grounds let a child legitimately not run. Every gate the
+pattern defines, in this section and in Conditional Feeder
+Invocation Shape below, admits exactly those three and no fourth:
 
 1. A settled durable artifact already sits at the child's canonical
    path, so the auto-skip closes the gate (Mandatory-with-auto-skip).
