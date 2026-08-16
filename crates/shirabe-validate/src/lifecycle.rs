@@ -300,6 +300,11 @@ struct IndexedDoc {
     status: String,          // frontmatter status field
     execution_mode: String,  // for PLANs only; empty otherwise
     upstreams: Vec<PathBuf>, // resolved upstream paths (scalar or list)
+    /// Whether a PLAN carries its work items in `## Issue Outlines`.
+    /// False for every non-PLAN. Derived from `execution_mode` *and*
+    /// `tracking_level` together -- see `checks::plan_is_outline_shaped`
+    /// -- because neither field settles it alone.
+    outline_shaped: bool,
 }
 
 /// Index of every doc under the tree, keyed by canonical path.
@@ -468,6 +473,7 @@ fn index_doc(
         .unwrap_or_default();
 
     let upstreams = extract_upstreams(canon_root, canon_path, &doc);
+    let outline_shaped = format == "Plan" && crate::checks::plan_is_outline_shaped(&doc);
 
     Ok(IndexedDoc {
         path: canon_path.to_path_buf(),
@@ -475,6 +481,7 @@ fn index_doc(
         status,
         execution_mode,
         upstreams,
+        outline_shaped,
     })
 }
 
@@ -779,8 +786,13 @@ fn infer_posture_from(root: &IndexedDoc) -> Posture {
             _ => Posture::MultiPrInFlight,
         };
     }
-    // PLAN root.
-    if root.execution_mode == "multi-pr" {
+    // PLAN root. An issueless multi-pr PLAN is excluded deliberately: the
+    // multi-pr postures expect `Active`, and that status is only reachable
+    // when activation materialized GitHub issues. A PLAN that files none
+    // never leaves Draft, so bucketing it here would demand a status it
+    // cannot legitimately reach. Its lifecycle is Draft -> Done, which is
+    // the single-pr shape below.
+    if root.execution_mode == "multi-pr" && !root.outline_shaped {
         return match root.status.as_str() {
             "Done" => Posture::MultiPrWorkCompleting,
             // Active or Draft both bucket to in-flight; the
@@ -1501,10 +1513,8 @@ fn check_l06_outline_acs(chain: &Chain, idx: &DocIndex, cfg: &Config) -> Vec<Val
         // The mode alone does not settle that: an issueless `multi-pr`
         // PLAN keeps its work items in `## Issue Outlines` too, and
         // skipping it would leave that shape with weaker AC coverage
-        // than the single-pr shape it borrows. The cheap frontmatter
-        // test comes first so the common `multi-pr` case still skips
-        // without a file read.
-        if indexed.execution_mode != "single-pr" && indexed.execution_mode != "multi-pr" {
+        // than the single-pr shape it borrows.
+        if !indexed.outline_shaped {
             continue;
         }
         // Re-parse the PLAN body. The doc index carries only the
@@ -1521,9 +1531,6 @@ fn check_l06_outline_acs(chain: &Chain, idx: &DocIndex, cfg: &Config) -> Vec<Val
                 continue;
             }
         };
-        if !crate::checks::plan_is_outline_shaped(&doc) {
-            continue;
-        }
         for ac in parse_outline_acs(&doc) {
             if ac.ticked {
                 continue;
@@ -4685,6 +4692,106 @@ mod tests {
                 &single_pr_plan_body(acs),
             ),
         ])
+    }
+
+    /// An issueless `multi-pr` PLAN is judged as the shape it borrows.
+    ///
+    /// The multi-pr postures expect `Active`, and that status is only
+    /// reachable when activation materialized GitHub issues -- that is what
+    /// the approval gate gates. A PLAN that files none never gets there, so
+    /// inferring a multi-pr posture for it demanded a status it could not
+    /// legitimately reach, leaving the combination this feature adds
+    /// permanently un-passable at L01.
+    #[test]
+    fn issueless_multi_pr_plan_is_judged_as_the_shape_it_borrows() {
+        let mut fm = make_plan("Draft", "multi-pr", "docs/designs/DESIGN-foo.md");
+        fm.push_str("tracking_level: none\n");
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", "docs/prds/PRD-foo.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &fm,
+                &single_pr_plan_body("- [x] alpha\n"),
+            ),
+        ]);
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let errors =
+            run_lifecycle_chain_check(&plan_path, &Config::default(), ReviewPosture::Draft);
+        // Parity with the shape it borrows is the invariant: whatever L01
+        // says about a `single-pr` PLAN in this state, it must say about
+        // this one. What it must not do is demand `Active` "for multi-pr
+        // in-flight", a status this PLAN cannot reach.
+        let single = build_single_pr_chain("- [x] alpha\n");
+        let single_errors = run_lifecycle_chain_check(
+            &single.join("docs/plans/PLAN-foo.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        let msgs = |es: &[ValidationError]| -> Vec<String> {
+            es.iter()
+                .filter(|e| e.code == "L01")
+                .map(|e| e.message.clone())
+                .collect()
+        };
+        assert_eq!(
+            msgs(&errors),
+            msgs(&single_errors),
+            "an issueless multi-pr PLAN must be judged exactly as the single-pr shape it borrows"
+        );
+        assert!(
+            !errors.iter().any(|e| e.message.contains("multi-pr")),
+            "it must not be held to a multi-pr posture; got {errors:?}"
+        );
+
+        // The guard: an issue-carrying multi-pr PLAN at Draft still owes
+        // Active, so this has not simply disabled the rule.
+        let carrying = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", "docs/prds/PRD-foo.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Draft", "multi-pr", "docs/designs/DESIGN-foo.md"),
+                &plan_body("Draft"),
+            ),
+        ]);
+        let carrying_errors = run_lifecycle_chain_check(
+            &carrying.join("docs/plans/PLAN-foo.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        assert!(
+            carrying_errors
+                .iter()
+                .any(|e| e.code == "L01" && e.message.contains("multi-pr in-flight")),
+            "an issue-carrying multi-pr PLAN at Draft still owes Active; got {carrying_errors:?}"
+        );
     }
 
     /// An issueless `multi-pr` PLAN gets the same AC coverage as `single-pr`.
