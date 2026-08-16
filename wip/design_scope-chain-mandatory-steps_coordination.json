@@ -1,0 +1,45 @@
+{
+  "topic": "scope-chain-mandatory-steps",
+  "upstream": "docs/prds/PRD-scope-chain-mandatory-steps.md",
+  "visibility": "Public",
+  "planning_context": "Tactical",
+  "decision_provenance": "inline-resolved",
+  "dispatch": "parent-chain sentinel present in wip/scope_scope-chain-mandatory-steps_state.md; decision-bypass-with-inline-resolution applies at Phase 2, serial-self-jury at Phase 6",
+  "decisions": [
+    {
+      "id": 1,
+      "question": "What replaces /explore's ten-type crystallize framework, given the outcome set is no longer a flat list of artifact types?",
+      "requirements": ["R10", "R12", "R13", "R14"],
+      "tier": 3,
+      "status": "pending"
+    },
+    {
+      "id": 2,
+      "question": "Where does the /explore handoff artifact live, and what is its schema?",
+      "requirements": ["R19", "R21", "R25"],
+      "tier": 3,
+      "status": "pending"
+    },
+    {
+      "id": 3,
+      "question": "How does each parent detect the handoff, given /scope has a vacuous Slot 7 and /charter has no slot vocabulary and an occupied row 7?",
+      "requirements": ["R20", "R22", "R23", "R26"],
+      "tier": 3,
+      "status": "pending"
+    },
+    {
+      "id": 4,
+      "question": "What does Bail at Phase 1 do, and what changes so it can execute?",
+      "requirements": ["R27", "R28"],
+      "tier": 2,
+      "status": "pending"
+    },
+    {
+      "id": 5,
+      "question": "What shape does the bounded chain_skipped reason vocabulary take, and which entry key survives?",
+      "requirements": ["R4", "R5", "R6"],
+      "tier": 2,
+      "status": "pending"
+    }
+  ]
+}

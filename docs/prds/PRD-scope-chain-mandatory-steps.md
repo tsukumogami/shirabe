@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 absorbed:
   - docs/briefs/BRIEF-scope-chain-mandatory-steps.md
 problem: |
@@ -29,7 +29,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+In Progress
 
 Requirements written from the brief this document absorbed. Both of that
 brief's Open Questions are closed under Decisions and Trade-offs, along with
