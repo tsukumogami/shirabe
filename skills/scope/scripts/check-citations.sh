@@ -49,11 +49,10 @@ readonly DOC_PATH_RE='^docs/(briefs|prds|designs|plans)/(BRIEF|PRD|DESIGN|PLAN)-
 
 usage() {
     cat >&2 <<'EOF'
-usage: check-citations.sh --target <path> --survivor <path> [--record <path>]
+usage: check-citations.sh --target <path> --survivor <path>
 
   --target    the artifact the absorb would delete
   --survivor  the document absorbing it; excluded from the search
-  --record    the fold record; excluded from the search (default docs/folds.md)
 
 exit: 0 clean | 1 path citations | 2 bare-name only | 3 did not complete
 EOF
@@ -66,13 +65,11 @@ die_incomplete() {
 
 target=""
 survivor=""
-record="docs/folds.md"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --target)   target="${2-}"; shift 2 || die_incomplete "--target needs a value" ;;
         --survivor) survivor="${2-}"; shift 2 || die_incomplete "--survivor needs a value" ;;
-        --record)   record="${2-}"; shift 2 || die_incomplete "--record needs a value" ;;
         -h|--help)  usage; exit "$EXIT_CLEAN" ;;
         *)          usage; die_incomplete "unknown argument: $1" ;;
     esac
@@ -94,12 +91,6 @@ for path in "$target" "$survivor"; do
     fi
 done
 
-# The record is not a chain document and has its own shape. It is still
-# asserted, for the same reason: it reaches a pathspec exclusion.
-if [[ ! "$record" =~ ^docs/[a-z0-9-]+\.md$ ]]; then
-    die_incomplete "refusing to search: '$record' is not a repo-relative record path"
-fi
-
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
     || die_incomplete "not inside a git work tree"
 
@@ -111,14 +102,11 @@ basename_of="${target##*/}"
 # Exclusions, each load-bearing:
 #   :!wip/       non-durable staging, swept before merge
 #   :!$survivor  the absorbing document -- see the header
-#   :!$record    the fold record, which names a live survivor by path and would
-#                otherwise make a chain's first fold refuse its second
 #   fixtures     test corpora are not real citations
 path_hits=$(
     git grep -I -F -n -e "$target" -- \
         ':!wip/' \
         ":!$survivor" \
-        ":!$record" \
         ':!**/tests/fixtures/**' \
         ':!**/testdata/**' \
         2>/dev/null
@@ -140,7 +128,6 @@ name_hits=$(
     git grep -I -F -n -e "$basename_of" -- \
         ':!wip/' \
         ":!$survivor" \
-        ":!$record" \
         ':!**/tests/fixtures/**' \
         ':!**/testdata/**' \
         2>/dev/null

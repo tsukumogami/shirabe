@@ -108,17 +108,6 @@ deletion is enumerated in the same closed set for that reason;
 Phase 4 reads it back here so a reader checking the set against
 this file's sweeps does not find an unaccounted removal.
 
-**`docs/folds.md` is enumerated and never swept.** It is in the
-closed write-target set as Phase 2's append target, so a reader
-checking the set finds it — but it is a durable record on the
-default branch, not scratch, and Phase 4 removes nothing outside
-`wip/`. The carve-out is stated rather than left to follow from
-the `wip/` prefix, because the file is the one thing this skill
-writes under `docs/` on a `full-run` exit that is neither a chain
-artifact nor a Decision Record, and "enumerated in the write-target
-set" is exactly the property that would otherwise make a sweep look
-authorised.
-
 The read-back is documentation discipline: Phase 4's removals
 land inside Phase 3's enumerated set per the exit-path matrix
 above; an implementation that removes anything outside this
