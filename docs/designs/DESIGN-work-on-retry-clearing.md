@@ -180,20 +180,29 @@ fixtures.
 
 **The three retry-bearing phase files** — `phase-4a-scrutiny.md`,
 `phase-4b-review.md`, `phase-4c-qa.md` — each gain the same block on the
-`blocking_retry` path, byte-identical below its final line:
+`blocking_retry` path, byte-identical below its **first** line:
 
 ```bash
+OUTCOME_FIELD=scrutiny_outcome   # review_outcome / qa_outcome in the other two
 for KEY in scrutiny_results.json review_results.json qa_results.json; do
-  koto context remove <WF> "$KEY" 2>/dev/null
+  koto context remove <WF> "$KEY" >/dev/null 2>&1
   if koto context exists <WF> "$KEY" >/dev/null 2>&1; then
-    echo "$KEY still present after remove -- the stale verdict is still in place"
-    echo "do NOT submit a passed outcome on the next pass"
-    echo "to stop the run instead, submit blocking_escalate with a failure_reason"
+    echo "$KEY is still in context after koto context remove."
+    echo "The stale verdict is in place and the gate will accept it."
+    echo "Do NOT submit $OUTCOME_FIELD: passed on the next pass."
+    echo "To stop the run, submit $OUTCOME_FIELD: blocking_escalate with a failure_reason."
     exit 1
   fi
 done
-koto next <WF> --with-data '{"<outcome_field>": "blocking_retry"}'
+koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}"
 ```
+
+The differing line is the first rather than the last because the diagnostic has
+to name the phase's own field, and PRD R4 requires it to. Hoisting the field into
+a variable at the top is what keeps everything below it identical; a diagnostic
+that interpolated the field inline would leave three blocks differing in four
+places, and "identical below the first line" is an assertion a harness can make
+where "mostly the same" is not.
 
 `phase-3-analysis.md` and `phase-4-implementation.md` each gain the same shape
 over `plan.md`, on `plan_outcome: scope_changed_retry` and
@@ -286,7 +295,7 @@ Cases, in the order they should appear:
   stderr discarded, and names both the outcome to avoid and the escalate outcome.
 - **The escalate exits stay reachable with the store broken** — the PRD R6 case,
   driven against real koto rather than read off the template.
-- The blocks are byte-identical across the three panel files below their final
+- The blocks are byte-identical across the three panel files below their first
   line.
 
 ## Security Considerations

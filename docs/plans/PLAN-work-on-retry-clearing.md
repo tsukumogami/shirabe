@@ -56,9 +56,11 @@ three panel keys before submitting, so no panel advances on the verdict it
 recorded before the code changed.
 
 Add a Retry Loop clearing block to `phase-4a-scrutiny.md`, `phase-4b-review.md`
-and `phase-4c-qa.md`. Below its final line the block is byte-identical across
-the three; only the outcome field on the closing `koto next` differs
-(`scrutiny_outcome`, `review_outcome`, `qa_outcome`). It removes
+and `phase-4c-qa.md`. The block hoists the phase's outcome field into an
+`OUTCOME_FIELD` variable on its first line — `scrutiny_outcome`,
+`review_outcome`, `qa_outcome` — and everything below that line is byte-identical
+across the three. The diagnostic has to name the phase's own field, so the
+variable is what keeps the rest identical. It removes
 `scrutiny_results.json`, `review_results.json` and `qa_results.json`, confirms
 each is absent with `koto context exists`, and on a survivor prints the key, the
 outcome not to submit, and `blocking_escalate` as the way to a terminal state,
@@ -82,7 +84,7 @@ skip a key whose real artifact is still there.
 **Acceptance Criteria**:
 - Each of the three phase files carries the clearing block on its
   `blocking_retry` path.
-- The three blocks are byte-identical below their final line.
+- The three blocks are byte-identical below their first line.
 - `grep -c "koto has no verb that removes a key" skills/` returns 0.
 - `phase-4a-scrutiny.md` no longer states that the submitted outcome is what
   prevents an earlier pass from advancing.
@@ -220,7 +222,7 @@ Cases, in order:
   `analysis`, `partial_tests_failing_escalate` → `done_blocked` from
   `implementation`, `deferral_requested` → `deferral_approval` from
   `finalization`. Driven against koto, not read off the template.
-- The three panel blocks are byte-identical below their final line.
+- The three panel blocks are byte-identical below their first line.
 
 Every case must be able to fail. A branch whose both arms are a no-op is not an
 assertion, and the cleanup trap must restore write permission on the locked
