@@ -498,12 +498,19 @@ for applying it.
 
 **The surfaced rule** (`skills/plan/SKILL.md`, section "Execution Mode Decision"):
 
-- Default to single-pr.
-- Escape to multi-pr only when a hard constraint forces multiple PRs, or each PR
-  is independently useful.
-- A roadmap input is multi-pr because each feature is a cohesive deliverable that
-  lands observable incremental value -- the value principle, not the input
-  mechanism.
+- Default to as few PRs as the repository's resolved Delivery Preference permits;
+  `consolidated` (the default) means single-pr.
+- Escape only on a named branch from the plan profile of
+  `${CLAUDE_PLUGIN_ROOT}/references/split-triggers.md`: **Hard Constraint**,
+  **Incremental Value**, or **Stated Preference**.
+- A roadmap input is multi-pr under Incremental Value, because each feature is a
+  cohesive deliverable that lands observable value -- the value principle, not the
+  input mechanism.
+
+The branch this step selects is not bookkeeping: it is written into the produced
+PLAN's `split_rationale` frontmatter field and checked by `L09`, so a step that
+recommends a mode without naming its branch leaves the plan unable to satisfy that
+check.
 
 #### Procedure
 
@@ -511,39 +518,69 @@ for applying it.
    it to this decomposition.
 2. **Read the value-guard output (step 3.5a).** Every unit passed cleanly, or
    some were recorded as `assumed` (failing or ambiguous).
-3. **Recommend a mode:**
-   - **Roadmap input** -> multi-pr (each feature is a cohesive deliverable, per
-     the surfaced rule).
+3. **Resolve the Delivery Preference** on the `flag > CLAUDE.md ## Delivery
+   Preference: header > consolidated` stack. This is the default the next step
+   departs from, so it is resolved before a mode is recommended, not after.
+4. **Recommend a mode, and select the branch that produced it.** Every
+   non-default outcome carries exactly one branch name:
+   - **Roadmap input** -> multi-pr, branch **Incremental Value** (each feature is
+     a cohesive deliverable, per the surfaced rule).
    - **Plan input with a named hard constraint** (cross-repo, merge gate between
-     steps, a workflow that must reach main before it can be invoked) -> multi-pr
-     with the constraint named.
-   - **Plan input with each PR independently useful** -> multi-pr with the
-     incremental-value rationale stated.
-   - **Plan input otherwise** -> single-pr.
-4. **Present the recommendation to the user using AskUserQuestion** (interactive
+     steps, a workflow that must reach the default branch before it can be
+     invoked) -> multi-pr, branch **Hard Constraint**, with the constraint named.
+   - **Plan input with each PR independently useful** -> multi-pr, branch
+     **Incremental Value**, with the rationale stated.
+   - **Plan input under an `atomic` preference whose decomposition permits a
+     split** -> multi-pr, branch **Stated Preference**. Do not restate this as an
+     incremental-value claim; the branch exists so the real reason can be given.
+   - **Plan input under `consolidated`, no branch fires** -> single-pr, no branch,
+     no record.
+   - **Plan input under `atomic` that stays single-pr anyway** -> single-pr, but
+     it departed from the preference, so it still owes a branch naming why.
+5. **Record the selected branch** in the decomposition artifact's frontmatter
+   alongside `execution_mode`, so Phase 7 can write it into the PLAN's
+   `split_rationale` without re-deriving the judgment:
+
+   ```yaml
+   execution_mode: multi-pr
+   split_branch: Hard Constraint
+   split_rationale: |
+     Hard Constraint. The reusable workflow added in unit 1 must reach the
+     default branch before unit 2's workflow_dispatch invocation resolves.
+   ```
+
+   Omit both fields when the outcome is `single-pr` under `consolidated` — the
+   no-branch case records nothing.
+
+6. **Present the recommendation to the user using AskUserQuestion** (interactive
    mode):
 
 ```
 Based on the decomposition and the value-confirmation guard, I recommend
 **<single-pr|multi-pr>** execution mode.
 
-Reasoning: <one-sentence rationale citing the surfaced rule -- the default,
-the hard constraint, or the incremental-value justification>
+Reasoning: <one-sentence rationale citing the branch that fired -- Hard
+Constraint, Incremental Value, or Stated Preference -- or the default>
 
-- **single-pr**: Phase 4 agents produce lighter structured outlines. Phase 7
-  writes a PLAN doc without GitHub artifacts.
-- **multi-pr**: Phase 4 agents produce full issue bodies. Phase 7 creates a
-  GitHub milestone and issues.
+- **single-pr**: the work lands in one pull request. Phase 4 agents produce
+  lighter structured outlines.
+- **multi-pr**: the work lands in several. Phase 4 agents produce full issue
+  bodies.
+
+This choice is about how the code lands, not about what gets tracked on
+GitHub. The resolved tracking level decides whether Phase 7 files issues and
+a milestone, and it is a separate question asked separately.
 
 Use <recommended mode>, or override?
 ```
 
-5. **Under `--auto`** follow the recommendation and record a `confirmed` decision
+7. **Under `--auto`** follow the recommendation and record a `confirmed` decision
    block in `wip/plan_<topic>_decisions.md` if the rationale is clear, or
    `assumed` at high review priority if multi-pr was chosen without a hard
    constraint or a clear incremental-value rationale for every unit.
 
-6. **Record the selection** in the decomposition artifact's YAML frontmatter:
+8. **Record the confirmed selection** in the decomposition artifact's YAML
+   frontmatter:
 
 ```yaml
 execution_mode: single-pr  # or multi-pr
@@ -551,6 +588,15 @@ execution_mode: single-pr  # or multi-pr
 
 If the frontmatter was already written in step 3.5 or 3.R4 with a placeholder,
 update the file to reflect the confirmed mode.
+
+Step 5 wrote the branch fields against the *recommendation*. If the user
+overrode it here, those fields are now stale and must be brought in line with
+what was confirmed: an override to `single-pr` under `consolidated` removes
+`split_branch` and `split_rationale`, and an override that keeps a split still
+owes the branch that justifies the mode actually chosen. Leaving a rationale
+behind that argues for a mode the plan no longer uses is the failure `L09` is
+least able to catch -- the field is present and names a branch, so the check
+passes while the document misleads.
 
 #### No mode-scoped prerequisite check runs here
 
@@ -564,11 +610,13 @@ recorded here rather than left as an absence a later reader has to re-derive:
 Every record in it is `always`. `gh` is always-required because Resume Logic
 searches for existing issues with `gh issue list --search` on every run, before
 the execution mode is known -- so multi-pr cannot be what makes `gh` needed.
-Multi-pr in Phase 7 does reach more `gh` subcommands (issue creation,
-labelling, milestone work), but `gh` has an independent release cadence, so its
-record names the tool alone and is satisfied identically either way. The rest
--- `shirabe transition`, `shirabe validate`, `jq`, `git` -- back scripts and
-steps both modes run.
+Phase 7 does reach more `gh` subcommands (issue creation, labelling, milestone
+work), but the mode is not what takes it there -- the resolved tracking level
+is, and a `multi-pr` PLAN at `tracking_level: none` reaches none of them while a
+`single-pr` PLAN at `issues` reaches all but the milestone. Either way `gh` has
+an independent release cadence, so its record names the tool alone and is
+satisfied identically. The rest -- `shirabe transition`, `shirabe validate`,
+`jq`, `git` -- back scripts and steps every run reaches.
 
 A mode-scoped record exists only where a mode changes which tool is needed, or
 changes a first-party subcommand or flag. Neither happens here, so there is

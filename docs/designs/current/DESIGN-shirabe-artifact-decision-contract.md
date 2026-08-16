@@ -449,8 +449,9 @@ in the atomic finalization commit. Deleted by: the work-on cascade's
 PLAN deletion step.
 
 PLAN lifecycle is `Draft -> Active -> Done -> DELETED`. The Draft ->
-Active gate auto-fires for single-pr execution mode and is
-human-approved for multi-pr. The Active -> Done flip is the ephemeral
+Active gate auto-fires when the activation creates no GitHub issues
+and is human-approved when it does, keying on the resolved Tracking
+Level rather than on the execution mode. The Active -> Done flip is the ephemeral
 in-process marker the cascade applies immediately before deletion. See
 `docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md` for
 the lifecycle template source.

@@ -59,11 +59,15 @@ multi-pr, or coordinated), `milestone`, and `issue_count`. Optional `upstream`
 links to the source document (design doc, PRD, or roadmap).
 
 PLAN docs use a unified Draft -> Active -> Done -> DELETED lifecycle,
-identical for single-pr and multi-pr. Only the Draft -> Active gate
-differs: multi-pr requires human approval (GitHub issues + milestone
-are created on the transition); single-pr auto-fires when /plan
-finishes authoring (no human gate, no GitHub side effects). A
-committed PLAN at `status: Draft` is a violation in either mode.
+identical across execution modes. Only the Draft -> Active gate
+differs, and it keys on **whether the transition will create GitHub
+issues** -- the resolved Tracking Level -- not on `execution_mode`.
+An activation that files issues requires human approval, because that
+is the moment remote artifacts appear; one that files none auto-fires
+when /plan finishes authoring. So a `multi-pr` plan whose tracking
+level is `none` auto-fires, and a `single-pr` plan whose level is
+`issues` waits for approval. A committed PLAN at `status: Draft` is a
+violation in either case.
 
 PLANs are ephemeral: when the work completes, the PLAN file is
 deleted from the tree in the same commit set that transitions the
@@ -144,26 +148,35 @@ This is a separate decision from the Decomposition Strategy above. Work-slicing
 execution mode chooses how the resulting work lands. Don't conflate the two: the
 shape of the work and the shape of the delivery are different questions.
 
-**Default: single-pr.** Reach for one PR. Anchored on principle P1 (usable value
-is the unit of work) in
-`${CLAUDE_PLUGIN_ROOT}/references/workflow-principles.md` -- every PR delivers
-observable value on its own, and one PR is the lowest-ceremony shape that clears
-that bar.
+**Default: the repo's Delivery Preference.** Resolve
+`## Delivery Preference: consolidated|atomic` on the
+`flag > CLAUDE.md-header > consolidated` stack. Under `consolidated` -- the
+default, and what every repo gets without declaring anything -- reach for one PR.
+Anchored on principle P1 (usable value is the unit of work) in
+`${CLAUDE_PLUGIN_ROOT}/references/workflow-principles.md`.
 
-**Escape to multi-pr only when a named condition forces it:**
+**Escape only on a named branch.** The three branches are defined once in
+`${CLAUDE_PLUGIN_ROOT}/references/split-triggers.md` (plan profile); this surface
+names them, and that file defines them:
 
-1. **A hard constraint forces multiple PRs.** Cross-repo landing order; a workflow
-   that must reach main before it can be invoked; a merge gate between steps. The
-   constraint must be named in the PLAN doc.
-2. **Each PR is independently useful.** The split delivers genuine incremental
-   value: every PR-shaped unit lands observable value on its own, not just a
-   building block someone has to wait on. "Could be separate PRs" is not the test;
-   "each PR is independently useful to a reader" is.
+1. **Hard Constraint** -- a named, non-optional condition that makes one PR
+   impossible: cross-repo landing order; a workflow that must reach the default
+   branch before it can be invoked; a merge gate between steps.
+2. **Incremental Value** -- each resulting unit is independently useful to a
+   reader who meets it alone. "Could be separate PRs" is not the test.
+3. **Stated Preference** -- the repo declared `atomic`, and the decomposition
+   permits a split. This is where reviewability lives; say so in those terms
+   rather than restating it as a value claim.
 
-A roadmap input is always multi-pr -- not because the input is a roadmap, but
-because each feature is a cohesive deliverable that lands observable incremental
-value on its own (P1 again). The mechanism "the input is a roadmap" is not the
-reason; the value the feature delivers is.
+Whichever branch fires is named in the PLAN's `split_rationale` field, and `L09`
+checks it is there. A `single-pr` PLAN under `consolidated` fires no branch and
+records nothing; a `single-pr` PLAN under `atomic` *is* the departure and still
+owes a branch.
+
+A roadmap input is always multi-pr under **Incremental Value** -- not because the
+input is a roadmap, but because each feature is a cohesive deliverable that lands
+observable value on its own (P1 again). The mechanism "the input is a roadmap" is
+not the reason; the value the feature delivers is.
 
 The value-confirmation step (Phase 3.5a) then checks each unit -- every feature for
 a roadmap, each PR-shaped unit for a plan whose split delivers incremental value --

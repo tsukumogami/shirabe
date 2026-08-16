@@ -47,18 +47,19 @@
 //! `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`:
 //! the PLAN's frontmatter `status:` field is the posture signal.
 //! PLAN docs use a unified four-state lifecycle —
-//! Draft -> Active -> Done -> DELETED — identical for single-pr and
-//! multi-pr execution. The only branch is the Draft -> Active gate:
-//! multi-pr requires human approval (GitHub issues + milestone are
-//! created on the transition); single-pr auto-transitions when
+//! Draft -> Active -> Done -> DELETED — identical across execution
+//! modes. The only branch is the Draft -> Active gate, which keys on
+//! whether the transition creates GitHub issues (the resolved
+//! Tracking Level), not on the mode: an issue-creating activation
+//! requires human approval; a no-issues one auto-transitions when
 //! `/shirabe:plan` finishes authoring, so a single-pr PLAN that
 //! reaches a committed branch is already at `Active`. Consequently
 //! the posture rules are: present at `Active` is in-flight (single-pr
 //! mid-PR or multi-pr in-flight); present at `Done` is work-
 //! completing-but-not-yet-deleted (L01 fires); present at `Draft` on
 //! a committed PLAN is a violation (the author landed a single-pr
-//! PLAN without its auto-transition firing, or a multi-pr PLAN whose
-//! human approval gate never ran); absent is at-merge.
+//! PLAN whose auto-transition never fired, or an issue-creating one
+//! whose approval gate never ran); absent is at-merge.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
@@ -299,6 +300,11 @@ struct IndexedDoc {
     status: String,          // frontmatter status field
     execution_mode: String,  // for PLANs only; empty otherwise
     upstreams: Vec<PathBuf>, // resolved upstream paths (scalar or list)
+    /// Whether a PLAN carries its work items in `## Issue Outlines`.
+    /// False for every non-PLAN. Derived from `execution_mode` *and*
+    /// `tracking_level` together -- see `checks::plan_is_outline_shaped`
+    /// -- because neither field settles it alone.
+    outline_shaped: bool,
 }
 
 /// Index of every doc under the tree, keyed by canonical path.
@@ -467,6 +473,7 @@ fn index_doc(
         .unwrap_or_default();
 
     let upstreams = extract_upstreams(canon_root, canon_path, &doc);
+    let outline_shaped = format == "Plan" && crate::checks::plan_is_outline_shaped(&doc);
 
     Ok(IndexedDoc {
         path: canon_path.to_path_buf(),
@@ -474,6 +481,7 @@ fn index_doc(
         status,
         execution_mode,
         upstreams,
+        outline_shaped,
     })
 }
 
@@ -760,8 +768,8 @@ fn discover_chains(idx: &DocIndex) -> (Vec<Chain>, Vec<ValidationError>) {
 /// Infer the posture from the root doc's frontmatter.
 ///
 /// PLAN docs use a unified Draft -> Active -> Done -> DELETED
-/// lifecycle. Only the Draft -> Active gate differs between modes
-/// (human-approved for multi-pr, auto-fired for single-pr), so the
+/// lifecycle. Only the Draft -> Active gate differs, and it keys on
+/// whether issues are created rather than on the mode, so the
 /// in-flight on-disk state is `Active` for both. A committed PLAN
 /// at `Draft` is therefore a violation in either mode — the chain
 /// posture maps it to its mode's in-flight bucket so the per-member
@@ -778,8 +786,13 @@ fn infer_posture_from(root: &IndexedDoc) -> Posture {
             _ => Posture::MultiPrInFlight,
         };
     }
-    // PLAN root.
-    if root.execution_mode == "multi-pr" {
+    // PLAN root. An issueless multi-pr PLAN is excluded deliberately: the
+    // multi-pr postures expect `Active`, and that status is only reachable
+    // when activation materialized GitHub issues. A PLAN that files none
+    // never leaves Draft, so bucketing it here would demand a status it
+    // cannot legitimately reach. Its lifecycle is Draft -> Done, which is
+    // the single-pr shape below.
+    if root.execution_mode == "multi-pr" && !root.outline_shaped {
         return match root.status.as_str() {
             "Done" => Posture::MultiPrWorkCompleting,
             // Active or Draft both bucket to in-flight; the
@@ -1231,6 +1244,7 @@ fn emit_chain_findings(scope: &[&Chain], idx: &DocIndex, cfg: &Config) -> Vec<Va
     let mut errors: Vec<ValidationError> = Vec::new();
     for chain in scope {
         errors.extend(check_l06_outline_acs(chain, idx, cfg));
+        errors.extend(check_l09_split_rationale(chain, idx));
     }
     errors
 }
@@ -1468,11 +1482,16 @@ pub fn run_lifecycle_check(
 /// Check that every `- [ ]` / `- [x]` / `- [X]` outline-AC checkbox on
 /// the chain's PLAN is ticked.
 ///
-/// Fires only when the chain has a single-pr PLAN present in the tree:
-/// multi-pr PLANs carry their issues in the `## Implementation Issues`
-/// table without per-AC checkboxes, so the parser returns an empty
-/// vector for them and L06 cannot trigger. Non-PLAN-rooted chains
-/// (ROADMAP roots) likewise carry no outline ACs.
+/// Fires only when the chain's PLAN is outline-shaped -- every
+/// `single-pr` PLAN, plus a `multi-pr` PLAN at `tracking_level: none`.
+/// An issue-carrying PLAN keeps its work items in the
+/// `## Implementation Issues` table without per-AC checkboxes, so the
+/// parser returns an empty vector for it and L06 cannot trigger.
+/// Non-PLAN-rooted chains (ROADMAP roots) likewise carry no outline ACs.
+///
+/// The shape, not the mode, is the gate. Keying this on `single-pr`
+/// would leave an issueless multi-PR plan -- which carries outlines for
+/// exactly the same reason -- with its unticked criteria unchecked.
 ///
 /// One L06 error per unticked AC. The message names the outline-key,
 /// the verbatim AC text, and the 1-indexed line number so the author
@@ -1490,7 +1509,12 @@ fn check_l06_outline_acs(chain: &Chain, idx: &DocIndex, cfg: &Config) -> Vec<Val
             Some(d) => d,
             None => continue,
         };
-        if indexed.execution_mode != "single-pr" {
+        // A PLAN that never carries outlines has nothing here to check.
+        // The mode alone does not settle that: an issueless `multi-pr`
+        // PLAN keeps its work items in `## Issue Outlines` too, and
+        // skipping it would leave that shape with weaker AC coverage
+        // than the single-pr shape it borrows.
+        if !indexed.outline_shaped {
             continue;
         }
         // Re-parse the PLAN body. The doc index carries only the
@@ -1522,6 +1546,128 @@ fn check_l06_outline_acs(chain: &Chain, idx: &DocIndex, cfg: &Config) -> Vec<Val
         }
     }
     errors
+}
+
+/// The three branches a `split_rationale` may name, defined once in
+/// `references/split-triggers.md`. Matching is case-insensitive on the
+/// branch name only; the justification after it is free text this check
+/// deliberately does not inspect.
+const SPLIT_BRANCHES: [&str; 3] = ["hard constraint", "incremental value", "stated preference"];
+
+/// L09: a PLAN whose delivery shape is not the obvious one records why.
+///
+/// The field is required when EITHER disjunct holds:
+///
+/// - `execution_mode` is not `single-pr`; or
+/// - `execution_mode` is `single-pr` and the repository's resolved
+///   Delivery Preference is `atomic` — the plan departed from what the
+///   preference would have produced.
+///
+/// The ordering below is load-bearing rather than incidental. The first
+/// disjunct is answerable from the document alone, so a non-single-pr
+/// PLAN — the common case — short-circuits before any filesystem read.
+/// Only a `single-pr` PLAN reaches the CLAUDE.md walk, and that is
+/// exactly the case whose answer cannot be derived from the document.
+///
+/// This lives in the `L` family rather than the `FC` family on purpose.
+/// `validate.rs` documents "the entire FC-family" as `AlwaysEnforced`, so
+/// an `FC` code in the draft-tolerable set would cost an invariant
+/// rewrite. `L06` is the precedent: a single-document property that is a
+/// legitimate intermediate state while a plan is in flight and must
+/// resolve before ready.
+fn check_l09_split_rationale(chain: &Chain, idx: &DocIndex) -> Vec<ValidationError> {
+    let mut errors: Vec<ValidationError> = Vec::new();
+    for member in &chain.members {
+        if member.role != ChainRole::Plan {
+            continue;
+        }
+        let indexed = match idx.get(&member.path) {
+            Some(d) => d,
+            None => continue,
+        };
+
+        let required = if indexed.execution_mode != "single-pr" {
+            // First disjunct. Answerable from the document; no I/O.
+            true
+        } else {
+            // Second disjunct only. This is the one case that needs the
+            // repository's stated preference, so it is the only case that
+            // pays for a CLAUDE.md walk.
+            resolve_delivery_preference(&member.path).as_deref() == Some("atomic")
+        };
+        if !required {
+            continue;
+        }
+
+        let doc = match parse_doc(&member.path) {
+            Ok(d) => d,
+            // A frontmatter parse failure is already surfaced as L05 by
+            // `index_doc`; L09 has nothing to add on a doc it cannot read.
+            Err(_) => continue,
+        };
+        let value = doc
+            .fields
+            .get("split_rationale")
+            .map(|f| f.value.trim().to_string())
+            .unwrap_or_default();
+
+        if value.is_empty() {
+            errors.push(error_path(
+                member.path.clone(),
+                "L09",
+                "PLAN is not single-pr, or departs from the repository's atomic \
+                 Delivery Preference, but carries no split_rationale naming why \
+                 (see references/split-triggers.md)",
+            ));
+            continue;
+        }
+
+        let lowered = value.to_lowercase();
+        if !SPLIT_BRANCHES.iter().any(|b| lowered.contains(b)) {
+            errors.push(error_path(
+                member.path.clone(),
+                "L09",
+                "split_rationale names none of the three branches \
+                 (Hard Constraint, Incremental Value, Stated Preference) \
+                 defined in references/split-triggers.md",
+            ));
+        }
+    }
+    errors
+}
+
+/// Resolve the repository's `## Delivery Preference:` convention header
+/// for the repo owning `doc_path`, lowercased.
+///
+/// Returns `None` when no header is declared, which is the
+/// `consolidated` default — and also when the declared value is outside
+/// the closed set, so an unrecognized value falls through to the default
+/// rather than being used. That is the same treatment
+/// `parse_visibility_header` gives an unrecognized visibility.
+fn resolve_delivery_preference(doc_path: &Path) -> Option<String> {
+    crate::visibility::resolve_claude_md_header(
+        doc_path,
+        |contents| {
+            for line in contents.lines() {
+                let trimmed = line.trim();
+                if !trimmed
+                    .to_lowercase()
+                    .starts_with("## delivery preference:")
+                {
+                    continue;
+                }
+                let value = trimmed[trimmed.find(':')? + 1..].trim().to_lowercase();
+                return match value.as_str() {
+                    "consolidated" | "atomic" => Some(value),
+                    // Outside the closed set: fall through to the
+                    // default rather than using an unrecognized value.
+                    _ => None,
+                };
+            }
+            None
+        },
+        true,
+    )
 }
 
 // ---------- chain-targeted entry point ----------
@@ -1885,6 +2031,13 @@ mod tests {
             "schema: plan/v1\nstatus: {}\nexecution_mode: {}\nmilestone: \"m\"\nissue_count: 1\n",
             status, execution_mode
         );
+        // A non-single-pr PLAN owes a split_rationale naming its branch
+        // (L09). Fixtures carry one so they model a well-formed plan;
+        // the tests that exercise L09 itself build their frontmatter
+        // directly rather than through this helper.
+        if execution_mode != "single-pr" {
+            fm.push_str("split_rationale: |\n  Hard Constraint. Fixture plan.\n");
+        }
         if !upstream.is_empty() {
             fm.push_str(&format!("upstream: {}\n", upstream));
         }
@@ -1931,6 +2084,132 @@ mod tests {
             "# ROADMAP: t\n\n## Status\n\n{}\n\n## Theme\n\nT.\n\n## Scope\n\nS.\n",
             status
         )
+    }
+
+    // ---- L09: split-rationale presence ----
+
+    /// Build a chain whose PLAN frontmatter is supplied verbatim, so an
+    /// L09 test can omit or malform `split_rationale` independently of
+    /// `make_plan`'s well-formed default.
+    fn l09_tree(plan_fm: &str) -> PathBuf {
+        build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/current/DESIGN-foo.md",
+                &make_design("Current", "docs/prds/PRD-foo.md"),
+                &design_body("Current"),
+            ),
+            ("docs/plans/PLAN-foo.md", plan_fm, &plan_body("Active")),
+        ])
+    }
+
+    fn l09_plan_fm(execution_mode: &str, rationale: Option<&str>) -> String {
+        let mut fm = format!(
+            "schema: plan/v1\nstatus: Active\nexecution_mode: {}\nmilestone: \"m\"\nissue_count: 1\nupstream: docs/designs/current/DESIGN-foo.md\n",
+            execution_mode
+        );
+        if let Some(r) = rationale {
+            fm.push_str(&format!("split_rationale: |\n  {}\n", r));
+        }
+        fm
+    }
+
+    #[test]
+    fn l09_fires_on_multi_pr_without_rationale() {
+        let root = l09_tree(&l09_plan_fm("multi-pr", None));
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            errors.iter().any(|e| e.code == "L09"),
+            "expected L09, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn l09_passes_on_multi_pr_naming_a_branch() {
+        let root = l09_tree(&l09_plan_fm(
+            "multi-pr",
+            Some("Hard Constraint. The workflow must reach main first."),
+        ));
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            !errors.iter().any(|e| e.code == "L09"),
+            "expected no L09, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn l09_fires_when_rationale_names_no_branch() {
+        let root = l09_tree(&l09_plan_fm("multi-pr", Some("Because I said so.")));
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let hit = errors.iter().find(|e| e.code == "L09");
+        assert!(hit.is_some(), "expected L09, got {:?}", errors);
+        assert!(
+            hit.unwrap()
+                .message
+                .contains("names none of the three branches"),
+            "expected the branch-naming message, got {:?}",
+            hit
+        );
+    }
+
+    #[test]
+    fn l09_silent_on_single_pr_with_no_stated_preference() {
+        // The common case: one PR in a repository that stated nothing.
+        // It owes no record, and the check must not invent one.
+        let root = l09_tree(&l09_plan_fm("single-pr", None));
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            !errors.iter().any(|e| e.code == "L09"),
+            "expected no L09, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn l09_fires_on_single_pr_departing_from_atomic_preference() {
+        // The departure branch: single-pr IS the departure when the
+        // repository asked for atomic delivery, so it owes a reason.
+        let root = l09_tree(&l09_plan_fm("single-pr", None));
+        fs::write(
+            root.join("CLAUDE.md"),
+            "## Repo Visibility: Public\n\n## Delivery Preference: atomic\n",
+        )
+        .unwrap();
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            errors.iter().any(|e| e.code == "L09"),
+            "expected L09, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn l09_unrecognized_preference_falls_through_to_default() {
+        // An unrecognized header value is not used; it falls through to
+        // the consolidated default, so single-pr stays silent.
+        let root = l09_tree(&l09_plan_fm("single-pr", None));
+        fs::write(
+            root.join("CLAUDE.md"),
+            "## Repo Visibility: Public\n\n## Delivery Preference: nonsense\n",
+        )
+        .unwrap();
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            !errors.iter().any(|e| e.code == "L09"),
+            "expected no L09, got {:?}",
+            errors
+        );
     }
 
     // ---- the 11 PRD-R10 scenarios + cycle + missing + malformed ----
@@ -4413,6 +4692,154 @@ mod tests {
                 &single_pr_plan_body(acs),
             ),
         ])
+    }
+
+    /// An issueless `multi-pr` PLAN is judged as the shape it borrows.
+    ///
+    /// The multi-pr postures expect `Active`, and that status is only
+    /// reachable when activation materialized GitHub issues -- that is what
+    /// the approval gate gates. A PLAN that files none never gets there, so
+    /// inferring a multi-pr posture for it demanded a status it could not
+    /// legitimately reach, leaving the combination this feature adds
+    /// permanently un-passable at L01.
+    #[test]
+    fn issueless_multi_pr_plan_is_judged_as_the_shape_it_borrows() {
+        let mut fm = make_plan("Draft", "multi-pr", "docs/designs/DESIGN-foo.md");
+        fm.push_str("tracking_level: none\n");
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", "docs/prds/PRD-foo.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &fm,
+                &single_pr_plan_body("- [x] alpha\n"),
+            ),
+        ]);
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let errors =
+            run_lifecycle_chain_check(&plan_path, &Config::default(), ReviewPosture::Draft);
+        // Parity with the shape it borrows is the invariant: whatever L01
+        // says about a `single-pr` PLAN in this state, it must say about
+        // this one. What it must not do is demand `Active` "for multi-pr
+        // in-flight", a status this PLAN cannot reach.
+        let single = build_single_pr_chain("- [x] alpha\n");
+        let single_errors = run_lifecycle_chain_check(
+            &single.join("docs/plans/PLAN-foo.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        let msgs = |es: &[ValidationError]| -> Vec<String> {
+            es.iter()
+                .filter(|e| e.code == "L01")
+                .map(|e| e.message.clone())
+                .collect()
+        };
+        assert_eq!(
+            msgs(&errors),
+            msgs(&single_errors),
+            "an issueless multi-pr PLAN must be judged exactly as the single-pr shape it borrows"
+        );
+        assert!(
+            !errors.iter().any(|e| e.message.contains("multi-pr")),
+            "it must not be held to a multi-pr posture; got {errors:?}"
+        );
+
+        // The guard: an issue-carrying multi-pr PLAN at Draft still owes
+        // Active, so this has not simply disabled the rule.
+        let carrying = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", "docs/prds/PRD-foo.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &make_plan("Draft", "multi-pr", "docs/designs/DESIGN-foo.md"),
+                &plan_body("Draft"),
+            ),
+        ]);
+        let carrying_errors = run_lifecycle_chain_check(
+            &carrying.join("docs/plans/PLAN-foo.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        assert!(
+            carrying_errors
+                .iter()
+                .any(|e| e.code == "L01" && e.message.contains("multi-pr in-flight")),
+            "an issue-carrying multi-pr PLAN at Draft still owes Active; got {carrying_errors:?}"
+        );
+    }
+
+    /// An issueless `multi-pr` PLAN gets the same AC coverage as `single-pr`.
+    ///
+    /// It carries `## Issue Outlines` for the same reason `single-pr` does, so
+    /// gating L06 on the mode would leave the shape this feature adds with
+    /// weaker checking than the shape it borrows -- unticked criteria would
+    /// pass silently.
+    #[test]
+    fn l06_fires_on_an_issueless_multi_pr_plan() {
+        let mut fm = make_plan("Draft", "multi-pr", "docs/designs/DESIGN-foo.md");
+        fm.push_str("tracking_level: none\n");
+        let root = build_tree(&[
+            (
+                "docs/briefs/BRIEF-foo.md",
+                &make_brief("Accepted", ""),
+                &body_for("BRIEF", "Accepted"),
+            ),
+            (
+                "docs/prds/PRD-foo.md",
+                &make_prd("Accepted", "docs/briefs/BRIEF-foo.md"),
+                &prd_body("Accepted"),
+            ),
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", "docs/prds/PRD-foo.md"),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &fm,
+                &single_pr_plan_body("- [ ] alpha\n- [x] beta\n"),
+            ),
+        ]);
+        let plan_path = root.join("docs/plans/PLAN-foo.md");
+        let errors =
+            run_lifecycle_chain_check(&plan_path, &Config::default(), ReviewPosture::Draft);
+        let l06s: Vec<_> = errors.iter().filter(|e| e.code == "L06").collect();
+        assert_eq!(
+            l06s.len(),
+            1,
+            "the unticked criterion must be reported here too; got {l06s:?}"
+        );
+        assert!(
+            l06s[0].message.contains("'alpha'"),
+            "expected the unticked AC named; got {:?}",
+            l06s[0].message
+        );
     }
 
     #[test]

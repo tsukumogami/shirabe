@@ -33,21 +33,80 @@ issue_count: 18
 
 Required fields: `schema`, `status`, `execution_mode`, `milestone`,
 `issue_count`. Optional: `upstream` (the DESIGN doc this PLAN
-implements; omit if authored without a single upstream DESIGN).
+implements; omit if authored without a single upstream DESIGN),
+`split_rationale` (required under the condition below, absent
+otherwise), and `tracking_level`.
 
 - **schema** -- `plan/v1`. Pins the artifact-type contract.
 - **status** -- lifecycle state (`Draft`, `Active`, `Done`).
-- **execution_mode** -- one of `single-pr` or `multi-pr`. Determines
-  whether the PLAN materializes GitHub issues at finalization
-  (`multi-pr`) or stays self-contained and drives one PR
-  (`single-pr`).
+- **execution_mode** -- one of `single-pr`, `multi-pr`, or
+  `coordinated`. Determines how the work lands: one pull request
+  (`single-pr`) or several (`multi-pr`); `coordinated` is the
+  multi-repo generalization of `multi-pr`. It does **not** determine
+  whether the PLAN materializes GitHub issues -- that is
+  `tracking_level`, resolved separately.
+- **split_rationale** -- why this PLAN has the delivery shape it has.
+  Required when **either** of these holds:
+  - `execution_mode` is not `single-pr`; **or**
+  - `execution_mode` is `single-pr` and the repository's resolved
+    Delivery Preference is `atomic` — that is, the plan departed from
+    what the preference would have produced.
+
+  Both disjuncts are stated because the second is easy to miss: in a
+  repository preferring atomic delivery, `single-pr` *is* the
+  departure, and it owes a reason for the same purpose the first
+  disjunct does.
+
+  The value is free text and MUST name one of the three branches
+  defined in `${CLAUDE_PLUGIN_ROOT}/references/split-triggers.md` —
+  Hard Constraint, Incremental Value, or Stated Preference — followed
+  by the specific justification. Free text rather than an enum
+  because the plan-altitude branch vocabulary is not yet settled
+  enough to be worth a migration-costly schema; naming the branch is
+  what keeps the check stronger than "the author typed something."
+
+  A value that is present but names none of the three branches fails
+  `L09`, so this contract and the check agree on what naming a branch
+  requires.
+
+  A `single-pr` PLAN in a repository whose preference is
+  `consolidated` (the default) omits the field entirely. That is
+  correct rather than an omission: one pull request is the shape
+  nobody asks about, and requiring a note there would add a mandatory
+  field to the common case for symmetry alone.
+
+  ```yaml
+  split_rationale: |
+    Hard Constraint. The reusable workflow added in the first unit
+    must reach the default branch before the second unit's
+    workflow_dispatch invocation can resolve.
+  ```
+
+- **tracking_level** -- one of `none`, `issues`, or
+  `issues-and-milestone`: which GitHub artifacts this PLAN's work
+  items got. Written by Phase 7 with the value it resolved on the
+  `flag > CLAUDE.md ## Tracking Level: header > mode-derived default`
+  stack, so the resolved value is a fact about the document rather
+  than something a later reader re-derives.
+
+  That distinction is load-bearing. Task extraction runs against a
+  committed PLAN, possibly long after authoring; if it re-resolved
+  the level from CLAUDE.md, a repo that later changed its header
+  would silently change how an already-written plan's work items
+  key. Persisting the value also gives `plan-to-tasks.sh` a
+  deterministic branch signal rather than making it infer the level
+  from the table's shape.
+
+  Absent on `coordinated` PLANs, whose tracking is governed by
+  `${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`.
 - **upstream** -- path to the upstream DESIGN doc, repo-relative or
   cross-repo (`owner/repo:path`). Omit if the PLAN was authored from
   a topic with no single upstream DESIGN. Cross-repo upstream
   references follow `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
-- **milestone** -- human-readable milestone name. In `multi-pr` mode
-  this becomes the GitHub milestone title. In `single-pr` mode it is
-  prose only.
+- **milestone** -- human-readable milestone name. At
+  `tracking_level: issues-and-milestone` this becomes the GitHub
+  milestone title; at every other level it is prose only, whatever
+  the `execution_mode`.
 - **issue_count** -- integer count of atomic issues the PLAN
   decomposes into. Must match the row count of the Implementation
   Issues table.
@@ -136,17 +195,35 @@ a migration hint pointing at the canonical three-column shape. The
 migration folds the Title cell into the issue link text:
 `[#N: <title>](url) | <deps> | <complexity>`.
 
-### Single-pr vs multi-pr emission
+### Which sections a PLAN carries
 
-- **single-pr mode** -- the table holds local anchors to outlines
-  within the same PLAN. No GitHub issues are materialized. The
-  implementing agent works through the outlines in dependency order
-  on one branch and ships one PR.
-- **multi-pr mode** -- the table holds `#N` links to GitHub issues
-  materialized at PLAN finalization (Phase 7 populate). A milestone
-  groups the issues. Each issue ships its own PR.
+The section shape follows what the PLAN materialized, not how its code
+lands. There are two shapes:
 
-In both modes, the table shape and validator contract are identical.
+- **Issue-carrying** -- the `## Implementation Issues` table holds `#N`
+  links to GitHub issues materialized at PLAN finalization (Phase 7
+  populate), and a `## Dependency Graph` accompanies it. Any PLAN whose
+  resolved `tracking_level` is `issues` or `issues-and-milestone`.
+- **Outline-shaped** -- work items live in `## Issue Outlines`, keyed by
+  local ids rather than issue numbers, and neither the table nor the
+  graph is required. Every `single-pr` PLAN, plus any `multi-pr` PLAN at
+  `tracking_level: none`.
+
+An outline-shaped `multi-pr` PLAN is a real combination, not a
+degenerate one: the work still lands in several pull requests, and the
+implementing agent reads the ordering out of the outlines'
+`**Dependencies**:` declarations exactly as `single-pr` does. It may
+still carry a `## Dependency Graph` -- it has inter-PR ordering worth
+drawing, which is why the diagram is barred from `single-pr` but not
+from this shape.
+
+Whichever shape applies, the work items are authoritative in exactly one
+place. `FC14` fires when both are populated.
+
+`coordinated` is always issue-carrying. Its tracking is governed by
+`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`, so a
+`tracking_level` written onto a coordinated PLAN does not move its
+shape.
 
 ## Dependency Graph
 
@@ -224,7 +301,7 @@ DESIGN/PRD/ROADMAP and replace the PLAN content with a citation.
 | State | Meaning |
 |-------|---------|
 | Draft | Under decomposition. Issue table may be incomplete. |
-| Active | Issues being implemented. Used in `multi-pr` mode while issues are open. `single-pr` mode skips this state. |
+| Active | Issues being implemented. Reached only when the resolved `tracking_level` created GitHub issues; a PLAN at `none` skips this state at either `execution_mode`. |
 | Done | All issues complete; lifecycle cascade has completed. Terminal state. |
 
 ### Transitions
@@ -232,13 +309,23 @@ DESIGN/PRD/ROADMAP and replace the PLAN content with a citation.
 All transitions are executed by `shirabe transition`. The PLAN
 stays in `docs/plans/` through every state.
 
-- **Draft -> Active** (multi-pr only) -- Phase 7 populate has
-  materialized the GitHub issues and the milestone. `single-pr` mode
-  skips this state.
-- **Draft -> Done** (single-pr only) -- the implementing agent has
-  shipped all issues in one PR. Lifecycle cascade fires.
-- **Active -> Done** (multi-pr only) -- all materialized issues are
-  closed. Lifecycle cascade fires.
+The Draft -> Active gate keys on the resolved `tracking_level`, not on
+`execution_mode`: an activation that creates GitHub issues waits for
+human approval, because that is the moment remote artifacts appear;
+one that creates none auto-fires as authoring completes.
+
+- **Draft -> Active** (`tracking_level` is `issues` or
+  `issues-and-milestone`) -- Phase 7 has materialized the GitHub
+  issues, and the milestone at `issues-and-milestone`, behind the
+  approval gate. Reachable at any `execution_mode`: a `single-pr`
+  PLAN whose repo asked for issues takes this path too.
+- **Draft -> Done** (`tracking_level` is `none`) -- no GitHub
+  artifacts were created, so nothing gated the activation; the
+  implementing agent has shipped the work and the lifecycle cascade
+  fires. Reachable at any `execution_mode`: a `multi-pr` PLAN whose
+  repo asked for no tracking takes this path too.
+- **Active -> Done** -- all materialized issues are closed. Lifecycle
+  cascade fires.
 
 ### Lifecycle cascade
 

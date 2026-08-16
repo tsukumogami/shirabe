@@ -394,8 +394,9 @@ The strict-mode flag only affects the single-pr postures. Multi-pr
 postures are unchanged. PLAN docs use a unified Draft -> Active ->
 Done -> DELETED lifecycle, identical for single-pr and multi-pr; the
 on-disk passing state for a committed mid-PR PLAN is `Active` in
-both modes (the Draft -> Active gate auto-fires for single-pr and is
-human-approved for multi-pr).
+both modes (the Draft -> Active gate auto-fires when the activation
+creates no GitHub issues and is human-approved when it does; it keys
+on the resolved Tracking Level, not on the execution mode).
 
 | Posture | Strict | BRIEF passing | PRD passing | DESIGN passing | PLAN passing |
 |---------|--------|---------------|-------------|----------------|--------------|

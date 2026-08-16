@@ -55,12 +55,15 @@ pub enum Severity {
 /// `Notice` under `Draft` posture and `Error` under `Ready`.
 ///
 /// The draft-tolerable set is the lifecycle in-flight findings `L02`
-/// (orphan/connectivity), `L06` (outline-AC completeness), and `L07`
-/// (design-location): these are legitimate intermediate states while a
-/// chain is being drafted, so they tolerate `Draft` posture but must be
-/// resolved before `Ready`. Everything else — the always-defect lifecycle
-/// findings `L01`/`L03`/`L04`/`L05` and the entire FC-family — is
-/// `AlwaysEnforced`.
+/// (orphan/connectivity), `L06` (outline-AC completeness), `L07`
+/// (design-location), and `L09` (split-rationale presence): these are
+/// legitimate intermediate states while a chain is being drafted, so they
+/// tolerate `Draft` posture but must be resolved before `Ready`.
+/// Everything else — the always-defect lifecycle findings
+/// `L01`/`L03`/`L04`/`L05` and the entire FC-family — is
+/// `AlwaysEnforced`. The FC-family exclusion is why `L09` is an `L` code:
+/// it is a single-document property like `L06`, and filing it under `FC`
+/// would have cost this invariant an exception.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PostureClass {
     DraftTolerable,
@@ -103,8 +106,8 @@ fn is_intrinsic_notice(code: &str) -> bool {
 
 /// Classify a finding code by how its enforcement responds to posture.
 ///
-/// The draft-tolerable lifecycle codes `L02`/`L06`/`L07` resolve to a
-/// notice under `Draft` posture and an error under `Ready`; this is the
+/// The draft-tolerable lifecycle codes `L02`/`L06`/`L07`/`L09` resolve to
+/// a notice under `Draft` posture and an error under `Ready`; this is the
 /// single point that drives posture sensitivity. Every other code —
 /// including the always-defect lifecycle findings `L01`/`L03`/`L04`/`L05`
 /// and the whole FC-family — is `AlwaysEnforced` and resolves to an error
@@ -113,7 +116,7 @@ fn is_intrinsic_notice(code: &str) -> bool {
 /// notices regardless of posture).
 pub fn posture_class(code: &str) -> PostureClass {
     match code {
-        "L02" | "L06" | "L07" => PostureClass::DraftTolerable,
+        "L02" | "L06" | "L07" | "L09" => PostureClass::DraftTolerable,
         _ => PostureClass::AlwaysEnforced,
     }
 }
@@ -149,7 +152,7 @@ pub fn is_notice(err: &ValidationError, posture: ReviewPosture) -> bool {
 /// Reports whether `code` is a known per-file check code that the `--check`
 /// selector can address. The set is the codes the per-file validation pass
 /// can emit: `SCHEMA`, `FC01`-`FC20`, `FC-CONVENTIONS`, and `R6`-`R11`. The
-/// lifecycle codes (`L01`-`L05`) are produced by the `--lifecycle` traversal
+/// lifecycle codes (`L01`-`L09`) are produced by the `--lifecycle` traversal
 /// modes, not the per-file pass, so they are not selectable here.
 pub fn is_known_check_code(code: &str) -> bool {
     matches!(
@@ -491,8 +494,8 @@ mod tests {
     #[test]
     fn posture_class_classifies_lifecycle_codes() {
         // The draft-tolerable set is exactly the lifecycle in-flight
-        // findings L02/L06/L07.
-        for code in ["L02", "L06", "L07"] {
+        // findings L02/L06/L07/L09.
+        for code in ["L02", "L06", "L07", "L09"] {
             assert_eq!(
                 posture_class(code),
                 PostureClass::DraftTolerable,

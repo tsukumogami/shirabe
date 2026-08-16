@@ -100,3 +100,30 @@ What becomes harder:
 
 Accepted trade-off:
 - A clever author could set PLAN status to Done in one PR (the last in-flight PR) and never produce a work-completing PR with the deletion. The check would fail on every subsequent PR's `--lifecycle` run until the deletion lands. That is the forcing function working as designed.
+
+
+## Amendment — 2026-08-15
+
+The decision above stands: posture is still detected from the PLAN's
+frontmatter `status:` field, and the same rules still apply across execution
+modes. What changed is a fact this record's Context relied on, not the
+mechanism it chose.
+
+That Context says the Draft -> Active gate "differs: multi-pr requires human
+approval (GitHub issues + milestone are created on the transition), single-pr
+auto-fires." The parenthetical was the real reason for the asymmetry: the gate
+guards the moment remote artifacts appear, and `execution_mode` was a reliable
+proxy for it only while the two were fused.
+
+They are no longer fused. `DESIGN-multi-pr-plan-decoupling.md` makes tracking a
+repository preference resolved independently of the mode, so a `multi-pr` plan
+whose Tracking Level is `none` creates nothing remote and a `single-pr` plan
+whose level is `issues` does. The gate therefore keys on **whether the
+activation will create GitHub issues**, not on `execution_mode`.
+
+Nothing in the Decision table changes: the "Present, `status: Draft`" row's
+parenthetical now reads as "the auto-transition for a no-issues activation, or
+the approval gate for an issue-creating one, didn't fire," which is the same
+failure in the same state. This is an amendment rather than a supersession
+because the decision was never about the gate. It was about detecting posture
+from the status field, and it still is.

@@ -12,16 +12,24 @@ reason at the edges where a procedure doesn't fit.
 ## P1: Usable value is the unit of work
 
 Every PR and every roadmap feature delivers observable value on its
-own. Default to one PR; split only for a hard constraint or genuine
-incremental value, never by mechanism (e.g., "because the input is
-a roadmap").
+own. Default to as few PRs as the repository's stated delivery
+preference permits; split only on a named branch, never by mechanism
+(e.g., "because the input is a roadmap").
+
+The branches are defined once, in
+`${CLAUDE_PLUGIN_ROOT}/references/split-triggers.md`, and cited by
+both this principle and the Coarsest-Legal-Grouping Rule in
+`coordination-strategy.md`. There are three at plan altitude — Hard
+Constraint, Incremental Value, Stated Preference — and this file
+does not re-enumerate their definitions. Reviewability is a Stated
+Preference, at every altitude; the two rules used to disagree about
+that, and the shared reference is what settles it.
 
 **Rules derived from this:**
 
-- The plan workflow defaults to single-pr execution. Multi-pr requires
-  a named escape condition: a hard constraint forces multiple PRs
-  (cross-repo landing order, a workflow that must reach main before
-  it can be invoked) or each PR is independently useful.
+- The plan workflow defaults to single-pr execution unless the
+  repository's delivery preference says otherwise. Any other shape
+  requires one of the three named branches, recorded in the PLAN.
 - A roadmap is multi-pr because each feature should deliver
   observable incremental value as a cohesive deliverable, not
   because "the input is a roadmap."
