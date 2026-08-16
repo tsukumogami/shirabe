@@ -137,12 +137,17 @@ file at every phase pointer.
   moves `roadmap` into `chain_skipped`, it does not retract the
   plan.
 
-  The conditional feeder `/comp` is not a value here. A child whose
-  gate never opened was never planned, and the state file is
-  durably public from feature-branch push, so naming a private-only
-  artifact type in it is a visibility violation whatever the
-  surrounding field says. The rule and its reasoning live under
-  `/comp` Invocation Rule in
+  The conditional feeder `/comp` is not a value here, on either
+  side of its gate. A gate that never opened means the child was
+  never planned, so there is nothing to record; and the state file
+  is durably public from feature-branch push, so an entry naming a
+  private-only artifact type is a visibility violation whatever the
+  field around it says. That argument does not weaken in a repo
+  where the gate does open, because the field's domain is one shape
+  everywhere: a reader of a state file never has to work out
+  whether a `comp` entry was legal in the repo it came from. The
+  feeder sits beside the tracked chain rather than in it. The rule
+  and its reasoning live under `/comp` Invocation Rule in
   `skills/charter/references/phases/phase-2-chain-orchestration.md`;
   the skip is stated to the author in conversation and recorded
   nowhere.

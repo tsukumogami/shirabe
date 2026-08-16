@@ -411,14 +411,16 @@ simple to sequence.
 
 The confirmation prompt is the ONLY path that skips `/roadmap`.
 Phase 1's "Adjust" option re-shapes the chain before any child
-fires, but it cannot drop `/roadmap`: `/roadmap` has no Phase 1
-gate to adjust, and a chain that reached full-run without a
-recorded declination would land a one-entry `exit_artifacts` with
-no matching `chain_skipped:` entry — the contract violation
+fires, but it drops no child at all — it can force a
+previously-skipped one on and nothing more (see The Three Options
+in `skills/charter/references/phases/phase-1-discovery.md`). For
+`/roadmap` the consequence is concrete: a chain that reached
+full-run on a Phase 1 drop would land a one-entry `exit_artifacts`
+with no matching `chain_skipped:` entry, the contract violation
 `skills/charter/references/phases/phase-finalization.md` names
 under AC11a. An author who already knows at discovery time that no
 roadmap is wanted still declines at the confirmation prompt; that
-is what records the decision.
+is what records the decision, against a STRATEGY they can read.
 
 ### Handoff Pre-Population
 

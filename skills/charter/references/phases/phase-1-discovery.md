@@ -383,21 +383,34 @@ across runs; agents and eval scenarios assert against them.
 - **Adjust** — the author wants a different chain shape. The
   prompt routes the author back to Phase 1 discovery for chain-
   shape redirection BEFORE any child fires. The redirected
-  discovery may force a previously-skipped child on (e.g., "force
-  `/vision` on, even though an Accepted VISION exists"), opt out
-  of a child that would otherwise fire, or reframe the topic
-  entirely. After the redirection, the chain proposal re-fires
+  discovery may reframe the topic entirely, correct the
+  thesis-shift answer, or force a previously-skipped child on
+  (e.g., "force `/vision` on, even though an Accepted VISION
+  exists"). After the redirection, the chain proposal re-fires
   against the new discovery outputs; the prompt cycle repeats
   until the author Proceeds or Bails. `/charter`'s Adjust
-  therefore reaches chain membership: the redirected discovery may
-  force a previously-skipped child on. Whether Adjust reaches
-  membership is a per-parent property each parent declares for
-  itself
+  therefore reaches chain membership, in one direction only: it
+  adds work, never removes it. Whether Adjust reaches membership
+  is a per-parent property each parent declares for itself
   (`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`,
   What Adjust reaches); this is `/charter`'s declaration, and
   `/scope`'s Adjust does not reach membership. What no parent's
   Adjust reaches is a child whose artifact the parent judged not
   worth producing, because no parent makes that judgment.
+
+  Adjust cannot drop a child that would otherwise fire. Dropping
+  one here would be a skip decided before any artifact exists and
+  with no ground recorded anywhere, which fails two of the three
+  properties a conforming declination has (see Author Declination
+  on an ALWAYS Child in
+  `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`):
+  formed against a document that exists, and recorded. An author
+  who wants a child dropped uses that child's own declination
+  prompt, where the question is asked after the upstream artifact
+  is on disk and the answer lands in `chain_skipped:` with its
+  reason. `/roadmap`'s confirmation prompt in
+  `skills/charter/references/phases/phase-2-chain-orchestration.md`
+  is the one such prompt the chain offers.
 - **Bail** — the author abandons the chain. Routing is owned by
   the companion outline implementing the exit-path orchestration
   (the R8 tie-break rule between abandonment-forced and clean-
@@ -412,7 +425,7 @@ and Phase 2. Once the author Proceeds, Phase 2's chain
 orchestration runs the children in the proposed order without
 re-asking; once the author Bails, the exit-path orchestration
 records the terminal state without further prompts. Adjusting
-keeps the author in Phase 1 — the chain shape is malleable until
-the author accepts it, but the option set itself is fixed across
-all runs.
+keeps the author in Phase 1: the chain shape stays open until the
+author accepts it, in the one direction Adjust reaches, and the
+option set itself is fixed across all runs.
 
