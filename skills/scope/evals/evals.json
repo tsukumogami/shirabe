@@ -92,14 +92,15 @@
       "id": 7,
       "name": "us-1-cold-standalone-full-run",
       "prompt": "/scope test-topic",
-      "expected_output": "Cold-start invocation against a fresh worktree under public-repo visibility: no wip/scope_test-topic_state.md exists, no upstream BRIEF/PRD/DESIGN/PLAN exists at the canonical paths. /scope walks Phase 1 discovery surfacing the framing-shift question and walks the R6 predicates (P1/P2/P3) to size /design's decision roster. planned_chain is [brief, prd, design, plan] — the whole tactical chain, as it is on every run; Phase 1 chooses no starting altitude and decides nothing about how many artifacts the run will leave. The chain-proposal output names those four children with their re-entry verdicts and contains the literal Proceed / Adjust / Bail substrings. The author selects Proceed; Phase 2 invokes /brief with the topic slug and then /prd, /design and /plan each with the path of the artifact the chain produced above it; each invocation writes the parent_orchestration: sentinel immediately before and clears it immediately after; shirabe validate --format json --visibility=public runs against each intermediate; the consolidation judgment runs after each artifact lands. The terminal PLAN lives at docs/plans/PLAN-test-topic.md. State file: exit: full-run, exit_artifacts lists the surviving durable artifacts plus the PLAN, plan_execution_mode set, and consolidation_judgments records a verdict per hop.",
+      "expected_output": "Cold-start invocation against a fresh worktree under public-repo visibility: no wip/scope_test-topic_state.md exists, no upstream BRIEF/PRD/DESIGN/PLAN exists at the canonical paths. /scope walks Phase 1 discovery surfacing the framing-shift question and walks the R6 predicates (P1/P2/P3) to size /design's decision roster. planned_chain is [brief, prd, design, plan] — the whole tactical chain, as it is on every run; Phase 1 chooses no starting altitude and decides nothing about how many artifacts the run will leave. The chain-proposal output names those four children with their re-entry verdicts and carries the literal substrings \"Proceed\", \"Adjust\" and \"Bail\", asserted per-token rather than as one contiguous slash-joined string, per the Gate Vocabulary's prompt-vocabulary rule in references/parent-skill-pattern.md: the chain proposal is not a co-equal menu (Proceed is the expected path), and a parent MAY render an interstitial label such as \"Adjust chain\". The author selects Proceed; Phase 2 invokes /brief with the topic slug and then /prd, /design and /plan each with the path of the artifact the chain produced above it; each invocation writes the parent_orchestration: sentinel immediately before and clears it immediately after; shirabe validate --format json --visibility=public runs against each intermediate; the consolidation judgment runs after each artifact lands. The terminal PLAN lives at docs/plans/PLAN-test-topic.md. State file: exit: full-run, exit_artifacts lists the surviving durable artifacts plus the PLAN, plan_execution_mode set, and consolidation_judgments records a verdict per hop.",
       "files": [],
       "expectations": [
         "Plan populates planned_chain: as [brief, prd, design, plan] on this run",
         "Plan describes no starting-altitude choice and no state field recording one",
         "Plan does NOT decide, at Phase 1, whether any artifact is worth producing",
         "Plan invokes /brief with the topic slug and every later child with the path of the artifact the chain produced above it",
-        "Plan emits a chain-proposal output containing the literal substrings Proceed, Adjust and Bail",
+        "Plan emits a chain-proposal output containing the literal substrings \"Proceed\", \"Adjust\" and \"Bail\" (case-insensitive), asserted individually rather than as one contiguous slash-joined string",
+        "Plan does NOT require a contiguous \"Proceed / Adjust / Bail\" string, and tolerates a rendering whose Adjust label carries an interstitial word",
         "Plan runs the consolidation judgment after each artifact lands and records the verdict in consolidation_judgments:",
         "Plan records exit: full-run with exit_artifacts listing the surviving durable artifacts"
       ]
@@ -388,12 +389,13 @@
       "id": 25,
       "name": "pre-authoring-notice-cold-start",
       "prompt": "/scope inline-diff",
-      "expected_output": "Cold start under public-repo visibility: no settled BRIEF at docs/briefs/BRIEF-inline-diff.md, so /brief is in planned_chain, and no --upstream was supplied, so Phase 0 recorded no consumed_upstream:. The chain-proposal output therefore carries the pre-authoring upstream notice inside the /brief entry, verbatim: \"A new BRIEF will be written for this topic, with no ROADMAP behind it. If one already sequences this feature, re-invoke as /scope inline-diff --upstream <path-to-the-ROADMAP> and this chain will ground the BRIEF in it and record it on the PLAN. No candidate has been looked for; this is a notice, not a question, and the chain proceeds as proposed.\" The notice sits in the entry list above the options block, which still reads \"Proceed / Adjust / Bail?\" byte-for-byte. No directory is scanned for a candidate ROADMAP and no candidate is named. The notice adds no option, no default, and no decision point.",
+      "expected_output": "Cold start under public-repo visibility: no settled BRIEF at docs/briefs/BRIEF-inline-diff.md, so /brief is in planned_chain, and no --upstream was supplied, so Phase 0 recorded no consumed_upstream:. The chain-proposal output therefore carries the pre-authoring upstream notice inside the /brief entry, verbatim: \"A new BRIEF will be written for this topic, with no ROADMAP behind it. If one already sequences this feature, re-invoke as /scope inline-diff --upstream <path-to-the-ROADMAP> and this chain will ground the BRIEF in it and record it on the PLAN. No candidate has been looked for; this is a notice, not a question, and the chain proceeds as proposed.\" The notice sits in the entry list above the options block, which still carries the literal substrings \"Proceed\", \"Adjust\" and \"Bail\" -- asserted per-token, not as one contiguous slash-joined string, per the Gate Vocabulary's prompt-vocabulary rule in references/parent-skill-pattern.md, which puts the chain proposal in the per-token row because Proceed is the expected path and a parent MAY render an interstitial label such as \"Adjust chain\". No directory is scanned for a candidate ROADMAP and no candidate is named. The notice adds no option, no default, and no decision point.",
       "files": [],
       "expectations": [
         "Plan emits the pre-authoring upstream notice verbatim inside the /brief entry, before any child fires",
         "Plan names no candidate ROADMAP and performs no directory scan to produce the notice",
-        "Plan leaves the options block \"Proceed / Adjust / Bail?\" unchanged and adds no new option or decision point",
+        "Plan leaves the options block carrying the literal substrings \"Proceed\", \"Adjust\" and \"Bail\" (case-insensitive), asserted individually rather than as one contiguous string, and adds no new option or decision point",
+        "Plan does NOT require the options block to read \"Proceed / Adjust / Bail?\" byte-for-byte, and tolerates a rendering whose Adjust label carries an interstitial word",
         "Plan treats the notice as non-blocking output rather than a prompt, including under --auto"
       ]
     },
@@ -450,6 +452,26 @@
         "Plan records no exit: value and names no triggering_child:, and force-materializes no artifact",
         "Plan does NOT trip the R9 hard-finalization check: the run terminates through none of the three artifact-requiring exits, so the empty exit_artifacts: condition is never evaluated",
         "Plan does NOT set triggering_child: to the first child in planned_chain: that has not completed; no child ran and no intermediate exists to materialize"
+      ]
+    },
+    {
+      "id": 30,
+      "name": "explore-handoff-enters-phase-1",
+      "prompt": "/scope inline-diff",
+      "expected_output": "wip/scope_inline-diff_handoff.md exists on disk, written by /explore's Phase 5 parent-handoff arm. No state file at wip/scope_inline-diff_state.md, no child doc at a status Slot 5 recognizes, and no child wip partial Slot 6 matches, so the resume ladder falls to Slot 7. That one path is the whole match condition; the slot reads no other file to decide whether it fires, and the path is composed from /scope's own prefix plus the validated slug, so it never fires on a path in another skill's namespace. The slug recovered from that filename is re-validated against ^[a-z0-9-]+$ before it is interpolated anywhere. Slot 7 runs Phase 0's setup obligations against the current worktree -- slug validation, the slug-prefix convention check, visibility detection, --upstream validation when the invocation supplied one, and state-file creation -- and records consumed_handoff: wip/scope_inline-diff_handoff.md at that same write. It then enters /scope's own Phase 1 with the handoff pre-loaded as discovery input. Phase 1 is never skipped and no child is resumed into: a handoff is discovery material, not a resume point inside the chain. planned_chain: is [brief, prd, design, plan] exactly as on any other run, and the chain proposal is emitted and confirmed as always. Four Phase 1 behaviors differ: the framing-shift question is surfaced as a confirmation of the pre-supplied answer rather than a fresh ask, and the author's response is what gets recorded; the child-doc globs run unchanged because they are filesystem reads; the cold-start projected-PRD evaluation is suppressed, since a handoff run is not a cold start; and predicates P1 and P3 accept the handoff's shape-signal estimate with its stated reasons while P2 is recomputed against the tree, because the handoff carries no filesystem material. The handoff is not deleted on consumption -- Phase 4's sweep owns that, and a bail at Phase 1 leaves it in place so a later invocation reaches the same slot.",
+      "files": [
+        "wip/scope_inline-diff_handoff.md"
+      ],
+      "expectations": [
+        "Plan falls through to Slot 7 and fires it on the presence of wip/scope_inline-diff_handoff.md alone, after the rows above fail to match",
+        "Plan re-validates the slug recovered from the handoff filename against ^[a-z0-9-]+$ before interpolating it anywhere",
+        "Plan runs Phase 0's setup obligations before entering Phase 1, and records consumed_handoff: wip/scope_inline-diff_handoff.md in the state file",
+        "Plan enters /scope's own Phase 1 with the handoff pre-loaded as discovery input, and does NOT skip Phase 1",
+        "Plan does NOT resume into or invoke /brief, /prd, /design or /plan directly off the handoff; the chain runs from Phase 2 as always",
+        "Plan keeps planned_chain: as [brief, prd, design, plan] and still emits the chain proposal for confirmation",
+        "Plan surfaces the framing-shift question as a confirmation of the handoff's pre-supplied answer and records the author's response rather than the file's",
+        "Plan accepts the handoff's estimates for predicates P1 and P3 but recomputes P2 against the worktree's directory structure",
+        "Plan does NOT delete the handoff on consumption; Phase 4's sweep owns its removal"
       ]
     }
   ]

@@ -326,6 +326,24 @@
         "Plan surfaces the captured stderr as the diagnostic rather than discarding it",
         "Plan leaves the state file's exit: field UNSET and does NOT report the run as a STRATEGY content violation"
       ]
+    },
+    {
+      "id": 23,
+      "name": "explore-handoff-enters-phase-1",
+      "prompt": "/charter payment-retries",
+      "expected_output": "wip/charter_payment-retries_handoff.md exists on disk, written by /explore's Phase 5 parent-handoff arm. No state file at wip/charter_payment-retries_state.md, no STRATEGY at the published path, and no child partial-run artifact matching rows 7-8, so the resume ladder reaches row 8.5. That one path is the whole match condition beyond the rows above failing; the row reads no other file to decide whether it fires, and the path is composed from /charter's own prefix plus the validated slug, so it never fires on a path in another skill's namespace. Row 8.5 runs Phase 0's setup obligations -- slug validation (step 0.3), --upstream validation when the invocation supplied a value (step 0.4), and state-file creation (step 0.5) -- records consumed_handoff: wip/charter_payment-retries_handoff.md at that same write, and enters Phase 1 with the handoff pre-loaded as discovery input. Visibility is detected in Phase 1.1 as on any other run. Phase 1 is never skipped and the row never resumes into a child: a handoff is discovery material, not a resume point inside the chain. The chain proposal is emitted and confirmed as always. Two Phase 1 behaviors differ: the thesis-shift question is still surfaced verbatim per Phase 1.4, but as a confirmation of the handoff's pre-supplied answer rather than a fresh ask, and the author's response is what gets classified and recorded -- a positive signal overrides the /vision auto-skip against an Accepted or Active VISION, which is why the confirmation is mandatory rather than a formality, and under --auto the pre-supplied answer is taken and announced rather than applied silently. The child-doc globs are unchanged, because they are filesystem reads that run on every invocation. /charter walks no shape predicates, so the shape-signals block /scope's handoff carries has no analogue here and no reader in this row.",
+      "files": [
+        "wip/charter_payment-retries_handoff.md"
+      ],
+      "expectations": [
+        "Plan reaches row 8.5 and fires it on the presence of wip/charter_payment-retries_handoff.md alone, after rows 1-8 fail to match",
+        "Plan runs Phase 0's setup obligations (slug validation, --upstream validation when supplied, state-file creation) before entering Phase 1, and records consumed_handoff: wip/charter_payment-retries_handoff.md in the state file",
+        "Plan enters /charter's own Phase 1 with the handoff pre-loaded as discovery input, and does NOT skip Phase 1",
+        "Plan does NOT resume into or invoke /vision, /strategy or /roadmap directly off the handoff; the chain runs from Phase 2 as always",
+        "Plan still emits the chain proposal for confirmation on a handoff run",
+        "Plan surfaces the thesis-shift question verbatim as a confirmation of the handoff's pre-supplied answer and records the author's response rather than the file's, announcing the taken answer under --auto",
+        "Plan reads no shape-signals block, because /charter walks no shape predicates"
+      ]
     }
   ]
 }

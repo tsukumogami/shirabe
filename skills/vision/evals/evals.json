@@ -106,14 +106,15 @@
       "id": 8,
       "name": "crystallize-discrimination",
       "prompt": "/explore --auto --strategic should we build a developer analytics dashboard",
-      "expected_output": "Exploration in strategic scope. Crystallize framework scores VISION higher than PRD because: project doesn't exist yet, exploration centered on 'should we build this', org fit is the core question. VISION signals fire, PRD anti-signals fire (no existing project). Routes to /vision via Phase 5 handoff.",
+      "expected_output": "Exploration in strategic scope. The crystallize framework's two stages still make the discrimination this scenario exists for: stage 1 scores 'a chain', and stage 2 prefers `/charter` over `/scope` on the existence question -- the project doesn't exist yet, the exploration centered on 'should we build this', and org fit is the core question. Those are exactly the signals that used to score VISION, and they still decide; what moved is the invocation. Phase 5 writes wip/charter_developer-analytics-dashboard_handoff.md, carries the thesis-shift answer in it, and names `/charter` as the command to run. A VISION is written inside that chain, by /charter's /vision child, not by the router.",
       "files": [],
       "expectations": [
         "Plan involves an exploration workflow, not a direct /vision invocation",
         "Plan includes a crystallize or artifact-type selection step",
-        "Plan scores or routes toward VISION as the appropriate artifact type",
-        "Plan reasoning mentions that the project does not exist yet as a signal for VISION over PRD",
-        "Plan mentions Phase 5 handoff to /vision after exploration completes"
+        "Plan routes toward the strategic chain entry point `/charter` rather than toward a chain-internal child",
+        "Plan reasoning mentions that the project does not exist yet as the signal that selects the strategic chain",
+        "Plan mentions a Phase 5 handoff that writes a /charter-namespaced handoff artifact and names `/charter` as the command the author runs",
+        "Plan does NOT describe /explore handing off to or invoking /vision; a VISION is written inside /charter's chain"
       ]
     },
     {
