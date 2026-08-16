@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A blocking finding in any of /work-on's three review phases routes the run
   back to implementation without invalidating the results artifact that phase
@@ -22,7 +22,7 @@ source_issue: 304
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-work-on-retry-clearing](docs/briefs/BRIEF-work-on-retry-clearing.md); carried in Absorbed Brief.
 
