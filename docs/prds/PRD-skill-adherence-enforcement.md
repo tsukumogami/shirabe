@@ -454,5 +454,5 @@ would prohibit.
 
 ## Downstream Artifacts
 
-- `docs/designs/DESIGN-skill-adherence-enforcement.md` picks the mechanisms that
+- `docs/designs/current/DESIGN-skill-adherence-enforcement.md` picks the mechanisms that
   satisfy these requirements.
