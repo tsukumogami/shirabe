@@ -2,8 +2,14 @@
 schema: plan/v1
 status: Active
 execution_mode: multi-pr
+tracking_level: issues-and-milestone
 milestone: "Work-on Friction Fixes"
 issue_count: 6
+split_rationale: |
+  Incremental Value. Each of the six items is a planning issue that
+  produces its own DESIGN doc and spawns its own downstream plan, so
+  each lands observable value on its own rather than being a building
+  block someone waits on.
 ---
 
 # PLAN: Work-on Friction Fixes

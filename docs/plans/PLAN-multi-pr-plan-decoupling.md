@@ -2,6 +2,7 @@
 schema: plan/v1
 status: Active
 execution_mode: single-pr
+tracking_level: none
 upstream: docs/designs/DESIGN-multi-pr-plan-decoupling.md
 milestone: none
 issue_count: 8
